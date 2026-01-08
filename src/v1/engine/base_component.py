@@ -63,8 +63,8 @@ class BaseComponent(ABC):
         self.python_routine_manager = None #Will be set by engine if Python is enabled
 
         #Input/Output connections
-        self.inputs: List[Str] = []
-        self.outputs: List[Str] = []
+        self.inputs: List[str] = []
+        self.outputs: List[str] = []
         self.triggers: List[Dict[str, Any]] = []
 
         #Schema definitions
