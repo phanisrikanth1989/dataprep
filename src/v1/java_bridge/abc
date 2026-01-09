@@ -1,0 +1,152 @@
+Run with classpath and Arrow JVM arguments
+
+cmd-
+
+"java",
+
+"--add-opens-java.base/java.nio-ALL-UNNAMED",
+
+"--add-opens-java.base/sun.nio.ch-ALL-UNNAMED",
+
+"--add-opens-java.base/java.lang-ALL-UNNAMED",
+
+"-Dpy4j.port-(port)", Pass port to Java
+
+"-cp", full classpath,
+
+"com.citi.gru.etl.JavaBridge"
+
+#Start Java process
+
+#stdout/stderr go directly to console for debugging
+
+salt.java process subprocess.Popen(
+
+)
+
+cmd,
+
+cad-java_dir,
+
+stdout llone, Let Java stdout go to console
+
+stderrallone, Let Java stderr go to console
+
+text-True
+
+#Wait for gateway to be ready (look for startup message or port) print("Waiting for Java gateway to start...")
+
+#Initial delay to allow Java process to initialize
+
+This reduces connection refused errors during startup
+
+time.sleep(2)
+
+max wait 30 seconds
+
+start time time.time()
+
+while time.time() start_time < max_wait:
+
+#Check if process is still running
+
+if self.java process.poll() is not None:
+
+raise RuntimeError("Java process died during startup (check cons
+
+Try to connect
+
+try:
+
+self.gateway JavaGateway(
+
+gateuny_parameter's-GatewayParameters(
+
+port-port, Connect to specific port
+
+auto_convert-True
+
+self.java bridge self.gateway.entry_point
+
+Test the connection
+#Test the connection
+
+self.java_bridge.getContext()
+
+print("Java gateway started successfully on port (p
+
+return
+
+except Exception:
+
+time.sleep(0.5)
+
+# Timeout
+
+self.java_process.kill()
+
+raise RuntimeError("Timeout waiting for Java gateway to star
+
+def stop(self):
+
+"""Stop the Java gateway process"""
+
+if self.gateway:
+
+try:
+
+self.gateway.shutdown()
+
+except Exception:
+
+pass
+
+if self.java_process:
+
+self.java_process.terminate()
+
+try:
+
+self.java_process.wait(timeout-5)
+
+except subprocess.TimeoutExpired:
+
+self.java_process.kill()
+
+print("Java gateway stopped")
+
+def execute java_row(self, df: pd.DataFrame, java_code: str,
+
+output_schema: Dict [str, str]) -> pd.DataFrame
+
+Execute tJavaRow-style code block on DataFrame
+
+Args:
+
+df: Input DataFrame (becomes input_row in Java)
+
+java_code: Multi-line Java code block
+
+output_schema: Dict of {column_name: type) for output
+
+Returns:
+
+Output DataFrame (from output_row in Java)
+
+#Convert input to Arrow
+
+arrow table pa.Table.from_pandas (df)
+
+sink pa.BufferOutputStream()
+
+5
+
+writer pa.ipc.new_stream(sink, arrow table.schema)
+
+writer.write_table(arrow_table)
+
+writer.close()
+
+3351 file components
+
+040
