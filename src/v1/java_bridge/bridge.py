@@ -118,7 +118,7 @@ class Javabridge:
 
     def execute_java_row(self, df: pd.DataFrame, java_code: str,
                          output_schema: Dict[str, str]) -> pd.DataFrame:
-         """
+        """
         Execute tJavaRow-style code block on DataFrame
 
         Args:
@@ -128,7 +128,7 @@ class Javabridge:
         
         Returns:
             Output DataFrame (from output_row in Java)
-         """
+        """
         # Convert input to Arrow
         arrow_table = pa.Table.from_pandas(df)
         sink = pa.BufferOutputStream()
@@ -137,8 +137,191 @@ class Javabridge:
         writer.close()
         arrow_bytes = sink.getvalue().to_pybytes()
     
-    
-    
+        # Send to Java
+        result_bytes = self.java_bridge.executeJavaRow(
+            arrow_bytes, 
+            java_code, 
+            self._convert_schema_to_java(output_schema),
+            self._convert_context_to_java(),
+            self._convert_globalmap_to_java()
+        )
 
+        #Sync back context and global map
+        self._sync_from_java()
+
+        # Convert result
+        reader = pa.ipc.open_stream(pa.BufferReader(result_bytes))
+        result_table = reader.read_all()
+        return result_table.to_pandas()
+
+    def execute_one_time_expression(self, expression: str) -> Any:
+        """
+        Execute a one-time Java expression
+
+        Args:
+            expression: Java expression to evaluate
+        
+        Returns:
+            Result of the expression
+        """
+        result = self.java_bridge.executeOneTimeExpression(
+            expression,
+            self._convert_context_to_java()
+        )
+
+    def execute_batch_one_time_expressions(self, expressions: Dict[str, str]) -> Dict[str, Any]:
+        """
+        Execute multiple one-time Java expressions in batch
+
+        Args:
+            expressions: Dict of {param_name: Java expression}
+                        e.g.,{"footer": "1 + context.count", "limit": "context.rows * 2" }
+        
+        Returns:
+            Dict of {param_name: resolved_value}
+                    Errors are returned as Strings with {{ERROR}} prefix
+        """
+        #Pass both context and globalMap toJava
+        return self.java_bridge.executeBatchOneTimeExpressionsWithGlobalMap(
+            expressions,
+            self._convert_context_to_java(),
+            self.global_map #Pass global map as well
+        )
+    
+    def execute_tmap_preprocessing(self, df: pd.DataFrame, expressions: Dict[str, str],
+                                   main_table_name: str, lookup_table_names: list = None) -> Dict[str, Any]:
+        """
+        Execute tMap preprocessing - batch evaluate expressions on all rows
+        
+        Used for evelauting filters and join key expressions during tMap preprocessing.
+        Each expression is evaluated once per row, returning an array of results.
+        
+        Args:
+            df: Input DataFrame to evaluate expressions on
+            expressions: Dict of {expr_id: expression_string} to evaluate on each row
+                        e.g.,{'__main__filter': 'orders.status == 'COMPLETE'", 
+                                "__join_customers_0__": "orders.customer_id"}
+            main_table_name: Name of the main table (for row variable binding, e.g., "orders")
+            lookup_table_names: List of lookup table names (for row variable binding, e.g., ["customers"])
+
+        Returns:
+            Dict of {expr_id: numpy_array} where each array contains results for each row
+
+        Example:
+            Input: 3 rows, expressions: {"filter": "orders.status == 'COMPLETE'",
+                                         "join_key": "orders.customer_id"}
+            Output: {"filter": array([True, False, True]), "join_key": array([123, 456, 789])}
+        """
+        import numpy as np
+        
+        # **FIX: Preserver pandas dtypes when converting to Arrow**
+        # Create Arrow schema that matches pandas DataFrame dtypes exactly
+        # This prevents Arrow from automatically inferring types ( e,g., object -> int64)
+
+        arrow_schema_fields = []
+        for col_name in df.columns:
+            pandas_dtype = str(df[col_name].dtype)
+
+            #Map pandas dtypes to Arrow types, preserving string types
+            if pandas_dtype == 'object':
+                # Keep object columns as string in Arrow ( dont let Arrow infer numeric type)
+                arrow_type = pa.string()
+            elif pandas_dtype.startswith('int'):    
+                arrow_type = pa.int64()
+            elif pandas_dtype.startswith('float'):
+                arrow_type = pa.float64()  
+            elif pandas_dtype == 'bool':
+                arrow_type = pa.bool_() 
+            else:
+                # Default to string for any unknown types
+                arrow_type = pa.string()
+            
+            arrow_schema_fields.append(pa.field(col_name, arrow_type))
+
+        #create explicit Arrow schema
+        explicit_schema = pa.schema(arrow_schema_fields)
+    
+        #Convert input to Arrow WITH explicit schema (prevents type inference)
+        arrow_table = pa.Table.from_pandas(df, schema=explicit_schema)
+        sink = pa.BufferOutputStream()
+        writer = pa.ipc.new_stream(sink, arrow_table.schema)
+        writer.write_table(arrow_table)
+        writer.close()  
+        arrow_bytes = sink.getvalue().to_pybytes()
+    
+        # Convert lookup table bames to Java list
+        from py4j.java_collections import ListConverter
+        java_lookup_names = ListConverter().convert(
+            lookup_table_names or [], self.gateway._gateway_client
+        )
+    
+        # Send to Java
+        result_map = self.java_bridge.executeTMapPreprocessing(
+            arrow_bytes,
+            self._convert_expressions_to_java(expressions),
+            main_table_name,
+            java_lookup_names,
+            self._convert_context_to_java(),
+            self._convert_globalmap_to_java()
+        )
+    
+        # Convert Java Object[] arrays back to numpy arrays
+        results = {}
+        for expr_id, java_array in result_map.items():
+            # Convert java array to Python list, then to numpy array
+            python_list = list(java_array) if java_array else []#Convert Java array to Python list
+            results[expr_id] = np.array(python_list) #Convert to numpy array
+
+        return results
+        
+    def execute_tmap_compiled(self, java_script: str, df: pd.DataFrame,
+                             output_schemas: Dict[str, list],
+                             output_types: Dict[str, str],
+                             main_table_name: str = None,
+                             lookup_names: list = None) -> Dict[str, pd.DataFrame]:
+
+        """
+        Execute tMap outputs using COMPILED script (OPTIMIZED)
+        Generates and compiles entire tMap logic once, then executes in parallel.
+        Achieves similar performance to tJavaRow (~189k rows/sec).
+
+        Args:
+        java_script: Pre-generated Java/Groovy script containing all tMap logic
+        df: Joined DataFrame (after all lookups are complete)
+        output_schemas: Dict of output_name: [column_names...]}
+        output_types: Dict of output_name_columnName: type_string}
+        main_table_name: Name of the main input table (e.g., "orders")
+        lookup_names: List of lookup table names (e.g., ["customers", "products"])
+
+        Returns:
+         Dict of output_name: DataFrame for each output
+        """
+        #Convert input to Arrow
+        #***FIX: Preserve pandas dtypes when converting to Arrow**
+        #Create Arrow schema that matches pandas DataFrame dtypes exactly 
+        # This prevents Arrow from automatically inferring types (e.g., object -> int64)
+
+        arrow_schema_fields = []
+        for col_name in df.columns:
+            pandas_dtype = str(df[col_name].dtype)
+
+            #Map pandas dtypes to Arrow types, preserving string types
+            if pandas_dtype == 'object':
+                #Keep object columns as string in Arrow (don't let Arrow int
+                arrow_type = pa.string()
+            elif pandas_dtype.startswith('int'):
+                arrow_type = pa.int64()
+            elif pandas_dtype.startswith('float'):
+                arrow_type = pa.float64()
+            elif pandas_dtype == 'bool':
+                arrow_type = pa.bool_()
+            else:
+                #Default to string for any unknown types
+                arrow_type = pa.string()
+
+            arrow_schema_fields.append(pa.field(col_name, arrow_type))
+            
+        #Create explicit Arrow schema
+        explicit_schema = pa.schema(arrow_schema_fields)
 
 
