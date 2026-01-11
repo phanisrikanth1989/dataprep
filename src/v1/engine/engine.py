@@ -14,84 +14,12 @@ from .global_map import GlobalMap
 from .context_manager import ContextManager
 from .trigger_manager import TriggerManager
 from .base_component import BaseComponent, ComponentStatus
-from .base_iterate_component import BaseIterateComponent
+#from .base_iterate_component import BaseIterateComponent
 from .java_bridge_manager import JavaBridgeManager
 from .python_routine_manager import PythonRoutineManager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -102,174 +30,10 @@ class ETLEngine:
 
     COMPONENT_REGISTRY = {
 
-        # File components
-        'FileInputDelimited': FileInputDelimited,
-        'tFileInputDelimited': FileInputDelimited,
-        'FileOutputDelimited': FileOutputDelimited,
-        'tFileOutputDelimited': FileOutputDelimited,
-        'FileInputPositional': FileInputPositional,
-        'tFileInputPositional': FileInputPositional,
-        'FileInputExcel': FileInputExcel,
-        'tFileInputExcel': FileInputExcel,
-        'FileList': FileList,
-        'tFileList': FileList,
-
-        'FileInputMSXMLComponent': FileInputMSXMLComponent,
-        'tFileInputMSXML': FileInputMSXMLComponent,
-        'AdvancedFileOutputXMLComponent': AdvancedFileOutputXMLComponent,
-        'tAdvancedFileOutputXML': AdvancedFileOutputXMLComponent,
-
-        'FileInputJSONComponent': FileInputJSONComponent,
-        'tFileInputJSON': FileInputJSONComponent,
-        'FileOutputExcelComponent': FileOutputExcelComponent,
-        'tFileOutputExcel': FileOutputExcelComponent,
-        'FileInputFullRowComponent': FileInputFullRowComponent,
-        'tFileInputFullRow': FileInputFullRowComponent,
-        'FixedFlowInputComponent': FixedFlowInputComponent,
-        'tFixedFlowInput': FixedFlowInputComponent,
-        'FileArchiveComponent': FileArchiveComponent,
-        'tFileArchive': FileArchiveComponent,
-        'FileUnarchiveComponent': FileUnarchiveComponent,
-        'tFileUnarchive': FileUnarchiveComponent,
-        'FileDelete': FileDelete,
-        'tFileDelete': FileDelete,
-        'FileInputXML': FileInputXML,
-        'tFileInputXML': FileInputXML,
-        'FileCopy': FileCopy,
-        'tFileCopy': FileCopy,
-        'FileTouch': FileTouch,
-        'tFileTouch': FileTouch,
-        'TFileInputProperties': TFileInputProperties,
-        'tFileInputProperties': TFileInputProperties,
-        'TFileInputRaw': TFileInputRaw,
-        'tFileInputRaw': TFileInputRaw,
-        'TFileRowCount': TFileRowCount,
-        'tFileRowCount': TFileRowCount,
-        'FileExist': FileExistComponent,
-        'tFileExist': FileExistComponent,
-        'FileExistComponent': FileExistComponent,
-        'TFileOutputEBCDIC': TFileOutputEBCDIC,
-        'tFileOutputEBCDIC': TFileOutputEBCDIC,
-        'TFileOutputPositional': TFileOutputPositional,
-        'tFileOutputPositional': TFileOutputPositional,
-        'TSwiftBlockFormatter': TSwiftBlockFormatter,
-        'tSwiftBlockFormatter': TSwiftBlockFormatter,
-        'TSwiftProcessor': TSwiftProcessor,
-        'tSwiftProcessor': TSwiftProcessor,
-
         # Transform components
         'Map': Map,
         'tMap': Map,
-        'FilterRows': FilterRows,
-        'tFilterRows': FilterRows,
-        'FilterColumns': FilterColumns,
-        'tFilterColumns': FilterColumns,
-        'Unite': Unite,
-        'tUnite': Unite,
-        'SortRow': SortRow,
-        'tSortRow': SortRow,
-        'TJoin': TJoin,
-        'tJoin': TJoin,
-        'RowGenerator': RowGenerator,
-        'TReplace': TReplace,
-        'tReplace': TReplace,
-        'TParseRecordSet': TParseRecordSet,
-        'tParseRecordSet': TParseRecordSet,
-        'TSplitRow': TSplitRow,
-        'tSplitRow': TSplitRow,
-        'TSampleRow': TSampleRow,
-        'tSampleRow': TSampleRow,
-        'TReplicate': TReplicate,
-        'tReplicate': TReplicate,
-        'TPivotToColumnsDelimited': TPivotToColumnsDelimited,
-        'tPivotToColumnsDelimited': TPivotToColumnsDelimited,
-        'TParallelize': TParallelize,
-        'tParallelize': TParallelize,
-        'TNormalize': TNormalize,
-        'tNormalize': TNormalize,
-        'TConvertType': TConvertType,
-        'tConvertType': TConvertType,
-        'TMemorizeRows': TMemorizeRows,
-        'tMemorizeRows': TMemorizeRows,
-        'TExtractDelimitedFields': TExtractDelimitedFields,
-        'tExtractDelimitedFields': TExtractDelimitedFields,
-        'TExtractXMLField': TExtractXMLField,
-        'tExtractXMLField': TExtractXMLField,
-        'TExtractRegexFields': TExtractRegexFields,
-        'tExtractRegexFields': TExtractRegexFields,
-        'TExtractPositionalFields': TExtractPositionalFields,
-        'tExtractPositionalFields': TExtractPositionalFields,
-        'TExtractJSONFields': TExtractJSONFields,
-
-        'TLoop': TLoop,
-        'TSchemaComplianceCheck': TSchemaComplianceCheck,
-        'tSchemaComplianceCheck': TSchemaComplianceCheck,
-        'TFlowToIterate': TFlowToIterate,
-        'tFlowToIterate': TFlowToIterate,
-        'TXMLMap': TXMLMap,
-        'tXMLMap': TXMLMap,
-        'TAggregateSortedRow': TAggregateSortedRow,
-        'tAggregateSortedRow': TAggregateSortedRow,
-        'TChangeFileEncoding': TChangeFileEncoding,
-        'tChangeFileEncoding': TChangeFileEncoding,
-        'TLibraryLoad': TLibraryLoad,
-        'tLibraryLoad': TLibraryLoad,
-        'TSetGlobalVar': TSetGlobalVar,
-        'tSetGlobalVar': TSetGlobalVar,
-        'TUnpivotRow': TUnpivotRow,
-        'TDenormalize': TDenormalize,
-        'tDenormalize': TDenormalize,
-        'THashOutput': THashOutput,
-
-        # Java / Python components
-        'JavaRowComponent': JavaRowComponent,
-        'JavaRow': JavaRowComponent,
-        'tJavaRow': JavaRowComponent,
-        'JavaComponent': JavaComponent,
-        'Java': JavaComponent,
-        'tJava': JavaComponent,
-
-        'PythonRowComponent': PythonRowComponent,
-        'PythonRow': PythonRowComponent,
-        'tPythonRow': PythonRowComponent,
-        'PythonDataFrameComponent': PythonDataFrameComponent,
-        'PythonDataFrame': PythonDataFrameComponent,
-        'tPythonDataFrame': PythonDataFrameComponent,
-        'PythonComponent': PythonComponent,
-        'Python': PythonComponent,
-        'tPython': PythonComponent,
-
-        'LogRow': LogRow,
-        'tLogRow': LogRow,
-
-        # Iterate components
-        'FlowToIterate': FlowToIterate,
-        'tFlowToIterate': FlowToIterate,
-
-        # Aggregate components
-        'AggregateRow': AggregateRow,
-        'tAggregateRow': AggregateRow,
-        'UniqueRow': UniqueRow,
-        'tUniqueRow': UniqueRow,
-        'tUniqRow': UniqueRow,
-
-        # Context components
-        'ContextLoad': ContextLoad,
-        'tContextLoad': ContextLoad,
-
-        # Control components
-        'Warn': Warn,
-        'tWarn': Warn,
-        'Die': Die,
-        'tDie': Die,
-        'SleepComponent': SleepComponent,
-        'tSleep': SleepComponent,
-        'PrejobComponent': PrejobComponent,
-        'tPrejob': PrejobComponent,
-        'PostjobComponent': PostjobComponent,
-        'tPostjob': PostjobComponent,
-        'RunJobComponent': RunJobComponent,
-    }
+        }
 
 
 
@@ -710,7 +474,7 @@ class ETLEngine:
             return 'error'
         
     def _execute_iterate_component(self, comp_id: str, component: BaseIterateComponent, 
-                                   result: Dict[str, Any], base_execution_time: float) -> str:
+                                   result: Dict[str, Any], execution_time: float) -> str:
         """
         Handle execution of iterate components and their downstream subjobs
         

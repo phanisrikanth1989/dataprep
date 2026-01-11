@@ -201,7 +201,7 @@ class Map(BaseComponent):
             rows_ok=total_output_rows
         )
         
-        logger.info(f"Component {self.id}: Produced {len(output_dfs)} outputs with {total_output_rows} total rows"
+        logger.info(f"Component {self.id}: Produced {len(output_dfs)} outputs with {total_output_rows} total rows")
 
         # Debug: print first 5 rows of each output
         for output_name, output_df in output_dfs.items():
@@ -220,7 +220,7 @@ class Map(BaseComponent):
         """Check if expression is a simple column reference (table.column)"""
         return bool(self.SIMPLE_COLUMN_PATTERN.match(expression.strip()))
 
-    def _parse_column_ref(self, expression: str) -> Tuple[Optional[str], Optional[str]]:
+    def _parse_column_ref(self, expression: str) -> tuple:
         """Parse simple column reference into (table, column)"""
         match = self.SIMPLE_COLUMN_PATTERN.match(expression.strip())
         if match:
@@ -297,7 +297,7 @@ class Map(BaseComponent):
                 table, column = self._parse_column_ref(filter_expr)
                 if column in lookup_df.columns:
                     filtered_inputs[lookup_name] = lookup_df[lookup_df[column] == True].copy()
-                else
+                else:
                     logger.warning(f"Component {self.id}: Filter column '{column}' not found in lookup '{lookup_name}'")
             else:
                 #Complex expression - use Java
@@ -308,7 +308,7 @@ class Map(BaseComponent):
                     [],  # No lookups joined during filtering
                 )
                 if 'filter' in filter_results:
-                    filter__mask = filtter_results['filter']
+                    filter__mask = filter_results['filter']
                     #Ensure mask is boolean and has no NA/NaN - AT17854
                     filter_mask = pd.Series(filter__mask).fillna(False).values
                     filtered_inputs[lookup_name] = lookup_df[filter_mask].copy()
@@ -545,7 +545,7 @@ class Map(BaseComponent):
                     logger.info(f"Component {self.id}: Cartesian filter  {lookup_col} ={filter_value}")
 
                     # Filter lookup table
-                        filtered_lookup = filtered_lookup[filtered_lookup[lookup_col] == filter_value]
+                    filtered_lookup = filtered_lookup[filtered_lookup[lookup_col] == filter_value]
                 except Exception as e:
                     logger.error(f"Component {self.id}: Failed to evaluate cartesian expression '{expression}': {e}")
                     # Continue with unfiltered lookup
@@ -654,8 +654,8 @@ class Map(BaseComponent):
             join_key_values.update(complex_results)
 
         # Build join columns
-        left_on: = []
-        right_on: = []
+        left_on = []
+        right_on = []
 
         for idx, join_key in enumerate(join_keys):
             expr_id = f"__join_{lookup_name}_{idx}__" #Match expr_id used earlier
@@ -745,7 +745,7 @@ class Map(BaseComponent):
             deduplicated_df = lookup_df.drop_duplicates(subset=join_keys, keep="last")
         else:
             # Unknown matching mode - default to ALL_MATCHES
-            logger.warning(f"Component {self.id}: Unknown matching_mode '{matching_mode}' for lookup '{lookup_name}', defaulting to ALL_MATCHES"
+            logger.warning(f"Component {self.id}: Unknown matching_mode '{matching_mode}' for lookup '{lookup_name}', defaulting to ALL_MATCHES")
             return lookup_df.copy()
 
         final_count = len(deduplicated_df)
@@ -964,7 +964,7 @@ class Map(BaseComponent):
         lines.append("")       
 
         # Create RowWrappers for each lookup (each knows its table name)
-        for lookup_name in lookup_names:
+        for lookup in lookup_names:
             lines.append(f"        RowWrapper {lookup} = new RowWrapper(iinputRoot,i , \"{lookup}\");")
         lines.append("")
 
@@ -1129,12 +1129,13 @@ class Map(BaseComponent):
             lines.append("results.put(\"__errors__\", errorInfo);")
 
         lines.append("return results;")
-        logger.debug(f\"{'\n'.join(lines)}")
+        logger.debug(f"Component {self.id}: Generated tMap compiled script:\n" + "\n".join(lines))
         return "\n".join(lines)
 
-        def _create_empty_outputs(self -> Dict[str, pd.DataFrame]:
-            """Create empty DataFrames for all outputs based on configuration"""
-            outputs = {}
-            for output_config in self.config['outputs']:
-                outputs[output_config['name']] = pd.DataFrame()
-            return outputs
+    def _create_empty_outputs(self) -> Dict[str, pd.DataFrame]:
+        """Create empty DataFrames for all outputs based on configuration"""
+        outputs = {}
+        for output_config in self.config['outputs']:
+            outputs[output_config['name']] = pd.DataFrame()
+
+        return outputs

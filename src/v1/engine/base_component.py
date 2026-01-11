@@ -375,5 +375,4 @@ class BaseComponent(ABC):
         return {}
     
     def __repr__(self) -> str:
-        return f"<{self.component_type} id={self.id} status={self.status.value}>"
-
+        return f"<{self.component_type} id={self.id} status={self.status.value})"
