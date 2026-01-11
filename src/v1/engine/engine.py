@@ -18,81 +18,7 @@ from .python_routine_manager import PythonRoutineManager
 
 #import all components
 from .components.file_input_delimited import FileInputDelimited, FileOutputDelimited
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+from .components.transform.map import Map
 
 
 logging.basicConfig(level=logging.INFO)
@@ -109,4 +35,9 @@ class ETLEngine:
         #File components
         'FileInputDelimited': 'FileInputDelimited',
         'FileOutputDelimited': 'FileOutputDelimited',
+        #Transform components
+        'Map': 'Map',
+        'tMap': 'Map'
     }
+
+    

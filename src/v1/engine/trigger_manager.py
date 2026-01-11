@@ -224,10 +224,64 @@ class TriggerManager:
 
             # Replace Java operators
             python_condition = python_condition.replace('&&', ' and ')
-            python_condition = python_condition.replace('\\', 'or ')
+            python_condition = python_condition.replace('||', ' or ')
+            python_condition = python_condition.replace('!', ' not ')
+            python_condition = python_condition.replace('null', 'None')
+            python_condition = python_condition.replace('== None', ' is None')
+            python_condition = python_condition.replace('!= None', ' is not None')
 
-        
-        
+            # Evaluate the condition
+            result = eval(python_condition)
+            logger.debug(f"Condition '{condition}' evaluated to {result}")
+            return bool(result)
+
+        except Exception as e:
+            logger.warning(f"Failed to evaluate condition '{condition}': {e}")
+            return False
+
+    def get_initial_components(self, components: List[Dict]) -> List[str]:
+        """
+        Get components that should start execution(no input triggers and no data flow inputs)
+        """
+        # Components that are targets of triggers should not start initially
+        triggered_targets = {t.to_component for t in self.triggers}
+
+        # Find all subjobs that contain triggered components
+        # All components in these subjobs should wait to execute
+        triggered_subjobs = set()
+        for comp in components:
+            comp_id = comp.get('id')
+            if comp_id in triggered_targets:
+                subjob_id = comp.get('subjob_id')
+                if subjob_id:
+                    triggered_subjobs.add(subjob_id)
+                    logger.debug(f"Subjob {subjob_id} is triggered (contains {comp_id})")
+
+        # Components that can start are those not in triggered subjobs AND have no inputs
+        initial = []
+        for comp in components:
+            comp_id = comp.get('id')
+            subjob_id = comp.get('subjob_id')
+
+            # Skip if component is in a triggered subjob
+            if subjob_id and subjob_id in triggered_subjobs:
+                logger.debug( f"Component {comp_id} skipped: part of triggered subjob {subjob_id}")
+                continue
+
+            # Check if component has no inputs (source component)
+            # and is not directly triggered
+            if comp_id and comp_id not in triggered_targets:
+                if not comp.get('inputs', []):
+                    initial.append(comp_id)
+
+        logger.info(f"Initial components to execute: {initial}")
+        return initial
+
+    def reset(self) -> None:
+        """Reset trigger manager state"""
+        self.component_status.clear()
+        self.triggered_components.clear()
+        logger.debug("Trigger manager reset")
 
 
 
