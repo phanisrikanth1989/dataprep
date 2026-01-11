@@ -324,4 +324,265 @@ class Javabridge:
         #Create explicit Arrow schema
         explicit_schema = pa.schema(arrow_schema_fields)
 
+        #Convert input to Arrow WITH explicit schema (prevents type inference)    
+        arrow_table = pa.Table.from_pandas(df, schema=explicit_schema) 
+        sink = pa.BufferOutputStream()
+        writer = pa.ipc.new_stream(sink, arrow_table.schema)
+        writer.write_table(arrow_table)
+        writer.close()
+        arrow_bytes = sink.getvalue().to_pybytes()
 
+        #Convert python collections to Java collections
+        if lookup_names is None:
+            lookup_names = []
+
+        from py4j.java_collections import ListConverter, MapConverter
+
+        #Convert output_schemas: Map<String, List<String>>
+        java_output_schemas = {}
+        for output_name, col_list in output_schemas.items():
+            java_col_list = ListConverter().convert(col_list, self.gateway._gateway_client)
+            java_output_schemas[output_name] = java_col_list
+
+        #Convert output_types: Map<String, String>
+        java_output_types = output_types
+
+        #Convert lookup_names: List<String>
+        java_lookup_names = ListConverter().convert(lookup_names, self.gateway._gateway_client)
+
+        #Send to Java
+        result_map = self.java_bridge.executeTMap(
+            java_script,
+            arrow_bytes,
+            java_output_schemas,
+            java_output_types,
+            main_table_name or "row1",
+            java_lookup_names,
+            self._convert_context_to_java(),
+            self._convert_globalmap_to_java()
+        )
+
+        #Convert each output's Arrow bytes back to DataFrame
+        output_dfs = {}
+        for output_name, output_bytes in result_map.items():
+            if output_bytes and len(output_bytes) > 0:
+                reader = pa.ipc.open_stream(pa.py_buffer(output_bytes))
+                result_table = reader.read_all()
+                output_dfs[output_name] = result_table.to_pandas()
+            else:
+                # Empty output
+                output_dfs[output_name] = pd.DataFrame()
+
+        return output_dfs
+    def compile_tmap_script(self, component_id: str, java_script: str,
+                        output_schemas: Dict[str, list],
+                        output_types: Dict[str, str],
+                        main_table_name: str = None,
+                        lookup_names: list = None) -> str:
+        """
+        Compile tMap script ONCE and cache it (STEP 1 of 2)
+
+        This method compiles the provided tMap Java script using the Java bridge.
+        the compild script can then be executed multiple times with different data inputs.
+
+        Args:
+            component_id: Unique identifier for the tMap component instance
+            java_script: The full Java/Groovy script representing the tMap logic
+            output_schemas: Dict of output_name: [column_names...]}
+            output_types: Dict of output_name_columnName: type_string}
+            main_table_name: Name of the main input table (e.g., "row1")
+            lookup_names: List of lookup table names (e.g., ["lookup1", "lookup2"])
+
+        Returns:
+            component_id (for confirmation)    
+        """
+        from py4j.java_collections import ListConverter
+
+        # Convert Python collections to Java collections
+        if lookup_names is None:
+            lookup_names = []
+
+        # Convert output_schemas: Map<String, List<String>>
+        java_output_schemas = {}
+        for output_name, col_list in output_schemas.items():
+            java_col_list = ListConverter().convert(col_list, self.gateway._gateway_client)
+            java_output_schemas[output_name] = java_col_list
+
+        # Convert lookup_names: List<String>
+        java_lookup_names = ListConverter().convert(lookup_names, self.gateway._gateway_client)
+
+        # Call Java compilation method
+        return self.java_bridge.compileTMapScript(
+            component_id,
+            java_script,
+            java_output_schemas,
+            output_types,
+            main_table_name or "row1",
+            java_lookup_names
+        )
+
+    def execute_compiled_tmap_chunked(self, component_id: str, df: pd.DataFrame,
+                                  chunk_size: int = 50000) -> Dict[str, pd.DataFrame]:
+        """
+        Execute pre-compiled tMap script with CHUNKING (STEP 2 of 2)
+
+        This method chunks the input DataFrame and processes each chunk using the pre-compiled tMap script
+        on each chunk. The results from all chunks are then combined into final output DataFrames.
+
+        Compile ONCE -> Execute MANY with chunking for large datasets.
+
+        Args:
+        component_id: Compoenent ID used during compilation
+        df: Joined DataFrame (after all lookups are complete)
+        chunk_size: Number of rows per chunk to process (default: 50000)
+        
+        Returns:
+         Dict of output_name: DataFrame for each output
+        """
+        total_rows = len(df)
+        print(f"Processing {total_rows} rows in chunks of {chunk_size}...")
+
+        # Dictionary to accumulate results from all chunks
+        output_dfs_list = {}
+
+        # Process in chunks
+        num_chunks = (total_rows + chunk_size - 1) // chunk_size
+
+        for chunk_idx in range(num_chunks):
+            start_idx = chunk_idx * chunk_size
+            end_idx = min(start_idx + chunk_size, total_rows)
+            chunk_df = df.iloc[start_idx:end_idx]
+
+            print(f"Processing chunk {chunk_idx + 1}/{num_chunks} (rows {start_idx} to {end_idx} ({len(chunk_df)} rows)")
+
+            arrow_schema_fields = []
+            for col_name in chunk_df.columns:
+                pandas_dtype = str(chunk_df[col_name].dtype)
+
+                # Map pandas dtypes to Arrow types, preserving string types
+                if pandas_dtype == 'object':
+                    # Keep object columns as string in Arrow (don't let Arrow infer numeric type)
+                    arrow_type = pa.string()
+                    # print(f"Column {col_name} treated as string")
+                elif pandas_dtype.startswith('int'):
+                    arrow_type = pa.int64()
+                elif pandas_dtype.startswith('float'):
+                    arrow_type = pa.float64()
+                elif pandas_dtype == 'bool':
+                    arrow_type = pa.bool_()
+                else:
+                    # Default to string for any unknown types
+                    arrow_type = pa.string()
+
+                arrow_schema_fields.append(pa.field(col_name, arrow_type))
+
+            # Create explicit Arrow schema
+            explicit_schema = pa.schema(arrow_schema_fields)
+
+            # Convert chunk to Arrow WITH explicit schema (prevents type inference)    
+            arrow_table = pa.Table.from_pandas(chunk_df, schema=explicit_schema)
+            sink = pa.BufferOutputStream()
+            writer = pa.ipc.new_stream(sink, arrow_table.schema)
+            writer.write_table(arrow_table)
+            writer.close()
+            arrow_bytes = sink.getvalue().to_pybytes()
+
+            # Execute on this chunk
+            result_map = self.java_bridge.executeCompiledTMap(
+                component_id,
+                arrow_bytes,
+                self._convert_context_to_java(),
+                self._convert_global_map_to_java()
+            )
+
+            # Convert each output's Arrow bytes back to DataFrame
+            for output_name, output_bytes in result_map.items():
+                if output_bytes and len(output_bytes) > 0:
+                    reader = pa.ipc.open_stream(pa.py_buffer(output_bytes))
+                    result_table = reader.read_all()
+                    chunk_output_df = result_table.to_pandas()
+
+                    #Accumulate chunk results
+                    if output_name not in output_dfs_list:
+                        output_dfs_list[output_name] = []
+                    output_dfs_list[output_name].append(chunk_output_df)
+
+        # Combine all chunk results into final DataFrames
+        output_dfs = {}
+        for output_name, df_list in output_dfs_list.items():
+            if df_list:
+                output_dfs[output_name] = pd.concat(df_list, ignore_index=True)
+                print(f"Output '{output_name}' has {len(output_dfs[output_name])} total rows after combining chunks")
+            else:
+                output_dfs[output_name] = pd.DataFrame()
+
+        return output_dfs
+
+    def load_routine(self, routine_class: str):
+        """Load a custom routine class into the Java context"""
+        self.java_bridge.loadRoutine(routine_class)
+
+    def validate_libraries(self, libraries: list) -> list:
+        """
+        Validate that required libraries are available on classpath
+        
+        Args:
+        libraries: List of library names to validate
+
+        Returns:
+        List of missing libraries (empty if all are present)
+        """
+        if not libraries:
+            return []
+
+        # Convert Python list to Java list
+
+        from py4j.java_collections import ListConverter
+        java_list = ListConverter().convert(libraries, self.gateway._gateway_client)
+
+        #Call Java validation method
+        missing = self.java_bridge.validateLibraries(java_list)
+
+        #Convert result back to Python list
+        return list(missing) if missing else []
+
+    def set_context(self, key: str, value: Any):
+        """Set a context variable"""
+        self.context[key] = value
+
+    def get_context(self, key: str) -> Any:
+        """Get a context variable"""
+        return self.context.get(key)
+
+    def set_global_map(self, key: str, value: Any):
+        """Set a global map variable"""
+        self.global_map[key] = value
+
+    def get_global_map(self, key: str) -> Any:
+        """Get a global map variable"""
+        return self.global_map.get(key)
+
+    def _convert_context_to_java(self) -> Dict:
+        """Convert Python context to Java Map"""
+        #Py4j handles dict conversion automatically
+        return self.context
+
+    def _convert_globalmap_to_java(self) -> Dict:
+        """Convert Python global map to Java Map"""
+        return self.global_map
+    
+    def _convert_schema_to_java(self, schema: Dict[str, str]) -> Dict:
+        """Convert output schema to Java Map"""
+        return schema
+    
+    def _sync_from_java(self):
+        """Sync context and global map from Java back to Python"""
+        # Get updated values from Java"
+        java_context = self.java_bridge.getContext()
+        java_globalmap = self.java_bridge.getGlobalMap()
+
+        # Update Python dictionaries
+        self.context.update(java_context)
+        self.global_map.update(java_globalmap)
+
+    
