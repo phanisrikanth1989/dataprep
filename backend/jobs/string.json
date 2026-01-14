@@ -1,0 +1,16 @@
+{
+  "id": "string",
+  "name": "string",
+  "description": "string",
+  "nodes": [],
+  "edges": [],
+  "context": {},
+  "java_config": {
+    "enabled": false
+  },
+  "python_config": {
+    "enabled": false
+  },
+  "created_at": "2026-01-14T22:00:13.715243",
+  "updated_at": "2026-01-14T22:00:13.715243"
+}
