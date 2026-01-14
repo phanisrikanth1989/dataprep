@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Table, Button, Space, Modal, Form, Input, message, Drawer } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, PlayCircleOutlined } from '@ant-design/icons';
-import { jobsAPI } from '../services/api';
-import { JobSchema } from '../types';
+import { jobsAPI } from '../services/api.ts';
+import { JobSchema } from '../types/index.ts';
 
 interface JobListProps {
   onJobSelect?: (jobId: string) => void;

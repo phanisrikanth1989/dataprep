@@ -13,9 +13,9 @@ import {
   Divider,
 } from 'antd';
 import { PlayCircleOutlined, StopOutlined } from '@ant-design/icons';
-import { useWebSocket } from '../services/websocket';
-import { ExecutionStatus, ExecutionUpdate } from '../types';
-import { executionAPI } from '../services/api';
+import { useWebSocket } from '../services/websocket.ts';
+import { ExecutionStatus, ExecutionUpdate } from '../types/index.ts';
+import { executionAPI } from '../services/api.ts';
 
 interface ExecutionMonitorProps {
   taskId: string;

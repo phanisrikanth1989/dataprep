@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Form, Input, Select, Switch, Button, Card, Collapse, Divider } from 'antd';
-import { ComponentMetadata } from '../types';
-import { componentsAPI } from '../services/api';
+import { ComponentMetadata } from '../types/index.ts';
+import { componentsAPI } from '../services/api.ts';
 
 interface ConfigPanelProps {
   selectedNodeType?: string;

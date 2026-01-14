@@ -7,11 +7,11 @@ import {
   DownloadOutlined,
 } from '@ant-design/icons';
 import { Node, Edge } from 'reactflow';
-import Canvas from '../components/Canvas';
-import ComponentPalette from '../components/ComponentPalette';
-import ConfigPanel from '../components/ConfigPanel';
-import { JobSchema, JobNode, JobEdge } from '../types';
-import { jobsAPI } from '../services/api';
+import Canvas from '../components/Canvas.tsx';
+import ComponentPalette from '../components/ComponentPalette.tsx';
+import ConfigPanel from '../components/ConfigPanel.tsx';
+import { JobSchema, JobNode, JobEdge } from '../types/index.ts';
+import { jobsAPI } from '../services/api.ts';
 
 const { Content, Sider } = Layout;
 

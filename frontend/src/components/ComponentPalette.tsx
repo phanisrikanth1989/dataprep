@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Row, Col, Collapse } from 'antd';
-import { componentsAPI } from '../services/api';
+import { componentsAPI } from '../services/api.ts';
 
 interface ComponentPaletteProps {
   onComponentDragStart: (componentType: string) => void;

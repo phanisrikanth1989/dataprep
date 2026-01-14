@@ -11,7 +11,7 @@ import ReactFlow, {
   Background,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import ComponentNode from './ComponentNode';
+import ComponentNode from './ComponentNode.tsx';
 
 interface CanvasProps {
   onNodesChange: (nodes: Node[]) => void;

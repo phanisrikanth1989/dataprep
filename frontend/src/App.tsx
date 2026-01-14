@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { Layout, Tabs, Button, Space, message } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
-import JobList from '../components/JobList';
-import JobDesigner from './JobDesigner';
-import ExecutionMonitor from '../components/ExecutionMonitor';
-import { ExecutionStatus } from '../types';
+import JobList from './components/JobList.tsx';
+import JobDesigner from './pages/JobDesigner.tsx';
+import ExecutionMonitor from './components/ExecutionMonitor.tsx';
+import { ExecutionStatus } from './types';
 
 const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<'list' | 'designer' | 'execution'>('list');
@@ -18,7 +18,7 @@ const App: React.FC = () => {
 
   const handleJobExecute = async (jobId: string) => {
     try {
-      const { executionAPI } = await import('../services/api');
+      const { executionAPI } = await import('./services/api');
       const response = await executionAPI.start(jobId);
       setExecutionTaskId(response.data.task_id);
       setCurrentPage('execution');
