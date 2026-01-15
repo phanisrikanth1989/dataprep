@@ -11,6 +11,7 @@ import Canvas from '../components/Canvas.tsx';
 import ComponentPalette from '../components/ComponentPalette.tsx';
 import ConfigPanel from '../components/ConfigPanel.tsx';
 import { JobSchema, JobNode, JobEdge } from '../types/index.ts';
+import type { Node } from 'reactflow';
 import { jobsAPI } from '../services/api.ts';
 
 const { Content, Sider } = Layout;
@@ -24,10 +25,14 @@ const JobDesigner: React.FC<JobDesignerProps> = ({ jobId, onExecute }) => {
   const [job, setJob] = useState<JobSchema | null>(null);
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
-  const [selectedNode, setSelectedNode] = useState<any>(null);
+  const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [saveLoading, setSaveLoading] = useState(false);
   const [nameModalOpen, setNameModalOpen] = useState(false);
   const [form] = Form.useForm();
+
+  const handleNodeSelect = (node: Node | null) => {
+    setSelectedNode(node);
+  };
 
   React.useEffect(() => {
     if (jobId) {
@@ -236,14 +241,15 @@ const JobDesigner: React.FC<JobDesignerProps> = ({ jobId, onExecute }) => {
               <Canvas
                 onNodesChange={handleNodesChange}
                 onEdgesChange={handleEdgesChange}
+                onNodeSelect={handleNodeSelect}
                 initialNodes={nodes}
                 initialEdges={edges}
               />
             </div>
             <Sider width={300} style={{ overflowY: 'auto', borderLeft: '1px solid #ddd' }}>
               <ConfigPanel
-                selectedNodeType={selectedNode?.data?.type}
-                selectedNodeConfig={selectedNode?.data?.config}
+                selectedNodeType={selectedNode?.data?.type as string | undefined}
+                selectedNodeConfig={selectedNode?.data?.config as Record<string, any> | undefined}
                 onConfigChange={handleConfigChange}
               />
             </Sider>

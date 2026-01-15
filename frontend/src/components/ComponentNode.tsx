@@ -1,7 +1,14 @@
 import React from 'react';
 import { Handle, Position } from 'reactflow';
 import { Card } from 'antd';
-import { SwapOutlined, FilterOutlined, FileOutlined, DownloadOutlined } from '@ant-design/icons';
+import {
+  SwapOutlined,
+  FilterOutlined,
+  FileOutlined,
+  DownloadOutlined,
+  BarChartOutlined,
+  SortAscendingOutlined,
+} from '@ant-design/icons';
 
 interface ComponentNodeProps {
   data: {
@@ -16,6 +23,8 @@ const iconMap: Record<string, React.ReactNode> = {
   Filter: <FilterOutlined />,
   FileInput: <FileOutlined />,
   FileOutput: <DownloadOutlined />,
+  Aggregate: <BarChartOutlined />,
+  Sort: <SortAscendingOutlined />,
 };
 
 const ComponentNode: React.FC<ComponentNodeProps> = ({ data, selected }) => {
