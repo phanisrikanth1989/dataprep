@@ -35,12 +35,17 @@ import { FormBuilder, FormGroup, Validators } from '@angular/forms';
         <!-- Left Sidebar -->
         <div class="left-sidebar">
           <div class="sidebar-header">
-            <h3>Actions</h3>
+            <h3>Repository</h3>
           </div>
           <button nz-button nzType="primary" nzBlock (click)="onNewJob()" class="btn-create">
             <span class="btn-icon">+</span>
-            Create New Job
+            <span class="btn-text">Create New Job</span>
           </button>
+          <div class="sidebar-divider"></div>
+          <div class="repo-info">
+            <p class="repo-title">Manage your jobs</p>
+            <p class="repo-description">Create, edit, and execute ETL jobs from this repository</p>
+          </div>
         </div>
 
         <!-- Jobs List Area -->
@@ -119,38 +124,43 @@ import { FormBuilder, FormGroup, Validators } from '@angular/forms';
         nzTitle="Create New Job"
         nzOkText="Create"
         nzCancelText="Cancel"
+        nzCentered
+        nzWidth="500"
         (nzOnOk)="onCreateJob()"
         (nzOnCancel)="isNewJobModalVisible = false"
+        [nzOkLoading]="false"
       >
-        <form [formGroup]="newJobForm">
-          <div nz-row [nzGutter]="16">
-            <div nz-col [nzSpan]="24">
-              <label>Job Name *</label>
-              <input
-                nz-input
-                formControlName="jobName"
-                placeholder="Enter job name"
-              />
+        <ng-container *nzModalContent>
+          <form [formGroup]="newJobForm">
+            <div nz-row [nzGutter]="16">
+              <div nz-col [nzSpan]="24">
+                <label>Job Name *</label>
+                <input
+                  nz-input
+                  formControlName="jobName"
+                  placeholder="Enter job name"
+                />
+              </div>
+              <div nz-col [nzSpan]="24">
+                <label>Description</label>
+                <textarea
+                  nz-input
+                  formControlName="description"
+                  placeholder="Enter job description"
+                  rows="3"
+                ></textarea>
+              </div>
+              <div nz-col [nzSpan]="24">
+                <label>Version</label>
+                <input
+                  nz-input
+                  formControlName="version"
+                  placeholder="e.g., 1.0.0"
+                />
+              </div>
             </div>
-            <div nz-col [nzSpan]="24">
-              <label>Description</label>
-              <textarea
-                nz-input
-                formControlName="description"
-                placeholder="Enter job description"
-                rows="3"
-              ></textarea>
-            </div>
-            <div nz-col [nzSpan]="24">
-              <label>Version</label>
-              <input
-                nz-input
-                formControlName="version"
-                placeholder="e.g., 1.0.0"
-              />
-            </div>
-          </div>
-        </form>
+          </form>
+        </ng-container>
       </nz-modal>
     </div>
   `,
@@ -229,25 +239,61 @@ import { FormBuilder, FormGroup, Validators } from '@angular/forms';
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
         border: none !important;
         color: white !important;
-        font-weight: 600;
-        padding: 12px 20px !important;
+        font-weight: 700;
+        padding: 16px 20px !important;
         border-radius: 8px !important;
         height: auto !important;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 10px !important;
         transition: all 0.3s ease !important;
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2) !important;
+        font-size: 15px !important;
+        line-height: 1.4 !important;
       }
 
       .btn-create:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 16px rgba(102, 126, 234, 0.3) !important;
+        transform: translateY(-3px);
+        box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4) !important;
       }
 
       .btn-icon {
-        font-size: 18px;
+        font-size: 22px;
         font-weight: bold;
+        display: flex;
+        align-items: center;
+      }
+
+      .btn-text {
+        display: inline-block;
+      }
+
+      .sidebar-divider {
+        height: 1px;
+        background: #e2e8f0;
+        margin: 12px 0;
+      }
+
+      .repo-info {
+        background: #f7fafc;
+        padding: 16px 12px;
+        border-radius: 8px;
+        border-left: 3px solid #667eea;
+      }
+
+      .repo-title {
+        margin: 0 0 8px 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: #2d3748;
+      }
+
+      .repo-description {
+        margin: 0;
+        font-size: 12px;
+        color: #718096;
+        line-height: 1.4;
       }
 
       .logo-section {
@@ -464,27 +510,57 @@ import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 
       nz-modal ::ng-deep .ant-modal-content {
         border-radius: 12px;
+        padding: 0;
+      }
+
+      nz-modal ::ng-deep .ant-modal-header {
+        border-bottom: 2px solid #e2e8f0;
+        padding: 24px;
+      }
+
+      nz-modal ::ng-deep .ant-modal-title {
+        font-size: 18px;
+        font-weight: 600;
+        color: #2d3748;
+      }
+
+      nz-modal ::ng-deep .ant-modal-body {
+        padding: 24px;
+      }
+
+      nz-modal ::ng-deep .ant-modal-footer {
+        padding: 16px 24px;
+        border-top: 1px solid #e2e8f0;
       }
 
       nz-modal label {
         display: block;
         margin-bottom: 8px;
-        font-weight: 500;
+        font-weight: 600;
         color: #2d3748;
-      }
-
-      nz-modal input,
-      nz-modal textarea {
-        border-radius: 6px !important;
-        border: 1px solid #e2e8f0 !important;
-        padding: 8px 12px !important;
         font-size: 14px;
       }
 
-      nz-modal input:focus,
-      nz-modal textarea:focus {
+      nz-modal input[nz-input],
+      nz-modal textarea[nz-input] {
+        border-radius: 6px !important;
+        border: 1px solid #cbd5e0 !important;
+        padding: 10px 12px !important;
+        font-size: 14px !important;
+      }
+
+      nz-modal input[nz-input]:focus,
+      nz-modal textarea[nz-input]:focus {
         border-color: #667eea !important;
         box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1) !important;
+      }
+
+      nz-modal [nz-col] {
+        margin-bottom: 20px;
+      }
+
+      nz-modal [nz-col]:last-child {
+        margin-bottom: 0;
       }
     `,
   ],
@@ -534,7 +610,8 @@ export class JobListComponent implements OnInit {
           this.message.success('Job created successfully');
           this.isNewJobModalVisible = false;
           this.newJobForm.reset();
-          this.router.navigate(['/designer', job.id]);
+          // Reload jobs list to show the newly created job
+          this.jobService.loadJobs();
         },
         error: (error: any) => {
           this.message.error('Error creating job');
