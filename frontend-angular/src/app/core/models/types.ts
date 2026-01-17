@@ -29,6 +29,7 @@ export interface JobSchema {
   id: string;
   name: string;
   description?: string;
+  version?: string;
   nodes: JobNode[];
   edges: JobEdge[];
   context: Record<string, any>;

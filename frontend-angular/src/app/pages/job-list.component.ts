@@ -22,84 +22,94 @@ import { FormBuilder, FormGroup, Validators } from '@angular/forms';
           <h1 class="logo">RecDataPrep</h1>
           <span class="tagline">Visual ETL Designer</span>
         </div>
-        <div class="top-bar-actions">
-          <button nz-button nzType="primary" nzSize="large" (click)="onNewJob()" class="btn-create">
-            <span style="font-size: 16px;">+</span> Create New Job
+        <div class="user-menu">
+          <span class="user-name">{{ currentUser?.username }}</span>
+          <button nz-button nzType="text" (click)="onLogout()" class="btn-logout">
+            Logout
           </button>
-          <div class="user-menu">
-            <span class="user-name">{{ currentUser?.username }}</span>
-            <button nz-button nzType="text" (click)="onLogout()" class="btn-logout">
-              Logout
-            </button>
-          </div>
         </div>
       </div>
 
-      <!-- Main Content -->
-      <div class="job-list-container">
-        <div class="section-header">
-          <h2>Your Jobs</h2>
-          <p class="section-description">Manage and execute your ETL jobs</p>
+      <!-- Main Content with Left Sidebar -->
+      <div class="main-content">
+        <!-- Left Sidebar -->
+        <div class="left-sidebar">
+          <div class="sidebar-header">
+            <h3>Actions</h3>
+          </div>
+          <button nz-button nzType="primary" nzBlock (click)="onNewJob()" class="btn-create">
+            <span class="btn-icon">+</span>
+            Create New Job
+          </button>
         </div>
 
-      <div class="loading" *ngIf="(jobService.loading$ | async)">
-        Loading jobs...
-      </div>
-
-      <div class="jobs-grid">
-        <div
-          *ngFor="let job of (jobService.jobs$ | async)"
-          class="job-card"
-        >
-          <div class="job-card-header">
-            <h3>{{ job.name }}</h3>
-            <span class="job-id">{{ job.id }}</span>
+        <!-- Jobs List Area -->
+        <div class="job-list-container">
+          <div class="section-header">
+            <h2>Your Jobs</h2>
+            <p class="section-description">Manage and execute your ETL jobs</p>
           </div>
 
-          <div class="job-card-body">
-            <p>{{ job.description || 'No description' }}</p>
-            <div class="job-stats">
-              <span>📦 {{ job.node_count }} components</span>
-              <span>→ {{ job.edge_count }} connections</span>
+          <div class="loading" *ngIf="(jobService.loading$ | async)">
+            Loading jobs...
+          </div>
+
+          <div class="jobs-grid">
+            <div
+              *ngFor="let job of (jobService.jobs$ | async)"
+              class="job-card"
+            >
+              <div class="job-card-header">
+                <h3>{{ job.name }}</h3>
+                <span class="job-id">{{ job.id }}</span>
+              </div>
+
+              <div class="job-card-body">
+                <p>{{ job.description || 'No description' }}</p>
+                <div class="job-stats">
+                  <span>📦 {{ job.node_count }} components</span>
+                  <span>→ {{ job.edge_count }} connections</span>
+                </div>
+                <small class="job-date">
+                  Updated: {{ job.updated_at | date: 'short' }}
+                </small>
+              </div>
+
+              <div class="job-card-actions">
+                <button
+                  nz-button
+                  nzSize="small"
+                  (click)="onEditJob(job.id)"
+                >
+                  Edit
+                </button>
+                <button
+                  nz-button
+                  nzSize="small"
+                  (click)="onExecuteJob(job.id)"
+                >
+                  Execute
+                </button>
+                <button
+                  nz-button
+                  nz-popconfirm
+                  nzPopconfirmTitle="Delete this job?"
+                  nzPopconfirmDescription="This action cannot be undone"
+                  (nzOnConfirm)="onDeleteJob(job.id)"
+                  nzSize="small"
+                  nzDanger
+                >
+                  Delete
+                </button>
+              </div>
             </div>
-            <small class="job-date">
-              Updated: {{ job.updated_at | date: 'short' }}
-            </small>
           </div>
 
-          <div class="job-card-actions">
-            <button
-              nz-button
-              nzSize="small"
-              (click)="onEditJob(job.id)"
-            >
-              Edit
-            </button>
-            <button
-              nz-button
-              nzSize="small"
-              (click)="onExecuteJob(job.id)"
-            >
-              Execute
-            </button>
-            <button
-              nz-button
-              nz-popconfirm
-              nzPopconfirmTitle="Delete this job?"
-              nzPopconfirmDescription="This action cannot be undone"
-              (nzOnConfirm)="onDeleteJob(job.id)"
-              nzSize="small"
-              nzDanger
-            >
-              Delete
-            </button>
+          <div *ngIf="(jobService.jobs$ | async) as jobs" class="empty-state">
+            <div *ngIf="jobs.length === 0">
+              <p>No jobs yet. Use the <strong>Create New Job</strong> button on the left to get started!</p>
+            </div>
           </div>
-        </div>
-      </div>
-
-      <div *ngIf="(jobService.jobs$ | async) as jobs" class="empty-state">
-        <div *ngIf="jobs.length === 0">
-          <p>No jobs yet. Create one to get started!</p>
         </div>
       </div>
 
@@ -131,6 +141,14 @@ import { FormBuilder, FormGroup, Validators } from '@angular/forms';
                 rows="3"
               ></textarea>
             </div>
+            <div nz-col [nzSpan]="24">
+              <label>Version</label>
+              <input
+                nz-input
+                formControlName="version"
+                placeholder="e.g., 1.0.0"
+              />
+            </div>
           </div>
         </form>
       </nz-modal>
@@ -155,18 +173,10 @@ import { FormBuilder, FormGroup, Validators } from '@angular/forms';
         box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
       }
 
-      .top-bar-actions {
-        display: flex;
-        align-items: center;
-        gap: 20px;
-      }
-
       .user-menu {
         display: flex;
         align-items: center;
         gap: 12px;
-        padding-left: 20px;
-        border-left: 1px solid rgba(255, 255, 255, 0.2);
       }
 
       .user-name {
@@ -183,6 +193,61 @@ import { FormBuilder, FormGroup, Validators } from '@angular/forms';
       .btn-logout:hover {
         color: white !important;
         background: rgba(255, 255, 255, 0.1) !important;
+      }
+
+      .main-content {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+      }
+
+      .left-sidebar {
+        width: 280px;
+        background: white;
+        border-right: 2px solid #e2e8f0;
+        padding: 24px 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        overflow-y: auto;
+      }
+
+      .sidebar-header {
+        margin-bottom: 12px;
+      }
+
+      .sidebar-header h3 {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+        color: #2d3748;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .btn-create {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        border: none !important;
+        color: white !important;
+        font-weight: 600;
+        padding: 12px 20px !important;
+        border-radius: 8px !important;
+        height: auto !important;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        transition: all 0.3s ease !important;
+      }
+
+      .btn-create:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 16px rgba(102, 126, 234, 0.3) !important;
+      }
+
+      .btn-icon {
+        font-size: 18px;
+        font-weight: bold;
       }
 
       .logo-section {
@@ -227,6 +292,7 @@ import { FormBuilder, FormGroup, Validators } from '@angular/forms';
         flex: 1;
         overflow-y: auto;
         padding: 40px;
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
       }
 
       .section-header {
@@ -440,6 +506,7 @@ export class JobListComponent implements OnInit {
     this.newJobForm = this.fb.group({
       jobName: ['', Validators.required],
       description: [''],
+      version: ['1.0.0'],
     });
   }
 
@@ -457,9 +524,10 @@ export class JobListComponent implements OnInit {
 
   onCreateJob(): void {
     if (this.newJobForm.valid) {
-      const { jobName, description } = this.newJobForm.value;
+      const { jobName, description, version } = this.newJobForm.value;
       const newJob = this.jobService.createBlankJob(jobName);
       newJob.description = description;
+      newJob.version = version || '1.0.0';
 
       this.jobService.createJob(newJob).subscribe({
         next: (job: JobSchema) => {

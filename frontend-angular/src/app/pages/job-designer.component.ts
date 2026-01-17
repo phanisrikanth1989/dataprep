@@ -38,15 +38,25 @@ import { v4 as uuidv4 } from 'uuid';
 
       <!-- Main Designer Area -->
       <div class="designer-content">
-        <!-- Left Sidebar - Component Palette -->
+        <!-- Left Sidebar - Job Designer Controls & Config Panel -->
         <div class="sidebar sidebar-left">
           <div class="sidebar-header">
-            <h3>Components</h3>
+            <h3>Configuration</h3>
+            <button nz-button nzType="text" nzSize="small" *ngIf="selectedNode" (click)="onConfigCancelled()" class="btn-close">✕</button>
           </div>
-          <app-component-palette></app-component-palette>
+          <app-config-panel
+            *ngIf="selectedNode"
+            [selectedNode]="selectedNode"
+            [fields]="selectedFields"
+            (configUpdated)="onConfigUpdated($event)"
+            (cancelled)="onConfigCancelled()"
+          ></app-config-panel>
+          <div *ngIf="!selectedNode" class="no-selection">
+            <p>Select a component on the canvas to configure</p>
+          </div>
         </div>
 
-        <!-- Center - Canvas -->
+        <!-- Center - Canvas (Main Building Area) -->
         <div class="canvas-wrapper">
           <div class="canvas-header">
             <span class="canvas-info">{{ nodes.length }} components | {{ edges.length }} connections</span>
@@ -61,22 +71,12 @@ import { v4 as uuidv4 } from 'uuid';
           ></app-canvas>
         </div>
 
-        <!-- Right Sidebar - Config Panel -->
+        <!-- Right Sidebar - Component Palette -->
         <div class="sidebar sidebar-right">
           <div class="sidebar-header">
-            <h3>Configuration</h3>
-            <button nz-button nzType="text" nzSize="small" *ngIf="selectedNode" (click)="onConfigCancelled()" class="btn-close">✕</button>
+            <h3>Components</h3>
           </div>
-          <app-config-panel
-            *ngIf="selectedNode"
-            [selectedNode]="selectedNode"
-            [fields]="selectedFields"
-            (configUpdated)="onConfigUpdated($event)"
-            (cancelled)="onConfigCancelled()"
-          ></app-config-panel>
-          <div *ngIf="!selectedNode" class="no-selection">
-            <p>Select a component to configure</p>
-          </div>
+          <app-component-palette></app-component-palette>
         </div>
       </div>
     </div>
@@ -191,11 +191,14 @@ import { v4 as uuidv4 } from 'uuid';
       }
 
       .sidebar-left {
-        width: 280px;
+        width: 340px;
+        border-right: 2px solid #e2e8f0;
       }
 
       .sidebar-right {
-        width: 320px;
+        width: 300px;
+        border-left: 2px solid #e2e8f0;
+        border-right: none;
       }
 
       .sidebar-header {
@@ -250,11 +253,16 @@ import { v4 as uuidv4 } from 'uuid';
         padding: 40px 20px;
         text-align: center;
         color: #cbd5e0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex: 1;
       }
 
       .no-selection p {
         margin: 0;
         font-size: 14px;
+        color: #a0aec0;
       }
 
       app-component-palette {
