@@ -1,0 +1,14 @@
+[
+  {
+    "context": ["/api", "/ws"],
+    "target": "http://localhost:8000",
+    "secure": false,
+    "changeOrigin": true,
+    "pathRewrite": {
+      "^/api": "/api",
+      "^/ws": "/ws"
+    },
+    "ws": true,
+    "logLevel": "debug"
+  }
+]
