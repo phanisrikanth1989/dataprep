@@ -4,7 +4,7 @@ import { ComponentMetadata } from '../../core/models/types';
 
 /**
  * Component Palette Component
- * Displays draggable components organized by category
+ * Displays draggable components organized by category with search functionality
  */
 @Component({
   selector: 'app-component-palette',
@@ -12,20 +12,34 @@ import { ComponentMetadata } from '../../core/models/types';
     <div class="palette">
       <h3>Components</h3>
 
+      <!-- Search Input -->
+      <input
+        type="text"
+        nz-input
+        placeholder="Type to search components..."
+        [(ngModel)]="searchTerm"
+        (input)="onSearchChange()"
+        class="search-input"
+      />
+
       <div *ngIf="loading$ | async" class="loading">
         Loading components...
       </div>
 
+      <div *ngIf="filteredComponents.length === 0 && !(loading$ | async)" class="no-results">
+        No components found
+      </div>
+
       <div class="categories">
         <div
-          *ngFor="let category of categories"
+          *ngFor="let category of filteredCategories"
           class="category"
         >
           <h4 class="category-title">{{ category }}</h4>
 
           <div class="components-list">
             <div
-              *ngFor="let component of getComponentsByCategory(category)"
+              *ngFor="let component of getFilteredComponentsByCategory(category)"
               class="component-item"
               draggable="true"
               (dragstart)="onComponentDragStart($event, component)"
@@ -50,15 +64,27 @@ import { ComponentMetadata } from '../../core/models/types';
       }
 
       .palette h3 {
-        margin: 0 0 16px 0;
-        font-size: 16px;
+        margin: 0 0 10px 0;
+        font-size: 13px;
         font-weight: 600;
+      }
+
+      .search-input {
+        width: 100%;
+        margin-bottom: 12px;
       }
 
       .loading {
         text-align: center;
         color: #999;
         padding: 20px;
+      }
+
+      .no-results {
+        text-align: center;
+        color: #999;
+        padding: 20px;
+        font-size: 13px;
       }
 
       .categories {
@@ -114,7 +140,7 @@ import { ComponentMetadata } from '../../core/models/types';
       }
 
       .component-icon {
-        font-size: 18px;
+        font-size: 16px;
         flex-shrink: 0;
       }
 
@@ -133,7 +159,10 @@ export class ComponentPaletteComponent implements OnInit {
   @Output() componentSelected = new EventEmitter<ComponentMetadata>();
 
   components: ComponentMetadata[] = [];
+  filteredComponents: ComponentMetadata[] = [];
   categories: string[] = [];
+  filteredCategories: string[] = [];
+  searchTerm: string = '';
   loading$ = this.componentRegistry.loading$;
 
   constructor(private componentRegistry: ComponentRegistryService) {}
@@ -141,12 +170,36 @@ export class ComponentPaletteComponent implements OnInit {
   ngOnInit(): void {
     this.componentRegistry.components$.subscribe((components) => {
       this.components = components;
+      this.filteredComponents = components;
       this.categories = this.componentRegistry.getCategories();
+      this.filteredCategories = this.categories;
     });
   }
 
-  getComponentsByCategory(category: string): ComponentMetadata[] {
-    return this.components.filter((c) => c.category === category);
+  onSearchChange(): void {
+    if (!this.searchTerm.trim()) {
+      this.filteredComponents = this.components;
+      this.filteredCategories = this.categories;
+      return;
+    }
+
+    const term = this.searchTerm.toLowerCase();
+    this.filteredComponents = this.components.filter(
+      (c) =>
+        c.label.toLowerCase().includes(term) ||
+        c.description?.toLowerCase().includes(term) ||
+        c.type.toLowerCase().includes(term)
+    );
+
+    // Only show categories that have filtered components
+    this.filteredCategories = this.categories.filter(
+      (cat) =>
+        this.filteredComponents.filter((c) => c.category === cat).length > 0
+    );
+  }
+
+  getFilteredComponentsByCategory(category: string): ComponentMetadata[] {
+    return this.filteredComponents.filter((c) => c.category === category);
   }
 
   onComponentDragStart(

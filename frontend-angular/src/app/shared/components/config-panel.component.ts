@@ -19,6 +19,24 @@ import { NzMessageService } from 'ng-zorro-antd/message';
         <h3>{{ selectedNode.label }} Configuration</h3>
 
         <form [formGroup]="configForm" (ngSubmit)="onSave()">
+          <!-- Rename field -->
+          <div class="form-field rename-field">
+            <label for="nodeName">
+              Component Name (for development)
+            </label>
+            <input
+              nz-input
+              id="nodeName"
+              placeholder="e.g., Read Customer Data"
+              [formControl]="getFormControl('nodeName')"
+            />
+            <small class="description">
+              Custom name to identify this component during development
+            </small>
+          </div>
+
+          <div class="divider"></div>
+
           <div *ngFor="let field of fields" class="form-field">
             <label [for]="field.name">
               {{ field.label }}
@@ -116,8 +134,8 @@ import { NzMessageService } from 'ng-zorro-antd/message';
       }
 
       .config-content h3 {
-        margin-bottom: 20px;
-        font-size: 16px;
+        margin-bottom: 16px;
+        font-size: 13px;
         font-weight: 600;
       }
 
@@ -129,7 +147,7 @@ import { NzMessageService } from 'ng-zorro-antd/message';
         display: block;
         margin-bottom: 6px;
         font-weight: 500;
-        font-size: 14px;
+        font-size: 12px;
       }
 
       .required {
@@ -146,7 +164,18 @@ import { NzMessageService } from 'ng-zorro-antd/message';
         display: block;
         margin-top: 4px;
         color: #999;
-        font-size: 12px;
+        font-size: 11px;
+      }
+
+      .divider {
+        height: 1px;
+        background: #e8e8e8;
+        margin: 16px 0;
+      }
+
+      .rename-field {
+        margin-bottom: 16px;
+        padding-bottom: 16px;
       }
 
       .button-group {
@@ -189,6 +218,9 @@ export class ConfigPanelComponent implements OnInit {
 
     const group: Record<string, any> = {};
 
+    // Add nodeName field for custom naming during development
+    group['nodeName'] = [this.selectedNode?.name || '', []];
+
     this.fields.forEach((field) => {
       const validators = [];
       if (field.required) {
@@ -205,7 +237,15 @@ export class ConfigPanelComponent implements OnInit {
   onSave(): void {
     if (this.configForm.valid && this.selectedNode) {
       const updatedConfig = this.configForm.value;
-      this.configUpdated.emit(updatedConfig);
+      // Extract nodeName and separate it from component config
+      const nodeName = updatedConfig.nodeName;
+      delete updatedConfig.nodeName;
+      
+      // Emit with both config and nodeName
+      this.configUpdated.emit({
+        ...updatedConfig,
+        _nodeName: nodeName,
+      });
       this.message.success('Configuration saved');
     }
   }

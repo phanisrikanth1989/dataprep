@@ -10,7 +10,12 @@ import { JobNode, JobEdge } from '../../core/models/types';
   selector: 'app-canvas',
   template: `
     <div class="canvas-container">
-      <svg class="canvas-svg" (mousemove)="onCanvasMouseMove($event)">
+      <svg 
+        class="canvas-svg" 
+        (mousemove)="onCanvasMouseMove($event)"
+        (dragover)="onCanvasDragOver($event)"
+        (drop)="onCanvasDrop($event)"
+      >
         <!-- Grid background -->
         <defs>
           <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
@@ -66,9 +71,9 @@ import { JobNode, JobEdge } from '../../core/models/types';
               [attr.x]="node.x + 60"
               [attr.y]="node.y + 40"
               text-anchor="middle"
-              font-size="12"
+              font-size="10"
             >
-              {{ node.id }}
+              {{ getNodeDisplayName(node) }}
             </text>
           </g>
         </g>
@@ -127,7 +132,7 @@ import { JobNode, JobEdge } from '../../core/models/types';
       }
 
       .node-label {
-        font-size: 14px;
+        font-size: 12px;
         font-weight: 600;
         fill: #000;
       }
@@ -152,7 +157,7 @@ import { JobNode, JobEdge } from '../../core/models/types';
         background: white;
         cursor: pointer;
         border-radius: 4px;
-        font-size: 16px;
+        font-size: 14px;
       }
 
       .canvas-toolbar button:hover {
@@ -189,6 +194,47 @@ export class CanvasComponent implements OnInit {
     // Can be used for drag operations
   }
 
+  onCanvasDragOver(event: DragEvent): void {
+    event.preventDefault();
+    event.dataTransfer!.dropEffect = 'copy';
+  }
+
+  onCanvasDrop(event: DragEvent): void {
+    event.preventDefault();
+    
+    const componentData = event.dataTransfer?.getData('component');
+    if (!componentData) return;
+
+    try {
+      const component = JSON.parse(componentData);
+      
+      // Get drop coordinates relative to canvas
+      const svg = (event.target as SVGElement);
+      const rect = svg.getBoundingClientRect();
+      const x = event.clientX - rect.left - 60;
+      const y = event.clientY - rect.top - 30;
+
+      // Create new node
+      const newNode: JobNode = {
+        id: `${component.type}_${Date.now()}`,
+        type: component.type,
+        label: component.label,
+        x: Math.max(0, x),
+        y: Math.max(0, y),
+        config: {},
+      };
+
+      // Add to nodes and emit
+      this.nodes = [...this.nodes, newNode];
+      this.nodesUpdated.emit(this.nodes);
+      
+      // Select the new node
+      this.nodeSelected.emit(newNode);
+    } catch (error) {
+      console.error('Error dropping component:', error);
+    }
+  }
+
   onZoomIn(): void {
     // Implementation for zoom in
   }
@@ -207,5 +253,18 @@ export class CanvasComponent implements OnInit {
       this.edges = [];
       this.nodesUpdated.emit([]);
     }
+  }
+
+  getNodeDisplayName(node: JobNode): string {
+    // If node has a custom name, use it
+    if (node.name) {
+      return node.name;
+    }
+    
+    // Otherwise use counter-based naming
+    const nodeIndex = this.nodes
+      .filter((n) => n.type === node.type)
+      .findIndex((n) => n.id === node.id) + 1;
+    return `${node.label || node.type}_${nodeIndex}`;
   }
 }

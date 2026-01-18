@@ -3,7 +3,7 @@ tFileTouch component - creates an empty file at the specified path
 """
 import os
 from typing import Any, Dict, Optional
-from ..base_component import BaseComponent
+from ...base_component import BaseComponent
 
 class FileTouch(BaseComponent):
     """

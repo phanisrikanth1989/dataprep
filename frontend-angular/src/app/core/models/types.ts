@@ -8,6 +8,7 @@ export interface JobNode {
   id: string;
   type: string;              // Component type
   label: string;
+  name?: string;             // Custom display name for development
   x: number;                 // Canvas position
   y: number;
   config: Record<string, any>;

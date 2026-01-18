@@ -228,7 +228,7 @@ import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 
       .sidebar-header h3 {
         margin: 0;
-        font-size: 14px;
+        font-size: 11px;
         font-weight: 600;
         color: #2d3748;
         text-transform: uppercase;
@@ -304,7 +304,7 @@ import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 
       .logo {
         margin: 0;
-        font-size: 28px;
+        font-size: 22px;
         font-weight: 700;
         letter-spacing: -0.5px;
       }
