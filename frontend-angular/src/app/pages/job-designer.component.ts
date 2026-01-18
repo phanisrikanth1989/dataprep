@@ -39,37 +39,64 @@ import { v4 as uuidv4 } from 'uuid';
 
       <!-- Main Designer Area -->
       <div class="designer-content">
-        <!-- Left Sidebar - Job Designer Controls & Config Panel -->
+        <!-- Left Sidebar - Repository Info -->
         <div class="sidebar sidebar-left">
           <div class="sidebar-header">
-            <h3>Configuration</h3>
-            <button nz-button nzType="text" nzSize="small" *ngIf="selectedNode" (click)="onConfigCancelled()" class="btn-close">✕</button>
+            <h3>Repository</h3>
           </div>
-          <app-config-panel
-            *ngIf="selectedNode"
-            [selectedNode]="selectedNode"
-            [fields]="selectedFields"
-            (configUpdated)="onConfigUpdated($event)"
-            (cancelled)="onConfigCancelled()"
-          ></app-config-panel>
-          <div *ngIf="!selectedNode" class="no-selection">
-            <p>Select a component on the canvas to configure</p>
+          <div class="repository-info">
+            <div class="repo-item">
+              <strong>Job:</strong> {{ job?.name || 'Untitled' }}
+            </div>
+            <div class="repo-item">
+              <strong>Components:</strong> {{ nodes.length }}
+            </div>
+            <div class="repo-item">
+              <strong>Connections:</strong> {{ edges.length }}
+            </div>
           </div>
         </div>
 
-        <!-- Center - Canvas (Main Building Area) -->
-        <div class="canvas-wrapper">
-          <div class="canvas-header">
-            <span class="canvas-info">{{ nodes.length }} components | {{ edges.length }} connections</span>
+        <!-- Center - Canvas with Config Panel Below -->
+        <div class="canvas-container">
+          <!-- Canvas Area -->
+          <div class="canvas-wrapper">
+            <div class="canvas-header">
+              <span class="canvas-info">{{ nodes.length }} components | {{ edges.length }} connections</span>
+            </div>
+            <app-canvas
+              [nodes]="nodes"
+              [edges]="edges"
+              [selectedNodeId]="selectedNodeId"
+              (nodeSelected)="onNodeSelect($event)"
+              (nodesUpdated)="onNodesUpdated($event)"
+              (edgeCreated)="onEdgeCreated($event)"
+              class="canvas-area"
+            ></app-canvas>
           </div>
-          <app-canvas
-            [nodes]="nodes"
-            [edges]="edges"
-            [selectedNodeId]="selectedNodeId"
-            (nodeSelected)="onNodeSelect($event)"
-            (nodesUpdated)="onNodesUpdated($event)"
-            class="canvas-area"
-          ></app-canvas>
+
+          <!-- Config Panel Below Canvas -->
+          <div class="config-panel-drawer" *ngIf="selectedNode" [@slideUp]>
+            <div class="drawer-header">
+              <h3>{{ selectedNode.label }} Configuration</h3>
+              <button nz-button nzType="text" nzSize="small" (click)="onConfigCancelled()" class="btn-close">✕</button>
+            </div>
+            <div class="drawer-content">
+              <app-config-panel
+                [selectedNode]="selectedNode"
+                [fields]="selectedFields"
+                (configUpdated)="onConfigUpdated($event)"
+                (cancelled)="onConfigCancelled()"
+              ></app-config-panel>
+            </div>
+          </div>
+
+          <!-- Empty State when no component selected -->
+          <div *ngIf="!selectedNode" class="config-panel-drawer empty-state-drawer">
+            <div class="empty-state-message">
+              <p>Click on a component in the canvas to configure it</p>
+            </div>
+          </div>
         </div>
 
         <!-- Right Sidebar - Component Palette -->
@@ -235,12 +262,12 @@ import { v4 as uuidv4 } from 'uuid';
       }
 
       .sidebar-left {
-        width: 340px;
+        width: 280px;
         border-right: 2px solid #e2e8f0;
       }
 
       .sidebar-right {
-        width: 300px;
+        width: 280px;
         border-left: 2px solid #e2e8f0;
         border-right: none;
       }
@@ -269,14 +296,6 @@ import { v4 as uuidv4 } from 'uuid';
 
       .btn-close:hover {
         color: #4a5568 !important;
-      }
-
-      .canvas-wrapper {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-        position: relative;
       }
 
       .canvas-header {
@@ -317,6 +336,91 @@ import { v4 as uuidv4 } from 'uuid';
       app-config-panel {
         flex: 1;
         overflow-y: auto;
+      }
+
+      /* Canvas Container with Config Drawer */
+      .canvas-container {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+      }
+
+      .canvas-wrapper {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .config-panel-drawer {
+        background: white;
+        border-top: 2px solid #e2e8f0;
+        display: flex;
+        flex-direction: column;
+        height: 320px;
+        box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.08);
+        overflow: hidden;
+      }
+
+      .drawer-header {
+        padding: 16px 20px;
+        border-bottom: 1px solid #e2e8f0;
+        background: #f7fafc;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-shrink: 0;
+      }
+
+      .drawer-header h3 {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: #2d3748;
+      }
+
+      .drawer-content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 12px 20px;
+      }
+
+      .empty-state-drawer {
+        background: white;
+        border-top: 2px solid #e2e8f0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100px;
+      }
+
+      .empty-state-message {
+        color: #a0aec0;
+        font-size: 13px;
+        text-align: center;
+      }
+
+      .repository-info {
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        font-size: 12px;
+      }
+
+      .repo-item {
+        padding: 8px;
+        background: #f7fafc;
+        border-radius: 4px;
+        border-left: 3px solid #667eea;
+      }
+
+      .repo-item strong {
+        color: #2d3748;
       }
 
       /* Component Search Palette Styles */
@@ -553,6 +657,16 @@ export class JobDesignerComponent implements OnInit, OnDestroy {
 
   onNodesUpdated(updatedNodes: JobNode[]): void {
     this.nodes = updatedNodes;
+  }
+
+  /**
+   * Handle edge creation from canvas drag-to-connect
+   */
+  onEdgeCreated(edge: JobEdge): void {
+    // Edge is already added to canvas, just ensure it's in our edges array
+    if (!this.edges.find((e) => e.id === edge.id)) {
+      this.edges = [...this.edges, edge];
+    }
   }
 
   onSave(): void {

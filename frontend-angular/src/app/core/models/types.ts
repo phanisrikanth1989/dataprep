@@ -26,6 +26,17 @@ export interface JobEdge {
   condition?: string;
 }
 
+export interface SubJob {
+  id: string;
+  name: string;
+  node_ids: string[];        // All nodes in this subjob
+  x?: number;                // Bounding box top-left
+  y?: number;
+  width?: number;            // Calculated from nodes
+  height?: number;
+  color?: string;            // For visual distinction
+}
+
 export interface JobSchema {
   id: string;
   name: string;
