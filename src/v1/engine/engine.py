@@ -17,6 +17,9 @@ from .base_component import BaseComponent, ComponentStatus
 #from .base_iterate_component import BaseIterateComponent
 from .java_bridge_manager import JavaBridgeManager
 from .python_routine_manager import PythonRoutineManager
+from .components.transform.filter_rows import FilterRows
+from .components.transform.filter_columns import FilterColumns
+from .components.transform.map import Map
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -32,7 +35,9 @@ class ETLEngine:
 
         # Transform components
         'Map': Map,
-        'tMap': Map,
+        # Filter components
+        'filter_rows': FilterRows,
+        'filter_columns': FilterColumns,
         }
 
 
