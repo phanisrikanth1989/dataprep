@@ -115,7 +115,7 @@ async def websocket_endpoint(websocket: WebSocket, task_id: str):
                 {
                     "type": "status",
                     "data": execution.model_dump(),
-                    "timestamp": execution.timestamp,
+                    "timestamp": execution.started_at or "",
                 }
             )
 

@@ -1,7 +1,6 @@
 """
 Main ETL Engine with trigger support and advanced execution capabilities
 """
-
 import json
 import logging
 import time
@@ -18,6 +17,12 @@ from .base_component import BaseComponent, ComponentStatus
 from .java_bridge_manager import JavaBridgeManager
 from .python_routine_manager import PythonRoutineManager
 
+#Import all components
+from .components.file.file_input_delimited import FileInputDelimited, FileOutputDelimited
+from .components.transform.filter_rows import FilterRows
+from .components.transform.filter_columns import FilterColumns
+from .components.transform.map import Map
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -32,7 +37,9 @@ class ETLEngine:
 
         # Transform components
         'Map': Map,
-        'tMap': Map,
+        # Filter components
+        'filter_rows': FilterRows,
+        'filter_columns': FilterColumns,
         }
 
 
@@ -413,9 +420,9 @@ class ETLEngine:
             execution_time = time.time() - start_time
 
             # Check if this is an iterate component
-            if isinstance(component, BaseIterateComponent) and result.get('iterate'):
+            #if isinstance(component, BaseIterateComponent) and result.get('iterate'):
                 # Handle iterate component execution
-                return self._execute_iterate_component(comp_id, component, result, execution_time)
+             #   return self._execute_iterate_component(comp_id, component, result, execution_time)
 
             # Store output data in data flows
             if result:
@@ -473,9 +480,9 @@ class ETLEngine:
 
             return 'error'
         
-    def _execute_iterate_component(self, comp_id: str, component: BaseIterateComponent, 
+    """def _execute_iterate_component(self, comp_id: str, component: BaseIterateComponent, 
                                    result: Dict[str, Any], execution_time: float) -> str:
-        """
+        
         Handle execution of iterate components and their downstream subjobs
         
         Args:
@@ -486,7 +493,7 @@ class ETLEngine:
 
         Returns:
             'success' or 'error'
-        """
+        
         try:
             # Find iterate connections and target subjobs
             iterate_flow = None
@@ -615,7 +622,7 @@ class ETLEngine:
 
             #Re-raise to trigger job termination   
             raise e
-
+"""
     def _are_inputs_ready(self, comp_id: str) -> bool:
         """Check if all required inputs for a component are available"""
         component = self.components[comp_id]

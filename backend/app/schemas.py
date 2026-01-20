@@ -6,158 +6,209 @@ from app.models import ComponentMetadata, ComponentFieldSchema, ComponentFieldTy
 
 # Component Metadata Registry
 COMPONENT_REGISTRY: dict = {
-    "Map": ComponentMetadata(
-        type="Map",
-        label="tMap",
-        category="Transform",
-        icon="swap",
-        description="Data transformation with joins, lookups, and complex expressions",
+    "FileTouch": ComponentMetadata(
+        type="FileTouch",
+        label="file_touch",
+        category="File",
+        icon="file-plus",
+        description="Create an empty file at specified path",
         fields=[
             ComponentFieldSchema(
-                name="die_on_error",
-                type=ComponentFieldType.BOOLEAN,
-                label="Die on Error",
-                description="Stop job if error occurs",
-                default=True,
-            ),
-            ComponentFieldSchema(
-                name="execution_mode",
-                type=ComponentFieldType.SELECT,
-                label="Execution Mode",
-                options=["batch", "streaming", "hybrid"],
-                default="hybrid",
-            ),
-        ],
-        input_count=1,
-        output_count=2,
-        allow_multiple_inputs=True,
-    ),
-    "Filter": ComponentMetadata(
-        type="Filter",
-        label="tFilter",
-        category="Transform",
-        icon="filter",
-        description="Filter rows based on condition",
-        fields=[
-            ComponentFieldSchema(
-                name="condition",
-                type=ComponentFieldType.EXPRESSION,
-                label="Filter Condition",
-                required=True,
-            ),
-        ],
-        input_count=1,
-        output_count=2,
-    ),
-    "FileInput": ComponentMetadata(
-        type="FileInput",
-        label="tFileInput",
-        category="Input",
-        icon="file",
-        description="Read data from file (CSV, JSON, Parquet)",
-        fields=[
-            ComponentFieldSchema(
-                name="file_path",
+                name="filename",
                 type=ComponentFieldType.TEXT,
                 label="File Path",
                 required=True,
-                placeholder="/path/to/file.csv",
+                placeholder="/path/to/file.txt",
             ),
             ComponentFieldSchema(
-                name="file_format",
-                type=ComponentFieldType.SELECT,
-                label="File Format",
-                options=["csv", "json", "parquet", "excel"],
-                default="csv",
-            ),
-            ComponentFieldSchema(
-                name="encoding",
-                type=ComponentFieldType.TEXT,
-                label="Encoding",
-                default="utf-8",
+                name="create_dir",
+                type=ComponentFieldType.BOOLEAN,
+                label="Create Directory if Missing",
+                default=False,
             ),
         ],
         input_count=0,
         output_count=1,
     ),
-    "FileOutput": ComponentMetadata(
-        type="FileOutput",
-        label="tFileOutput",
-        category="Output",
-        icon="download",
-        description="Write data to file",
+    "FileInputDelimited": ComponentMetadata(
+        type="FileInputDelimited",
+        label="file_input_delimited",
+        category="File",
+        icon="file-text",
+        description="Read delimited files (CSV, TSV, etc.) with customizable parsing options",
         fields=[
             ComponentFieldSchema(
-                name="file_path",
+                name="filepath",
                 type=ComponentFieldType.TEXT,
-                label="Output Path",
+                label="File Path",
                 required=True,
-                placeholder="/path/to/output.csv",
+                placeholder="/path/to/file.csv",
+                description="Path to the delimited file",
             ),
             ComponentFieldSchema(
-                name="file_format",
-                type=ComponentFieldType.SELECT,
-                label="File Format",
-                options=["csv", "json", "parquet", "excel"],
-                default="csv",
+                name="delimiter",
+                type=ComponentFieldType.TEXT,
+                label="Delimiter",
+                default=",",
+                description="Field delimiter (comma, tab, semicolon, etc.)",
             ),
             ComponentFieldSchema(
-                name="append_mode",
+                name="encoding",
+                type=ComponentFieldType.TEXT,
+                label="Encoding",
+                default="UTF-8",
+                description="File encoding (UTF-8, UTF-16, ISO-8859-1, etc.)",
+            ),
+            ComponentFieldSchema(
+                name="header_rows",
+                type=ComponentFieldType.TEXT,
+                label="Header Rows",
+                default="1",
+                description="Number of header rows to skip",
+            ),
+            ComponentFieldSchema(
+                name="footer_rows",
+                type=ComponentFieldType.TEXT,
+                label="Footer Rows",
+                default="0",
+                description="Number of footer rows to skip",
+            ),
+            ComponentFieldSchema(
+                name="text_enclosure",
+                type=ComponentFieldType.TEXT,
+                label="Text Enclosure",
+                default='"',
+                description="Character used to enclose fields",
+            ),
+            ComponentFieldSchema(
+                name="trim_all",
                 type=ComponentFieldType.BOOLEAN,
-                label="Append to Existing",
+                label="Trim All Fields",
                 default=False,
+                description="Remove leading/trailing whitespace from all fields",
+            ),
+            ComponentFieldSchema(
+                name="remove_empty_rows",
+                type=ComponentFieldType.BOOLEAN,
+                label="Remove Empty Rows",
+                default=False,
+                description="Skip empty rows during reading",
+            ),
+            ComponentFieldSchema(
+                name="die_on_error",
+                type=ComponentFieldType.BOOLEAN,
+                label="Die on Error",
+                default=True,
+                description="Throw error or continue on parsing errors",
             ),
         ],
-        input_count=1,
-        output_count=0,
+        input_count=0,
+        output_count=1,
     ),
-    "Aggregate": ComponentMetadata(
-        type="Aggregate",
-        label="tAggregate",
-        category="Transform",
-        icon="area-chart",
-        description="Group and aggregate data",
+    "FileOutputDelimited": ComponentMetadata(
+        type="FileOutputDelimited",
+        label="file_output_delimited",
+        category="File",
+        icon="file-export",
+        description="Write delimited files (CSV, TSV, etc.) with customizable formatting options",
         fields=[
             ComponentFieldSchema(
-                name="group_by",
-                type=ComponentFieldType.ARRAY,
-                label="Group By Columns",
+                name="filepath",
+                type=ComponentFieldType.TEXT,
+                label="File Path",
                 required=True,
+                placeholder="/path/to/file.csv",
+                description="Output file path",
             ),
             ComponentFieldSchema(
-                name="aggregations",
-                type=ComponentFieldType.ARRAY,
-                label="Aggregations",
-                description="e.g., sum(amount), count(*)",
-                required=True,
+                name="delimiter",
+                type=ComponentFieldType.TEXT,
+                label="Delimiter",
+                default=",",
+                description="Field delimiter (comma, tab, semicolon, etc.)",
+            ),
+            ComponentFieldSchema(
+                name="encoding",
+                type=ComponentFieldType.TEXT,
+                label="Encoding",
+                default="UTF-8",
+                description="File encoding (UTF-8, UTF-16, ISO-8859-1, etc.)",
+            ),
+            ComponentFieldSchema(
+                name="include_header",
+                type=ComponentFieldType.BOOLEAN,
+                label="Include Header",
+                default=True,
+                description="Include column headers in output",
+            ),
+            ComponentFieldSchema(
+                name="append",
+                type=ComponentFieldType.BOOLEAN,
+                label="Append to File",
+                default=False,
+                description="Append to existing file instead of overwriting",
+            ),
+            ComponentFieldSchema(
+                name="text_enclosure",
+                type=ComponentFieldType.TEXT,
+                label="Text Enclosure",
+                default='"',
+                description="Quote character for text fields",
+            ),
+            ComponentFieldSchema(
+                name="create_directory",
+                type=ComponentFieldType.BOOLEAN,
+                label="Create Directory if Missing",
+                default=True,
+                description="Create parent directories if needed",
+            ),
+            ComponentFieldSchema(
+                name="die_on_error",
+                type=ComponentFieldType.BOOLEAN,
+                label="Die on Error",
+                default=True,
+                description="Throw error or continue on errors",
             ),
         ],
         input_count=1,
         output_count=1,
     ),
-    "Sort": ComponentMetadata(
-        type="Sort",
-        label="tSort",
+    "FilterRows": ComponentMetadata(
+        type="FilterRows",
+        label="filter_rows",
         category="Transform",
-        icon="sort-ascending",
-        description="Sort data by columns",
+        icon="filter",
+        description="Filter rows based on conditions or advanced expressions",
         fields=[
             ComponentFieldSchema(
-                name="sort_columns",
-                type=ComponentFieldType.ARRAY,
-                label="Sort By",
-                required=True,
+                name="use_advanced",
+                type=ComponentFieldType.BOOLEAN,
+                label="Use Advanced Expression",
+                default=False,
+                description="Use advanced Java-like expression for filtering",
             ),
             ComponentFieldSchema(
-                name="sort_order",
-                type=ComponentFieldType.SELECT,
-                label="Order",
-                options=["ascending", "descending"],
-                default="ascending",
+                name="advanced_condition",
+                type=ComponentFieldType.TEXT,
+                label="Advanced Condition",
+                description="Java-like filter expression (e.g., {{java}} col1 > 100 AND col2 == 'value')",
+            ),
+            ComponentFieldSchema(
+                name="logical_operator",
+                type=ComponentFieldType.TEXT,
+                label="Logical Operator",
+                default="AND",
+                description="Logical operator for combining conditions (AND/OR)",
+            ),
+            ComponentFieldSchema(
+                name="conditions",
+                type=ComponentFieldType.TEXT,
+                label="Conditions",
+                description="Filter conditions as JSON array with column, operator, value",
             ),
         ],
         input_count=1,
-        output_count=1,
+        output_count=2,
     ),
 }
 
@@ -169,17 +220,29 @@ def get_component_metadata(component_type: str) -> ComponentMetadata:
     return COMPONENT_REGISTRY[component_type]
 
 
-def list_components() -> dict:
-    """List all available components grouped by category"""
-    by_category = {}
+def list_components() -> list:
+    """List all available components as flat array with category"""
+    components = []
     for comp_type, metadata in COMPONENT_REGISTRY.items():
-        category = metadata.category
-        if category not in by_category:
-            by_category[category] = []
-        by_category[category].append({
+        components.append({
             "type": metadata.type,
             "label": metadata.label,
+            "category": metadata.category,
             "icon": metadata.icon,
             "description": metadata.description,
+            "fields": [
+                {
+                    "name": field.name,
+                    "type": field.type.value,
+                    "label": field.label,
+                    "description": field.description,
+                    "required": field.required,
+                    "default": field.default,
+                    "options": field.options,
+                }
+                for field in metadata.fields
+            ],
+            "input_count": metadata.input_count,
+            "output_count": metadata.output_count,
         })
-    return by_category
+    return components

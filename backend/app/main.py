@@ -28,8 +28,10 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=[
             "http://localhost:3000",
+            "http://localhost:4200",
             "http://localhost:5173",
             "http://127.0.0.1:3000",
+            "http://127.0.0.1:4200",
             "http://127.0.0.1:5173",
         ],
         allow_credentials=True,
@@ -38,12 +40,13 @@ def create_app() -> FastAPI:
     )
 
     # Import routes
-    from app.routes import jobs, components, execution
+    from app.routes import jobs, components, execution, metadata
 
     # Include routers
     app.include_router(jobs.router)
     app.include_router(components.router)
     app.include_router(execution.router)
+    app.include_router(metadata.router)
 
     # Health check endpoint
     @app.get("/health")
