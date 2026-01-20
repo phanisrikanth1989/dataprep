@@ -5,7 +5,7 @@ import { NzMessageService } from 'ng-zorro-antd/message';
 
 /**
  * Configuration Panel Component
- * Dynamic form generator for component configuration
+ * Dynamic form generator for component configuration with optional schema editor
  */
 @Component({
   selector: 'app-config-panel',
@@ -16,9 +16,35 @@ import { NzMessageService } from 'ng-zorro-antd/message';
       </div>
 
       <div *ngIf="selectedNode" class="config-content">
-        <h3>{{ selectedNode.label }} Configuration</h3>
+        <div class="tab-header">
+          <h3 class="component-title">{{ selectedNode.label }} Configuration</h3>
+          <div class="tabs">
+            <button 
+              class="tab-button"
+              [class.active]="activeTab === 'config'"
+              (click)="activeTab = 'config'"
+              type="button"
+            >
+              Configuration
+            </button>
+            <button 
+              *ngIf="isInputComponent()"
+              class="tab-button"
+              [class.active]="activeTab === 'schema'"
+              (click)="activeTab = 'schema'"
+              type="button"
+            >
+              Output Schema
+            </button>
+          </div>
+        </div>
 
-        <form [formGroup]="configForm" (ngSubmit)="onSave()">
+        <!-- Configuration Tab -->
+        <form 
+          [formGroup]="configForm" 
+          (ngSubmit)="onSave()"
+          *ngIf="activeTab === 'config'"
+        >
           <!-- Rename field -->
           <div class="form-field rename-field">
             <label for="nodeName">
@@ -48,6 +74,7 @@ import { NzMessageService } from 'ng-zorro-antd/message';
               *ngIf="field.type === 'text'"
               nz-input
               [id]="field.name"
+
               [placeholder]="field.placeholder"
               [formControl]="getFormControl(field.name)"
             />
@@ -112,17 +139,29 @@ import { NzMessageService } from 'ng-zorro-antd/message';
             <button nz-button (click)="onCancel()">Cancel</button>
           </div>
         </form>
+
+        <!-- Schema Tab -->
+        <div *ngIf="activeTab === 'schema' && isInputComponent()" class="schema-tab">
+          <app-schema-editor
+            [existingSchema]="selectedNode.config['output_schema'] || []"
+            (schemaSaved)="onSchemaSaved($event)"
+            (cancelled)="activeTab = 'config'"
+          ></app-schema-editor>
+        </div>
       </div>
     </div>
   `,
   styles: [
     `
       .config-panel {
-        padding: 20px;
+        padding: 0;
         height: 100%;
-        overflow-y: auto;
         border-left: 1px solid #f0f0f0;
         background: #fafafa;
+        overflow-y: auto;
+        overflow-x: hidden;
+        display: flex;
+        flex-direction: column;
       }
 
       .empty-state {
@@ -133,19 +172,95 @@ import { NzMessageService } from 'ng-zorro-antd/message';
         color: #999;
       }
 
-      .config-content h3 {
-        margin-bottom: 16px;
+      .config-content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      .tab-header {
+        padding: 12px 16px;
+        background: white;
+        border-bottom: 1px solid #e8e8e8;
+        flex-shrink: 0;
+      }
+
+      .component-title {
+        margin: 0 0 8px 0;
         font-size: 13px;
+        font-weight: 600;
+        color: #222;
+      }
+
+      .tabs {
+        display: flex;
+        gap: 4px;
+      }
+
+      .tab-button {
+        padding: 6px 12px;
+        font-size: 12px;
+        border: 1px solid #e8e8e8;
+        background: #f5f5f5;
+        cursor: pointer;
+        border-radius: 2px;
+        transition: all 0.2s;
+      }
+
+      .tab-button:hover {
+        background: #f0f0f0;
+      }
+
+      .tab-button.active {
+        background: white;
+        border-color: #1890ff;
+        color: #1890ff;
         font-weight: 600;
       }
 
+      .schema-tab {
+        padding: 12px 16px;
+        flex: 1;
+        overflow-y: auto;
+      }
+
+      .config-content form {
+        padding: 12px 16px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        grid-auto-flow: dense;
+        flex: 1;
+        overflow-y: auto;
+      }
+
+      .rename-field {
+        grid-column: 1 / -1;
+        margin-bottom: 8px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #e8e8e8;
+      }
+
+      .divider {
+        grid-column: 1 / -1;
+        height: 1px;
+        background: #e8e8e8;
+        margin: 0;
+      }
+
       .form-field {
-        margin-bottom: 16px;
+        margin-bottom: 0;
+        padding: 0;
+      }
+
+      .form-field textarea {
+        grid-column: 1 / -1;
       }
 
       label {
         display: block;
-        margin-bottom: 6px;
+        margin-bottom: 4px;
         font-weight: 500;
         font-size: 12px;
       }
@@ -158,34 +273,35 @@ import { NzMessageService } from 'ng-zorro-antd/message';
       select,
       textarea {
         width: 100%;
+        font-size: 12px;
+      }
+
+      input[type="checkbox"] {
+        width: auto;
+        margin-right: 6px;
       }
 
       .description {
         display: block;
-        margin-top: 4px;
+        margin-top: 2px;
         color: #999;
         font-size: 11px;
       }
 
-      .divider {
-        height: 1px;
-        background: #e8e8e8;
-        margin: 16px 0;
-      }
-
-      .rename-field {
-        margin-bottom: 16px;
-        padding-bottom: 16px;
-      }
-
       .button-group {
-        margin-top: 20px;
+        grid-column: 1 / -1;
+        margin-top: 12px;
         display: flex;
-        gap: 10px;
+        gap: 8px;
       }
 
       .button-group button {
         flex: 1;
+      }
+
+      /* Make text areas shorter by default */
+      textarea {
+        min-height: 60px !important;
       }
     `,
   ],
@@ -197,6 +313,10 @@ export class ConfigPanelComponent implements OnInit {
   @Output() cancelled = new EventEmitter<void>();
 
   configForm!: FormGroup;
+  activeTab: 'config' | 'schema' = 'config';
+
+  // Input component types that support schema definition
+  INPUT_COMPONENT_TYPES = ['FileInputDelimited', 'FileTouch'];
 
   constructor(
     private fb: FormBuilder,
@@ -209,6 +329,15 @@ export class ConfigPanelComponent implements OnInit {
 
   ngOnChanges(): void {
     this.buildForm();
+    this.activeTab = 'config'; // Reset to config tab when component changes
+  }
+
+  /**
+   * Check if the selected component is an input component that supports schema definition
+   */
+  isInputComponent(): boolean {
+    if (!this.selectedNode) return false;
+    return this.INPUT_COMPONENT_TYPES.includes(this.selectedNode.type);
   }
 
   private buildForm(): void {
@@ -247,6 +376,20 @@ export class ConfigPanelComponent implements OnInit {
         _nodeName: nodeName,
       });
       this.message.success('Configuration saved');
+    }
+  }
+
+  /**
+   * Handle schema save from schema editor
+   */
+  onSchemaSaved(schema: any[]): void {
+    if (this.selectedNode) {
+      this.configUpdated.emit({
+        output_schema: schema,
+        _nodeName: this.selectedNode.name,
+      });
+      this.activeTab = 'config';
+      this.message.success('Schema saved');
     }
   }
 

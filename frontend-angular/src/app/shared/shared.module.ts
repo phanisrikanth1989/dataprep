@@ -17,6 +17,8 @@ import { NzLayoutModule } from 'ng-zorro-antd/layout';
 import { CanvasComponent } from './components/canvas.component';
 import { ComponentPaletteComponent } from './components/component-palette.component';
 import { ConfigPanelComponent } from './components/config-panel.component';
+import { SchemaEditorComponent } from './components/schema-editor.component';
+import { MetadataBrowserComponent } from './components/metadata-browser.component';
 import { ExecutionMonitorComponent } from './components/execution-monitor.component';
 
 @NgModule({
@@ -24,6 +26,8 @@ import { ExecutionMonitorComponent } from './components/execution-monitor.compon
     CanvasComponent,
     ComponentPaletteComponent,
     ConfigPanelComponent,
+    SchemaEditorComponent,
+    MetadataBrowserComponent,
     ExecutionMonitorComponent,
   ],
   imports: [
@@ -47,6 +51,8 @@ import { ExecutionMonitorComponent } from './components/execution-monitor.compon
     CanvasComponent,
     ComponentPaletteComponent,
     ConfigPanelComponent,
+    SchemaEditorComponent,
+    MetadataBrowserComponent,
     ExecutionMonitorComponent,
   ],
 })

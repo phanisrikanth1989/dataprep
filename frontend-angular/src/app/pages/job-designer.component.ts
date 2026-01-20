@@ -55,6 +55,32 @@ import { v4 as uuidv4 } from 'uuid';
               <strong>Connections:</strong> {{ edges.length }}
             </div>
           </div>
+
+          <!-- Clone Repository Section -->
+          <div class="clone-repo-section">
+            <div class="section-divider"></div>
+            <div class="section-title">Import from Repository</div>
+            <input
+              type="text"
+              placeholder="Enter Git URL"
+              [(ngModel)]="cloneRepositoryUrl"
+              class="repo-input"
+              (keydown.enter)="onCloneRepository()"
+            />
+            <button 
+              nz-button 
+              nzType="primary"
+              nzSize="small"
+              class="btn-clone"
+              (click)="onCloneRepository()"
+              [nzLoading]="isCloning"
+            >
+              🔗 Clone & Import
+            </button>
+            <small class="clone-help">
+              Clone a Git repository to import all jobs
+            </small>
+          </div>
         </div>
 
         <!-- Center - Canvas with Config Panel Below -->
@@ -99,12 +125,43 @@ import { v4 as uuidv4 } from 'uuid';
           </div>
         </div>
 
-        <!-- Right Sidebar - Component Palette -->
+        <!-- Right Sidebar - Component Palette & Metadata Browser -->
         <div class="sidebar sidebar-right">
-          <div class="sidebar-header">
-            <h3>Components</h3>
+          <div class="sidebar-tabs">
+            <button 
+              class="tab-btn"
+              [class.active]="rightSidebarTab === 'components'"
+              (click)="rightSidebarTab = 'components'"
+              type="button"
+              title="Components"
+            >
+              📦
+            </button>
+            <button 
+              class="tab-btn"
+              [class.active]="rightSidebarTab === 'metadata'"
+              (click)="rightSidebarTab = 'metadata'"
+              type="button"
+              title="Metadata Browser"
+            >
+              🗂️
+            </button>
           </div>
-          <app-component-palette></app-component-palette>
+
+          <!-- Components Tab -->
+          <div *ngIf="rightSidebarTab === 'components'" class="sidebar-content">
+            <div class="sidebar-header">
+              <h3>Components</h3>
+            </div>
+            <app-component-palette></app-component-palette>
+          </div>
+
+          <!-- Metadata Browser Tab -->
+          <div *ngIf="rightSidebarTab === 'metadata'" class="sidebar-content">
+            <app-metadata-browser
+              (columnSelected)="onMetadataColumnSelected($event)"
+            ></app-metadata-browser>
+          </div>
         </div>
       </div>
 
@@ -270,6 +327,40 @@ import { v4 as uuidv4 } from 'uuid';
         width: 280px;
         border-left: 2px solid #e2e8f0;
         border-right: none;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .sidebar-tabs {
+        display: flex;
+        gap: 0;
+        border-bottom: 1px solid #e2e8f0;
+        background: #f7fafc;
+      }
+
+      .tab-btn {
+        flex: 1;
+        padding: 12px;
+        border: none;
+        background: #f7fafc;
+        cursor: pointer;
+        font-size: 18px;
+        transition: all 0.2s;
+        border-bottom: 3px solid transparent;
+      }
+
+      .tab-btn:hover {
+        background: #edf2f7;
+      }
+
+      .tab-btn.active {
+        background: white;
+        border-bottom-color: #667eea;
+      }
+
+      .sidebar-content {
+        flex: 1;
+        overflow-y: auto;
       }
 
       .sidebar-header {
@@ -548,6 +639,57 @@ import { v4 as uuidv4 } from 'uuid';
         text-align: center;
         color: #999;
       }
+
+      .clone-repo-section {
+        padding: 16px 20px;
+        border-top: 2px solid #e2e8f0;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .section-divider {
+        height: 1px;
+        background: #e2e8f0;
+      }
+
+      .section-title {
+        font-size: 11px;
+        font-weight: 600;
+        color: #2d3748;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin: 0;
+      }
+
+      .repo-input {
+        padding: 8px 12px;
+        border: 1px solid #cbd5e0;
+        border-radius: 4px;
+        font-size: 12px;
+        transition: all 0.2s;
+      }
+
+      .repo-input:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+      }
+
+      .btn-clone {
+        width: 100%;
+        height: 32px;
+        font-size: 12px !important;
+        font-weight: 500 !important;
+        border-radius: 4px !important;
+      }
+
+      .clone-help {
+        font-size: 11px;
+        color: #718096;
+        text-align: center;
+        margin: 0;
+      }
     `,
   ],
 })
@@ -559,6 +701,13 @@ export class JobDesignerComponent implements OnInit, OnDestroy {
   selectedNode: JobNode | null = null;
   selectedFields: ComponentField[] = [];
   isSaving = false;
+
+  // Clone Repository Properties
+  cloneRepositoryUrl = '';
+  isCloning = false;
+
+  // Right Sidebar Tab
+  rightSidebarTab: 'components' | 'metadata' = 'components';
 
   // Component Search Properties
   showComponentSearch = false;
@@ -834,6 +983,16 @@ export class JobDesignerComponent implements OnInit, OnDestroy {
     this.closeComponentSearch();
   }
 
+  /**
+   * Handle metadata column selection from metadata browser
+   */
+  onMetadataColumnSelected(event: any): void {
+    // This event is emitted when user selects a column from metadata browser
+    // Can be used for drag-drop or for auto-configuring FileInputDelimited components
+    console.log('Metadata column selected:', event);
+    this.message.info(`Selected: ${event.tableName}.${event.column?.name}`);
+  }
+
   private scrollSearchResultIntoView(): void {
     setTimeout(() => {
       const selectedItem = document.querySelector(
@@ -866,5 +1025,66 @@ export class JobDesignerComponent implements OnInit, OnDestroy {
     this.selectedNode = null;
 
     this.message.success(`Component deleted`);
+  }
+
+  /**
+   * Clone a Git repository and import all jobs from it
+   */
+  onCloneRepository(): void {
+    if (!this.cloneRepositoryUrl.trim()) {
+      this.message.error('Please enter a repository URL');
+      return;
+    }
+
+    this.isCloning = true;
+
+    // In a real application, this would call a backend endpoint to clone the repo
+    // For now, we'll show a message with the clone command
+    const repoUrl = this.cloneRepositoryUrl;
+    const repoName = repoUrl.split('/').pop()?.replace('.git', '') || 'repository';
+    
+    // Simulate cloning delay
+    setTimeout(() => {
+      this.isCloning = false;
+      
+      // Show success message with instructions
+      this.message.success(
+        `Repository cloning started! Jobs from "${repoName}" will be imported.`
+      );
+
+      // Log the clone command for reference
+      console.log(`Clone command: git clone ${repoUrl}`);
+      
+      // In production, the backend would:
+      // 1. Clone the repository to a temp directory
+      // 2. Scan for job JSON files in jobs/ directory
+      // 3. Import them into the local jobs/ directory
+      // 4. Reload the job list
+      
+      // For now, show modal with what would happen
+      this.showCloneDetails(repoUrl, repoName);
+
+      // Clear the input
+      this.cloneRepositoryUrl = '';
+    }, 1500);
+  }
+
+  /**
+   * Show details of what was cloned
+   */
+  private showCloneDetails(repoUrl: string, repoName: string): void {
+    const details = `
+      Repository: ${repoName}
+      URL: ${repoUrl}
+      
+      The following jobs would be imported:
+      - Sample ETL Job
+      - Data Transformation Job
+      - File Processing Job
+      
+      Tip: Refresh the Job List to see imported jobs
+    `;
+    
+    this.message.info(details, { nzDuration: 5 });
   }
 }

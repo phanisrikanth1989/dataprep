@@ -412,6 +412,7 @@ export class LoginComponent implements OnInit {
   isSubmitted = false;
   errorMessage = '';
   returnUrl = '';
+  isSetupGuideVisible = false;
 
   constructor(
     private fb: FormBuilder,

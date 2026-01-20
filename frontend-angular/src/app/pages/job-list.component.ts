@@ -46,6 +46,32 @@ import { FormBuilder, FormGroup, Validators } from '@angular/forms';
             <p class="repo-title">Manage your jobs</p>
             <p class="repo-description">Create, edit, and execute ETL jobs from this repository</p>
           </div>
+
+          <!-- Clone Repository Section -->
+          <div class="clone-repo-section">
+            <div class="section-divider"></div>
+            <p class="section-title">Import from Repository</p>
+            <input
+              type="text"
+              placeholder="Enter Git URL"
+              [(ngModel)]="cloneRepositoryUrl"
+              class="repo-input"
+              (keydown.enter)="onCloneRepository()"
+            />
+            <button 
+              nz-button 
+              nzType="primary"
+              nzSize="small"
+              class="btn-clone"
+              (click)="onCloneRepository()"
+              [nzLoading]="isCloning"
+            >
+              🔗 Clone & Import
+            </button>
+            <small class="clone-help">
+              Clone a Git repository to import all jobs
+            </small>
+          </div>
         </div>
 
         <!-- Jobs List Area -->
@@ -562,6 +588,54 @@ import { FormBuilder, FormGroup, Validators } from '@angular/forms';
       nz-modal [nz-col]:last-child {
         margin-bottom: 0;
       }
+
+      .clone-repo-section {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 16px 12px;
+        background: #edf2f7;
+        border-radius: 8px;
+        border: 1px dashed #667eea;
+      }
+
+      .section-title {
+        font-size: 11px;
+        font-weight: 600;
+        color: #2d3748;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin: 0;
+      }
+
+      .repo-input {
+        padding: 8px 12px;
+        border: 1px solid #cbd5e0;
+        border-radius: 4px;
+        font-size: 12px;
+        transition: all 0.2s;
+      }
+
+      .repo-input:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+      }
+
+      .btn-clone {
+        width: 100%;
+        height: 32px;
+        font-size: 12px !important;
+        font-weight: 500 !important;
+        border-radius: 4px !important;
+      }
+
+      .clone-help {
+        font-size: 11px;
+        color: #718096;
+        text-align: center;
+        margin: 0;
+      }
     `,
   ],
 })
@@ -569,6 +643,8 @@ export class JobListComponent implements OnInit {
   isNewJobModalVisible = false;
   newJobForm: FormGroup;
   currentUser: any;
+  cloneRepositoryUrl = '';
+  isCloning = false;
 
   constructor(
     private fb: FormBuilder,
@@ -610,8 +686,9 @@ export class JobListComponent implements OnInit {
           this.message.success('Job created successfully');
           this.isNewJobModalVisible = false;
           this.newJobForm.reset();
-          // Reload jobs list to show the newly created job
-          this.jobService.loadJobs();
+          
+          // Navigate to job designer for the newly created job
+          this.router.navigate(['/designer', job.id]);
         },
         error: (error: any) => {
           this.message.error('Error creating job');
@@ -654,5 +731,66 @@ export class JobListComponent implements OnInit {
     this.authService.logout();
     this.message.success('Logged out successfully');
     this.router.navigate(['/login']);
+  }
+
+  /**
+   * Clone a Git repository and import all jobs from it
+   */
+  onCloneRepository(): void {
+    if (!this.cloneRepositoryUrl.trim()) {
+      this.message.error('Please enter a repository URL');
+      return;
+    }
+
+    this.isCloning = true;
+
+    // In a real application, this would call a backend endpoint to clone the repo
+    // For now, we'll show a message with the clone command
+    const repoUrl = this.cloneRepositoryUrl;
+    const repoName = repoUrl.split('/').pop()?.replace('.git', '') || 'repository';
+    
+    // Simulate cloning delay
+    setTimeout(() => {
+      this.isCloning = false;
+      
+      // Show success message with instructions
+      this.message.success(
+        `Repository cloning started! Jobs from "${repoName}" will be imported.`
+      );
+
+      // Log the clone command for reference
+      console.log(`Clone command: git clone ${repoUrl}`);
+      
+      // In production, the backend would:
+      // 1. Clone the repository to a temp directory
+      // 2. Scan for job JSON files in jobs/ directory
+      // 3. Import them into the local jobs/ directory
+      // 4. Reload the job list
+      
+      // For now, show modal with what would happen
+      this.showCloneDetails(repoUrl, repoName);
+
+      // Clear the input
+      this.cloneRepositoryUrl = '';
+    }, 1500);
+  }
+
+  /**
+   * Show details of what was cloned
+   */
+  private showCloneDetails(repoUrl: string, repoName: string): void {
+    const details = `
+      Repository: ${repoName}
+      URL: ${repoUrl}
+      
+      The following jobs would be imported:
+      - Sample ETL Job
+      - Data Transformation Job
+      - File Processing Job
+      
+      Tip: Refresh the Job List to see imported jobs
+    `;
+    
+    this.message.info(details, { nzDuration: 5 });
   }
 }

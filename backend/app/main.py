@@ -40,12 +40,13 @@ def create_app() -> FastAPI:
     )
 
     # Import routes
-    from app.routes import jobs, components, execution
+    from app.routes import jobs, components, execution, metadata
 
     # Include routers
     app.include_router(jobs.router)
     app.include_router(components.router)
     app.include_router(execution.router)
+    app.include_router(metadata.router)
 
     # Health check endpoint
     @app.get("/health")
