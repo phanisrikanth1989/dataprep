@@ -316,6 +316,12 @@
   border-top: 2px solid #667eea;
   resize: vertical;
   overflow: hidden;
+  transition: height 0.3s ease;
+}
+
+.bottom-panel.expanded {
+  height: 60vh !important;
+  max-height: 70vh !important;
 }
 
 .bottom-panel.collapsed {
@@ -381,18 +387,21 @@
 .bottom-panel .panel-content {
   flex: 1;
   overflow: hidden;
+  height: calc(100% - 32px);
 }
 
 .bottom-panel-content {
   height: 100%;
-  overflow: auto;
+  overflow-y: auto;
 }
 
 /* Component Properties Panel in Bottom - Compact */
 .component-properties-panel {
   height: 100%;
-  overflow: auto;
+  overflow-y: auto;
   padding: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .component-properties-panel .properties-panel {
@@ -416,6 +425,26 @@
   font-size: 11px;
 }
 
+.component-properties-panel .properties-tabs {
+  display: flex;
+  flex-direction: column;
+  height: calc(100% - 40px);
+}
+
+.component-properties-panel .properties-tabs .ant-tabs-content {
+  flex: 1;
+  overflow: hidden;
+}
+
+.component-properties-panel .properties-tabs .ant-tabs-content-holder {
+  height: 100%;
+}
+
+.component-properties-panel .properties-tabs .ant-tabs-tabpane {
+  height: 100%;
+  overflow-y: auto;
+}
+
 .component-properties-panel .properties-tabs .ant-tabs-nav {
   margin: 0;
   padding: 0 4px;
@@ -427,45 +456,48 @@
 }
 
 .component-properties-panel .tab-content {
-  padding: 6px 8px;
+  padding: 8px;
+  overflow-y: auto;
+  height: 100%;
 }
 
 .component-properties-panel .tab-content .ant-form-item {
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .component-properties-panel .tab-content .ant-form-item-label {
-  padding-bottom: 0;
+  padding-bottom: 2px;
 }
 
 .component-properties-panel .tab-content .ant-form-item-label > label {
   font-size: 10px;
-  height: 18px;
+  height: auto;
+  line-height: 1.4;
 }
 
 .component-properties-panel .ant-input,
 .component-properties-panel .ant-select-selector,
 .component-properties-panel .ant-input-number {
   font-size: 11px !important;
-  height: 24px !important;
-  min-height: 24px !important;
+  height: 26px !important;
+  min-height: 26px !important;
 }
 
 .component-properties-panel .ant-input-number-input {
-  height: 22px !important;
+  height: 24px !important;
 }
 
 .component-properties-panel .ant-select-selection-item {
-  line-height: 22px !important;
+  line-height: 24px !important;
 }
 
 .component-properties-panel .ant-form-item-row {
-  flex-direction: row;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
 }
 
 .component-properties-panel .ant-form-item-label {
-  flex: 0 0 100px;
+  flex: none;
   text-align: left;
 }
 
@@ -876,6 +908,123 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Talend-style Context Panel */
+.context-panel-talend {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0;
+}
+
+.context-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: #f5f5f5;
+  border-bottom: 1px solid #d9d9d9;
+  padding: 0 4px;
+}
+
+.context-tab {
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  color: #666;
+  transition: all 0.2s;
+}
+
+.context-tab:hover {
+  color: #1890ff;
+  background: rgba(24, 144, 255, 0.05);
+}
+
+.context-tab.active {
+  color: #1890ff;
+  border-bottom-color: #1890ff;
+  background: #fff;
+}
+
+.context-tab .default-badge {
+  color: #52c41a;
+  margin-left: 4px;
+  font-weight: bold;
+}
+
+.add-context-btn {
+  margin-left: auto;
+  color: #1890ff;
+}
+
+.context-table-container {
+  flex: 1;
+  overflow: auto;
+  padding: 8px;
+}
+
+.context-variables-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.context-variables-table th {
+  background: #fafafa;
+  padding: 6px 8px;
+  text-align: left;
+  font-weight: 600;
+  color: #666;
+  border-bottom: 1px solid #e8e8e8;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.context-variables-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid #f0f0f0;
+  vertical-align: middle;
+}
+
+.context-variables-table tr:hover td {
+  background: #fafafa;
+}
+
+.var-name-cell {
+  font-weight: 500;
+  color: #333;
+}
+
+.var-type-cell {
+  color: #722ed1;
+  font-size: 10px;
+}
+
+.var-value-cell {
+  color: #666;
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.var-actions-cell {
+  white-space: nowrap;
+}
+
+.var-actions-cell .ant-btn {
+  padding: 0 4px;
+  height: 20px;
+}
+
+.add-variable-row td {
+  padding: 8px !important;
+  background: transparent !important;
+}
+
+.add-variable-row .ant-btn {
+  font-size: 11px;
+  height: 26px;
+}
 }
 
 /* ============================================

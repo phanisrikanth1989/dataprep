@@ -242,6 +242,78 @@
   background: #2a4a7f !important;
 }
 
+/* Component Palette Dark Mode */
+.dark-mode .component-palette {
+  background: #16213e;
+}
+
+.dark-mode .component-palette .ant-collapse {
+  background: transparent;
+  border-color: #30363d;
+}
+
+.dark-mode .component-palette .ant-collapse-item {
+  border-color: #30363d;
+}
+
+.dark-mode .component-palette .ant-collapse-header {
+  background: #1f3460 !important;
+  color: #E1E4E8 !important;
+}
+
+.dark-mode .component-palette .ant-collapse-header:hover {
+  background: #2a4a7f !important;
+}
+
+.dark-mode .component-palette .ant-collapse-content {
+  background: #16213e;
+  border-color: #30363d;
+}
+
+.dark-mode .component-palette .ant-collapse-content-box {
+  background: #16213e;
+}
+
+.dark-mode .category-label {
+  color: #FFFFFF !important;
+}
+
+.dark-mode .category-label .count {
+  color: #A8B2C0;
+}
+
+.dark-mode .comp-name {
+  color: #FFFFFF;
+}
+
+.dark-mode .comp-icon {
+  background: #1f3460;
+  box-shadow: none;
+}
+
+.dark-mode .palette-hint {
+  background: #1a1a2e;
+  color: #6A737D;
+  border-color: #30363d;
+}
+
+.dark-mode .no-results {
+  color: #6A737D;
+}
+
+.dark-mode .palette-search .ant-input-affix-wrapper {
+  background: #1f3460;
+  border-color: #30363d;
+}
+
+.dark-mode .palette-search .ant-input {
+  color: #E1E4E8;
+}
+
+.dark-mode .palette-search .ant-input-prefix {
+  color: #6A737D;
+}
+
 .dark-mode ::-webkit-scrollbar-track {
   background: #1a1a2e;
 }

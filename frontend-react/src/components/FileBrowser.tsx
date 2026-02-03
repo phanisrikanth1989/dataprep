@@ -166,16 +166,16 @@ export default function FileBrowser({
       title={title}
       open={open}
       onCancel={onClose}
-      width={700}
+      width={500}
       footer={[
-        <Button key="cancel" onClick={onClose}>
+        <Button key="cancel" size="small" onClick={onClose}>
           Cancel
         </Button>,
-        <Button key="confirm" type="primary" onClick={() => handleConfirm()}>
+        <Button key="confirm" size="small" type="primary" onClick={() => handleConfirm()}>
           {mode === 'save' ? 'Save' : 'Select'}
         </Button>,
       ]}
-      className="file-browser-modal"
+      className="file-browser-modal compact"
     >
       <div className="file-browser">
         {/* Toolbar */}

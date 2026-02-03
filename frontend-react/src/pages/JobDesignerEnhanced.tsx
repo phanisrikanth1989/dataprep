@@ -94,6 +94,7 @@ export default function JobDesignerEnhanced() {
   const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
   const [bottomPanelCollapsed, setBottomPanelCollapsed] = useState(false);
+  const [bottomPanelExpanded, setBottomPanelExpanded] = useState(false);
   const [bottomPanelTab, setBottomPanelTab] = useState<'component' | 'run' | 'problems' | 'context'>('component');
   
   // File metadata state
@@ -133,6 +134,18 @@ export default function JobDesignerEnhanced() {
   
   // Refs
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
+
+  // Keyboard shortcuts (Ctrl+S to save)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        handleSave();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [nodes, edges, currentJob, jobId]);
 
   // Load job and components
   useEffect(() => {
@@ -1198,8 +1211,15 @@ export default function JobDesignerEnhanced() {
           </div>
 
           {/* Bottom Panel - Talend-style with Component/Run/Problems tabs */}
-          <div className={`bottom-panel ${bottomPanelCollapsed ? 'collapsed' : ''}`}>
-            <div className="panel-header">
+          <div className={`bottom-panel ${bottomPanelCollapsed ? 'collapsed' : ''} ${bottomPanelExpanded ? 'expanded' : ''}`}>
+            <div 
+              className="panel-header" 
+              onDoubleClick={() => {
+                if (!bottomPanelCollapsed) {
+                  setBottomPanelExpanded(!bottomPanelExpanded);
+                }
+              }}
+            >
               <Tabs
                 activeKey={bottomPanelTab}
                 onChange={(key) => setBottomPanelTab(key as 'component' | 'run' | 'problems' | 'context')}
@@ -1332,35 +1352,72 @@ export default function JobDesignerEnhanced() {
                   </div>
                 )}
                 {bottomPanelTab === 'context' && (
-                  <div className="context-panel">
-                    <div className="context-toolbar">
-                      <Button type="primary" size="small" onClick={() => setContextManagerOpen(true)}>
-                        Manage Context Groups
-                      </Button>
-                    </div>
-                    <div className="context-list">
+                  <div className="context-panel-talend">
+                    <div className="context-tabs">
                       {contextGroups.map((ctx) => (
-                        <div key={ctx.id} className={`context-item ${selectedContext === ctx.name ? 'active' : ''}`}>
-                          <div className="context-header" onClick={() => setSelectedContext(ctx.name)}>
-                            <span className="context-name">
-                              {ctx.name}
-                              {ctx.isDefault && <Badge status="success" text="Default" style={{ marginLeft: 8 }} />}
-                            </span>
-                            <span className="context-vars-count">{ctx.variables.length} variables</span>
-                          </div>
-                          {ctx.variables.length > 0 && (
-                            <div className="context-variables">
-                              {ctx.variables.map((v) => (
-                                <div key={v.id} className="context-var-row">
-                                  <span className="var-name">{v.name}</span>
-                                  <span className="var-type">{v.type}</span>
-                                  <span className="var-value">{v.value || '(empty)'}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
+                        <div 
+                          key={ctx.id} 
+                          className={`context-tab ${selectedContext === ctx.name ? 'active' : ''}`}
+                          onClick={() => setSelectedContext(ctx.name)}
+                        >
+                          {ctx.name}
+                          {ctx.isDefault && <span className="default-badge">*</span>}
                         </div>
                       ))}
+                      <Button 
+                        type="text" 
+                        size="small" 
+                        icon={<PlusOutlined />}
+                        onClick={() => setContextManagerOpen(true)}
+                        className="add-context-btn"
+                      />
+                    </div>
+                    <div className="context-table-container">
+                      <table className="context-variables-table">
+                        <thead>
+                          <tr>
+                            <th style={{ width: '30%' }}>Name</th>
+                            <th style={{ width: '15%' }}>Type</th>
+                            <th style={{ width: '45%' }}>Value</th>
+                            <th style={{ width: '10%' }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {contextGroups.find(c => c.name === selectedContext)?.variables.map((v) => (
+                            <tr key={v.id}>
+                              <td className="var-name-cell">{v.name}</td>
+                              <td className="var-type-cell">{v.type}</td>
+                              <td className="var-value-cell">
+                                {v.type === 'password' ? '••••••' : (v.value || '')}
+                              </td>
+                              <td className="var-actions-cell">
+                                <Button type="text" size="small" icon={<EditOutlined />} onClick={() => setContextManagerOpen(true)} />
+                                <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => {
+                                  const updatedGroups = contextGroups.map(g => 
+                                    g.name === selectedContext 
+                                      ? { ...g, variables: g.variables.filter(vr => vr.id !== v.id) }
+                                      : g
+                                  );
+                                  setContextGroups(updatedGroups);
+                                }} />
+                              </td>
+                            </tr>
+                          ))}
+                          <tr className="add-variable-row">
+                            <td colSpan={4}>
+                              <Button 
+                                type="dashed" 
+                                size="small" 
+                                icon={<PlusOutlined />}
+                                onClick={() => setContextManagerOpen(true)}
+                                style={{ width: '100%' }}
+                              >
+                                Add Variable
+                              </Button>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 )}
@@ -1412,10 +1469,11 @@ export default function JobDesignerEnhanced() {
         open={mapEditorOpen}
         onCancel={() => setMapEditorOpen(false)}
         footer={null}
-        width="90%"
-        style={{ top: 20 }}
-        styles={{ body: { height: 'calc(100vh - 150px)', padding: 0, overflow: 'hidden' } }}
+        width="70%"
+        style={{ top: 40 }}
+        styles={{ body: { height: 'calc(100vh - 200px)', padding: 0, overflow: 'hidden' } }}
         destroyOnClose
+        className="map-editor-modal"
       >
         {selectedNode && (
           <MapEditor

@@ -16,7 +16,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 14px;
+  padding: 6px 10px;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: #fff;
 }
@@ -24,11 +24,11 @@
 .header-info {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .component-type {
-  font-size: 10px;
+  font-size: 9px;
   opacity: 0.8;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -36,7 +36,7 @@
 
 .component-name {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 12px;
 }
 
 .panel-header .ant-btn {
@@ -65,8 +65,8 @@
 }
 
 .properties-tabs .ant-tabs-tab {
-  padding: 8px 10px;
-  font-size: 12px;
+  padding: 6px 8px;
+  font-size: 11px;
 }
 
 .properties-tabs .ant-tabs-content {
@@ -74,26 +74,33 @@
   overflow: hidden;
 }
 
-.properties-tabs .ant-tabs-tabpane {
+.properties-tabs .ant-tabs-content-holder {
   height: 100%;
-  overflow: auto;
+  overflow: hidden;
 }
 
-/* Tab content */
+.properties-tabs .ant-tabs-tabpane {
+  height: 100%;
+  overflow-y: auto;
+}
+
+/* Tab content - scrollable */
 .tab-content {
-  padding: 14px;
+  padding: 10px;
+  overflow-y: auto;
+  height: 100%;
 }
 
 .tab-content .ant-form-item {
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .tab-content .ant-form-item-label {
-  padding-bottom: 4px;
+  padding-bottom: 2px;
 }
 
 .tab-content .ant-form-item-label > label {
-  font-size: 12px;
+  font-size: 11px;
   color: #595959;
 }
 

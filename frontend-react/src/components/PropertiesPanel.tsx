@@ -152,7 +152,7 @@ export default function PropertiesPanel({
     setActiveFileField(null);
   };
 
-  // Save all configurations
+  // Save all configurations (auto-save)
   const handleSave = () => {
     const basicValues = form.getFieldsValue();
     const advancedValues = advancedForm.getFieldsValue();
@@ -192,6 +192,14 @@ export default function PropertiesPanel({
         },
       });
     }
+  };
+
+  // Auto-save on form value change
+  const handleValuesChange = () => {
+    // Debounce auto-save
+    setTimeout(() => {
+      handleSave();
+    }, 300);
   };
 
   // Render form field based on type
@@ -299,7 +307,7 @@ export default function PropertiesPanel({
       ),
       children: (
         <div className="tab-content">
-          <Form form={form} layout="vertical" size="small">
+          <Form form={form} layout="vertical" size="small" onValuesChange={handleValuesChange}>
             {/* Component Name */}
             <Form.Item
               name="_componentName"
@@ -342,7 +350,7 @@ export default function PropertiesPanel({
       ),
       children: (
         <div className="tab-content">
-          <Form form={advancedForm} layout="vertical" size="small">
+          <Form form={advancedForm} layout="vertical" size="small" onValuesChange={handleValuesChange}>
             <Form.Item
               name="parallelism"
               label="Parallelism"
@@ -489,7 +497,7 @@ export default function PropertiesPanel({
       ),
       children: (
         <div className="tab-content">
-          <Form form={errorForm} layout="vertical" size="small">
+          <Form form={errorForm} layout="vertical" size="small" onValuesChange={handleValuesChange}>
             <Form.Item
               name="errorHandling"
               label="Error Handling Mode"
@@ -559,14 +567,6 @@ export default function PropertiesPanel({
 
   return (
     <div className="properties-panel">
-      <div className="panel-header">
-        <div className="header-info">
-          <span className="component-type">{component.type}</span>
-          <span className="component-name">{nodeData?.name || nodeData?.label}</span>
-        </div>
-        <Button size="small" onClick={onClose}>×</Button>
-      </div>
-
       <Tabs
         activeKey={activeTab}
         onChange={setActiveTab}
@@ -574,13 +574,6 @@ export default function PropertiesPanel({
         size="small"
         className="properties-tabs"
       />
-
-      <div className="panel-footer">
-        <Button onClick={onClose}>Cancel</Button>
-        <Button type="primary" onClick={handleSave}>
-          Apply
-        </Button>
-      </div>
 
       <FileBrowser
         open={fileBrowserOpen}
