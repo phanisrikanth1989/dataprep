@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Command Palette Demo (Ctrl+K)</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            min-height: 100vh;
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+
+        /* Main App Layout */
+        .app {
+            min-height: 100vh;
+        }
+
+        .header {
+            background: #1e293b;
+            border-bottom: 1px solid #334155;
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 600;
+            font-size: 18px;
+        }
+
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .search-trigger {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 16px;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            color: #64748b;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            min-width: 300px;
+        }
+
+        .search-trigger:hover {
+            border-color: #3b82f6;
+            color: #94a3b8;
+        }
+
+        .search-trigger kbd {
+            background: #334155;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-left: auto;
+        }
+
+        .canvas-area {
+            padding: 40px;
+            min-height: calc(100vh - 60px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .hint-box {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 32px 48px;
+            text-align: center;
+        }
+
+        .hint-title {
+            font-size: 24px;
+            margin-bottom: 12px;
+        }
+
+        .hint-subtitle {
+            color: #64748b;
+            margin-bottom: 24px;
+        }
+
+        .hint-kbd {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: #334155;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 18px;
+        }
+
+        .hint-kbd kbd {
+            background: #475569;
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-weight: 600;
+        }
+
+        /* Command Palette Overlay */
+        .palette-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding-top: 15vh;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s ease;
+        }
+
+        .palette-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .palette {
+            width: 600px;
+            max-width: 90vw;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 16px;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+            transform: scale(0.95) translateY(-20px);
+            transition: all 0.2s ease;
+        }
+
+        .palette-overlay.active .palette {
+            transform: scale(1) translateY(0);
+        }
+
+        .palette-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid #334155;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .palette-icon {
+            color: #64748b;
+            font-size: 20px;
+        }
+
+        .palette-input {
+            flex: 1;
+            background: none;
+            border: none;
+            color: #e2e8f0;
+            font-size: 16px;
+            outline: none;
+        }
+
+        .palette-input::placeholder {
+            color: #64748b;
+        }
+
+        .palette-kbd {
+            background: #334155;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #94a3b8;
+        }
+
+        .palette-body {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .palette-section {
+            padding: 8px 0;
+        }
+
+        .palette-section-title {
+            padding: 8px 20px;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #64748b;
+            font-weight: 600;
+        }
+
+        .palette-item {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 12px 20px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .palette-item:hover,
+        .palette-item.selected {
+            background: #334155;
+        }
+
+        .palette-item.selected {
+            background: #3b82f6;
+        }
+
+        .palette-item-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+
+        .icon-blue { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+        .icon-purple { background: rgba(139, 92, 246, 0.2); color: #a78bfa; }
+        .icon-green { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
+        .icon-orange { background: rgba(249, 115, 22, 0.2); color: #fb923c; }
+        .icon-red { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+        .icon-cyan { background: rgba(6, 182, 212, 0.2); color: #22d3ee; }
+
+        .palette-item-content {
+            flex: 1;
+        }
+
+        .palette-item-title {
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .palette-item-desc {
+            font-size: 12px;
+            color: #64748b;
+            margin-top: 2px;
+        }
+
+        .palette-item.selected .palette-item-desc {
+            color: #bfdbfe;
+        }
+
+        .palette-item-shortcut {
+            display: flex;
+            gap: 4px;
+        }
+
+        .palette-item-shortcut kbd {
+            background: #475569;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            color: #94a3b8;
+        }
+
+        .palette-item.selected .palette-item-shortcut kbd {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+        }
+
+        .palette-footer {
+            padding: 12px 20px;
+            border-top: 1px solid #334155;
+            display: flex;
+            gap: 20px;
+            font-size: 12px;
+            color: #64748b;
+        }
+
+        .palette-footer span {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .palette-footer kbd {
+            background: #334155;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+
+        /* Quick Actions Bar */
+        .quick-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin-top: 16px;
+        }
+
+        .quick-action {
+            padding: 8px 16px;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 100px;
+            color: #94a3b8;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .quick-action:hover {
+            border-color: #3b82f6;
+            color: #e2e8f0;
+        }
+
+        /* Recent items in canvas */
+        .recent-section {
+            margin-top: 48px;
+            width: 100%;
+            max-width: 800px;
+        }
+
+        .recent-title {
+            font-size: 14px;
+            color: #64748b;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .recent-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+
+        .recent-item {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .recent-item:hover {
+            border-color: #3b82f6;
+            transform: translateY(-4px);
+        }
+
+        .recent-item-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            margin-bottom: 12px;
+        }
+
+        .recent-item-name {
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+
+        .recent-item-date {
+            font-size: 12px;
+            color: #64748b;
+        }
+
+        .info-panel {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1e293b;
+            border: 1px solid #334155;
+            padding: 12px 24px;
+            border-radius: 100px;
+            font-size: 13px;
+        }
+
+        .info-panel strong {
+            color: #3b82f6;
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <header class="header">
+            <div class="logo">
+                <div class="logo-icon">⚡</div>
+                DataFlow Studio
+            </div>
+            <div class="search-trigger" onclick="openPalette()">
+                <span>🔍</span>
+                <span>Search commands, files, actions...</span>
+                <kbd>Ctrl K</kbd>
+            </div>
+            <div style="width: 150px;"></div>
+        </header>
+
+        <main class="canvas-area">
+            <div class="hint-box">
+                <h2 class="hint-title">Quick Actions</h2>
+                <p class="hint-subtitle">Press the keyboard shortcut to open command palette</p>
+                <div class="hint-kbd">
+                    <kbd>Ctrl</kbd>
+                    <span>+</span>
+                    <kbd>K</kbd>
+                </div>
+            </div>
+
+            <div class="quick-actions">
+                <button class="quick-action" onclick="openPalette()">➕ New Pipeline</button>
+                <button class="quick-action" onclick="openPalette()">📁 Open File</button>
+                <button class="quick-action" onclick="openPalette()">🔗 Add Connection</button>
+                <button class="quick-action" onclick="openPalette()">⚙️ Settings</button>
+            </div>
+
+            <div class="recent-section">
+                <div class="recent-title">
+                    🕐 Recent Pipelines
+                </div>
+                <div class="recent-grid">
+                    <div class="recent-item">
+                        <div class="recent-item-icon icon-blue">📊</div>
+                        <div class="recent-item-name">Customer Analytics</div>
+                        <div class="recent-item-date">Edited 2 hours ago</div>
+                    </div>
+                    <div class="recent-item">
+                        <div class="recent-item-icon icon-purple">🔄</div>
+                        <div class="recent-item-name">Daily ETL Sync</div>
+                        <div class="recent-item-date">Edited yesterday</div>
+                    </div>
+                    <div class="recent-item">
+                        <div class="recent-item-icon icon-green">📈</div>
+                        <div class="recent-item-name">Sales Dashboard</div>
+                        <div class="recent-item-date">Edited 3 days ago</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Command Palette -->
+    <div class="palette-overlay" id="paletteOverlay" onclick="closePaletteOnOverlay(event)">
+        <div class="palette">
+            <div class="palette-header">
+                <span class="palette-icon">🔍</span>
+                <input 
+                    type="text" 
+                    class="palette-input" 
+                    id="paletteInput"
+                    placeholder="Type a command or search..."
+                    oninput="filterCommands()"
+                >
+                <span class="palette-kbd">ESC</span>
+            </div>
+            <div class="palette-body" id="paletteBody">
+                <div class="palette-section">
+                    <div class="palette-section-title">Quick Actions</div>
+                    <div class="palette-item selected" data-action="new-pipeline">
+                        <div class="palette-item-icon icon-blue">➕</div>
+                        <div class="palette-item-content">
+                            <div class="palette-item-title">New Pipeline</div>
+                            <div class="palette-item-desc">Create a new data pipeline</div>
+                        </div>
+                        <div class="palette-item-shortcut">
+                            <kbd>Ctrl</kbd><kbd>N</kbd>
+                        </div>
+                    </div>
+                    <div class="palette-item" data-action="open-file">
+                        <div class="palette-item-icon icon-purple">📁</div>
+                        <div class="palette-item-content">
+                            <div class="palette-item-title">Open File</div>
+                            <div class="palette-item-desc">Open an existing pipeline or file</div>
+                        </div>
+                        <div class="palette-item-shortcut">
+                            <kbd>Ctrl</kbd><kbd>O</kbd>
+                        </div>
+                    </div>
+                    <div class="palette-item" data-action="save">
+                        <div class="palette-item-icon icon-green">💾</div>
+                        <div class="palette-item-content">
+                            <div class="palette-item-title">Save</div>
+                            <div class="palette-item-desc">Save current pipeline</div>
+                        </div>
+                        <div class="palette-item-shortcut">
+                            <kbd>Ctrl</kbd><kbd>S</kbd>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="palette-section">
+                    <div class="palette-section-title">Components</div>
+                    <div class="palette-item" data-action="add-source">
+                        <div class="palette-item-icon icon-cyan">🗄️</div>
+                        <div class="palette-item-content">
+                            <div class="palette-item-title">Add Database Source</div>
+                            <div class="palette-item-desc">Connect to PostgreSQL, MySQL, etc.</div>
+                        </div>
+                    </div>
+                    <div class="palette-item" data-action="add-transform">
+                        <div class="palette-item-icon icon-orange">⚙️</div>
+                        <div class="palette-item-content">
+                            <div class="palette-item-title">Add Transform</div>
+                            <div class="palette-item-desc">Filter, join, aggregate data</div>
+                        </div>
+                    </div>
+                    <div class="palette-item" data-action="add-destination">
+                        <div class="palette-item-icon icon-green">☁️</div>
+                        <div class="palette-item-content">
+                            <div class="palette-item-title">Add Destination</div>
+                            <div class="palette-item-desc">Output to warehouse or file</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="palette-section">
+                    <div class="palette-section-title">Execution</div>
+                    <div class="palette-item" data-action="run">
+                        <div class="palette-item-icon icon-green">▶️</div>
+                        <div class="palette-item-content">
+                            <div class="palette-item-title">Run Pipeline</div>
+                            <div class="palette-item-desc">Execute the current pipeline</div>
+                        </div>
+                        <div class="palette-item-shortcut">
+                            <kbd>F5</kbd>
+                        </div>
+                    </div>
+                    <div class="palette-item" data-action="debug">
+                        <div class="palette-item-icon icon-orange">🐛</div>
+                        <div class="palette-item-content">
+                            <div class="palette-item-title">Debug Mode</div>
+                            <div class="palette-item-desc">Run with breakpoints</div>
+                        </div>
+                        <div class="palette-item-shortcut">
+                            <kbd>F6</kbd>
+                        </div>
+                    </div>
+                    <div class="palette-item" data-action="stop">
+                        <div class="palette-item-icon icon-red">⏹️</div>
+                        <div class="palette-item-content">
+                            <div class="palette-item-title">Stop Execution</div>
+                            <div class="palette-item-desc">Halt running pipeline</div>
+                        </div>
+                        <div class="palette-item-shortcut">
+                            <kbd>Shift</kbd><kbd>F5</kbd>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="palette-section">
+                    <div class="palette-section-title">Settings</div>
+                    <div class="palette-item" data-action="settings">
+                        <div class="palette-item-icon icon-purple">⚙️</div>
+                        <div class="palette-item-content">
+                            <div class="palette-item-title">Preferences</div>
+                            <div class="palette-item-desc">Customize application settings</div>
+                        </div>
+                        <div class="palette-item-shortcut">
+                            <kbd>Ctrl</kbd><kbd>,</kbd>
+                        </div>
+                    </div>
+                    <div class="palette-item" data-action="connections">
+                        <div class="palette-item-icon icon-cyan">🔗</div>
+                        <div class="palette-item-content">
+                            <div class="palette-item-title">Manage Connections</div>
+                            <div class="palette-item-desc">Database and API connections</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="palette-footer">
+                <span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span>
+                <span><kbd>↵</kbd> Select</span>
+                <span><kbd>Esc</kbd> Close</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="info-panel">
+        <strong>Command Palette</strong> — Press Ctrl+K for quick access to all actions (like VS Code, Figma, Notion)
+    </div>
+
+    <script>
+        const overlay = document.getElementById('paletteOverlay');
+        const input = document.getElementById('paletteInput');
+        let selectedIndex = 0;
+        let visibleItems = [];
+
+        function openPalette() {
+            overlay.classList.add('active');
+            input.focus();
+            input.value = '';
+            filterCommands();
+        }
+
+        function closePalette() {
+            overlay.classList.remove('active');
+        }
+
+        function closePaletteOnOverlay(e) {
+            if (e.target === overlay) {
+                closePalette();
+            }
+        }
+
+        function filterCommands() {
+            const query = input.value.toLowerCase();
+            const items = document.querySelectorAll('.palette-item');
+            visibleItems = [];
+
+            items.forEach(item => {
+                const title = item.querySelector('.palette-item-title').textContent.toLowerCase();
+                const desc = item.querySelector('.palette-item-desc').textContent.toLowerCase();
+                const matches = title.includes(query) || desc.includes(query);
+                item.style.display = matches ? 'flex' : 'none';
+                if (matches) visibleItems.push(item);
+            });
+
+            // Show/hide sections based on visible items
+            document.querySelectorAll('.palette-section').forEach(section => {
+                const hasVisibleItems = section.querySelector('.palette-item[style="display: flex;"]') ||
+                                       Array.from(section.querySelectorAll('.palette-item')).some(i => i.style.display !== 'none');
+                section.style.display = hasVisibleItems ? 'block' : 'none';
+            });
+
+            // Reset selection
+            selectedIndex = 0;
+            updateSelection();
+        }
+
+        function updateSelection() {
+            document.querySelectorAll('.palette-item').forEach(item => {
+                item.classList.remove('selected');
+            });
+            if (visibleItems[selectedIndex]) {
+                visibleItems[selectedIndex].classList.add('selected');
+                visibleItems[selectedIndex].scrollIntoView({ block: 'nearest' });
+            }
+        }
+
+        function executeSelected() {
+            const selected = visibleItems[selectedIndex];
+            if (selected) {
+                const action = selected.dataset.action;
+                alert(`Executing: ${action}`);
+                closePalette();
+            }
+        }
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            // Ctrl+K to open
+            if (e.ctrlKey && e.key === 'k') {
+                e.preventDefault();
+                openPalette();
+            }
+
+            // When palette is open
+            if (overlay.classList.contains('active')) {
+                if (e.key === 'Escape') {
+                    closePalette();
+                }
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    selectedIndex = Math.min(selectedIndex + 1, visibleItems.length - 1);
+                    updateSelection();
+                }
+                if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    selectedIndex = Math.max(selectedIndex - 1, 0);
+                    updateSelection();
+                }
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    executeSelected();
+                }
+            }
+        });
+
+        // Click on items
+        document.querySelectorAll('.palette-item').forEach((item, index) => {
+            item.addEventListener('click', () => {
+                executeSelected();
+            });
+            item.addEventListener('mouseenter', () => {
+                selectedIndex = visibleItems.indexOf(item);
+                updateSelection();
+            });
+        });
+
+        // Initialize
+        filterCommands();
+    </script>
+</body>
+</html>

@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rounded Pill Nodes Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            min-height: 100vh;
+            background: #f8fafc;
+        }
+
+        .header {
+            background: white;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 16px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 700;
+            font-size: 20px;
+            color: #1e293b;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #06b6d4, #0891b2);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 20px;
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 8px;
+        }
+
+        .tool-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 100px;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .tool-btn-secondary {
+            background: #f1f5f9;
+            color: #475569;
+        }
+
+        .tool-btn-secondary:hover {
+            background: #e2e8f0;
+        }
+
+        .tool-btn-primary {
+            background: linear-gradient(135deg, #06b6d4, #0891b2);
+            color: white;
+            box-shadow: 0 4px 14px rgba(6, 182, 212, 0.4);
+        }
+
+        .tool-btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(6, 182, 212, 0.5);
+        }
+
+        .main-layout {
+            display: flex;
+            height: calc(100vh - 73px);
+        }
+
+        /* Component Palette */
+        .palette {
+            width: 300px;
+            background: white;
+            border-right: 1px solid #e2e8f0;
+            padding: 24px;
+            overflow-y: auto;
+        }
+
+        .palette-search {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 100px;
+            font-size: 14px;
+            margin-bottom: 24px;
+            transition: all 0.2s ease;
+        }
+
+        .palette-search:focus {
+            outline: none;
+            border-color: #06b6d4;
+        }
+
+        .palette-section {
+            margin-bottom: 24px;
+        }
+
+        .palette-section-title {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #94a3b8;
+            margin-bottom: 12px;
+            font-weight: 600;
+        }
+
+        .palette-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            border-radius: 100px;
+            cursor: grab;
+            transition: all 0.2s ease;
+            margin-bottom: 8px;
+            background: #f8fafc;
+        }
+
+        .palette-item:hover {
+            background: #f1f5f9;
+            transform: translateX(4px);
+        }
+
+        .palette-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 100px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            color: white;
+        }
+
+        .icon-cyan { background: linear-gradient(135deg, #06b6d4, #0891b2); }
+        .icon-violet { background: linear-gradient(135deg, #8b5cf6, #7c3aed); }
+        .icon-emerald { background: linear-gradient(135deg, #10b981, #059669); }
+        .icon-amber { background: linear-gradient(135deg, #f59e0b, #d97706); }
+        .icon-rose { background: linear-gradient(135deg, #f43f5e, #e11d48); }
+
+        .palette-item-info {
+            flex: 1;
+        }
+
+        .palette-item-name {
+            font-weight: 500;
+            color: #1e293b;
+            font-size: 14px;
+        }
+
+        .palette-item-desc {
+            font-size: 12px;
+            color: #94a3b8;
+        }
+
+        /* Canvas */
+        .canvas {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            background: 
+                radial-gradient(circle at center, #f1f5f9 1px, transparent 1px);
+            background-size: 24px 24px;
+        }
+
+        /* Pill-shaped Nodes */
+        .node {
+            position: absolute;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 24px;
+            background: white;
+            border-radius: 100px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            cursor: move;
+            transition: all 0.2s ease;
+            border: 2px solid transparent;
+        }
+
+        .node:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+        }
+
+        .node.selected {
+            border-color: #06b6d4;
+            box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.2), 0 12px 40px rgba(0, 0, 0, 0.12);
+        }
+
+        .node-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 100px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            color: white;
+            flex-shrink: 0;
+        }
+
+        .node-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .node-title {
+            font-weight: 600;
+            color: #1e293b;
+            font-size: 15px;
+            white-space: nowrap;
+        }
+
+        .node-subtitle {
+            font-size: 12px;
+            color: #94a3b8;
+            white-space: nowrap;
+        }
+
+        .node-badge {
+            padding: 4px 12px;
+            border-radius: 100px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge-success {
+            background: #dcfce7;
+            color: #16a34a;
+        }
+
+        .badge-running {
+            background: #fef3c7;
+            color: #d97706;
+        }
+
+        .badge-pending {
+            background: #f1f5f9;
+            color: #64748b;
+        }
+
+        /* Connection Handles */
+        .handle {
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            border-radius: 100px;
+            background: white;
+            border: 3px solid #06b6d4;
+            cursor: crosshair;
+            transition: all 0.2s ease;
+        }
+
+        .handle:hover {
+            transform: scale(1.4);
+            background: #06b6d4;
+            box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.3);
+        }
+
+        .handle-left { left: -8px; top: 50%; transform: translateY(-50%); }
+        .handle-right { right: -8px; top: 50%; transform: translateY(-50%); }
+
+        /* Expanded Node Cards */
+        .node-card {
+            position: absolute;
+            width: 280px;
+            background: white;
+            border-radius: 24px;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+            cursor: move;
+            transition: all 0.2s ease;
+            overflow: hidden;
+            border: 2px solid transparent;
+        }
+
+        .node-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 50px rgba(0, 0, 0, 0.15);
+        }
+
+        .node-card.selected {
+            border-color: #06b6d4;
+        }
+
+        .node-card-header {
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .node-card-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            color: white;
+        }
+
+        .node-card-title {
+            font-weight: 600;
+            font-size: 16px;
+            color: #1e293b;
+        }
+
+        .node-card-type {
+            font-size: 12px;
+            color: #94a3b8;
+        }
+
+        .node-card-body {
+            padding: 16px 20px;
+        }
+
+        .card-field {
+            display: flex;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #f8fafc;
+        }
+
+        .card-field:last-child {
+            border-bottom: none;
+        }
+
+        .card-field-icon {
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+            background: #f1f5f9;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            margin-right: 12px;
+        }
+
+        .card-field-label {
+            flex: 1;
+            font-size: 13px;
+            color: #64748b;
+        }
+
+        .card-field-value {
+            font-size: 13px;
+            font-weight: 500;
+            color: #1e293b;
+        }
+
+        .node-card .handle-left { left: -8px; top: 50%; }
+        .node-card .handle-right { right: -8px; top: 50%; }
+
+        /* Connections SVG */
+        .connections {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+        }
+
+        .connection-path {
+            fill: none;
+            stroke: #06b6d4;
+            stroke-width: 3;
+            stroke-linecap: round;
+        }
+
+        .connection-path-bg {
+            fill: none;
+            stroke: #06b6d4;
+            stroke-width: 8;
+            stroke-linecap: round;
+            opacity: 0.15;
+        }
+
+        /* Animated dots on connection */
+        .connection-dot {
+            fill: #06b6d4;
+        }
+
+        .info-panel {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: white;
+            padding: 16px 32px;
+            border-radius: 100px;
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .info-panel strong {
+            color: #06b6d4;
+        }
+
+        /* Mini-map */
+        .minimap {
+            position: absolute;
+            bottom: 90px;
+            right: 24px;
+            width: 200px;
+            height: 140px;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            padding: 12px;
+            overflow: hidden;
+        }
+
+        .minimap-title {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #94a3b8;
+            margin-bottom: 8px;
+        }
+
+        .minimap-content {
+            width: 100%;
+            height: calc(100% - 20px);
+            background: #f8fafc;
+            border-radius: 8px;
+            position: relative;
+        }
+
+        .minimap-node {
+            position: absolute;
+            background: #06b6d4;
+            border-radius: 4px;
+            opacity: 0.6;
+        }
+
+        .minimap-viewport {
+            position: absolute;
+            border: 2px solid #06b6d4;
+            border-radius: 4px;
+            background: rgba(6, 182, 212, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="logo">
+            <div class="logo-icon">⚡</div>
+            DataFlow Studio
+        </div>
+        <div class="toolbar">
+            <button class="tool-btn tool-btn-secondary">↩️ Undo</button>
+            <button class="tool-btn tool-btn-secondary">↪️ Redo</button>
+            <button class="tool-btn tool-btn-secondary">🔍 Zoom</button>
+            <button class="tool-btn tool-btn-primary">▶️ Execute</button>
+        </div>
+    </header>
+
+    <div class="main-layout">
+        <aside class="palette">
+            <input type="text" class="palette-search" placeholder="🔍 Search components...">
+            
+            <div class="palette-section">
+                <div class="palette-section-title">Data Sources</div>
+                <div class="palette-item">
+                    <div class="palette-icon icon-cyan">🗄️</div>
+                    <div class="palette-item-info">
+                        <div class="palette-item-name">Database</div>
+                        <div class="palette-item-desc">Connect to SQL/NoSQL</div>
+                    </div>
+                </div>
+                <div class="palette-item">
+                    <div class="palette-icon icon-violet">📁</div>
+                    <div class="palette-item-info">
+                        <div class="palette-item-name">File Input</div>
+                        <div class="palette-item-desc">CSV, JSON, Parquet</div>
+                    </div>
+                </div>
+                <div class="palette-item">
+                    <div class="palette-icon icon-amber">🌐</div>
+                    <div class="palette-item-info">
+                        <div class="palette-item-name">API Source</div>
+                        <div class="palette-item-desc">REST, GraphQL</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="palette-section">
+                <div class="palette-section-title">Transformations</div>
+                <div class="palette-item">
+                    <div class="palette-icon icon-emerald">🔀</div>
+                    <div class="palette-item-info">
+                        <div class="palette-item-name">Join</div>
+                        <div class="palette-item-desc">Merge datasets</div>
+                    </div>
+                </div>
+                <div class="palette-item">
+                    <div class="palette-icon icon-rose">🔍</div>
+                    <div class="palette-item-info">
+                        <div class="palette-item-name">Filter</div>
+                        <div class="palette-item-desc">Conditional logic</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <main class="canvas">
+            <svg class="connections">
+                <defs>
+                    <linearGradient id="connGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" style="stop-color:#06b6d4"/>
+                        <stop offset="100%" style="stop-color:#8b5cf6"/>
+                    </linearGradient>
+                </defs>
+                <!-- Connection 1 -->
+                <path class="connection-path-bg" d="M 340 130 C 440 130, 390 260, 490 260"/>
+                <path class="connection-path" d="M 340 130 C 440 130, 390 260, 490 260" style="stroke: url(#connGradient)"/>
+                
+                <!-- Connection 2 -->
+                <path class="connection-path-bg" d="M 770 260 C 870 260, 820 130, 920 130"/>
+                <path class="connection-path" d="M 770 260 C 870 260, 820 130, 920 130" style="stroke: url(#connGradient)"/>
+            </svg>
+
+            <!-- Pill Node 1 -->
+            <div class="node" style="left: 80px; top: 100px;">
+                <div class="handle handle-right"></div>
+                <div class="node-icon icon-cyan">🗄️</div>
+                <div class="node-content">
+                    <div class="node-title">PostgreSQL</div>
+                    <div class="node-subtitle">customers_db</div>
+                </div>
+                <span class="node-badge badge-success">Ready</span>
+            </div>
+
+            <!-- Card Node (Expanded) -->
+            <div class="node-card selected" style="left: 490px; top: 160px;">
+                <div class="handle handle-left"></div>
+                <div class="handle handle-right"></div>
+                <div class="node-card-header">
+                    <div class="node-card-icon icon-emerald">🔀</div>
+                    <div>
+                        <div class="node-card-title">Join Datasets</div>
+                        <div class="node-card-type">Inner Join</div>
+                    </div>
+                </div>
+                <div class="node-card-body">
+                    <div class="card-field">
+                        <div class="card-field-icon">🔑</div>
+                        <span class="card-field-label">Join Key</span>
+                        <span class="card-field-value">customer_id</span>
+                    </div>
+                    <div class="card-field">
+                        <div class="card-field-icon">📊</div>
+                        <span class="card-field-label">Records</span>
+                        <span class="card-field-value">45,230</span>
+                    </div>
+                    <div class="card-field">
+                        <div class="card-field-icon">⚡</div>
+                        <span class="card-field-label">Status</span>
+                        <span class="card-field-value" style="color: #16a34a;">Running</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pill Node 2 -->
+            <div class="node" style="left: 920px; top: 100px;">
+                <div class="handle handle-left"></div>
+                <div class="node-icon icon-violet">☁️</div>
+                <div class="node-content">
+                    <div class="node-title">Snowflake</div>
+                    <div class="node-subtitle">analytics_dw</div>
+                </div>
+                <span class="node-badge badge-pending">Pending</span>
+            </div>
+
+            <!-- Pill Node 3 -->
+            <div class="node" style="left: 120px; top: 350px;">
+                <div class="handle handle-right"></div>
+                <div class="node-icon icon-amber">📁</div>
+                <div class="node-content">
+                    <div class="node-title">Orders CSV</div>
+                    <div class="node-subtitle">daily_orders.csv</div>
+                </div>
+                <span class="node-badge badge-success">Ready</span>
+            </div>
+
+            <!-- Mini-map -->
+            <div class="minimap">
+                <div class="minimap-title">Overview</div>
+                <div class="minimap-content">
+                    <div class="minimap-node" style="left: 10%; top: 20%; width: 25px; height: 10px;"></div>
+                    <div class="minimap-node" style="left: 40%; top: 40%; width: 30px; height: 20px;"></div>
+                    <div class="minimap-node" style="left: 75%; top: 20%; width: 25px; height: 10px;"></div>
+                    <div class="minimap-node" style="left: 15%; top: 70%; width: 25px; height: 10px;"></div>
+                    <div class="minimap-viewport" style="left: 5%; top: 10%; width: 60%; height: 50%;"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div class="info-panel">
+        <strong>Rounded Pill Nodes</strong> — Friendly, approachable design with smooth curves and a light theme
+    </div>
+
+    <script>
+        // Make nodes draggable
+        document.querySelectorAll('.node, .node-card').forEach(node => {
+            let isDragging = false;
+            let startX, startY, initialX, initialY;
+
+            node.addEventListener('mousedown', (e) => {
+                if (e.target.classList.contains('handle')) return;
+                isDragging = true;
+                startX = e.clientX;
+                startY = e.clientY;
+                initialX = node.offsetLeft;
+                initialY = node.offsetTop;
+                node.style.zIndex = 1000;
+                
+                // Toggle selection
+                document.querySelectorAll('.node, .node-card').forEach(n => n.classList.remove('selected'));
+                node.classList.add('selected');
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                const dx = e.clientX - startX;
+                const dy = e.clientY - startY;
+                node.style.left = initialX + dx + 'px';
+                node.style.top = initialY + dy + 'px';
+            });
+
+            document.addEventListener('mouseup', () => {
+                isDragging = false;
+                node.style.zIndex = '';
+            });
+        });
+    </script>
+</body>
+</html>

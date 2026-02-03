@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Purple Dark Theme Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #0d0d1a;
+            --bg-secondary: #13132b;
+            --bg-tertiary: #1a1a3e;
+            --accent-primary: #8b5cf6;
+            --accent-secondary: #a78bfa;
+            --accent-pink: #ec4899;
+            --accent-cyan: #22d3ee;
+            --accent-green: #10b981;
+            --accent-orange: #f59e0b;
+            --text-primary: #ffffff;
+            --text-secondary: #a1a1aa;
+            --border-color: rgba(139, 92, 246, 0.3);
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            min-height: 100vh;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 280px 1fr 320px;
+            grid-template-rows: 60px 1fr;
+            height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            grid-column: 1 / -1;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 700;
+            font-size: 20px;
+        }
+
+        .logo-icon {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-pink));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 12px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 13px;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-ghost {
+            background: transparent;
+            color: var(--text-secondary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-ghost:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-pink));
+            color: white;
+            box-shadow: 0 4px 15px rgba(139, 92, 246, 0.4);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(139, 92, 246, 0.5);
+        }
+
+        /* Sidebar */
+        .sidebar {
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border-color);
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .sidebar-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+        }
+
+        .component-group {
+            margin-bottom: 24px;
+        }
+
+        .component-group-title {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .component-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            border-radius: 10px;
+            cursor: grab;
+            transition: all 0.2s ease;
+            margin-bottom: 8px;
+            background: var(--bg-tertiary);
+            border: 1px solid transparent;
+        }
+
+        .component-item:hover {
+            border-color: var(--accent-primary);
+            transform: translateX(4px);
+        }
+
+        .component-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+
+        .icon-source { background: linear-gradient(135deg, #3b82f6, #1d4ed8); }
+        .icon-transform { background: linear-gradient(135deg, var(--accent-primary), #7c3aed); }
+        .icon-destination { background: linear-gradient(135deg, var(--accent-green), #059669); }
+        .icon-utility { background: linear-gradient(135deg, var(--accent-orange), #d97706); }
+
+        .component-info {
+            flex: 1;
+        }
+
+        .component-name {
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .component-desc {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        /* Canvas */
+        .canvas {
+            background: var(--bg-primary);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .canvas-grid {
+            position: absolute;
+            inset: 0;
+            background-image: 
+                radial-gradient(circle, rgba(139, 92, 246, 0.1) 1px, transparent 1px);
+            background-size: 30px 30px;
+        }
+
+        .canvas-content {
+            position: relative;
+            height: 100%;
+            padding: 40px;
+        }
+
+        /* Nodes */
+        .node {
+            position: absolute;
+            min-width: 220px;
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            border: 2px solid var(--border-color);
+            overflow: hidden;
+            cursor: move;
+            transition: all 0.2s ease;
+        }
+
+        .node:hover {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 30px rgba(139, 92, 246, 0.3);
+        }
+
+        .node.selected {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
+        }
+
+        .node-header {
+            padding: 14px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .node-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+        }
+
+        .node-title {
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .node-type {
+            font-size: 10px;
+            color: var(--text-secondary);
+        }
+
+        .node-status {
+            margin-left: auto;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-green);
+            box-shadow: 0 0 10px var(--accent-green);
+        }
+
+        .node-body {
+            padding: 12px 16px;
+        }
+
+        .node-field {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 0;
+            font-size: 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .node-field:last-child {
+            border-bottom: none;
+        }
+
+        .field-label {
+            color: var(--text-secondary);
+        }
+
+        .field-value {
+            color: var(--accent-secondary);
+            font-family: 'Consolas', monospace;
+        }
+
+        .port {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--bg-tertiary);
+            border: 2px solid var(--accent-primary);
+            cursor: crosshair;
+            transition: all 0.2s ease;
+        }
+
+        .port:hover {
+            transform: scale(1.5);
+            background: var(--accent-primary);
+            box-shadow: 0 0 15px var(--accent-primary);
+        }
+
+        .port-in { left: -6px; top: 50%; transform: translateY(-50%); }
+        .port-out { right: -6px; top: 50%; transform: translateY(-50%); }
+
+        /* Connections */
+        .connections {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+        }
+
+        .connection {
+            fill: none;
+            stroke: var(--accent-primary);
+            stroke-width: 2;
+            opacity: 0.6;
+        }
+
+        .connection-glow {
+            fill: none;
+            stroke: var(--accent-primary);
+            stroke-width: 6;
+            opacity: 0.2;
+            filter: blur(4px);
+        }
+
+        /* Properties Panel */
+        .properties-panel {
+            background: var(--bg-secondary);
+            border-left: 1px solid var(--border-color);
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .panel-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .panel-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-pink));
+        }
+
+        .panel-title {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .panel-subtitle {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 10px 14px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 13px;
+            transition: all 0.2s ease;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
+        }
+
+        .form-select {
+            width: 100%;
+            padding: 10px 14px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        .toggle-group {
+            display: flex;
+            gap: 8px;
+        }
+
+        .toggle-btn {
+            flex: 1;
+            padding: 8px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .toggle-btn.active {
+            background: var(--accent-primary);
+            border-color: var(--accent-primary);
+            color: white;
+        }
+
+        .info-bar {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--bg-secondary);
+            padding: 12px 24px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .info-bar strong {
+            color: var(--accent-primary);
+        }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <div class="logo-icon">⚡</div>
+                DataFlow Studio
+            </div>
+            <div class="header-actions">
+                <button class="btn btn-ghost">📂 Open</button>
+                <button class="btn btn-ghost">💾 Save</button>
+                <button class="btn btn-ghost">↩️ Undo</button>
+                <button class="btn btn-primary">▶️ Run Pipeline</button>
+            </div>
+        </header>
+
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-title">Components</div>
+            
+            <div class="component-group">
+                <div class="component-group-title">📥 Sources</div>
+                <div class="component-item">
+                    <div class="component-icon icon-source">🗄️</div>
+                    <div class="component-info">
+                        <div class="component-name">Database</div>
+                        <div class="component-desc">SQL, NoSQL connections</div>
+                    </div>
+                </div>
+                <div class="component-item">
+                    <div class="component-icon icon-source">📁</div>
+                    <div class="component-info">
+                        <div class="component-name">File Input</div>
+                        <div class="component-desc">CSV, JSON, Parquet</div>
+                    </div>
+                </div>
+                <div class="component-item">
+                    <div class="component-icon icon-source">🌐</div>
+                    <div class="component-info">
+                        <div class="component-name">REST API</div>
+                        <div class="component-desc">HTTP requests</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="component-group">
+                <div class="component-group-title">⚙️ Transforms</div>
+                <div class="component-item">
+                    <div class="component-icon icon-transform">🔀</div>
+                    <div class="component-info">
+                        <div class="component-name">Join</div>
+                        <div class="component-desc">Merge datasets</div>
+                    </div>
+                </div>
+                <div class="component-item">
+                    <div class="component-icon icon-transform">🔍</div>
+                    <div class="component-info">
+                        <div class="component-name">Filter</div>
+                        <div class="component-desc">Conditional rows</div>
+                    </div>
+                </div>
+                <div class="component-item">
+                    <div class="component-icon icon-transform">📊</div>
+                    <div class="component-info">
+                        <div class="component-name">Aggregate</div>
+                        <div class="component-desc">Group & summarize</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="component-group">
+                <div class="component-group-title">📤 Destinations</div>
+                <div class="component-item">
+                    <div class="component-icon icon-destination">☁️</div>
+                    <div class="component-info">
+                        <div class="component-name">Cloud Storage</div>
+                        <div class="component-desc">S3, GCS, Azure</div>
+                    </div>
+                </div>
+                <div class="component-item">
+                    <div class="component-icon icon-destination">📦</div>
+                    <div class="component-info">
+                        <div class="component-name">Data Warehouse</div>
+                        <div class="component-desc">Snowflake, BigQuery</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Canvas -->
+        <main class="canvas">
+            <div class="canvas-grid"></div>
+            <svg class="connections">
+                <path class="connection-glow" d="M 270 120 C 350 120, 300 200, 380 200"/>
+                <path class="connection" d="M 270 120 C 350 120, 300 200, 380 200"/>
+                <path class="connection-glow" d="M 600 200 C 680 200, 630 120, 710 120"/>
+                <path class="connection" d="M 600 200 C 680 200, 630 120, 710 120"/>
+            </svg>
+            <div class="canvas-content">
+                <!-- Source Node -->
+                <div class="node" style="left: 50px; top: 60px;">
+                    <div class="port port-out"></div>
+                    <div class="node-header">
+                        <div class="node-icon icon-source">🗄️</div>
+                        <div>
+                            <div class="node-title">PostgreSQL</div>
+                            <div class="node-type">Database Source</div>
+                        </div>
+                        <div class="node-status"></div>
+                    </div>
+                    <div class="node-body">
+                        <div class="node-field">
+                            <span class="field-label">Host</span>
+                            <span class="field-value">db.example.com</span>
+                        </div>
+                        <div class="node-field">
+                            <span class="field-label">Table</span>
+                            <span class="field-value">customers</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Transform Node -->
+                <div class="node selected" style="left: 380px; top: 140px;">
+                    <div class="port port-in"></div>
+                    <div class="port port-out"></div>
+                    <div class="node-header">
+                        <div class="node-icon icon-transform">🔀</div>
+                        <div>
+                            <div class="node-title">Join Data</div>
+                            <div class="node-type">Transform</div>
+                        </div>
+                        <div class="node-status"></div>
+                    </div>
+                    <div class="node-body">
+                        <div class="node-field">
+                            <span class="field-label">Type</span>
+                            <span class="field-value">INNER JOIN</span>
+                        </div>
+                        <div class="node-field">
+                            <span class="field-label">Key</span>
+                            <span class="field-value">customer_id</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Destination Node -->
+                <div class="node" style="left: 710px; top: 60px;">
+                    <div class="port port-in"></div>
+                    <div class="node-header">
+                        <div class="node-icon icon-destination">☁️</div>
+                        <div>
+                            <div class="node-title">Snowflake</div>
+                            <div class="node-type">Data Warehouse</div>
+                        </div>
+                        <div class="node-status"></div>
+                    </div>
+                    <div class="node-body">
+                        <div class="node-field">
+                            <span class="field-label">Schema</span>
+                            <span class="field-value">analytics</span>
+                        </div>
+                        <div class="node-field">
+                            <span class="field-label">Table</span>
+                            <span class="field-value">customer_360</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Properties Panel -->
+        <aside class="properties-panel">
+            <div class="panel-header">
+                <div class="panel-icon">🔀</div>
+                <div>
+                    <div class="panel-title">Join Data</div>
+                    <div class="panel-subtitle">Transform Component</div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Component Name</label>
+                <input type="text" class="form-input" value="Join Data">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Join Type</label>
+                <div class="toggle-group">
+                    <button class="toggle-btn active">Inner</button>
+                    <button class="toggle-btn">Left</button>
+                    <button class="toggle-btn">Right</button>
+                    <button class="toggle-btn">Full</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Left Key</label>
+                <select class="form-select">
+                    <option>customer_id</option>
+                    <option>order_id</option>
+                    <option>product_id</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Right Key</label>
+                <select class="form-select">
+                    <option>customer_id</option>
+                    <option>user_id</option>
+                    <option>id</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Description</label>
+                <input type="text" class="form-input" placeholder="Optional description...">
+            </div>
+        </aside>
+    </div>
+
+    <div class="info-bar">
+        <strong>Purple Dark Theme</strong> — Modern color scheme inspired by Linear, Figma, and Discord
+    </div>
+</body>
+</html>

@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Glassmorphism Node Design Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            overflow: hidden;
+        }
+
+        /* Animated background blobs */
+        .blob {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.6;
+            animation: float 8s ease-in-out infinite;
+        }
+
+        .blob-1 {
+            width: 400px;
+            height: 400px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            top: -100px;
+            left: -100px;
+            animation-delay: 0s;
+        }
+
+        .blob-2 {
+            width: 350px;
+            height: 350px;
+            background: linear-gradient(135deg, #f093fb, #f5576c);
+            bottom: -50px;
+            right: -50px;
+            animation-delay: 2s;
+        }
+
+        .blob-3 {
+            width: 300px;
+            height: 300px;
+            background: linear-gradient(135deg, #4facfe, #00f2fe);
+            top: 50%;
+            left: 50%;
+            animation-delay: 4s;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            50% { transform: translate(30px, -30px) scale(1.1); }
+        }
+
+        .header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 20px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 100;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: 700;
+            color: white;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .nav-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .nav-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .nav-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .canvas {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+            padding-top: 80px;
+        }
+
+        /* Glassmorphism Node Style */
+        .node {
+            position: absolute;
+            min-width: 200px;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 
+                0 8px 32px rgba(0, 0, 0, 0.3),
+                inset 0 1px 1px rgba(255, 255, 255, 0.1);
+            cursor: move;
+            transition: all 0.3s ease;
+            overflow: hidden;
+        }
+
+        .node:hover {
+            transform: translateY(-5px) scale(1.02);
+            box-shadow: 
+                0 20px 60px rgba(0, 0, 0, 0.4),
+                inset 0 1px 1px rgba(255, 255, 255, 0.2);
+            border-color: rgba(255, 255, 255, 0.4);
+        }
+
+        .node-header {
+            padding: 15px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .node-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            color: white;
+        }
+
+        .node-title {
+            color: white;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .node-subtitle {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 11px;
+            margin-top: 2px;
+        }
+
+        .node-body {
+            padding: 15px 20px;
+        }
+
+        .node-field {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 0;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 13px;
+        }
+
+        .field-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        /* Node color variants */
+        .node-source .node-icon { background: linear-gradient(135deg, #667eea, #764ba2); }
+        .node-source .field-dot { background: #667eea; }
+
+        .node-transform .node-icon { background: linear-gradient(135deg, #f093fb, #f5576c); }
+        .node-transform .field-dot { background: #f093fb; }
+
+        .node-destination .node-icon { background: linear-gradient(135deg, #4facfe, #00f2fe); }
+        .node-destination .field-dot { background: #4facfe; }
+
+        .node-filter .node-icon { background: linear-gradient(135deg, #43e97b, #38f9d7); }
+        .node-filter .field-dot { background: #43e97b; }
+
+        /* Connection ports */
+        .port {
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
+            border: 2px solid rgba(255, 255, 255, 0.6);
+            cursor: crosshair;
+            transition: all 0.2s ease;
+        }
+
+        .port:hover {
+            transform: scale(1.4);
+            background: white;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+        }
+
+        .port-in { left: -7px; top: 50%; transform: translateY(-50%); }
+        .port-out { right: -7px; top: 50%; transform: translateY(-50%); }
+
+        /* SVG Connections */
+        .connections {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .connection-line {
+            fill: none;
+            stroke: url(#gradient1);
+            stroke-width: 3;
+            stroke-linecap: round;
+            filter: drop-shadow(0 0 8px rgba(102, 126, 234, 0.5));
+        }
+
+        /* Status badge */
+        .status-badge {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #43e97b, #38f9d7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            color: white;
+            box-shadow: 0 4px 15px rgba(67, 233, 123, 0.4);
+        }
+
+        .info-panel {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 15px 30px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(20px);
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            font-size: 14px;
+            text-align: center;
+        }
+
+        .info-panel strong {
+            color: #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+
+    <header class="header">
+        <div class="logo">
+            <div class="logo-icon">⚡</div>
+            DataFlow Studio
+        </div>
+        <div class="nav-buttons">
+            <button class="nav-btn">💾 Save</button>
+            <button class="nav-btn">▶️ Run</button>
+            <button class="nav-btn">📤 Export</button>
+        </div>
+    </header>
+
+    <div class="canvas">
+        <svg class="connections">
+            <defs>
+                <linearGradient id="gradient1" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" style="stop-color:#667eea" />
+                    <stop offset="100%" style="stop-color:#f093fb" />
+                </linearGradient>
+                <linearGradient id="gradient2" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" style="stop-color:#f093fb" />
+                    <stop offset="100%" style="stop-color:#4facfe" />
+                </linearGradient>
+            </defs>
+            <path class="connection-line" d="M 310 280 C 400 280, 350 380, 440 380" style="stroke: url(#gradient1)"/>
+            <path class="connection-line" d="M 650 380 C 750 380, 700 280, 800 280" style="stroke: url(#gradient2)"/>
+        </svg>
+
+        <!-- Source Node -->
+        <div class="node node-source" style="left: 100px; top: 200px;">
+            <div class="status-badge">✓</div>
+            <div class="port port-out"></div>
+            <div class="node-header">
+                <div class="node-icon">🗄️</div>
+                <div>
+                    <div class="node-title">PostgreSQL Source</div>
+                    <div class="node-subtitle">Database Connection</div>
+                </div>
+            </div>
+            <div class="node-body">
+                <div class="node-field">
+                    <span class="field-dot"></span>
+                    customers_table
+                </div>
+                <div class="node-field">
+                    <span class="field-dot"></span>
+                    orders_table
+                </div>
+            </div>
+        </div>
+
+        <!-- Transform Node -->
+        <div class="node node-transform" style="left: 440px; top: 300px;">
+            <div class="port port-in"></div>
+            <div class="port port-out"></div>
+            <div class="node-header">
+                <div class="node-icon">⚙️</div>
+                <div>
+                    <div class="node-title">Data Transform</div>
+                    <div class="node-subtitle">Join & Aggregate</div>
+                </div>
+            </div>
+            <div class="node-body">
+                <div class="node-field">
+                    <span class="field-dot"></span>
+                    Inner Join on customer_id
+                </div>
+                <div class="node-field">
+                    <span class="field-dot"></span>
+                    Sum(order_total)
+                </div>
+            </div>
+        </div>
+
+        <!-- Destination Node -->
+        <div class="node node-destination" style="left: 800px; top: 200px;">
+            <div class="port port-in"></div>
+            <div class="node-header">
+                <div class="node-icon">☁️</div>
+                <div>
+                    <div class="node-title">Snowflake Output</div>
+                    <div class="node-subtitle">Data Warehouse</div>
+                </div>
+            </div>
+            <div class="node-body">
+                <div class="node-field">
+                    <span class="field-dot"></span>
+                    analytics.customer_summary
+                </div>
+            </div>
+        </div>
+
+        <!-- Filter Node -->
+        <div class="node node-filter" style="left: 150px; top: 450px;">
+            <div class="port port-in"></div>
+            <div class="port port-out"></div>
+            <div class="node-header">
+                <div class="node-icon">🔍</div>
+                <div>
+                    <div class="node-title">Filter Records</div>
+                    <div class="node-subtitle">Conditional Logic</div>
+                </div>
+            </div>
+            <div class="node-body">
+                <div class="node-field">
+                    <span class="field-dot"></span>
+                    status = 'active'
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="info-panel">
+        <strong>Glassmorphism Design</strong> — Frosted glass effect with gradient backgrounds and soft shadows
+    </div>
+
+    <script>
+        // Make nodes draggable
+        document.querySelectorAll('.node').forEach(node => {
+            let isDragging = false;
+            let startX, startY, initialX, initialY;
+
+            node.addEventListener('mousedown', (e) => {
+                if (e.target.classList.contains('port')) return;
+                isDragging = true;
+                startX = e.clientX;
+                startY = e.clientY;
+                initialX = node.offsetLeft;
+                initialY = node.offsetTop;
+                node.style.zIndex = 1000;
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!isDragging) return;
+                const dx = e.clientX - startX;
+                const dy = e.clientY - startY;
+                node.style.left = initialX + dx + 'px';
+                node.style.top = initialY + dy + 'px';
+            });
+
+            document.addEventListener('mouseup', () => {
+                isDragging = false;
+                node.style.zIndex = '';
+            });
+        });
+    </script>
+</body>
+</html>
