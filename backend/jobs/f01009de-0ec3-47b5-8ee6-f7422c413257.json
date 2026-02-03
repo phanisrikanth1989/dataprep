@@ -1,0 +1,85 @@
+{
+  "id": "f01009de-0ec3-47b5-8ee6-f7422c413257",
+  "name": "full",
+  "description": "",
+  "nodes": [
+    {
+      "id": "node-58dc0a96-d9b5-48d4-8870-5f5e5a302dc0",
+      "type": "FileInputDelimited",
+      "label": "file_input_delimited",
+      "x": -15.0,
+      "y": 135.0,
+      "config": {},
+      "subjob_id": null,
+      "is_subjob_start": false
+    },
+    {
+      "id": "node-2ea1cf31-1e96-4de4-b64e-0b24cc446dab",
+      "type": "FilterRows",
+      "label": "filter_rows",
+      "x": 300.0,
+      "y": 135.0,
+      "config": {},
+      "subjob_id": null,
+      "is_subjob_start": false
+    },
+    {
+      "id": "node-dc80cee5-3324-4db4-b39c-1810ff1f8b17",
+      "type": "FileOutputDelimited",
+      "label": "file_output_delimited",
+      "x": 840.0,
+      "y": 135.0,
+      "config": {},
+      "subjob_id": null,
+      "is_subjob_start": false
+    },
+    {
+      "id": "node-41de6339-19f8-4815-b28e-6c64a299b3ad",
+      "type": "Map",
+      "label": "map",
+      "x": 570.0,
+      "y": 135.0,
+      "config": {},
+      "subjob_id": null,
+      "is_subjob_start": false
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-2d1c7f53-bf37-4f14-b26c-7622ae85ec3e",
+      "source": "node-58dc0a96-d9b5-48d4-8870-5f5e5a302dc0",
+      "target": "node-2ea1cf31-1e96-4de4-b64e-0b24cc446dab",
+      "edge_type": "flow",
+      "name": null,
+      "trigger_type": null,
+      "condition": null
+    },
+    {
+      "id": "edge-609e8eb8-1912-4af3-94bf-c227326e282b",
+      "source": "node-2ea1cf31-1e96-4de4-b64e-0b24cc446dab",
+      "target": "node-41de6339-19f8-4815-b28e-6c64a299b3ad",
+      "edge_type": "flow",
+      "name": null,
+      "trigger_type": null,
+      "condition": null
+    },
+    {
+      "id": "edge-f3b114e3-104f-4a7a-a8bd-3e9879830bce",
+      "source": "node-41de6339-19f8-4815-b28e-6c64a299b3ad",
+      "target": "node-dc80cee5-3324-4db4-b39c-1810ff1f8b17",
+      "edge_type": "flow",
+      "name": null,
+      "trigger_type": null,
+      "condition": null
+    }
+  ],
+  "context": {},
+  "java_config": {
+    "enabled": false
+  },
+  "python_config": {
+    "enabled": false
+  },
+  "created_at": "2026-02-03T18:40:57.192887",
+  "updated_at": "2026-02-03T18:43:11.826030"
+}

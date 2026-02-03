@@ -1,44 +1,53 @@
 /* ============================================
-   ZOHO DATA PREP INSPIRED UI - GLOBAL STYLES
+   TALEND-INSPIRED UI - GLOBAL STYLES
    ============================================ */
 
+/* Import Talend-like fonts */
+@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;500;600;700&family=Source+Sans+Pro:wght@300;400;600;700&family=Roboto:wght@300;400;500;700&display=swap');
+
 :root {
-  /* Color Palette - Zoho inspired */
-  --primary-color: #0052CC;
-  --primary-light: #4C9AFF;
-  --primary-dark: #0747A6;
-  --primary-bg: #F4F7FA;
+  /* Color Palette - Talend inspired */
+  --primary-color: #19426C;
+  --primary-light: #2D5F8B;
+  --primary-dark: #0D2840;
+  --primary-bg: #F7F8FA;
   
-  --accent-color: #00B8A9;
-  --accent-light: #2BDBC0;
-  --accent-dark: #00897B;
+  --accent-color: #FF6D70;
+  --accent-light: #FF9193;
+  --accent-dark: #E54B4E;
   
-  --success-color: #36B37E;
-  --warning-color: #FFAB00;
-  --error-color: #FF5630;
-  --info-color: #00B8D9;
+  --talend-blue: #19426C;
+  --talend-orange: #FF6D70;
+  --talend-green: #7AC143;
+  --talend-purple: #9B59B6;
+  --talend-teal: #1ABC9C;
+  
+  --success-color: #7AC143;
+  --warning-color: #F39C12;
+  --error-color: #E74C3C;
+  --info-color: #3498DB;
   
   /* Neutrals */
-  --text-primary: #172B4D;
-  --text-secondary: #5E6C84;
-  --text-muted: #97A0AF;
-  --text-light: #B3BAC5;
+  --text-primary: #2C3E50;
+  --text-secondary: #5D6D7E;
+  --text-muted: #95A5A6;
+  --text-light: #BDC3C7;
   
   --bg-primary: #FFFFFF;
-  --bg-secondary: #FAFBFC;
-  --bg-tertiary: #F4F5F7;
-  --bg-hover: #EBECF0;
+  --bg-secondary: #F7F8FA;
+  --bg-tertiary: #ECF0F1;
+  --bg-hover: #E8ECED;
   
-  --border-color: #DFE1E6;
-  --border-light: #EBECF0;
+  --border-color: #DDE2E5;
+  --border-light: #E8ECED;
   --border-focus: var(--primary-light);
   
   /* Shadows */
-  --shadow-xs: 0 1px 2px rgba(9, 30, 66, 0.08);
-  --shadow-sm: 0 1px 3px rgba(9, 30, 66, 0.08), 0 0 1px rgba(9, 30, 66, 0.08);
-  --shadow-md: 0 3px 6px rgba(9, 30, 66, 0.1), 0 0 1px rgba(9, 30, 66, 0.08);
-  --shadow-lg: 0 8px 16px rgba(9, 30, 66, 0.15), 0 0 1px rgba(9, 30, 66, 0.1);
-  --shadow-xl: 0 12px 24px rgba(9, 30, 66, 0.2), 0 0 1px rgba(9, 30, 66, 0.1);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15);
   
   /* Transitions */
   --transition-fast: 0.15s ease;
@@ -54,15 +63,195 @@
   --spacing-2xl: 48px;
   
   /* Border Radius */
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
   --radius-full: 9999px;
   
-  /* Typography */
-  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  /* Typography - Talend uses Open Sans / Source Sans Pro */
+  --font-family: 'Open Sans', 'Source Sans Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'Consolas', 'Monaco', 'Courier New', monospace;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 13px;
+  --font-size-lg: 14px;
+  --font-size-xl: 16px;
+}
+
+/* ============================================
+   DARK MODE VARIABLES
+   ============================================ */
+.dark-mode {
+  --primary-color: #4C9AFF;
+  --primary-light: #79B8FF;
+  --primary-dark: #2D6FBF;
+  --primary-bg: #1a1a2e;
+  
+  --text-primary: #E1E4E8;
+  --text-secondary: #A8B2C0;
+  --text-muted: #6A737D;
+  --text-light: #444D56;
+  
+  --bg-primary: #16213e;
+  --bg-secondary: #1a1a2e;
+  --bg-tertiary: #1f3460;
+  --bg-hover: #2a4a7f;
+  
+  --border-color: #30363d;
+  --border-light: #21262d;
+  --border-focus: var(--primary-light);
+  
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.5);
+}
+
+.dark-mode,
+.dark-mode html,
+.dark-mode body,
+.dark-mode #root {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+/* Dark mode specific styles */
+.dark-mode .job-designer-enhanced {
+  background: #1a1a2e;
+}
+
+.dark-mode .designer-header-enhanced {
+  background: linear-gradient(180deg, #0d1b2a 0%, #1b263b 100%);
+  border-bottom-color: #4C9AFF;
+}
+
+.dark-mode .left-panel,
+.dark-mode .right-panel {
+  background: #16213e;
+  border-color: #30363d;
+}
+
+.dark-mode .panel-header {
+  background: linear-gradient(180deg, #1f3460 0%, #16213e 100%);
+}
+
+.dark-mode .panel-content {
+  background: #16213e;
+}
+
+.dark-mode .bottom-panel {
+  background: #16213e;
+  border-color: #30363d;
+}
+
+.dark-mode .canvas-wrapper {
+  background: #1a1a2e;
+}
+
+.dark-mode .react-flow__background {
+  background: #1a1a2e;
+}
+
+.dark-mode .ant-tree {
+  background: transparent;
+  color: #E1E4E8;
+}
+
+.dark-mode .ant-tree-treenode:hover {
+  background: rgba(76, 154, 255, 0.1);
+}
+
+.dark-mode .ant-collapse {
+  background: transparent;
+  border-color: #30363d;
+}
+
+.dark-mode .ant-collapse-header {
+  color: #E1E4E8 !important;
+}
+
+.dark-mode .ant-tabs-tab {
+  color: #A8B2C0 !important;
+}
+
+.dark-mode .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #4C9AFF !important;
+}
+
+.dark-mode .ant-input,
+.dark-mode .ant-select-selector {
+  background: #1f3460 !important;
+  border-color: #30363d !important;
+  color: #E1E4E8 !important;
+}
+
+.dark-mode .ant-form-item-label > label {
+  color: #A8B2C0 !important;
+}
+
+.dark-mode .ant-empty-description {
+  color: #6A737D;
+}
+
+.dark-mode .repository-panel {
+  background: #16213e;
+}
+
+.dark-mode .left-panel-actions {
+  background: #1f3460;
+  border-color: #30363d;
+}
+
+.dark-mode .enhanced-palette {
+  background: #16213e;
+}
+
+.dark-mode .palette-header {
+  background: linear-gradient(180deg, #1f3460 0%, #16213e 100%);
+}
+
+.dark-mode .palette-tabs {
+  background: #1a1a2e;
+  border-color: #30363d;
+}
+
+.dark-mode .palette-search {
+  background: #1a1a2e;
+  border-color: #30363d;
+}
+
+.dark-mode .palette-content {
+  background: #16213e;
+}
+
+.dark-mode .component-item {
+  background: #1f3460;
+  border-color: transparent;
+}
+
+.dark-mode .component-item:hover {
+  background: #2a4a7f;
+  border-color: #4C9AFF;
+}
+
+.dark-mode .talend-collapse .ant-collapse-header {
+  background: #1f3460 !important;
+}
+
+.dark-mode .talend-collapse .ant-collapse-header:hover {
+  background: #2a4a7f !important;
+}
+
+.dark-mode ::-webkit-scrollbar-track {
+  background: #1a1a2e;
+}
+
+.dark-mode ::-webkit-scrollbar-thumb {
+  background: #30363d;
+}
+
+.dark-mode ::-webkit-scrollbar-thumb:hover {
+  background: #444d56;
 }
 
 * {
@@ -74,7 +263,7 @@
 html, body, #root {
   height: 100%;
   font-family: var(--font-family);
-  font-size: 14px;
+  font-size: var(--font-size-md);
   line-height: 1.5;
   color: var(--text-primary);
   background: var(--bg-secondary);
@@ -82,20 +271,29 @@ html, body, #root {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Override Ant Design fonts */
+.ant-btn, .ant-input, .ant-select, .ant-tabs, .ant-modal, 
+.ant-table, .ant-form, .ant-menu, .ant-tree, .ant-collapse {
+  font-family: var(--font-family) !important;
+}
+
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: #f1f1f1;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--text-light);
-  border-radius: var(--radius-full);
-  transition: background var(--transition-fast);
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
 }
 
 ::-webkit-scrollbar-thumb:hover {

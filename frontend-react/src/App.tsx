@@ -1,9 +1,9 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { ConfigProvider } from 'antd';
+import { ConfigProvider, theme } from 'antd';
 import { useStore } from './store';
 import Login from './pages/Login';
 import JobList from './pages/JobList';
-import JobDesigner from './pages/JobDesigner';
+import JobDesignerEnhanced from './pages/JobDesignerEnhanced';
 import './App.css';
 
 // Auth guard component
@@ -19,7 +19,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 // Modern Zoho-inspired theme
-const zohoTheme = {
+const lightTheme = {
   token: {
     colorPrimary: '#0052CC',
     colorSuccess: '#36B37E',
@@ -29,7 +29,7 @@ const zohoTheme = {
     colorTextBase: '#172B4D',
     colorBgBase: '#FFFFFF',
     borderRadius: 8,
-    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    fontFamily: "'Open Sans', 'Source Sans Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
     fontSize: 14,
     controlHeight: 36,
     lineHeight: 1.5,
@@ -53,10 +53,48 @@ const zohoTheme = {
   },
 };
 
-function App() {
+const darkTheme = {
+  algorithm: theme.darkAlgorithm,
+  token: {
+    colorPrimary: '#4C9AFF',
+    colorSuccess: '#36B37E',
+    colorWarning: '#FFAB00',
+    colorError: '#FF5630',
+    colorInfo: '#00B8D9',
+    colorBgBase: '#1a1a2e',
+    colorBgContainer: '#16213e',
+    colorBgElevated: '#1f3460',
+    borderRadius: 8,
+    fontFamily: "'Open Sans', 'Source Sans Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    fontSize: 14,
+    controlHeight: 36,
+    lineHeight: 1.5,
+    wireframe: false,
+  },
+  components: {
+    Button: {
+      primaryShadow: '0 2px 4px rgba(76, 154, 255, 0.3)',
+      fontWeight: 500,
+    },
+    Card: {
+      borderRadiusLG: 12,
+    },
+    Input: {
+      activeBorderColor: '#4C9AFF',
+      hoverBorderColor: '#79b8ff',
+    },
+    Modal: {
+      borderRadiusLG: 16,
+    },
+  },
+};
+
+function AppContent() {
+  const darkMode = useStore((s) => s.darkMode);
+
   return (
-    <ConfigProvider theme={zohoTheme}>
-      <BrowserRouter>
+    <ConfigProvider theme={darkMode ? darkTheme : lightTheme}>
+      <div className={darkMode ? 'dark-mode' : 'light-mode'}>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route
@@ -71,14 +109,22 @@ function App() {
             path="/designer/:jobId"
             element={
               <RequireAuth>
-                <JobDesigner />
+                <JobDesignerEnhanced />
               </RequireAuth>
             }
           />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </BrowserRouter>
+      </div>
     </ConfigProvider>
+  );
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <AppContent />
+    </BrowserRouter>
   );
 }
 

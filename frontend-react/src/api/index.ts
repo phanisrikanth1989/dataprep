@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type { JobSchema, JobListItem, ComponentMetadata, ExecutionStatus } from '../types';
+import type { DBConnection, ContextGroup } from '../types/repository';
 
 const API_BASE = 'http://localhost:8000/api';
 
@@ -33,6 +34,43 @@ export const executionApi = {
     }).then(r => r.data),
   getStatus: (taskId: string) => api.get<ExecutionStatus>(`/execution/${taskId}`).then(r => r.data),
   stop: (taskId: string) => api.post(`/execution/${taskId}/stop`).then(r => r.data),
+};
+
+// DB Connection APIs
+export const connectionApi = {
+  list: () => api.get<DBConnection[]>('/connections').then(r => r.data),
+  get: (id: string) => api.get<DBConnection>(`/connections/${id}`).then(r => r.data),
+  create: (connection: DBConnection) => api.post<DBConnection>('/connections', connection).then(r => r.data),
+  update: (id: string, connection: DBConnection) => api.put<DBConnection>(`/connections/${id}`, connection).then(r => r.data),
+  delete: (id: string) => api.delete(`/connections/${id}`).then(r => r.data),
+  test: (params: {
+    type: string;
+    host: string;
+    port: number;
+    database: string;
+    username: string;
+    password: string;
+    ssl?: boolean;
+  }) => api.post<{ success: boolean; message: string; version?: string }>('/connections/test', params).then(r => r.data),
+  retrieveSchema: (params: {
+    type: string;
+    host: string;
+    port: number;
+    database: string;
+    username: string;
+    password: string;
+    ssl?: boolean;
+  }) => api.post<{ success: boolean; schemas: any[]; message?: string }>('/connections/schema', params).then(r => r.data),
+};
+
+// Context APIs
+export const contextApi = {
+  list: () => api.get<ContextGroup[]>('/contexts').then(r => r.data),
+  get: (id: string) => api.get<ContextGroup>(`/contexts/${id}`).then(r => r.data),
+  create: (context: ContextGroup) => api.post<ContextGroup>('/contexts', context).then(r => r.data),
+  update: (id: string, context: ContextGroup) => api.put<ContextGroup>(`/contexts/${id}`, context).then(r => r.data),
+  delete: (id: string) => api.delete(`/contexts/${id}`).then(r => r.data),
+  updateAll: (contexts: ContextGroup[]) => api.put<ContextGroup[]>('/contexts', contexts).then(r => r.data),
 };
 
 // Health check

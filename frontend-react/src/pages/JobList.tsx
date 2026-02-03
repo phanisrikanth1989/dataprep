@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, Modal, Form, Input, message, Spin, Empty, Popconfirm } from 'antd';
-import { PlusOutlined, EditOutlined, PlayCircleOutlined, DeleteOutlined, LogoutOutlined } from '@ant-design/icons';
+import { Button, Card, Modal, Form, Input, message, Spin, Empty, Popconfirm, Upload } from 'antd';
+import { PlusOutlined, EditOutlined, PlayCircleOutlined, DeleteOutlined, LogoutOutlined, ImportOutlined, UploadOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
 import { v4 as uuidv4 } from 'uuid';
 import type { JobSchema } from '../types';
@@ -38,6 +38,53 @@ export default function JobList() {
     } catch (error) {
       console.error('Create job error:', error);
     }
+  };
+
+  // Import job from JSON file
+  const handleImportJob = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const content = e.target?.result as string;
+        const jobData = JSON.parse(content);
+        
+        // Validate job structure
+        if (!jobData.nodes || !Array.isArray(jobData.nodes)) {
+          message.error('Invalid job file: missing nodes array');
+          return;
+        }
+        if (!jobData.edges || !Array.isArray(jobData.edges)) {
+          message.error('Invalid job file: missing edges array');
+          return;
+        }
+
+        // Create a new job with imported data but new ID
+        const newJob: JobSchema = {
+          id: uuidv4(),
+          name: jobData.name ? `${jobData.name} (Imported)` : 'Imported Job',
+          description: jobData.description || '',
+          nodes: jobData.nodes,
+          edges: jobData.edges,
+          context: jobData.context || {},
+          java_config: jobData.java_config || { enabled: false },
+          python_config: jobData.python_config || { enabled: false },
+        };
+        
+        await createJob(newJob);
+        message.success(`Job "${newJob.name}" imported successfully with ${jobData.nodes.length} nodes`);
+        navigate(`/designer/${newJob.id}`);
+      } catch (error: any) {
+        console.error('Import error:', error);
+        message.error(`Failed to import job: ${error.message || 'Invalid JSON'}`);
+      }
+    };
+    reader.onerror = () => {
+      message.error('Failed to read file');
+    };
+    reader.readAsText(file);
+    
+    // Prevent upload to server
+    return false;
   };
 
   const handleDelete = async (id: string) => {

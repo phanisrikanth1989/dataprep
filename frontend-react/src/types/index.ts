@@ -2,6 +2,9 @@
  * Type definitions for RecDataPrep ETL Designer
  */
 
+// Re-export repository types
+export * from './repository';
+
 export interface JobNode {
   id: string;
   type: string;

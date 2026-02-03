@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { JobSchema, JobListItem, ComponentMetadata, ExecutionStatus } from '../types';
+import type { DBConnection, ContextGroup, ExecutionLog, ValidationProblem } from '../types/repository';
 import { jobApi, componentApi, executionApi } from '../api';
 
 interface AppState {
@@ -20,6 +21,22 @@ interface AppState {
   isAuthenticated: boolean;
   username: string | null;
   
+  // NEW: DB Connections
+  dbConnections: DBConnection[];
+  dbConnectionsLoading: boolean;
+  
+  // NEW: Context Groups
+  contextGroups: ContextGroup[];
+  selectedContext: string;
+  
+  // NEW: Execution Logs & Problems
+  executionLogs: ExecutionLog[];
+  validationProblems: ValidationProblem[];
+  
+  // NEW: UI State
+  selectedNodeId: string | null;
+  darkMode: boolean;
+  
   // Actions
   loadJobs: () => Promise<void>;
   loadJob: (id: string) => Promise<JobSchema>;
@@ -36,6 +53,24 @@ interface AppState {
   
   login: (username: string, password: string) => boolean;
   logout: () => void;
+  
+  // NEW: DB Connection Actions
+  addDbConnection: (connection: DBConnection) => void;
+  updateDbConnection: (id: string, connection: DBConnection) => void;
+  deleteDbConnection: (id: string) => void;
+  
+  // NEW: Context Actions
+  setContextGroups: (groups: ContextGroup[]) => void;
+  setSelectedContext: (contextName: string) => void;
+  
+  // NEW: Logging Actions
+  addExecutionLog: (log: ExecutionLog) => void;
+  clearExecutionLogs: () => void;
+  setValidationProblems: (problems: ValidationProblem[]) => void;
+  
+  // NEW: UI Actions
+  setSelectedNodeId: (nodeId: string | null) => void;
+  toggleDarkMode: () => void;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -45,10 +80,30 @@ export const useStore = create<AppState>((set, get) => ({
   jobsLoading: false,
   components: [],
   componentsLoading: false,
+  darkMode: localStorage.getItem('darkMode') === 'true',
   executionStatus: null,
   isExecuting: false,
   isAuthenticated: localStorage.getItem('auth') === 'true',
   username: localStorage.getItem('username'),
+  
+  // NEW: Initial state for DB Connections
+  dbConnections: [],
+  dbConnectionsLoading: false,
+  
+  // NEW: Initial state for Context Groups
+  contextGroups: [
+    { id: 'ctx-dev', name: 'DEV', variables: [], isDefault: true },
+    { id: 'ctx-qa', name: 'QA', variables: [], isDefault: false },
+    { id: 'ctx-prod', name: 'PROD', variables: [], isDefault: false },
+  ],
+  selectedContext: 'DEV',
+  
+  // NEW: Initial state for logs/problems
+  executionLogs: [],
+  validationProblems: [],
+  
+  // NEW: UI State
+  selectedNodeId: null,
 
   // Job actions
   loadJobs: async () => {
@@ -136,5 +191,61 @@ export const useStore = create<AppState>((set, get) => ({
     localStorage.removeItem('auth');
     localStorage.removeItem('username');
     set({ isAuthenticated: false, username: null });
+  },
+  
+  // NEW: DB Connection Actions
+  addDbConnection: (connection: DBConnection) => {
+    set((state) => ({
+      dbConnections: [...state.dbConnections, connection],
+    }));
+  },
+
+  updateDbConnection: (id: string, connection: DBConnection) => {
+    set((state) => ({
+      dbConnections: state.dbConnections.map((c) =>
+        c.id === id ? connection : c
+      ),
+    }));
+  },
+
+  deleteDbConnection: (id: string) => {
+    set((state) => ({
+      dbConnections: state.dbConnections.filter((c) => c.id !== id),
+    }));
+  },
+
+  // NEW: Context Actions
+  setContextGroups: (groups: ContextGroup[]) => {
+    set({ contextGroups: groups });
+  },
+
+  setSelectedContext: (contextName: string) => {
+    set({ selectedContext: contextName });
+  },
+
+  // NEW: Logging Actions
+  addExecutionLog: (log: ExecutionLog) => {
+    set((state) => ({
+      executionLogs: [...state.executionLogs, log],
+    }));
+  },
+
+  clearExecutionLogs: () => {
+    set({ executionLogs: [] });
+  },
+
+  setValidationProblems: (problems: ValidationProblem[]) => {
+    set({ validationProblems: problems });
+  },
+
+  // NEW: UI Actions
+  setSelectedNodeId: (nodeId: string | null) => {
+    set({ selectedNodeId: nodeId });
+  },
+
+  toggleDarkMode: () => {
+    const newValue = !get().darkMode;
+    localStorage.setItem('darkMode', String(newValue));
+    set({ darkMode: newValue });
   },
 }));

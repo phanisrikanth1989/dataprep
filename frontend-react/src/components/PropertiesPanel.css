@@ -1,0 +1,235 @@
+.properties-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #fff;
+  border-left: 1px solid #e8e8e8;
+}
+
+.properties-panel.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+}
+
+.header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.component-type {
+  font-size: 10px;
+  opacity: 0.8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.component-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.panel-header .ant-btn {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.panel-header .ant-btn:hover {
+  border-color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Tabs */
+.properties-tabs {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.properties-tabs .ant-tabs-nav {
+  margin: 0;
+  padding: 0 8px;
+  background: #fafafa;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.properties-tabs .ant-tabs-tab {
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.properties-tabs .ant-tabs-content {
+  flex: 1;
+  overflow: hidden;
+}
+
+.properties-tabs .ant-tabs-tabpane {
+  height: 100%;
+  overflow: auto;
+}
+
+/* Tab content */
+.tab-content {
+  padding: 14px;
+}
+
+.tab-content .ant-form-item {
+  margin-bottom: 14px;
+}
+
+.tab-content .ant-form-item-label {
+  padding-bottom: 4px;
+}
+
+.tab-content .ant-form-item-label > label {
+  font-size: 12px;
+  color: #595959;
+}
+
+/* Expression input */
+.expression-input {
+  font-family: 'Monaco', 'Consolas', monospace;
+  font-size: 12px;
+}
+
+/* Schema tab */
+.schema-tab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.schema-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  font-weight: 500;
+}
+
+.schema-tab .ant-table {
+  flex: 1;
+  font-size: 12px;
+}
+
+.schema-tab .ant-table-thead > tr > th {
+  background: #fafafa;
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+.schema-tab .ant-table-tbody > tr > td {
+  padding: 4px 8px;
+}
+
+.schema-actions {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #f0f0f0;
+  text-align: right;
+}
+
+/* Doc tab */
+.doc-tab h4 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.doc-tab h5 {
+  margin: 12px 0 8px;
+  font-size: 13px;
+  color: #595959;
+}
+
+.doc-tab .description {
+  color: #595959;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.doc-tab .connections-info {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+}
+
+.doc-tab .props-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.doc-tab .prop-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: #fafafa;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.doc-tab .prop-name {
+  font-weight: 500;
+  flex: 1;
+}
+
+.doc-tab .prop-type {
+  color: #1890ff;
+  font-size: 11px;
+}
+
+.doc-tab .required-tag {
+  font-size: 9px;
+  line-height: 14px;
+  padding: 0 4px;
+  margin: 0;
+}
+
+/* Panel footer */
+.panel-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid #f0f0f0;
+  background: #fafafa;
+}
+
+/* Scrollbar */
+.tab-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.tab-content::-webkit-scrollbar-track {
+  background: #f0f0f0;
+}
+
+.tab-content::-webkit-scrollbar-thumb {
+  background: #d9d9d9;
+  border-radius: 3px;
+}
+
+.tab-content::-webkit-scrollbar-thumb:hover {
+  background: #bfbfbf;
+}
+
+/* Input group for file browser */
+.tab-content .ant-space-compact {
+  width: 100%;
+}
+
+.tab-content .ant-space-compact .ant-btn {
+  border-left: 0;
+}
