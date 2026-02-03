@@ -88,24 +88,80 @@ class JobService:
         logger.info(f"Deleted job: {job_id}")
         return True
 
+    def _transform_map_config(self, config: dict, component_id: str, flows: list) -> dict:
+        """Transform frontend Map config to backend expected format.
+        
+        Frontend sends:
+        {
+            "mappings": [{"sourceColumn": "col1", "targetColumn": "out1", "expression": "", "dataType": "string"}, ...],
+            "output_schema": [{"name": "out1", "type": "string"}, ...]
+        }
+        
+        Backend expects:
+        {
+            "inputs": {"main": {"name": "main"}, "lookups": []},
+            "outputs": [{"name": "out", "columns": [{"name": "out1", "expression": "main.col1"}, ...]}],
+            "variables": []
+        }
+        """
+        mappings = config.get("mappings", [])
+        
+        # Find the input flow name for this component
+        main_input_name = "main"
+        for flow in flows:
+            if flow.get("to") == component_id:
+                # Use the flow name or source component as the table name
+                main_input_name = flow.get("name", flow.get("from", "main"))
+                break
+        
+        # Build output columns from mappings
+        output_columns = []
+        for mapping in mappings:
+            source = mapping.get("sourceColumn", "")
+            target = mapping.get("targetColumn", "")
+            expression = mapping.get("expression", "")
+            data_type = mapping.get("dataType", "string")
+            
+            if not target:
+                continue
+                
+            # Build expression: if custom expression provided use it, otherwise use source column reference
+            if expression:
+                # Use custom expression as-is
+                col_expr = expression
+            elif source:
+                # Simple column copy: reference source column from main input
+                col_expr = f"{main_input_name}.{source}"
+            else:
+                col_expr = ""
+            
+            output_columns.append({
+                "name": target,
+                "expression": col_expr,
+                "type": data_type,
+            })
+        
+        return {
+            "inputs": {
+                "main": {"name": main_input_name},
+                "lookups": []
+            },
+            "outputs": [
+                {
+                    "name": "out",
+                    "columns": output_columns
+                }
+            ],
+            "variables": []
+        }
+
     def export_job_config(self, job_id: str) -> Optional[dict]:
         """Export job as ETL engine config"""
         job = self.get_job(job_id)
         if not job:
             return None
 
-        # Convert UI format to ETL engine format
-        components = []
-        for node in job.nodes:
-            comp = {
-                "id": node.id,
-                "type": node.type,
-                "subjob_id": node.subjob_id or "subjob_0",
-                "is_subjob_start": node.is_subjob_start,
-                "config": node.config,
-            }
-            components.append(comp)
-
+        # Build flows first (needed for Map config transformation)
         flows = []
         for edge in job.edges:
             if edge.edge_type == "flow":
@@ -116,6 +172,24 @@ class JobService:
                     "name": edge.name or f"{edge.source}_to_{edge.target}",
                 }
                 flows.append(flow)
+
+        # Convert UI format to ETL engine format
+        components = []
+        for node in job.nodes:
+            node_config = node.config or {}
+            
+            # Transform Map component config from frontend format to backend format
+            if node.type == "Map" and "mappings" in node_config:
+                node_config = self._transform_map_config(node_config, node.id, flows)
+            
+            comp = {
+                "id": node.id,
+                "type": node.type,
+                "subjob_id": node.subjob_id or "subjob_0",
+                "is_subjob_start": node.is_subjob_start,
+                "config": node_config,
+            }
+            components.append(comp)
 
         triggers = []
         for edge in job.edges:

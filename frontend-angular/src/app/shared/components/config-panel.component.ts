@@ -315,8 +315,8 @@ export class ConfigPanelComponent implements OnInit {
   configForm!: FormGroup;
   activeTab: 'config' | 'schema' = 'config';
 
-  // Input component types that support schema definition
-  INPUT_COMPONENT_TYPES = ['FileInputDelimited', 'FileTouch'];
+  // Input component types that support schema definition (components that read data and need output schema)
+  INPUT_COMPONENT_TYPES = ['FileInputDelimited', 'DatabaseInput', 'FileInputExcel', 'FileInputJSON', 'FileInputXML'];
 
   constructor(
     private fb: FormBuilder,

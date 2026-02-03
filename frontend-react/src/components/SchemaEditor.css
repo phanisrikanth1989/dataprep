@@ -1,0 +1,106 @@
+/* ============================================
+   SCHEMA EDITOR - ZOHO STYLE
+   ============================================ */
+
+.schema-editor {
+  padding: 0;
+}
+
+.schema-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-light, #EBECF0);
+}
+
+.schema-header h4 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary, #172B4D);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.schema-header h4::before {
+  content: '📋';
+  font-size: 16px;
+}
+
+.empty-schema {
+  text-align: center;
+  padding: 48px 24px;
+  background: var(--bg-tertiary, #F4F5F7);
+  border-radius: var(--radius-lg, 12px);
+  border: 2px dashed var(--border-color, #DFE1E6);
+}
+
+.empty-schema::before {
+  content: '📊';
+  display: block;
+  font-size: 40px;
+  margin-bottom: 16px;
+  opacity: 0.6;
+}
+
+.empty-schema p {
+  margin: 0 0 20px;
+  color: var(--text-secondary, #5E6C84);
+  font-size: 14px;
+}
+
+.schema-table {
+  margin-bottom: 20px;
+}
+
+.schema-table .ant-table {
+  border-radius: var(--radius-lg, 12px);
+  overflow: hidden;
+  border: 1px solid var(--border-light, #EBECF0);
+}
+
+.schema-table .ant-table-thead > tr > th {
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--bg-tertiary, #F4F5F7);
+  color: var(--text-secondary, #5E6C84);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border-light, #EBECF0);
+}
+
+.schema-table .ant-table-tbody > tr > td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border-light, #EBECF0);
+}
+
+.schema-table .ant-table-tbody > tr:hover > td {
+  background: var(--bg-hover, #EBECF0);
+}
+
+.schema-table .ant-input {
+  border-radius: var(--radius-md, 8px);
+}
+
+.schema-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-light, #EBECF0);
+}
+
+.schema-actions .ant-btn {
+  height: 40px;
+  padding: 0 24px;
+  font-weight: 500;
+  border-radius: var(--radius-md, 8px);
+}
+
+.schema-actions .ant-btn-primary {
+  background: linear-gradient(135deg, #0052CC 0%, #0747A6 100%);
+  border: none;
+  box-shadow: 0 2px 8px rgba(0, 82, 204, 0.25);
+}

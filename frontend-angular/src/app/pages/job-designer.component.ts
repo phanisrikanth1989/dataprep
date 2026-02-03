@@ -104,16 +104,44 @@ import { v4 as uuidv4 } from 'uuid';
           <!-- Config Panel Below Canvas -->
           <div class="config-panel-drawer" *ngIf="selectedNode" [@slideUp]>
             <div class="drawer-header">
-              <h3>{{ selectedNode.label }} Configuration</h3>
+              <div class="drawer-title-section">
+                <h3>{{ selectedNode.label }} Configuration</h3>
+                <!-- Schema Tab for Input Components -->
+                <div class="drawer-tabs" *ngIf="isInputComponent(selectedNode)">
+                  <button 
+                    class="drawer-tab" 
+                    [class.active]="activeConfigTab === 'config'"
+                    (click)="activeConfigTab = 'config'"
+                  >
+                    ⚙️ Settings
+                  </button>
+                  <button 
+                    class="drawer-tab" 
+                    [class.active]="activeConfigTab === 'schema'"
+                    (click)="activeConfigTab = 'schema'"
+                  >
+                    📋 Schema
+                  </button>
+                </div>
+              </div>
               <button nz-button nzType="text" nzSize="small" (click)="onConfigCancelled()" class="btn-close">✕</button>
             </div>
             <div class="drawer-content">
+              <!-- Configuration Tab -->
               <app-config-panel
+                *ngIf="activeConfigTab === 'config'"
                 [selectedNode]="selectedNode"
                 [fields]="selectedFields"
                 (configUpdated)="onConfigUpdated($event)"
                 (cancelled)="onConfigCancelled()"
               ></app-config-panel>
+              <!-- Schema Editor Tab -->
+              <app-schema-editor
+                *ngIf="activeConfigTab === 'schema' && isInputComponent(selectedNode)"
+                [existingSchema]="selectedNode.config['output_schema'] || []"
+                (schemaSaved)="onSchemaSaved($event)"
+                (cancelled)="activeConfigTab = 'config'"
+              ></app-schema-editor>
             </div>
           </div>
 
@@ -690,6 +718,42 @@ import { v4 as uuidv4 } from 'uuid';
         text-align: center;
         margin: 0;
       }
+
+      /* Drawer Tabs for Config/Schema */
+      .drawer-title-section {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        flex: 1;
+      }
+
+      .drawer-tabs {
+        display: flex;
+        gap: 4px;
+        margin-left: 16px;
+      }
+
+      .drawer-tab {
+        padding: 6px 12px;
+        font-size: 12px;
+        font-weight: 500;
+        border: 1px solid #e2e8f0;
+        background: #f7fafc;
+        color: #4a5568;
+        cursor: pointer;
+        border-radius: 4px;
+        transition: all 0.2s;
+      }
+
+      .drawer-tab:hover {
+        background: #edf2f7;
+      }
+
+      .drawer-tab.active {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-color: #667eea;
+      }
     `,
   ],
 })
@@ -701,6 +765,12 @@ export class JobDesignerComponent implements OnInit, OnDestroy {
   selectedNode: JobNode | null = null;
   selectedFields: ComponentField[] = [];
   isSaving = false;
+
+  // Config panel tab state
+  activeConfigTab: 'config' | 'schema' = 'config';
+  
+  // Input component types that support schema definition
+  INPUT_COMPONENT_TYPES = ['FileInputDelimited', 'DatabaseInput', 'FileInputExcel', 'FileInputJSON', 'FileInputXML'];
 
   // Clone Repository Properties
   cloneRepositoryUrl = '';
@@ -766,6 +836,7 @@ export class JobDesignerComponent implements OnInit, OnDestroy {
   onNodeSelect(node: JobNode): void {
     this.selectedNodeId = node.id;
     this.selectedNode = node;
+    this.activeConfigTab = 'config'; // Reset to config tab when selecting new node
     // Load component fields based on component type
     this.loadComponentFields(node.type);
   }
@@ -780,6 +851,29 @@ export class JobDesignerComponent implements OnInit, OnDestroy {
         this.selectedFields = [];
       }
     });
+  }
+
+  /**
+   * Check if node is an input component that supports schema definition
+   */
+  isInputComponent(node: JobNode | null): boolean {
+    if (!node) return false;
+    return this.INPUT_COMPONENT_TYPES.includes(node.type);
+  }
+
+  /**
+   * Handle schema save from schema editor
+   */
+  onSchemaSaved(schema: any[]): void {
+    if (this.selectedNode) {
+      // Merge schema into config
+      this.selectedNode.config = {
+        ...this.selectedNode.config,
+        output_schema: schema
+      };
+      this.activeConfigTab = 'config';
+      this.message.success('Schema saved successfully');
+    }
   }
 
   onConfigUpdated(config: Record<string, any>): void {

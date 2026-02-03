@@ -1,0 +1,145 @@
+{
+  "id": "a23f7b66-03bf-47b2-bf39-f9a6f686a08f",
+  "name": "Sales",
+  "description": "",
+  "nodes": [
+    {
+      "id": "node-7105159c-bd56-4d8a-a72b-eda41536a5b3",
+      "type": "FileInputDelimited",
+      "label": "file_input_delimited",
+      "x": 30.0,
+      "y": 60.0,
+      "config": {
+        "output_schema": [
+          {
+            "name": "id",
+            "type": "id_String",
+            "nullable": true
+          },
+          {
+            "name": "name",
+            "type": "id_String",
+            "nullable": true
+          },
+          {
+            "name": "age",
+            "type": "id_String",
+            "nullable": true
+          }
+        ]
+      },
+      "subjob_id": null,
+      "is_subjob_start": false
+    },
+    {
+      "id": "node-ed4caf4a-f5e5-43e9-a666-c803198e26f6",
+      "type": "Map",
+      "label": "map",
+      "x": 345.0,
+      "y": 435.0,
+      "config": {
+        "mappings": [
+          {
+            "id": "map_1770078398386_1dgkjsso3",
+            "sourceColumn": "id",
+            "targetColumn": "id",
+            "expression": "",
+            "dataType": "id_String"
+          },
+          {
+            "id": "map_1770078398386_0z1tz7xqg",
+            "sourceColumn": "name",
+            "targetColumn": "name",
+            "expression": "",
+            "dataType": "id_String"
+          },
+          {
+            "id": "map_1770078398386_xzss9s0hq",
+            "sourceColumn": "age",
+            "targetColumn": "age",
+            "expression": "",
+            "dataType": "id_String"
+          },
+          {
+            "id": "map_1770078403450_zt0l25jq9",
+            "sourceColumn": "name",
+            "targetColumn": "l_name",
+            "expression": "substring(name, 0, 2)",
+            "dataType": "string"
+          }
+        ],
+        "output_schema": [
+          {
+            "name": "id",
+            "type": "id_String",
+            "length": null,
+            "precision": null,
+            "nullable": true
+          },
+          {
+            "name": "name",
+            "type": "id_String",
+            "length": null,
+            "precision": null,
+            "nullable": true
+          },
+          {
+            "name": "age",
+            "type": "id_String",
+            "length": null,
+            "precision": null,
+            "nullable": true
+          },
+          {
+            "name": "l_name",
+            "type": "string",
+            "length": null,
+            "precision": null,
+            "nullable": true
+          }
+        ]
+      },
+      "subjob_id": null,
+      "is_subjob_start": false
+    },
+    {
+      "id": "node-031ebddf-a9ce-4462-99b6-443d2cee8f1e",
+      "type": "FileOutputDelimited",
+      "label": "file_output_delimited",
+      "x": 630.0,
+      "y": 60.0,
+      "config": {},
+      "subjob_id": null,
+      "is_subjob_start": false
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-91e31a2c-c48c-44ad-b9c7-30e1e5702df9",
+      "source": "node-7105159c-bd56-4d8a-a72b-eda41536a5b3",
+      "target": "node-ed4caf4a-f5e5-43e9-a666-c803198e26f6",
+      "edge_type": "flow",
+      "name": null,
+      "trigger_type": null,
+      "condition": null
+    },
+    {
+      "id": "edge-e5d0715a-55ef-41de-822f-7b865e0fb8cd",
+      "source": "node-ed4caf4a-f5e5-43e9-a666-c803198e26f6",
+      "target": "node-031ebddf-a9ce-4462-99b6-443d2cee8f1e",
+      "edge_type": "flow",
+      "name": null,
+      "trigger_type": null,
+      "condition": null
+    }
+  ],
+  "context": {},
+  "java_config": {
+    "enabled": false
+  },
+  "python_config": {
+    "enabled": false
+  },
+  "created_at": "2026-02-03T00:25:43.262349",
+  "updated_at": "2026-02-03T00:29:52.424285"
+}

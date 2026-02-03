@@ -1,0 +1,94 @@
+/* ============================================
+   CONFIG PANEL - ZOHO STYLE
+   ============================================ */
+
+.config-panel {
+  padding: 0;
+}
+
+.config-panel .ant-form-item {
+  margin-bottom: 20px;
+}
+
+.config-panel .ant-form-item-label > label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary, #5E6C84);
+}
+
+.config-panel .ant-form-item-label > label::before {
+  display: none !important;
+}
+
+.config-panel .ant-form-item-required::after {
+  content: '*';
+  color: var(--error-color, #FF5630);
+  margin-left: 4px;
+}
+
+.config-panel .ant-input,
+.config-panel .ant-input-number,
+.config-panel .ant-select-selector,
+.config-panel .ant-input-affix-wrapper {
+  border-radius: var(--radius-md, 8px);
+  border: 2px solid var(--border-color, #DFE1E6);
+  transition: all 0.2s ease;
+}
+
+.config-panel .ant-input:hover,
+.config-panel .ant-input-number:hover,
+.config-panel .ant-select-selector:hover,
+.config-panel .ant-input-affix-wrapper:hover {
+  border-color: var(--primary-light, #4C9AFF);
+}
+
+.config-panel .ant-input:focus,
+.config-panel .ant-input-number-focused,
+.config-panel .ant-select-focused .ant-select-selector,
+.config-panel .ant-input-affix-wrapper-focused {
+  border-color: var(--primary-color, #0052CC);
+  box-shadow: 0 0 0 3px rgba(0, 82, 204, 0.1);
+}
+
+.config-panel .ant-divider {
+  margin: 20px 0;
+  border-color: var(--border-light, #EBECF0);
+}
+
+.form-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-light, #EBECF0);
+}
+
+.form-actions .ant-btn {
+  height: 40px;
+  padding: 0 24px;
+  font-weight: 500;
+  border-radius: var(--radius-md, 8px);
+}
+
+.form-actions .ant-btn-default {
+  background: var(--bg-tertiary, #F4F5F7);
+  border-color: transparent;
+  color: var(--text-secondary, #5E6C84);
+}
+
+.form-actions .ant-btn-default:hover {
+  background: var(--bg-hover, #EBECF0);
+  border-color: transparent;
+  color: var(--text-primary, #172B4D);
+}
+
+.form-actions .ant-btn-primary {
+  background: linear-gradient(135deg, #0052CC 0%, #0747A6 100%);
+  border: none;
+  box-shadow: 0 2px 8px rgba(0, 82, 204, 0.25);
+}
+
+.form-actions .ant-btn-primary:hover {
+  box-shadow: 0 4px 12px rgba(0, 82, 204, 0.35);
+}

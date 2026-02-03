@@ -1,0 +1,184 @@
+/* ============================================
+   LOGIN PAGE - ZOHO STYLE
+   ============================================ */
+
+.login-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #0052CC 0%, #00B8A9 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+.login-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.shape {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  filter: blur(1px);
+}
+
+.shape-1 {
+  width: 400px;
+  height: 400px;
+  top: -150px;
+  right: -100px;
+  animation: float 8s ease-in-out infinite;
+}
+
+.shape-2 {
+  width: 300px;
+  height: 300px;
+  bottom: -100px;
+  left: -80px;
+  animation: float 10s ease-in-out infinite reverse;
+}
+
+.shape-3 {
+  width: 200px;
+  height: 200px;
+  top: 40%;
+  left: 15%;
+  animation: float 12s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-30px) rotate(5deg); }
+}
+
+.login-card {
+  width: 420px;
+  padding: 48px 40px;
+  border-radius: 20px;
+  border: none;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.3);
+  z-index: 1;
+  animation: fadeInUp 0.6s ease-out;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.login-logo {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.login-logo .logo-icon {
+  font-size: 56px;
+  color: #0052CC;
+  margin-bottom: 12px;
+  display: block;
+}
+
+.login-logo h1 {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 700;
+  color: #172B4D;
+  letter-spacing: -0.5px;
+}
+
+.login-logo p {
+  margin: 8px 0 0;
+  color: #5E6C84;
+  font-size: 15px;
+  font-weight: 400;
+}
+
+.login-form {
+  margin-top: 32px;
+}
+
+.login-form .ant-form-item {
+  margin-bottom: 20px;
+}
+
+.login-form .ant-input-affix-wrapper {
+  padding: 12px 16px;
+  border-radius: 10px;
+  border: 2px solid #DFE1E6;
+  transition: all 0.2s ease;
+}
+
+.login-form .ant-input-affix-wrapper:hover {
+  border-color: #4C9AFF;
+}
+
+.login-form .ant-input-affix-wrapper-focused {
+  border-color: #0052CC;
+  box-shadow: 0 0 0 3px rgba(0, 82, 204, 0.1);
+}
+
+.login-form .ant-input-prefix {
+  color: #97A0AF;
+  margin-right: 12px;
+}
+
+.login-form .ant-btn-primary {
+  height: 48px;
+  font-size: 16px;
+  font-weight: 600;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #0052CC 0%, #0747A6 100%);
+  border: none;
+  box-shadow: 0 4px 12px rgba(0, 82, 204, 0.3);
+  transition: all 0.3s ease;
+}
+
+.login-form .ant-btn-primary:hover {
+  background: linear-gradient(135deg, #0747A6 0%, #0052CC 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 82, 204, 0.4);
+}
+
+.login-form .ant-btn-primary:active {
+  transform: translateY(0);
+}
+
+.demo-credentials {
+  margin-top: 32px;
+  padding: 20px;
+  background: linear-gradient(135deg, #F4F5F7 0%, #EBECF0 100%);
+  border-radius: 12px;
+  text-align: center;
+  font-size: 13px;
+  border: 1px solid #DFE1E6;
+}
+
+.demo-credentials p {
+  margin: 6px 0;
+  color: #5E6C84;
+}
+
+.demo-credentials p:first-child {
+  margin-bottom: 12px;
+  font-weight: 600;
+  color: #172B4D;
+}
+
+.demo-credentials code {
+  background: #FFFFFF;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  color: #0052CC;
+  border: 1px solid #DFE1E6;
+}
