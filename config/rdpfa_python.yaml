@@ -1,0 +1,269 @@
+transformer:
+  name: "SWIFT to Business Format - RDPFA Python Expressions"
+  version: "2.0"
+  description: "RDPFA format using Python expressions"
+#BRK, IAMOUNT4, IFLAG_8 not done.
+
+input_fields:
+  - "messagetype"
+  - "block1bic"
+  - "block2bic"
+  - "block4_20"
+  - "block4_25"
+  - "block4_28"
+  - "block4_28C"
+  - "block4_60F"
+  - "block4_60M"
+  - "block4_62F"
+  - "block4_62M"
+  - "block4_61"
+  - "block4_86"
+  - "block4_64"
+
+output_fields:
+
+# Output fields with type and python_expression
+- name: TEMP2
+  type: python_expression
+  python_expression: "((python))str(input_row.get('COLUMN3', '') or '')"
+
+- name: TEMP6
+  type: python_expression
+  python_expression: "((python))(lambda v: v[v.find('sfield9=') + 8:] if v and 'sfield9=' in v else '')(str(input_row.get('block4_61', '') or ''))"
+
+- name: SIDE
+  type: python_expression
+  python_expression: "((python))'S'"
+
+- name: TERMID
+  type: python_expression
+  python_expression: "((python))(lambda v: v[:8] + v[9:] if v and len(v) > 9 else '')(str(input_row.get('block2bic', '') or ''))"
+
+- name: DESTID
+  type: python_expression
+  python_expression: "((python))(lambda v: v[:8] + v[9:] if v and len(v) > 9 else '')(str(input_row.get('block1bic', '') or ''))"
+
+# Remove OURRE: empty mapping
+- name: THE3REF
+  type: python_expression
+  python_expression: "((python))str(input_row.get('block4_20', '') or '')"
+
+- name: SUBACC
+  type: python_expression
+  python_expression: "((python))(lambda v: '40000202' if v == '40000202' else v)(str(input_row.get('block4_25', '') or ''))"
+
+- name: "STMTNO"
+  type: "python_expression"
+  python_expression: "((python))(lambda v: v[:v.find('/')] if v and '/' in v else v)(str(input_row.get('block4_28C', '') or ''))"
+
+- name: "STMTGP"
+  type: "python_expression"
+  python_expression: "((python))(lambda v: v[v.find('/') + 1:] if v and '/' in v else '')(str(input_row.get('block4_28C', '') or ''))"
+
+- name: "IVALUEDATE"
+  type: "python_expression"
+  python_expression: "((python))(lambda v: v[:6] if v and len(v) >= 6 and v[:6].isdigit() else '')(str(input_row.get('block4_61', '') or ''))"
+
+# Opening Balance fields
+- name: "OPBALSIGN"
+  type: "python_expression"
+  python_expression: "((python))(lambda f, m: f[0] if f else (m[0] if m else ''))(str(input_row.get('block4_60F', '') or ''), str(input_row.get('block4_60M', '') or ''))"
+
+- name: "OPBALTP"
+  type: "python_expression"
+  python_expression: "((python))('F' if input_row.get('block4_60F') else 'M')"
+
+- name: "OPBALDATE"
+  type: "python_expression"
+  python_expression: "((python))(lambda f, m: f[1:7] if f and len(f) >= 7 else (m[1:7] if m and len(m) >= 7 else ''))(str(input_row.get('block4_60F', '') or ''), str(input_row.get('block4_60M', '') or ''))"
+
+- name: "OPBALCY"
+  type: "python_expression"
+  python_expression: "((python))(lambda f, m: f[7:10] if f and len(f) >= 10 else (m[7:10] if m and len(m) >= 10 else ''))(str(input_row.get('block4_60F', '') or ''), str(input_row.get('block4_60M', '') or ''))"
+
+- name: "OPBAL"
+  type: "python_expression"
+  python_expression: "((python))(lambda f, m: f[10:].replace(',', '.') if f and len(f) > 10 else (m[10:].replace(',', '.') if m and len(m) > 10 else ''))(str(input_row.get('block4_60F', '') or ''), str(input_row.get('block4_60M', '') or ''))"
+
+# Closing Balance fields
+- name: "CLBALSIGN"
+  type: "python_expression"
+  python_expression: "((python))(lambda f, m: f[0] if f else (m[0] if m else ''))(str(input_row.get('block4_62F', '') or ''), str(input_row.get('block4_62M', '') or ''))"
+
+- name: "CLBALTP"
+  type: "python_expression"
+  python_expression: "((python))('F' if input_row.get('block4_62F') else 'M')"
+
+- name: "CLBALDATE"
+  type: "python_expression"
+  python_expression: "((python))(lambda f, m: f[1:7] if f and len(f) >= 7 else (m[1:7] if m and len(m) >= 7 else ''))(str(input_row.get('block4_62F', '') or ''), str(input_row.get('block4_62M', '') or ''))"
+
+- name: "CLBALCY"
+  type: "python_expression"
+  python_expression: "((python))(lambda f, m: f[7:10] if f and len(f) >= 10 else (m[7:10] if m and len(m) >= 10 else ''))(str(input_row.get('block4_62F', '') or ''), str(input_row.get('block4_62M', '') or ''))"
+
+- name: "CLBAL"
+  type: "python_expression"
+  python_expression: "((python))(lambda f, m: f[10:].replace(',', '.') if f and len(f) > 10 else (m[10:].replace(',', '.') if m and len(m) > 10 else ''))(str(input_row.get('block4_62F', '') or ''), str(input_row.get('block4_62M', '') or ''))"
+
+- name: "IDRORCR"
+  type: "python_expression"
+  python_expression: |
+    ((python))(lambda v: (
+      '' if not v else (
+        ('DR' if len(v) > 11 and v[11] == 'C' else 'CR') if len(v) > 10 and v[10] == 'R'
+        else (v[10] if len(v) > 10 else '')
+      ) if v[6:10].isdigit() else (
+        'D' if len(v) > 6 and v[6] == 'R' else ('C' if len(v) > 6 else v[6] if len(v) > 6 else '')
+      )
+    ))(str(input_row.get('block4_61', '') or ''))
+
+- name: IAMOUNT
+  type: python_expression
+  python_expression: |
+    ((python))(lambda v: (
+      '' if not v else (
+        __import__('re').search(r'[\d,.]+', v[10:].replace(',', '.')).group() if len(v) > 10 and v[6:10].isdigit() and __import__('re').search(r'[\d,.]+', v[10:].replace(',', '.'))
+        else (__import__('re').search(r'[\d,.]+', v[6:].replace(',', '.')).group() if len(v) > 6 and __import__('re').search(r'[\d,.]+', v[6:].replace(',', '.')) else '0.00')
+      )
+    ))(str(input_row.get('block4_61', '') or ''))
+
+- name: ITRANCODE
+  type: python_expression
+  python_expression: |
+    ((python))(lambda v: (
+      '' if not v or ',' not in v else (
+        __import__('re').sub(r'^[\d,]+', '', v[v.find(','):])[:4]
+      )
+    ))(str(input_row.get('block4_61', '') or ''))
+
+- name: IENTRYDATE
+  type: python_expression
+  python_expression: |
+    ((python))(lambda v, f62, m62: (
+      '' if not v else (
+        (str(__import__('datetime').datetime.now().year - 1)[2:4] if __import__('datetime').datetime.now().month == 1 and v[6:8] == '12' else str(__import__('datetime').datetime.now().year)[2:4]) + v[6:10]
+        if len(v) >= 10 and v[6:10].isdigit()
+        else (f62[1:7] if f62 and len(f62) >= 7 else (m62[1:7] if m62 and len(m62) >= 7 else ''))
+      )
+    ))(str(input_row.get('block4_61', '') or ''), str(input_row.get('block4_62F', '') or ''), str(input_row.get('block4_62M', '') or ''))
+
+- name: ISFIELD7
+  type: python_expression
+  python_expression: |
+    ((python))(lambda v: (
+      '' if not v or ',' not in v else (
+        (lambda trancode_start: (
+          v[trancode_start + 4:v.find('//')] if '//' in v
+          else (v[trancode_start + 4:v.find('sfield9=')] if 'sfield9=' in v else v[trancode_start + 4:])
+        ))(v.find(__import__('re').sub(r'^[\d,]+', '', v[v.find(','):])[:4]))
+      )
+    ))(str(input_row.get('block4_61', '') or ''))
+
+- name: ISFIELD8
+  type: python_expression
+  python_expression: |
+    ((python))(lambda v: (
+      '' if not v or '//' not in v else (
+        v[v.find('//') + 2:v.find('sfield9=')] if 'sfield9=' in v and v.find('//') < v.find('sfield9=')
+        else v[v.find('//') + 2:]
+      )
+    ))(str(input_row.get('block4_61', '') or ''))
+
+- name: ISTRING6
+  type: python_expression
+  python_expression: |
+    ((python))(lambda v61, bic2, acc: (
+      'NA' if not (v61 and len(v61) >= 6 and v61[:6].isdigit()) else (
+        bic2[:8] if bic2[:8] == 'CEDELULL' else (
+          bic2 + acc.strip().lstrip('0')[:5] + (
+            __import__('re').search(r'[\d,.]+', v61[10:].replace(',', '.')).group() if v61[6:10].isdigit() and __import__('re').search(r'[\d,.]+', v61[10:].replace(',', '.'))
+            else (__import__('re').search(r'[\d,.]+', v61[6:].replace(',', '.')).group() if __import__('re').search(r'[\d,.]+', v61[6:].replace(',', '.')) else '')
+          ) + (v61[v61.find('sfield9=') + 8:v61.find('sfield9=') + 20] if 'sfield9=' in v61 else '')
+        )
+      )
+    ))(str(input_row.get('block4_61', '') or ''), str(input_row.get('block2bic', '') or ''), str(input_row.get('block4_25', '') or ''))
+
+- name: IFLAG15
+  type: python_expression
+  python_expression: "((python))str(input_row.get('messagetype', '') or '')"
+
+- name: XSTRING17
+  type: python_expression
+  python_expression: |
+    ((python))(lambda v61, bic2, acc: (
+      'NA' if not (v61 and len(v61) >= 6 and v61[:6].isdigit()) else (
+        bic2[:8] if bic2[:8] == 'CEDELULL' else (
+          bic2 + acc.strip().lstrip('0')[:5] + (
+            __import__('re').search(r'[\d,.]+', v61[10:].replace(',', '.')).group() if v61[6:10].isdigit() and __import__('re').search(r'[\d,.]+', v61[10:].replace(',', '.'))
+            else (__import__('re').search(r'[\d,.]+', v61[6:].replace(',', '.')).group() if __import__('re').search(r'[\d,.]+', v61[6:].replace(',', '.')) else '')
+          ) + (v61[v61.find('sfield9=') + 8:] if 'sfield9=' in v61 else '')
+        )
+      )
+    ))(str(input_row.get('block4_61', '') or ''), str(input_row.get('block2bic', '') or ''), str(input_row.get('block4_25', '') or ''))
+
+- name: ISTRING17
+  type: python_expression
+  python_expression: "((python))str(input_row.get('COLUMN2', '') or '')"
+
+- name: ISTRING51
+  type: python_expression
+  python_expression: "((python))(lambda v: v[:8] + v[9:] if v and len(v) > 9 else '')(str(input_row.get('block1bic', '') or ''))"
+
+- name: IFLAG11
+  type: python_expression
+  python_expression: |
+    ((python))(lambda v: (
+      '' if not v or len(v) <= 10 else (
+        '1' if v[10] == 'C' else (
+          '2' if v[10] == 'D' else (
+            ('2' if len(v) > 11 and v[11] == 'C' else ('1' if len(v) > 11 and v[11] == 'D' else '')) if v[10] == 'R' else ''
+          )
+        )
+      )
+    ))(str(input_row.get('block4_61', '') or ''))
+
+- name: ICURRENCY
+  type: python_expression
+  python_expression: "((python))(lambda f, m: f[7:10] if f and len(f) >= 10 else (m[7:10] if m and len(m) >= 10 else ''))(str(input_row.get('block4_60F', '') or ''), str(input_row.get('block4_60M', '') or ''))"
+
+- name: IFLAG8
+  type: python_expression
+  python_expression: |
+    ((python))(lambda v: (
+      0 if not v else (
+        len(__import__('re').sub(r'[0.]', '', __import__('re').search(r'[\d,.]+', v[10:].replace(',', '.')).group() if __import__('re').search(r'[\d,.]+', v[10:].replace(',', '.')) else ''))
+        if len(v) > 10 and v[6:10].isdigit()
+        else (len(__import__('re').sub(r'[0.]', '', __import__('re').search(r'[\d,.]+', v[6:].replace(',', '.')).group() if __import__('re').search(r'[\d,.]+', v[6:].replace(',', '.')) else '')) if len(v) > 6 else 0)
+      )
+    ))(str(input_row.get('block4_61', '') or ''))
+
+- name: AVAILBALSIGN
+  type: python_expression
+  python_expression: "((python))(lambda v: v[0] if v else '')(str(input_row.get('block4_64', '') or ''))"
+
+- name: AVAILBALCY
+  type: python_expression
+  python_expression: "((python))(lambda v: v[7:10] if v and len(v) >= 10 else '')(str(input_row.get('block4_64', '') or ''))"
+
+- name: AVAILBAL
+  type: python_expression
+  python_expression: "((python))(lambda v: v[10:].replace(',', '.') if v and len(v) > 10 else '')(str(input_row.get('block4_64', '') or ''))"
+
+- name: MSGTYPE
+  type: python_expression
+  python_expression: "((python))str(input_row.get('messagetype', '') or '')"
+
+- name: IAMOUNT4
+  type: python_expression
+  python_expression: |
+    ((python))(lambda v: (
+      '' if not v or ',' not in v else (
+        (lambda trancode: (
+          __import__('re').sub(r'[\W^A-Za-z]', '', (
+            v[v.find(trancode) + 4:v.find('//')] if '//' in v
+            else (v[v.find(trancode) + 4:v.find('sfield9=')] if 'sfield9=' in v else v[v.find(trancode) + 4:])
+          ))[:11]
+        ))(__import__('re').sub(r'^[\d,]+', '', v[v.find(','):])[:4])
+      )
+    ))(str(input_row.get('block4_61', '') or ''))
