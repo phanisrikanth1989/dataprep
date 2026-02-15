@@ -48,7 +48,7 @@ class BaseComponent(ABC):
         self.context_manager = context_manager
 
         #component metadata
-        self.component_type = self.__class.__name__
+        self.component_type = self.__class__.__name__
         self.subjob_id: Optional[str] = None
         self.is_subjob_start: bool = False
 
