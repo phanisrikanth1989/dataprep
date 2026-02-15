@@ -54,10 +54,104 @@ class TSwiftDataTransformer(BaseComponent):
         # Extract key configuration sections
         self.input_fields = self.transform_config.get('input_fields', [])
         self.output_fields = self.transform_config.get('output_fields', [])
+        self.output_layout = self.transform_config.get('output_layout', [])
         self.field_mappings = self.transform_config.get('field_mappings', {})
         self.transformations = self.transform_config.get('transformations', {})
 
-        logger.info(f"Component {self.id}: Initialized transformer with {len(self.output_fields)} output fields")
+        # Build lookup dict from output_fields for quick access
+        self.output_fields_map = {field['name']: field for field in self.output_fields}
+
+        # If no output_layout defined, derive from output_fields
+        if not self.output_layout:
+            self.output_layout = [field['name'] for field in self.output_fields]
+
+        # Load lookups configuration and files
+        self.lookups_config = self.transform_config.get('lookups', [])
+        self.lookup_data = {}
+        self._load_lookup_files()
+
+        logger.info(f"Component {self.id}: Initialized transformer with {len(self.output_layout)} output fields ({len(self.output_fields)} with transformations, {len(self.lookups_config)} lookups)")
+
+    def _load_lookup_files(self):
+        """Load all lookup files into memory"""
+        for lookup in self.lookups_config:
+            lookup_name = lookup.get('name', '')
+            lookup_file = lookup.get('file', '')
+            
+            if not lookup_file:
+                logger.warning(f"Component {self.id}: Lookup {lookup_name} has no file specified")
+                continue
+            
+            try:
+                # Resolve path relative to project root
+                if not os.path.isabs(lookup_file):
+                    current_dir = os.path.dirname(__file__)
+                    project_root = os.path.abspath(os.path.join(current_dir, '../../../../../'))
+                    lookup_file = os.path.join(project_root, lookup_file)
+                
+                # Determine delimiter based on file extension
+                if lookup_file.endswith('.csv'):
+                    delimiter = ','
+                else:
+                    delimiter = '|'
+                
+                # Read lookup file
+                lookup_df = pd.read_csv(lookup_file, delimiter=delimiter, dtype=str, keep_default_na=False)
+                
+                # Store lookup data with config
+                self.lookup_data[lookup_name] = {
+                    'data': lookup_df,
+                    'config': lookup
+                }
+                
+                logger.info(f"Component {self.id}: Loaded lookup {lookup_name} with {len(lookup_df)} rows from {lookup_file}")
+                
+            except Exception as e:
+                logger.error(f"Component {self.id}: Error loading lookup file {lookup_file}: {str(e)}")
+
+    def _apply_lookups(self, output_row: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply all lookups to the output row"""
+        for lookup_name, lookup_info in self.lookup_data.items():
+            try:
+                config = lookup_info['config']
+                lookup_df = lookup_info['data']
+                
+                main_key = config.get('main_key', '')
+                lookup_key = config.get('lookup_key', '')
+                columns = config.get('columns', [])
+                match_type = config.get('match_type', 'normal')  # 'normal' or 'regex'
+                
+                # Get the value from output_row to match against
+                main_value = str(output_row.get(main_key, '') or '')
+                
+                if not main_value or lookup_key not in lookup_df.columns:
+                    continue
+                
+                matched_row = None
+                
+                if match_type == 'regex':
+                    # Regex matching - lookup_key column contains regex patterns
+                    for idx, row in lookup_df.iterrows():
+                        pattern = str(row[lookup_key])
+                        if pattern and re.search(pattern, main_value):
+                            matched_row = row
+                            break
+                else:
+                    # Normal exact matching
+                    matches = lookup_df[lookup_df[lookup_key] == main_value]
+                    if not matches.empty:
+                        matched_row = matches.iloc[0]
+                
+                # If match found, copy columns to output_row
+                if matched_row is not None:
+                    for col in columns:
+                        if col in matched_row.index:
+                            output_row[col] = str(matched_row[col])
+                            
+            except Exception as e:
+                logger.warning(f"Component {self.id}: Error applying lookup {lookup_name}: {str(e)}")
+        
+        return output_row
 
     def _load_external_config(self, config_path: str) -> Dict[str, Any]:
         """Load configuration from external YAML or JSON file"""
@@ -210,13 +304,27 @@ class TSwiftDataTransformer(BaseComponent):
 
         for index, row in input_df.iterrows():
             try:
-                # Create output row
-                output_row = {}
-                # Process each output field
-                for output_field in self.output_fields:
-                    field_name = output_field['name']
+                # Create working row with ALL fields (including intermediate ones)
+                working_row = {}
+                
+                # First, compute ALL output_fields (including intermediate fields not in output_layout)
+                # This allows intermediate fields like XSTRING17 to be computed and used for lookups
+                for field_name, output_field in self.output_fields_map.items():
                     field_value = self._get_field_value(output_field, row)
-                    output_row[field_name] = field_value
+                    working_row[field_name] = field_value
+                
+                # Apply lookups to enrich using ALL computed fields (including intermediate)
+                if self.lookup_data:
+                    working_row = self._apply_lookups(working_row)
+                
+                # Now build final output row with only fields from output_layout
+                output_row = {}
+                for field_name in self.output_layout:
+                    if field_name in working_row:
+                        output_row[field_name] = working_row[field_name]
+                    else:
+                        # Field not computed - output empty string
+                        output_row[field_name] = ''
 
                 transformed_rows.append(output_row)
 
@@ -226,10 +334,11 @@ class TSwiftDataTransformer(BaseComponent):
                 if self.config.get('skip_error_rows', False):
                     continue
                 else:
-                    empty_row = {field['name']: field.get('default', '') for field in self.output_fields}
+                    empty_row = {field_name: '' for field_name in self.output_layout}
                     transformed_rows.append(empty_row)
 
-        return pd.DataFrame(transformed_rows)
+        # Ensure column order matches output_layout
+        return pd.DataFrame(transformed_rows, columns=self.output_layout)
 
     def _get_field_value(self, output_field: Dict[str, Any], input_row: pd.Series) -> str:
         """Get value for an output field based on mapping configuration"""
@@ -275,6 +384,10 @@ class TSwiftDataTransformer(BaseComponent):
             elif mapping_type == 'python_expression':
                 # Evaluate Python expression
                 value = self._evaluate_python_expression(output_field, input_row)
+
+            elif mapping_type == 'placeholder':
+                # Placeholder field - not yet implemented, return default/empty
+                value = default_value
 
             else:
                 value = default_value

@@ -1,113 +1,315 @@
 transformer:
   name: "SWIFT to Business Format - RDPFA Python Expressions"
   version: "2.0"
-  description: "RDPFA format using Python expressions"
-#BRK, IAMOUNT4, IFLAG_8 not done.
+  description: "RDPFA format using Python expressions for SWIFT MT940/MT950 statement transformation"
 
+# ============================================================================
+# INPUT FIELDS - Source fields from SWIFT message parsing
+# ============================================================================
 input_fields:
-  - "messagetype"
-  - "block1bic"
-  - "block2bic"
-  - "block4_20"
-  - "block4_25"
-  - "block4_28"
-  - "block4_28C"
-  - "block4_60F"
-  - "block4_60M"
-  - "block4_62F"
-  - "block4_62M"
-  - "block4_61"
-  - "block4_86"
-  - "block4_64"
+  - "messagetype"      # SWIFT message type (940/950)
+  - "block1bic"        # Sender BIC from Block 1
+  - "block2bic"        # Receiver BIC from Block 2
+  - "block4_20"        # Transaction Reference Number
+  - "block4_25"        # Account Identification
+  - "block4_28"        # Statement Number (legacy)
+  - "block4_28C"       # Statement Number/Sequence Number
+  - "block4_60F"       # Opening Balance (First)
+  - "block4_60M"       # Opening Balance (Intermediate)
+  - "block4_62F"       # Closing Balance (Booked)
+  - "block4_62M"       # Closing Balance (Intermediate)
+  - "block4_61"        # Statement Line (Transaction details)
+  - "block4_86"        # Information to Account Owner
+  - "block4_64"        # Closing Available Balance
 
+# ============================================================================
+# OUTPUT LAYOUT - Complete field listing in exact output order (164 fields)
+# ============================================================================
+# Fields not defined in output_fields will automatically output empty string ''
+# ============================================================================
+output_layout:
+  - TEMP1
+  - TEMP2
+  - TEMP3
+  - TEMP4
+  - TEMP5
+  - TEMP6
+  - TEMP7
+  - TEMP8
+  - TEMP9
+  - TEMP10
+  - SIDE
+  - TERMID
+  - DESTID
+  - OURREF
+  - THEIRREF
+  - SUBACC
+  - STMTNO
+  - STMTPG
+  - VALUEDATE
+  - OPBALSGN
+  - OPBALTP
+  - OPBALDATE
+  - OPBALCY
+  - OPBAL
+  - CLBALSGN
+  - CLBALTP
+  - CLBALDATE
+  - CLBALCY
+  - CLBAL
+  - IDRORC
+  - IAMOUNT
+  - ITRANCODE
+  - IENTRYDATE
+  - ISFIELD7
+  - ISFIELD8
+  - ISFIELD9
+  - IREFERENCE
+  - ISTRING27
+  - ISTRING28
+  - INS
+  - IAMOUNT6
+  - IAMOUNT5
+  - ISTRING6
+  - IBRANCHCODE
+  - ISTRING11
+  - ISTRING12
+  - ISTRING13
+  - ISTRING14
+  - ISTRING15
+  - ISTRING60
+  - ISTRING16
+  - ISTRING18
+  - ISTRING19
+  - ISTRING20
+  - ISTRING33
+  - IDATE11
+  - IDATE12
+  - IDATE7
+  - IDATE18
+  - IDATE19
+  - IDATE20
+  - IAMOUNT1
+  - IAMOUNT2
+  - IAMOUNT4
+  - IAMOUNT15
+  - IAMOUNT16
+  - IAMOUNT7
+  - IAMOUNT9
+  - IAMOUNT10
+  - ICURRENCY11
+  - ICURRENCY12
+  - ICURRENCY4
+  - ICURRENCY6
+  - IFLAG18
+  - IFLAG19
+  - IFLAG20
+  - IFLAG13
+  - IFLAG14
+  - IFLAG15
+  - IFLAG16
+  - IFLAG17
+  - IRPCCCY
+  - ISTRING10
+  - IORDINST
+  - DCV
+  - FIN
+  - IFLAG52
+  - ISTRING25
+  - ISTRING42
+  - ISTRING24
+  - ISTRING26
+  - ISTRING32
+  - ISTRING29
+  - ISTRING30
+  - ISTRING34
+  - ISTRING8
+  - ISTRING4
+  - ISTRING39
+  - ISTRING40
+  - ISTRING63
+  - ISTRING17
+  - ISTRING47
+  - ISTRING44
+  - ISTRING50
+  - ISTRING51
+  - ISTRING7
+  - ISTRING31
+  - ISTRING23
+  - ISTRING66
+  - ISTRING62
+  - IFLAG51
+  - IFLAG41
+  - IFLAG40
+  - IFLAG11
+  - ICURRENCY
+  - ISTRING35
+  - IFLAG25
+  - IFLAG26
+  - IDATE3
+  - IDATE4
+  - IDATE5
+  - IDATE6
+  - IFLAG61
+  - IFLAG21
+  - IFLAG22
+  - IFLAG23
+  - IFLAG24
+  - IFLAG27
+  - IFLAG28
+  - IFLAG29
+  - IFLAG35
+  - IFLAG36
+  - IFLAG37
+  - IFLAG42
+  - IAMOUNT11
+  - IAMOUNT22
+  - ICURRENCY22
+  - ICURRENCY5
+  - ICURRENCY7
+  - ISTRING46
+  - ISTRING37
+  - ISTRING38
+  - ISTRING41
+  - ISTRING43
+  - ISTRING45
+  - ISTRING48
+  - ISTRING49
+  - ISTRING5
+  - ISTRING52
+  - ISTRING53
+  - ISTRING54
+  - ISTRING55
+  - ISTRING56
+  - ISTRING57
+  - ISTRING58
+  - ISTRING59
+  - ISTRING61
+  - ISTRING64
+  - ISTRING65
+  - ISTRING67
+  - ISTRING68
+  - ISTRING69
+  - ISTRING9
+  - ICURRENCY1
+  - ICURRENCY2
+  - IFLAG8
+  - MSGHDRTRN
+  - AVAILBALSIGN
+  - AVAILBALCY
+  - AVAILBAL
+  - MSGTYPE
+
+# ============================================================================
+# OUTPUT FIELD TRANSFORMATIONS - Only fields with logic defined (37 fields)
+# ============================================================================
+# Fields in output_layout but NOT here will default to empty string ''
+# ============================================================================
 output_fields:
 
-# Output fields with type and python_expression
 - name: TEMP2
   type: python_expression
+  description: "Temporary field 2 from COLUMN3"
   python_expression: "str(input_row.get('COLUMN3', '') or '')"
 
 - name: TEMP6
   type: python_expression
+  description: "sfield9 value extracted from block4_61"
   python_expression: "(lambda v: v[v.find('sfield9=') + 8:] if v and 'sfield9=' in v else '')(str(input_row.get('block4_61', '') or ''))"
 
 - name: SIDE
   type: python_expression
+  description: "Side indicator - always 'S' for SWIFT"
   python_expression: "'S'"
 
 - name: TERMID
   type: python_expression
+  description: "Terminal ID from block2bic (8 chars + position 10 onwards)"
   python_expression: "(lambda v: v[:8] + v[9:] if v and len(v) > 9 else '')(str(input_row.get('block2bic', '') or ''))"
 
 - name: DESTID
   type: python_expression
+  description: "Destination ID from block1bic (8 chars + position 10 onwards)"
   python_expression: "(lambda v: v[:8] + v[9:] if v and len(v) > 9 else '')(str(input_row.get('block1bic', '') or ''))"
 
-# Remove OURRE: empty mapping
-- name: THE3REF
+- name: THEIRREF
   type: python_expression
+  description: "Their reference from block4_20"
   python_expression: "str(input_row.get('block4_20', '') or '')"
 
 - name: SUBACC
   type: python_expression
+  description: "Sub-account from block4_25"
   python_expression: "(lambda v: '40000202' if v == '40000202' else v)(str(input_row.get('block4_25', '') or ''))"
 
-- name: "STMTNO"
-  type: "python_expression"
+- name: STMTNO
+  type: python_expression
+  description: "Statement number (before slash in block4_28C)"
   python_expression: "(lambda v: v[:v.find('/')] if v and '/' in v else v)(str(input_row.get('block4_28C', '') or ''))"
 
-- name: "STMTGP"
-  type: "python_expression"
+- name: STMTPG
+  type: python_expression
+  description: "Statement page (after slash in block4_28C)"
   python_expression: "(lambda v: v[v.find('/') + 1:] if v and '/' in v else '')(str(input_row.get('block4_28C', '') or ''))"
 
-- name: "IVALUEDATE"
-  type: "python_expression"
+- name: VALUEDATE
+  type: python_expression
+  description: "Value date from first 6 digits of block4_61"
   python_expression: "(lambda v: v[:6] if v and len(v) >= 6 and v[:6].isdigit() else '')(str(input_row.get('block4_61', '') or ''))"
 
-# Opening Balance fields
-- name: "OPBALSIGN"
-  type: "python_expression"
+- name: OPBALSGN
+  type: python_expression
+  description: "Opening balance sign (C/D) from block4_60F or block4_60M"
   python_expression: "(lambda f, m: f[0] if f else (m[0] if m else ''))(str(input_row.get('block4_60F', '') or ''), str(input_row.get('block4_60M', '') or ''))"
 
-- name: "OPBALTP"
-  type: "python_expression"
+- name: OPBALTP
+  type: python_expression
+  description: "Opening balance type - F (First) or M (Intermediate)"
   python_expression: "('F' if input_row.get('block4_60F') else 'M')"
 
-- name: "OPBALDATE"
-  type: "python_expression"
+- name: OPBALDATE
+  type: python_expression
+  description: "Opening balance date (positions 2-7)"
   python_expression: "(lambda f, m: f[1:7] if f and len(f) >= 7 else (m[1:7] if m and len(m) >= 7 else ''))(str(input_row.get('block4_60F', '') or ''), str(input_row.get('block4_60M', '') or ''))"
 
-- name: "OPBALCY"
-  type: "python_expression"
+- name: OPBALCY
+  type: python_expression
+  description: "Opening balance currency (positions 8-10)"
   python_expression: "(lambda f, m: f[7:10] if f and len(f) >= 10 else (m[7:10] if m and len(m) >= 10 else ''))(str(input_row.get('block4_60F', '') or ''), str(input_row.get('block4_60M', '') or ''))"
 
-- name: "OPBAL"
-  type: "python_expression"
+- name: OPBAL
+  type: python_expression
+  description: "Opening balance amount (position 11 onwards, comma replaced with dot)"
   python_expression: "(lambda f, m: f[10:].replace(',', '.') if f and len(f) > 10 else (m[10:].replace(',', '.') if m and len(m) > 10 else ''))(str(input_row.get('block4_60F', '') or ''), str(input_row.get('block4_60M', '') or ''))"
 
-# Closing Balance fields
-- name: "CLBALSIGN"
-  type: "python_expression"
+- name: CLBALSGN
+  type: python_expression
+  description: "Closing balance sign (C/D) from block4_62F or block4_62M"
   python_expression: "(lambda f, m: f[0] if f else (m[0] if m else ''))(str(input_row.get('block4_62F', '') or ''), str(input_row.get('block4_62M', '') or ''))"
 
-- name: "CLBALTP"
-  type: "python_expression"
+- name: CLBALTP
+  type: python_expression
+  description: "Closing balance type - F (Booked) or M (Intermediate)"
   python_expression: "('F' if input_row.get('block4_62F') else 'M')"
 
-- name: "CLBALDATE"
-  type: "python_expression"
+- name: CLBALDATE
+  type: python_expression
+  description: "Closing balance date (positions 2-7)"
   python_expression: "(lambda f, m: f[1:7] if f and len(f) >= 7 else (m[1:7] if m and len(m) >= 7 else ''))(str(input_row.get('block4_62F', '') or ''), str(input_row.get('block4_62M', '') or ''))"
 
-- name: "CLBALCY"
-  type: "python_expression"
+- name: CLBALCY
+  type: python_expression
+  description: "Closing balance currency (positions 8-10)"
   python_expression: "(lambda f, m: f[7:10] if f and len(f) >= 10 else (m[7:10] if m and len(m) >= 10 else ''))(str(input_row.get('block4_62F', '') or ''), str(input_row.get('block4_62M', '') or ''))"
 
-- name: "CLBAL"
-  type: "python_expression"
+- name: CLBAL
+  type: python_expression
+  description: "Closing balance amount (position 11 onwards, comma replaced with dot)"
   python_expression: "(lambda f, m: f[10:].replace(',', '.') if f and len(f) > 10 else (m[10:].replace(',', '.') if m and len(m) > 10 else ''))(str(input_row.get('block4_62F', '') or ''), str(input_row.get('block4_62M', '') or ''))"
 
-- name: "IDRORCR"
-  type: "python_expression"
+- name: IDRORC
+  type: python_expression
+  description: "Debit/Credit indicator derived from block4_61 position 11"
   python_expression: |
     (lambda v: (
       '' if not v else (
@@ -120,6 +322,7 @@ output_fields:
 
 - name: IAMOUNT
   type: python_expression
+  description: "Transaction amount extracted from block4_61"
   python_expression: |
     (lambda v: (
       '' if not v else (
@@ -130,6 +333,7 @@ output_fields:
 
 - name: ITRANCODE
   type: python_expression
+  description: "Transaction type code (4 chars after comma in block4_61)"
   python_expression: |
     (lambda v: (
       '' if not v or ',' not in v else (
@@ -139,6 +343,7 @@ output_fields:
 
 - name: IENTRYDATE
   type: python_expression
+  description: "Entry date from block4_61 or closing balance date"
   python_expression: |
     (lambda v, f62, m62: (
       '' if not v else (
@@ -150,6 +355,7 @@ output_fields:
 
 - name: ISFIELD7
   type: python_expression
+  description: "Reference field extracted from block4_61"
   python_expression: |
     (lambda v: (
       '' if not v or ',' not in v else (
@@ -162,6 +368,7 @@ output_fields:
 
 - name: ISFIELD8
   type: python_expression
+  description: "Supplementary reference after // in block4_61"
   python_expression: |
     (lambda v: (
       '' if not v or '//' not in v else (
@@ -172,6 +379,7 @@ output_fields:
 
 - name: ISTRING6
   type: python_expression
+  description: "Composite key from BIC, account, amount and sfield9"
   python_expression: |
     (lambda v61, bic2, acc: (
       'NA' if not (v61 and len(v61) >= 6 and v61[:6].isdigit()) else (
@@ -184,34 +392,39 @@ output_fields:
       )
     ))(str(input_row.get('block4_61', '') or ''), str(input_row.get('block2bic', '') or ''), str(input_row.get('block4_25', '') or ''))
 
+- name: IAMOUNT4
+  type: python_expression
+  description: "Reference extracted from transaction (alphanumeric, max 11 chars)"
+  python_expression: |
+    (lambda v: (
+      '' if not v or ',' not in v else (
+        (lambda trancode: (
+          __import__('re').sub(r'[\W^A-Za-z]', '', (
+            v[v.find(trancode) + 4:v.find('//')] if '//' in v
+            else (v[v.find(trancode) + 4:v.find('sfield9=')] if 'sfield9=' in v else v[v.find(trancode) + 4:])
+          ))[:11]
+        ))(__import__('re').sub(r'^[\d,]+', '', v[v.find(','):])[:4])
+      )
+    ))(str(input_row.get('block4_61', '') or ''))
+
 - name: IFLAG15
   type: python_expression
+  description: "Message type from input"
   python_expression: "str(input_row.get('messagetype', '') or '')"
-
-- name: XSTRING17
-  type: python_expression
-  python_expression: |
-    (lambda v61, bic2, acc: (
-      'NA' if not (v61 and len(v61) >= 6 and v61[:6].isdigit()) else (
-        bic2[:8] if bic2[:8] == 'CEDELULL' else (
-          bic2 + acc.strip().lstrip('0')[:5] + (
-            __import__('re').search(r'[\d,.]+', v61[10:].replace(',', '.')).group() if v61[6:10].isdigit() and __import__('re').search(r'[\d,.]+', v61[10:].replace(',', '.'))
-            else (__import__('re').search(r'[\d,.]+', v61[6:].replace(',', '.')).group() if __import__('re').search(r'[\d,.]+', v61[6:].replace(',', '.')) else '')
-          ) + (v61[v61.find('sfield9=') + 8:] if 'sfield9=' in v61 else '')
-        )
-      )
-    ))(str(input_row.get('block4_61', '') or ''), str(input_row.get('block2bic', '') or ''), str(input_row.get('block4_25', '') or ''))
 
 - name: ISTRING17
   type: python_expression
+  description: "String field 17 from COLUMN2"
   python_expression: "str(input_row.get('COLUMN2', '') or '')"
 
 - name: ISTRING51
   type: python_expression
+  description: "Sender BIC (8 chars + position 10 onwards)"
   python_expression: "(lambda v: v[:8] + v[9:] if v and len(v) > 9 else '')(str(input_row.get('block1bic', '') or ''))"
 
 - name: IFLAG11
   type: python_expression
+  description: "Credit/Debit numeric indicator (1=Credit, 2=Debit)"
   python_expression: |
     (lambda v: (
       '' if not v or len(v) <= 10 else (
@@ -225,10 +438,12 @@ output_fields:
 
 - name: ICURRENCY
   type: python_expression
+  description: "Currency from opening balance"
   python_expression: "(lambda f, m: f[7:10] if f and len(f) >= 10 else (m[7:10] if m and len(m) >= 10 else ''))(str(input_row.get('block4_60F', '') or ''), str(input_row.get('block4_60M', '') or ''))"
 
 - name: IFLAG8
   type: python_expression
+  description: "Count of significant digits in amount"
   python_expression: |
     (lambda v: (
       0 if not v else (
@@ -240,30 +455,63 @@ output_fields:
 
 - name: AVAILBALSIGN
   type: python_expression
+  description: "Available balance sign from block4_64"
   python_expression: "(lambda v: v[0] if v else '')(str(input_row.get('block4_64', '') or ''))"
 
 - name: AVAILBALCY
   type: python_expression
+  description: "Available balance currency from block4_64"
   python_expression: "(lambda v: v[7:10] if v and len(v) >= 10 else '')(str(input_row.get('block4_64', '') or ''))"
 
 - name: AVAILBAL
   type: python_expression
+  description: "Available balance amount from block4_64"
   python_expression: "(lambda v: v[10:].replace(',', '.') if v and len(v) > 10 else '')(str(input_row.get('block4_64', '') or ''))"
 
 - name: MSGTYPE
   type: python_expression
+  description: "SWIFT message type"
   python_expression: "str(input_row.get('messagetype', '') or '')"
 
-- name: IAMOUNT4
+# Intermediate field for lookup matching (not in output_layout)
+- name: XSTRING17
   type: python_expression
+  description: "Composite key for lookup matching: block2bic + block4_25[first 5 digits stripped] + amount + sfield9"
   python_expression: |
-    (lambda v: (
-      '' if not v or ',' not in v else (
-        (lambda trancode: (
-          __import__('re').sub(r'[\W^A-Za-z]', '', (
-            v[v.find(trancode) + 4:v.find('//')] if '//' in v
-            else (v[v.find(trancode) + 4:v.find('sfield9=')] if 'sfield9=' in v else v[v.find(trancode) + 4:])
-          ))[:11]
-        ))(__import__('re').sub(r'^[\d,]+', '', v[v.find(','):])[:4])
+    (lambda b61, b2bic, b25: (
+      '' if not b61 or len(b61) < 6 or not b61[:6].isdigit() else (
+        '' if not b61[:6].strip() else (
+          (b2bic[:8] if len(b2bic) >= 8 else b2bic) if (b2bic[:8] if len(b2bic) >= 8 else b2bic) == 'CEDELULL'
+          else (
+            b2bic +
+            (b25.strip().lstrip('0')[:5] if len(b25.strip().lstrip('0')) >= 5 else b25.strip().lstrip('0')) +
+            str((lambda s: (
+              (__import__('re').search(r'[\d.]+', s[10:].replace(',', '.')).group() if __import__('re').search(r'[\d.]+', s[10:].replace(',', '.')) else '')
+              if len(s) > 10 and s[6:10].isdigit()
+              else (__import__('re').search(r'[\d.]+', s[6:].replace(',', '.')).group() if len(s) > 6 and __import__('re').search(r'[\d.]+', s[6:].replace(',', '.')) else '')
+            ))(b61) if b61 else '') +
+            (b61[b61.find('sfield9=') + 8:] if 'sfield9=' in b61 else '')
+          )
+        ) if b61[:6].strip() else 'NA'
       )
-    ))(str(input_row.get('block4_61', '') or ''))
+    ))(str(input_row.get('block4_61', '') or ''), str(input_row.get('block2bic', '') or ''), str(input_row.get('block4_25', '') or ''))
+
+lookups:
+  - name: "ISTRING27_LKP"
+    file: "config/OA_DETAIL_SWITCH.txt"
+    main_key: "ISFIELD9"
+    lookup_key: "ISTRING27_KEY"
+    columns: [ISTRING27_VALUE]
+    match_type: "regex"
+
+  - name: "ISTRING17_LKP"
+    file: "config/NON_ASPAC_NCS_MT566_Enrichment_20260209.csv"
+    main_key: "XSTRING17"
+    lookup_key: "COLUMN1"
+    columns: [COLUMN2]
+
+  - name: "TEMP2_LKP"
+    file: "config/NON_ASPAC_NCS_MT566_Enrichment_20260209.csv"
+    main_key: "XSTRING17"
+    lookup_key: "COLUMN1"
+    columns: [COLUMN3]
