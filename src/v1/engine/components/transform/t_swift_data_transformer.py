@@ -299,18 +299,22 @@ class TSwiftDataTransformer(BaseComponent):
             return {'main': pd.DataFrame()}
 
     def _transform_rows(self, input_df: pd.DataFrame) -> pd.DataFrame:
-        """Transform input DataFrame to output format"""
+        """Transform input DataFrame to output format - processes row by row 
+        with support for intermediate computed fields that can reference each other"""
         transformed_rows = []
 
         for index, row in input_df.iterrows():
             try:
                 # Create working row with ALL fields (including intermediate ones)
+                # This dict accumulates computed values so later fields can reference earlier ones
                 working_row = {}
                 
                 # First, compute ALL output_fields (including intermediate fields not in output_layout)
                 # This allows intermediate fields like XSTRING17 to be computed and used for lookups
+                # Fields are processed in order - later fields can reference earlier computed fields
                 for field_name, output_field in self.output_fields_map.items():
-                    field_value = self._get_field_value(output_field, row)
+                    # Pass working_row so expressions can reference previously computed fields
+                    field_value = self._get_field_value(output_field, row, working_row)
                     working_row[field_name] = field_value
                 
                 # Apply lookups to enrich using ALL computed fields (including intermediate)
@@ -340,12 +344,19 @@ class TSwiftDataTransformer(BaseComponent):
         # Ensure column order matches output_layout
         return pd.DataFrame(transformed_rows, columns=self.output_layout)
 
-    def _get_field_value(self, output_field: Dict[str, Any], input_row: pd.Series) -> str:
-        """Get value for an output field based on mapping configuration"""
+    def _get_field_value(self, output_field: Dict[str, Any], input_row: pd.Series, working_row: Dict[str, Any] = None) -> str:
+        """Get value for an output field based on mapping configuration.
+        
+        Args:
+            output_field: Field configuration from YAML
+            input_row: Original input row (pandas Series)
+            working_row: Dict of previously computed fields (for intermediate field references)
+        """
         field_name = output_field['name']
         mapping_type = output_field.get('type', 'direct')
         source = output_field.get('source', '')
         default_value = output_field.get('default', '')
+        working_row = working_row or {}
 
         try:
             if mapping_type == 'direct':
@@ -382,8 +393,8 @@ class TSwiftDataTransformer(BaseComponent):
                 value = self._apply_field_transformation(output_field, source_value, input_row)
 
             elif mapping_type == 'python_expression':
-                # Evaluate Python expression
-                value = self._evaluate_python_expression(output_field, input_row)
+                # Evaluate Python expression with access to previously computed fields
+                value = self._evaluate_python_expression(output_field, input_row, working_row)
 
             elif mapping_type == 'placeholder':
                 # Placeholder field - not yet implemented, return default/empty
@@ -477,11 +488,18 @@ class TSwiftDataTransformer(BaseComponent):
 
         return output_field.get('default', '')
 
-    def _evaluate_python_expression(self, output_field: Dict[str, Any], input_row: pd.Series) -> str:
-        """Evaluate a Python expression to compute field value"""
+    def _evaluate_python_expression(self, output_field: Dict[str, Any], input_row: pd.Series, working_row: Dict[str, Any] = None) -> str:
+        """Evaluate a Python expression to compute field value.
+        
+        Args:
+            output_field: Field configuration from YAML
+            input_row: Original input row (pandas Series)
+            working_row: Dict of previously computed fields (accessible via 'computed' in expressions)
+        """
         expression = output_field.get('python_expression', '')
         default_value = output_field.get('default', '')
         field_name = output_field.get('name', 'unknown')
+        working_row = working_row or {}
 
         if not expression:
             return default_value
@@ -491,8 +509,10 @@ class TSwiftDataTransformer(BaseComponent):
             row_dict = input_row.to_dict()
 
             # Create a safe evaluation context
+            # 'input_row' = original input fields, 'computed' = previously computed output fields
             eval_context = {
                 'input_row': row_dict,
+                'computed': working_row,
                 're': re,
                 'datetime': datetime,
                 'str': str,
