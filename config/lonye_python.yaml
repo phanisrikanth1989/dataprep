@@ -46,7 +46,7 @@ output_layout:
   - SUBACC
   - STMTNO
   - STMTPG
-  - VALUEDATE
+  - IVALUEDATE
   - OPBALSGN
   - OPBALTP
   - OPBALDATE
@@ -217,6 +217,14 @@ output_fields:
   description: "Lookup result from OA_DETAIL_SWITCH.txt based on ISFIELD9"
   python_expression: "str(computed.get('TEMP2_Value', '') or '')"
 
+- name: TEMP6
+  type: python_expression
+  description: "Content after sfield9= in block4_61"
+  python_expression: |
+    (lambda v: (
+      '' if not v or 'sfield9=' not in v else v[v.index('sfield9=')+8:]
+    ))(str(input_row.get('block4_61', '') or ''))
+
 - name: SIDE
   type: python_expression
   description: "Side indicator - always 'S'"
@@ -349,28 +357,36 @@ output_fields:
 
 - name: ISFIELD7
   type: python_expression
-  description: "Reference - digits after alphabets, between comma and //"
+  description: "Reference - extract alphabetic reference OR digits after alphabets, between comma and / or // or sfield9="
   python_expression: |
     (lambda v: (
       '' if not v or ',' not in v else (
         (lambda segment: (
-          __import__('re').search(r'[A-Za-z]+(\d+)', segment).group(1) if __import__('re').search(r'[A-Za-z]+(\d+)', segment) else ''
+          # First try: digits after alphabets
+          __import__('re').search(r'[A-Za-z]+(\d+)', segment).group(1) 
+          if __import__('re').search(r'[A-Za-z]+(\d+)', segment) 
+          # Second try: extract alphabetic reference (last sequence of 4+ letters)
+          else (__import__('re').findall(r'[A-Za-z]{4,}', segment)[-1] if __import__('re').findall(r'[A-Za-z]{4,}', segment) else '')
         ))(
+          # Get segment: after comma, before // or / or sfield9=
           v[v.index(',') + 1:v.index('//')] if '//' in v and v.index(',') < v.index('//')
+          else (v[v.index(',') + 1:v.index('/')] if '/' in v and v.index(',') < v.index('/')
           else (v[v.index(',') + 1:v.index('sfield9=')] if 'sfield9=' in v and v.index(',') < v.index('sfield9=')
-          else v[v.index(',') + 1:])
+          else v[v.index(',') + 1:]))
         )
       )
     ))(str(input_row.get('block4_61', '') or ''))
 
 - name: ISFIELD8
   type: python_expression
-  description: "Reference 2 - content between // and sfield9= or after //"
+  description: "Reference 2 - content between // or / and sfield9="
   python_expression: |
     (lambda v: (
-      '' if not v or '//' not in v else (
-        v[v.index('//')+2:v.index('sfield9=')] if 'sfield9=' in v and v.index('//') < v.index('sfield9=')
-        else v[v.index('//')+2:]
+      '' if not v or ('/' not in v and '//' not in v) else (
+        # Try // first, then single /
+        v[v.index('//')+2:v.index('sfield9=')] if '//' in v and 'sfield9=' in v and v.index('//') < v.index('sfield9=')
+        else (v[v.index('/')+1:v.index('sfield9=')] if '/' in v and 'sfield9=' in v and v.index('/') < v.index('sfield9=')
+        else (v[v.index('//')+2:] if '//' in v else (v[v.index('/')+1:] if '/' in v else '')))
       )
     ))(str(input_row.get('block4_61', '') or ''))
 
@@ -396,16 +412,110 @@ output_fields:
   type: python_expression
   description: "Substring of IREFERENCE uppercase, 70 chars starting at position 36"
   python_expression: |
-    (lambda v61, v86: (
-      '' if not v61 else (
-        '' if not v86 else (v86[:210] if len(v86) >= 210 else v86).upper()[36:106]
-      )
-    ))(str(input_row.get('block4_61', '') or ''), str(input_row.get('block4_86', '') or ''))
+    (lambda ref: (
+      ref.upper()[36:106] if len(ref) > 36 else ''
+    ))(str(computed.get('IREFERENCE', '') or ''))
 
 - name: ISTRING12
   type: python_expression
   description: "Lookup result from OA_GBL_TRANSACTION_DETAILS_TRANSLATION.txt based on ISTRING60"
   python_expression: "str(computed.get('ISTRING12_Value', '') or '')"
+
+- name: TEMP5
+  type: python_expression
+  description: "Extracted reference from ACCOWNRINFO positions 10-26, cleaned"
+  python_expression: |
+    (lambda vd, accownr: (
+      '' if not vd else (
+        (accownr.ljust(26)[10:26].replace(' ', '').replace('/', '') + ' : ').split(' ')[0]
+      )
+    ))(str(computed.get('IVALUEDATE', '') or ''), str(computed.get('IREFERENCE', '') or ''))
+
+- name: TEMP7
+  type: python_expression
+  description: "ISFIELD9 with ORDER BK: removed"
+  python_expression: |
+    (lambda vd, ref3: (
+      '' if not vd else ref3.replace('ORDER BK:', '')
+    ))(str(computed.get('IVALUEDATE', '') or ''), str(computed.get('ISFIELD9', '') or ''))
+
+- name: TEMP8
+  type: python_expression
+  description: "Cleaned ACCOWNRINFO positions 1-36"
+  python_expression: |
+    (lambda vd, accownr: (
+      '' if not vd else (
+        accownr.ljust(36)[1:36]
+        .replace('PT/DE/EI/DIVISIN', '')
+        .replace('PT/SC/TT/12/SN/ISIN', '')
+        .replace('/CY', '')
+      )
+    ))(str(computed.get('IVALUEDATE', '') or ''), str(computed.get('IREFERENCE', '') or ''))
+
+- name: TEMP9
+  type: python_expression
+  description: "ISFIELD8 when SUBACC is 0400003069"
+  python_expression: |
+    (lambda subacc, ref2: (
+      ref2 if subacc == '0400003069' else ''
+    ))(str(computed.get('SUBACC', '') or ''), str(computed.get('ISFIELD8', '') or ''))
+
+- name: IAMOUNT4
+  type: python_expression
+  description: "ISFIELD7 with non-alphanumeric chars removed, left 11 chars"
+  python_expression: |
+    (lambda vd, ref1: (
+      '' if not vd or not vd.strip() else __import__('re').sub(r'[^A-Za-z0-9]', '', ref1)[:11]
+    ))(str(computed.get('IVALUEDATE', '') or ''), str(computed.get('ISFIELD7', '') or ''))
+
+- name: IFLAG15
+  type: python_expression
+  description: "Message type when IVALUEDATE exists"
+  python_expression: |
+    (lambda vd, msgtype: (
+      msgtype if vd else ''
+    ))(str(computed.get('IVALUEDATE', '') or ''), str(input_row.get('messagetype', '') or ''))
+
+- name: ISTRING10
+  type: python_expression
+  description: "SUBACC with # suffix when block4_61 exists"
+  python_expression: |
+    (lambda v61, v25: (
+      v25 + '#' if v61 else ''
+    ))(str(input_row.get('block4_61', '') or ''), str(input_row.get('block4_25', '') or ''))
+
+- name: ICURRENCY
+  type: python_expression
+  description: "Same as OPBALCY"
+  python_expression: "str(computed.get('OPBALCY', '') or '')"
+
+- name: ISTRING51
+  type: python_expression
+  description: "Same as DESTID"
+  python_expression: "str(computed.get('DESTID', '') or '')"
+
+- name: IFLAG11
+  type: python_expression
+  description: "Flag based on block4_61 position 10-12: C=1, D=2, R+C=2, R+D=1"
+  python_expression: |
+    (lambda v: (
+      '' if not v or len(v) < 11 else (
+        '1' if v[10] == 'C' else (
+          '2' if v[10] == 'D' else (
+            ('2' if len(v) > 11 and v[11] == 'C' else ('1' if len(v) > 11 and v[11] == 'D' else ''))
+            if v[10] == 'R' else ''
+          )
+        )
+      )
+    ))(str(input_row.get('block4_61', '') or ''))
+
+- name: IFLAG8
+  type: python_expression
+  description: "Length of IAMOUNT ignoring zeros and dots"
+  python_expression: |
+    (lambda amt: (
+      str(len(amt.replace('0', '').replace('.', ''))) if amt else ''
+    ))(str(computed.get('IAMOUNT', '') or ''))
   
 
 - name: MSGHDRTRN

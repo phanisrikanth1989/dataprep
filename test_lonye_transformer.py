@@ -29,7 +29,7 @@ class MockContextManager:
 
 def main():
     # Load sample input data
-    input_file = 'config/lonye_input.txt'
+    input_file = 'data/lonye_input.txt'
     print(f"Loading input from: {input_file}")
     input_df = pd.read_csv(input_file, delimiter='|')
     print(f"Loaded {len(input_df)} rows with columns: {list(input_df.columns)}")
