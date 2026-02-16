@@ -109,11 +109,23 @@ class TSwiftDataTransformer(BaseComponent):
             except Exception as e:
                 logger.error(f"Component {self.id}: Error loading lookup file {lookup_file}: {str(e)}")
 
-    def _apply_lookups(self, output_row: Dict[str, Any]) -> Dict[str, Any]:
-        """Apply all lookups to the output row"""
+    def _apply_lookups(self, output_row: Dict[str, Any], depends_on_lookup: bool = False) -> Dict[str, Any]:
+        """Apply lookups to the output row
+        
+        Args:
+            output_row: The row to apply lookups to
+            depends_on_lookup: If False, apply lookups without depends_on_lookup flag.
+                              If True, apply lookups with depends_on_lookup flag.
+        """
         for lookup_name, lookup_info in self.lookup_data.items():
             try:
                 config = lookup_info['config']
+                
+                # Filter based on depends_on_lookup flag
+                lookup_depends = config.get('depends_on_lookup', False)
+                if lookup_depends != depends_on_lookup:
+                    continue
+                
                 lookup_df = lookup_info['data']
                 
                 main_key = config.get('main_key', '')
@@ -131,11 +143,28 @@ class TSwiftDataTransformer(BaseComponent):
                 
                 if match_type == 'regex':
                     # Regex matching - lookup_key column contains regex patterns
+                    # Supports wildcard patterns: * matches any characters
                     for idx, row in lookup_df.iterrows():
                         pattern = str(row[lookup_key])
-                        if pattern and re.search(pattern, main_value):
-                            matched_row = row
-                            break
+                        if pattern:
+                            # Convert wildcard patterns to regex
+                            # Escape special regex chars except *, then convert * to .*
+                            if '*' in pattern and not any(c in pattern for c in ['.', '^', '$', '+', '?', '[', ']', '(', ')', '{', '}', '|', '\\']):
+                                # Simple wildcard pattern - convert to regex
+                                regex_pattern = '^' + pattern.replace('*', '.*') + '$'
+                            else:
+                                # Already a regex pattern or exact match
+                                regex_pattern = pattern
+                            
+                            try:
+                                if re.search(regex_pattern, main_value):
+                                    matched_row = row
+                                    break
+                            except re.error:
+                                # Invalid regex - try as literal match
+                                if pattern == main_value:
+                                    matched_row = row
+                                    break
                 else:
                     # Normal exact matching
                     matches = lookup_df[lookup_df[lookup_key] == main_value]
@@ -143,10 +172,20 @@ class TSwiftDataTransformer(BaseComponent):
                         matched_row = matches.iloc[0]
                 
                 # If match found, copy columns to output_row
+                # columns config specifies target names to store the values
+                # source_columns specifies which columns to read from file (defaults to all non-key columns)
                 if matched_row is not None:
-                    for col in columns:
-                        if col in matched_row.index:
-                            output_row[col] = str(matched_row[col])
+                    source_columns = config.get('source_columns', None)
+                    if source_columns is None:
+                        # Default: get all columns except the lookup_key
+                        source_columns = [c for c in lookup_df.columns if c != lookup_key]
+                    
+                    # Map source columns to target columns
+                    for i, target_col in enumerate(columns):
+                        if i < len(source_columns):
+                            source_col = source_columns[i]
+                            if source_col in matched_row.index:
+                                output_row[target_col] = str(matched_row[source_col])
                             
             except Exception as e:
                 logger.warning(f"Component {self.id}: Error applying lookup {lookup_name}: {str(e)}")
@@ -317,9 +356,27 @@ class TSwiftDataTransformer(BaseComponent):
                     field_value = self._get_field_value(output_field, row, working_row)
                     working_row[field_name] = field_value
                 
-                # Apply lookups to enrich using ALL computed fields (including intermediate)
+                # Apply first-tier lookups (those without depends_on_lookup flag)
                 if self.lookup_data:
-                    working_row = self._apply_lookups(working_row)
+                    working_row = self._apply_lookups(working_row, depends_on_lookup=False)
+                
+                # Second pass: Re-compute fields that depend on lookup results
+                # Fields with 'depends_on_lookup: true' are evaluated again after lookups
+                for field_name, output_field in self.output_fields_map.items():
+                    if output_field.get('depends_on_lookup', False):
+                        field_value = self._get_field_value(output_field, row, working_row)
+                        working_row[field_name] = field_value
+                
+                # Apply second-tier lookups (those with depends_on_lookup flag)
+                # These lookups can now reference fields computed in the second pass
+                if self.lookup_data:
+                    working_row = self._apply_lookups(working_row, depends_on_lookup=True)
+                
+                # Third pass: Re-compute fields that depend on second-tier lookup results
+                for field_name, output_field in self.output_fields_map.items():
+                    if output_field.get('depends_on_lookup', False):
+                        field_value = self._get_field_value(output_field, row, working_row)
+                        working_row[field_name] = field_value
                 
                 # Now build final output row with only fields from output_layout
                 output_row = {}
