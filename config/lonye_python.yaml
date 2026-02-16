@@ -212,6 +212,11 @@ output_fields:
   description: "Temporary field 1 from block4_61"
   python_expression: "str(input_row.get('block4_61', '') or '')"
 
+- name: TEMP2
+  type: python_expression
+  description: "Lookup result from OA_DETAIL_SWITCH.txt based on ISFIELD9"
+  python_expression: "str(computed.get('TEMP2_Value', '') or '')"
+
 - name: SIDE
   type: python_expression
   description: "Side indicator - always 'S'"
@@ -396,6 +401,11 @@ output_fields:
         '' if not v86 else (v86[:210] if len(v86) >= 210 else v86).upper()[36:106]
       )
     ))(str(input_row.get('block4_61', '') or ''), str(input_row.get('block4_86', '') or ''))
+
+- name: ISTRING12
+  type: python_expression
+  description: "Lookup result from OA_GBL_TRANSACTION_DETAILS_TRANSLATION.txt based on ISTRING60"
+  python_expression: "str(computed.get('ISTRING12_Value', '') or '')"
   
 
 - name: MSGHDRTRN
@@ -466,3 +476,17 @@ lookups:
     columns: [ISTRING28_Value]
     match_type: regex
     depends_on_lookup: true
+
+  - name: "ISTRING12_LKP"
+    file: "config/OA_GBL_TRANSACTION_DETAILS_TRANSLATION.txt"
+    main_key: "ISTRING60"
+    lookup_key: "KEY"
+    columns: [ISTRING12_Value]
+    match_type: regex
+
+  - name: "TEMP2_LKP"
+    file: "config/OA_DETAIL_SWITCH.txt"
+    main_key: "ISFIELD9"
+    lookup_key: "KEY"
+    columns: [TEMP2_Value]
+    match_type: regex

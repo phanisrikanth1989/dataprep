@@ -143,15 +143,15 @@ class TSwiftDataTransformer(BaseComponent):
                 
                 if match_type == 'regex':
                     # Regex matching - lookup_key column contains regex patterns
-                    # Supports wildcard patterns: * matches any characters
+                    # Supports wildcard patterns: * matches any characters, ? matches single character
                     for idx, row in lookup_df.iterrows():
                         pattern = str(row[lookup_key])
                         if pattern:
                             # Convert wildcard patterns to regex
-                            # Escape special regex chars except *, then convert * to .*
-                            if '*' in pattern and not any(c in pattern for c in ['.', '^', '$', '+', '?', '[', ']', '(', ')', '{', '}', '|', '\\']):
+                            # * → .* (any chars), ? → . (single char)
+                            if ('*' in pattern or '?' in pattern) and not any(c in pattern for c in ['.', '^', '$', '+', '[', ']', '(', ')', '{', '}', '|', '\\']):
                                 # Simple wildcard pattern - convert to regex
-                                regex_pattern = '^' + pattern.replace('*', '.*') + '$'
+                                regex_pattern = '^' + pattern.replace('*', '.*').replace('?', '.') + '$'
                             else:
                                 # Already a regex pattern or exact match
                                 regex_pattern = pattern
