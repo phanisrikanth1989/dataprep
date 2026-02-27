@@ -282,10 +282,3 @@ class TriggerManager:
         self.component_status.clear()
         self.triggered_components.clear()
         logger.debug("Trigger manager reset")
-
-
-
-       
-
-
-

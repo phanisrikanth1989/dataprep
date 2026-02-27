@@ -1,5 +1,8 @@
 """
 Custom exception hierarchy for the data processing engine.
+
+These exceptions provide structured error handling and are compatiable
+with Talend style error handling patterns
 """
 
 
@@ -36,10 +39,10 @@ class JavaBridgeError(ETLError):
     """Raised when there is an error in Java-Python bridge communication."""
     pass
 
+
 class ExpressionError(ETLError):
     """Raised when there is an error in evaluating expressions."""
     pass
-
 
 
 class SchemaError(ETLError):

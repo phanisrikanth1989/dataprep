@@ -737,7 +737,7 @@ class Map(BaseComponent):
 
         original_count = len(lookup_df)
 
-        if matching_mode in ("UNIQUE_MATCH", "FIRST_MATCH"):
+        if matching_mode == 'UNIQUE_MATCH' or matching_mode == 'FIRST_MATCH':
             # Keep first occurrence of each join key combination
             deduplicated_df = lookup_df.drop_duplicates(subset=join_keys, keep="first")
         elif matching_mode == "LAST_MATCH":
@@ -790,6 +790,17 @@ class Map(BaseComponent):
                         mask = filter_results.get('__inner_join_reject_filter__')
                     if mask is not None:
                         filtered_rejects = filtered_rejects[mask].copy()
+
+                #Apply the same output expressions as the main output, not just raw Dataframe
+                if filtered_rejects.empty:
+                        output_dfs[output_name] = pd.DataFrame()
+                else:
+                    #Evaluate output expressions on the reject rows to ensure correct schema and any transformations
+                    reject_outputs = self._evaluate_outputs_java(
+                        filtered_rejects,
+                        variables_config,
+                        [output]
+                    )
                     output_dfs[output_name] = filtered_rejects.copy()
 
         return output_dfs
@@ -1137,5 +1148,4 @@ class Map(BaseComponent):
         outputs = {}
         for output_config in self.config['outputs']:
             outputs[output_config['name']] = pd.DataFrame()
-
         return outputs

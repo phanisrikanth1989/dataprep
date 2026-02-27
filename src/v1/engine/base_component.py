@@ -299,14 +299,18 @@ class BaseComponent(ABC):
         """Update global map with current statistics""" 
         if self.global_map:
             for stat_name, value in self.stats.items():
-                self.global_map.put_component_stat(self.id, stat_name, value)   
+                self.global_map.put_component_stat(self.id, stat_name, value)  
+                # Log the statistics for debugging
+                logger.debug(f"Component {self.id}: Updated stats - NB_LINE:{self.stats['NB_LINE']} NB_LINE_OK:{self.stats['NB_LINE_OK']} NB_LINE_REJECT:{self.stats['NB_LINE_REJECT']} {stat_name}: {value}")
     
     def _update_stats(self, rows_read:int=0, rows_ok:int=0, rows_reject:int=0) -> None:
         """Helpter to update statistics """
         self.stats['NB_LINE'] += rows_read
         self.stats['NB_LINE_OK'] += rows_ok
         self.stats['NB_LINE_REJECT'] += rows_reject
-
+        #Log the stat update
+        logger.debug(f"Component {self.id}: Updated stats - NB_LINE:{self.stats['NB_LINE']} NB_LINE_OK:{self.stats['NB_LINE_OK']} NB_LINE_REJECT:{self.stats['NB_LINE_REJECT']}")
+    
     def validate_schema(self, df: pd.DataFrame, schema: List[Dict]) -> pd.DataFrame:
         """Validate and convert DataFram according to schema definition"""
         if not schema or df.empty:
