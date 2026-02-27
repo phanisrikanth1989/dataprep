@@ -23,6 +23,7 @@ from .components.file.file_output_delimited import FileOutputDelimited
 from .components.transform.filter_rows import FilterRows
 from .components.transform.filter_columns import FilterColumns
 from .components.transform.map import Map
+from .components.aggregate import AggregateRow
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -41,6 +42,8 @@ class ETLEngine:
         # Filter components
         'filter_rows': FilterRows,
         'filter_columns': FilterColumns,
+        # Aggregate components
+        'AggregateRow': AggregateRow
         }
 
 

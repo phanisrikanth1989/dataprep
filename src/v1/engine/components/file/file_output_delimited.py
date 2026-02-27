@@ -310,24 +310,7 @@ class FileOutputDelimited(BaseComponent):
                          delimiter: str, encoding: str, include_header: bool, 
                          append: bool, text_enclosure: Optional[str], create_directory: bool,
                          delete_empty_file: bool, die_on_error: bool) -> Dict[str, Any]:
-        """
-        Write data in streaming mode for large datasets.
-        
-        Args:
-            data_iterator: Iterator yielding DataFrame chunks
-            filepath: Target file path
-            delimiter: Field delimiter
-            encoding: File encoding
-            include_header: Whether to include header
-            append: Whether to append to existing file
-            text_enclosure: Quote character
-            create_directory: Whether to create parent directories
-            delete_empty_file: Whether to delete empty files
-            die_on_error: Whether to fail on errors
-
-        Returns:
-            Dictionary with empty main DataFrame (streaming mode)
-        """
+        """Write data in streaming mode for large datasets."""
         logger.info(f"[{self.id}] Writing in streaming mode: target '{filepath}'")
 
         # Create directory if needed
