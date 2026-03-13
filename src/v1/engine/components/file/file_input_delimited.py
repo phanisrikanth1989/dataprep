@@ -257,8 +257,12 @@ class FileInputDelimited(BaseComponent):
 
         # Special case: If both delimiter and row_separator are empty, read file as single string
         # This handles XML or other single-document files that need to be read as one piece
-        if (delimiter in [None, '', ""]) and (row_separator in [None, '', ""]):
-            logger.info(f"[{self.id}] Special mode: reading as single string (empty delimiter and row_separator)")
+        delimiter_empty = (delimiter in [None, '', '""'] or str(delimiter).strip() == '') or str(delimiter).strip() == ''
+        row_sep_empty = (row_separator in [None, '', '""'] or str(row_separator).strip() == '') or str(row_separator).strip() == ''
+
+        if delimiter_empty:
+            logger.info(f"[{self.id}] Empty delimiter and row_separator: reading file as single string")
+            logger.debug(f"[{self.id}] delimiter: '{delimiter}', row_separator: '{row_separator}'")
             return self._read_as_single_string(filepath, encoding, die_on_error)
 
         # Determine execution mode based on file size
