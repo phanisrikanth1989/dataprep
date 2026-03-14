@@ -15,7 +15,7 @@ from ...base_component import BaseComponent
 logger = logging.getLogger(__name__)
 
 
-class FileUnarchiveComponent(BaseComponent):
+class FileUnarchive(BaseComponent):
     """
     Extracts files or directories from archive formats (ZIP).
 

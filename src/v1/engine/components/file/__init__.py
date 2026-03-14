@@ -10,6 +10,12 @@ from .file_exist import FileExist
 from .file_archive import FileArchive
 from .file_input_raw import FileInputRaw
 from .file_properties import FileProperties
+from .file_input_positional import FileInputPositional
+from .file_row_count import FileRowCount
+from .file_unarchive import FileUnarchive
+from .set_global_var import SetGlobalVar
+from .fixed_flow_input import FixedFlowInput
+from .file_output_positional import FileOutputPositional
 
 __all__ = [
     "FileInputDelimited",
@@ -20,5 +26,11 @@ __all__ = [
     "FileExist",
     "FileArchive",
     "FileInputRaw",
-    "FileProperties"
+    "FileProperties",
+    "FileInputPositional",
+    "FileRowCount",
+    "FileUnarchive",
+    "SetGlobalVar",
+    "FixedFlowInput",
+    "FileOutputPositional"
 ]

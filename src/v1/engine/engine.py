@@ -17,13 +17,40 @@ from .base_component import BaseComponent, ComponentStatus
 from .java_bridge_manager import JavaBridgeManager
 #from .python_routine_manager import PythonRoutineManager
 
-#Import all components
+# Import all components from file folder
+from .components.file.file_archive import FileArchive
+from .components.file.file_copy import FileCopy
+from .components.file.file_delete import FileDelete
+from .components.file.file_exist import FileExist
 from .components.file.file_input_delimited import FileInputDelimited
+from .components.file.file_input_positional import FileInputPositional
+from .components.file.file_input_raw import FileInputRaw
 from .components.file.file_output_delimited import FileOutputDelimited
+from .components.file.file_output_positional import FileOutputPositional
+from .components.file.file_properties import FileProperties
+from .components.file.file_row_count import FileRowCount
+from .components.file.file_touch import FileTouch
+from .components.file.file_unarchive import FileUnarchive
+from .components.file.fixed_flow_input import FixedFlowInput
+from .components.file.set_global_var import SetGlobalVar
+
+# Import all components from aggregate folder
+from .components.aggregate.aggregate_row import AggregateRow
+from .components.aggregate.unique_row import UniqueRow
+
+# Import all components from context folder
+from .components.context.context_load import ContextLoad
+
+# Import all components from control folder
+from .components.control.die import Die
+from .components.control.send_mail import SendMailComponent
+from .components.control.sleep import SleepComponent
+from .components.control.warn import Warn
+
+# Import transform components
 from .components.transform.filter_rows import FilterRows
 from .components.transform.filter_columns import FilterColumns
 from .components.transform.map import Map
-from .components.aggregate import AggregateRow
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -36,15 +63,41 @@ class ETLEngine:
     """
 
     COMPONENT_REGISTRY = {
-
+        # File components
+        'FileArchive': FileArchive,
+        'FileCopy': FileCopy,
+        'FileDelete': FileDelete,
+        'FileExist': FileExist,
+        'FileInputDelimited': FileInputDelimited,
+        'FileInputPositional': FileInputPositional,
+        'FileInputRaw': FileInputRaw,
+        'FileOutputDelimited': FileOutputDelimited,
+        'FileOutputPositional': FileOutputPositional,
+        'FileProperties': FileProperties,
+        'FileRowCount': FileRowCount,
+        'FileTouch': FileTouch,
+        'FileUnarchive': FileUnarchive,
+        'FixedFlowInput': FixedFlowInput,
+        'SetGlobalVar': SetGlobalVar,
+        
+        # Aggregate components
+        'AggregateRow': AggregateRow,
+        'UniqueRow': UniqueRow,
+        
+        # Context components
+        'ContextLoad': ContextLoad,
+        
+        # Control components
+        'Die': Die,
+        'SendMailComponent': SendMailComponent,
+        'SleepComponent': SleepComponent,
+        'Warn': Warn,
+        
         # Transform components
         'Map': Map,
-        # Filter components
-        'filter_rows': FilterRows,
-        'filter_columns': FilterColumns,
-        # Aggregate components
-        'AggregateRow': AggregateRow
-        }
+        'FilterRows': FilterRows,
+        'FilterColumns': FilterColumns,
+    }
 
 
 

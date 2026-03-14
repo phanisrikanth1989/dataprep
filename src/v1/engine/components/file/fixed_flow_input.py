@@ -18,7 +18,7 @@ from ...base_component import BaseComponent
 logger = logging.getLogger(__name__)
 
 
-class FixedFlowInputComponent(BaseComponent):
+class FixedFlowInput(BaseComponent):
     """
     Generates fixed rows of data based on configuration and selected mode.
 
