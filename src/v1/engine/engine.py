@@ -48,9 +48,33 @@ from .components.control.sleep import SleepComponent
 from .components.control.warn import Warn
 
 # Import transform components
-from .components.transform.filter_rows import FilterRows
+from .components.transform.aggregate_sorted_row import AggregateSortedRow
+from .components.transform.denormalize import Denormalize
+from .components.transform.extract_delimited_fields import ExtractDelimitedFields
+from .components.transform.extract_json_fields import ExtractJSONFields
+from .components.transform.extract_positional_fields import ExtractPositionalFields
+from .components.transform.extract_xml_fields import ExtractXMLField
 from .components.transform.filter_columns import FilterColumns
+from .components.transform.filter_rows import FilterRows
+from .components.transform.java_component import JavaComponent
+from .components.transform.java_row_component import JavaRowComponent
+from .components.transform.join import Join
+from .components.transform.log_row import LogRow
 from .components.transform.map import Map
+from .components.transform.normalize import Normalize
+from .components.transform.pivot_to_columns_delimited import PivotToColumnsDelimited
+from .components.transform.python_component import PythonComponent
+from .components.transform.python_dataframe_component import PythonDataFrameComponent
+from .components.transform.python_row_component import PythonRowComponent
+from .components.transform.replicate import Replicate
+from .components.transform.row_generator import RowGenerator
+from .components.transform.schema_compliance_check import SchemaComplianceCheck
+from .components.transform.sort_row import SortRow
+from .components.transform.swift_block_formatter import SwiftBlockFormatter
+from .components.transform.swift_transformer import SwiftTransformer
+from .components.transform.unite import Unite
+from .components.transform.unpivot_row import UnpivotRow
+from .components.transform.xml_map import XMLMap
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -94,9 +118,33 @@ class ETLEngine:
         'Warn': Warn,
         
         # Transform components
-        'Map': Map,
-        'FilterRows': FilterRows,
+        'AggregateSortedRow': AggregateSortedRow,
+        'Denormalize': Denormalize,
+        'ExtractDelimitedFields': ExtractDelimitedFields,
+        'ExtractJSONFields': ExtractJSONFields,
+        'ExtractPositionalFields': ExtractPositionalFields,
+        'ExtractXMLField': ExtractXMLField,
         'FilterColumns': FilterColumns,
+        'FilterRows': FilterRows,
+        'JavaComponent': JavaComponent,
+        'JavaRowComponent': JavaRowComponent,
+        'Join': Join,
+        'LogRow': LogRow,
+        'Map': Map,
+        'Normalize': Normalize,
+        'PivotToColumnsDelimited': PivotToColumnsDelimited,
+        'PythonComponent': PythonComponent,
+        'PythonDataFrameComponent': PythonDataFrameComponent,
+        'PythonRowComponent': PythonRowComponent,
+        'Replicate': Replicate,
+        'RowGenerator': RowGenerator,
+        'SchemaComplianceCheck': SchemaComplianceCheck,
+        'SortRow': SortRow,
+        'SwiftBlockFormatter': SwiftBlockFormatter,
+        'SwiftTransformer': SwiftTransformer,
+        'Unite': Unite,
+        'UnpivotRow': UnpivotRow,
+        'XMLMap': XMLMap,
     }
 
 
