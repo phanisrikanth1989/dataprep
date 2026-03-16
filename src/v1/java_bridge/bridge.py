@@ -38,8 +38,7 @@ class JavaBridge:
         print(f"Starting Java gateway on port {port}...")
 
         java_dir = os.path.join(self.base_path, "java_bridge", "java")
-        classes_dir = os.path.join(java_dir, "target",
-            "java-bridge-with-dependencies.jar")
+        classes_dir = os.path.join(java_dir, "target", "java-bridge-with-dependencies.jar")
 
         # Build full classpath: our classes + jar dependencies
         full_classpath = f"{classes_dir}"
@@ -89,7 +88,6 @@ class JavaBridge:
                         auto_convert=True
                     )
                 )
-
                 self.java_bridge = self.gateway.entry_point
                 # Test the connection
                 _ = self.java_bridge.getContext()
@@ -190,24 +188,21 @@ class JavaBridge:
             self.global_map  # Pass globalMap as well
         )
 
-    def execute_tmap_preprocessing(self, df: pd.DataFrame, expressions: Dict[str, str],
-                                   main_table_name: str, lookup_table_names: list = None) -> Dict[str, Any]:
+    def execute_tmap_preprocessing(self, df: pd.DataFrame, expressions: Dict[str, str
+            ], main_table_name: str, lookup_table_names: list = None) -> Dict[str, Any]:
         """
         Execute tMap preprocessing - batch evaluate expressions on all rows
 
-        Used for evaluating filters and join key expressions during tMap
-        preprocessing.
+        Used for evaluating filters and join key expressions during tMap preprocessing.
         Each expression is evaluated once per row, returning an array of results.
 
         Args:
             df: Input DataFrame to evaluate expressions on
             expressions: Dict of {expr_id: expression_string} to evaluate on each row
-                         e.g., {"_main_filter_": "orders.status == 'COMPLETE'",
-                                "__join_customers_0__": "orders.customer_id"}
-            main_table_name: Name of the main table (for row variable binding, e.g.,
-                "orders")
-            lookup_table_names: List of lookup table names already joined (e.g.,
-                ["customers", "products"])
+                         e.g., {"__main_filter__": "orders.status == 'COMPLETE'",
+                         "__join_customers_0__": "orders.customer_id"}
+            main_table_name: Name of the main table (for row variable binding, e.g., "orders")
+            lookup_table_names: List of lookup table names already joined (e.g., ["customers", "products"])
 
         Returns:
             Dict of {expr_id: numpy_array} where array contains result for each row
@@ -246,7 +241,7 @@ class JavaBridge:
         # Convert Java Object[] arrays to numpy arrays
         results = {}
         for expr_id, java_array in result_map.items():
-            # Convert Java array to Python list, then to numpy array
+            # Convert Java array to Python List, then to numpy array
             python_list = list(java_array) if java_array else []
             results[expr_id] = np.array(python_list)
 
@@ -261,7 +256,7 @@ class JavaBridge:
         Execute tMap outputs using COMPILED script (OPTIMIZED)
 
         Generates and compiles entire tMap logic once, then executes in parallel.
-        Achieves stellar performance to 1:1arrow (~180% rows/sec).
+        Achieves stellar performance to tJavaRow (~180x rows/sec).
 
         Args:
             java_script: Pre-generated Java/Groovy script containing all tMap logic
@@ -359,9 +354,6 @@ class JavaBridge:
             java_col_list = ListConverter().convert(col_list, self.gateway._gateway_client)
             java_output_schemas[output_name] = java_col_list
 
-        # Convert output_types: Map<String, String>
-        java_output_types = output_types
-
         # Convert lookup_names: List<String>
         java_lookup_names = ListConverter().convert(lookup_names, self.gateway._gateway_client)
 
@@ -374,14 +366,13 @@ class JavaBridge:
             main_table_name or "row1",
             java_lookup_names
         )
-
     def execute_compiled_tmap_chunked(self, component_id: str, df: pd.DataFrame,
-                                      chunk_size: int = 50000) -> Dict[str, pd.DataFrame]:
+                                      chunk_size: int = 50000) -> Dict[str, pd.
+                                      DataFrame]:
         """
         Execute pre-compiled tMap script with CHUNKING (STEP 2 of 2)
 
-        This method chunks the input DataFrame and executes the pre-compiled script
-        on each chunk. This solves the 2GB Arrow byte array limit issue.
+        This method chunks the input DataFrame and executes the pre-compiled script on each chunk. This solves the 2GB Arrow byte array limit issue.
 
         Compile ONCE + Execute MANY chunks = Massive performance gain!
 
@@ -390,9 +381,9 @@ class JavaBridge:
             df: Joined DataFrame (after all lookups are complete)
             chunk_size: Number of rows per chunk (default: 50000)
 
+
         Returns:
-            Dict of {output_name: DataFrame} for each output (combined from all
-            chunks)
+            Dict of {output_name: DataFrame} for each output (combined from all chunks)
         """
         total_rows = len(df)
         print(f"Processing {total_rows} rows in chunks of {chunk_size}...")
@@ -443,7 +434,7 @@ class JavaBridge:
         for output_name, df_list in output_dfs_list.items():
             if df_list:
                 output_dfs[output_name] = pd.concat(df_list, ignore_index=True)
-                print(f"  Output '{output_name}': {len(output_dfs[output_name])} total rows")
+                print(f" Output '{output_name}': {len(output_dfs[output_name])} total rows")
             else:
                 output_dfs[output_name] = pd.DataFrame()
 
@@ -507,12 +498,9 @@ class JavaBridge:
 
     def _infer_decimal_precision_scale(self, series: pd.Series) -> tuple:
         """
-        Infer Arrow decimal128 precision and scale from a pandas Series of Decimal
-        values.
+        Infer Arrow decimal128 precision and scale from a pandas Series of Decimal values.
 
-        Scans all non-null values to find max digits-before-decimal and max
-        digits-after-decimal.
-
+        Scans all non-null values to find max digits-before-decimal and max digits-after-decimal.
         Returns (precision, scale) capped at precision=38 (Arrow decimal128 limit).
         Falls back to (38, 18) if no valid Decimal values found.
         """
@@ -548,8 +536,7 @@ class JavaBridge:
 
     def _build_arrow_schema(self, df: pd.DataFrame) -> pa.Schema:
         """
-        Build an explicit Arrow schema from a pandas DataFrame, detecting Decimal
-        columns.
+        Build an explicit Arrow schema from a pandas DataFrame, detecting Decimal columns.
 
         For 'object' dtype columns, inspects the first non-null value:
         - Decimal instance -> pa.decimal128(precision, scale) inferred from data
