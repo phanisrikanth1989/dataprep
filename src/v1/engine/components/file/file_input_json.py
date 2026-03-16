@@ -28,24 +28,20 @@ class FileInputJSON(BaseComponent):
     Reads and processes JSON files using JSONPath expressions for data extraction.
 
     This component implements the functionality of Talend's tFileInputJSON component,
-    providing comprehensive JSON file processing with advanced features like URL
-    reading,
+    providing comprehensive JSON file processing with advanced features like URL reading,
     data type conversion, reject handling, and schema validation.
 
     Configuration:
         filename (str): Path to the JSON file to read. Required unless using URL.
-        json_loop_query (str): JSONPath expression for iterating over JSON elements.
-            Required.
-        mapping (List[Dict]): Column to JSONPath mappings for data extraction.
-            Required.
+        json_loop_query (str): JSONPath expression for iterating over JSON elements. Required.
+        mapping (List[Dict]): Column to JSONPath mappings for data extraction. Required.
             Format: [{"column": "col_name", "jsonpath": "$.path"}, ...]
         encoding (str): File encoding for reading JSON file. Default: "UTF-8"
         die_on_error (bool): Whether to fail on processing errors. Default: True
         useurl (bool): Whether to read from URL instead of file. Default: False
         urlpath (str): URL path when useurl=True. Default: None
         advanced_separator (bool): Enable advanced number formatting. Default: False
-        thousands_separator (str): Thousands separator for number parsing. Default:
-            ","
+        thousands_separator (str): Thousands separator for number parsing. Default: ","
         decimal_separator (str): Decimal separator for number parsing. Default: "."
         check_date (bool): Enable date parsing using column patterns. Default: False
         read_by (str): Read method (always JSONPATH). Default: "JSONPATH"
@@ -58,8 +54,7 @@ class FileInputJSON(BaseComponent):
 
     Outputs:
         main: Successfully processed JSON records as DataFrame
-        reject: Rejected records with error information as DataFrame (if any errors
-            occur)
+        reject: Rejected records with error information as DataFrame (if any errors occur)
 
     Statistics:
         NB_LINE: Total number of JSON elements processed
@@ -150,9 +145,7 @@ class FileInputJSON(BaseComponent):
             logger.debug(f"[{self.id}] Raw mapping configuration: {mapping}")
 
             # Normalize mapping if needed
-            if mapping and isinstance(mapping, list) and mapping and isinstance(
-                    mapping[0], dict) and 'column' in mapping[0] and mapping[0]['column'] == \
-                    'SCHEMA_COLUMN':
+            if mapping and isinstance(mapping, list) and mapping and isinstance(mapping[0], dict) and 'column' in mapping[0] and mapping[0]['column'] == 'SCHEMA_COLUMN':
                 mapping = self._normalize_mapping(mapping)
 
             logger.debug(f"[{self.id}] Normalized mapping: {mapping}")
@@ -208,12 +201,10 @@ class FileInputJSON(BaseComponent):
                     for mapping_entry in mapping:
                         column_name = mapping_entry.get('column')
                         jsonpath = mapping_entry.get('jsonpath')
-                        if isinstance(jsonpath, str) and jsonpath.startswith('"') and \
-                                jsonpath.endswith('"'):
+                        if isinstance(jsonpath, str) and jsonpath.startswith('"') and jsonpath.endswith('"'):
                             jsonpath = jsonpath[1:-1]
                         value_matches = parse(jsonpath).find(element)
-                        # --- tExtractJSONFields logic: always keep as list if query
-                        # contains [*] or .*, else flatten if single ---
+                        # --- tExtractJSONFields Logic: always keep as list if query contains [*] or .*, else flatten if single ---
                         if '[*]' in jsonpath or '.*' in jsonpath:
                             val = [v.value for v in value_matches]
                         else:
@@ -221,35 +212,29 @@ class FileInputJSON(BaseComponent):
                             if len(val) == 1:
                                 val = val[0]
                         if schema:
-                            col_schema = next((col for col in schema if col['name'] ==
-                                               column_name), None)
+                            col_schema = next((col for col in schema if col['name'] == column_name), None)
                             if col_schema:
                                 col_type = col_schema.get('type', 'id_String')
                                 if val is not None:
                                     if col_type in ('id_Integer', 'int', 'integer'):
                                         try:
-                                            if advanced_separator and isinstance(val,
-                                                                                 str):
-                                                val = val.replace(thousands_separator,
-                                                                  '').replace(decimal_separator, '.')
+                                            if advanced_separator and isinstance(val, str):
+                                                val = val.replace(thousands_separator, '').replace(decimal_separator, '.')
                                             val = int(float(val))
                                         except Exception:
                                             raise ValueError(f"Invalid integer for column {column_name}: {val}")
                                     elif col_type in ('id_Float', 'float', 'double'):
                                         try:
-                                            if advanced_separator and isinstance(val,
-                                                                                 str):
-                                                val = val.replace(thousands_separator,
-                                                                  '').replace(decimal_separator, '.')
+                                            if advanced_separator and isinstance(val, str):
+                                                val = val.replace(thousands_separator, '').replace(decimal_separator, '.')
                                             val = float(val)
                                         except Exception:
                                             raise ValueError(f"Invalid float for column {column_name}: {val}")
-                                    elif col_type in ('id_Date', 'date', 'datetime') \
-                                            and check_date:
+                                    elif col_type in ('id_Date', 'date', 'datetime') and check_date:
                                         pattern = col_schema.get('pattern', None)
                                         if pattern and isinstance(val, str):
                                             try:
-                                                pattern = pattern.replace('"', '')
+                                                pattern = pattern.replace("'", '')
                                                 val = datetime.strptime(val, pattern)
                                             except Exception:
                                                 raise ValueError(f"Invalid date for column {column_name}: {val} (pattern: {pattern})")
@@ -277,8 +262,7 @@ class FileInputJSON(BaseComponent):
             main_df = pd.DataFrame(output_data)
             reject_df = pd.DataFrame(reject_data) if reject_data else None
 
-            # Serialize lists/dicts as JSON strings for output columns (inspired by
-            # t_extract_json_fields.py)
+            # Serialize lists/dicts as JSON strings for output columns (inspired by t_extract_json_fields.py)
             if not main_df.empty:
                 for col in main_df.columns:
                     main_df[col] = main_df[col].apply(
