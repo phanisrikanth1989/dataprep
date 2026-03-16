@@ -40,7 +40,7 @@ class Warn(BaseComponent):
 
     Example configuration:
         {
-            "message": "Processing ${context.filename} - found ${((Integer)globalMap.get(\\"row_count\\"))} rows",
+            "message": "Processing ${context.filename} - found ${((Integer)globalMap.get(\"row_count\"))} rows",
             "code": 100,
             "priority": 4
         }
