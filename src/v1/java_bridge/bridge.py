@@ -1,5 +1,5 @@
 """
-Python-Java Bridge using Py43 and Apache Arroм
+Python-Java Bridge using Py4J and Apache Arrow
 Handles DataFrame transfer and Java expression execution
 """
 
@@ -9,18 +9,17 @@ from py4j.java_gateway import JavaGateway, GatewayParameters
 import subprocess
 import time
 import os
-import datetime
 from typing import Dict, Any, Optional
 
 
-class Javabridge:
-    """Bridge between Python and Java using Py43 with Arrow for data transfer"""
+class JavaBridge:
+    """Bridge between Python and Java using Py4J with Arrow for data transfer"""
 
     def __init__(self):
         self.gateway = None
         self.java_bridge = None
         self.java_process = None
-        self.port = None #Will be set during start()
+        self.port = None  # Will be set during start()
         self.context = {}
         self.global_map = {}
         self.base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -30,79 +29,81 @@ class Javabridge:
         Start the Java gateway process and initialize the bridge
 
         Args:
-        port: Port number for Py43 gateway (default: 25333, None use default)
+            port: Port number for Py4J gateway (default: 25333, None = use default)
         """
         if port is None:
-            port = 25333 # Default Py4J port
+            port = 25333  # Default Py4J port
 
         self.port = port
-        print("Starting Java gateway on port (port)...")
+        print(f"Starting Java gateway on port {port}...")
 
-        java_dir = os.path.join(self.base_path, "java_bridge", "java") 
-        classes_dir = os.path.join(java_dir, "target", "java-bridge-with-dependencies.jar")
+        java_dir = os.path.join(self.base_path, "java_bridge", "java")
+        classes_dir = os.path.join(java_dir, "target",
+            "java-bridge-with-dependencies.jar")
 
-        #Build full classpath: our classes + jar dependencies
-        full_classpath =f"{classes_dir}"
+        # Build full classpath: our classes + jar dependencies
+        full_classpath = f"{classes_dir}"
         print(full_classpath)
 
-        #Run with classpath and Arrow JVM arguments
+        # Run with classpath and Arrow JVM arguments
         cmd = [
             "java",
             "--add-opens=java.base/java.nio=ALL-UNNAMED",
             "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
             "--add-opens=java.base/java.lang=ALL-UNNAMED",
-            f"-Dpy4j.port={port}", # Pass port to Java
+            f"-Dpy4j.port={port}",  # Pass port to Java
             "-cp", full_classpath,
             "com.citi.gru.etl.JavaBridge"
         ]
 
-        #Start Java process
-        #Stdout/stderr go directly to console for debugging
+        # Start Java process
+        # stdout/stderr go directly to console for debugging
         self.java_process = subprocess.Popen(
             cmd,
             cwd=java_dir,
-            stdout=None,
-            stderr=None,
+            stdout=None,  # Let Java stdout go to console
+            stderr=None,  # Let Java stderr go to console
             text=True
         )
 
-        #Wait for gateway to be ready (look for startup message or port)
+        # Wait for gateway to be ready (Look for startup message or port)
         print("Waiting for Java gateway to start...")
 
-        #Initial delay to allow Java process to initialize
-        #This reduces connection refused errors during startup
+        # Initial delay to allow Java process to initialize
+        # This reduces connection refused errors during startup
         time.sleep(2)
 
-        max_wait = 30 # seconds
+        max_wait = 30  # seconds
         start_time = time.time()
 
         while time.time() - start_time < max_wait:
-            #check if process is still running
+            # Check if process is still running
             if self.java_process.poll() is not None:
-                raise RuntimeError(f"Java pricess died during startup (check console for errors)")
-            
-            # try to connect
+                raise RuntimeError(f"Java process died during startup (check console for errors)")
+
+            # Try to connect
             try:
-                self.gateway =JavaGateway(
+                self.gateway = JavaGateway(
                     gateway_parameters=GatewayParameters(
-                        port=port,#Connect to specific port
+                        port=port,  # Connect to specific port
                         auto_convert=True
                     )
                 )
-                self.java_bridge =  self.gateway.entry_point
-                #Test the connection
+
+                self.java_bridge = self.gateway.entry_point
+                # Test the connection
                 _ = self.java_bridge.getContext()
                 print(f"Java gateway started successfully on port {port}")
                 return
             except Exception:
-                time.sleep(0.5) 
+                time.sleep(0.5)
 
-        #Timeout
+        # Timeout
         self.java_process.kill()
         raise RuntimeError("Timeout waiting for Java gateway to start")
-    
+
     def stop(self):
-        """ Stop the java gateway process   """
+        """Stop the Java gateway process"""
         if self.gateway:
             try:
                 self.gateway.shutdown()
@@ -123,95 +124,98 @@ class Javabridge:
         Execute tJavaRow-style code block on DataFrame
 
         Args:
-            df: Input DataFrame (become input_row in Java)
+            df: Input DataFrame (becomes input_row in Java)
             java_code: Multi-line Java code block
             output_schema: Dict of {column_name: type} for output
-        
+
         Returns:
             Output DataFrame (from output_row in Java)
         """
-        # Convert input to Arrow
-        arrow_table = pa.Table.from_pandas(df)
+        # Convert input to Arrow with Decimal-aware schema
+        arrow_table = pa.Table.from_pandas(df, schema=self._build_arrow_schema(df))
         sink = pa.BufferOutputStream()
         writer = pa.ipc.new_stream(sink, arrow_table.schema)
         writer.write_table(arrow_table)
         writer.close()
         arrow_bytes = sink.getvalue().to_pybytes()
-    
+
         # Send to Java
         result_bytes = self.java_bridge.executeJavaRow(
-            arrow_bytes, 
-            java_code, 
+            arrow_bytes,
+            java_code,
             self._convert_schema_to_java(output_schema),
             self._convert_context_to_java(),
             self._convert_globalmap_to_java()
         )
 
-        #Sync back context and global map
+        # Sync back context and globalMap
         self._sync_from_java()
 
         # Convert result
-        reader = pa.ipc.open_stream(pa.BufferReader(result_bytes))
+        reader = pa.ipc.open_stream(pa.py_buffer(result_bytes))
         result_table = reader.read_all()
         return result_table.to_pandas()
 
     def execute_one_time_expression(self, expression: str) -> Any:
         """
-        Execute a one-time Java expression
+        Execute a one-time Java expression (e.g., for component properties)
 
         Args:
-            expression: Java expression to evaluate
-        
+            expression: Java expression with context access
+
         Returns:
-            Result of the expression
+            Result value
         """
-        result = self.java_bridge.executeOneTimeExpression(
+        return self.java_bridge.executeOneTimeExpression(
             expression,
             self._convert_context_to_java()
         )
 
     def execute_batch_one_time_expressions(self, expressions: Dict[str, str]) -> Dict[str, Any]:
         """
-        Execute multiple one-time Java expressions in batch
+        Execute multiple one-time Java expressions in batch (efficient)
 
         Args:
-            expressions: Dict of {param_name: Java expression}
-                        e.g.,{"footer": "1 + context.count", "limit": "context.rows * 2" }
-        
+            expressions: Dict of {param_name: java_expression}
+                         e.g., {"footer": "1 + context.count", "limit": "context.rows * 2"}
+
         Returns:
             Dict of {param_name: resolved_value}
-                    Errors are returned as Strings with {{ERROR}} prefix
+            Errors are returned as strings with {{ERROR}} prefix
         """
-        #Pass both context and globalMap toJava
+        # Pass both context and globalMap to Java
         return self.java_bridge.executeBatchOneTimeExpressionsWithGlobalMap(
             expressions,
             self._convert_context_to_java(),
-            self.global_map #Pass global map as well
+            self.global_map  # Pass globalMap as well
         )
-    
+
     def execute_tmap_preprocessing(self, df: pd.DataFrame, expressions: Dict[str, str],
                                    main_table_name: str, lookup_table_names: list = None) -> Dict[str, Any]:
         """
         Execute tMap preprocessing - batch evaluate expressions on all rows
-        
-        Used for evelauting filters and join key expressions during tMap preprocessing.
+
+        Used for evaluating filters and join key expressions during tMap
+        preprocessing.
         Each expression is evaluated once per row, returning an array of results.
-        
+
         Args:
             df: Input DataFrame to evaluate expressions on
             expressions: Dict of {expr_id: expression_string} to evaluate on each row
-                        e.g.,{'__main__filter': 'orders.status == 'COMPLETE'", 
+                         e.g., {"_main_filter_": "orders.status == 'COMPLETE'",
                                 "__join_customers_0__": "orders.customer_id"}
-            main_table_name: Name of the main table (for row variable binding, e.g., "orders")
-            lookup_table_names: List of lookup table names (for row variable binding, e.g., ["customers"])
+            main_table_name: Name of the main table (for row variable binding, e.g.,
+                "orders")
+            lookup_table_names: List of lookup table names already joined (e.g.,
+                ["customers", "products"])
 
         Returns:
-            Dict of {expr_id: numpy_array} where each array contains results for each row
+            Dict of {expr_id: numpy_array} where array contains result for each row
 
         Example:
             Input: 3 rows, expressions: {"filter": "orders.status == 'COMPLETE'",
-                                         "join_key": "orders.customer_id"}
-            Output: {"filter": array([True, False, True]), "join_key": array([123, 456, 789])}
+                                          "join_key": "orders.customer_id"}
+            Output: {"filter": [True, False, True], "join_key": [101, 102, 103]}
         """
         import numpy as np
 
@@ -223,7 +227,7 @@ class Javabridge:
         writer.close()
         arrow_bytes = sink.getvalue().to_pybytes()
 
-        # Convert lookup_table_names to Java list
+        # Convert lookup_table_names to Java List
         from py4j.java_collections import ListConverter
         java_lookup_names = ListConverter().convert(
             lookup_table_names or [], self.gateway._gateway_client
@@ -249,15 +253,15 @@ class Javabridge:
         return results
 
     def execute_tmap_compiled(self, java_script: str, df: pd.DataFrame,
-                            output_schemas: Dict[str, list],
-                            output_types: Dict[str, str],
-                            main_table_name: str = None,
-                            lookup_names: list = None) -> Dict[str, pd.DataFrame]:
+                              output_schemas: Dict[str, list],
+                              output_types: Dict[str, str],
+                              main_table_name: str = None,
+                              lookup_names: list = None) -> Dict[str, pd.DataFrame]:
         """
         Execute tMap outputs using COMPILED script (OPTIMIZED)
 
         Generates and compiles entire tMap logic once, then executes in parallel.
-        Achieves similar performance to tJavaRow (~189k rows/sec).
+        Achieves stellar performance to 1:1arrow (~180% rows/sec).
 
         Args:
             java_script: Pre-generated Java/Groovy script containing all tMap logic
@@ -355,6 +359,9 @@ class Javabridge:
             java_col_list = ListConverter().convert(col_list, self.gateway._gateway_client)
             java_output_schemas[output_name] = java_col_list
 
+        # Convert output_types: Map<String, String>
+        java_output_types = output_types
+
         # Convert lookup_names: List<String>
         java_lookup_names = ListConverter().convert(lookup_names, self.gateway._gateway_client)
 
@@ -369,14 +376,14 @@ class Javabridge:
         )
 
     def execute_compiled_tmap_chunked(self, component_id: str, df: pd.DataFrame,
-                                    chunk_size: int = 50000) -> Dict[str, pd.DataFrame]:
+                                      chunk_size: int = 50000) -> Dict[str, pd.DataFrame]:
         """
         Execute pre-compiled tMap script with CHUNKING (STEP 2 of 2)
 
         This method chunks the input DataFrame and executes the pre-compiled script
         on each chunk. This solves the 2GB Arrow byte array limit issue.
 
-        Compile ONCE → Execute MANY chunks → Massive performance gain!
+        Compile ONCE + Execute MANY chunks = Massive performance gain!
 
         Args:
             component_id: Component ID used during compilation
@@ -384,46 +391,11 @@ class Javabridge:
             chunk_size: Number of rows per chunk (default: 50000)
 
         Returns:
-            Dict of {output_name: DataFrame} for each output (combined from all chunks)
+            Dict of {output_name: DataFrame} for each output (combined from all
+            chunks)
         """
         total_rows = len(df)
         print(f"Processing {total_rows} rows in chunks of {chunk_size}...")
-
-        # Handle empty DataFrame case
-        if total_rows == 0:
-            print("Input DataFrame is empty, returning empty outputs")
-            # Still need to execute to get proper empty output structure
-            try:
-                # Create minimal Arrow data for empty case
-                arrow_table = pa.Table.from_pandas(df, schema=self._build_arrow_schema(df))
-                sink = pa.BufferOutputStream()
-                writer = pa.ipc.new_stream(sink, arrow_table.schema)
-                writer.write_table(arrow_table)
-                writer.close()
-                arrow_bytes = sink.getvalue().to_pybytes()
-
-                # Execute on empty data to get proper output structure
-                result_map = self.java_bridge.executeCompiledTMap(
-                    component_id,
-                    arrow_bytes,
-                    self._convert_context_to_java(),
-                    self._convert_globalmap_to_java()
-                )
-
-                # Convert results
-                output_dfs = {}
-                for output_name, output_bytes in result_map.items():
-                    if output_bytes and len(output_bytes) > 0:
-                        reader = pa.ipc.open_stream(pa.py_buffer(output_bytes))
-                        result_table = reader.read_all()
-                        output_dfs[output_name] = result_table.to_pandas()
-                    else:
-                        output_dfs[output_name] = pd.DataFrame()
-
-                return output_dfs
-            except Exception as e:
-                print(f"Error processing empty DataFrame: {e}")
-                return {}
 
         # Dictionary to accumulate results from all chunks
         output_dfs_list = {}  # {output_name: [df_chunk1, df_chunk2, ...]}
@@ -494,14 +466,14 @@ class Javabridge:
         if not libraries:
             return []
 
-        # Convert Python list to Java list
+        # Convert Python List to Java List
         from py4j.java_collections import ListConverter
         java_list = ListConverter().convert(libraries, self.gateway._gateway_client)
 
         # Call Java validation method
         missing = self.java_bridge.validateLibraries(java_list)
 
-        # Convert back to Python list
+        # Convert back to Python List
         return list(missing) if missing else []
 
     def set_context(self, key: str, value: Any):
@@ -535,9 +507,12 @@ class Javabridge:
 
     def _infer_decimal_precision_scale(self, series: pd.Series) -> tuple:
         """
-        Infer Arrow decimal128 precision and scale from a pandas Series of Decimal values.
+        Infer Arrow decimal128 precision and scale from a pandas Series of Decimal
+        values.
 
-        Scans all non-null values to find max digits-before-decimal and max digits-after-decimal.
+        Scans all non-null values to find max digits-before-decimal and max
+        digits-after-decimal.
+
         Returns (precision, scale) capped at precision=38 (Arrow decimal128 limit).
         Falls back to (38, 18) if no valid Decimal values found.
         """
@@ -564,16 +539,17 @@ class Javabridge:
 
         if not found:
             return (38, 18)
+
         precision = min(max_before + max_after, 38)
         scale = max_after
-
         # Ensure precision >= scale and at least 1
         precision = max(precision, scale, 1)
         return (precision, scale)
 
     def _build_arrow_schema(self, df: pd.DataFrame) -> pa.Schema:
         """
-        Build an explicit Arrow schema from a pandas DataFrame, detecting Decimal columns.
+        Build an explicit Arrow schema from a pandas DataFrame, detecting Decimal
+        columns.
 
         For 'object' dtype columns, inspects the first non-null value:
         - Decimal instance -> pa.decimal128(precision, scale) inferred from data
@@ -597,10 +573,6 @@ class Javabridge:
                 if isinstance(first_val, Decimal):
                     precision, scale = self._infer_decimal_precision_scale(df[col_name])
                     arrow_type = pa.decimal128(precision, scale)
-                elif isinstance(first_val, datetime.datetime):
-                    arrow_type = pa.timestamp('ns')
-                elif isinstance(first_val, datetime.date):
-                    arrow_type = pa.date32()
                 else:
                     arrow_type = pa.string()
 
@@ -610,7 +582,7 @@ class Javabridge:
                 arrow_type = pa.float64()
             elif pandas_dtype == 'bool':
                 arrow_type = pa.bool_()
-            elif pandas_dtype.startswith('datetime'):
+            elif pandas_dtype.startswith('datetime64'):
                 arrow_type = pa.timestamp('ns')
             else:
                 arrow_type = pa.string()

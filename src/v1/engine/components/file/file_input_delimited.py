@@ -1,13 +1,15 @@
 """
-FileInputDelimited - Read delimited files (CSV, TSV, etc.).
+FileInputDelimited - Read delimited files (CSV, TSV, etc.)
 
 Talend equivalent: tFileInputDelimited
 
 This component reads data from delimited text files with configurable parsing options.
 Supports various delimiters, encodings, and schema enforcement. Handles large files
 through streaming mode and provides sophisticated type conversion capabilities.
-Special handling for single-string file reading when both delimiter and row_separator are empty.
+Special handling for single-string file reading when both delimiter and row_separator
+are empty.
 """
+
 import csv
 import logging
 import os
@@ -26,8 +28,9 @@ class FileInputDelimited(BaseComponent):
     """
     Read data from delimited text files with configurable parsing and type conversion.
 
-    This component reads various delimited formats (CSV, TSV, pipe-separated, etc.) with
-    support for custom delimiters, encodings, schema enforcement, and automatic type conversion.
+    This component reads various delimited formats (CSV, TSV, pipe-separated, etc.)
+    with support for custom delimiters, encodings, schema enforcement, and automatic type
+    conversion.
     Provides streaming mode for large files and sophisticated handling of edge cases.
 
     Configuration:
@@ -36,10 +39,10 @@ class FileInputDelimited(BaseComponent):
         encoding (str): File encoding. Default: 'UTF-8'
         header_rows (int): Number of header rows to skip. Default: 0
         footer_rows (int): Number of footer rows to skip. Default: 0
-        limit (int): Maximum rows to read. Empty = no limit. Default: ''
+        limit (str): Maximum rows to read. Empty or no limit. Default: ''
         remove_empty_rows (bool): Remove completely empty rows. Default: False
         text_enclosure (str): Quote character for text fields. Default: '"'
-        escape_char (str): Escape character. Default: '\\'
+        escape_char (str): Escape character. Default: '\\\\'
         trim_all (bool): Trim whitespace from all string fields. Default: False
         die_on_error (bool): Fail on errors vs. continue. Default: True
         row_separator (str): Row separator (special case handling). Default: None
@@ -60,7 +63,7 @@ class FileInputDelimited(BaseComponent):
             "filepath": "/data/input.csv",
             "delimiter": ",",
             "encoding": "UTF-8",
-            "header_rows": 1,
+            "header_rows": "1",
             "limit": "1000"
         }
 
@@ -158,12 +161,12 @@ class FileInputDelimited(BaseComponent):
         # Type mapping from Talend to pandas dtype strings
         type_mapping = {
             'id_String': 'object',
-            'id_Integer': 'Int64',  # Nullable integer
+            'id_Integer': 'Int64',    # Nullable integer
             'id_Long': 'Int64',
             'id_Float': 'float64',
             'id_Double': 'float64',
-            'id_Boolean': 'bool',  # Read as object, convert later
-            'id_Date': 'object',   # Read as object, convert later
+            'id_Boolean': 'bool',     # Read as object, convert later
+            'id_Date': 'object',      # Read as object, convert later
             'id_BigDecimal': 'object',
             # Simple type names
             'str': 'object',
@@ -190,7 +193,8 @@ class FileInputDelimited(BaseComponent):
         """
         Read delimited file and return as DataFrame.
 
-        Handles various file formats and special cases including single-string reading,
+        Handles various file formats and special cases including single-string
+        reading,
         streaming mode for large files, and comprehensive type conversion.
 
         Args:
@@ -198,8 +202,8 @@ class FileInputDelimited(BaseComponent):
 
         Returns:
             Dictionary containing:
-                - 'main': DataFrame with parsed file data
-                - 'is_streaming': True if using streaming mode (optional)
+                'main': DataFrame with parsed file data
+                'is_streaming': True if using streaming mode (optional)
 
         Raises:
             ConfigurationError: If required configuration is missing or invalid
@@ -228,11 +232,12 @@ class FileInputDelimited(BaseComponent):
         limit = self.config.get('limit', '')
         remove_empty_rows = self.config.get('remove_empty_rows', False)
         text_enclosure = self.config.get('text_enclosure', self.DEFAULT_TEXT_ENCLOSURE)
+
         escape_char = self.config.get('escape_char', self.DEFAULT_ESCAPE_CHAR)
         trim_all = self.config.get('trim_all', False)
 
         if not filepath:
-            error_msg = "filepath is required"
+            error_msg = "'filepath' is required"
             logger.error(f"[{self.id}] Configuration error: {error_msg}")
             if die_on_error:
                 raise ConfigurationError(f"[{self.id}] {error_msg}")
@@ -242,7 +247,7 @@ class FileInputDelimited(BaseComponent):
 
         logger.info(f"[{self.id}] Reading started: input file '{filepath}'")
         logger.debug(f"[{self.id}] Configuration: delimiter='{delimiter}', encoding='{encoding}', "
-                    f"header_rows={header_rows}, footer_rows={footer_rows}")
+                     f"header_rows={header_rows}, footer_rows={footer_rows}")
 
         # Check if file exists
         if not os.path.exists(filepath):
@@ -255,59 +260,47 @@ class FileInputDelimited(BaseComponent):
                 self._update_stats(0, 0, 0)
                 return {'main': pd.DataFrame()}
 
-        # Special case: If both delimiter and row_separator are empty, read file as single string
-        # This handles XML or other single-document files that need to be read as one piece
-        delimiter_empty = (delimiter in [None, '', '""'] or str(delimiter).strip() == '') or str(delimiter).strip() == ''
-        row_sep_empty = (row_separator in [None, '', '""'] or str(row_separator).strip() == '') or str(row_separator).strip() == ''
-
-        if delimiter_empty:
-            logger.info(f"[{self.id}] Empty delimiter and row_separator: reading file as single string")
-            logger.debug(f"[{self.id}] delimiter: '{delimiter}', row_separator: '{row_separator}'")
+        # Special case: If both delimiter and row_separator are empty, read file as
+        # single string
+        # This handles XML or other single-document files that need to be read as one
+        if (delimiter in [None, '', '""']) and (row_separator in [None, '', '""', '\\n']):
+            logger.info(f"[{self.id}] Special mode: reading as single string (empty delimiter)")
             return self._read_as_single_string(filepath, encoding, die_on_error)
 
         # Determine execution mode based on file size
-        try:
-            file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
-            logger.debug(f"[{self.id}] File size: {file_size_mb:.2f} MB")
+        file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
+        logger.debug(f"[{self.id}] File size: {file_size_mb:.2f} MB")
 
-            # Convert limit to int or None
-            nrows = self._parse_limit(limit)
+        # Convert limit to int or None
+        nrows = self._parse_limit(limit)
 
-            # Handle multi-character delimiter (regex) and tab shortcut
-            use_regex = False
-            if delimiter == "\\t" or delimiter == "\t":
-                delimiter = "\t"  # pandas supports tab as '\t'
-                logger.debug(f"[{self.id}] Using tab delimiter")
-            elif len(delimiter) > 1:
-                delimiter = rf"{delimiter}"
-                use_regex = True
-                logger.debug(f"[{self.id}] Using regex delimiter: '{delimiter}'")
+        # Handle multi-character delimiter (regex) and tab shortcut
+        use_regex = False
+        if delimiter == "\\t" or delimiter == "\t":
+            delimiter = "\t"
+            logger.debug(f"[{self.id}] Using tab delimiter")
+        elif len(delimiter) > 1:
+            delimiter = rf"{delimiter}"
+            use_regex = True
+            logger.debug(f"[{self.id}] Using regex delimiter: '{delimiter}'")
 
-            # Determine execution mode
-            if (self.execution_mode == ExecutionMode.HYBRID and
-                    file_size_mb > self.MEMORY_THRESHOLD_MB):
-                logger.info(f"[{self.id}] Large file detected: switching to streaming mode")
-                return self._read_streaming(filepath, delimiter, encoding, header_rows,
-                                            footer_rows, nrows, text_enclosure, escape_char,
-                                            remove_empty_rows, trim_all, use_regex)
-            else:
-                logger.debug(f"[{self.id}] Using batch mode for file reading")
-                return self._read_batch(filepath, delimiter, encoding, header_rows,
-                                        footer_rows, nrows, text_enclosure, escape_char,
-                                        remove_empty_rows, trim_all, use_regex)
-
-        except Exception as e:
-            error_msg = f"Error reading file '{filepath}': {str(e)}"
-            logger.error(f"[{self.id}] File operation failed: {error_msg}")
-            if die_on_error:
-                raise FileOperationError(f"[{self.id}] {error_msg}") from e
-            else:
-                self._update_stats(0, 0, 0)
-                return {'main': pd.DataFrame()}
+        # Determine execution mode
+        if (self.execution_mode == ExecutionMode.HYBRID and
+                file_size_mb > self.hybrid_streaming_threshold_mb):
+            logger.info(f"[{self.id}] Large file detected: switching to streaming")
+            return self._read_streaming(filepath, delimiter, encoding, header_rows,
+                                        footer_rows, nrows, text_enclosure,
+                                        escape_char,
+                                        trim_all, remove_empty_rows, use_regex)
+        else:
+            logger.debug(f"[{self.id}] Using batch mode for file reading")
+            return self._read_batch(filepath, delimiter, encoding, header_rows,
+                                    footer_rows, nrows, text_enclosure, escape_char,
+                                    remove_empty_rows, trim_all, use_regex)
 
     def _read_as_single_string(self, filepath: str, encoding: str, die_on_error: bool) -> Dict[str, Any]:
         """
-        Read entire file as single string (special case for XML/document files).
+        Read entire file as a single string (special case for XML/document files).
 
         Used when both delimiter and row_separator are empty, indicating the file
         should be treated as a single document rather than structured data.
@@ -322,10 +315,10 @@ class FileInputDelimited(BaseComponent):
             else:
                 column_name = 'doc'
 
-            df = pd.DataFrame([{column_name: file_content}])
+            df = pd.DataFrame({column_name: [file_content]})
             self._update_stats(1, 1, 0)
 
-            logger.info(f"[{self.id}] Read complete: file as single string, column '{column_name}'")
+            logger.info(f"[{self.id}] Read complete: file as single string, column: '{column_name}'")
             logger.debug(f"[{self.id}] Result shape: {df.shape}, content length: {len(file_content)} chars")
 
             return {'main': df}
@@ -357,7 +350,7 @@ class FileInputDelimited(BaseComponent):
                     trim_all: bool, use_regex: bool = False) -> Dict[str, Any]:
         """Read entire file at once using pandas.read_csv()."""
         logger.debug(f"[{self.id}] Batch read: delimiter='{delimiter}', header_rows={header_rows}, "
-                    f"footer_rows={footer_rows}, nrows={nrows}")
+                     f"footer_rows={footer_rows}, nrows={nrows}")
 
         # ...existing code...
         if self.output_schema:
@@ -365,7 +358,7 @@ class FileInputDelimited(BaseComponent):
             header = None
             column_names = [col['name'] for col in self.output_schema]
             names = column_names
-            logger.debug(f"[{self.id}] Using schema column names: {len(column_names)} columns")
+            logger.debug(f"[{self.id}] Using schema column names: {len(column_names)}")
         else:
             skiprows = None
             header = None if header_rows == 0 else list(range(header_rows))
@@ -374,8 +367,8 @@ class FileInputDelimited(BaseComponent):
 
         dtype_dict = self._build_dtype_dict()
         columns_to_keep = list(dtype_dict.keys()) if dtype_dict else None
-
         engine = 'python' if (footer_rows > 0 or use_regex or skiprows is not None) else 'c'
+
         logger.debug(f"[{self.id}] Using pandas engine: '{engine}'")
 
         quote_params = self._configure_csv_params(text_enclosure, escape_char)
@@ -404,7 +397,7 @@ class FileInputDelimited(BaseComponent):
                 read_params['dtype'] = dtype_dict
 
             logger.debug(f"[{self.id}] Reading file with pandas: engine='{engine}', "
-                        f"usecols={len(columns_to_keep) if columns_to_keep else 'all'}")
+                         f"usecols={len(columns_to_keep) if columns_to_keep else 'all'}")
 
             df = pd.read_csv(**read_params)
 
@@ -416,9 +409,9 @@ class FileInputDelimited(BaseComponent):
                 actual_cols = len(df.columns)
                 if expected_cols != actual_cols:
                     logger.warning(f"[{self.id}] Schema mismatch: expected {expected_cols} columns, "
-                                f"got {actual_cols}. Data may be misaligned.")
+                                   f"got {actual_cols}. Data may be misaligned.")
 
-                df = self.validate_schema(df, self.output_schema)
+            df = self.validate_schema(df, self.output_schema)
 
             rows_read = len(df)
             self._update_stats(rows_read, rows_read, 0)
@@ -499,7 +492,8 @@ class FileInputDelimited(BaseComponent):
                         else:
                             logger.warning(f"[{self.id}] Chunk {chunk_num}: column count mismatch")
 
-                    chunk = self._post_process_dataframe(chunk, trim_all, remove_empty_rows)
+                    chunk = self._post_process_dataframe(chunk, trim_all,
+                                                        remove_empty_rows)
 
                     if self.output_schema:
                         chunk = self.validate_schema(chunk, self.output_schema)
@@ -508,10 +502,12 @@ class FileInputDelimited(BaseComponent):
                     total_rows += chunk_rows
                     self._update_stats(chunk_rows, chunk_rows, 0)
 
-                    logger.debug(f"[{self.id}] Chunk {chunk_num}: {chunk_rows} rows processed")
+                    logger.debug(f"[{self.id}] Chunk {chunk_num}: {chunk_rows} rows "
+                                 "processed")
                     yield chunk
 
-                logger.info(f"[{self.id}] Streaming complete: {total_rows} total rows from '{filepath}'")
+                logger.info(f"[{self.id}] Streaming complete: {total_rows} total rows "
+                            f"from '{filepath}'")
 
             except Exception as e:
                 error_msg = f"Streaming read failed for '{filepath}': {str(e)}"
@@ -526,7 +522,8 @@ class FileInputDelimited(BaseComponent):
     def _configure_csv_params(self, text_enclosure: str, escape_char: str) -> Dict[str, Any]:
         """Configure pandas CSV parsing parameters for quoting and escaping."""
         if not text_enclosure or len(text_enclosure) != 1:
-            logger.warning(f"[{self.id}] Invalid text_enclosure '{text_enclosure}'; disabling quoting")
+            logger.warning(f"[{self.id}] Invalid text_enclosure '{text_enclosure}': "
+                           "disabling quoting")
             return {'quoting': csv.QUOTE_NONE}
 
         if escape_char and escape_char == text_enclosure:
@@ -540,8 +537,9 @@ class FileInputDelimited(BaseComponent):
                 'quotechar': text_enclosure,
                 'escapechar': escape_char if escape_char else None
             }
-            logger.debug(f"[{self.id}] CSV config: escape mode, quote='{text_enclosure}', "
-                        f"escape='{escape_char}'")
+            logger.debug(f"[{self.id}] CSV config: escape mode, quote='{text_enclosure}"
+                         f"', "
+                         f"escape='{escape_char}'")
 
         return quote_params
 
@@ -553,7 +551,8 @@ class FileInputDelimited(BaseComponent):
             if len(string_columns) > 0:
                 for col in string_columns:
                     df[col] = df[col].str.strip()
-                logger.debug(f"[{self.id}] Trimmed {len(string_columns)} string columns")
+                logger.debug(f"[{self.id}] Trimmed {len(string_columns)} string "
+                             "columns")
 
         if remove_empty_rows:
             rows_before = len(df)
@@ -573,8 +572,10 @@ class FileInputDelimited(BaseComponent):
                 col_type = col_def.get('type', 'id_String')
                 if col_type in ('id_BigDecimal', 'Decimal') and col_name in df.columns:
                     df[col_name] = df[col_name].apply(
-                        lambda x: Decimal(str(x)) if pd.notnull(x) and str(x).strip() else None
+                        lambda x: Decimal(str(x)) if pd.notna(x) and str(x).strip()
+                        else None
                     )
-                    logger.debug(f"[{self.id}] Converted column '{col_name}' to Decimal")
+                    logger.debug(f"[{self.id}] Converted column '{col_name}' to "
+                                 "Decimal type")
 
         return df
