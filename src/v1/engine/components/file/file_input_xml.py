@@ -206,9 +206,9 @@ def choose_context(expr_q: str, loop_node: ET.Element, root: ET.Element) -> ET.E
     return loop_node
 
 
-# ======================================================================
+# ================================================================
 # Component: FileInputXML  (Talend-like extraction)
-# ======================================================================
+# ================================================================
 class FileInputXML(BaseComponent):
     """
     Reads XML files and extracts data using XPath expressions.
@@ -393,13 +393,13 @@ class FileInputXML(BaseComponent):
         Returns:
             List of dictionaries representing extracted rows
         """
+
         tree = ET.parse(filepath)
         root = tree.getroot()
 
         # Namespace detection
         nsmap = normalize_nsmaps(root)
         ns_prefix = list(nsmap.keys())[0] if nsmap else ""
-
 
         logger.debug(f"[{self.id}] Namespace map detected: {nsmap}")
 
@@ -448,8 +448,8 @@ class FileInputXML(BaseComponent):
             logger.debug(f"[{self.id}] Mapping {i}: column='{m.get('column')}', xpath='{m.get('xpath')}'")
         i = 0
         while i < len(mapping):
-            if (i < len(mapping) and mapping[i].get("column") == "SCHEMA_COLUMN" and i+1 < len(mapping) and mapping[i+1].get("column") == "QUERY"):
-
+            if (i < len(mapping) and mapping[i].get("column") == "SCHEMA_COLUMN" and
+                i+1 < len(mapping) and mapping[i+1].get("column") == "QUERY"):
 
                 # Use the QUERY xpath instead of SCHEMA_COLUMN xpath
                 xpath_raw = mapping[i+1].get("xpath", "")

@@ -112,7 +112,7 @@ public class RowWrapper {
         } else if (vector instanceof DecimalVector) {
             return ((DecimalVector) vector).getObject(rowIndex);   // Returns BigDecimal
         } else if (vector instanceof Decimal256Vector) {
-            return ((Decimal256Vector) vector).getObject(rowIndex);  // For large decimals
+            return ((Decimal256Vector) vector).getObject(rowIndex);   // For large decimals
         } else {
             return vector.getObject(rowIndex);
         }

@@ -204,7 +204,7 @@ class FileInputJSON(BaseComponent):
                         if isinstance(jsonpath, str) and jsonpath.startswith('"') and jsonpath.endswith('"'):
                             jsonpath = jsonpath[1:-1]
                         value_matches = parse(jsonpath).find(element)
-                        # --- tExtractJSONFields Logic: always keep as list if query contains [*] or .*, else flatten if single ---
+                        # --- tExtractJSONFields logic: always keep as list if query contains [*] or .*, else flatten if single ---
                         if '[*]' in jsonpath or '.*' in jsonpath:
                             val = [v.value for v in value_matches]
                         else:
@@ -239,7 +239,7 @@ class FileInputJSON(BaseComponent):
                                             except Exception:
                                                 raise ValueError(f"Invalid date for column {column_name}: {val} (pattern: {pattern})")
                         row[column_name] = val
-                        logger.debug(f"[{self.id}] Row {i} column '{column_name}' extracted value: {val}")
+                    logger.debug(f"[{self.id}] Row {i} column '{column_name}' extracted value: {val}")
                 except Exception as err:
                     reject_row = dict(row) if row else {}
                     reject_row['errorCode'] = 'PARSE_ERROR'

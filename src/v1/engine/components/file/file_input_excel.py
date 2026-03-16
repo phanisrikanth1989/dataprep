@@ -128,7 +128,7 @@ class FileInputExcel(BaseComponent):
             elif not isinstance(value, int) or value < 0:
                 errors.append("Config 'footer' must be a non-negative integer")
 
-        # Special validation for Limit (can be empty string or None to indicate no limit)
+        # Special validation for limit (can be empty string or None to indicate no limit)
         if 'limit' in self.config:
             value = self.config['limit']
             if isinstance(value, str):
@@ -218,7 +218,6 @@ class FileInputExcel(BaseComponent):
             if excel_engine == 'xlrd':
                 # Handle old .xls files using xlrd engine
                 return self._process_xls_file(filepath, password, die_on_error, suppress_warn)
-
             else:
                 # Handle newer .xlsx files using openpyxl
                 return self._process_xlsx_file(filepath, password, die_on_error, suppress_warn)

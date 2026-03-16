@@ -188,8 +188,8 @@ class JavaBridge:
             self.global_map  # Pass globalMap as well
         )
 
-    def execute_tmap_preprocessing(self, df: pd.DataFrame, expressions: Dict[str, str
-            ], main_table_name: str, lookup_table_names: list = None) -> Dict[str, Any]:
+    def execute_tmap_preprocessing(self, df: pd.DataFrame, expressions: Dict[str, str],
+                                   main_table_name: str, lookup_table_names: list = None) -> Dict[str, Any]:
         """
         Execute tMap preprocessing - batch evaluate expressions on all rows
 
@@ -199,8 +199,8 @@ class JavaBridge:
         Args:
             df: Input DataFrame to evaluate expressions on
             expressions: Dict of {expr_id: expression_string} to evaluate on each row
-                         e.g., {"__main_filter__": "orders.status == 'COMPLETE'",
-                         "__join_customers_0__": "orders.customer_id"}
+                         e.g., {"_main_filter_": "orders.status == 'COMPLETE'",
+                                "__join_customers_0__": "orders.customer_id"}
             main_table_name: Name of the main table (for row variable binding, e.g., "orders")
             lookup_table_names: List of lookup table names already joined (e.g., ["customers", "products"])
 
@@ -241,7 +241,7 @@ class JavaBridge:
         # Convert Java Object[] arrays to numpy arrays
         results = {}
         for expr_id, java_array in result_map.items():
-            # Convert Java array to Python List, then to numpy array
+            # Convert Java array to Python list, then to numpy array
             python_list = list(java_array) if java_array else []
             results[expr_id] = np.array(python_list)
 
@@ -262,7 +262,7 @@ class JavaBridge:
             java_script: Pre-generated Java/Groovy script containing all tMap logic
             df: Joined DataFrame (after all lookups are complete)
             output_schemas: Dict of {output_name: [column_names...]}
-            output_types: Dict of {output_name_columnName: type_string}
+            output_types: Dict of {output_name.columnName: type_string}
             main_table_name: Name of the main input table (e.g., "orders")
             lookup_names: List of lookup table names (e.g., ["customers", "products"])
 
@@ -335,7 +335,7 @@ class JavaBridge:
             component_id: Unique component ID (e.g., "tMap_1", "tMap_2")
             java_script: Pre-generated Java/Groovy script containing all tMap logic
             output_schemas: Dict of {output_name: [column_names...]}
-            output_types: Dict of {output_name_columnName: type_string}
+            output_types: Dict of {output_name.columnName: type_string}
             main_table_name: Name of the main input table (e.g., "orders")
             lookup_names: List of lookup table names (e.g., ["customers", "products"])
 
@@ -367,12 +367,13 @@ class JavaBridge:
             java_lookup_names
         )
     def execute_compiled_tmap_chunked(self, component_id: str, df: pd.DataFrame,
-                                      chunk_size: int = 50000) -> Dict[str, pd.
-                                      DataFrame]:
+                                      chunk_size: int = 50000) -> Dict[str, pd.DataFrame]:
+
         """
         Execute pre-compiled tMap script with CHUNKING (STEP 2 of 2)
 
-        This method chunks the input DataFrame and executes the pre-compiled script on each chunk. This solves the 2GB Arrow byte array limit issue.
+        This method chunks the input DataFrame and executes the pre-compiled script
+        on each chunk. This solves the 2GB Arrow byte array limit issue.
 
         Compile ONCE + Execute MANY chunks = Massive performance gain!
 
@@ -380,7 +381,6 @@ class JavaBridge:
             component_id: Component ID used during compilation
             df: Joined DataFrame (after all lookups are complete)
             chunk_size: Number of rows per chunk (default: 50000)
-
 
         Returns:
             Dict of {output_name: DataFrame} for each output (combined from all chunks)
@@ -434,7 +434,7 @@ class JavaBridge:
         for output_name, df_list in output_dfs_list.items():
             if df_list:
                 output_dfs[output_name] = pd.concat(df_list, ignore_index=True)
-                print(f" Output '{output_name}': {len(output_dfs[output_name])} total rows")
+                print(f"  Output '{output_name}': {len(output_dfs[output_name])} total rows")
             else:
                 output_dfs[output_name] = pd.DataFrame()
 

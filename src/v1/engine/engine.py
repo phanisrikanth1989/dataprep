@@ -1,4 +1,6 @@
-# Main ETL Engine with trigger support and advanced execution capabilities
+"""
+Main ETL Engine with trigger support and advanced execution capabilities
+"""
 import json
 import logging
 import time
@@ -22,26 +24,28 @@ from .components.file import FileUnarchiveComponent, FileDelete, FileCopy, FileT
 from .components.file import FileInputRaw, FileRowCount, FileExistComponent, FileProperties
 from .components.file import FileInputExcel, FileOutputExcel, FileInputJSON
 from .components.file import SetGlobalVar
-from .components.transform import Map, FilterRows, SortRow, JavaRowComponent, FilterColumns
+from .components.transform import Map, FilterRows, SortRow, JavaRowComponent, JavaComponent
 from .components.transform import PythonRowComponent, PythonDataFrameComponent, PythonComponent
 from .components.transform import SwiftBlockFormatter, SwiftTransformer, RowGenerator, LogRow
-from .components.transform import AggregateSortedRow, Denormalize, Normalize, Replicate
 from .components.transform import ExtractDelimitedFields, ExtractJSONFields
 from .components.transform import ExtractPositionalFields, ExtractXMLField
 from .components.transform import Join, PivotToColumnsDelimited, SchemaComplianceCheck
 from .components.transform import Unite, UnpivotRow, XMLMap
 from .components.transform import FilterColumns
-from .components.database import OracleConnection, OracleClose, OracleRollback
-from .components.database import OracleInput, OracleOutput, OracleRow, OracleSP
-from .components.database import OracleBulkExec, OracleBulkiter, MSSqlConnection, MSSqlInput
-from .components.database import OracleCommit
+# from .components.database import OracleConnection, OracleClose, OracleRollback
+# from .components.database import OracleInput, OracleOutput, OracleRow, OracleSP
+# from .components.database import OracleBulkExec, MSSqlConnection, MSSqlInput
+# from .components.database import OracleCommit
 from .components.aggregate import AggregateRow, UniqueRow
+from .components.aggregate import AggregateSortedRow, Denormalize, Normalize, Replicate
 from .components.context import ContextLoad
 from .components.control import Warn, Die, SleepComponent
 from .components.control import SendMailComponent
 
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 class ETLEngine:
     """
@@ -53,12 +57,8 @@ class ETLEngine:
         # File components
         'FileInputDelimited': FileInputDelimited,
         'tFileInputDelimited': FileInputDelimited,
-        'FileInputDelimited': FileInputDelimited,
-        'tFileInputDelimited': FileInputDelimited,
-        'FileOutputDelimited': FileOutputDelimited,
         'tFileOutputDelimited': FileOutputDelimited,
         'FileOutputDelimited': FileOutputDelimited,
-        'tFileOutputDelimited': FileOutputDelimited,
         'FileInputPositional': FileInputPositional,
         'tFileInputPositional': FileInputPositional,
         'FileInputFullRowComponent': FileInputFullRowComponent,
@@ -180,29 +180,28 @@ class ETLEngine:
         'tSendMail': SendMailComponent,
 
         # Database components
-        'OracleConnection': OracleConnection,
-        'tDBConnection': OracleConnection,
-        'OracleClose': OracleClose,
-        'tOracleClose': OracleClose,
-        'OracleRollback': OracleRollback,
-        'tOracleRollback': OracleRollback,
-        'OracleInput': OracleInput,
-        'tOracleInput': OracleInput,
-        'OracleOutput': OracleOutput,
-        'tOracleOutput': OracleOutput,
-        'OracleRow': OracleRow,
-        'tOracleRow': OracleRow,
-        'OracleSP': OracleSP,
-        'tOracleSP': OracleSP,
-        'OracleBulkExec': OracleBulkExec,
-        'tOracleBulkExec': OracleBulkExec,
-        'OracleBulkiter': OracleBulkiter,
-        'MSSqlConnection': MSSqlConnection,
-        'tMSSqlConnection': MSSqlConnection,
-        'MSSqlInput': MSSqlInput,
-        'tMSSqlInput': MSSqlInput,
-        'OracleCommit': OracleCommit,
-        'tOracleCommit': OracleCommit,
+        # 'OracleConnection': OracleConnection,
+        # 'tDBConnection': OracleConnection,
+        # 'OracleClose': OracleClose,
+        # 'tOracleClose': OracleClose,
+        # 'OracleRollback': OracleRollback,
+        # 'tOracleRollback': OracleRollback,
+        # 'OracleInput': OracleInput,
+        # 'tOracleInput': OracleInput,
+        # 'OracleOutput': OracleOutput,
+        # 'tOracleOutput': OracleOutput,
+        # 'OracleRow': OracleRow,
+        # 'tOracleRow': OracleRow,
+        # 'OracleSP': OracleSP,
+        # 'tOracleSP': OracleSP,
+        # 'OracleBulkExec': OracleBulkExec,
+        # 'tOracleBulkExec': OracleBulkExec,
+        # 'MSSqlConnection': MSSqlConnection,
+        # 'tMSSqlConnection': MSSqlConnection,
+        # 'MSSqlInput': MSSqlInput,
+        # 'tMSSqlInput': MSSqlInput,
+        # 'OracleCommit': OracleCommit,
+        # 'tOracleCommit': OracleCommit,
     }
 
     def __init__(self, job_config: Dict[str, Any]):
@@ -227,8 +226,8 @@ class ETLEngine:
         if enable_java:
             logger.info("Java configuration detected in job - initializing Java bridge...")
             # Get routines and libraries from java_config
-            routines = java_config.get('routines', {})
-            libraries = java_config.get('libraries', {})
+            routines = java_config.get('routines', [])
+            libraries = java_config.get('libraries', [])
             self.java_bridge_manager = JavaBridgeManager(enable=True, routines=routines, libraries=libraries)
             self.java_bridge_manager.start()
             logger.info(f"Java bridge initialized with {len(routines)} routines and {len(libraries)} libraries")
@@ -247,10 +246,11 @@ class ETLEngine:
         # Initialize core components
         self.job_name = self.job_config.get('job_name', 'unnamed_job')
         self.global_map = GlobalMap()
-        self.context_manager = ContextManager()
-        initial_context = self.job_config.get('default_context', {})
-        default_context = self.job_config.get('default_context', 'Default')
-        self.java_bridge = self.java_bridge_manager.bridge if self.java_bridge_manager else None
+        self.context_manager = ContextManager(
+            initial_context = self.job_config.get('context', {}),
+            default_context = self.job_config.get('default_context', 'Default'),
+            java_bridge_manager = self.java_bridge_manager
+        )
         self.trigger_manager = TriggerManager(self.global_map)
 
         # Component storage
@@ -438,7 +438,7 @@ class ETLEngine:
                 if comp_id in self.executed_components:
                     return False
 
-                # Check 3: ALL inputs must be ready
+                # Check 3: All inputs must be ready
                 if not self._are_inputs_ready(comp_id):
                     return False
 
@@ -451,14 +451,13 @@ class ETLEngine:
 
             # Main execution loop
             while execution_queue or len(self.executed_components) < len(self.components):
-                # If queue is empty but there are unexecuted components, check if
-                # we're stuck
+                # If queue is empty but there are unexecuted components, check if we're stuck
                 if not execution_queue:
                     unexecuted = set(self.components.keys()) - self.executed_components
                     if unexecuted:
                         logger.warning(f"Execution stalled. Unexecuted components: {unexecuted}")
-                    logger.warning(f"Active subjobs: {active_subjobs}")
-                    break
+                        logger.warning(f"Active subjobs: {active_subjobs}")
+                        break
 
                 # Process ready components
                 while execution_queue:
@@ -498,9 +497,9 @@ class ETLEngine:
                         if can_execute(pending_comp) and pending_comp not in execution_queue:
                             execution_queue.append(pending_comp)
                             logger.debug(f"Component {pending_comp} added to queue")
+
             # Calculate execution statistics
             execution_time = time.time() - start_time
-
             stats = {
                 'job_name': self.job_name,
                 'status': 'success' if not self.failed_components else 'failed',
@@ -621,7 +620,7 @@ class ETLEngine:
             return 'error'
 
     def _execute_iterate_component(self, comp_id: str, component: BaseIterateComponent,
-                                   result: Dict[str, Any], execution_time: float) -> str:
+                                   result: Dict[str, Any], execution_time: float) ->                                   str:
         """
         Handle execution of iterate components and their downstream subjobs
 
@@ -706,7 +705,7 @@ class ETLEngine:
                             if next_comp not in iteration_executed and next_comp not in iteration_queue:
                                 iteration_queue.append(next_comp)
 
-                # Clear trigger status for next iteration
+                # Clear trigger states for next iteration
                 for executed_comp in iteration_executed:
                     # Remove from triggered components set so they can be triggered
                     # again in next iteration
@@ -767,6 +766,7 @@ class ETLEngine:
     def _are_inputs_ready(self, comp_id: str) -> bool:
         """Check if all required inputs for a component are available"""
         component = self.components[comp_id]
+
         if not component.inputs:
             return True
 

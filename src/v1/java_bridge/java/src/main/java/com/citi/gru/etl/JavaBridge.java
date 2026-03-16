@@ -104,7 +104,7 @@ public class JavaBridge {
         GroovyShell shell = new GroovyShell();
         Script compiledScript = shell.parse(javaCode);
         long compileTime = System.currentTimeMillis() - compileStart;
-        System.out.println("Script compiled in " + compileTime + " ms");
+        System.out.println("\u2705 Script compiled in " + compileTime + " ms");
 
         // Execute code for each row IN PARALLEL
         System.out.println("Processing " + rowCount + " rows in parallel...");
@@ -150,7 +150,7 @@ public class JavaBridge {
         });
 
         long execTime = System.currentTimeMillis() - execStart;
-        System.out.println("Processed " + rowCount + " rows in " + execTime + " ms (" + (rowCount * 1000 / execTime) + " rows/sec)");
+        System.out.println("\u2705 Processed " + rowCount + " rows in " + execTime + " ms (" + (rowCount * 1000 / execTime) + " rows/sec)");
 
         // Convert arrays to Lists for createOutputRootFromData
         Map<String, List<Object>> outputData = new HashMap<>();
@@ -358,10 +358,10 @@ public class JavaBridge {
                 binding.setVariable("routines", routinesNamespace);
 
                 // Evaluate all COMPILED expressions for this row
-                for (Map.Entry<String, Script> entry : compiledExpressions.entrySet())
-                {
+                for (Map.Entry<String, Script> entry : compiledExpressions.entrySet()) {
                     String exprId = entry.getKey();
                     Script compiledScript = entry.getValue();
+
                     try {
                         // Execute compiled script with this row's binding
                         synchronized (compiledScript) {
@@ -381,7 +381,7 @@ public class JavaBridge {
         });
 
         long execTime = System.currentTimeMillis() - execStart;
-        System.out.println("Processed " + rowCount + " rows in " + execTime + " ms (" + (rowCount * 1000 / execTime) + " rows/sec)");
+        System.out.println("\u2705 Processed " + rowCount + " rows in " + execTime + " ms (" + (rowCount * 1000 / execTime) + " rows/sec)");
 
         // Cleanup
         inputRoot.close();
@@ -472,7 +472,7 @@ public class JavaBridge {
         compiledScript.setBinding(compileBinding);
 
         long compileTime = System.currentTimeMillis() - compileStart;
-        System.out.println("Script compiled in " + compileTime + " ms");
+        System.out.println("\u2705 Script compiled in " + compileTime + " ms");
 
         // Execute compiled script
         System.out.println("Executing compiled script...");
@@ -481,7 +481,7 @@ public class JavaBridge {
         Object scriptResult = compiledScript.run();
 
         long execTime = System.currentTimeMillis() - execStart;
-        System.out.println("Executed in " + execTime + " ms (" + (rowCount * 1000 / execTime) + " rows/sec)");
+        System.out.println("\u2705 Executed in " + execTime + " ms (" + (rowCount * 1000 / execTime) + " rows/sec)");
 
         // Script returns: Map<String, Map<String, Object>>
         // {output_name: {data: Object[][], count: int}}
@@ -496,8 +496,7 @@ public class JavaBridge {
         // ==========================================
         Map<String, byte[]> outputArrowData = new HashMap<>();
 
-        for (Map.Entry<String, Map<String, Object>> entry : outputResults.entrySet())
-        {
+        for (Map.Entry<String, Map<String, Object>> entry : outputResults.entrySet()) {
             String outputName = entry.getKey();
             Map<String, Object> outputResult = entry.getValue();
 
@@ -505,6 +504,7 @@ public class JavaBridge {
             if ("__errors__".equals(outputName)) {
                 continue;
             }
+
             Object[][] data = (Object[][]) outputResult.get("data");
             int count = ((Number) outputResult.get("count")).intValue();
 
@@ -553,7 +553,8 @@ public class JavaBridge {
      * Compile tMap script ONCE and cache it (STEP 1 of 2)
      *
      * Compiles the tMap script and stores it with the component ID as key.
-     * This allows executing the script multiple times on different chunks without recompiling.
+     * This allows executing the script multiple times on different chunks without
+     * recompiling.
      *
      * @param componentId Unique component ID (e.g., "tMap_1", "tMap_2")
      * @param javaScript Pre-generated Java/Groovy script containing all tMap logic
@@ -572,7 +573,6 @@ public class JavaBridge {
             List<String> lookupNames) throws Exception {
 
         System.out.println("=== Compiling tMap script for component: " + componentId + " ===");
-
         long compileStart = System.currentTimeMillis();
 
         // Create binding template (will be cloned for each execution)
@@ -594,7 +594,7 @@ public class JavaBridge {
         Script compiledScript = shell.parse(javaScript);
 
         long compileTime = System.currentTimeMillis() - compileStart;
-        System.out.println("Script compiled in " + compileTime + " ms");
+        System.out.println("\u2705 Script compiled in " + compileTime + " ms");
 
         // Cache the compiled script with metadata
         CompiledTMapScript cachedScript = new CompiledTMapScript(
@@ -606,15 +606,17 @@ public class JavaBridge {
         );
         compiledScripts.put(componentId, cachedScript);
 
-        System.out.println("Cached compiled script for: " + componentId);
+        System.out.println("\u2705 Cached compiled script for: " + componentId);
 
         return componentId;
     }
+
     /**
      * Execute pre-compiled tMap script on a chunk of data (STEP 2 of 2)
      *
      * Executes a previously compiled tMap script on the given chunk of data.
-     * This avoids recompiling the script for each chunk, providing massive performance gains.
+     * This avoids recompiling the script for each chunk, providing massive
+     * performance gains.
      *
      * @param componentId Component ID used during compilation
      * @param arrowData Joined DataFrame chunk as Arrow bytes
@@ -631,8 +633,7 @@ public class JavaBridge {
         // Get cached compiled script
         CompiledTMapScript cachedScript = compiledScripts.get(componentId);
         if (cachedScript == null) {
-            throw new IllegalArgumentException("No compiled script found for component: " + componentId +
-                    ". Call compileTMapScript() first!");
+            throw new IllegalArgumentException("No compiled script found for component: " + componentId + ". Call compileTMapScript() first!");
         }
 
         // Update context and globalMap
@@ -647,8 +648,7 @@ public class JavaBridge {
 
         int rowCount = inputRoot.getRowCount();
 
-        System.out.println("Executing compiled " + componentId + ": " + rowCount + " rows, " +
-                cachedScript.outputSchemas.size() + " outputs");
+        System.out.println("Executing compiled " + componentId + ": " + rowCount + " rows, " + cachedScript.outputSchemas.size() + " outputs");
 
         // Prepare binding with this chunk's data
         Binding execBinding = new Binding();
@@ -680,7 +680,7 @@ public class JavaBridge {
             Object scriptResult = script.run();
 
             long execTime = System.currentTimeMillis() - execStart;
-            System.out.println("Executed in " + execTime + " ms (" + (rowCount * 1000 / execTime) + " rows/sec)");
+            System.out.println("\u2705 Executed in " + execTime + " ms (" + (rowCount * 1000 / execTime) + " rows/sec)");
 
             // Script returns: Map<String, Map<String, Object>>
             // {output_name: {data: Object[][], count: int}}
@@ -693,8 +693,7 @@ public class JavaBridge {
             // Convert results to Arrow format
             Map<String, byte[]> outputArrowData = new HashMap<>();
 
-            for (Map.Entry<String, Map<String, Object>> entry : outputResults.entrySet())
-            {
+            for (Map.Entry<String, Map<String, Object>> entry : outputResults.entrySet()) {
                 String outputName = entry.getKey();
                 Map<String, Object> outputResult = entry.getValue();
 
@@ -702,6 +701,7 @@ public class JavaBridge {
                 if ("__errors__".equals(outputName)) {
                     continue;
                 }
+
                 Object[][] data = (Object[][]) outputResult.get("data");
                 int count = ((Number) outputResult.get("count")).intValue();
 
@@ -778,10 +778,10 @@ public class JavaBridge {
         for (String libraryName : libraryNames) {
             // Check if the library JAR is in the classpath
             if (!classpath.contains(libraryName)) {
-                System.out.println("Missing: " + libraryName);
+                System.out.println("  \u274C Missing: " + libraryName);
                 missing.add(libraryName);
             } else {
-                System.out.println("Found: " + libraryName);
+                System.out.println("  \u2705 Found: " + libraryName);
             }
         }
 
@@ -952,7 +952,8 @@ public class JavaBridge {
 
     /**
      * Execute batch one-time expressions with both context and globalMap
-     * This version accepts globalMap as a parameter to ensure iteration variables are available
+     * This version accepts globalMap as a parameter to ensure iteration variables
+     * are available
      */
     public Map<String, Object> executeBatchOneTimeExpressionsWithGlobalMap(
             Map<String, String> expressions,
