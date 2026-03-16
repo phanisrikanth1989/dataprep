@@ -1,6 +1,4 @@
-"""
-Main ETL Engine with trigger support and advanced execution capabilities
-"""
+# Main ETL Engine with trigger support and advanced execution capabilities
 import json
 import logging
 import time
@@ -18,24 +16,16 @@ from .java_bridge_manager import JavaBridgeManager
 from .python_routine_manager import PythonRoutineManager
 
 # Import all components
-from .components.file import FileInputDelimited, FileOutputDelimited, \
-    FileInputPositional, FileInputJSON
-from .components.file import FileInputFullRowComponent, FixedFlowInputComponent
+from .components.file import FileInputDelimited, FileOutputDelimited, FileInputPositional, FileInputXML
+from .components.file import FileInputFullRowComponent, FixedFlowInputComponent, FileArchiveComponent
 from .components.file import FileUnarchiveComponent, FileDelete, FileCopy, FileTouch
-from .components.file import FileInputRaw, FileRowCount, FileExistComponent, \
-    FileProperties
+from .components.file import FileInputRaw, FileRowCount, FileExistComponent, FileProperties
 from .components.file import FileInputExcel, FileOutputExcel, FileInputJSON
 from .components.file import SetGlobalVar
-
-# Transform components
-from .components.transform import Map, FilterRows, SortRow, JavaRowComponent, \
-    FilterColumns
-from .components.transform import PythonRowComponent, PythonDataFrameComponent, \
-    PythonComponent
-from .components.transform import SwiftBlockFormatter, SwiftTransformer, RowGenerator, \
-    LogRow
-from .components.transform import AggregateSortedRow, Denormalize, Normalize, \
-    Replicate
+from .components.transform import Map, FilterRows, SortRow, JavaRowComponent, FilterColumns
+from .components.transform import PythonRowComponent, PythonDataFrameComponent, PythonComponent
+from .components.transform import SwiftBlockFormatter, SwiftTransformer, RowGenerator, LogRow
+from .components.transform import AggregateSortedRow, Denormalize, Normalize, Replicate
 from .components.transform import ExtractDelimitedFields, ExtractJSONFields
 from .components.transform import ExtractPositionalFields, ExtractXMLField
 from .components.transform import Join, PivotToColumnsDelimited, SchemaComplianceCheck
@@ -43,7 +33,7 @@ from .components.transform import Unite, UnpivotRow, XMLMap
 from .components.transform import FilterColumns
 from .components.database import OracleConnection, OracleClose, OracleRollback
 from .components.database import OracleInput, OracleOutput, OracleRow, OracleSP
-from .components.database import OracleBulkExec, MSSqlConnection, MSSqlInput
+from .components.database import OracleBulkExec, OracleBulkiter, MSSqlConnection, MSSqlInput
 from .components.database import OracleCommit
 from .components.aggregate import AggregateRow, UniqueRow
 from .components.context import ContextLoad
@@ -52,7 +42,6 @@ from .components.control import SendMailComponent
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 
 class ETLEngine:
     """
@@ -64,6 +53,10 @@ class ETLEngine:
         # File components
         'FileInputDelimited': FileInputDelimited,
         'tFileInputDelimited': FileInputDelimited,
+        'FileInputDelimited': FileInputDelimited,
+        'tFileInputDelimited': FileInputDelimited,
+        'FileOutputDelimited': FileOutputDelimited,
+        'tFileOutputDelimited': FileOutputDelimited,
         'FileOutputDelimited': FileOutputDelimited,
         'tFileOutputDelimited': FileOutputDelimited,
         'FileInputPositional': FileInputPositional,
@@ -132,7 +125,6 @@ class ETLEngine:
         'ExtractXMLField': ExtractXMLField,
         'tExtractXMLField': ExtractXMLField,
         'JavaRowComponent': JavaRowComponent,
-        'tExtractXMLField': ExtractXMLField,
         'JavaRow': JavaRowComponent,
         'tJavaRow': JavaRowComponent,
         'JavaComponent': JavaComponent,
@@ -204,6 +196,7 @@ class ETLEngine:
         'tOracleSP': OracleSP,
         'OracleBulkExec': OracleBulkExec,
         'tOracleBulkExec': OracleBulkExec,
+        'OracleBulkiter': OracleBulkiter,
         'MSSqlConnection': MSSqlConnection,
         'tMSSqlConnection': MSSqlConnection,
         'MSSqlInput': MSSqlInput,
@@ -234,11 +227,11 @@ class ETLEngine:
         if enable_java:
             logger.info("Java configuration detected in job - initializing Java bridge...")
             # Get routines and libraries from java_config
-            routines = java_config.get('routines', [])
-            libraries = java_config.get('libraries', [])
+            routines = java_config.get('routines', {})
+            libraries = java_config.get('libraries', {})
             self.java_bridge_manager = JavaBridgeManager(enable=True, routines=routines, libraries=libraries)
             self.java_bridge_manager.start()
-            logger.info(f"Java Bridge initialized with {len(routines)} routines and {len(libraries)} libraries")
+            logger.info(f"Java bridge initialized with {len(routines)} routines and {len(libraries)} libraries")
 
         # Initialize Python routine manager if required by job configuration
         self.python_routine_manager = None
@@ -255,9 +248,9 @@ class ETLEngine:
         self.job_name = self.job_config.get('job_name', 'unnamed_job')
         self.global_map = GlobalMap()
         self.context_manager = ContextManager()
-        initial_context = self.job_config.get('context', {})
+        initial_context = self.job_config.get('default_context', {})
         default_context = self.job_config.get('default_context', 'Default')
-        self.context_manager = ContextManager()
+        self.java_bridge = self.java_bridge_manager.bridge if self.java_bridge_manager else None
         self.trigger_manager = TriggerManager(self.global_map)
 
         # Component storage
@@ -372,8 +365,7 @@ class ETLEngine:
                 comp_id for comp_id in components
                 if not self.components[comp_id].inputs
             ]
-            self.trigger_manager.register_subjob(subjob_id, components,
-                source_components)
+            self.trigger_manager.register_subjob(subjob_id, components, source_components)
 
         logger.info(f"Identified {len(subjobs)} subjobs")
 
@@ -420,7 +412,6 @@ class ETLEngine:
 
             # Identify initial subjobs (subjobs that are not triggered)
             triggered_targets = {t.to_component for t in self.trigger_manager.triggers}
-
             triggered_subjobs = set()
             for comp_id in triggered_targets:
                 subjob_id = comp_to_subjob.get(comp_id)
@@ -447,7 +438,7 @@ class ETLEngine:
                 if comp_id in self.executed_components:
                     return False
 
-                # Check 3: All inputs must be ready
+                # Check 3: ALL inputs must be ready
                 if not self._are_inputs_ready(comp_id):
                     return False
 
@@ -466,7 +457,7 @@ class ETLEngine:
                     unexecuted = set(self.components.keys()) - self.executed_components
                     if unexecuted:
                         logger.warning(f"Execution stalled. Unexecuted components: {unexecuted}")
-                        logger.warning(f"Active subjobs: {active_subjobs}")
+                    logger.warning(f"Active subjobs: {active_subjobs}")
                     break
 
                 # Process ready components
@@ -484,17 +475,14 @@ class ETLEngine:
                     completed_subjob = comp_to_subjob.get(comp_id)
                     if completed_subjob and completed_subjob in active_subjobs:
                         # Get all components in this subjob
-                        subjob_components = [c for c in self.components if
-                            comp_to_subjob.get(c) == completed_subjob]
+                        subjob_components = [c for c in self.components if comp_to_subjob.get(c) == completed_subjob]
                         # Check if all components in subjob are executed
-                        if all(c in self.executed_components for c in
-                            subjob_components):
+                        if all(c in self.executed_components for c in subjob_components):
                             active_subjobs.discard(completed_subjob)
                             logger.info(f"Subjob {completed_subjob} completed and removed from active subjobs")
 
                     # Get triggered components based on execution status
-                    newly_triggered = self.trigger_manager.get_triggered_components(
-                        comp_id, status)
+                    newly_triggered = self.trigger_manager.get_triggered_components(comp_id, status)
 
                     # If triggers fired, activate the target subjobs
                     if newly_triggered:
@@ -510,9 +498,9 @@ class ETLEngine:
                         if can_execute(pending_comp) and pending_comp not in execution_queue:
                             execution_queue.append(pending_comp)
                             logger.debug(f"Component {pending_comp} added to queue")
-
             # Calculate execution statistics
             execution_time = time.time() - start_time
+
             stats = {
                 'job_name': self.job_name,
                 'status': 'success' if not self.failed_components else 'failed',
@@ -574,22 +562,18 @@ class ETLEngine:
             # Check if this is an iterate component
             if isinstance(component, BaseIterateComponent) and result.get('iterate'):
                 # Handle iterate execution
-                return self._execute_iterate_component(comp_id, component, result,
-                    execution_time)
+                return self._execute_iterate_component(comp_id, component, result, execution_time)
 
             # Store results in data flows (normal components)
             if result:
                 # Map outputs to correct flow names based on flows section
                 for flow in self.job_config.get('flows', []):
                     if flow['from'] == comp_id:
-                        if flow['type'] == 'flow' and 'main' in result and result[
-                            'main'] is not None:
+                        if flow['type'] == 'flow' and 'main' in result and result['main'] is not None:
                             self.data_flows[flow['name']] = result['main']
-                        elif flow['type'] == 'reject' and 'reject' in result and \
-                            result['reject'] is not None:
+                        elif flow['type'] == 'reject' and 'reject' in result and result['reject'] is not None:
                             self.data_flows[flow['name']] = result['reject']
-                        elif flow['type'] == 'filter' and 'main' in result and result[
-                            'main'] is not None:
+                        elif flow['type'] == 'filter' and 'main' in result and result['main'] is not None:
                             self.data_flows[flow['name']] = result['main']
                 # Other named outputs (for completeness, if any)
                 for key, value in result.items():
@@ -690,8 +674,7 @@ class ETLEngine:
                     if current_comp_id in iteration_executed:
                         continue
 
-                    # Clear from global executed set if it was executed in previous
-                    # iteration
+                    # Clear from global executed set if it was executed in previous iteration
                     if current_comp_id in self.executed_components:
                         self.executed_components.remove(current_comp_id)
 
@@ -709,29 +692,28 @@ class ETLEngine:
                             self.executed_components.add(comp_id)
                             raise RuntimeError(f"Iteration failed at component {current_comp_id}")
 
-                        # Check for triggered components after successful execution
-                        triggered = self.trigger_manager.get_triggered_components(
-                            current_comp_id, status)
-                        for triggered_comp in triggered:
-                            if triggered_comp not in iteration_executed:
-                                iteration_queue.append(triggered_comp)
-                                logger.info(f"Component {triggered_comp} triggered by {current_comp_id} in iteration {iteration_count}")
+                    # Check for triggered components after successful execution
+                    triggered = self.trigger_manager.get_triggered_components(current_comp_id, status)
+                    for triggered_comp in triggered:
+                        if triggered_comp not in iteration_executed:
+                            iteration_queue.append(triggered_comp)
+                            logger.debug(f"Component {triggered_comp} triggered by {current_comp_id} in iteration {iteration_count}")
 
-                        # Also check for components connected by flow
-                        for flow in self.job_config.get('flows', []):
-                            if flow['from'] == current_comp_id and flow['type'] != 'iterate':
-                                next_comp = flow['to']
-                                if next_comp not in iteration_executed and next_comp not in iteration_queue:
-                                    iteration_queue.append(next_comp)
+                    # Also check for components connected by flow
+                    for flow in self.job_config.get('flows', []):
+                        if flow['from'] == current_comp_id and flow['type'] != 'iterate':
+                            next_comp = flow['to']
+                            if next_comp not in iteration_executed and next_comp not in iteration_queue:
+                                iteration_queue.append(next_comp)
 
                 # Clear trigger status for next iteration
                 for executed_comp in iteration_executed:
-                    # Remove from triggered component set so they can be triggered
+                    # Remove from triggered components set so they can be triggered
                     # again in next iteration
                     self.trigger_manager.triggered_components.discard(executed_comp)
-                # Clear any cached data flows from this iteration
+                # Clear any cached data flow from this iteration
                 for flow in self.job_config.get('flows', []):
-                    if flow['from'] in iteration_executed:
+                    if flow['from'] == executed_comp:
                         flow_name = flow['name']
                         if flow_name in self.data_flows:
                             del self.data_flows[flow_name]
@@ -743,8 +725,7 @@ class ETLEngine:
                     comp_stats = self.execution_stats[executed_comp]
                     iteration_stats['NB_LINE'] += comp_stats.get('NB_LINE', 0)
                     iteration_stats['NB_LINE_OK'] += comp_stats.get('NB_LINE_OK', 0)
-                    iteration_stats['NB_LINE_REJECT'] += comp_stats.get(
-                        'NB_LINE_REJECT', 0)
+                    iteration_stats['NB_LINE_REJECT'] += comp_stats.get('NB_LINE_REJECT', 0)
 
             component.update_iteration_stats(iteration_stats)
 
@@ -786,7 +767,6 @@ class ETLEngine:
     def _are_inputs_ready(self, comp_id: str) -> bool:
         """Check if all required inputs for a component are available"""
         component = self.components[comp_id]
-
         if not component.inputs:
             return True
 
