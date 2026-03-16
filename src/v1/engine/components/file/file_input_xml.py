@@ -3,10 +3,8 @@ FileInputXML - Read XML files and extract data using XPath expressions.
 
 Talend equivalent: tFileInputXML
 
-This component reads XML files and extracts data based on loop queries and column
-mappings.
-Supports namespace handling, parent navigation, and both tabular and XML passthrough
-modes.
+This component reads XML files and extracts data based on loop queries and column mappings.
+Supports namespace handling, parent navigation, and both tabular and XML passthrough modes.
 """
 import logging
 import os
@@ -20,9 +18,9 @@ from ...base_component import BaseComponent
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------
+# ----------------------------
 # Helper: Extract node value
-# ---------------------------
+# ----------------------------
 def extract_value(node_or_nodes) -> str:
     """
     Extract text value from XML node(s).
@@ -53,9 +51,9 @@ def extract_value(node_or_nodes) -> str:
         return str(node_or_nodes)
 
 
-# ---------------------------
+# ----------------------------
 # Helper: Namespace handling
-# ---------------------------
+# ----------------------------
 def normalize_nsmaps(root: ET.Element) -> Dict[str, str]:
     """
     Extract namespace mapping from XML root element.
@@ -73,9 +71,9 @@ def normalize_nsmaps(root: ET.Element) -> Dict[str, str]:
     return {}
 
 
-# ---------------------------
+# ----------------------------
 # Helper: Prefix QName
-# ---------------------------
+# ----------------------------
 def qualify_xpath(expr: str, ns_prefix: str) -> str:
     """
     Qualify XPath expression with namespace prefix.
@@ -98,8 +96,7 @@ def qualify_xpath(expr: str, ns_prefix: str) -> str:
     qualified = []
     for p in parts:
         if p in (".", "..") or p.startswith("@") or ":" in p:
-            # Don't prefix navigation operators, attributes, or already qualified
-            # elements
+            # Don't prefix navigation operators, attributes, or already qualified elements
             qualified.append(p)
         else:
             # Prefix element names with namespace
@@ -107,14 +104,12 @@ def qualify_xpath(expr: str, ns_prefix: str) -> str:
     return "/".join(qualified)
 
 
-# ---------------------------
+# ----------------------------
 # Helper: Manual parent navigation for ElementTree
-# ---------------------------
-def find_element_by_manual_navigation(start_node: ET.Element, xpath: str, ns_prefix:
-        str, nsmap: dict, root: ET.Element) -> List[ET.Element]:
+# ----------------------------
+def find_element_by_manual_navigation(start_node: ET.Element, xpath: str, ns_prefix: str, nsmap: dict, root: ET.Element) -> List[ET.Element]:
     """
-    Manually navigate XML tree to handle .. parent navigation that ElementTree can't
-    handle.
+    Manually navigate XML tree to handle .. parent navigation that ElementTree can't handle.
 
     Args:
         start_node: Starting XML element
@@ -189,9 +184,9 @@ def find_parent_element(target: ET.Element, root: ET.Element) -> Optional[ET.Ele
     return None
 
 
-# ---------------------------
+# ----------------------------
 # Helper: Context decision
-# ---------------------------
+# ----------------------------
 def choose_context(expr_q: str, loop_node: ET.Element, root: ET.Element) -> ET.Element:
     """
     Choose appropriate context node for XPath evaluation.
@@ -211,9 +206,9 @@ def choose_context(expr_q: str, loop_node: ET.Element, root: ET.Element) -> ET.E
     return loop_node
 
 
-# =====================================================================
+# ======================================================================
 # Component: FileInputXML  (Talend-like extraction)
-# =====================================================================
+# ======================================================================
 class FileInputXML(BaseComponent):
     """
     Reads XML files and extracts data using XPath expressions.
@@ -227,8 +222,7 @@ class FileInputXML(BaseComponent):
 
     Configuration:
         filepath (str): Path to XML file. Also supports FILENAME. Required.
-        loop_query (str): XPath expression for loop elements. Also supports
-            LOOP_QUERY.
+        loop_query (str): XPath expression for loop elements. Also supports LOOP_QUERY.
         mapping (list): Column to XPath mappings for data extraction.
         encoding (str): File encoding. Default: 'UTF-8'
         die_on_error (bool): Fail on error. Default: True
@@ -307,7 +301,6 @@ class FileInputXML(BaseComponent):
         # Get configuration parameters
         filepath = self.config.get("filepath") or self.config.get("FILENAME")
         loop_query = self.config.get("loop_query") or self.config.get("LOOP_QUERY") or ""
-
         if isinstance(loop_query, str) and loop_query.startswith("'") and loop_query.endswith("'"):
             loop_query = loop_query[1:-1]
         mapping = self.config.get("mapping") or []
@@ -349,15 +342,13 @@ class FileInputXML(BaseComponent):
         try:
             if mode == "xml_passthrough":
                 logger.info(f"[{self.id}] Processing started: XML passthrough mode")
-                data = self._parse_xml_passthrough(filepath, encoding, ignore_ns,
-                    ignore_dtd, limit, output_schema)
+                data = self._parse_xml_passthrough(filepath, encoding, ignore_ns, ignore_dtd, limit, output_schema)
                 rows_out = len(data)
                 logger.info(f"[{self.id}] Processing complete: {rows_out} XML elements extracted")
                 self._update_stats(rows_out, rows_out, 0)
                 return {'main': data}
             else:
                 logger.info(f"[{self.id}] Processing started: tabular extraction mode")
-
                 rows = self._parse_xml(
                     filepath=filepath,
                     loop_query=loop_query,
@@ -409,6 +400,7 @@ class FileInputXML(BaseComponent):
         nsmap = normalize_nsmaps(root)
         ns_prefix = list(nsmap.keys())[0] if nsmap else ""
 
+
         logger.debug(f"[{self.id}] Namespace map detected: {nsmap}")
 
         # Loop XPath qualification
@@ -436,6 +428,7 @@ class FileInputXML(BaseComponent):
         loop_xpath_q = base + qualify_xpath(loop_query_clean, ns_prefix)
         logger.debug(f"[{self.id}] Qualified loop XPath: {loop_xpath_q}")
 
+
         # Find loop nodes
         try:
             if ns_prefix:
@@ -455,8 +448,8 @@ class FileInputXML(BaseComponent):
             logger.debug(f"[{self.id}] Mapping {i}: column='{m.get('column')}', xpath='{m.get('xpath')}'")
         i = 0
         while i < len(mapping):
-            if (i < len(mapping) and mapping[i].get("column") == "SCHEMA_COLUMN" and
-                    i+1 < len(mapping) and mapping[i+1].get("column") == "QUERY"):
+            if (i < len(mapping) and mapping[i].get("column") == "SCHEMA_COLUMN" and i+1 < len(mapping) and mapping[i+1].get("column") == "QUERY"):
+
 
                 # Use the QUERY xpath instead of SCHEMA_COLUMN xpath
                 xpath_raw = mapping[i+1].get("xpath", "")
@@ -475,9 +468,9 @@ class FileInputXML(BaseComponent):
 
         rows: List[Dict[str, Any]] = []
 
-        # --------------------------------
+        # ---------------------------------
         # Iterate through loop nodes
-        # --------------------------------
+        # ---------------------------------
         for idx, node in enumerate(loop_nodes):
             logger.debug(f"[{self.id}] Processing loop node {idx}")
             row = {}
@@ -486,12 +479,10 @@ class FileInputXML(BaseComponent):
                 logger.debug(f"[{self.id}] Processing column '{col_name}' with xpath '{raw_xpath}'")
                 raw_xpath = raw_xpath.strip().strip("'").strip('"')
 
-                # Handle parent navigation XPaths manually due to ElementTree
-                # limitation
+                # Handle parent navigation XPaths manually due to ElementTree limitation
                 if raw_xpath.startswith("../"):
                     logger.debug(f"[{self.id}] Using manual navigation for parent xpath: {raw_xpath}")
-                    result = find_element_by_manual_navigation(node, raw_xpath,
-                        ns_prefix, nsmap, root)
+                    result = find_element_by_manual_navigation(node, raw_xpath, ns_prefix, nsmap, root)
                     logger.debug(f"[{self.id}] Manual navigation result for '{col_name}': {len(result)} nodes found")
                 else:
                     expr_q = qualify_xpath(raw_xpath, ns_prefix)
@@ -505,12 +496,12 @@ class FileInputXML(BaseComponent):
                         else:
                             result = ctx.findall(expr_q)
                         logger.debug(f"[{self.id}] XPath result for '{col_name}': {len(result)} nodes found")
+                        if result:
+                            logger.debug(f"[{self.id}] First result node: {result[0].tag if hasattr(result[0], 'tag') else 'not element'}")
                     except Exception as e:
                         result = []
                         logger.debug(f"[{self.id}] XPath error for '{col_name}': {e}")
 
-                if result:
-                    logger.debug(f"[{self.id}] First result node: {result[0].tag if hasattr(result[0], 'tag') else 'not element'}")
                 val = extract_value(result)
                 logger.debug(f"[{self.id}] Extracted value for '{col_name}': '{val}'")
                 row[col_name] = val
@@ -521,8 +512,7 @@ class FileInputXML(BaseComponent):
         return rows
 
 
-    def _parse_xml_passthrough(self, filepath: str, encoding: str, ignore_ns: bool,
-            ignore_dtd: bool, limit: Optional[int], output_schema: List[Dict[str, Any]]) -> pd.DataFrame:
+    def _parse_xml_passthrough(self, filepath: str, encoding: str, ignore_ns: bool, ignore_dtd: bool, limit: Optional[int], output_schema: List[Dict[str, Any]]) -> pd.DataFrame:
         """
         Parse the XML file and return raw XML content for XMLMap processing.
 
@@ -549,8 +539,7 @@ class FileInputXML(BaseComponent):
 
         logger.debug(f"[{self.id}] Parsed root tag: {root.tag}")
 
-        # For XMLMap workflows, we want to pass the entire XML content as a single
-        # string
+        # For XMLMap workflows, we want to pass the entire XML content as a single string
         # Get the full XML content
         with open(filepath, 'r', encoding=encoding) as f:
             xml_content = f.read()
