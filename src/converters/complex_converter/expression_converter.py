@@ -1,7 +1,6 @@
 """
 Expression converter for Talend/Java to Python
 """
-
 import re
 
 
@@ -77,8 +76,8 @@ class ExpressionConverter:
             r'<',               # Less than: "x < 10" or "x<10"
             r'>=',              # Greater or equal
             r'<=',              # Less or equal
-            r'!=',              # Not equal
             r'==',              # Equality
+            r'!=',              # Not equal
             r'&&',              # Logical AND
             r'\|\|',            # Logical OR
             r'\?',              # Ternary operator
@@ -91,18 +90,13 @@ class ExpressionConverter:
                 # Skip false positives for common patterns
 
                 # Skip URLs and web paths
-                if operator == '/' and (value.startswith('http://') or value.
-                        startswith('https://') or
-                                        value.startswith('//') or value.startswith(
-                                        'ftp://')):
+                if operator == '/' and (value.startswith('http://') or value.startswith('https://') or
+                                        value.startswith('//') or value.startswith('ftp://')):
                     continue
 
-                # Skip file system paths (start with / or drive letter or contain
-                #     only path separators)
-                if operator == '/' and (value.startswith('/') or re.match(
-                        r'^[A-Za-z]:[/\\]', value) or
-                                        not re.search(r'[+\-"%><\?=&|!()]', value)):  #
-                    #                       No other operators
+                # Skip file system paths (start with / or drive letter or contain only path separators)
+                if operator == '/' and (value.startswith('/') or re.match(r'^[A-Za-z]:[/\\]', value) or
+                                        not re.search(r'[+\-"%><\?=&|!()]', value)):  # No other operators
                     continue
 
                 # Skip negative numbers (just "-5" or "-5.2", nothing else)
@@ -110,10 +104,8 @@ class ExpressionConverter:
                     continue
 
                 # Skip identifiers with hyphens (encodings, UUIDs, etc.)
-                # Examples: "UTF-8", "ISO-8859-15", "en-US",
-                #     "550e8400-e29b-41d4-a716-446655440000"
-                if operator == '-' and re.match(r'^[a-zA-Z0-9]+-[a-zA-Z0-9\-]+$',
-                        value.strip()):
+                # Examples: "UTF-8", "ISO-8859-15", "en-US", "550e8400-e29b-41d4-a716-446655440000"
+                if operator == '-' and re.match(r'^[a-zA-Z0-9]+-[a-zA-Z0-9\-]+$', value.strip()):
                     # Check it's not a subtraction expression (has spaces around -)
                     if not re.search(r'\s-\s', value):
                         continue
@@ -122,12 +114,10 @@ class ExpressionConverter:
 
         # 6. Raw context references (not wrapped in ${...})
         # But ONLY if they're part of an expression, not standalone
-        # Standalone "context.var" should be wrapped as ${context.var} by
-        #     ContextManager
+        # Standalone "context.var" should be wrapped as ${context.var} by ContextManager
         # But "context.var + something" is already caught by operators above
         # So we DON'T need to mark simple context.var as Java here
-        # (This check is kept as a fallback, but operators above should catch complex
-        #     expressions)
+        # (This check is kept as a fallback, but operators above should catch complex expressions)
 
         # 7. GlobalMap access
         if 'globalMap.' in value:
@@ -197,10 +187,8 @@ class ExpressionConverter:
         expression = re.sub(r'context\.(\w+)', r"${context.\1}", expression)
 
         # Convert globalMap references
-        expression = re.sub(r'globalMap\.get\("([^"]+)"\)', r"globalMap.get('\1')",
-                expression)
-        expression = re.sub(r'globalMap\.put\("([^"]+)",\s*([^)]+)\)',
-                r"globalMap.put('\1', \2)", expression)
+        expression = re.sub(r'globalMap\.get\("([^"]+)"\)', r"globalMap.get('\1')", expression)
+        expression = re.sub(r'globalMap\.put\("([^"]+)",\s*([^)]+)\)', r"globalMap.put('\1', \2)", expression)
 
         # Convert string methods
         expression = expression.replace('.equals(', ' == ')
@@ -230,8 +218,7 @@ class ExpressionConverter:
         expression = expression.replace('StringHandling.TRIM(', 'str(')
 
         # Convert TalendDate functions
-        expression = expression.replace('TalendDate.getCurrentDate()',
-                'datetime.now()')
+        expression = expression.replace('TalendDate.getCurrentDate()', 'datetime.now()')
         expression = expression.replace('TalendDate.getDate(', 'datetime.strptime(')
 
         # Convert Numeric functions
