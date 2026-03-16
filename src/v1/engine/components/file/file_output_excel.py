@@ -1,10 +1,8 @@
 """
-FileOutputExcelComponent - Writes data to an Excel file with advanced formatting and
-structure options.
+FileOutputExcelComponent - Writes data to an Excel file with advanced formatting and structure options.
 
 Talend equivalent: tFileOutputExcel
 """
-
 from typing import Dict, Any, List, Optional, Union
 import pandas as pd
 import openpyxl
@@ -19,20 +17,15 @@ logger = logging.getLogger(__name__)
 
 class FileOutputExcel(BaseComponent):
     """
-    Writes DataFrame data to an Excel file with support for multiple sheets and
-    formatting options.
+    Writes DataFrame data to an Excel file with support for multiple sheets and formatting options.
 
     Configuration:
         filename (str): Path to the Excel file to create/write to. Required.
         sheetname (str): Name of the Excel sheet to write to. Default: 'Sheet1'
-        includeheader (bool): Whether to include column headers in output. Default:
-            False
-        append_file (bool): Whether to append to existing file or create new.
-            Default: False
-        create (bool): Whether to create output directory if it doesn't exist.
-            Default: True
-        encoding (str): File encoding (for compatibility, not used in Excel).
-            Default: 'UTF-8'
+        includeheader (bool): Whether to include column headers in output. Default: False
+        append_file (bool): Whether to append to existing file or create new. Default: False
+        create (bool): Whether to create output directory if it doesn't exist. Default: True
+        encoding (str): File encoding (for compatibility, not used in Excel). Default: 'UTF-8'
         die_on_error (bool): Whether to fail job on error. Default: True
 
     Inputs:
@@ -79,8 +72,7 @@ class FileOutputExcel(BaseComponent):
         # Required fields
         if 'filename' not in self.config:
             errors.append("Missing required config: 'filename'")
-        elif not isinstance(self.config['filename'], str) or not self.config[
-                'filename'].strip():
+        elif not isinstance(self.config['filename'], str) or not self.config['filename'].strip():
             errors.append("Config 'filename' must be a non-empty string")
 
         # Optional field validation
@@ -106,8 +98,7 @@ class FileOutputExcel(BaseComponent):
         Write data to Excel file based on configuration.
 
         Args:
-            input_data: Input data - can be DataFrame, dict containing DataFrames, or
-                None
+            input_data: Input data - can be DataFrame, dict containing DataFrames, or None
 
         Returns:
             Dictionary with execution statistics
@@ -168,8 +159,7 @@ class FileOutputExcel(BaseComponent):
                     logger.info(f"[{self.id}] Loaded existing workbook: {filename}")
                 else:
                     workbook = openpyxl.Workbook()
-                    # Remove default sheet if it exists and we're creating a custom
-                    # named sheet
+                    # Remove default sheet if it exists and we're creating a custom named sheet
                     if 'Sheet' in workbook.sheetnames and sheet_name != 'Sheet':
                         default_sheet = workbook['Sheet']
                         workbook.remove(default_sheet)
@@ -263,7 +253,6 @@ class FileOutputExcel(BaseComponent):
                 else:
                     column_names = list(rows[0].keys()) if rows else []
                     logger.debug(f"[{self.id}] Using first row keys for column order: {column_names}")
-
             else:
                 logger.warning(f"[{self.id}] No data to write or unsupported data format")
                 rows = []
@@ -288,8 +277,7 @@ class FileOutputExcel(BaseComponent):
             # Only write header if:
             # 1. Header is requested (include_header is True)
             # 2. We have column names
-            # 3. Either we're not appending, or the sheet is empty/has no existing
-            # matching header
+            # 3. Either we're not appending, or the sheet is empty/has no existing matching header
             should_write_header = False
             if include_header and column_names:
                 if not append_file:
@@ -306,12 +294,9 @@ class FileOutputExcel(BaseComponent):
                         # Sheet has content, check if first row is a matching header
                         try:
                             first_row_values = [cell.value for cell in sheet[1]]
-                            # Remove any None values and convert to strings for
-                            # comparison
-                            first_row_cleaned = [str(val).strip() if val is not None
-                                else '' for val in first_row_values]
-                            column_names_cleaned = [str(col).strip() for col in
-                                column_names]
+                            # Remove any None values and convert to strings for comparison
+                            first_row_cleaned = [str(val).strip() if val is not None else '' for val in first_row_values]
+                            column_names_cleaned = [str(col).strip() for col in column_names]
 
                             if first_row_cleaned == column_names_cleaned:
                                 # Headers match, don't write header
@@ -325,16 +310,13 @@ class FileOutputExcel(BaseComponent):
                                     should_write_header = True
                                     logger.debug(f"[{self.id}] First row is empty, writing header")
                                 else:
-                                    # First row has data but doesn't match expected
-                                    # headers
-                                    # This could be data from a previous run without
-                                    # headers
+                                    # First row has data but doesn't match expected headers
+                                    # This could be data from a previous run without headers
                                     should_write_header = False
                                     logger.debug(f"[{self.id}] First row appears to be data, not writing header. "
                                         f"Existing: {first_row_cleaned[:3]}..., Expected headers: {column_names_cleaned[:3]}...")
                         except Exception as e:
-                            # If we can't read the first row, assume we need to write
-                            # header
+                            # If we can't read the first row, assume we need to write header
                             logger.warning(f"[{self.id}] Could not read first row: {e}. Writing header to be safe.")
                             should_write_header = True
 
