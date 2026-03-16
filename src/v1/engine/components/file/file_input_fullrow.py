@@ -24,7 +24,7 @@ class FileInputFullRowComponent(BaseComponent):
 
     Configuration:
         filename (str): Path to input file. Required.
-        row_separator (str): Row separator character/string. Default: '\\n'
+        row_separator (str): Row separator character/string. Default: '\n'
         remove_empty_row (bool): Remove empty rows from output. Default: False
         encoding (str): File encoding. Default: 'UTF-8'
         limit (str): Maximum number of rows to read. Default: None (no limit)
@@ -44,7 +44,7 @@ class FileInputFullRowComponent(BaseComponent):
     Example configuration:
         {
             "filename": "/data/raw_data.txt",
-            "row_separator": "\\n",
+            "row_separator": "\n",
             "remove_empty_row": true,
             "encoding": "UTF-8",
             "limit": "1000"
@@ -52,7 +52,7 @@ class FileInputFullRowComponent(BaseComponent):
 
     Notes:
         - Each file row becomes a single string value in the 'line' column
-        - Row separator can be multi-character (e.g., "\\r\\n", "||")
+        - Row separator can be multi-character (e.g., "\r\n", "||")
         - Quote stripping is applied to row_separator configuration
         - Empty rows are preserved unless remove_empty_row is enabled
         - File not found errors respect die_on_error setting
@@ -108,13 +108,11 @@ class FileInputFullRowComponent(BaseComponent):
             filename = self.config.get('filename')
             row_separator = self.config.get('row_separator', '\n')
 
-            # Remove quotes from row_separator if present (preserving original
-            # behavior)
+            # Remove quotes from row_separator if present (preserving original behavior)
             if row_separator.startswith('"') and row_separator.endswith('"'):
                 row_separator = row_separator[1:-1]
 
-            # Decode escape sequences in row_separator (e.g., "\\n" -> "\n", "\\r" ->
-            # "\r")
+            # Decode escape sequences in row_separator (e.g., "\\n" -> "\n", "\\r" -> "\r")
             row_separator = row_separator.encode().decode('unicode_escape')
 
             remove_empty_row = self.config.get('remove_empty_row', False)
@@ -124,8 +122,7 @@ class FileInputFullRowComponent(BaseComponent):
 
             logger.info(f"[{self.id}] Reading file: {filename}")
             logger.debug(f"[{self.id}] Config - row_separator: '{row_separator}', "
-                         f"remove_empty_row: {remove_empty_row}, encoding: {encoding}, "
-                         f"limit: {limit}")
+                         f"remove_empty_row: {remove_empty_row}, encoding: {encoding}, limit: {limit}")
 
             # Validate file existence
             if not os.path.exists(filename):
@@ -143,10 +140,8 @@ class FileInputFullRowComponent(BaseComponent):
                 file_content = file.read()
 
             # Normalize line endings to handle mixed \r\n and \n
-            # This prevents \r characters from appearing as literal backslashes in
-            # output
-            # Always normalize \r\n to \n first, then handle the specified
-            # row_separator
+            # This prevents \r characters from appearing as literal backslashes in output
+            # Always normalize \r\n to \n first, then handle the specified row_separator
             file_content = file_content.replace('\r\n', '\n')
 
             # If row_separator is \n, we're done with normalization
@@ -159,16 +154,14 @@ class FileInputFullRowComponent(BaseComponent):
             if remove_empty_row:
                 original_count = len(lines)
                 lines = [line for line in lines if line.strip()]
-                logger.debug(f"[{self.id}] Removed {original_count - len(lines)} "
-                             f"empty rows")
+                logger.debug(f"[{self.id}] Removed {original_count - len(lines)} empty rows")
 
             # Apply limit if specified (preserving original logic)
             if limit and limit.isdigit():
                 limit_val = int(limit)
                 if len(lines) > limit_val:
                     lines = lines[:limit_val]
-                    logger.debug(f"[{self.id}] Applied limit: kept first {limit_val} "
-                                 f"rows")
+                    logger.debug(f"[{self.id}] Applied limit: kept first {limit_val} rows")
 
             # Prepare output data (preserving original structure)
             output_data = [{'line': line} for line in lines]
@@ -178,10 +171,8 @@ class FileInputFullRowComponent(BaseComponent):
             rows_processed = len(output_data)
             self._update_stats(rows_processed, rows_processed, 0)
 
-            logger.info(f"[{self.id}] Processing complete: {rows_processed} rows from "
-                        f"{filename}")
-            logger.debug(f"[{self.id}] Output DataFrame shape: {df.shape}, columns: "
-                         f"{list(df.columns)}")
+            logger.info(f"[{self.id}] Processing complete: {rows_processed} rows from {filename}")
+            logger.debug(f"[{self.id}] Output DataFrame shape: {df.shape}, columns: {list(df.columns)}")
 
             return {'main': df}
 
