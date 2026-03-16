@@ -8,7 +8,6 @@ This component generates fixed rows of data with support for three modes:
 - Inline table mode: Uses INTABLE configuration data
 - Inline content mode: Parses INLINECONTENT with separators
 """
-
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -74,8 +73,7 @@ class FixedFlowInputComponent(BaseComponent):
         use_inlinecontent = self.config.get('use_inlinecontent', False)
 
         if not any([use_singlemode, use_intable, use_inlinecontent]):
-            errors.append("No valid mode selected (use_singlemode, use_intable, or "
-                          "use_inlinecontent must be True)")
+            errors.append("No valid mode selected (use_singlemode, use_intable, or use_inlinecontent must be True)")
 
         # Validate nb_rows
         nb_rows = self.config.get('nb_rows', 1)
@@ -93,14 +91,12 @@ class FixedFlowInputComponent(BaseComponent):
         if use_singlemode:
             # Single mode should have either values_config or rows
             if not self.config.get('values_config') and not self.config.get('rows'):
-                errors.append("Single mode selected but no values_config or rows "
-                              "provided")
+                errors.append("Single mode selected but no values_config or rows provided")
 
         elif use_inlinecontent:
             # Inline content mode should have inline_content
             if not self.config.get('inline_content'):
-                errors.append("Inline content mode selected but no inline_content "
-                              "provided")
+                errors.append("Inline content mode selected but no inline_content provided")
 
         return errors
 
@@ -126,26 +122,21 @@ class FixedFlowInputComponent(BaseComponent):
             use_inlinecontent = self.config.get('use_inlinecontent', False)
 
             logger.info(f"[{self.id}] Processing started: nb_rows={nb_rows}, "
-                        f"single={use_singlemode}, intable={use_intable}, "
-                        f"inlinecontent={use_inlinecontent}")
+                        f"single={use_singlemode}, intable={use_intable}, inlinecontent={use_inlinecontent}")
 
             # Generate rows based on the selected mode
             if use_singlemode:
                 output_data = self._generate_single_mode_rows(nb_rows, schema_columns)
             elif use_intable:
-                output_data = self._generate_intable_mode_rows(nb_rows, schema_columns
-                )
+                output_data = self._generate_intable_mode_rows(nb_rows, schema_columns)
             elif use_inlinecontent:
-                output_data = self._generate_inline_content_rows(nb_rows,
-                    schema_columns)
+                output_data = self._generate_inline_content_rows(nb_rows, schema_columns)
             else:
-                logger.warning(f"[{self.id}] No valid mode selected, defaulting to "
-                    "single mode")
+                logger.warning(f"[{self.id}] No valid mode selected, defaulting to single mode")
                 output_data = self._generate_single_mode_rows(nb_rows, schema_columns)
 
             rows_generated = len(output_data)
-            logger.info(f"[{self.id}] Processing complete: generated {rows_generated} "
-                "rows")
+            logger.info(f"[{self.id}] Processing complete: generated {rows_generated} rows")
 
             # Update statistics
             self._update_stats(0, rows_generated, 0)  # No input rows, generated rows as output, no rejects
@@ -156,8 +147,7 @@ class FixedFlowInputComponent(BaseComponent):
                 return {'main': df}
             else:
                 # Return empty DataFrame with correct schema
-                column_names = [col['name'] if isinstance(col, dict) else col for col
-                    in schema_columns]
+                column_names = [col['name'] if isinstance(col, dict) else col for col in schema_columns]
                 df = pd.DataFrame(columns=column_names)
                 return {'main': df}
 
@@ -168,13 +158,11 @@ class FixedFlowInputComponent(BaseComponent):
 
             # Return empty DataFrame on error
             logger.warning(f"[{self.id}] Returning empty DataFrame due to error")
-            column_names = [col['name'] if isinstance(col, dict) else col for col in
-                self.config.get('schema', [])]
+            column_names = [col['name'] if isinstance(col, dict) else col for col in self.config.get('schema', [])]
             df = pd.DataFrame(columns=column_names)
             return {'main': df}
 
-    def _generate_single_mode_rows(self, nb_rows: int, schema_columns: List) -> List[
-        Dict]:
+    def _generate_single_mode_rows(self, nb_rows: int, schema_columns: List) -> List[Dict]:
         """Generate rows using single mode (VALUES configuration)"""
         # Get the pre-generated rows from the parser
         rows = self.config.get('rows', [])
@@ -204,8 +192,7 @@ class FixedFlowInputComponent(BaseComponent):
 
         return output_data
 
-    def _generate_intable_mode_rows(self, nb_rows: int, schema_columns: List) -> List[
-        Dict]:
+    def _generate_intable_mode_rows(self, nb_rows: int, schema_columns: List) -> List[Dict]:
         """Generate rows using inline table mode (INTABLE configuration)"""
         intable_data = self.config.get('intable_data', [])
         output_data = []
@@ -227,8 +214,7 @@ class FixedFlowInputComponent(BaseComponent):
 
         return output_data
 
-    def _generate_inline_content_rows(self, nb_rows: int, schema_columns: List) -> \
-        List[Dict]:
+    def _generate_inline_content_rows(self, nb_rows: int, schema_columns: List) -> List[Dict]:
         """Generate rows using inline content mode (INLINECONTENT configuration)"""
         inline_content = self.config.get('inline_content', '')
         row_separator = self.config.get('row_separator', '\n')
@@ -237,8 +223,7 @@ class FixedFlowInputComponent(BaseComponent):
         logger.info(f"[{self.id}] Raw inline_content: {repr(inline_content)}")
         logger.info(f"[{self.id}] Row separator: {repr(row_separator)}")
         logger.info(f"[{self.id}] Field separator: {repr(field_separator)}")
-        logger.info(f"[{self.id}] nb_rows parameter: {nb_rows} (ignored in inline "
-            "content mode)")
+        logger.info(f"[{self.id}] nb_rows parameter: {nb_rows} (ignored in inline content mode)")
 
         output_data = []
 
@@ -251,24 +236,18 @@ class FixedFlowInputComponent(BaseComponent):
 
             # Split content into rows and filter out empty rows
             raw_rows = inline_content.split(row_separator)
-            logger.debug(f"[{self.id}] Split into {len(raw_rows)} raw rows: {raw_rows}"
-                )
+            logger.debug(f"[{self.id}] Split into {len(raw_rows)} raw rows: {raw_rows}")
 
             content_rows = [row.strip() for row in raw_rows if row.strip()]
-            logger.info(f"[{self.id}] Parsed {len(content_rows)} non-empty rows from "
-                f"inline content: {content_rows}")
+            logger.info(f"[{self.id}] Parsed {len(content_rows)} non-empty rows from inline content: {content_rows}")
 
-            # For inline content mode, process ALL available content rows (ignore
-            # nb_rows completely)
-            # This behaves like reading a delimited file - process all content
-            # provided
-            logger.info(f"[{self.id}] Processing ALL {len(content_rows)} rows from "
-                "inline content (nb_rows ignored)")
+            # For inline content mode, process ALL available content rows (ignore nb_rows completely)
+            # This behaves like reading a delimited file - process all content provided
+            logger.info(f"[{self.id}] Processing ALL {len(content_rows)} rows from inline content (nb_rows ignored)")
 
             for i, current_row in enumerate(content_rows):
                 field_values = current_row.split(field_separator)
-                logger.debug(f"[{self.id}] Row {i}: '{current_row}' -> fields: {field_values}"
-                    )
+                logger.debug(f"[{self.id}] Row {i}: '{current_row}' -> fields: {field_values}")
 
                 row = {}
                 for col_idx, col in enumerate(schema_columns):
@@ -281,24 +260,19 @@ class FixedFlowInputComponent(BaseComponent):
                 output_data.append(row)
                 logger.debug(f"[{self.id}] Generated row {i+1}: {row}")
         else:
-            # No content provided, return empty result (don't create empty rows based
-            # on nb_rows)
-            logger.info(f"[{self.id}] No inline content provided, returning empty "
-                "result")
+            # No content provided, return empty result (don't create empty rows based on nb_rows)
+            logger.info(f"[{self.id}] No inline content provided, returning empty result")
 
         return output_data
 
     def _resolve_value(self, value):
-        """Resolve context variables, global map references, and expressions in a
-        value"""
+        """Resolve context variables, global map references, and expressions in a value"""
         if not isinstance(value, str):
             return value
 
         try:
-            # Use the ContextManager's resolve_string method which handles {{java}}
-            # expressions
-            # and provides fallback for GlobalMap access when Java bridge is
-            # unavailable
+            # Use the ContextManager's resolve_string method which handles {{java}} expressions
+            # and provides fallback for GlobalMap access when Java bridge is unavailable
             resolved_value = self.context_manager.resolve_string(value)
 
             # If the resolved value is different from input, return it
@@ -307,8 +281,7 @@ class FixedFlowInputComponent(BaseComponent):
                 try:
                     if resolved_value.isdigit():
                         return int(resolved_value)
-                    elif '.' in resolved_value and resolved_value.replace('.', ''). \
-                        replace('-', '').isdigit():
+                    elif '.' in resolved_value and resolved_value.replace('.', '').replace('-', '').isdigit():
                         return float(resolved_value)
                 except:
                     pass
@@ -340,11 +313,9 @@ class FixedFlowInputComponent(BaseComponent):
                     resolved_value = self.global_map.get(global_key, None)
                     if resolved_value is not None:
                         # Replace the globalMap reference with the resolved value
-                        new_value = value.replace(f'globalMap.get("{global_key}")',
-                            str(resolved_value))
+                        new_value = value.replace(f'globalMap.get("{global_key}")', str(resolved_value))
                         # Clean up Java-style casting
-                        new_value = new_value.replace("((Integer)", "").replace(")",
-                            "")
+                        new_value = new_value.replace("((Integer)", "").replace(")", "")
                         # Try to evaluate as expression
                         try:
                             return eval(new_value)
