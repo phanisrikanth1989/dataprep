@@ -13,8 +13,7 @@ logger = logging.getLogger(__name__)
 
 class BaseIterateComponent(BaseComponent):
     """
-    Base class for components that produce iterations (tFileList, tFlowToIterate,
-    etc.)
+    Base class for components that produce iterations (tFileList, tFlowToIterate, etc.)
 
     Iterate components work differently from regular components:
     - They prepare a list of items to iterate over
@@ -110,8 +109,7 @@ class BaseIterateComponent(BaseComponent):
 
         # Update iteration counter in globalMap
         self.global_map.put(f"{self.id}_NB_ITERATE", self.current_iteration_index)
-        self.global_map.put(f"{self.id}_CURRENT_ITERATION", self.
-            current_iteration_index - 1)  # 0-based index
+        self.global_map.put(f"{self.id}_CURRENT_ITERATION", self.current_iteration_index - 1)  # 0-based index
 
         logger.debug(f"Component {self.id}: Starting iteration {self.current_iteration_index}/{self.total_iterations}")
 
