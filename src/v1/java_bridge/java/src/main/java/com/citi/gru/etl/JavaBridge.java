@@ -104,7 +104,7 @@ public class JavaBridge {
         GroovyShell shell = new GroovyShell();
         Script compiledScript = shell.parse(javaCode);
         long compileTime = System.currentTimeMillis() - compileStart;
-        System.out.println(" \u2705 Script compiled in " + compileTime + " ms");
+        System.out.println("Script compiled in " + compileTime + " ms");
 
         // Execute code for each row IN PARALLEL
         System.out.println("Processing " + rowCount + " rows in parallel...");
@@ -150,7 +150,7 @@ public class JavaBridge {
         });
 
         long execTime = System.currentTimeMillis() - execStart;
-        System.out.println(" \u2705 Processed " + rowCount + " rows in " + execTime + " ms (" + (rowCount * 1000 / execTime) + " rows/sec)");
+        System.out.println("Processed " + rowCount + " rows in " + execTime + " ms (" + (rowCount * 1000 / execTime) + " rows/sec)");
 
         // Convert arrays to Lists for createOutputRootFromData
         Map<String, List<Object>> outputData = new HashMap<>();
@@ -272,8 +272,7 @@ public class JavaBridge {
      * @return Map of {expr_id: Object[]} where Object[] contains result for each row
      *
      * Example:
-     *   Input: 3 rows, expressions: {"filter": "orders.status == 'COMPLETE'",
-     *   "join_key": "customers.region_id"}
+     *   Input: 3 rows, expressions: {"filter": "orders.status == 'COMPLETE'", "join_key": "customers.region_id"}
      *   Output: {"filter": [true, false, true], "join_key": [5, 3, 5]}
      */
     public Map<String, Object[]> executeTMapPreprocessing(
@@ -363,7 +362,6 @@ public class JavaBridge {
                 {
                     String exprId = entry.getKey();
                     Script compiledScript = entry.getValue();
-
                     try {
                         // Execute compiled script with this row's binding
                         synchronized (compiledScript) {
@@ -372,8 +370,7 @@ public class JavaBridge {
                             results.get(exprId)[i] = result;
                         }
                     } catch (Exception e) {
-                        System.err.println("Error evaluating expression '" + exprId +
-                                "' at row " + i);
+                        System.err.println("Error evaluating expression '" + exprId + "' at row " + i);
                         System.err.println("Error: " + e.getMessage());
                         results.get(exprId)[i] = null;  // Store null on error
                     }
@@ -384,7 +381,7 @@ public class JavaBridge {
         });
 
         long execTime = System.currentTimeMillis() - execStart;
-        System.out.println(" \u2705 Processed " + rowCount + " rows in " + execTime + " ms (" + (rowCount * 1000 / execTime) + " rows/sec)");
+        System.out.println("Processed " + rowCount + " rows in " + execTime + " ms (" + (rowCount * 1000 / execTime) + " rows/sec)");
 
         // Cleanup
         inputRoot.close();
@@ -475,7 +472,7 @@ public class JavaBridge {
         compiledScript.setBinding(compileBinding);
 
         long compileTime = System.currentTimeMillis() - compileStart;
-        System.out.println(" \u2705 Script compiled in " + compileTime + " ms");
+        System.out.println("Script compiled in " + compileTime + " ms");
 
         // Execute compiled script
         System.out.println("Executing compiled script...");
@@ -484,7 +481,7 @@ public class JavaBridge {
         Object scriptResult = compiledScript.run();
 
         long execTime = System.currentTimeMillis() - execStart;
-        System.out.println(" \u2705 Executed in " + execTime + " ms (" + (rowCount * 1000 / execTime) + " rows/sec)");
+        System.out.println("Executed in " + execTime + " ms (" + (rowCount * 1000 / execTime) + " rows/sec)");
 
         // Script returns: Map<String, Map<String, Object>>
         // {output_name: {data: Object[][], count: int}}
@@ -508,7 +505,6 @@ public class JavaBridge {
             if ("__errors__".equals(outputName)) {
                 continue;
             }
-
             Object[][] data = (Object[][]) outputResult.get("data");
             int count = ((Number) outputResult.get("count")).intValue();
 
@@ -557,8 +553,7 @@ public class JavaBridge {
      * Compile tMap script ONCE and cache it (STEP 1 of 2)
      *
      * Compiles the tMap script and stores it with the component ID as key.
-     * This allows executing the script multiple times on different chunks without
-     * recompiling.
+     * This allows executing the script multiple times on different chunks without recompiling.
      *
      * @param componentId Unique component ID (e.g., "tMap_1", "tMap_2")
      * @param javaScript Pre-generated Java/Groovy script containing all tMap logic
@@ -599,7 +594,7 @@ public class JavaBridge {
         Script compiledScript = shell.parse(javaScript);
 
         long compileTime = System.currentTimeMillis() - compileStart;
-        System.out.println(" \u2705 Script compiled in " + compileTime + " ms");
+        System.out.println("Script compiled in " + compileTime + " ms");
 
         // Cache the compiled script with metadata
         CompiledTMapScript cachedScript = new CompiledTMapScript(
@@ -611,17 +606,15 @@ public class JavaBridge {
         );
         compiledScripts.put(componentId, cachedScript);
 
-        System.out.println(" \u2705 Cached compiled script for: " + componentId);
+        System.out.println("Cached compiled script for: " + componentId);
 
         return componentId;
     }
-
     /**
      * Execute pre-compiled tMap script on a chunk of data (STEP 2 of 2)
      *
      * Executes a previously compiled tMap script on the given chunk of data.
-     * This avoids recompiling the script for each chunk, providing massive
-     * performance gains.
+     * This avoids recompiling the script for each chunk, providing massive performance gains.
      *
      * @param componentId Component ID used during compilation
      * @param arrowData Joined DataFrame chunk as Arrow bytes
@@ -687,7 +680,7 @@ public class JavaBridge {
             Object scriptResult = script.run();
 
             long execTime = System.currentTimeMillis() - execStart;
-            System.out.println(" \u2705 Executed in " + execTime + " ms (" + (rowCount * 1000 / execTime) + " rows/sec)");
+            System.out.println("Executed in " + execTime + " ms (" + (rowCount * 1000 / execTime) + " rows/sec)");
 
             // Script returns: Map<String, Map<String, Object>>
             // {output_name: {data: Object[][], count: int}}
@@ -709,7 +702,6 @@ public class JavaBridge {
                 if ("__errors__".equals(outputName)) {
                     continue;
                 }
-
                 Object[][] data = (Object[][]) outputResult.get("data");
                 int count = ((Number) outputResult.get("count")).intValue();
 
@@ -786,10 +778,10 @@ public class JavaBridge {
         for (String libraryName : libraryNames) {
             // Check if the library JAR is in the classpath
             if (!classpath.contains(libraryName)) {
-                System.out.println("  \u274C Missing: " + libraryName);
+                System.out.println("Missing: " + libraryName);
                 missing.add(libraryName);
             } else {
-                System.out.println("  \u2705 Found: " + libraryName);
+                System.out.println("Found: " + libraryName);
             }
         }
 
@@ -839,8 +831,7 @@ public class JavaBridge {
         return root;
     }
 
-    private FieldVector createVectorForType(String name, Class<?> type, int rowCount,
-            List<Object> colData) {
+    private FieldVector createVectorForType(String name, Class<?> type, int rowCount, List<Object> colData) {
         FieldVector vector;
 
         if (type == String.class) {
@@ -874,8 +865,7 @@ public class JavaBridge {
 
     private int[] inferDecimalPrecisionScale(List<Object> colData) {
         // Find first non-null BigDecimal value and use its precision/scale
-        // This assumes all values in the column have the same scale (typical for
-        // financial data)
+        // This assumes all values in the column have the same scale (typical for financial data)
         if (colData != null) {
             for (Object value : colData) {
                 if (value instanceof BigDecimal) {
@@ -917,8 +907,7 @@ public class JavaBridge {
             long millis = (value instanceof Date) ? ((Date) value).getTime() : 0;
             ((DateMilliVector) vector).setSafe(index, millis);
         } else if (vector instanceof DecimalVector) {
-            BigDecimal decimal = (value instanceof BigDecimal) ? (BigDecimal) value :
-                    new BigDecimal(value.toString());
+            BigDecimal decimal = (value instanceof BigDecimal) ? (BigDecimal) value : new BigDecimal(value.toString());
             ((DecimalVector) vector).setSafe(index, decimal);
         }
     }
@@ -963,8 +952,7 @@ public class JavaBridge {
 
     /**
      * Execute batch one-time expressions with both context and globalMap
-     * This version accepts globalMap as a parameter to ensure iteration variables
-     * are available
+     * This version accepts globalMap as a parameter to ensure iteration variables are available
      */
     public Map<String, Object> executeBatchOneTimeExpressionsWithGlobalMap(
             Map<String, String> expressions,
