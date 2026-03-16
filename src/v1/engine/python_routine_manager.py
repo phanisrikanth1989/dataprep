@@ -86,10 +86,10 @@ class PythonRoutineManager:
                 class_name = self._to_class_name(routine_name)
                 self.routines[class_name] = module
 
-                logger.info(f"\u2705 Loaded: {class_name}")
+                logger.info(f"Loaded: {class_name}")
 
             except Exception as e:
-                logger.error(f"\u274c Failed to load {routine_name}: {e}")
+                logger.error(f"Failed to load {routine_name}: {e}")
 
     def _load_module(self, file_path: Path):
         """
@@ -165,9 +165,9 @@ class PythonRoutineManager:
         try:
             module = self.routines[name]
             importlib.reload(module)
-            logger.info(f"\u2705 Reloaded routine: {name}")
+            logger.info(f"Reloaded routine: {name}")
         except Exception as e:
-            logger.error(f"\u274c Failed to reload {name}: {e}")
+            logger.error(f"Failed to reload {name}: {e}")
 
     def list_routines(self) -> list:
         """
