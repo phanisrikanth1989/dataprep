@@ -18,7 +18,7 @@ from ...base_component import BaseComponent
 logger = logging.getLogger(__name__)
 
 
-class FixedFlowInput(BaseComponent):
+class FixedFlowInputComponent(BaseComponent):
     """
     Generates fixed rows of data based on configuration and selected mode.
 
@@ -32,7 +32,7 @@ class FixedFlowInput(BaseComponent):
         rows (list): Pre-generated rows data
         intable_data (list): Table data for inline table mode
         inline_content (str): Content string for inline content mode
-        row_separator (str): Row separator for inline content. Default: '\n'
+        row_separator (str): Row separator for inline content. Default: '\\n'
         field_separator (str): Field separator for inline content. Default: ';'
         die_on_error (bool): Fail on error. Default: True
 
@@ -112,7 +112,7 @@ class FixedFlowInput(BaseComponent):
                 - main: Generated DataFrame with fixed data
         """
         try:
-             # Extract configuration
+            # Extract configuration
             nb_rows = int(self.config.get('nb_rows', 1))
             schema_columns = self.config.get('schema', [])
 
@@ -132,14 +132,14 @@ class FixedFlowInput(BaseComponent):
             elif use_inlinecontent:
                 output_data = self._generate_inline_content_rows(nb_rows, schema_columns)
             else:
-                logger.warning(f"[{self.id}] No valid mode selected, defaulting to single_mode")
+                logger.warning(f"[{self.id}] No valid mode selected, defaulting to single mode")
                 output_data = self._generate_single_mode_rows(nb_rows, schema_columns)
 
             rows_generated = len(output_data)
             logger.info(f"[{self.id}] Processing complete: generated {rows_generated} rows")
 
             # Update statistics
-            self._update_stats(0, rows_generated, 0)
+            self._update_stats(0, rows_generated, 0)  # No input rows, generated rows as output, no rejects
 
             # Convert to DataFrame
             if output_data:
@@ -156,12 +156,12 @@ class FixedFlowInput(BaseComponent):
             if self.config.get('die_on_error', True):
                 raise
 
-            #Return empty DataFrame on error
+            # Return empty DataFrame on error
             logger.warning(f"[{self.id}] Returning empty DataFrame due to error")
             column_names = [col['name'] if isinstance(col, dict) else col for col in self.config.get('schema', [])]
             df = pd.DataFrame(columns=column_names)
             return {'main': df}
-        
+
     def _generate_single_mode_rows(self, nb_rows: int, schema_columns: List) -> List[Dict]:
         """Generate rows using single mode (VALUES configuration)"""
         # Get the pre-generated rows from the parser
@@ -177,7 +177,7 @@ class FixedFlowInput(BaseComponent):
                 resolved_rows.append(resolved_row)
             return resolved_rows
 
-        # Fallback: generate from values config if rows not available
+        # Fallback: generate from values_config if rows not available
         values_config = self.config.get('values_config', {})
         output_data = []
 
@@ -271,226 +271,8 @@ class FixedFlowInput(BaseComponent):
             return value
 
         try:
-            # Special handling for {{java}} expressions
-            if value.startswith('{{java}}'):
-                java_expr = value[8:]  # Remove {{java}} prefix
-                logger.debug(f"[{self.id}] Processing Java expression: {java_expr}")
-
-                # Extract and resolve context variables in the Java expression
-                import re
-                from datetime import datetime
-
-                # Handle TalendDate function calls
-                if 'TalendDate.formatDate(' in java_expr and 'TalendDate.getCurrentDate()' in java_expr:
-                    # Handle TalendDate.formatDate("pattern", TalendDate.getCurrentDate())
-                    pattern_match = re.search(r'TalendDate\.formatDate\("([^"]*)"', java_expr)
-                    if pattern_match:
-                        java_pattern = pattern_match.group(1)
-                        # Convert Java date pattern to Python strftime format
-                        python_pattern = self._convert_java_date_pattern_to_python(java_pattern)
-                        current_date = datetime.now()
-                        formatted_date = current_date.strftime(python_pattern)
-                        logger.debug(f"[{self.id}] TalendDate.formatDate result: {formatted_date}")
-                        return formatted_date
-
-                # Handle Integer.toString() and other Java method calls
-                # Pattern: Integer.toString((Type)globalMap.get("key"))
-                java_method_pattern = r'(\w+)\.(\w+)\(\((\w+)\)\s*globalMap\.get\("([^"]+)"\)\)'
-                java_method_matches = re.findall(java_method_pattern, java_expr)
-
-                if java_method_matches:
-                    for class_name, method_name, cast_type, global_key in java_method_matches:
-                        # Get value from globalMap
-                        global_value = self.global_map.get(global_key) if self.global_map else None
-
-                        if global_value is not None:
-                            # Apply Java-style type casting
-                            if cast_type == "Integer":
-                                try:
-                                    casted_value = int(global_value)
-                                except (ValueError, TypeError):
-                                    logger.warning(f"[{self.id}] Could not cast globalMap value '{global_value}' to Integer")
-                                    casted_value = 0
-                            elif cast_type == "Long":
-                                try:
-                                    casted_value = int(global_value)
-                                except (ValueError, TypeError):
-                                    logger.warning(f"[{self.id}] Could not cast globalMap value '{global_value}' to Long")
-                                    casted_value = 0
-                            elif cast_type == "Double" or cast_type == "Float":
-                                try:
-                                    casted_value = float(global_value)
-                                except (ValueError, TypeError):
-                                    logger.warning(f"[{self.id}] Could not cast globalMap value '{global_value}' to {cast_type}")
-                                    casted_value = 0.0
-                            else:
-                                casted_value = global_value
-
-                            # Apply Java method call
-                            if class_name == "Integer" and method_name == "toString":
-                                result_value = str(casted_value)
-                            elif class_name == "Long" and method_name == "toString":
-                                result_value = str(casted_value)
-                            elif class_name == "Double" and method_name == "toString":
-                                result_value = str(casted_value)
-                            elif class_name == "Float" and method_name == "toString":
-                                result_value = str(casted_value)
-                            elif class_name == "String" and method_name == "valueOf":
-                                result_value = str(casted_value)
-                            else:
-                                # Unknown method, just return the casted value as string
-                                result_value = str(casted_value)
-
-                            logger.debug(f"[{self.id}] Java method call {class_name}.{method_name}({casted_value}) -> {result_value}")
-                            return result_value
-                        else:
-                            logger.warning(f"[{self.id}] GlobalMap key '{global_key}' not found for method call")
-                            # Return default based on cast type
-                            if cast_type in ["Integer", "Long"]:
-                                return "0"
-                            elif cast_type in ["Double", "Float"]:
-                                return "0.0"
-                            else:
-                                return ""
-
-                # Handle simple method calls like Integer.toString((Integer)5)
-                simple_method_pattern = r'(\w+)\.(\w+)\(\((\w+)\)(\d+)\)'
-                simple_method_matches = re.findall(simple_method_pattern, java_expr)
-
-                if simple_method_matches:
-                    for class_name, method_name, cast_type, value_str in simple_method_matches:
-                        try:
-                            # Parse the literal value
-                            if cast_type in ["Integer", "Long"]:
-                                literal_value = int(value_str)
-                            elif cast_type in ["Double", "Float"]:
-                                literal_value = float(value_str)
-                            else:
-                                literal_value = value_str
-
-                            # Apply method call
-                            if class_name == "Integer" and method_name == "toString":
-                                result_value = str(literal_value)
-                            elif class_name == "Long" and method_name == "toString":
-                                result_value = str(literal_value)
-                            elif class_name == "Double" and method_name == "toString":
-                                result_value = str(literal_value)
-                            elif class_name == "Float" and method_name == "toString":
-                                result_value = str(literal_value)
-                            elif class_name == "String" and method_name == "valueOf":
-                                result_value = str(literal_value)
-                            else:
-                                result_value = str(literal_value)
-
-                            logger.debug(f"[{self.id}] Simple Java method call {class_name}.{method_name}({literal_value}) -> {result_value}")
-                            return result_value
-                        except (ValueError, TypeError) as e:
-                            logger.warning(f"[{self.id}] Error processing simple method call: {e}")
-                            return "0"
-
-                # Handle globalMap.get() calls within Java expressions
-                globalmap_pattern = r'\((\w+)\)\s*globalMap\.get\("([^"]+)"\)'
-                globalmap_matches = re.findall(globalmap_pattern, java_expr)
-
-                if globalmap_matches:
-                    resolved_expr = java_expr
-                    for cast_type, global_key in globalmap_matches:
-                        # Get value from globalMap
-                        global_value = self.global_map.get(global_key) if self.global_map else None
-
-                        if global_value is not None:
-                            # Apply Java-style type casting
-                            if cast_type == "Integer":
-                                try:
-                                    resolved_value = int(global_value)
-                                except (ValueError, TypeError):
-                                    logger.warning(f"[{self.id}] Could not cast globalMap value '{global_value}' to Integer")
-                                    resolved_value = 0
-                            elif cast_type == "String":
-                                resolved_value = str(global_value)
-                            elif cast_type == "Long":
-                                try:
-                                    resolved_value = int(global_value)
-                                except (ValueError, TypeError):
-                                    logger.warning(f"[{self.id}] Could not cast globalMap value '{global_value}' to Long")
-                                    resolved_value = 0
-                            elif cast_type == "Double" or cast_type == "Float":
-                                try:
-                                    resolved_value = float(global_value)
-                                except (ValueError, TypeError):
-                                    logger.warning(f"[{self.id}] Could not cast globalMap value '{global_value}' to {cast_type}")
-                                    resolved_value = 0.0
-                            else:
-                                resolved_value = global_value
-
-                            # Replace the entire cast + globalMap.get() expression with the resolved value
-                            original_expr = f"(({cast_type}) globalMap.get(\"{global_key}\"))"
-                            resolved_expr = resolved_expr.replace(original_expr, str(resolved_value))
-                            logger.debug(f"[{self.id}] Resolved globalMap: {original_expr} -> {resolved_value}")
-                        else:
-                            logger.warning(f"[{self.id}] GlobalMap key '{global_key}' not found, using default value 0")
-                            # Replace with default value based on cast type
-                            default_value = "0" if cast_type in ["Integer", "Long"] else "0.0" if cast_type in ["Double", "Float"] else ""
-                            original_expr = f"(({cast_type}) globalMap.get(\"{global_key}\"))"
-                            resolved_expr = resolved_expr.replace(original_expr, default_value)
-
-                    java_expr = resolved_expr
-
-                    # Handle simple globalMap.get() calls without casting
-                    simple_globalmap_pattern = r'globalMap\.get\("([^"]+)"\)'
-                    simple_matches = re.findall(simple_globalmap_pattern, java_expr)
-
-                    if simple_matches:
-                        resolved_expr = java_expr
-                        for global_key in simple_matches:
-                            global_value = self.global_map.get(global_key) if self.global_map else None
-                            if global_value is not None:
-                                # Replace with the actual value (as string if it's a string, otherwise as-is)
-                                if isinstance(global_value, str):
-                                    replacement = f'"{global_value}"'
-                                else:
-                                    replacement = str(global_value)
-
-                                original_expr = f'globalMap.get("{global_key}")'
-                                resolved_expr = resolved_expr.replace(original_expr, replacement)
-                                logger.debug(f"[{self.id}] Resolved simple globalMap: {original_expr} -> {replacement}")
-                            else:
-                                logger.warning(f"[{self.id}] GlobalMap key '{global_key}' not found")
-                                original_expr = f'globalMap.get("{global_key}")'
-                                resolved_expr = resolved_expr.replace(original_expr, 'null')
-
-                        java_expr = resolved_expr
-
-                    # Handle context.variable references
-                    def replace_context_vars(match):
-                        var_name = match.group(1)
-                        var_value = self.context_manager.get(var_name)
-                        if var_value is not None:
-                            # Return as quoted string if it's a string value
-                            if isinstance(var_value, str):
-                                return f'"{var_value}"'
-                            return str(var_value)
-                        return match.group(0)
-
-                    # Replace context.variable with actual values
-                    resolved_expr = re.sub(r'\bcontext\.(\w+)\b', replace_context_vars, java_expr)
-                    logger.debug(f"[{self.id}] Resolved Java expression: {resolved_expr}")
-
-            # Try to evaluate the expression as Python code
-                try:
-                    # Clean up the expression for Python evaluation
-                    # Replace Java string concatenation with Python
-                    resolved_expr = resolved_expr.replace(' + ', ' + ')
-                    # Handle null values
-                    resolved_expr = resolved_expr.replace('null', 'None')
-                    result = eval(resolved_expr)
-                    logger.debug(f"[{self.id}] Java expression result: {result}")
-                    return result
-                except Exception as eval_error:
-                    logger.warning(f"[{self.id}] Could not evaluate Java expression '{resolved_expr}': {eval_error}")
-                    return resolved_expr
-
-            # Use the ContextManager's resolve_string method for non-Java expressions
+            # Use the ContextManager's resolve_string method which handles {{java}} expressions
+            # and provides fallback for GlobalMap access when Java bridge is unavailable
             resolved_value = self.context_manager.resolve_string(value)
 
             # If the resolved value is different from input, return it
@@ -546,32 +328,3 @@ class FixedFlowInput(BaseComponent):
         except Exception as e:
             logger.warning(f"[{self.id}] Failed to resolve value '{value}': {e}")
             return value
-
-
-    def _convert_java_date_pattern_to_python(self, java_pattern):
-        """Convert Java SimpleDateFormat pattern to Python strftime format"""
-        # Common Java to Python date pattern mappings
-        pattern_mapping = {
-                    'yyyy': '%Y',   # 4-digit year
-                    'yy': '%y',     # 2-digit year
-                    'MM': '%m',     # Month (01-12)
-                    'MMM': '%b',    # Abbreviated month name
-                    'MMMM': '%B',   # Full month name
-                    'dd': '%d',     # Day of month (01-31)
-                    'HH': '%H',     # Hour (00-23)
-                    'hh': '%I',     # Hour (01-12)
-                    'mm': '%M',     # Minute (00-59)
-                    'ss': '%S',     # Second (00-59)
-                    'SSS': '%f',    # Microsecond (000000-999999) - closest to milliseconds
-                    'a': '%p',      # AM/PM
-                    'E': '%a',      # Abbreviated weekday name
-                    'EEEE': '%A',   # Full weekday name
-                }
-
-        python_pattern = java_pattern
-
-        # Replace patterns in order of specificity (longer patterns first)
-        for java_fmt, python_fmt in sorted(pattern_mapping.items(), key=len, reverse=True):
-            python_pattern = python_pattern.replace(java_fmt, python_fmt)
-
-        return python_pattern

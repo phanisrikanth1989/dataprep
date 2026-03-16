@@ -168,7 +168,6 @@ class ExtractDelimitedFields(BaseComponent):
                 field_lookup = {str(k).lower(): k for k in row.index}
                 actual_field = field_lookup.get(field.lower(), field)
                 value = row.get(actual_field, None)
-
                 if value is None:
                     if ignore_source_null:
                         continue
@@ -177,7 +176,6 @@ class ExtractDelimitedFields(BaseComponent):
 
                 # Split using the field separator
                 fields = str(value).split(field_separator)
-
                 if trim:
                     fields = [f.strip() for f in fields]
 

@@ -87,17 +87,17 @@ public class RowWrapper {
 
         if (vector == null) {
             String attempted = (tableName != null) ?
-                    tableName + "." + fieldName + " or " + fieldName :
-                    fieldName;
+                tableName + "." + fieldName + " or " + fieldName :
+                fieldName;
             throw new IllegalArgumentException("Field not found: " + attempted);
         }
-    
+
         if (vector.isNull(rowIndex)) {
             return null;
         }
 
         // Type-specific extraction
-         if (vector instanceof VarCharVector) {
+        if (vector instanceof VarCharVector) {
             return ((VarCharVector) vector).getObject(rowIndex).toString();
         } else if (vector instanceof IntVector) {
             return ((IntVector) vector).get(rowIndex);
@@ -110,17 +110,17 @@ public class RowWrapper {
         } else if (vector instanceof DateMilliVector) {
             return new Date(((DateMilliVector) vector).get(rowIndex));
         } else if (vector instanceof DecimalVector) {
-            return ((DecimalVector) vector).getObject(rowIndex);  // Returns BigDecimal
+            return ((DecimalVector) vector).getObject(rowIndex);   // Returns BigDecimal
         } else if (vector instanceof Decimal256Vector) {
-            return ((Decimal256Vector) vector).getObject(rowIndex);  // For large decimals
+            return ((Decimal256Vector) vector).getObject(rowIndex);   // For large decimals
         } else {
             return vector.getObject(rowIndex);
         }
     }
 
     /**
-        * Get all data as Map (for output_row)
-        */
+     * Get all data as Map (for output_row)
+     */
     public Map<String, Object> toMap() {
         return dataMap;
     }
@@ -134,6 +134,9 @@ public class RowWrapper {
         set(name, value);
     }
 
+    /**
+     * Proper toString() for debugging: shows all field values
+     */
     @Override
     public String toString() {
         if (isInputRow && vectorRoot != null) {
@@ -152,6 +155,6 @@ public class RowWrapper {
             return "com.citi.gru.etl.RowWrapper[output_row] " + dataMap.toString();
         } else {
             return "com.citi.gru.etl.RowWrapper[unknown]";
-            }
         }
     }
+}

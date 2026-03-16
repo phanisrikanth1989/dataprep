@@ -18,7 +18,7 @@ from ...base_component import BaseComponent
 logger = logging.getLogger(__name__)
 
 
-class FileInputFullRow(BaseComponent):
+class FileInputFullRowComponent(BaseComponent):
     """
     Read each row of a file as a single string.
 
@@ -41,21 +41,21 @@ class FileInputFullRow(BaseComponent):
         NB_LINE_OK: Successfully processed rows
         NB_LINE_REJECT: Rejected rows (always 0 for this component)
 
-    Example Configuration:
+    Example configuration:
         {
-            "filename": "data/input.txt",
-            "row_separator": "\\n",
+            "filename": "/data/raw_data.txt",
+            "row_separator": "\n",
             "remove_empty_row": true,
             "encoding": "UTF-8",
             "limit": "1000"
         }
 
     Notes:
-        - Each fle row becomes a single string value in the 'line' column of the output DataFrame.
-        - Row separators can be multi-character strings (e.g., "\\r\\n" or custom delimiters).
-        - Quote stripping is applied to row_separator configuration to allow for common escape sequences.
-        - Empty rows are preserved by default but can be removed with the remove_empty_row option.
-        - If the file does not exist and die_on_error is False, an empty DataFrame is returned.        
+        - Each file row becomes a single string value in the 'line' column
+        - Row separator can be multi-character (e.g., "\r\n", "||")
+        - Quote stripping is applied to row_separator configuration
+        - Empty rows are preserved unless remove_empty_row is enabled
+        - File not found errors respect die_on_error setting
     """
 
     def _validate_config(self) -> List[str]:
@@ -87,10 +87,10 @@ class FileInputFullRow(BaseComponent):
         Read each row of the file as a single string.
 
         Args:
-            input_data (pd.DataFrame, optional): Not used for file input component.
-        
+            input_data: Not used (file input component)
+
         Returns:
-            Dict[str, Any]: Output data with key 'main' containing the resulting DataFrame.
+            Dictionary with 'main' DataFrame containing file rows as strings
         """
         # Validate configuration
         config_errors = self._validate_config()
@@ -108,11 +108,11 @@ class FileInputFullRow(BaseComponent):
             filename = self.config.get('filename')
             row_separator = self.config.get('row_separator', '\n')
 
-            # Remove quotes from row_separator if present
+            # Remove quotes from row_separator if present (preserving original behavior)
             if row_separator.startswith('"') and row_separator.endswith('"'):
                 row_separator = row_separator[1:-1]
 
-            # Decode escape sequences
+            # Decode escape sequences in row_separator (e.g., "\\n" -> "\n", "\\r" -> "\r")
             row_separator = row_separator.encode().decode('unicode_escape')
 
             remove_empty_row = self.config.get('remove_empty_row', False)
@@ -139,28 +139,31 @@ class FileInputFullRow(BaseComponent):
             with open(filename, 'r', encoding=encoding) as file:
                 file_content = file.read()
 
-            # Normalize CRLF
+            # Normalize line endings to handle mixed \r\n and \n
+            # This prevents \r characters from appearing as literal backslashes in output
+            # Always normalize \r\n to \n first, then handle the specified row_separator
             file_content = file_content.replace('\r\n', '\n')
 
-            # Split into rows
+            # If row_separator is \n, we're done with normalization
+            # If it's something else, split on the specified separator
             lines = file_content.split(row_separator)
 
             logger.debug(f"[{self.id}] Read {len(lines)} raw lines from file")
 
-            # Remove empty rows if configured
+            # Remove empty rows if configured (preserving original logic)
             if remove_empty_row:
                 original_count = len(lines)
                 lines = [line for line in lines if line.strip()]
                 logger.debug(f"[{self.id}] Removed {original_count - len(lines)} empty rows")
 
-            # Apply limit
-            if limit and str(limit).isdigit():
+            # Apply limit if specified (preserving original logic)
+            if limit and limit.isdigit():
                 limit_val = int(limit)
                 if len(lines) > limit_val:
                     lines = lines[:limit_val]
                     logger.debug(f"[{self.id}] Applied limit: kept first {limit_val} rows")
 
-            # Prepare DataFrame
+            # Prepare output data (preserving original structure)
             output_data = [{'line': line} for line in lines]
             df = pd.DataFrame(output_data)
 
@@ -174,7 +177,7 @@ class FileInputFullRow(BaseComponent):
             return {'main': df}
 
         except FileNotFoundError:
-            #Re-raise to be handled by caller based on die_on_error config
+            # Re-raise FileNotFoundError as it's already handled above
             raise
         except Exception as e:
             error_msg = f"Failed to process file: {str(e)}"
@@ -187,12 +190,17 @@ class FileInputFullRow(BaseComponent):
                 self._update_stats(0, 0, 0)
                 return {'main': pd.DataFrame()}
 
-
     def validate_config(self) -> bool:
         """
         Validates the component configuration.
-        """
 
+        Returns:
+            True if the configuration is valid, False otherwise.
+
+        Note:
+            This method is preserved for backward compatibility but delegates
+            to the standardized _validate_config() method.
+        """
         try:
             errors = self._validate_config()
             if errors:
@@ -200,6 +208,6 @@ class FileInputFullRow(BaseComponent):
                 logger.error(f"[{self.id}] Configuration validation failed: {error_msg}")
                 return False
             return True
-        except Exception:
-            logger.error(f"[{self.id}] Exception during configuration validation")
+        except Exception as e:
+            logger.error(f"[{self.id}] Configuration validation error: {e}")
             return False

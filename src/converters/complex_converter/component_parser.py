@@ -1354,38 +1354,22 @@ class ComponentParser:
 
                 expressions[out_col] = xpath
                 print(f"[tXMLMAP DEBUG] Mapped connection: {out_col} -> {xpath} (from {source} -> {target})")
-        # ------------------------------------------------------------------
-        # ENHANCED: Find looping element from parsed input tree structure
-        # ------------------------------------------------------------------
-        def find_loop_element(children_list):
-            """Recursively find the element marked with loop=true"""
-            for child in children_list:
-                if child.get('loop', False) and child.get('name'):
-                    return child['name']
-                # Recursively search in nested children
-                nested_result = find_loop_element(child.get('children', []))
-                if nested_result:
-                    return nested_result
-            return None
+        # FIX: Preserve correct looping element from converter config
 
+        #looping_element = component.get("config", {}).get("looping_element")
         looping_element = None
-        # Search through parsed input trees for loop element
-        for tree in input_trees:
-            for tree_node in tree.get('nodes', []):
-                looping_element = find_loop_element(tree_node.get('children', []))
-                if looping_element:
-                    break
-            if looping_element:
+        for child in node.findall('.//children'):
+            if child.get('loop', '').lower() == 'true' and child.get('name'):
+                looping_element = child.get('name')
                 break
 
-        # Fallback: check direct XML children elements (legacy method)
-        if not looping_element:
-            for child in node.findall('.//children'):
-                if child.get('loop', '').lower() == 'true' and child.get('name'):
-                    looping_element = child.get('name')
-                    break
+        if looping_element:
+            if 'config' not in component:
+                component['config'] = {}
+            component['config']['looping_element'] = looping_element
+            print(f"[tXMLMap DEBUG] current looping_element (first): '{looping_element}'")
 
-        # Fallback: check elementParameter
+        # Only check elementParameters if still missing or blank
         if not looping_element:
             for param in node.findall('elementParameter'):
                 if param.get('name', '').upper() == 'LOOPING_ELEMENT':
@@ -1397,39 +1381,75 @@ class ComponentParser:
             looping_element = str(next(iter(looping_element.values()), "")) if isinstance(looping_element, dict) else str(looping_element[0])
         looping_element = str(looping_element or "").strip()
 
-        if 'config' not in component:
-            component['config'] = {}
-        component['config']['looping_element'] = looping_element
+        print(f"[tXMLMap DEBUG] Normalized looping_element (final): '{looping_element}'")
 
+        # END FIX
 
-        # Store parsed structures in component config
-        component['config']['INPUT_TREES'] = input_trees
-        component['config']['OUTPUT_TREES'] = output_trees
-        component['config']['CONNECTIONS'] = connections
-        component['config']['output_schema'] = output_schema
-        component['schema']['output'] = output_schema
+        # --- Auto-detect looping element if not set ---
+        if not looping_element:
+            # Find the deepest path in input_tree_nodes (most nested node)
+            max_depth = 0
+            for path, name in input_tree_nodes.items():
+                depth = path.count('/')
+                if depth > max_depth:
+                    max_depth = depth
+                    looping_element = name
 
-        # Store expression filter info again
-        if output_trees:
-            first_tree = output_trees[0]
-            component['config']['expression_filter'] = first_tree.get('expressionFilter', '')
-            component['config']['activate_expression_filter'] = first_tree.get('activateExpressionFilter', False)
+        # --- DEBUG: Print before XPath rewrite ---
+        print(f"[tXMLMap DEBUG] looping_element: {looping_element}, expressions before rewrite: {expressions}")
+
+        # [NEW LOGIC] XPath rewrite based on looping element position
+
+        # Normalize looping element name
+        loop_name = str(looping_element or "").strip()
+        print(f"[tXMLMap DEBUG] Normalized looping element: '{loop_name}'")
+
+        # Rebuild expressions based on whether fields are inside or outside loop
+        for out_col, xpath in list(expressions.items()):
+            if not xpath:
+                continue
+
+            # Clean and normalize the field path
+            xpath = xpath.strip().lstrip('.', '/')
+            field_abs_path = xpath
+            field_abs_path = '/'.join(p.strip('/') for p in field_abs_path.split('/') if p.strip('/'))
+            print(f"[tXMLMap TRACE] Field: {out_col}, loop_name={loop_name},")
+            field_parts = field_abs_path.split('/')
+            # Detect if the field belongs to the loop element (case-insensitive)
+            in_loop = loop_name and any(p.lower() == loop_name.lower() for p in field_parts)
+
+            if in_loop:
+                print(f"[tXMLMap TRACE] Field: {out_col}, loop_name={loop_name}, field_parts={field_parts}")
+                # Inside loop d*: derive relative path
+                loop_index = next(
+                    (i for i, p in enumerate(field_parts) if p.lower() == loop_name.lower()),
+                    None
+                )
+
+                if loop_index is not None:
+                    rel_parts = field_parts[loop_index + 1:]
+                    if rel_parts:
+                        new_xpath = './' + '/'.join(rel_parts)
+                    else:
+                        new_xpath = f"./{loop_name}"
+                        print(f"[tXMLMap DEBUG] Rewriting XPath for {out_col} inside loop: {new_xpath}")
+                else:
+                    # Fallback
+                    new_xpath = f"./{field_abs_path}"
+            else:
+                # Outside loop d*: use ancestor path
+                new_xpath = f"./ancestor::{field_abs_path}"
+                print(f"[tXMLMap DEBUG] Rewriting XPath for {out_col} outside loop: {new_xpath}")
+
+            expressions[out_col] = new_xpath
 
         # Update component expressions
         component['config']['expressions'] = expressions
-
-        # Preserve expression filter info
-        if output_trees:
-            first_tree = output_trees[0]
-            component['config']['expression_filter'] = first_tree.get('expressionFilter', '')
-            component['config']['activate_expression_filter'] = first_tree.get('activateExpressionFilter', False)
-
-        # Debug output
-        print(f"[tXMLMAP DEBUG] Parsed {len(input_trees)} input trees")
-        print(f"[tXMLMAP DEBUG] Found looping element: {looping_element}")
-        print(f"[tXMLMAP DEBUG] Built {len(expressions)} XPath expressions")
-        print(f"[tXMLMAP DEBUG] Final expressions: {expressions}")
-        print(f"[Converter] tXMLMAP output_schema: {len(output_schema)} columns")
+        # -------------------------------------------------------
+        # [END NEW LOGIC]
+        # -------------------------------------------------------
+        print(f"[tXMLMap DEBUG] expressions after rewrite: {expressions}")
+        print(f"[Converter] tXMLMAP output_schema: {output_schema}")
 
         return component
 
@@ -1946,7 +1966,7 @@ class ComponentParser:
     def parse_tmemorizerows(self, node, component: Dict) -> Dict:
         """Parse tMemorizeRows specific configuration"""
         component['config']['row_count'] = int(node.find('.//elementParameter[@name="ROW_COUNT"]').get('value', '1'))
-        component['config']['reset_condition'] = node.find('.//elementParameter[@name="RESET_ON_CONDITION"]').get('value', 'false').lower() == 'true'
+        component['config']['reset_on_condition'] = node.find('.//elementParameter[@name="RESET_ON_CONDITION"]').get('value', 'false').lower() == 'true'
         component['config']['condition'] = node.find('.//elementParameter[@name="CONDITION"]').get('value', '')
         return component
 
@@ -2241,7 +2261,6 @@ class ComponentParser:
 
         # Ensure the component is ready to accept input data
         component['inputs'] = [input_flow.get('name') for input_flow in node.findall('.//connection[@connectorName="FLOW"]')]
-
         return component
 
     def parse_t_oracle_input(self, node, component: Dict) -> Dict:
@@ -2277,9 +2296,12 @@ class ComponentParser:
 
     def parse_t_oracle_output(self, node, component: Dict) -> Dict:
         """
-        Parse tOracleOutput specific configuration to match the properties required by TOracleOutput.
-        Extracts HOST, PORT, DBNAME, USER, PASSWORD, TABLE, DATA_ACTION, CONNECTION, USE_EXISTING_CONNECTION.
+        Parse tOracleOutput specific configuration to match the properties required
+        by TOracleOutput.
+        Extracts HOST, PORT, DBNAME, USER, PASSWORD, TABLE, DATA_ACTION, CONNECTION,
+        USE_EXISTING_CONNECTION.
         """
+
         config = component['config']
         for param in node.findall('.//elementParameter'):
             name = param.get('name')
@@ -2311,9 +2333,12 @@ class ComponentParser:
 
     def parse_t_oracle_row(self, node, component: Dict) -> Dict:
         """
-        Parse tOracleRow specific configuration to match the properties required by TOracleRow.
-        Extracts HOST, PORT, DBNAME, USER, PASSWORD, QUERY, CONNECTION, USE_EXISTING_CONNECTION, etc.
+        Parse tOracleRow specific configuration to match the properties required by
+        TOracleRow.
+        Extracts HOST, PORT, DBNAME, USER, PASSWORD, QUERY, CONNECTION,
+        USE_EXISTING_CONNECTION, etc.
         """
+
         config = component['config']
         for param in node.findall('.//elementParameter'):
             name = param.get('name')
@@ -2353,9 +2378,11 @@ class ComponentParser:
 
     def parse_t_oracle_sp(self, node, component: Dict) -> Dict:
         """
-        Parse tOracleSP specific configuration to match the properties required by tOracleSP.
+        Parse tOracleSP specific configuration to match the properties required by
+        tOracleSP.
         Extracts HOST, PORT, DBNAME, USER, PASSWORD, PROCEDURE, DIE_ON_ERROR, etc.
         """
+
         config = component['config']
         for param in node.findall('.//elementParameter'):
             name = param.get('name')
@@ -2383,8 +2410,10 @@ class ComponentParser:
 
     def parse_t_oracle_bulk_exec(self, node, component: Dict) -> Dict:
         """
-        Parse tOracleBulkExec specific configuration to match the properties required by tOracleBulkExec.
-        Extracts HOST, PORT, DBNAME, USER, PASS, DATA, TABLE, CLT_FILE, DIE_ON_ERROR, etc.
+        Parse tOracleBulkExec specific configuration to match the properties
+        required by tOracleBulkExec.
+        Extracts HOST, PORT, DBNAME, USER, PASS, DATA, TABLE, CLT_FILE,
+        DIE_ON_ERROR, etc.
         PASS field now simply strips quotes, no cleaning or decryption logic.
         """
         config = component['config']
@@ -2461,7 +2490,7 @@ class ComponentParser:
                 row_keys.append(element.get('value', ''))
 
         # Ensure row_keys does not contain empty strings and provide default values if empty
-        component['config']['row_keys'] = [key for key in row_keys if key ] or ['COBDATE', 'AGREEMENTID', 'MASTERMNEMONIC', 'CLIENT_OR_AFFILIATE', 'MNEMONIC', 'GMIACCOUNT']
+        component['config']['row_keys'] = [key for key in row_keys if key ] or ['COBDATE', 'AGREEMENTID', 'MASTERMNEMONIC', 'CLIENT_OR_AFFILIATE', 'MNEMONIC', 'GMIACCOUNT', 'CURRENCY']
         component['config']['die_on_error'] = node.get('DIE_ON_ERROR', False)
 
         # Update schema to include only pivot_key, pivot_value, and row_keys in the specified order
@@ -2575,71 +2604,6 @@ class ComponentParser:
             elif name == 'CREATE':
                 config['create'] = value.lower() == 'true'
 
-        component['config'] = config
-        return component
-
-    def parse_t_oracle_sp(self, node, component: Dict) -> Dict:
-        """
-        Parse tOracleSP specific configuration to match the properties required by tOracleSP.
-        Extracts HOST, PORT, DBNAME, USER, PASSWORD, PROCEDURE, DIE_ON_ERROR, etc.
-        """
-        config = component['config']
-        for param in node.findall('.//elementParameter'):
-            name = param.get('name')
-            value = param.get('value', '')
-            if name == 'HOST':
-                config['HOST'] = value.strip('"')
-            elif name == 'PORT':
-                port_val = value.strip('"')
-                try:
-                    config['PORT'] = int(port_val)
-                except ValueError:
-                    config['PORT'] = port_val
-            elif name == 'DBNAME':
-                config['DBNAME'] = value.strip('"')
-            elif name == 'USER':
-                config['USER'] = value.strip('"')
-            elif name == 'PASSWORD':
-                config['PASSWORD'] = value.strip('"')
-            elif name == 'PROCEDURE':
-                config['PROCEDURE'] = value.strip('"')
-            elif name == 'DIE_ON_ERROR':
-                config['DIE_ON_ERROR'] = value.lower() == 'true'
-        component['config'] = config
-        return component
-
-    def parse_t_oracle_bulk_exec(self, node, component: Dict) -> Dict:
-        """
-        Parse tOracleBulkExec specific configuration to match the properties required by tOracleBulkExec.
-        Extracts HOST, PORT, DBNAME, USER, PASS, DATA, TABLE, CLT_FILE, DIE_ON_ERROR, etc.
-        PASS field now simply strips quotes, no cleaning or decryption logic.
-        """
-        config = component['config']
-        for param in node.findall('.//elementParameter'):
-            name = param.get('name')
-            value = param.get('value', '')
-            if name == 'HOST':
-                config['HOST'] = value.strip('"')
-            elif name == 'PORT':
-                port_val = value.strip('"')
-                try:
-                    config['PORT'] = int(port_val)
-                except ValueError:
-                    config['PORT'] = port_val
-            elif name == 'DBNAME':
-                config['DBNAME'] = value.strip('"')
-            elif name == 'USER':
-                config['USER'] = value.strip('"')
-            elif name == 'PASS':
-                config['PASS'] = value.strip('"')
-            elif name == 'DATA':
-                config['DATA'] = value.strip('"')
-            elif name == 'TABLE':
-                config['TABLE'] = value.strip('"')
-            elif name == 'CLT_FILE':
-                config['CLT_FILE'] = value.strip('"')
-            elif name == 'DIE_ON_ERROR':
-                config['DIE_ON_ERROR'] = value.lower() == 'true'
         component['config'] = config
         return component
 
@@ -2811,19 +2775,19 @@ class ComponentParser:
                         elif ref == 'DELIMITER':
                             # clean delimiter: remove XML encoding and quotes
                             if value.startswith('&quot;') and value.endswith('&quot;'):
-                                value = value[6:-6]
+                                value = value[6:-6]  # Remove &quot; from both ends
                             elif value.startswith('"') and value.endswith('"'):
-                                value = value[1:-1]
+                                value = value[1:-1]  # Remove quotes
                             row_data['delimiter'] = value
                         elif ref == 'MERGE':
                             row_data['merge'] = value.lower() == 'true'
 
-                    #Only add if we have a valid input_column
+                    # Only add if we have a valid input_column
                     if row_data.get('input_column'):
-                        #Set defaults for missing values
+                        # Set defaults for missing values
                         denormalize_columns.append({
-                            'input_column': row_data.get('input_column',''),
-                            'delimiter': row_data.get('delimiter',','),
+                            'input_column': row_data.get('input_column', ''),
+                            'delimiter': row_data.get('delimiter', ','),
                             'merge': row_data.get('merge', True)
                         })
 
@@ -2974,7 +2938,7 @@ class ComponentParser:
         component['config']['trim_select'] = trim_select
 
         # **Date Conversion Configuration**
-        component['config']['convertdatetostring'] = str_to_bool(get_param('CONVERTDATEOSTRING', 'false'), False)
+        component['config']['convertdatetostring'] = str_to_bool(get_param('CONVERTDATETOSTRING', 'false'), False)
 
         # **Parse DATESELECT table for date conversion settings**
         date_select = []
@@ -3016,7 +2980,7 @@ class ComponentParser:
 
         # **Normalize parameter names to match FileInputExcel component expectations**
         # Map Talend parameter names to component-expected names
-        if 'filepath' not in component['config'] and component['config'].get('filename'):
+        if 'filepath' not in component['config'] and component['config']['filename']:
             component['config']['filepath'] = component['config']['filename']
 
         return component

@@ -15,7 +15,7 @@ from ...base_component import BaseComponent
 
 logger = logging.getLogger(__name__)
 
-class FileArchive(BaseComponent):
+class FileArchiveComponent(BaseComponent):
     """
     Compresses files or directories into archive formats (ZIP).
 

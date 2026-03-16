@@ -12,7 +12,7 @@ from ...base_component import BaseComponent
 
 logger = logging.getLogger(__name__)
 
-class FileExist(BaseComponent):
+class FileExistComponent(BaseComponent):
     """
     Checks if a file or directory exists at the specified path.
 
