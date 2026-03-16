@@ -6,8 +6,7 @@ import java.math.BigDecimal;
 
 /**
  * Dynamic wrapper for row data to enable field access like row.field_name
- * Supports both reading from Arrow vectors (input_row) and writing to Map
- (output_row)
+ * Supports both reading from Arrow vectors (input_row) and writing to Map (output_row)
  */
 public class RowWrapper {
 
@@ -21,8 +20,7 @@ public class RowWrapper {
      * Constructor for input_row (reads from Arrow)
      * @param vectorRoot Arrow vector schema root containing row data
      * @param rowIndex Index of the row to read
-     * @param tableName Name of the table (for prefixed column lookup, e.g.,
-     "customers", "products")
+     * @param tableName Name of the table (for prefixed column lookup, e.g., "customers", "products")
      */
     public RowWrapper(VectorSchemaRoot vectorRoot, int rowIndex, String tableName) {
         this.vectorRoot = vectorRoot;
@@ -82,8 +80,7 @@ public class RowWrapper {
             vector = vectorRoot.getVector(prefixedName);
         }
 
-        // Strategy 2: Fallback to original fieldName (for main table or unprefixed
-        // columns)
+        // Strategy 2: Fallback to original fieldName (for main table or unprefixed columns)
         if (vector == null) {
             vector = vectorRoot.getVector(fieldName);
         }
