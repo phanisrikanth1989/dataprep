@@ -15,8 +15,7 @@ import pandas as pd
 import xlrd  # For old Excel .xls files
 
 from ...base_component import BaseComponent, ExecutionMode
-from ...exceptions import ConfigurationError, FileOperationError, \
-    ComponentExecutionError
+from ...exceptions import ConfigurationError, FileOperationError, ComponentExecutionError
 
 logger = logging.getLogger(__name__)
 
@@ -103,8 +102,7 @@ class FileInputExcel(BaseComponent):
                 errors.append("Config 'password' must be a string")
 
         # Boolean field validation
-        for field_name in ['all_sheets', 'die_on_error', 'suppress_warn',
-                           'advanced_separator',
+        for field_name in ['all_sheets', 'die_on_error', 'suppress_warn', 'advanced_separator',
                            'trimall', 'convertdatetostring', 'stopread_on_emptyrow']:
             if field_name in self.config:
                 value = self.config[field_name]
@@ -130,7 +128,7 @@ class FileInputExcel(BaseComponent):
             elif not isinstance(value, int) or value < 0:
                 errors.append("Config 'footer' must be a non-negative integer")
 
-        # Special validation for limit (can be empty string or None to indicate no limit)
+        # Special validation for Limit (can be empty string or None to indicate no limit)
         if 'limit' in self.config:
             value = self.config['limit']
             if isinstance(value, str):
@@ -219,20 +217,18 @@ class FileInputExcel(BaseComponent):
 
             if excel_engine == 'xlrd':
                 # Handle old .xls files using xlrd engine
-                return self._process_xls_file(filepath, password, die_on_error,
-                                              suppress_warn)
+                return self._process_xls_file(filepath, password, die_on_error, suppress_warn)
+
             else:
                 # Handle newer .xlsx files using openpyxl
-                return self._process_xlsx_file(filepath, password, die_on_error,
-                                               suppress_warn)
+                return self._process_xlsx_file(filepath, password, die_on_error, suppress_warn)
 
         except (ConfigurationError, FileOperationError):
             # Re-raise our custom exceptions as-is
             raise
         except Exception as e:
             logger.error(f"[{self.id}] Processing failed: {e}")
-            raise ComponentExecutionError(self.id, f"Failed to read Excel file: {e}",
-                                          e) from e
+            raise ComponentExecutionError(self.id, f"Failed to read Excel file: {e}", e) from e
 
     def _build_converters_dict(self) -> Optional[Dict[str, callable]]:
         """
@@ -265,8 +261,7 @@ class FileInputExcel(BaseComponent):
                             # If it's already a string, preserve it as-is
                             return x
                         elif isinstance(x, datetime):
-                            # For dates that should be strings, try to preserve
-                            # original format
+                            # For dates that should be strings, try to preserve original format
                             # Check if it looks like dd-mm-yyyy format (your case)
                             day = x.day
                             month = x.month
@@ -447,10 +442,8 @@ class FileInputExcel(BaseComponent):
                             use_regex = sheet_config.get('use_regex', False)
 
                             # Resolve context variables
-                            if sheet_name and hasattr(self, 'context_manager') and \
-                                    self.context_manager:
-                                resolved_sheet_name = self.context_manager.\
-                                    resolve_string(sheet_name)
+                            if sheet_name and hasattr(self, 'context_manager') and self.context_manager:
+                                resolved_sheet_name = self.context_manager.resolve_string(sheet_name)
                                 logger.info(f"[{self.id}] Resolved sheet name '{sheet_name}' to '{resolved_sheet_name}'")
                             else:
                                 resolved_sheet_name = sheet_name
@@ -458,8 +451,7 @@ class FileInputExcel(BaseComponent):
                             if use_regex and resolved_sheet_name:
                                 try:
                                     pattern = re.compile(resolved_sheet_name)
-                                    matching_sheets = [s for s in available_sheets if
-                                                       pattern.search(s)]
+                                    matching_sheets = [s for s in available_sheets if pattern.search(s)]
                                     logger.info(f"[{self.id}] Regex pattern '{resolved_sheet_name}' matched sheets: {matching_sheets}")
                                     selected_sheets.extend(matching_sheets)
                                 except re.error as e:
@@ -468,8 +460,7 @@ class FileInputExcel(BaseComponent):
                                 selected_sheets.append(resolved_sheet_name)
                             elif resolved_sheet_name:
                                 # Try partial matching
-                                partial_matches = [s for s in available_sheets if
-                                                   resolved_sheet_name.lower() in s.lower()]
+                                partial_matches = [s for s in available_sheets if resolved_sheet_name.lower() in s.lower()]
                                 if partial_matches:
                                     logger.info(f"[{self.id}] Partial match for '{resolved_sheet_name}': {partial_matches}")
                                     selected_sheets.extend(partial_matches)
@@ -477,10 +468,8 @@ class FileInputExcel(BaseComponent):
                                     logger.warning(f"[{self.id}] Sheet '{resolved_sheet_name}' not found in available sheets: {available_sheets}")
                         else:
                             sheet_name = str(sheet_config)
-                            if hasattr(self, 'context_manager') and self.\
-                                    context_manager:
-                                resolved_sheet_name = self.context_manager.\
-                                    resolve_string(sheet_name)
+                            if hasattr(self, 'context_manager') and self.context_manager:
+                                resolved_sheet_name = self.context_manager.resolve_string(sheet_name)
                             else:
                                 resolved_sheet_name = sheet_name
 
@@ -491,13 +480,11 @@ class FileInputExcel(BaseComponent):
             else:
                 # Read specific sheet(s) from sheetlist
                 if sheetlist:
-                    sheet_config = sheetlist[0] if isinstance(sheetlist, list) else \
-                        sheetlist
+                    sheet_config = sheetlist[0] if isinstance(sheetlist, list) else sheetlist
                     if isinstance(sheet_config, dict):
                         sheet_name = sheet_config.get('sheetname', '')
                         if hasattr(self, 'context_manager') and self.context_manager:
-                            resolved_sheet_name = self.context_manager.resolve_string(
-                                sheet_name)
+                            resolved_sheet_name = self.context_manager.resolve_string(sheet_name)
                         else:
                             resolved_sheet_name = sheet_name
 
@@ -506,8 +493,7 @@ class FileInputExcel(BaseComponent):
                     else:
                         sheet_name = str(sheet_config)
                         if hasattr(self, 'context_manager') and self.context_manager:
-                            resolved_sheet_name = self.context_manager.resolve_string(
-                                sheet_name)
+                            resolved_sheet_name = self.context_manager.resolve_string(sheet_name)
                         else:
                             resolved_sheet_name = sheet_name
 
@@ -543,10 +529,8 @@ class FileInputExcel(BaseComponent):
                         use_regex = sheet_config.get('use_regex', False)
 
                         # **FIX: Resolve context variables before using as regex**
-                        if sheet_name and hasattr(self, 'context_manager') and self.\
-                                context_manager:
-                            resolved_sheet_name = self.context_manager.resolve_string(
-                                sheet_name)
+                        if sheet_name and hasattr(self, 'context_manager') and self.context_manager:
+                            resolved_sheet_name = self.context_manager.resolve_string(sheet_name)
                             logger.info(f"[{self.id}] Resolved sheet name '{sheet_name}' to '{resolved_sheet_name}'")
                         else:
                             resolved_sheet_name = sheet_name
@@ -555,8 +539,7 @@ class FileInputExcel(BaseComponent):
                             # Match sheets using regex
                             try:
                                 pattern = re.compile(resolved_sheet_name)
-                                matching_sheets = [s for s in available_sheets if
-                                                   pattern.search(s)]
+                                matching_sheets = [s for s in available_sheets if pattern.search(s)]
                                 logger.info(f"[{self.id}] Regex pattern '{resolved_sheet_name}' matched sheets: {matching_sheets}")
                                 selected_sheets.extend(matching_sheets)
                             except re.error as e:
@@ -565,8 +548,7 @@ class FileInputExcel(BaseComponent):
                             selected_sheets.append(resolved_sheet_name)
                         elif resolved_sheet_name:
                             # Try partial matching for sheets (case insensitive)
-                            partial_matches = [s for s in available_sheets if
-                                               resolved_sheet_name.lower() in s.lower()]
+                            partial_matches = [s for s in available_sheets if resolved_sheet_name.lower() in s.lower()]
                             if partial_matches:
                                 logger.info(f"[{self.id}] Partial match for '{resolved_sheet_name}': {partial_matches}")
                                 selected_sheets.extend(partial_matches)
@@ -576,8 +558,7 @@ class FileInputExcel(BaseComponent):
                         # Simple string sheet name
                         sheet_name = str(sheet_config)
                         if hasattr(self, 'context_manager') and self.context_manager:
-                            resolved_sheet_name = self.context_manager.resolve_string(
-                                sheet_name)
+                            resolved_sheet_name = self.context_manager.resolve_string(sheet_name)
                         else:
                             resolved_sheet_name = sheet_name
 
@@ -588,24 +569,21 @@ class FileInputExcel(BaseComponent):
         else:
             # Read specific sheet(s) from sheetlist
             if sheetlist:
-                sheet_config = sheetlist[0] if isinstance(sheetlist, list) else \
-                    sheetlist
+                sheet_config = sheetlist[0] if isinstance(sheetlist, list) else sheetlist
                 if isinstance(sheet_config, dict):
                     sheet_name = sheet_config.get('sheetname', '')
                     use_regex = sheet_config.get('use_regex', False)
 
                     # **FIX: Resolve context variables**
                     if hasattr(self, 'context_manager') and self.context_manager:
-                        resolved_sheet_name = self.context_manager.resolve_string(
-                            sheet_name)
+                        resolved_sheet_name = self.context_manager.resolve_string(sheet_name)
                     else:
                         resolved_sheet_name = sheet_name
 
                     if use_regex and resolved_sheet_name:
                         try:
                             pattern = re.compile(resolved_sheet_name)
-                            matching_sheets = [s for s in available_sheets if pattern.
-                                               search(s)]
+                            matching_sheets = [s for s in available_sheets if pattern.search(s)]
                             logger.info(f"[{self.id}] Regex pattern '{resolved_sheet_name}' matched sheets: {matching_sheets}")
                             return matching_sheets[:1] if matching_sheets else []
                         except re.error as e:
@@ -618,8 +596,7 @@ class FileInputExcel(BaseComponent):
                 else:
                     sheet_name = str(sheet_config)
                     if hasattr(self, 'context_manager') and self.context_manager:
-                        resolved_sheet_name = self.context_manager.resolve_string(
-                            sheet_name)
+                        resolved_sheet_name = self.context_manager.resolve_string(sheet_name)
                     else:
                         resolved_sheet_name = sheet_name
 
@@ -642,11 +619,9 @@ class FileInputExcel(BaseComponent):
         # Only process object (string) columns that might contain numbers
         for col in df.select_dtypes(include=['object']).columns:
             if thousands_sep and thousands_sep != ',':
-                df[col] = df[col].astype(str).str.replace(thousands_sep, '', regex=
-                    False)
+                df[col] = df[col].astype(str).str.replace(thousands_sep, '', regex=False)
             if decimal_sep and decimal_sep != '.':
-                df[col] = df[col].astype(str).str.replace(decimal_sep, '.', regex=
-                    False)
+                df[col] = df[col].astype(str).str.replace(decimal_sep, '.', regex=False)
 
         return df
 
@@ -688,10 +663,8 @@ class FileInputExcel(BaseComponent):
                 if should_convert and col_name in df.columns:
                     try:
                         # Convert pandas date format pattern to Python strftime
-                        python_pattern = pattern.replace('MM', '%m').replace('dd',
-                            '%d').replace('yyyy', '%Y')
-                        df[col_name] = pd.to_datetime(df[col_name], errors='coerce').\
-                            dt.strftime(python_pattern)
+                        python_pattern = pattern.replace('MM', '%m').replace('dd', '%d').replace('yyyy', '%Y')
+                        df[col_name] = pd.to_datetime(df[col_name], errors='coerce').dt.strftime(python_pattern)
                     except Exception as e:
                         logger.warning(f"[{self.id}] Date conversion failed for column {col_name}: {e}")
 
@@ -699,8 +672,7 @@ class FileInputExcel(BaseComponent):
 
     def _read_sheet(self, wb: openpyxl.Workbook, sheet_name: str) -> pd.DataFrame:
         """
-        Read data from a single Excel sheet using pandas read_excel for better
-        performance
+        Read data from a single Excel sheet using pandas read_excel for better performance
         """
         # Get configuration
         header = self.config.get('header', 1)  # 1-based in Talend
@@ -766,8 +738,7 @@ class FileInputExcel(BaseComponent):
             elif filepath.startswith('"') and filepath.endswith('"'):
                 filepath = filepath[1:-1]
 
-            # **Use converters for precise type control (replaces dtype which is
-            # unreliable in read_excel)**
+            # **Use converters for precise type control (replaces dtype which is unreliable in read_excel)**
             df = pd.read_excel(
                 filepath,  # Use cleaned filepath
                 sheet_name=sheet_name,
@@ -792,8 +763,7 @@ class FileInputExcel(BaseComponent):
             logger.error(f"[{self.id}] Error reading sheet '{sheet_name}': {str(e)}")
             return pd.DataFrame()
 
-    def _process_xls_file(self, filepath: str, password: str, die_on_error: bool,
-                          suppress_warn: bool) -> Dict[str, Any]:
+    def _process_xls_file(self, filepath: str, password: str, die_on_error: bool, suppress_warn: bool) -> Dict[str, Any]:
         """
         Process old .xls files using xlrd engine
         """
@@ -836,8 +806,7 @@ class FileInputExcel(BaseComponent):
 
             # Log data types
             if not result_df.empty:
-                dtypes_info = {col: str(dtype) for col, dtype in result_df.dtypes.
-                               items()}
+                dtypes_info = {col: str(dtype) for col, dtype in result_df.dtypes.items()}
                 logger.debug(f"[{self.id}] Column dtypes: {dtypes_info}")
 
             return {'main': result_df}
@@ -856,8 +825,7 @@ class FileInputExcel(BaseComponent):
                 self._update_stats(0, 0, 0)
                 return {'main': pd.DataFrame()}
 
-    def _process_xlsx_file(self, filepath: str, password: str, die_on_error: bool,
-                           suppress_warn: bool) -> Dict[str, Any]:
+    def _process_xlsx_file(self, filepath: str, password: str, die_on_error: bool, suppress_warn: bool) -> Dict[str, Any]:
         """
         Process newer .xlsx files using openpyxl engine
         """
@@ -890,8 +858,7 @@ class FileInputExcel(BaseComponent):
             file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
 
             # Decide execution mode
-            if (self.execution_mode == ExecutionMode.HYBRID and
-                    file_size_mb > self.MEMORY_THRESHOLD_MB):
+            if (self.execution_mode == ExecutionMode.HYBRID and file_size_mb > self.MEMORY_THRESHOLD_MB):
                 logger.info(f"[{self.id}] Using streaming mode for large file")
                 return self._read_streaming(wb, sheets_to_read)
             else:
@@ -999,8 +966,7 @@ class FileInputExcel(BaseComponent):
             logger.error(f"[{self.id}] Error reading .xls sheet '{sheet_name}': {str(e)}")
             return pd.DataFrame()
 
-    def _read_batch(self, wb: openpyxl.Workbook, sheets_to_read: List[str]) -> Dict[
-        str, Any]:
+    def _read_batch(self, wb: openpyxl.Workbook, sheets_to_read: List[str]) -> Dict[str, Any]:
         """
         Read all sheets at once (batch mode)
         """
@@ -1030,8 +996,7 @@ class FileInputExcel(BaseComponent):
 
         return {'main': result_df}
 
-    def _read_streaming(self, wb: openpyxl.Workbook, sheets_to_read: List[str]) -> \
-            Dict[str, Any]:
+    def _read_streaming(self, wb: openpyxl.Workbook, sheets_to_read: List[str]) -> Dict[str, Any]:
         """
         Read sheets in streaming mode (generator)
         """
