@@ -23,11 +23,9 @@ class Warn(BaseComponent):
     monitoring, and conditional warnings in ETL flows.
 
     Configuration:
-        message (str): Warning message to log. Supports context variables. Default:
-            "Warning"
+        message (str): Warning message to log. Supports context variables. Default: "Warning"
         code (int): Warning code number. Default: 0
-        priority (int): Log priority level (1=trace, 2=debug, 3=info, 4=warn,
-            5=error, 6=fatal). Default: 4
+        priority (int): Log priority level (1=trace, 2=debug, 3=info, 4=warn, 5=error, 6=fatal). Default: 4
 
     Inputs:
         main: Input DataFrame (optional, will be passed through unchanged)
@@ -42,8 +40,7 @@ class Warn(BaseComponent):
 
     Example configuration:
         {
-            "message": "Processing ${context.filename} - found
-                ${((Integer)globalMap.get(\\"row_count\\"))} rows",
+            "message": "Processing ${context.filename} - found ${((Integer)globalMap.get(\\"row_count\\"))} rows",
             "code": 100,
             "priority": 4
         }
@@ -51,8 +48,7 @@ class Warn(BaseComponent):
     Notes:
         - Message supports context variables (${context.var}) and globalMap references
         - Component stores message details in globalMap for other components to access
-        - Input data is passed through unchanged - this is a monitoring/logging
-          component
+        - Input data is passed through unchanged - this is a monitoring/logging component
         - Priority levels map to standard logging levels (warn=4, error=5, etc.)
     """
 
@@ -79,8 +75,7 @@ class Warn(BaseComponent):
             code = self.config['code']
             if isinstance(code, str):
                 if not code.isdigit():
-                    errors.append("Config 'code' must be an integer or integer string"
-                    )
+                    errors.append("Config 'code' must be an integer or integer string")
             elif not isinstance(code, int):
                 errors.append("Config 'code' must be an integer")
 
@@ -88,8 +83,7 @@ class Warn(BaseComponent):
             priority = self.config['priority']
             if isinstance(priority, str):
                 if not priority.isdigit():
-                    errors.append("Config 'priority' must be an integer or integer "
-                                  "string")
+                    errors.append("Config 'priority' must be an integer or integer string")
                 else:
                     priority = int(priority)
             elif not isinstance(priority, int):
@@ -134,12 +128,10 @@ class Warn(BaseComponent):
                 priority = int(priority)
                 if priority not in self.VALID_PRIORITIES:
                     priority = 4
-                    logger.warning(f"[{self.id}] Invalid priority value, using "
-                                   "default: 4 (warn)")
+                    logger.warning(f"[{self.id}] Invalid priority value, using default: 4 (warn)")
             except (ValueError, TypeError):
                 priority = 4
-                logger.warning(f"[{self.id}] Invalid priority value, using default: 4 "
-                               "(warn)")
+                logger.warning(f"[{self.id}] Invalid priority value, using default: 4 (warn)")
 
             # Resolve context variables in message
             resolved_message = self._resolve_message_variables(message)
@@ -155,22 +147,19 @@ class Warn(BaseComponent):
                 rows_in = len(input_data)
                 rows_out = rows_in  # Pass-through component, no rejection
                 self._update_stats(rows_in, rows_out, 0)
-                logger.info(f"[{self.id}] Processing complete: logged warning, passed "
-                            f"through {rows_out} rows")
+                logger.info(f"[{self.id}] Processing complete: logged warning, passed through {rows_out} rows")
             else:
                 rows_in = 1  # Count the warning operation itself
                 rows_out = 1
                 self._update_stats(rows_in, rows_out, 0)
-                logger.info(f"[{self.id}] Processing complete: logged warning (no "
-                            "input data)")
+                logger.info(f"[{self.id}] Processing complete: logged warning (no input data)")
 
             # Pass through input data unchanged
             return {'main': input_data if input_data is not None else pd.DataFrame()}
 
         except Exception as e:
             logger.error(f"[{self.id}] Processing failed: {e}")
-            raise ComponentExecutionError(self.id, f"Failed to process warning: {e}",
-                                          e) from e
+            raise ComponentExecutionError(self.id, f"Failed to process warning: {e}", e) from e
 
     def _resolve_message_variables(self, message: str) -> str:
         """Resolve context and globalMap variables in the message."""

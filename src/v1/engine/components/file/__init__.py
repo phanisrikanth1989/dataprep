@@ -1,5 +1,4 @@
 from .file_archive import FileArchiveComponent
-
 from .file_copy import FileCopy
 from .file_delete import FileDelete
 from .file_exist import FileExistComponent
@@ -15,7 +14,6 @@ from .file_touch import FileTouch
 from .file_properties import FileProperties
 from .file_unarchive import FileUnarchiveComponent
 from .fixed_flow_input import FixedFlowInputComponent
-
 from .file_output_excel import FileOutputExcel
 from .set_global_var import SetGlobalVar
 from .file_input_json import FileInputJSON
@@ -37,6 +35,7 @@ __all__ = [
     'FileProperties',
     'FileTouch',
     'FileUnarchiveComponent',
+    'FixedFlowInputComponent',
     'SetGlobalVar',
     'FileInputJSON',
     'FileInputExcel',
