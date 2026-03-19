@@ -62,8 +62,6 @@ def split_steps(expr: str) -> List[str]:
             out.append("".join(buf))
             buf.clear()
 
-        buf.clear()
-
     while i < n:
         ch = expr[i]
 
@@ -221,8 +219,8 @@ def choose_context(expr: str, loop_node: ET.Element, root: ET.Element) -> ET.Ele
                 print(f"[DEBUG] choose_context -> LOOP_NODE (expr='{expr}')")
                 return loop_node
 
-    print(f"[DEBUG] choose_context -> LOOP_NODE (expr='{expr}')")
-    return loop_node
+        print(f"[DEBUG] choose_context -> LOOP_NODE (expr='{expr}')")
+        return loop_node
 
     # Case 3: Default fallback -> loop context
     print(f"[DEBUG] choose_context -> LOOP_NODE (expr='{expr}')")
@@ -280,7 +278,7 @@ def _broaden_ancestor_if_empty(ctx: ET._Element, expr_q: str, nsmap: Dict[str, s
 
     tail = expr_q[len("./ancestor::"):]
     # Make sure we don't accidentally start with a slash twice
-    broadened = "./ancestor::*/" + tail.lstrip("/")
+    broadened = "./ancestor::*//" + tail.lstrip("/")
     try:
         res2 = ctx.xpath(broadened, namespaces=nsmap)
         return res2
@@ -590,7 +588,7 @@ class XMLMap(BaseComponent):
         # Qualify Loop XPath and find Loop nodes
         loop_xpath_q = qualify_xpath(loop_xpath, ns_prefix) if ns_prefix else loop_xpath
         logger.debug(f"[{self.id}] Loop XPath (qualified): {loop_xpath_q}")
-        print(f">>>[XMLMap loop] Loop XPath(qualified): {loop_xpath_q}", flush=True)
+        print(f">>[XMLMap loop] Loop XPath(qualified): {loop_xpath_q}", flush=True)
 
         # Execute Loop XPath to find nodes
         loop_nodes = (
@@ -637,13 +635,12 @@ class XMLMap(BaseComponent):
                         result = ctx.xpath(expr_q, namespaces=nsmap)
                     else:
                         result = ctx.xpath(expr_q)
-
-                    print(f"[TRACE] Result length={len(result) if isinstance(result, list) else 1} = f'Fun {col_name}', sample={[str(r)[:50] for r in (result if isinstance(result, list) else [result])]}", flush=True)
+                    print(f"[TRACE] Result length={len(result) if isinstance(result, list) else 1} " f"for {col_name}, sample={[str(r)[:50] for r in (result if isinstance(result, list) else [result])[:2]]}", flush=True)
 
                 except Exception as e:
                     logger.error(f"[{self.id}] Failed to extract '{col_name}' with expr '{expr_q}': {e}")
                     print(f"[XMLMap ERROR] Failed column '{col_name}' with expr '{expr_q}': {e}", flush=True)
-                    result = []
+                    row[col_name] = ""
                     continue
 
                 # Apply fallback for unreachable ancestor elements
@@ -652,7 +649,7 @@ class XMLMap(BaseComponent):
                     and raw_expr.strip().startswith("./ancestor::")
                 ):
                     tail = raw_expr.strip()[len("./ancestor::"):]
-                    fb_expr = f".//{tail}"
+                    fb_expr = f"//{tail}"
                     fb_expr_q = qualify_xpath(fb_expr, ns_prefix) if ns_prefix else fb_expr
                     logger.debug(f"[{self.id}] Applying fallback for '{col_name}': trying '{fb_expr_q}' from ROOT")
                     print(f"[DEBUG] Fallback for '{col_name}': trying '{fb_expr_q}' from ROOT", flush=True)
