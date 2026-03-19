@@ -171,7 +171,7 @@ class SchemaComplianceCheck(BaseComponent):
                 value = row.get(col_name)
 
                 # Check for empty values (Talend-specific handling)
-                if pd.isna(value) or (isinstance(value, str) and value.strip() == ''):
+                if pd.isnull(value) or (isinstance(value, str) and value.strip() == ''):
                     if not col_nullable:
                         error_msg = f"Value is empty for column : '{col_name}' in '{row_name}' connection, value is invalid or this column should be nullable or have a default value."
                         print(error_msg)  # Print to console like Talend
@@ -179,7 +179,7 @@ class SchemaComplianceCheck(BaseComponent):
                         errors.append(f"{col_name}:cannot be null")
                     continue  # Skip further validation for empty values
 
-                # Check for length constraints (not currently enforced)
+                # Check for length constraints 
                 if col_length is not None and isinstance(value, str):
                     if len(value) > col_length:
                         error_msg = f"Value length exceeds maximum for column : '{col_name}' in '{row_name}' connection, max length is {col_length}, actual length is {len(value)}"
