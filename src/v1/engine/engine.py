@@ -691,44 +691,43 @@ class ETLEngine:
                             self.executed_components.add(comp_id)
                             raise RuntimeError(f"Iteration failed at component {current_comp_id}")
 
-                    # Check for triggered components after successful execution
-                    triggered = self.trigger_manager.get_triggered_components(current_comp_id, status)
-                    for triggered_comp in triggered:
-                        if triggered_comp not in iteration_executed:
-                            iteration_queue.append(triggered_comp)
-                            logger.debug(f"Component {triggered_comp} triggered by {current_comp_id} in iteration {iteration_count}")
+                        # Check for triggered components after successful execution
+                        triggered = self.trigger_manager.get_triggered_components(current_comp_id, status)
+                        for triggered_comp in triggered:
+                            if triggered_comp not in iteration_executed:
+                                iteration_queue.append(triggered_comp)
+                                logger.debug(f"Component {triggered_comp} triggered by {current_comp_id} in iteration {iteration_count}")
 
-                    # Also check for components connected by flow
-                    for flow in self.job_config.get('flows', []):
-                        if flow['from'] == current_comp_id and flow['type'] != 'iterate':
-                            next_comp = flow['to']
-                            if next_comp not in iteration_executed and next_comp not in iteration_queue:
-                                iteration_queue.append(next_comp)
+                        # Also check for components connected by flow
+                        for flow in self.job_config.get('flows', []):
+                            if flow['from'] == current_comp_id and flow['type'] != 'iterate':
+                                next_comp = flow['to']
+                                if next_comp not in iteration_executed and next_comp not in iteration_queue:
+                                    iteration_queue.append(next_comp)
 
                 # Clear trigger states for next iteration
                 for executed_comp in iteration_executed:
-                    # Remove from triggered components set so they can be triggered
-                    # again in next iteration
+                    # Remove from triggered components set so they can be triggered again in next iteration
                     self.trigger_manager.triggered_components.discard(executed_comp)
-                # Clear any cached data flow from this iteration
-                for flow in self.job_config.get('flows', []):
-                    if flow['from'] == executed_comp:
-                        flow_name = flow['name']
-                        if flow_name in self.data_flows:
-                            del self.data_flows[flow_name]
+                    # Clear any cached data flow from this iteration
+                    for flow in self.job_config.get('flows', []):
+                        if flow['from'] == executed_comp:
+                            flow_name = flow['name']
+                            if flow_name in self.data_flows:
+                                del self.data_flows[flow_name]
 
-            # Collect stats from this iteration
-            iteration_stats = {'NB_LINE': 0, 'NB_LINE_OK': 0, 'NB_LINE_REJECT': 0}
-            for executed_comp in iteration_executed:
-                if executed_comp in self.execution_stats:
-                    comp_stats = self.execution_stats[executed_comp]
-                    iteration_stats['NB_LINE'] += comp_stats.get('NB_LINE', 0)
-                    iteration_stats['NB_LINE_OK'] += comp_stats.get('NB_LINE_OK', 0)
-                    iteration_stats['NB_LINE_REJECT'] += comp_stats.get('NB_LINE_REJECT', 0)
+                # Collect stats from this iteration
+                iteration_stats = {'NB_LINE': 0, 'NB_LINE_OK': 0, 'NB_LINE_REJECT': 0}
+                for executed_comp in iteration_executed:
+                    if executed_comp in self.execution_stats:
+                        comp_stats = self.execution_stats[executed_comp]
+                        iteration_stats['NB_LINE'] += comp_stats.get('NB_LINE', 0)
+                        iteration_stats['NB_LINE_OK'] += comp_stats.get('NB_LINE_OK', 0)
+                        iteration_stats['NB_LINE_REJECT'] += comp_stats.get('NB_LINE_REJECT', 0)
 
-            component.update_iteration_stats(iteration_stats)
+                component.update_iteration_stats(iteration_stats)
 
-            logger.info(f"Iteration {iteration_count} completed - executed {len(iteration_executed)} components")
+                logger.info(f"Iteration {iteration_count} completed - executed {len(iteration_executed)} components")
 
             # Finalize iterations
             component.finalize_iterations()
