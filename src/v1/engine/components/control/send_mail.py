@@ -76,8 +76,8 @@ class SendMailComponent(BaseComponent):
 
     # Class constants
     DEFAULT_SMTP_PORT = 25
-    DEFAULT_TEXT_SUBTYPE = "plain"
-    DEFAULT_ENCODING = "utf-8"
+    DEFAULT_TEXT_SUBTYPE = 'plain'
+    DEFAULT_ENCODING = 'utf-8'
 
     def _validate_config(self) -> List[str]:
         """
@@ -92,7 +92,7 @@ class SendMailComponent(BaseComponent):
         required_fields = ['smtp_host', 'from_email', 'to']
         for field in required_fields:
             if not self.config.get(field):
-                errors.append(f"Missing required config: {field}")
+                errors.append(f"Missing required config: '{field}'")
 
         # Validate email lists
         to_emails = self.config.get('to', [])
@@ -158,8 +158,8 @@ class SendMailComponent(BaseComponent):
             logger.debug(f"[{self.id}] Creating email message: to={len(to_emails)} recipients")
             msg = MIMEMultipart()
             msg['From'] = from_email
-            msg['To'] = ", ".join(to_emails)
-            msg['Cc'] = ", ".join(cc_emails)
+            msg['To'] = ', '.join(to_emails)
+            msg['Cc'] = ', '.join(cc_emails)
             msg['Subject'] = subject
 
             # Add the email body

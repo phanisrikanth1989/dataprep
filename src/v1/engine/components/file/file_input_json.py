@@ -234,7 +234,7 @@ class FileInputJSON(BaseComponent):
                                         pattern = col_schema.get('pattern', None)
                                         if pattern and isinstance(val, str):
                                             try:
-                                                pattern = pattern.replace("'", '')
+                                                pattern = pattern.replace('"', '')
                                                 val = datetime.strptime(val, pattern)
                                             except Exception:
                                                 raise ValueError(f"Invalid date for column {column_name}: {val} (pattern: {pattern})")

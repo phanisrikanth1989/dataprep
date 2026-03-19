@@ -301,7 +301,7 @@ class FileInputXML(BaseComponent):
         # Get configuration parameters
         filepath = self.config.get("filepath") or self.config.get("FILENAME")
         loop_query = self.config.get("loop_query") or self.config.get("LOOP_QUERY") or ""
-        if isinstance(loop_query, str) and loop_query.startswith("'") and loop_query.endswith("'"):
+        if isinstance(loop_query, str) and loop_query.startswith('"') and loop_query.endswith('"'):
             loop_query = loop_query[1:-1]
         mapping = self.config.get("mapping") or []
         encoding = self.config.get('encoding', 'UTF-8')

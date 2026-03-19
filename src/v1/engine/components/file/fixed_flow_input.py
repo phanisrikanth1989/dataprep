@@ -32,7 +32,7 @@ class FixedFlowInputComponent(BaseComponent):
         rows (list): Pre-generated rows data
         intable_data (list): Table data for inline table mode
         inline_content (str): Content string for inline content mode
-        row_separator (str): Row separator for inline content. Default: '\\n'
+        row_separator (str): Row separator for inline content. Default: '\n'
         field_separator (str): Field separator for inline content. Default: ';'
         die_on_error (bool): Fail on error. Default: True
 

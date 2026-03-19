@@ -271,29 +271,27 @@ class FileInputDelimited(BaseComponent):
         try:
             file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
             logger.debug(f"[{self.id}] File size: {file_size_mb:.2f} MB")
-        except:
-            pass
 
-        # Convert limit to int or None
-        nrows = self._parse_limit(limit)
+            # Convert limit to int or None
+            nrows = self._parse_limit(limit)
 
-        # Handle multi-character delimiter (regex) and tab shortcut
-        use_regex = False
-        if delimiter == "\\t" or delimiter == "\t":
-            delimiter = "\t"
-            logger.debug(f"[{self.id}] Using tab delimiter")
-        elif len(delimiter) > 1:
-            delimiter = r'{delimiter}'
-            use_regex = True
-            logger.debug(f"[{self.id}] Using regex delimiter: '{delimiter}'")
+            # Handle multi-character delimiter (regex) and tab shortcut
+            use_regex = False
+            if delimiter == "\\t" or delimiter == "\t":
+                delimiter = "\t"
+                logger.debug(f"[{self.id}] Using tab delimiter")
+            elif len(delimiter) > 1:
+                delimiter = rf"{delimiter}"
+                use_regex = True
+                logger.debug(f"[{self.id}] Using regex delimiter: '{delimiter}'")
 
-        # Determine execution mode
-        if (self.execution_mode == ExecutionMode.HYBRID and file_size_mb > self.execution_mode_threshold_mb):
-            logger.info(f"[{self.id}] Large file detected: switching to streaming")
-            return self._read_streaming(filepath, delimiter, encoding, header_rows, footer_rows, nrows, text_enclosure, escape_char, remove_empty_rows, trim_all, use_regex)
-        else:
-            logger.debug(f"[{self.id}] Using batch mode for file reading")
-            return self._read_batch(filepath, delimiter, encoding, header_rows, footer_rows, nrows, text_enclosure, escape_char, remove_empty_rows, trim_all, use_regex)
+            # Determine execution mode
+            if (self.execution_mode == ExecutionMode.HYBRID and file_size_mb > self.MEMORY_THRESHOLD_MB):
+                logger.info(f"[{self.id}] Large file detected: switching to streaming")
+                return self._read_streaming(filepath, delimiter, encoding, header_rows, footer_rows, nrows, text_enclosure, escape_char, remove_empty_rows, trim_all, use_regex)
+            else:
+                logger.debug(f"[{self.id}] Using batch mode for file reading")
+                return self._read_batch(filepath, delimiter, encoding, header_rows, footer_rows, nrows, text_enclosure, escape_char, remove_empty_rows, trim_all, use_regex)
 
         except Exception as e:
             error_msg = f"Error reading file '{filepath}': {str(e)}"

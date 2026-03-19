@@ -200,10 +200,10 @@ class FileOutputDelimited(BaseComponent):
             self._ensure_directory_exists(filepath)
 
         # Normalize delimiter for pandas
-        delimiter= self. normalize_delimiter(delimiter)
+        delimiter= self._normalize_delimiter(delimiter)
 
         # Apply output schema filtering if configured
-        input_data = self ._apply_output_schema(input_data)
+        input_data = self._apply_output_schema(input_data)
 
         try:
             rows_in = len(input_data)
@@ -308,7 +308,7 @@ class FileOutputDelimited(BaseComponent):
     
     def _write_streaming(self, data_iterator: Iterator[pd.DataFrame], filepath: str,
                          delimiter: str, encoding: str, include_header: bool, 
-                         append: bool, text_enclosure: Optional[str], create_directory: bool,
+                         append: bool, text_enclosure: str, create_directory: bool,
                          delete_empty_file: bool, die_on_error: bool) -> Dict[str, Any]:
         """Write data in streaming mode for large datasets."""
         logger.info(f"[{self.id}] Writing in streaming mode: target '{filepath}'")

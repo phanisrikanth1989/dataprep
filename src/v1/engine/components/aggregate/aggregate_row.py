@@ -246,7 +246,8 @@ Example configuration:
         operations = self.config.get('operations', self.DEFAULT_OPERATIONS)
         valid_group_by = [col for col in group_by if col in input_df.columns]
 
-        logger.info(f"[{self.id}] Ensuring output columns - "f"Current result columns: {result_df.columns.tolist()}")
+        logger.info(f"[{self.id}] Ensuring output columns - "
+                    f"Current result columns: {result_df.columns.tolist()}")
 
         # Track all operation output columns that should have computed values
         operation_output_columns = set()
@@ -292,7 +293,8 @@ Example configuration:
                 else:
                     # Group by column should already be present, but add if missing
                     if col in valid_group_by:
-                        logger.warning(f"[{self.id}] Group by column '{col}' missing - "f"this should not happen")
+                        logger.warning(f"[{self.id}] Group by column '{col}' missing - "
+                                       f"this should not happen")
                         result_df[col] = None
             else:
                 # This column is NOT used in operations or grouping - set to empty/null

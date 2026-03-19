@@ -163,7 +163,8 @@ class FileUnarchiveComponent(BaseComponent):
 
             # Update statistics and log success
             self._update_stats(1, 1, 0)
-            logger.info(f"[{self.id}] Archive extraction complete: "f"{files_extracted} files extracted to {output_directory}")
+            logger.info(f"[{self.id}] Archive extraction complete: "
+                        f"{files_extracted} files extracted to {output_directory}")
 
             return {'main': pd.DataFrame()}
 
