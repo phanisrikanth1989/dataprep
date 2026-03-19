@@ -71,7 +71,7 @@ class Normalize(BaseComponent):
             errors.append("Missing required config: 'normalize_column'")
         elif not isinstance(self.config['normalize_column'], str):
             errors.append("Config 'normalize_column' must be a string")
-        elif not self.config.get('normalize_column').strip():
+        elif not self.config['normalize_column'].strip():
             errors.append("Config 'normalize_column' cannot be empty")
 
         # Optional field validation
@@ -116,11 +116,11 @@ class Normalize(BaseComponent):
             # Validate configuration
             config_errors = self._validate_config()
             if config_errors:
-                error_msg = f"Configuration validation failed: {', '.join(config_errors)}"
+                error_msg = f"Configuration validation failed: {'; '.join(config_errors)}"
                 logger.error(f"[{self.id}] {error_msg}")
                 if self.config.get('die_on_error', False):
-                    raise ConfigurationError(f"[{self.id}] {error_msg}",
-                        "Check component configuration and ensure all required parameters are set.")
+                    raise ConfigurationError(f"[{self.id}] {error_msg}. "
+                                             f"Check component configuration and ensure all required parameters are set.")
                 else:
                     self._update_stats(rows_in, rows_in, 0)
                     return {'main': input_data}
@@ -138,8 +138,8 @@ class Normalize(BaseComponent):
                 error_msg = f"Column '{normalize_column}' not found in input data. Available columns: {list(input_data.columns)}"
                 logger.error(f"[{self.id}] {error_msg}")
                 if die_on_error:
-                    raise ConfigurationError(f"[{self.id}] {error_msg}",
-                        "Check that the normalize_column parameter matches an existing column name.")
+                    raise ConfigurationError(f"[{self.id}] {error_msg}. "
+                                             f"Check that the normalize_column parameter matches an existing column name.")
                 else:
                     # Return original data unchanged
                     self._update_stats(rows_in, rows_in, 0)
