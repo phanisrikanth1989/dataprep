@@ -183,32 +183,27 @@ class ExtractPositionalFields(BaseComponent):
 
                 logger.debug(f"[{self.id}] Processing line: '{line}' (length: {len(line)})")
 
-                # Extract fields using exact positions based on actual data structure:
-                # Your data: "EMP001John Smith     Java       05   "
-                # EMP_ID: positions 0-5 (6 chars)
-                # EMP_NAME: positions 6-20 (15 chars)
-                # SKILL: positions 21-31 (11 chars in data, but extract only 10 for pattern)
-                # EXPER: positions 32-33 (2 chars, accounting for actual SKILL length)
-
+                # Extract fields dynamically based on the pattern
                 extracted_row = []
+                current_pos = 0
 
-                # EMP_ID: start 0, length 6
-                emp_id = line[0:6] if len(line) > 6 else line[0:]
-                extracted_row.append(emp_id.strip())
+                for idx, width in enumerate(field_widths):
+                    start_pos = current_pos
+                    end_pos = current_pos + width
+                    
+                    # Extract the field, handling lines shorter than expected
+                    field_value = line[start_pos:end_pos] if len(line) > start_pos else ''
+                    
+                    # Apply trimming if configured
+                    if trim:
+                        field_value = field_value.strip()
+                    
+                    extracted_row.append(field_value)
+                    logger.debug(f"[{self.id}] Field {idx+1}: extracted '{field_value}' from positions {start_pos}-{end_pos}")
+                    
+                    current_pos = end_pos
 
-                # EMP_NAME: start 6, length 15
-                emp_name = line[6:21] if len(line) > 21 else line[6:]
-                extracted_row.append(emp_name.strip())
-
-                # SKILL: start 21, length 10 (extract exactly 10 chars as per pattern)
-                skill = line[21:31] if len(line) > 31 else line[21:]
-                extracted_row.append(skill.strip())
-
-                # EXPER: start 32, length 2 (adjust for actual position in your data)
-                exper = line[32:34] if len(line) > 34 else line[32:]
-                extracted_row.append(exper.strip())
-
-                logger.debug(f"[{self.id}] Extracted: EMP_ID='{extracted_row[0]}', EMP_NAME='{extracted_row[1]}', SKILL='{extracted_row[2]}', EXPER='{extracted_row[3]}'")
+                logger.debug(f"[{self.id}] Extracted row: {extracted_row}")
 
                 extracted_data.append(extracted_row)
 
