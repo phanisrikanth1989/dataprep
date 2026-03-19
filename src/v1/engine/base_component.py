@@ -134,9 +134,9 @@ class BaseComponent(ABC):
         if self.context_manager:
             current_context = self.context_manager.get_all()
             for key, value in current_context.items():
-                self.java_bridge.set_context_variable(key, value)   
+                self.java_bridge.set_context(key, value)   
             
-        #Also sync globalMap to JAva bridge so expressions can access iteration variables
+        #Also sync globalMap to Java bridge so expressions can access iteration variables
         if self.global_map:
             gm_all = self.global_map.get_all()
             logger.debug(f"Component {self.id}: Syncing {len(gm_all)} globalMap variables to Java ")
@@ -149,7 +149,7 @@ class BaseComponent(ABC):
             results = self.java_bridge.execute_batch_one_time_expressions(java_expressions)
             logger.info(f"Component {self.id}: Java Expression Results: {results}")
         except Exception as e:
-            logger.error(f"Failed to resolve     Java expressions: {e}")
+            logger.error(f"Failed to resolve Java expressions: {e}")
             raise
 
         #Replace marked expressions with resolved values
@@ -157,7 +157,7 @@ class BaseComponent(ABC):
             """recursively replace resolved expressions in config"""
 
             if isinstance(obj, dict):
-                for key, value in obj.items():
+                for key, value in list(obj.items()):
                     current_path = f"{path}.{key}" if path else key
                     if current_path in results:
                         #check for errors
@@ -171,7 +171,7 @@ class BaseComponent(ABC):
                         replace_in_config(value, current_path)
             elif isinstance(obj, list):
                 for i, item in enumerate(obj):
-                    current_path = f"{path}[{i}]"
+                    current_path = f"{path}[i]"
                     if current_path in results:
                         result_value = results[current_path]
                         if isinstance(result_value, str) and result_value.startswith("{{ERROR}}"):
@@ -197,41 +197,41 @@ class BaseComponent(ABC):
             if self.java_bridge:
                 self._resolve_java_expressions()
 
-            #Step 2: Determine execution mode if hybrid
-            if self.execution_mode == ExecutionMode.HYBRID:
+            # Step 2: Resolve context variables in config (${context.var})
+            if self.context_manager:
                 self.config = self.context_manager.resolve_dict(self.config)
 
             #Determine execution mode if hybrid
-                if self.execution_mode == ExecutionMode.HYBRID:
-                    mode = self._determine_execution_mode()
-                else:
-                    mode = self.execution_mode  
+            if self.execution_mode == ExecutionMode.HYBRID:
+                mode = self._auto_select_mode(input_data)
+            else:
+                mode = self.execution_mode  
                 
-                #Executed based on mode 
-                if mode == ExecutionMode.STREAMING:
-                    result = self._execute_streaming(input_data)
-                else:
-                    result = self._execute_batch(input_data)  
+            #Executed based on mode 
+            if mode == ExecutionMode.STREAMING:
+                result = self._execute_streaming(input_data)
+            else:
+                result = self._execute_batch(input_data)  
 
-                #Update sttatistics
-                self.stats['EXECUTION_TIME'] = time.time() - start_time
-                self._update_global_map()
-        
-                self.status = ComponentStatus.SUCCESS
+            #Update statistics
+            self.stats['EXECUTION_TIME'] = time.time() - start_time
+            self._update_global_map()
+    
+            self.status = ComponentStatus.SUCCESS
 
-                #Add stats to result
-                result['stats'] = self.stats.copy()
+            #Add stats to result
+            result['stats'] = self.stats.copy()
 
-                return result
+            return result
             
         except Exception as e:
-                self.status = ComponentStatus.ERROR
-                self.error_message = str(e)
-                self.stats['EXECUTION_TIME'] = time.time() - start_time
-                self._update_global_map()
+            self.status = ComponentStatus.ERROR
+            self.error_message = str(e)
+            self.stats['EXECUTION_TIME'] = time.time() - start_time
+            self._update_global_map()
 
-                logger.error(f"Component {self.id} execution failed: {e}")
-                raise
+            logger.error(f"Component {self.id} execution failed: {e}")
+            raise
 
     def _auto_select_mode(self, input_data: Any) -> ExecutionMode:
         """Auto-select execution mode based on input data size"""
@@ -259,16 +259,16 @@ class BaseComponent(ABC):
 
         #Convert DataFrame to chunks if needed
         if isinstance(input_data, pd.DataFrame):
-                chunks = self._creae_chunks(input_data)
+            chunks = self._create_chunks(input_data)
         else:
             chunks = input_data
 
         #process chunks
         results = []
         for chunk in chunks:
-                chunk_result = self._process(chunk)
-                if chunk_result.get('main') is not None:
-                    results.append(chunk_result['main'])  
+            chunk_result = self._process(chunk)
+            if chunk_result.get('main') is not None:
+                results.append(chunk_result['main'])  
         
         #Combine results
         if results:
@@ -278,12 +278,12 @@ class BaseComponent(ABC):
             return {'main': pd.DataFrame()}
         
     def _create_chunks(self, df: pd.DataFrame) -> Iterator[pd.DataFrame]:
-            """Create chunks from a DataFrame """
-            for i in range(0, len(df), self.chunk_size):
-                yield df.iloc[i:i + self.chunk_size]
+        """Create chunks from a DataFrame """
+        for i in range(0, len(df), self.chunk_size):
+            yield df.iloc[i:i + self.chunk_size]
 
     @abstractmethod
-    def _process(self, input_data: Optional[pd.DataFrame]) -> Dict[str, Any]:
+    def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
         """
         Process data - to be implemented by each component
 
@@ -296,15 +296,15 @@ class BaseComponent(ABC):
         pass
 
     def _update_global_map(self) -> None:
-        """Update global map with current statistics""" 
+        """Update global map with component statistics""" 
         if self.global_map:
-            for stat_name, value in self.stats.items():
-                self.global_map.put_component_stat(self.id, stat_name, value)  
-                # Log the statistics for debugging
-                logger.debug(f"Component {self.id}: Updated stats - NB_LINE:{self.stats['NB_LINE']} NB_LINE_OK:{self.stats['NB_LINE_OK']} NB_LINE_REJECT:{self.stats['NB_LINE_REJECT']} {stat_name}: {value}")
+            for stat_name, stat_value in self.stats.items():
+                self.global_map.put_component_stat(self.id, stat_name, stat_value)  
+            # Log the statistics for debugging
+            logger.info(f"Component {self.id}: Updated stats - NB_LINE:{self.stats['NB_LINE']} NB_LINE_OK:{self.stats['NB_LINE_OK']} NB_LINE_REJECT:{self.stats['NB_LINE_REJECT']} {stat_name}: {value}")
     
     def _update_stats(self, rows_read:int=0, rows_ok:int=0, rows_reject:int=0) -> None:
-        """Helpter to update statistics """
+        """Helper to update statistics """
         self.stats['NB_LINE'] += rows_read
         self.stats['NB_LINE_OK'] += rows_ok
         self.stats['NB_LINE_REJECT'] += rows_reject
@@ -318,38 +318,38 @@ class BaseComponent(ABC):
         
         #Type mapping from Talend to pandas
         type_mapping = {
-            'id_string': 'object',
-            'id_integer': 'Int64',
-            'id_Long': 'Int64',
+            'id_String': 'object',
+            'id_Integer': 'int64',
+            'id_Long': 'int64',
             'id_Float': 'float64',
             'id_Double': 'float64',
-            'id_Boolean': 'boolean',
+            'id_Boolean': 'bool',
             'id_Date': 'datetime64[ns]',
             'id_BigDecimal': 'object',
             #Also support simple type names
             'str': 'object',
-            'int': 'Int64', 
-            'long': 'Int64',
+            'int': 'int64', 
+            'long': 'int64',
             'float': 'float64',
             'double': 'float64',
-            'bool': 'boolean',
+            'bool': 'bool',
             'date': 'datetime64[ns]',
             'decimal': 'object'
         }
 
         for col_def in schema:
             col_name = col_def['name'] 
-            col_type = col_def.get('type', 'id_string')
+            col_type = col_def.get('type', 'id_String')
             
             if col_name in df.columns:
                 pandas_type = type_mapping.get(col_type, 'object')
                 try:
                     if pandas_type == 'datetime64[ns]':
                         df[col_name] = pd.to_datetime(df[col_name])
-                    elif pandas_type in ['Int64', 'float64']:
+                    elif pandas_type in ['int64', 'float64']:
                         df[col_name] = pd.to_numeric(df[col_name], errors='coerce')
-                        if pandas_type == 'Int64' and col_def.get('nullable', True):
-                            df[col_name] = df[col_name].fillna(pd.NA).astype('Int64')
+                        if pandas_type == 'int64' and col_def.get('nullable', True):
+                            df[col_name] = df[col_name].fillna(0).astype('int64')
                     elif pandas_type == 'bool':
                         df[col_name] = df[col_name].astype('bool')
 
