@@ -51,7 +51,7 @@ class PythonComponent(BaseComponent):
         - Common imports: datetime, os, sys, etc.
     """
 
-    def process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
+    def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
         """Execute one-time Python code"""
 
         # Get configuration
@@ -102,6 +102,13 @@ class PythonComponent(BaseComponent):
 
             logger.info(f"Component {self.id}: Python code executed successfully")
 
+            # Pass through input data unchanged
+            if input_data is not None:
+                self._update_stats(rows_read=len(input_data), rows_ok=len(input_data))
+                return {'main': input_data}
+            else:
+                return {'main': pd.DataFrame()}  # Return empty DataFrame if no input
+            
         except Exception as e:
             logger.error(f"Component {self.id}: Python code execution failed: {e}")
             raise
