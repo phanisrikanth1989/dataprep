@@ -60,7 +60,7 @@ class ExtractXMLField(BaseComponent):
             "loop_query": "//Employee",
             "mapping": [
                 {"schema_column": "name", "query": "./Name/text()"},
-                {"schema_column": "salary", "query": "./Salary/text()", "nodecheck": "/Salary"}
+                {"schema_column": "salary", "query": "./Salary/text()", "nodecheck": "./Salary"}
             ],
             "limit": 100,
             "die_on_error": False,
@@ -264,9 +264,9 @@ class ExtractXMLField(BaseComponent):
 
             # Apply schema validation if configured
             if output_schema:
-                main_df = self._validate_schema(main_df, output_schema)
+                main_df = self.validate_schema(main_df, output_schema)
             if reject_schema:
-                reject_df = self._validate_schema(reject_df, reject_schema)
+                reject_df = self.validate_schema(reject_df, reject_schema)
 
             # Update statistics and log completion
             self._update_stats(rows_read, rows_ok, rows_reject)

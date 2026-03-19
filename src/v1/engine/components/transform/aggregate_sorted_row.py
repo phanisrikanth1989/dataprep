@@ -13,6 +13,7 @@ from ...base_component import BaseComponent
 
 logger = logging.getLogger(__name__)
 
+
 class AggregateSortedRow(BaseComponent):
     """
     Aggregates sorted rows using various aggregation functions.
@@ -24,10 +25,10 @@ class AggregateSortedRow(BaseComponent):
     Configuration:
         group_bys (list): List of column names to group by. Also supports GROUPBYS key.
         operations (list): List of aggregation operation dictionaries. Also supports OPERATIONS key.
-        Each operation dict contains:
+            Each operation dict contains:
             - input_column (str): Source column name
             - output_column (str): Target column name
-            - function (str): Aggregation function (sum, count, min, max, avg, etc).
+            - function (str): Aggregation function (sum, count, min, max, avg, etc.)
             - delimiter (str): Delimiter for concatenate function. Default: ','
         die_on_error (bool): Whether to fail on errors. Default: False
         row_count (str): Number of rows to process (optional)
@@ -99,7 +100,7 @@ class AggregateSortedRow(BaseComponent):
 
         Returns:
             Dictionary containing:
-                - 'main': Aggregated DataFrame with grouped results
+            - 'main': Aggregated DataFrame with grouped results
         """
         # Handle empty input
         if input_data is None or input_data.empty:
@@ -152,7 +153,7 @@ class AggregateSortedRow(BaseComponent):
             # All other columns should be empty/null
             operation_output_columns = {op['output_column'] for op in norm_ops}
 
-            # Identify required columns (group + operations)
+            # Identify required columns (group by + operations)
             required_columns = set(group_bys) | operation_output_columns
 
             # Add all original columns but set non-required ones to None
@@ -359,8 +360,8 @@ class AggregateSortedRow(BaseComponent):
                     count_df = df.groupby(valid_group_by).size().reset_index(name=output_col)
                     grouped = grouped.merge(count_df, on=valid_group_by, how='left')
                 elif agg_type == 'list':
-                    grouped = grouped.merge(df.groupby(valid_group_by)[input_col].apply(list).reset_index(name=output_col),
-                                            on=valid_group_by, how='left')
+                    list_df = df.groupby(valid_group_by)[input_col].apply(list).reset_index(name=output_col)
+                    grouped = grouped.merge(list_df, on=valid_group_by, how='left')
                 elif agg_type == 'concat':
                     delimiter = op.get('delimiter', ',')
                     concat_df = df.groupby(valid_group_by)[input_col].apply(lambda x: delimiter.join(x.astype(str))).reset_index(name=output_col)

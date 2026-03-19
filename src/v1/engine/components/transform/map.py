@@ -43,8 +43,7 @@ class Map(BaseComponent):
     """
 
     # Pattern to detect simple column references: table.column
-    SIMPLE_COLUMN_PATTERN = re.compile(
-        r'^([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)$')
+    SIMPLE_COLUMN_PATTERN = re.compile(r'^([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)$')
 
     def execute(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
         """
@@ -158,12 +157,12 @@ class Map(BaseComponent):
                 # Complex expression - use Java
                 filter_results = self._batch_evaluate_expressions(
                     main_df,
-                    {'_main_filter_': filter_expr},
+                    {'__main_filter__': filter_expr},
                     main_name,
                     []   # No lookups joined yet during main filter phase
                 )
-                if '_main_filter_' in filter_results:
-                    filter_mask = filter_results['_main_filter_']
+                if '__main_filter__' in filter_results:
+                    filter_mask = filter_results['__main_filter__']
                     # Ensure mask is boolean and has no NA/NaN - AT17854
                     filter_mask = pd.Series(filter_mask).fillna(False).values
                     main_df = main_df[filter_mask].copy()
@@ -173,8 +172,7 @@ class Map(BaseComponent):
         # PHASE 3: LOOKUPS - Use pandas for fast bulk joins
         # ============================================================
 
-        lookup_result = self._perform_lookups(main_df, inputs, lookups_config,
-            main_name)
+        lookup_result = self._perform_lookups(main_df, inputs, lookups_config, main_name)
         joined_df = lookup_result['joined']
         inner_join_rejects = lookup_result['inner_join_rejects']
 
@@ -209,8 +207,7 @@ class Map(BaseComponent):
         # Debug: print first 5 rows of each output
         for output_name, output_df in output_dfs.items():
             logger.debug(f"Component {self.id}: Output '{output_name}' first 5 rows:\n{output_df.head(5)}")
-            logger.debug(f"Component {self.id}: columns: {output_df.columns.tolist()}"
-            )
+            logger.debug(f"Component {self.id}: columns: {output_df.columns.tolist()}")
 
         return output_dfs
 
@@ -252,8 +249,7 @@ class Map(BaseComponent):
 
         # Check for any row references (table.column pattern)
         # If ANY found, it's NOT context-only
-        row_ref_pattern = re.compile(
-            r'\b([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)\b')
+        row_ref_pattern = re.compile(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)\b')
         matches = row_ref_pattern.findall(expr)
 
         # Filter out context.* and globalMap.* references
@@ -290,8 +286,7 @@ class Map(BaseComponent):
                 continue
 
             # Check if lookup has a filter
-            if not lookup_config.get('activate_filter') or not lookup_config.get(
-                'filter'):
+            if not lookup_config.get('activate_filter') or not lookup_config.get('filter'):
                 continue
 
             filter_expr = self._strip_java_marker(lookup_config['filter'])
@@ -303,8 +298,7 @@ class Map(BaseComponent):
                 # Simple column reference - use pandas directly
                 table, column = self._parse_column_ref(filter_expr)
                 if column in lookup_df.columns:
-                    filtered_inputs[lookup_name] = lookup_df[lookup_df[column] == True
-                        ].copy()
+                    filtered_inputs[lookup_name] = lookup_df[lookup_df[column] == True].copy()
                 else:
                     logger.warning(f"Component {self.id}: Filter column '{column}' not found in '{lookup_name}'")
             else:
@@ -490,11 +484,9 @@ class Map(BaseComponent):
                         how='left',
                         indicator=True
                     )
-                    unmatched = merged[merged['_merge'] == 'left_only'].drop(columns=[
-                        '_merge'])
+                    unmatched = merged[merged['_merge'] == 'left_only'].drop(columns=['_merge'])
                     if not unmatched.empty:
-                        inner_join_rejects = pd.concat([inner_join_rejects, unmatched
-                            ], ignore_index=True)
+                        inner_join_rejects = pd.concat([inner_join_rejects, unmatched], ignore_index=True)
 
             # Track this lookup as joined (for subsequent lookups that may reference it)
             joined_lookups.append(lookup_name)
@@ -548,8 +540,7 @@ class Map(BaseComponent):
                         if isinstance(value, dict):
                             for var_name, var_info in value.items():
                                 if isinstance(var_info, dict) and 'value' in var_info:
-                                    java_bridge.set_context(var_name, var_info['value'
-                                    ])
+                                    java_bridge.set_context(var_name, var_info['value'])
 
                 # Evaluate expression
                 try:
@@ -557,8 +548,7 @@ class Map(BaseComponent):
                     logger.info(f"Component {self.id}: Cartesian filter: {lookup_col} = {filter_value}")
 
                     # Filter lookup table
-                    filtered_lookup = filtered_lookup[filtered_lookup[lookup_col] ==
-                        filter_value]
+                    filtered_lookup = filtered_lookup[filtered_lookup[lookup_col] == filter_value]
                 except Exception as e:
                     logger.error(f"Component {self.id}: Failed to evaluate cartesian expression '{expression}': {e}")
                     # Continue with unfiltered lookup
@@ -571,8 +561,7 @@ class Map(BaseComponent):
 
         # Prefix ALL lookup columns with "lookup_name." to match normal join behavior
         lookup_df_prefixed = filtered_lookup.copy()
-        lookup_df_prefixed.columns = [f"{lookup_name}.{col}" for col in
-            filtered_lookup.columns]
+        lookup_df_prefixed.columns = [f"{lookup_name}.{col}" for col in filtered_lookup.columns]
 
         # Perform CROSS JOIN
         logger.info(f"Component {self.id}: Cartesian join: {len(joined_df)} rows x {len(filtered_lookup)} rows (all lookup columns prefixed)")
@@ -649,8 +638,7 @@ class Map(BaseComponent):
             # "customer_id_customers")
             else:
                 # Try to find column with any suffix
-                matching_cols = [col for col in joined_df.columns if col.startswith(
-                    column)]
+                matching_cols = [col for col in joined_df.columns if col.startswith(column)]
                 if matching_cols:
                     join_key_values[expr_id] = joined_df[matching_cols[0]].values
                     logger.debug(f"Component {self.id}: Using column '{matching_cols[0]}' for join key")
@@ -679,7 +667,7 @@ class Map(BaseComponent):
             lookup_col = join_key['lookup_column']
 
             # Add evaluated join key as temp column
-            temp_col = f"__join_{lookup_name}_{idx}"
+            temp_col = f"_join_{lookup_name}_{idx}"
             if expr_id in join_key_values:
                 joined_df[temp_col] = join_key_values[expr_id]
                 left_on.append(temp_col)
@@ -702,8 +690,7 @@ class Map(BaseComponent):
 
         # Prefix ALL lookup columns with "lookup_name." to avoid conflicts
         lookup_df_prefixed = deduplicated_lookup_df.copy()
-        lookup_df_prefixed.columns = [f"{lookup_name}.{col}" for col in
-            deduplicated_lookup_df.columns]
+        lookup_df_prefixed.columns = [f"{lookup_name}.{col}" for col in deduplicated_lookup_df.columns]
 
         # Update right_on keys to use prefixed names
         right_on_prefixed = [f"{lookup_name}.{col}" for col in right_on]
@@ -743,8 +730,7 @@ class Map(BaseComponent):
         Args:
             lookup_df: Lookup DataFrame to deduplicate
             join_keys: List of column names to use as join keys (without prefixes)
-            matching_mode: 'UNIQUE_MATCH', 'FIRST_MATCH', 'LAST_MATCH', or
-                'ALL_MATCHES'
+            matching_mode: 'UNIQUE_MATCH', 'FIRST_MATCH', 'LAST_MATCH', or 'ALL_MATCHES'
             lookup_name: Name of lookup for logging
 
         Returns:
@@ -763,8 +749,7 @@ class Map(BaseComponent):
             logger.debug(f"Component {self.id}: Applied UNIQUE_MATCH with LAST match behavior to lookup '{lookup_name}'")
         elif matching_mode == 'FIRST_MATCH':
             # Keep first occurrence of each join key combination
-            deduplicated_df = lookup_df.drop_duplicates(subset=join_keys, keep='first'
-            )
+            deduplicated_df = lookup_df.drop_duplicates(subset=join_keys, keep='first')
         elif matching_mode == 'LAST_MATCH':
             # Keep last occurrence of each join key combination
             deduplicated_df = lookup_df.drop_duplicates(subset=join_keys, keep='last')
@@ -791,8 +776,7 @@ class Map(BaseComponent):
 
         Uses compiled Java scripts for high-performance parallel execution.
         """
-        output_dfs = self._evaluate_outputs_java(joined_df, variables_config,
-            outputs_config)
+        output_dfs = self._evaluate_outputs_java(joined_df, variables_config, outputs_config)
 
         # Handle inner join rejects for outputs with inner_join_reject: true
         if inner_join_rejects is not None and not inner_join_rejects.empty:
@@ -809,11 +793,11 @@ class Map(BaseComponent):
                         # Evaluate filter using Java bridge
                         filter_results = self._batch_evaluate_expressions(
                             filtered_rejects,
-                            {'_inner_join_reject_filter_': expr},
+                            {'__inner_join_reject_filter__': expr},
                             self.config['inputs']['main']['name'],
                             []
                         )
-                        mask = filter_results.get('_inner_join_reject_filter_')
+                        mask = filter_results.get('__inner_join_reject_filter__')
                         if mask is not None:
                             filtered_rejects = filtered_rejects[mask].copy()
 
@@ -868,8 +852,8 @@ class Map(BaseComponent):
                     else:
                         flattened_context[context_name] = context_vars
 
-            for key, value in flattened_context.items():
-                java_bridge.set_context(key, value)
+                for key, value in flattened_context.items():
+                    java_bridge.set_context(key, value)
 
             if self.global_map:
                 for key, value in self.global_map.get_all().items():
@@ -877,8 +861,7 @@ class Map(BaseComponent):
 
             # Get main input name and lookup names
             main_name = self.config['inputs']['main']['name']
-            lookup_names = [lookup['name'] for lookup in self.config['inputs'].get(
-                'lookups', [])]
+            lookup_names = [lookup['name'] for lookup in self.config['inputs'].get('lookups', [])]
 
             # Get die_on_error configuration (default: true for safety)
             die_on_error = self.config.get('die_on_error', True)
@@ -1006,7 +989,7 @@ class Map(BaseComponent):
         # Create RowWrappers for each lookup (each knows its table name)
         for lookup in lookup_names:
             lines.append(f"        RowWrapper {lookup} = new RowWrapper(inputRoot, i, \"{lookup}\");")
-            lines.append("")
+        lines.append("")
 
         # Track if row matched any output (for reject logic)
         has_reject = any(output.get('is_reject') for output in outputs_config)
@@ -1091,13 +1074,13 @@ class Map(BaseComponent):
         else:
             lines.append("            // die_on_error=false: Log error, row will go to reject")
             lines.append("            String errorMsg = e.getMessage() != null ? e.getMessage() : e.toString();")
-            lines.append("            // lines.append(\"            System.err.println(\\\"[tMap Error] Row \\\" + i + \\\": \\\" + errorMsg);\")")
+            # lines.append("            System.err.println(\"[tMap Error] Row \" + i + \": \" + errorMsg);")")
             lines.append("            errorCount.incrementAndGet();")
             lines.append("            errorMap.put(i, errorMsg);")
             if has_reject:
                 lines.append("            // matchedAny stays false, row will go to reject")
                 lines.append("            matchedAny = false;")
-            lines.append("            // lines.append(\"            System.err.println(\\\"[tMap Debug] Row \\\" + i + \\\" will be routed to reject due to error\\\");\")")
+                # lines.append("            System.err.println(\"[tMap Debug] Row \" + i + \" will be routed to reject due to error\");")
         lines.append("        }")
         lines.append("")
 
@@ -1110,7 +1093,7 @@ class Map(BaseComponent):
             if not die_on_error:
                 lines.append("            // Debug: Check if this is an error row")
                 lines.append("            if (errorMap.containsKey(i)) {")
-                lines.append("            // lines.append(\"            System.err.println(\\\"[tMap Debug] Adding error row \\\" + i + \\\" to reject output\\\");\")")
+                # lines.append("            System.err.println(\"[tMap Debug] Adding error row \" + i + \" to reject output\");")
                 lines.append("            }")
 
             for output in outputs_config:
@@ -1136,8 +1119,8 @@ class Map(BaseComponent):
                 lines.append(f"            int {output_name}_idx = {output_name}_count.getAndIncrement();")
                 lines.append(f"            {output_name}_data[{output_name}_idx] = {output_name}_tempRow;")
 
-            # Debug: Print reject output size after adding record
-            # lines.append(f"            System.err.println(\"[tMap Debug] Added row \" + i + \" to reject '{output_name}', current count: \" + {output_name}_count.get());")
+                # Debug: Print reject output size after adding record
+                # lines.append(f"            System.err.println(\"[tMap Debug] Added row \" + i + \" to reject '{output_name}', current count: \" + {output_name}_count.get());")
 
             lines.append("        }")
             lines.append("")
@@ -1170,7 +1153,7 @@ class Map(BaseComponent):
             lines.append("results.put(\"__errors__\", errorInfo);")
 
         lines.append("return results;")
-        logger.debug(f"{'\\n'.join(lines)}")
+        logger.debug(f"{'\n'.join(lines)}")
         return '\n'.join(lines)
 
     def _create_empty_outputs(self) -> Dict[str, pd.DataFrame]:

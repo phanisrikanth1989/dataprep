@@ -23,8 +23,7 @@ class SwiftBlockFormatter(BaseComponent):
     Equivalent to a specialized tFileInputDelimited for SWIFT messages.
     """
 
-    def __init__(self, comp_id: str, config: Dict[str, Any], global_map: Any,
-                 context_manager: Any):
+    def __init__(self, comp_id: str, config: Dict[str, Any], global_map: Any, context_manager: Any):
         """Initialize the SWIFT Block Formatter component"""
         super().__init__(comp_id, config, global_map, context_manager)
 
@@ -32,8 +31,7 @@ class SwiftBlockFormatter(BaseComponent):
         self._init_swift_parser()
 
     def _init_swift_parser(self):
-        """Initialize SWIFT parsing configuration - defer layout loading until
-        execution"""
+        """Initialize SWIFT parsing configuration - defer layout loading until execution"""
         # Store layout file path for later resolution during execution
         self.layout_file = self.config.get('layout_file')
         self.layout_spec = None  # Will be loaded during execution
@@ -42,14 +40,12 @@ class SwiftBlockFormatter(BaseComponent):
         self.inline_layout = self.config.get('layout', {})
 
         if not self.layout_file and not self.inline_layout:
-            raise ValueError(f"Component {self.id}: 'layout_file' or 'layout' "
-                             "configuration is required")
+            raise ValueError(f"Component {self.id}: 'layout_file' or 'layout' configuration is required")
 
         # Get pipe fields configuration (REQUIRED)
         pipe_fields_config = self.config.get('pipe_fields', [])
         if not pipe_fields_config:
-            raise ValueError(f"Component {self.id}: 'pipe_fields' configuration is "
-                             "required")
+            raise ValueError(f"Component {self.id}: 'pipe_fields' configuration is required")
 
         # Extract field names from pipe_fields configuration
         # pipe_fields can be either:
@@ -72,12 +68,10 @@ class SwiftBlockFormatter(BaseComponent):
                     "default": field.get('default', "")
                 }
             else:
-                logger.warning(f"Component {self.id}: Invalid pipe_field "
-                               f"configuration: {field}")
+                logger.warning(f"Component {self.id}: Invalid pipe_field configuration: {field}")
 
         if not self.pipe_fields:
-            raise ValueError(f"Component {self.id}: No valid pipe_fields found in "
-                             "configuration")
+            raise ValueError(f"Component {self.id}: No valid pipe_fields found in configuration")
 
         # Processing options
         self.processing_options = self.config.get('processing', {})
@@ -95,9 +89,8 @@ class SwiftBlockFormatter(BaseComponent):
                 # Use inline layout configuration
                 self.layout_spec = self.inline_layout
 
-        if not self.layout_spec:
-            raise ValueError(f"Component {self.id}: No valid layout configuration "
-                             "available")
+            if not self.layout_spec:
+                raise ValueError(f"Component {self.id}: No valid layout configuration available")
 
     def _load_layout_from_file(self, layout_file_path: str) -> Dict[str, str]:
         """Load SWIFT layout configuration from YAML file"""
@@ -115,8 +108,7 @@ class SwiftBlockFormatter(BaseComponent):
                 yaml_config = yaml.safe_load(file)
 
             # Extract block4_layout from the YAML structure
-            layout_config = yaml_config.get('swift_layout', {}).get('block4_layout',
-                {})
+            layout_config = yaml_config.get('swift_layout', {}).get('block4_layout', {})
 
             if not layout_config:
                 raise ValueError(f"No 'swift_layout.block4_layout' found in {resolved_path}")
@@ -164,13 +156,11 @@ class SwiftBlockFormatter(BaseComponent):
                 # Input from file
                 input_file = self.config.get('input_file', '')
                 if not input_file:
-                    raise ValueError(f"Component {self.id}: input_file is required "
-                                     "when no input data provided")
+                    raise ValueError(f"Component {self.id}: input_file is required when no input data provided")
                 swift_messages = self._parse_swift_file(input_file)
 
             if not swift_messages:
-                logger.warning(f"Component {self.id}: No SWIFT messages found to "
-                               "process")
+                logger.warning(f"Component {self.id}: No SWIFT messages found to process")
                 self._update_stats(0, 0, 0)
                 return {'main': pd.DataFrame()}
 
@@ -185,8 +175,7 @@ class SwiftBlockFormatter(BaseComponent):
             # Update statistics
             self._update_stats(len(swift_messages), len(result_df), 0)
 
-            logger.info(f"Component {self.id}: Processed {len(swift_messages)} SWIFT "
-                        f"messages into {len(result_df)} rows")
+            logger.info(f"Component {self.id}: Processed {len(swift_messages)} SWIFT messages into {len(result_df)} rows")
 
             return {'main': result_df}
 
@@ -199,8 +188,7 @@ class SwiftBlockFormatter(BaseComponent):
                 self._update_stats(0, 0, 1)
                 return {'main': pd.DataFrame()}
 
-    def _parse_dataframe_input(self, input_data: pd.DataFrame) -> List[Dict[str, Any
-            ]]:
+    def _parse_dataframe_input(self, input_data: pd.DataFrame) -> List[Dict[str, Any]]:
         """Parse SWIFT messages from DataFrame input"""
         swift_messages = []
 
@@ -210,15 +198,12 @@ class SwiftBlockFormatter(BaseComponent):
         if content_column not in input_data.columns:
             # Try to find a column with SWIFT-like content
             for col in input_data.columns:
-                sample_value = str(input_data[col].iloc[0]) if len(input_data) > 0 \
-                    else ""
+                sample_value = str(input_data[col].iloc[0]) if len(input_data) > 0 else ""
                 if '{' in sample_value and ':' in sample_value:
                     content_column = col
                     break
             else:
-                raise ValueError(f"No SWIFT content column found. Specify "
-                                 "'content_column' in config or ensure DataFrame has column named "
-                                 "'content'")
+                raise ValueError(f"No SWIFT content column found. Specify 'content_column' in config or ensure DataFrame has column named 'content'")
 
         # Parse each row as a SWIFT message
         for idx, row in input_data.iterrows():
@@ -254,8 +239,7 @@ class SwiftBlockFormatter(BaseComponent):
             return parsed_messages
 
         except Exception as e:
-            logger.error(f"Component {self.id}: Error parsing SWIFT file {file_path}: "
-                         f"{str(e)}")
+            logger.error(f"Component {self.id}: Error parsing SWIFT file {file_path}: {str(e)}")
             raise
 
     def _split_messages(self, content: str) -> List[str]:
@@ -264,7 +248,7 @@ class SwiftBlockFormatter(BaseComponent):
         messages = []
 
         # Pattern to find message boundaries
-        message_pattern = r'(\{1:[^\}]*\}.*?)(?=\{1:|$)'
+        message_pattern = r'(\{1:[^}]*\}.*?)(?=\{1:|$)'
         matches = re.findall(message_pattern, content, re.DOTALL)
 
         if matches:
@@ -287,8 +271,7 @@ class SwiftBlockFormatter(BaseComponent):
             block2_pattern = r'\{2:[IO](\d{3})'
             block2_match = re.search(block2_pattern, message)
             if block2_match:
-                parsed_data['messagetype'] = block2_match.group(1)  # Just the
-                    # numeric part
+                parsed_data['messagetype'] = block2_match.group(1)  # Just the numeric part
 
             # Parse all blocks
             parsed_data.update(self._parse_block1(message))
@@ -300,31 +283,25 @@ class SwiftBlockFormatter(BaseComponent):
             return parsed_data
 
         except Exception as e:
-            logger.error(f"Component {self.id}: Error parsing SWIFT message: {str(e)}"
-                         )
+            logger.error(f"Component {self.id}: Error parsing SWIFT message: {str(e)}")
             return None
 
     def _parse_block1(self, message: str) -> Dict[str, Any]:
         """Parse Block 1 - Basic Header Block"""
         block1_data = {}
 
-        block1_pattern = r'\{1:([^\}]*)\}'
+        block1_pattern = r'\{1:([^}]*)\}'
         match = re.search(block1_pattern, message)
 
         if match:
             block1_content = match.group(1)
 
             if len(block1_content) >= 11:
-                block1_data['block1_app_id'] = block1_content[0:1] if len(
-                    block1_content) > 0 else ''
-                block1_data['block1_service_id'] = block1_content[1:3] if len(
-                    block1_content) > 2 else ''
-                block1_data['block1bic'] = block1_content[3:15] if len(block1_content) \
-                    > 14 else block1_content[3:]
-                block1_data['block1_session'] = block1_content[15:19] if len(
-                    block1_content) > 18 else ''
-                block1_data['block1_sequence'] = block1_content[19:25] if len(
-                    block1_content) > 24 else ''
+                block1_data['block1_app_id'] = block1_content[0:1] if len(block1_content) > 0 else ''
+                block1_data['block1_service_id'] = block1_content[1:3] if len(block1_content) > 2 else ''
+                block1_data['block1bic'] = block1_content[3:15] if len(block1_content) > 14 else block1_content[3:]
+                block1_data['block1_session'] = block1_content[15:19] if len(block1_content) > 18 else ''
+                block1_data['block1_sequence'] = block1_content[19:25] if len(block1_content) > 24 else ''
 
         return block1_data
 
@@ -332,7 +309,7 @@ class SwiftBlockFormatter(BaseComponent):
         """Parse Block 2 - Application Header Block"""
         block2_data = {}
 
-        block2_pattern = r'\{2:([^\}]*)\}'
+        block2_pattern = r'\{2:([^}]*)\}'
         match = re.search(block2_pattern, message)
 
         if match:
@@ -340,20 +317,14 @@ class SwiftBlockFormatter(BaseComponent):
 
             if block2_content.startswith('I'):  # Input message
                 block2_data['block2_direction'] = 'I'
-                block2_data['block2_msg_type'] = block2_content[1:4] if len(
-                    block2_content) > 3 else ''
-                block2_data['block2bic'] = block2_content[4:16] if len(block2_content) \
-                    > 15 else block2_content[4:]
+                block2_data['block2_msg_type'] = block2_content[1:4] if len(block2_content) > 3 else ''
+                block2_data['block2bic'] = block2_content[4:16] if len(block2_content) > 15 else block2_content[4:]
             elif block2_content.startswith('O'):  # Output message
                 block2_data['block2_direction'] = 'O'
-                block2_data['block2_msg_type'] = block2_content[1:4] if len(
-                    block2_content) > 3 else ''
-                block2_data['block2_time'] = block2_content[4:10] if len(
-                    block2_content) > 9 else ''
-                block2_data['block2_mir'] = block2_content[10:22] if len(
-                    block2_content) > 21 else ''
-                block2_data['block2bic'] = block2_content[14:26] if len(block2_content
-                    ) > 25 else block2_content[16:]
+                block2_data['block2_msg_type'] = block2_content[1:4] if len(block2_content) > 3 else ''
+                block2_data['block2_time'] = block2_content[4:10] if len(block2_content) > 9 else ''
+                block2_data['block2_mir'] = block2_content[10:22] if len(block2_content) > 21 else ''
+                block2_data['block2bic'] = block2_content[14:26] if len(block2_content) > 25 else block2_content[16:]
 
         return block2_data
 
@@ -361,7 +332,7 @@ class SwiftBlockFormatter(BaseComponent):
         """Parse Block 3 - User Header Block"""
         block3_data = {}
 
-        block3_pattern = r'\{3:([^\}]*)\}'
+        block3_pattern = r'\{3:([^}]*)\}'
         match = re.search(block3_pattern, message)
 
         if match:
@@ -509,8 +480,7 @@ class SwiftBlockFormatter(BaseComponent):
 
             # Store the paired 61 and 86 blocks
             if block61_list:
-                block4_data['block4_61'] = block61_list if len(block61_list) > 1 else \
-                    block61_list[0]
+                block4_data['block4_61'] = block61_list if len(block61_list) > 1 else block61_list[0]
 
             if block86_list:
                 # Remove empty trailing 86 blocks
@@ -518,8 +488,7 @@ class SwiftBlockFormatter(BaseComponent):
                     block86_list.pop()
 
                 if block86_list:
-                    block4_data['block4_86'] = block86_list if len(block86_list) > 1 \
-                        else block86_list[0]
+                    block4_data['block4_86'] = block86_list if len(block86_list) > 1 else block86_list[0]
 
             # Store other multiple occurrence fields
             for field_key, values in field_occurrences.items():
@@ -527,15 +496,12 @@ class SwiftBlockFormatter(BaseComponent):
                     # Check if any values are dicts
                     for i, val in enumerate(values):
                         if isinstance(val, dict):
-                            logger.error(f"Component {self.id}: Found dict in "
-                                         f"field_occurrences[{field_key}][{i}]: {val}")
+                            logger.error(f"Component {self.id}: Found dict in field_occurrences[{field_key}][{i}]: {val}")
                             values[i] = str(val)  # Convert to string
-                    block4_data[field_key] = values if len(values) > 1 else values[0] \
-                        if values else ''
+                    block4_data[field_key] = values if len(values) > 1 else values[0] if values else ''
                 else:
                     if isinstance(values, dict):
-                        logger.error(f"Component {self.id}: Found dict in "
-                                     f"field_occurrences[{field_key}]: {values}")
+                        logger.error(f"Component {self.id}: Found dict in field_occurrences[{field_key}]: {values}")
                         block4_data[field_key] = str(values)
                     else:
                         block4_data[field_key] = values
@@ -543,14 +509,12 @@ class SwiftBlockFormatter(BaseComponent):
             # Final validation: ensure no dict values in block4_data
             for key, value in block4_data.items():
                 if isinstance(value, dict):
-                    logger.error(f"Component {self.id}: Found dict in final "
-                                 f"block4_data[{key}]: {value}")
+                    logger.error(f"Component {self.id}: Found dict in final block4_data[{key}]: {value}")
                     block4_data[key] = str(value)
                 elif isinstance(value, list):
                     for i, item in enumerate(value):
                         if isinstance(item, dict):
-                            logger.error(f"Component {self.id}: Found dict in final "
-                                         f"block4_data[{key}][{i}]: {item}")
+                            logger.error(f"Component {self.id}: Found dict in final block4_data[{key}][{i}]: {item}")
                             value[i] = str(item)
 
         return block4_data
@@ -559,7 +523,7 @@ class SwiftBlockFormatter(BaseComponent):
         """Parse Block 5 - Trailer Block"""
         block5_data = {}
 
-        block5_pattern = r'\{5:([^\}]*)\}'
+        block5_pattern = r'\{5:([^}]*)\}'
         match = re.search(block5_pattern, message)
 
         if match:
@@ -572,12 +536,10 @@ class SwiftBlockFormatter(BaseComponent):
         """Convert parsed SWIFT messages to pipe-delimited DataFrame"""
         all_rows = []
 
-        logger.debug(f"Component {self.id}: Converting {len(swift_messages)} SWIFT "
-                     "messages to DataFrame")
+        logger.debug(f"Component {self.id}: Converting {len(swift_messages)} SWIFT messages to DataFrame")
 
         for idx, message in enumerate(swift_messages):
-            #logger.debug(f"Component {self.id}: Processing message {idx}, keys: "
-            #    f"{list(message.keys())}")
+            #logger.debug(f"Component {self.id}: Processing message {idx}, keys: {list(message.keys())}")
 
             # Check for any dict values in the message
             for key, value in message.items():
@@ -586,12 +548,10 @@ class SwiftBlockFormatter(BaseComponent):
                 elif isinstance(value, list):
                     for i, item in enumerate(value):
                         if isinstance(item, dict):
-                            logger.warning(f"Component {self.id}: Found dict in "
-                                           f"message[{key}][{i}]: {item}")
+                            logger.warning(f"Component {self.id}: Found dict in message[{key}][{i}]: {item}")
 
             normalized_rows = self._normalize_message_data(message)
-            #logger.debug(f"Component {self.id}: Message {idx} normalized to "
-            #    f"{len(normalized_rows)} rows")
+            #logger.debug(f"Component {self.id}: Message {idx} normalized to {len(normalized_rows)} rows")
             all_rows.extend(normalized_rows)
 
         # Create DataFrame
@@ -606,13 +566,10 @@ class SwiftBlockFormatter(BaseComponent):
                     for col_idx, item in enumerate(row):
                         if isinstance(item, dict):
                             logger.error(f"Component {self.id}: Found dict at row {row_idx}, col {col_idx}: {item}")
-                        elif item is not None and not isinstance(item, (str, int,
-                                float, bool)):
-                            logger.warning(f"Component {self.id}: Unexpected type at "
-                                           f"row {row_idx}, col {col_idx}: {type(item)} = {item}")
+                        elif item is not None and not isinstance(item, (str, int, float, bool)):
+                            logger.warning(f"Component {self.id}: Unexpected type at row {row_idx}, col {col_idx}: {type(item)} = {item}")
 
-            # Validate that all rows contain only strings (not dicts or other
-            # unhashable types)
+            # Validate that all rows contain only strings (not dicts or other unhashable types)
             validated_rows = []
             for row_idx, row in enumerate(all_rows):
                 if isinstance(row, list):
@@ -621,17 +578,14 @@ class SwiftBlockFormatter(BaseComponent):
                     for col_idx, item in enumerate(row):
                         if isinstance(item, dict):
                             str_val = str(item)
-                            logger.info(f"Component {self.id}: Converting dict at row "
-                                        f"{row_idx}, col {col_idx} to string: {str_val}")
+                            logger.info(f"Component {self.id}: Converting dict at row {row_idx}, col {col_idx} to string: {str_val}")
                             validated_row.append(str_val)
                         elif isinstance(item, list):
                             str_val = str(item)
-                            logger.info(f"Component {self.id}: Converting list at row "
-                                        f"{row_idx}, col {col_idx} to string: {str_val}")
+                            logger.info(f"Component {self.id}: Converting list at row {row_idx}, col {col_idx} to string: {str_val}")
                             validated_row.append(str_val)
                         else:
-                            validated_row.append(str(item) if item is not None else ''
-                                )
+                            validated_row.append(str(item) if item is not None else '')
                     validated_rows.append(validated_row)
                 else:
                     logger.warning(f"Component {self.id}: Expected list but got {type(row)} at row {row_idx}, converting to string")
@@ -640,8 +594,7 @@ class SwiftBlockFormatter(BaseComponent):
             try:
                 # pipe_fields is a list of field names (strings)
                 df = pd.DataFrame(validated_rows, columns=self.pipe_fields)
-                logger.debug(f"Component {self.id}: Successfully created DataFrame "
-                             f"with shape {df.shape}")
+                logger.debug(f"Component {self.id}: Successfully created DataFrame with shape {df.shape}")
             except Exception as e:
                 logger.error(f"Component {self.id}: Failed to create DataFrame: {e}")
                 logger.error(f"Component {self.id}: validated_rows sample: {validated_rows[:2] if validated_rows else 'empty'}")
@@ -657,10 +610,8 @@ class SwiftBlockFormatter(BaseComponent):
 
         return df
 
-    def _normalize_message_data(self, message_data: Dict[str, Any]) -> List[List[str
-            ]]:
-        """Normalize message data based on multiple occurrences with proper 61/86
-        pairing"""
+    def _normalize_message_data(self, message_data: Dict[str, Any]) -> List[List[str]]:
+        """Normalize message data based on multiple occurrences with proper 61/86 pairing"""
         # Get all occurrences of block4_61 (the normalizing field)
         block4_61_data = message_data.get('block4_61', [])
 
@@ -710,8 +661,7 @@ class SwiftBlockFormatter(BaseComponent):
                     # For single occurrence fields, repeat same value
                     value = message_data.get(source_field, default_value)
 
-                    # Handle different value types safely to prevent unhashable dict
-                    # errors
+                    # Handle different value types safely to prevent unhashable dict errors
                     if isinstance(value, dict):
                         # Convert dict to string representation
                         value = str(value)
@@ -729,7 +679,7 @@ class SwiftBlockFormatter(BaseComponent):
                         # Convert to string
                         value = str(value) if value is not None else ''
 
-                row.append(value)
+                    row.append(value)
 
             normalized_rows.append(row)
 

@@ -1,11 +1,12 @@
-# tPivotToColumnsDelimited - Pivot rows into columns and write to a delimited file.
-#
-# Talend equivalent: tPivotToColumnsDelimited
-#
-# This component performs pivot operations on input data, transforming rows into columns
-# based on a pivot column and aggregation column. The result can be written to a delimited
-# file while also returning the pivoted DataFrame.
-#
+"""
+tPivotToColumnsDelimited - Pivot rows into columns and write to a delimited file.
+
+Talend equivalent: tPivotToColumnsDelimited
+
+This component performs pivot operations on input data, transforming rows into columns
+based on a pivot column and aggregation column. The result can be written to a delimited
+file while also returning the pivoted DataFrame.
+"""
 import logging
 import pandas as pd
 from typing import Dict, Any, Optional, List
@@ -26,7 +27,7 @@ class PivotToColumnsDelimited(BaseComponent):
         group_by_columns (List[str]): Columns to group by (preserved as index). Required.
         filename (str): Output file path. Default: 'output.csv'
         field_separator (str): Field delimiter for output file. Default: ','
-        row_separator (str): Row separator for output file. Default: '\\n'
+        row_separator (str): Row separator for output file. Default: '\n'
         encoding (str): File encoding for output. Default: 'UTF-8'
         create (bool): Whether to create the output file. Default: True
         schema (Dict[str, str]): Optional column type casting schema
@@ -101,7 +102,7 @@ class PivotToColumnsDelimited(BaseComponent):
         if 'field_separator' in self.config:
             field_separator = self.config['field_separator']
             # Remove quotes for validation if present
-            if field_separator.startswith("'") and field_separator.endswith("'"):
+            if field_separator.startswith('"') and field_separator.endswith('"'):
                 field_separator = field_separator[1:-1]
 
             if not isinstance(field_separator, str) or len(field_separator) != 1:
@@ -152,7 +153,7 @@ class PivotToColumnsDelimited(BaseComponent):
 
         # Get configuration with defaults
         pivot_column = self.config.get('pivot_column', '')
-        aggregation_column = self.config.get('aggregation_column', self.DEFAULT_AGGREGATION_FUNCTION)
+        aggregation_column = self.config.get('aggregation_column', '')
         aggregation_function = self.config.get('aggregation_function', self.DEFAULT_AGGREGATION_FUNCTION)
         group_by_columns = self.config.get('group_by_columns', [])
         output_file = self.config.get('filename', self.DEFAULT_FILENAME)
@@ -220,7 +221,7 @@ class PivotToColumnsDelimited(BaseComponent):
             # Ensure numeric columns are cast to integers where applicable
             logger.debug(f"[{self.id}] Casting numeric columns to integers where applicable")
             for col in pivoted_data.columns:
-                if pd.api.types.is_numeric_type(pivoted_data[col]):
+                if pd.api.types.is_numeric_dtype(pivoted_data[col]):
                     pivoted_data[col] = pivoted_data[col].apply(
                         lambda x: int(x) if x != '' and float(x) == int(float(x)) else x
                     )

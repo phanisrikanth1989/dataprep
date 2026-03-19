@@ -1,8 +1,8 @@
 """
-Custom exception hierarchy for the data processing engine.
+Custom exceptions for V1 Engine components.
 
-These exceptions provide structured error handling and are compatiable
-with Talend style error handling patterns
+These exceptions provide structured error handling and are compatible
+with Talend-style error handling patterns.
 """
 
 

@@ -14,14 +14,14 @@ class JavaBridgeManager:
     Each job gets its own Java process to ensure isolation.
     """
 
-    def __init__(self,enable: bool = True,routines: Optional[List[str]] = None,libraries: Optional[List[str]] = None):
+    def __init__(self, enable: bool = True, routines: Optional[List[str]] = None, libraries: Optional[List[str]] = None):
         """
         Initialize Java bridge manager
 
         Args:
             enable: Whether to enable Java execution
-            routines: List of routine class names to load(e.g., ['routines.StringUtils', 'routines.DateUtil'])
-            libraries: List of required JAR files(e.g., ['commons-lang3-3.14.0.jar', 'gson-2.8.9.jar'])
+            routines: List of routine class names to load (e.g., ['routines.StringUtils', 'routines.DateUtil'])
+            libraries: List of required JAR files (e.g., ['commons-lang3-3.14.0.jar', 'gson-2.8.9.jar'])
         """
         self.enable = enable
         self.bridge = None
@@ -42,7 +42,7 @@ class JavaBridgeManager:
             logger.info(f"Starting Java bridge on port {self.port}")
 
             # Import and initialize bridge
-            from src.java_bridge import JavaBridge
+            from src.v1.java_bridge import JavaBridge
 
             self.bridge = JavaBridge()
             self.bridge.start(port=self.port)
@@ -56,7 +56,7 @@ class JavaBridgeManager:
                 missing_libraries = self.bridge.validate_libraries(self.libraries)
                 if missing_libraries:
                     error_msg = f"Missing required libraries: {missing_libraries}"
-                    logger.error(error_msg)
+                    logger.error(f"{error_msg}")
                     self.bridge.stop()
                     raise RuntimeError(error_msg)
                 logger.info(f"All {len(self.libraries)} libraries are available on classpath")
@@ -68,7 +68,7 @@ class JavaBridgeManager:
                     try:
                         self.bridge.load_routine(routine_class)
                         logger.info(f"Loaded: {routine_class}")
-                    except Exception:
+                    except Exception as e:
                         logger.error(f"Failed to load {routine_class}")
 
         except Exception as e:
@@ -107,7 +107,7 @@ class JavaBridgeManager:
             Available port number
         """
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("", 0))
+            s.bind(('', 0)) # Bind to an available port assigned by the OS
             s.listen(1)
             port = s.getsockname()[1]
         return port

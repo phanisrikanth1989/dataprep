@@ -64,8 +64,7 @@ class SwiftTransformer(BaseComponent):
             self.transformations = self.transform_config.get('transformations', {})
 
             # Build lookup dict from output_fields for quick access
-            self.output_fields_map = {field['name']: field for field in self.
-                output_fields}
+            self.output_fields_map = {field['name']: field for field in self.output_fields}
 
             # If no output_layout defined, derive from output_fields
             if not self.output_layout:
@@ -99,8 +98,7 @@ class SwiftTransformer(BaseComponent):
                 self.transform_config = self._load_external_config(self.config_file)
             else:
                 # Use inline config or default
-                self.transform_config = self.inline_config if self.inline_config else \
-                    self._get_default_transform_config()
+                self.transform_config = self.inline_config if self.inline_config else self._get_default_transform_config()
 
             if not self.transform_config:
                 raise ValueError(f"Component {self.id}: No valid transformation configuration available")
@@ -113,8 +111,7 @@ class SwiftTransformer(BaseComponent):
             self.transformations = self.transform_config.get('transformations', {})
 
             # Build lookup dict from output_fields for quick access
-            self.output_fields_map = {field['name']: field for field in self.
-                output_fields}
+            self.output_fields_map = {field['name']: field for field in self.output_fields}
 
             # If no output_layout defined, derive from output_fields
             if not self.output_layout:
@@ -214,9 +211,7 @@ class SwiftTransformer(BaseComponent):
                         if pattern:
                             # Convert wildcard patterns to regex
                             # * -> .* (any chars), ? -> . (single char)
-                            if ('*' in pattern or '?' in pattern) and not any(c in
-                                pattern for c in ['.', '^', '$', '+', '[', ']', '(', ')',
-                                '{', '}', '|', '\\']):
+                            if ('*' in pattern or '?' in pattern) and not any(c in pattern for c in ['.', '^', '$', '+', '[', ']', '(', ')', '{', '}', '|', '\\']):
                                 # Simple wildcard pattern - convert to regex
                                 regex_pattern = '^' + pattern.replace('*', '.*').replace('?', '.') + '$'
                             else:
@@ -246,8 +241,7 @@ class SwiftTransformer(BaseComponent):
                     source_columns = config.get('source_columns', None)
                     if source_columns is None:
                         # Default: get all columns except the lookup_key
-                        source_columns = [c for c in lookup_df.columns if c !=
-                            lookup_key]
+                        source_columns = [c for c in lookup_df.columns if c != lookup_key]
 
                     # Map source columns to target columns
                     for i, target_col in enumerate(columns):
@@ -438,8 +432,7 @@ class SwiftTransformer(BaseComponent):
                 # lookups
                 for field_name, output_field in self.output_fields_map.items():
                     if output_field.get('depends_on_lookup', False):
-                        field_value = self._get_field_value(output_field, row,
-                            working_row)
+                        field_value = self._get_field_value(output_field, row, working_row)
                         working_row[field_name] = field_value
 
                 # Apply second-tier lookups (those with depends_on_lookup flag)
@@ -451,8 +444,7 @@ class SwiftTransformer(BaseComponent):
                 # results
                 for field_name, output_field in self.output_fields_map.items():
                     if output_field.get('depends_on_lookup', False):
-                        field_value = self._get_field_value(output_field, row,
-                            working_row)
+                        field_value = self._get_field_value(output_field, row, working_row)
                         working_row[field_name] = field_value
 
                 # Now build final output row with only fields from output_layout
@@ -478,8 +470,7 @@ class SwiftTransformer(BaseComponent):
         # Ensure column order matches output_layout
         return pd.DataFrame(transformed_rows, columns=self.output_layout)
 
-    def _get_field_value(self, output_field: Dict[str, Any], input_row: pd.Series,
-        working_row: Dict[str, Any] = None) -> str:
+    def _get_field_value(self, output_field: Dict[str, Any], input_row: pd.Series, working_row: Dict[str, Any] = None) -> str:
         """Get value for an output field based on mapping configuration.
 
         Args:
@@ -526,13 +517,11 @@ class SwiftTransformer(BaseComponent):
                         source_value = ''
                 else:
                     source_value = ''
-                value = self._apply_field_transformation(output_field, source_value,
-                    input_row)
+                value = self._apply_field_transformation(output_field, source_value, input_row)
 
             elif mapping_type == 'python_expression':
                 # Evaluate Python expression with access to previously computed fields
-                value = self._evaluate_python_expression(output_field, input_row,
-                    working_row)
+                value = self._evaluate_python_expression(output_field, input_row, working_row)
 
             elif mapping_type == 'placeholder':
                 # Placeholder field - not yet implemented, return default/empty
@@ -622,8 +611,7 @@ class SwiftTransformer(BaseComponent):
             component = calc_config.get('component', 'date')  # date, time, year, month, day
 
             if source_field in input_row and pd.notna(input_row[source_field]):
-                return self._extract_date_component(str(input_row[source_field]),
-                    component)
+                return self._extract_date_component(str(input_row[source_field]), component)
 
         return output_field.get('default', '')
 
@@ -717,7 +705,7 @@ class SwiftTransformer(BaseComponent):
                             parsed_date = datetime.strptime(date_value[:6], fmt)
                         else:
                             parsed_date = datetime.strptime(date_value, fmt)
-                    break
+                        break
                 except ValueError:
                     continue
 
@@ -749,14 +737,12 @@ class SwiftTransformer(BaseComponent):
 
         elif transform_type == 'movement_parse':
             # Parse SWIFT movement entry (field 61)
-            return self._parse_movement_field(source_value, transform_config,
-                input_row)
+            return self._parse_movement_field(source_value, transform_config, input_row)
 
         elif transform_type == 'lookup':
             # Value lookup/mapping
             lookup_table = transform_config.get('lookup_table', {})
-            return lookup_table.get(source_value, transform_config.get('default',
-                source_value))
+            return lookup_table.get(source_value, transform_config.get('default', source_value))
 
         elif transform_type == 'format':
             # String formatting
@@ -799,17 +785,15 @@ class SwiftTransformer(BaseComponent):
 
         return balance_value
 
-    def _parse_movement_field(self, movement_value: str, config: Dict[str, Any],
-        input_row: pd.Series) -> str:
+    def _parse_movement_field(self, movement_value: str, config: Dict[str, Any], input_row: pd.Series) -> str:
         """Parse SWIFT movement entry (field 61) and extract specific component"""
         extract_component = config.get('extract', 'amount')
 
         if not movement_value:
             return ''
 
-        # MT940 field 61 format:
-        # YYMMDD[MMDD][D/C]amount[transaction_code][reference][//supplementary]
-        pattern = r'^(\d{6})(\d{4})?([DC])(\d+[.,]?\d*)(([A-Z]?)([^/]*)?(//(.*))?)?'
+        # MT940 field 61 format: YYMMDD[MMDD][D/C]amount[transaction_code][reference][//supplementary]
+        pattern = r'^(\d{6})(\d{4})?([DC])(\d+[.,]?\d*)([A-Z]?)([^/]*)?(//(.*))?'
         match = re.match(pattern, movement_value.strip())
 
         if match:

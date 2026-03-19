@@ -70,7 +70,7 @@ class ExtractPositionalFields(BaseComponent):
         # Validate configuration during initialization
         config_errors = self._validate_config()
         if config_errors:
-            error_msg = f"Configuration validation failed: {', '.join(config_errors)}"
+            error_msg = f"Configuration validation failed: {'; '.join(config_errors)}"
             logger.error(f"[{self.id}] {error_msg}")
             raise ConfigurationError(error_msg)
         else:
@@ -184,7 +184,7 @@ class ExtractPositionalFields(BaseComponent):
                 logger.debug(f"[{self.id}] Processing line: '{line}' (length: {len(line)})")
 
                 # Extract fields using exact positions based on actual data structure:
-                # Your data: "EMP001John Smith    Java          05   "
+                # Your data: "EMP001John Smith     Java       05   "
                 # EMP_ID: positions 0-5 (6 chars)
                 # EMP_NAME: positions 6-20 (15 chars)
                 # SKILL: positions 21-31 (11 chars in data, but extract only 10 for pattern)
@@ -193,10 +193,10 @@ class ExtractPositionalFields(BaseComponent):
                 extracted_row = []
 
                 # EMP_ID: start 0, length 6
-                emp_id = line[0:6] if len(line) > 5 else line[0:]
+                emp_id = line[0:6] if len(line) > 6 else line[0:]
                 extracted_row.append(emp_id.strip())
 
-                # EMP_NAME: start 6, length 10
+                # EMP_NAME: start 6, length 15
                 emp_name = line[6:21] if len(line) > 21 else line[6:]
                 extracted_row.append(emp_name.strip())
 
@@ -205,7 +205,7 @@ class ExtractPositionalFields(BaseComponent):
                 extracted_row.append(skill.strip())
 
                 # EXPER: start 32, length 2 (adjust for actual position in your data)
-                exper = line[31:36] if len(line) > 36 else line[31:]
+                exper = line[32:34] if len(line) > 34 else line[32:]
                 extracted_row.append(exper.strip())
 
                 logger.debug(f"[{self.id}] Extracted: EMP_ID='{extracted_row[0]}', EMP_NAME='{extracted_row[1]}', SKILL='{extracted_row[2]}', EXPER='{extracted_row[3]}'")

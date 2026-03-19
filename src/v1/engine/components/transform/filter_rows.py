@@ -117,7 +117,7 @@ class FilterRows(BaseComponent):
             Exception: If filtering operation fails
         """
         print(f"[FilterRows] {self.id} config: {self.config}")
-        print(f"[FilterRows] {self.id} input_data shape: {getattr(input_data, 'shape', None)}")
+        print(f"[FilterRows] input_data shape: {getattr(input_data, 'shape', None)}")
         print(f"[FilterRows] input_data columns: {input_data.columns.tolist() if input_data is not None else None}")
         if input_data is not None:
             print(f"[FilterRows] First 3 rows:\n{input_data.head(3)}")
@@ -127,7 +127,7 @@ class FilterRows(BaseComponent):
         # Handle empty input
         if input_data is None or input_data.empty:
             logger.warning(f"[{self.id}] Empty input received")
-            self._update_stats(0, 0)
+            self._update_stats(0, 0, 0)
             print(f"[FilterRows] Empty input, returning empty DataFrames.")
             return {'main': pd.DataFrame(), 'reject': pd.DataFrame()}
 
@@ -139,7 +139,7 @@ class FilterRows(BaseComponent):
             use_advanced = self.config.get('use_advanced', False)
             advanced_condition = self.config.get('advanced_condition', '')
             conditions = self.config.get('conditions', [])
-            logical_operator = self.config.get('logical_operator', self.DEFAULT_LOGICAL_OPERATOR)
+            logical_operator = self.config.get('logical_operator', self.DEFAULT_LOGICAL_OPERATOR).upper()
 
             print(f"[FilterRows] use_advanced: {use_advanced}, logical_operator: {logical_operator}, conditions: {conditions}, advanced_condition: "
                   f"{advanced_condition}")
@@ -193,7 +193,7 @@ class FilterRows(BaseComponent):
         print(f"[FilterRows] Evaluating advanced condition: {expr}")
 
         mask = input_data.apply(lambda row: eval(expr, {}, row.to_dict()), axis=1)
-        print(f"[FilterRows] Advanced mask: {mask.toList()}")
+        print(f"[FilterRows] Advanced mask: {mask.tolist()}")
         return mask
 
     def _process_simple_conditions(self, input_data: pd.DataFrame, conditions: List[Dict],
@@ -263,7 +263,7 @@ class FilterRows(BaseComponent):
 
         # Strip quotes and whitespace from value
         if isinstance(val, str):
-            val = val.strip().strip("'").strip('"')
+            val = val.strip().strip("'").strip("'")
 
         print(f"[FilterRows] Condition: column={col}, operator={op}, value={val}")
 
@@ -297,7 +297,7 @@ class FilterRows(BaseComponent):
         # Print comparison for each row with repr
         for idx, v in enumerate(col_data):
             print(f"[FilterRows] Row {idx}: {col}={repr(v)} == {repr(val_stripped)} -> {v == val_stripped}")
-        print(f"[FilterRows] Mask for condition: {mask.toList()}")
+        print(f"[FilterRows] Mask for condition: {mask.tolist()}")
 
         return mask
 

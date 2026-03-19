@@ -65,7 +65,7 @@ class JavaBridge:
             text=True
         )
 
-        # Wait for gateway to be ready (Look for startup message or port)
+        # Wait for gateway to be ready (look for startup message or port)
         print("Waiting for Java gateway to start...")
 
         # Initial delay to allow Java process to initialize
@@ -117,7 +117,7 @@ class JavaBridge:
             print("Java gateway stopped")
 
     def execute_java_row(self, df: pd.DataFrame, java_code: str,
-                         output_schema: Dict[str, str]) -> pd.DataFrame:
+                        output_schema: Dict[str, str]) -> pd.DataFrame:
         """
         Execute tJavaRow-style code block on DataFrame
 
@@ -179,7 +179,7 @@ class JavaBridge:
 
         Returns:
             Dict of {param_name: resolved_value}
-            Errors are returned as strings with {{ERROR}} prefix
+                    Errors are returned as strings with {{ERROR}} prefix
         """
         # Pass both context and globalMap to Java
         return self.java_bridge.executeBatchOneTimeExpressionsWithGlobalMap(
@@ -199,7 +199,7 @@ class JavaBridge:
         Args:
             df: Input DataFrame to evaluate expressions on
             expressions: Dict of {expr_id: expression_string} to evaluate on each row
-                         e.g., {"_main_filter_": "orders.status == 'COMPLETE'",
+                         e.g., {"__main_filter__": "orders.status == 'COMPLETE'",
                                 "__join_customers_0__": "orders.customer_id"}
             main_table_name: Name of the main table (for row variable binding, e.g., "orders")
             lookup_table_names: List of lookup table names already joined (e.g., ["customers", "products"])
@@ -262,7 +262,7 @@ class JavaBridge:
             java_script: Pre-generated Java/Groovy script containing all tMap logic
             df: Joined DataFrame (after all lookups are complete)
             output_schemas: Dict of {output_name: [column_names...]}
-            output_types: Dict of {output_name.columnName: type_string}
+            output_types: Dict of {output_name_columnName: type_string}
             main_table_name: Name of the main input table (e.g., "orders")
             lookup_names: List of lookup table names (e.g., ["customers", "products"])
 
@@ -335,7 +335,7 @@ class JavaBridge:
             component_id: Unique component ID (e.g., "tMap_1", "tMap_2")
             java_script: Pre-generated Java/Groovy script containing all tMap logic
             output_schemas: Dict of {output_name: [column_names...]}
-            output_types: Dict of {output_name.columnName: type_string}
+            output_types: Dict of {output_name_columnName: type_string}
             main_table_name: Name of the main input table (e.g., "orders")
             lookup_names: List of lookup table names (e.g., ["customers", "products"])
 
@@ -366,6 +366,7 @@ class JavaBridge:
             main_table_name or "row1",
             java_lookup_names
         )
+
     def execute_compiled_tmap_chunked(self, component_id: str, df: pd.DataFrame,
                                       chunk_size: int = 50000) -> Dict[str, pd.DataFrame]:
 

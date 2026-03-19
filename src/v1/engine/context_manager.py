@@ -19,7 +19,7 @@ class ContextManager:
     Note: Java Bridge lifecycle is now managed separately by JavaBridgeManager.
     """
 
-    def __init__(self, initial_context: Optional[Dict[str, Any]] = None, default_context='Default', java_bridge_manager=None):
+    def __init__(self, initial_context: Optional[Dict[str, Dict[str, Any]]] = None, default_context='Default', java_bridge_manager=None):
         self.context: Dict[str, Any] = {}
         self.context_types: Dict[str, str] = {} #Store variable types
         self.java_bridge_manager = java_bridge_manager #reference to manager, not owner
@@ -28,32 +28,32 @@ class ContextManager:
             context_dict_to_load = initial_context.get(default_context, initial_context)
             self.load_context(context_dict_to_load)
         
-        def load_context(self, context_dict: Dict[str, Any]) -> None:
-            """ Load context variables from a dictionary (from JSON config)"""
-            for key, value_dict in context_dict.items():
-                if isinstance(value_dict, dict):
-                    self.set(key, value_dict.get('value'), value_dict.get('type'))
-                else:
-                    self.set(key, value_dict)
-                
-        def load_from_file(self, file_path: str, delimiter: str = '=') -> None:
-            """ 
-            Load context variables from a file (key=value format)
-            Used by tCOntextLoad component
-            """
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith('#'):
-                            if delimiter in line:
-                                key, value = line.split(delimiter, 1)
-                                self.set(key.strip(), value.strip())
-                            
-                logger.info(f"Loaded context from file: {file_path}: {len(self.context)} variables")
-            except Exception as e:
-                logger.error(f"Error loading context from file {file_path}: {e}")   
-                raise
+    def load_context(self, context_dict: Dict[str, Any]) -> None:
+        """ Load context variables from a dictionary (from JSON config)"""
+        for key, value_dict in context_dict.items():
+            if isinstance(value_dict, dict):
+                self.set(key, value_dict.get('value'), value_dict.get('type'))
+            else:
+                self.set(key, value_dict)
+            
+    def load_from_file(self, file_path: str, delimiter: str = '=') -> None:
+        """ 
+        Load context variables from a file (key=value format)
+        Used by tCOntextLoad component
+        """
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#'):
+                        if delimiter in line:
+                            key, value = line.split(delimiter, 1)
+                            self.set(key.strip(), value.strip())
+                        
+            logger.info(f"Loaded context from file: {file_path}: {len(self.context)} variables")
+        except Exception as e:
+            logger.error(f"Error loading context from file {file_path}: {e}")   
+            raise
         
     def set(self, key: str, value: Any, value_type: Optional[str] = None) -> None:
         """ Set a context variable with optional type conversion"""
@@ -63,10 +63,10 @@ class ContextManager:
             self.context_types[key] = value_type
     
         self.context[key] = value
-        logger.debug(f"ContextManager: Set {key} = {value} (type: {value_type})")
+        logger.debug(f"Context: Set {key} = {value} (type: {value_type})")
 
-    def get(self, key: str, default: Optional[Any] = None) -> Any:
-        """ Get a context variable, return default if not found """
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get a context variable"""
         return self.context.get(key, default)
     
     def get_type(self, key: str) -> Optional[str]:
@@ -76,7 +76,7 @@ class ContextManager:
     def resolve_string(self, value: str) -> str:
         """ 
         Resolve context variables in a string 
-        Replaces ${context.variable} or context.varibale with actual values
+        Replaces ${context.variable} or context.variable with actual values
         Also handles expressions like ${context.var} + "/file.csv"
 
         Special handling for Java code
@@ -121,7 +121,7 @@ class ContextManager:
 
         def replace_func1(match):
             var_name = match.group(1)
-            var_value = self.get(var_name, '')
+            var_value = self.get(var_name)
             return str(var_value) if var_value is not None else match.group(0)
         
         value = re.sub(pattern1, replace_func1, value)
@@ -131,14 +131,14 @@ class ContextManager:
 
         def replace_func2(match):
             var_name = match.group(1)
-            var_value = self.get(var_name, '')
+            var_value = self.get(var_name)
             return str(var_value) if var_value is not None else match.group(0)
 
         value = re.sub(pattern2, replace_func2, value)
 
         return value
     
-    def _resolve_dict(self, config: Dict[str, Any]) -> Dict[str, Any]:
+    def resolve_dict(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """ 
         Resolve context variables in a configuration dictionary 
         
@@ -152,7 +152,7 @@ class ContextManager:
             elif isinstance(value, str):
                 resolved[key] = self.resolve_string(value)  
             elif isinstance(value, dict):
-                resolved[key] = self._resolve_dict(value)
+                resolved[key] = self.resolve_dict(value)
             elif isinstance(value, list):
                 resolved[key] = [self.resolve_string(v) if isinstance(v, str) else v for v in value]
             else:

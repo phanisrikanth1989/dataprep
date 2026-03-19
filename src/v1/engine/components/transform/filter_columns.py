@@ -165,7 +165,7 @@ class FilterColumns(BaseComponent):
                     self._update_stats(total_rows, 0, total_rows)
                     return {'main': pd.DataFrame()}
 
-                logger.info(f"[{self.id}] Include mode: keeping columns {columns_to_keep}")
+                logger.debug(f"[{self.id}] Include mode: keeping columns {columns_to_keep}")
                 # Select columns in specified order
                 result_df = input_data[columns_to_keep].copy()
 

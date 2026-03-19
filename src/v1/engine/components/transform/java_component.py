@@ -1,5 +1,5 @@
 """
-@Java component - Execute one-time Java/Groovy code
+tJava component - Execute one-time Java/Groovy code
 
 This component mimics Talend's tJava functionality:
 - Executes custom Java/Groovy code once (not per-row)
@@ -36,11 +36,11 @@ class JavaComponent(BaseComponent):
         String output = (String) context.get("output_dir");
 
         // Perform calculations
-        ctx.recordCount = 0;
-        ctx.skipCount = 0;
+        int recordCount = 1000;
+        globalMap.put("expected_records", recordCount);
         """
 
-    def process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
+    def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
         """Execute one-time Java code"""
 
         # Get configuration
@@ -62,18 +62,29 @@ class JavaComponent(BaseComponent):
             logger.info(f"Component {self.id}: Executing one-time Java code")
 
             # Sync context and globalMap to bridge before execution
-            self.context_manager.get_ctx()
-            logger.info(f"Component {self.id}: Context synced before execution")
-            # Sync context_manager
             if self.context_manager:
-                for key, value in java_bridge.global_map.items():
-                    self.context_manager.set(key, value)
+                ctx_all = self.context_manager.get_all()
+                logger.info(f"Component {self.id}: Syncing context to bridge: {ctx_all}")
+                for key, value in ctx_all.items():
+                    java_bridge.set_context(key, value)
+                logger.info(f"Component {self.id}: Bridge context after sync: {java_bridge.context}")
+
+            if self.global_map:
+                for key, value in self.global_map.get_all().items():
+                    java_bridge.set_global_map(key, value)
 
             # Execute Java code
-            result = java_bridge.execute_java(java_code)
-            logger.info(f"Component {self.id}: Executing one-time Java code")
+            result = java_bridge.execute_one_time_expression(java_code)
 
-            logger.info(f"Component {self.id}: Synced context back from Java: {java_bridge.context}")
+            # Sync context and globalMap back from Java to Pyython 
+            # This ensures changes made in Java are visible to subsequent components
+            java_bridge._sync_from_java()
+
+            # Update ContextManager with synced context values
+            if self.context_manager:
+                for key, value in java_bridge.context.items():
+                    self.context_manager.set(key, value)
+                logger.info(f"Component {self.id}: Synced context back from Java: {java_bridge.context}")
 
             # Update GlobalMap with synced globalMap values
             if self.global_map:
@@ -88,7 +99,7 @@ class JavaComponent(BaseComponent):
 
             # Pass through input data unchanged
             if input_data is not None:
-                self.update_stats(rows_read=len(input_data), rows_ok=len(input_data))
+                self._update_stats(rows_read=len(input_data), rows_ok=len(input_data))
                 return {'main': input_data}
             else:
                 return {'main': pd.DataFrame()}

@@ -1,5 +1,5 @@
 """
-Trigger manager for handling OnSubjobOk, OnComponentoOk, OnSubjobError triggers
+Trigger manager for handling OnSubjobOk, OnComponentOk, OnSubjobError triggers
 """
 from typing import Dict, List, Any, Optional, Set
 from enum import Enum
@@ -12,7 +12,7 @@ class TriggerType(Enum):
     """Types of triggers"""
     ON_SUBJOB_OK = "OnSubjobOk"
     ON_SUBJOB_ERROR = "OnSubjobError"
-    ON_COMPONENT_OK = "OnComponentOK"
+    ON_COMPONENT_OK = "OnComponentOk"
     ON_COMPONENT_ERROR = "OnComponentError"
     RUN_IF = "RunIf"
 
@@ -39,13 +39,13 @@ class TriggerManager:
     def __init__(self, global_map: Any = None):
         self.global_map = global_map
         self.triggers: List[Trigger] = []
-        self.component_status: Dict[str, str] ={}  # component_id -> status
+        self.component_status: Dict[str, str] = {}  # component_id -> status
         self.subjob_components: Dict[str, List[str]] = {}  # subjob_id -> [component_ids]
         self.component_to_subjob: Dict[str, str] = {}  # component_id -> subjob_id
         self.triggered_components: Set[str] = set()  # Track triggered components
         self.subjob_source_components: Dict[str, List[str]] = {} # subjob_id -> [source component_ids with no inputs]
 
-    def add_trigger(self, trigger_type: str, from_component: str,
+    def add_trigger(self, trigger_type: str, from_component: str, 
                    to_component: str, condition: Optional[str] = None) -> None:
         """Add a trigger to the manager"""
         trigger = Trigger(trigger_type, from_component, to_component, condition)
@@ -58,7 +58,7 @@ class TriggerManager:
         Register a subjob and its components
         
         Args:
-            subjob_id: The subjob identifiers
+            subjob_id: The subjob identifier
             components: List of all component IDs in this subjob
             source_components: List of component IDs with no inputs (source components)
         """
@@ -77,7 +77,7 @@ class TriggerManager:
     def set_component_status(self, component_id: str, status: str) -> None:
         """Update component execution status"""
         self.component_status[component_id] = status
-        logger.debug(f"component {component_id} status: {status}")
+        logger.debug(f"Component {component_id} status: {status}")
         
     def get_subjob_status(self, subjob_id: str) -> str:
         """
@@ -110,7 +110,7 @@ class TriggerManager:
         Returns:
             List of component IDs to execute next
         """
-        teriggered = []
+        triggered = []
 
         # Get subjob of the completed component
         subjob_id = self.component_to_subjob.get(component_id)
@@ -119,7 +119,7 @@ class TriggerManager:
             # For OnSubjob triggers, check if ANY component in the same subjob completed
             # Not just the specific from_component
             if trigger.type in [TriggerType.ON_SUBJOB_OK, TriggerType.ON_SUBJOB_ERROR]:
-                #check if the completed component is in the same subjobas from_component
+                # Ccheck if the completed component is in the same subjob as from_component
                 from_subjob = self.component_to_subjob.get(trigger.from_component)
                 if from_subjob != subjob_id:
                     continue
@@ -128,14 +128,14 @@ class TriggerManager:
                 if trigger.from_component != component_id:
                     continue
 
-            # check if already triggered
+            # Check if already triggered
             if trigger.to_component in self.triggered_components:
-                logger.debug(f"component {trigger.to_component} already triggered, skipping")
+                logger.debug(f"Component {trigger.to_component} already triggered, skipping")
                 continue
 
             should_trigger = False
 
-            # check trigger type and status
+            # Check trigger type and status
             if trigger.type == TriggerType.ON_COMPONENT_OK and status == 'success':
                 should_trigger = True
 
@@ -143,7 +143,7 @@ class TriggerManager:
                 should_trigger = True
 
             elif trigger.type == TriggerType.ON_SUBJOB_OK and status == 'success':
-                # check if entire subjob completed successfully
+                # Check if entire subjob completed successfully
                 if subjob_id:
                     subjob_status = self.get_subjob_status(subjob_id)
                     logger.debug(f"OnSubjobOk check: component {component_id} in subjob {subjob_id}, subjob status: {subjob_status}")
@@ -153,7 +153,7 @@ class TriggerManager:
                     logger.debug(f"OnSubjobOk: component {component_id} has no subjob_id")
 
             elif trigger.type == TriggerType.ON_SUBJOB_ERROR and status == 'error':
-                # subjob has error
+                # Subjob has error
                 if subjob_id and self.get_subjob_status(subjob_id) == 'error':
                     should_trigger = True
 
@@ -168,32 +168,32 @@ class TriggerManager:
                 logger.info(f"Trigger activated: {trigger}")
 
                 # When a component is triggered, also trigger all other source components
-                #(components with no inputs) in the same subjob
+                # (components with no inputs) in the same subjob
                 to_subjob_id = self.component_to_subjob.get(trigger.to_component)
                 if to_subjob_id and to_subjob_id in self.subjob_source_components:
                     source_comps = self.subjob_source_components[to_subjob_id]
-                    for source_comp in source_comp:
-                        #Only add if not already triggered and not the same as target
+                    for source_comp in source_comps:
+                        # Only add if not already triggered and not the same as target
                         if source_comp != trigger.to_component and source_comp not in self.triggered_components:
                             triggered.append(source_comp)
                             self.triggered_components.add(source_comp)
                             logger.info(f"Also triggering source component {source_comp} in subjob {to_subjob_id}")
 
-        return teriggered
-    
+        return triggered
+
     def _evaluate_condition(self, condition: Optional[str]) -> bool:
         """
         Evaluate a RunIf condition
 
         Example conditions:
         - ((Integer)globalMap.get("tFileInput_1_NB_LINE")) > 0
-        -globalMap.get("ERROR_MESSAGE") != null
+        - globalMap.get("ERROR_MESSAGE") != null
         """
         if not condition or not self.global_map:
             return True
         
         try:
-            # Convert Java-style condition to python
+            # Convert Java-style condition to Python
             python_condition = condition
 
             # Replace ((Integer)globalMap.get("key")) with globalMap.get("key")
@@ -208,7 +208,7 @@ class TriggerManager:
             python_condition = re.sub(pattern, replace_func, python_condition)
 
             # Replace globalMap.get("key") with actual values
-            pattern2 = r'globalMap\.get\("([^"]+"\)'
+            pattern2 = r'globalMap\.get\("([^"]+)"\)'
             
             def replace_func2(match):
                 key = match.group(1)
@@ -226,7 +226,7 @@ class TriggerManager:
             python_condition = python_condition.replace('&&', ' and ')
             python_condition = python_condition.replace('||', ' or ')
             python_condition = python_condition.replace('!', ' not ')
-            python_condition = python_condition.replace('null', 'None')
+            python_condition = python_condition.replace('null', ' None')
             python_condition = python_condition.replace('== None', ' is None')
             python_condition = python_condition.replace('!= None', ' is not None')
 
@@ -241,7 +241,7 @@ class TriggerManager:
 
     def get_initial_components(self, components: List[Dict]) -> List[str]:
         """
-        Get components that should start execution(no input triggers and no data flow inputs)
+        Get components that should start execution (no input triggers and no data flow inputs)
         """
         # Components that are targets of triggers should not start initially
         triggered_targets = {t.to_component for t in self.triggers}
@@ -265,11 +265,10 @@ class TriggerManager:
 
             # Skip if component is in a triggered subjob
             if subjob_id and subjob_id in triggered_subjobs:
-                logger.debug( f"Component {comp_id} skipped: part of triggered subjob {subjob_id}")
+                logger.debug(f"Component {comp_id} skipped: part of triggered subjob {subjob_id}")
                 continue
 
-            # Check if component has no inputs (source component)
-            # and is not directly triggered
+            # Check if component has no inputs (source component) and is not directly triggered
             if comp_id and comp_id not in triggered_targets:
                 if not comp.get('inputs', []):
                     initial.append(comp_id)

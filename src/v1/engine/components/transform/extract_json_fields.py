@@ -1,8 +1,8 @@
 """
-    ExtractJSONFields - Extract fields from JSON data based on JSONPath queries.
-"""
-talend_equiv = "tExtractJSONFields"
+ExtractJSONFields - Extract fields from JSON data based on JSONPath queries.
 
+Talend equivalent: tExtractJSONFields
+"""
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -27,8 +27,8 @@ class ExtractJSONFields(BaseComponent):
     Configuration:
         loop_query (str): JSONPath query for looping through data. Required.
         mapping (list): List of mappings for extracting fields. Required.
-        die_on_error (bool): Whether to stop on error. Default: False.
-        read_by (str): Method to read JSON (e.g., 'JSONPath'). Optional.
+        die_on_error (bool): Whether to stop on error. Default: False
+        read_by (str): Method to read JSON (e.g., 'JSONPATH'). Optional.
         json_path_version (str): JSONPath version (e.g., '2_1_0'). Optional.
         encoding (str): Encoding type (e.g., 'UTF-8'). Optional.
         use_loop_as_root (bool): Whether to use the loop as the root. Optional.
@@ -64,7 +64,7 @@ class ExtractJSONFields(BaseComponent):
     Notes:
         - JSON data is expected in the first column of input DataFrame
         - Complex objects (lists/dicts) are serialized as JSON strings in output
-        - JSONPath queries containing [*] or * preserve arrays as lists
+        - JSONPath queries containing [*] or .* preserve arrays as lists
         - Single-value results are flattened to scalar values
     """
 
@@ -302,7 +302,7 @@ class ExtractJSONFields(BaseComponent):
                                 # No matches found - set to empty string
                                 row[col] = ''
                                 logger.debug(f"[{self.id}] No matches for query '{query}', setting column '{col}' to empty string")
-                            elif '*' in query or '[*]' in query:
+                            elif '[*]' in query or '.*' in query:
                                 # Wildcard query - preserve as array (but check if we want to serialize)
                                 if len(values) == 1 and not isinstance(values[0], (list, dict)):
                                     # Single scalar value from wildcard - flatten it
