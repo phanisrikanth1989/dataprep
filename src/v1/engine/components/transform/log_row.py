@@ -28,7 +28,7 @@ class LogRow(BaseComponent):
 
     Configuration:
         basic_mode (bool): Use basic delimited output instead of table style. Default: False
-        table_print (bool): Use table style output with proper formatting. Default: False
+        table_print (bool): Use table style output with proper formatting. Default: True
         vertical (bool): Use vertical output (each row as key-value pairs). Default: False
         field_separator (str): Field separator for delimited output. Default: '|'
         print_header (bool): Print column headers. Default: True
@@ -98,9 +98,9 @@ class LogRow(BaseComponent):
 
         # Get configuration with support for both new and Talend-style parameter names
         basic_mode = self._get_boolean_config(['basic_mode', 'BASIC_MODE'], False)
-        table_print = self._get_boolean_config(['table_print', 'TABLE_PRINT'], False)
+        table_print = self._get_boolean_config(['table_print', 'TABLE_PRINT'], True)
         vertical = self._get_boolean_config(['vertical', 'VERTICAL'], False)
-        print_header = self._get_boolean_config(['print_header', 'PRINT_HEADER', 'print_column_names', 'PRINT_COLUMNS'], True)
+        print_header = self._get_boolean_config(['print_header', 'PRINT_HEADER', 'print_column_names', 'PRINT_COLUMN_NAMES'], True)
 
         field_separator = self.config.get('field_separator') or self.config.get('FIELDSEPARATOR', self.DEFAULT_FIELD_SEPARATOR)
         max_rows_param = self.config.get('max_rows') or self.config.get('SCHEMA_OPT_NUM', self.DEFAULT_MAX_ROWS)
@@ -162,11 +162,11 @@ class LogRow(BaseComponent):
         title_width = len(title)
 
         # Make sure table is wide enough for title
-        min_table_width = title_width + 4  # + 4 for padding
+        min_table_width = title_width + 4  # +4 for padding
         table_width = max(total_content_width, min_table_width)
 
         # Top border with calculated width
-        top_border = '+' + '-' * (table_width + 2) + '+'
+        top_border = '.' + '-' * (table_width + 2) + '.'
         print(top_border)
 
         # Component title centered
@@ -179,7 +179,7 @@ class LogRow(BaseComponent):
         header_sep_parts = []
         for col in df.columns:
             header_sep_parts.append('=' * col_widths[col])
-        header_separator = '|' + '|'.join(header_sep_parts) + '|'
+        header_separator = '|=' + '|'.join(header_sep_parts) + '=|'
         print(header_separator)
 
         # Always print column headers for table format
@@ -200,7 +200,7 @@ class LogRow(BaseComponent):
             print(f"|{'|'.join(row_parts)}|")
 
         # Bottom border
-        bottom_border = '+' + '-' * (table_width + 2) + '+'
+        bottom_border = "'" + '-' * (table_width + 2) + "'"
         print(bottom_border)
 
     def _print_basic_format(self, df: pd.DataFrame, separator: str, print_header: bool) -> None:
