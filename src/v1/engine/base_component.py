@@ -1,5 +1,5 @@
 """
-Enhanced base component class with statistics tracking and exceution modes
+Enhanced base component class with statistics tracking and execution modes
 """
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Union, Iterator
@@ -12,10 +12,10 @@ logger = logging.getLogger(__name__)
 
 
 class ExecutionMode(Enum):
-    """Execution modes for components  """
-    BATCH = "batch" #Process entire dataframe at once
-    STREAMING = "streaming" #Process in chunks
-    HYBRID = "hybrid" #Auto-switch based on data size
+    """Execution modes for components"""
+    BATCH = "batch"         # Process entire dataframe at once
+    STREAMING = "streaming"  # Process in chunks
+    HYBRID = "hybrid"        # Auto-switch based on data size
 
 
 class ComponentStatus(Enum):
@@ -29,37 +29,37 @@ class ComponentStatus(Enum):
 
 class BaseComponent(ABC):
     """
-    Enhanced base class for al ETL components with statistics tracking
+    Enhanced base class for all ETL components with statistics tracking
     """
 
-    #Memory threshold for auto-switching to streaming mode (in MB)
+    # Memory threshold for auto-switching to streaming mode (in MB)
     MEMORY_THRESHOLD_MB = 3072
 
     def __init__(
-            self,
-            component_id: str,
-            config: Dict[str, Any],
-            global_map: Any = None,
-            context_manager: Any = None
+        self,
+        component_id: str,
+        config: Dict[str, Any],
+        global_map: Any = None,
+        context_manager: Any = None
     ):
         self.id = component_id
         self.config = config
         self.global_map = global_map
         self.context_manager = context_manager
 
-        #component metadata
+        # Component metadata
         self.component_type = self.__class__.__name__
         self.subjob_id: Optional[str] = None
         self.is_subjob_start: bool = False
 
-        #Execution mode
+        # Execution mode
         self.execution_mode = self._determine_execution_mode()
-        self.chunk_size = config.get("chunk_size", 100000)
+        self.chunk_size = config.get('chunk_size', 100000)
 
-        # Java Bridge (for JavaComponent and JavaRowComponent)
-        self.java_bridge = None #Will be set by engine if Java is enabled
+        # Java bridge (for JavaComponent and JavaRowComponent)
+        self.java_bridge = None  # Will be set by engine if Java is enabled
 
-        #python routine manager (for python expression evaluation)
+        # Python routine manager (for Python expression evaluation)
         self.python_routine_manager = None #Will be set by engine if Python is enabled
 
         #Input/Output connections

@@ -35,7 +35,7 @@ class ExtractDelimitedFields(BaseComponent):
         decimal_separator (str): The decimal separator for numbers. Default: '.'
         trim (bool): Whether to trim whitespace from extracted fields. Default: False
         check_fields_num (bool): Whether to validate the number of fields. Default: False
-        check_data (bool): Whether to validate data fields. Default: False
+        check_date (bool): Whether to validate data fields. Default: False
         schema (list): Output schema (list of dicts with column names/types).
 
     Inputs:
@@ -61,7 +61,7 @@ class ExtractDelimitedFields(BaseComponent):
             "decimal_separator": ".",
             "trim": false,
             "check_fields_num": false,
-            "check_data": false,
+            "check_date": false,
             "schema": [
                 {"name": "id", "type": "id_String"},
                 {"name": "name", "type": "id_String"},
@@ -143,7 +143,7 @@ class ExtractDelimitedFields(BaseComponent):
         decimal_separator = self.config.get('decimal_separator', self.DEFAULT_DECIMAL_SEPARATOR)
         trim = self.config.get('trim', False)
         check_fields_num = self.config.get('check_fields_num', False)
-        check_data = self.config.get('check_data', False)
+        check_date = self.config.get('check_date', False)
         # Use output_schema as the primary schema source, fallback to config
         schema = self.output_schema or self.config.get('schema', [])
 
@@ -151,7 +151,7 @@ class ExtractDelimitedFields(BaseComponent):
         logger.debug(f"[ExtractDelimitedFields] schema: {schema}")
         logger.debug(f"[ExtractDelimitedFields] config field: {field}, field_separator: {field_separator}")
         # Remove quotes from field_separator if present (e.g. "," -> ,)
-        if field_separator.startswith("'") and field_separator.endswith("'"):
+        if field_separator.startswith('"') and field_separator.endswith('"'):
             field_separator = field_separator[1:-1]
         # Make output_columns and extracted_columns case-insensitive
         output_columns = [col['name'] for col in schema if col['name'].lower() != field.lower()]
