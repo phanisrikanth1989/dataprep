@@ -1,4 +1,5 @@
-"""PythonDataFrame component - Execute Python code on entire DataFrame
+"""
+PythonDataFrame component - Execute Python code on entire DataFrame
 
 This component provides vectorized DataFrame operations:
 - Executes custom Python code on the full DataFrame
@@ -11,7 +12,7 @@ from typing import Any, Dict, Optional
 import pandas as pd
 import numpy as np
 import logging
-from etl.component import BaseComponent
+from ...base_component import BaseComponent
 
 logger = logging.getLogger(__name__)
 
@@ -21,11 +22,33 @@ class PythonDataFrameComponent(BaseComponent):
     Execute Python code on entire DataFrame (vectorized operations)
 
     User code operates on the full DataFrame for efficient bulk processing.
-    This is the Pythonic way to transform data with custom Python code.
+    This is the Pythonic way to transform data - much faster than row-by-row operations.
 
     Config parameters:
     - python_code: Python code to execute on the DataFrame
     - output_columns: List of columns to keep in output (optional, keeps all if not specified)
+
+    Example python_code:
+        # Vectorized string operations
+        df['full_name'] = df['first_name'] + ' ' + df['last_name']
+        df['lengthOfName'] = df['full_name'].str.len()
+
+        # Conditional logic
+        df['age_group'] = pd.cut(df['age'], bins=[0, 18, 65, np.inf], labels=['child', 'adult', 'senior'])
+
+        # Complex calculations
+        df['discount'] = df['price'].apply(lambda x: x * 0.9 if x > 100 else x)
+
+        # Using routines
+        df['formatted_name'] = df['full_name'].apply(routines.StringRoutine.format_name)
+
+        Available in execution context:
+        - df: Input DataFrame (must be modified in-place)
+        - pd: pandas library
+        - np: numpy library
+        - context: Context variables as a flat dict
+        - globalMap: Global variables dict
+        - routines: Python routines defined in the project (also available directly by name)
     """
 
     def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
@@ -94,7 +117,7 @@ class PythonDataFrameComponent(BaseComponent):
             self._update_stats(
                 rows_read=len(input_data),
                 rows_ok=len(output_df),
-                rows_rejected=0
+                rows_reject=0
             )
 
             logger.info(f"Component {self.id}: Processed DataFrame successfully: {len(output_df)} rows, {len(output_df.columns)} columns")
@@ -117,6 +140,8 @@ class PythonDataFrameComponent(BaseComponent):
                     for var_name, var_info in context_vars.items():
                         if isinstance(var_info, dict) and 'value' in var_info:
                             context_dict[var_name] = var_info['value']
+                        else:
+                            context_dict[var_name] = var_info
                 else:
                     # Simple flat structure: {home_location: "US"}
                     context_dict[context_name] = context_vars
