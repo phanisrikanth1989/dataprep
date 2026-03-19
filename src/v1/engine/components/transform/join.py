@@ -60,7 +60,7 @@ class Join(BaseComponent):
             "USE_INNER_JOIN": True,
             "JOIN_KEY": [
                 {"main": "customer_id", "lookup": "cust_id"},
-                {"main": "product_code", "lookup": "prod_code"},
+                {"main": "product_code", "lookup": "prod_code"}
             ],
             "CASE_SENSITIVE": False,
             "DIE_ON_ERROR": False
@@ -90,7 +90,7 @@ class Join(BaseComponent):
     DEFAULT_USE_INNER_JOIN = True        # Talend tJoin uses inner join by default
     DEFAULT_CASE_SENSITIVE = True
     DEFAULT_DIE_ON_ERROR = False
-    JOIN_TYPES = ('inner', 'left')
+    JOIN_TYPES = ['inner', 'left']
     MERGE_SUFFIXES = ('', '_lookup')
 
     def _validate_config(self) -> List[str]:
