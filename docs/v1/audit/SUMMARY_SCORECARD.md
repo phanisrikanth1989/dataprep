@@ -3,8 +3,29 @@
 ## Overview
 
 **Total components audited:** 54
-**Total issues found:** 2,051
+**Total issues found (raw):** 2,051
+**Estimated unique issues:** ~1,750-1,850 (after deducting cross-cutting duplicates)
 **Overall assessment:** NOT PRODUCTION-READY. The v1 engine has systemic quality gaps across all 54 components. Cross-cutting base class bugs affect every component. Zero components have adequate test coverage. 20 components are rated RED (broken/blocks production), 33 are rated YELLOW (works partially with gaps), and 1 is rated RED/YELLOW (borderline). No component achieved an overall GREEN rating.
+
+### Important Note on Issue Counts
+
+The raw count of 2,051 includes **cross-cutting issues that are counted in every component report**. The same underlying bug appears as a separate issue ID in each affected report (e.g., `BUG-FID-001`, `BUG-FOD-001`, `BUG-MAP-001` are all the same `_update_global_map()` crash). This is intentional — each report is self-contained so developers working on a specific component see all issues relevant to them.
+
+**Cross-cutting duplicates (~200-250 entries from ~15-20 unique bugs):**
+
+| Cross-cutting Bug | Appears In | Unique Fix |
+|---|---|---|
+| `_update_global_map()` crash (base_component.py:304) | All 54 reports | 1 line fix |
+| `GlobalMap.get()` broken signature (global_map.py:28) | All 54 reports | 1 line fix |
+| Zero unit tests | All 54 reports | 1 systemic gap |
+| `replace_in_config` literal `[i]` (base_component.py:174) | ~20 reports | 1 line fix |
+| `_execute_streaming` drops reject data | ~15 reports | 1 method fix |
+| `validate_schema` inverted nullable logic | ~10 reports | 1 condition fix |
+| `self.config` mutation non-reentrant | ~10 reports | 1 pattern fix |
+| `resolve_dict` corrupts `python_code` | ~5 reports | 1 skip-list addition |
+| Converter `.find().get()` null-safety pattern | ~15 reports | 1 pattern fix per parser |
+
+**Impact of fixing cross-cutting bugs:** Fixing just the top 5 cross-cutting bugs (~25 minutes of work) would resolve ~200+ issue entries across all reports simultaneously. This is the highest-leverage work available.
 
 ---
 
