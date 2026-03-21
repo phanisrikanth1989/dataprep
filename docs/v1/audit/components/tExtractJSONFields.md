@@ -1,163 +1,1230 @@
 # Audit Report: tExtractJSONFields / ExtractJSONFields
 
-## Component Identity
+> **Audited**: 2026-03-21
+> **Auditor**: Claude Opus 4.6 (automated)
+> **Engine Version**: v1
+> **Converter**: `complex_converter`
+> **Status**: PRODUCTION READINESS REVIEW
+
+---
+
+## 1. Component Identity
 
 | Field | Value |
 |-------|-------|
 | **Talend Name** | `tExtractJSONFields` |
 | **V1 Engine Class** | `ExtractJSONFields` |
-| **Engine File** | `src/v1/engine/components/transform/extract_json_fields.py` |
-| **Converter Parser** | `component_parser.py` -> `parse_textract_json_fields()` (line ~2448) |
-| **Converter Dispatch** | `converter.py` -> `elif component_type == 'tExtractJSONFields':` (line ~327) |
-| **Registry Aliases** | `ExtractJSONFields`, `tExtractJSONFields` |
+| **Engine File** | `src/v1/engine/components/transform/extract_json_fields.py` (364 lines) |
+| **Converter Parser** | `src/converters/complex_converter/component_parser.py` -> `parse_textract_json_fields()` (lines 2448-2478) |
+| **Converter Dispatch** | `src/converters/complex_converter/converter.py` -> `elif component_type == 'tExtractJSONFields':` (line 327) |
+| **Registry Aliases** | `ExtractJSONFields`, `tExtractJSONFields` (registered in `src/v1/engine/engine.py` lines 121-122) |
 | **Category** | Transform / Processing |
-| **Complexity** | High -- JSONPath extraction, loop iteration, multi-value handling, relative/absolute query context |
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/v1/engine/components/transform/extract_json_fields.py` | Engine implementation (364 lines) |
+| `src/converters/complex_converter/component_parser.py` (lines 2448-2478) | Dedicated `parse_textract_json_fields()` parser for Talend XML to v1 JSON |
+| `src/converters/complex_converter/converter.py` (line 327-328) | Dispatch -- dedicated `elif` branch for `tExtractJSONFields` |
+| `src/v1/engine/base_component.py` | Base class: `_update_stats()`, `_update_global_map()`, `validate_schema()`, `execute()` |
+| `src/v1/engine/global_map.py` | GlobalMap storage for `{id}_NB_LINE` etc. |
+| `src/v1/engine/exceptions.py` | Custom exception hierarchy (`ComponentExecutionError`, `ConfigurationError`, `DataValidationError`) |
+| `src/v1/engine/components/transform/__init__.py` | Package exports (line 6: `from .extract_json_fields import ExtractJSONFields`) |
 
 ---
 
-## Scorecard
+## 2. Scorecard
 
-| Dimension | Score | P0 | P1 | P2 | P3 |
-|-----------|-------|----|----|----|----|
-| Converter Coverage | Y | 0 | 2 | 2 | 1 |
-| Engine Feature Parity | R | 3 | 4 | 3 | 1 |
-| Code Quality | R | 2 | 3 | 3 | 2 |
-| Performance & Memory | Y | 0 | 1 | 2 | 1 |
-| Testing | R | 1 | 1 | 0 | 0 |
+| Dimension | Score | P0 | P1 | P2 | P3 | Details |
+|-----------|-------|----|----|----|----|---------|
+| Converter Coverage | **Y** | 0 | 2 | 2 | 1 | 9 of 14 Talend params extracted; mapping table parsed with fragile stride-2 assumption ignoring `elementRef` attribute; XPath mode unsupported |
+| Engine Feature Parity | **Y** | 1 | 4 | 3 | 1 | Hardcoded `_is_relative_query()` heuristic; no XPath; no `use_loop_as_root` implementation; no `json_field` column selection; reject flow present but incomplete |
+| Code Quality | **R** | 3 | 4 | 3 | 2 | Cross-cutting `_update_global_map()` crash; `GlobalMap.get()` crash; hardcoded property list; `json.loads` on non-string crashes; per-mapping silent exception swallowing; reject memory bomb on large documents |
+| Performance & Memory | **Y** | 0 | 1 | 1 | 1 | Row-by-row `iterrows()` + per-row JSONPath `parse()` calls; no caching; streaming mode loses reject output |
+| Testing | **R** | 1 | 0 | 0 | 0 | Zero v1 unit tests; zero v1 integration tests for this component |
 
-**Overall: RED** -- Multiple critical bugs and fundamental behavioral gaps make this component
-unsafe for production use without significant remediation.
+**Overall: RED -- Not production-ready without P0/P1 fixes**
 
----
-
-## 1. Talend Feature Baseline
-
-### What tExtractJSONFields Does in Talend
-
-`tExtractJSONFields` is an intermediate processing component that extracts structured data from
-a JSON string contained within an incoming data flow column. It is commonly placed after
-`tFileInputDelimited`, `tRESTClient`, or any component that produces a column containing raw
-JSON text. The component iterates over JSON elements identified by a loop query, extracting
-sub-fields into output schema columns using per-column JSONPath (or XPath) expressions.
-
-Key behavioral characteristics in Talend:
-- It operates on a **specific source column** (`JSONFIELD`) from the input flow, not the first column by default.
-- It uses the **Jayway JsonPath** library (Java) for JSONPath evaluation, which has different syntax and behavior than Python's `jsonpath_ng`.
-- The **Loop JSONPath query** defines the iteration boundary; each match produces one output row.
-- Per-column **Mapping queries** are relative to the current loop element by default, but can be made absolute.
-- The **Use loop node as root** setting controls whether mapping queries execute relative to the loop match or the document root.
-- It produces **REJECT** rows with `errorCode` (Integer) and `errorMessage` (String) for extraction failures.
-- It is a **flow-through** component: it requires both an input and an output connection.
-
-### Basic Settings (Talend Studio)
-
-| Parameter | Talend Name | Type | Description |
-|-----------|-------------|------|-------------|
-| Property Type | `PROPERTY_TYPE` | Built-In / Repository | Whether config comes from metadata repository |
-| Schema | `SCHEMA` | Schema editor | Column definitions for output fields |
-| Read By | `READ_BY` | Dropdown | `JsonPath` or `Xpath` -- selects the query language |
-| JSON Field | `JSONFIELD` | List/Expression | Selects which **input column** contains the JSON string to parse |
-| Loop JSONPath Query | `LOOP_QUERY` / `JSON_LOOP_QUERY` | Expression | JSONPath (or XPath) for the iteration node, e.g. `"$.data[*]"` |
-| Mapping: Column | `MAPPING_4_JSONPATH` (column) | Auto-populated | Schema column name to populate |
-| Mapping: JSON Query | `MAPPING_4_JSONPATH` (query) | Expression | JSONPath expression for extracting the value |
-| Mapping: Get Nodes | `MAPPING_4_JSONPATH` (get_nodes) | Boolean | Extract all matching nodes (XPath mode only) |
-| Mapping: Is Array | `MAPPING_4_JSONPATH` (is_array) | Boolean | Marks field as array type (XPath mode only) |
-| Die on Error | `DIE_ON_ERROR` | Boolean | `true` = stop job on error; `false` = route to REJECT |
-
-### Advanced Settings (Talend Studio)
-
-| Parameter | Talend Name | Type | Description |
-|-----------|-------------|------|-------------|
-| Use Loop Node as Root | `USE_LOOP_AS_ROOT` | Boolean | When `true`, mapping queries are relative to the loop match; when `false`, queries execute against the full document. Only available for JsonPath mode. |
-| Split List | `SPLIT_LIST` | Boolean | When `true`, if a JSONPath returns an array, each element becomes a separate row |
-| Encoding | `ENCODING` | String/List | Character encoding for JSON parsing (e.g., `"UTF-8"`, `"ISO-8859-1"`) |
-| JSON Path Version | `JSON_PATH_VERSION` | String | Jayway JsonPath version identifier (e.g., `"2_1_0"`) |
-| JDK Version | JDK_VERSION | Dropdown | JDK version for XPath processing (XPath mode only) |
-| tStatCatcher Statistics | `TSTATCATCHER_STATS` | Boolean | Enable statistics collection for monitoring |
-
-### Connection Types
-
-| Connector | Type | Description |
-|-----------|------|-------------|
-| `Row > Main` (Input) | Input | Incoming data flow with a column containing JSON text |
-| `FLOW` (Main) | Output | Successfully extracted rows matching the output schema |
-| `REJECT` | Output | Rows that failed extraction, with `errorCode` (Integer) and `errorMessage` (String) columns appended to the output schema columns |
-
-### GlobalMap Variables Produced (Talend)
-
-| Key | Type | Description |
-|-----|------|-------------|
-| `{id}_NB_LINE` | int | Total number of rows read from the input flow |
-| `ERROR_MESSAGE` | String | Error message from the most recent error (when Die on Error is enabled) |
-
-### Talend Behavioral Notes
-
-1. **JSONFIELD Selection**: Talend allows the user to select which input column contains JSON text via the `JSONFIELD` dropdown. This is critical -- the component does NOT assume the first column.
-2. **Jayway JsonPath vs jsonpath_ng**: Talend uses Jayway JsonPath (Java), which supports filter expressions like `$..book[?(@.price<10)]`, deep scan with `..`, and inline predicates. Python's `jsonpath_ng` has different syntax for some operations and uses `this` instead of `@` for current object reference.
-3. **Loop Query Produces Rows**: Each match of the loop query produces exactly one output row. If the loop query matches 5 elements, 5 rows are output (one per element).
-4. **Relative vs Absolute Queries**: When `USE_LOOP_AS_ROOT=true`, mapping queries execute relative to the current loop element. When `false`, they execute against the full JSON document. This is a critical behavioral distinction.
-5. **SPLIT_LIST**: When enabled and a mapping query returns an array, each array element becomes a separate output row (Cartesian product with other columns). When disabled, the array is returned as a single serialized value.
-6. **Reject Flow**: When Die on Error is unchecked and a REJECT connection exists, failed rows are routed to REJECT with `errorCode` and `errorMessage`. When no REJECT connection exists, errors are silently ignored.
-7. **Empty Loop Match**: If the loop query matches nothing, no output rows are produced (zero rows on FLOW).
-8. **Null Handling**: If a mapping query matches nothing for a given loop element, the column value is set to `null` in Talend (not empty string).
-9. **Type Coercion**: Talend performs schema-based type coercion on extracted values (String, Integer, Float, Date, etc.) with errors routed to REJECT.
-10. **Known Bug (TBD-994)**: Talend has a documented issue where the reject flow does not produce output when it is the only output connection (no main flow connected).
-
-### Source References
-
-- [tExtractJSONFields Standard Properties (Talend 8.0)](https://help.qlik.com/talend/en-US/components/8.0/processing/textractjsonfields-standard-properties)
-- [tExtractJSONFields Component Overview (Talend 8.0)](https://help.talend.com/en-US/components/8.0/processing/textractjsonfields)
-- [Setting up tExtractJSONFields (Talend 8.0)](https://help.qlik.com/talend/en-US/components/8.0/processing/textractjsonfields-twritejsonfield-tfixedflowinput-tlogrow-setting-up-textractjsonfields-standard-component)
-- [tExtractJSONFields Docs (ESB 6.x)](https://talendskill.com/talend-for-esb-docs/docs-6-x/textractjsonfields-docs-for-esb-6-x/)
-- [Retrieving Error Messages (Talend 8.0)](https://help.talend.com/en-US/components/8.0/processing/textractjsonfields-twritejsonfield-tfixedflowinput-tlogrow-retrieving-error-messages-while-extracting-data-from-json-fields-standard-component-in-this)
-- [TBD-994 JIRA: Reject flow without main](https://jira.talendforge.org/browse/TBD-994)
-- [JSONPath Expression for tExtractJSONFields](http://umashanthan.blogspot.com/2015/11/json-path-expression-for.html)
-- [jsonpath-ng Python Library (GitHub)](https://github.com/h2non/jsonpath-ng)
+### Score Key
+- **R** (Red): Critical gaps blocking production use
+- **Y** (Yellow): Significant gaps; usable for subset of jobs with known limitations
+- **G** (Green): Production-ready with minor improvements recommended
 
 ---
 
-## 2. Converter Audit
+## 3. Talend Feature Baseline
 
-### Parser Method: `parse_textract_json_fields()` (line 2448-2478)
+### What tExtractJSONFields Does
 
-The converter has a dedicated parser method that is correctly dispatched from `converter.py`
-at line ~327.
+`tExtractJSONFields` is a standard Processing family component that extracts desired data from JSON fields in an incoming data flow using JSONPath or XPath queries. It is an **intermediate** component -- it requires an upstream connection providing rows with JSON data, and it outputs extracted fields to downstream components. The component iterates over JSON structures using a configurable loop query and maps nested fields to output schema columns.
 
-### Parameters Extracted
+**Source**: [tExtractJSONFields Standard Properties (Talend 8.0)](https://help.qlik.com/talend/en-US/components/8.0/processing/textractjsonfields-standard-properties), [tExtractJSONFields Overview (Talend 8.0)](https://help.qlik.com/talend/en-US/components/8.0/processing/textractjsonfields), [Uma's Blog -- JSON Path Expressions](http://umashanthan.blogspot.com/2015/11/json-path-expression-for.html)
 
-| Talend Parameter | Converter Extracts? | V1 Config Key | Notes |
-|------------------|---------------------|---------------|-------|
-| `READ_BY` | Yes | `read_by` | Default: `'JSONPATH'` |
-| `JSON_PATH_VERSION` | Yes | `json_path_version` | Default: `'2_1_0'` |
-| `LOOP_QUERY` / `JSON_LOOP_QUERY` | Yes | `loop_query` | Checks both param names, strips surrounding quotes |
-| `DIE_ON_ERROR` | Yes | `die_on_error` | Converted to boolean |
-| `ENCODING` | Yes | `encoding` | Default: `'UTF-8'` |
-| `USE_LOOP_AS_ROOT` | Yes | `use_loop_as_root` | Converted to boolean |
-| `SPLIT_LIST` | Yes | `split_list` | Converted to boolean |
-| `JSONFIELD` | Yes | `json_field` | Extracted but **not used by engine** |
-| `MAPPING_4_JSONPATH` | Yes | `mapping` | Parsed as list of `{schema_column, query}` dicts |
-| `TSTATCATCHER_STATS` | No | -- | **Not extracted** |
-| `PROPERTY_TYPE` | No | -- | Not needed (always Built-In) |
-| `Mapping.Get Nodes` | No | -- | **Not extracted** (XPath mode only) |
-| `Mapping.Is Array` | No | -- | **Not extracted** (XPath mode only) |
+**Component family**: Processing
+**Available in**: All Talend products (Standard). Also available in Spark Batch, Spark Streaming variants.
+**Required JARs**: JSONPath library JARs (version-dependent), Nashorn JAR (for XPath mode on JDK 11+)
 
-### Schema Extraction
+### 3.1 Basic Settings
 
-| Attribute | Extracted? | Notes |
-|-----------|-----------|-------|
-| `name` | Yes | Populated by general schema parsing |
-| `type` | Yes | Via `ExpressionConverter.convert_type()` |
-| `nullable` | Yes | |
-| `key` | Yes | |
-| `length` | Yes | |
-| `precision` | Yes | |
-| `pattern` | Yes | Java date pattern converted to Python strftime |
+| # | Parameter | Talend XML Name | Type | Default | Description |
+|---|-----------|-----------------|------|---------|-------------|
+| 1 | Property Type | `PROPERTY_TYPE` | Built-In / Repository | Built-In | Whether config comes from metadata repository or is inline. Not needed at runtime. |
+| 2 | Schema | `SCHEMA` | Schema editor | -- | Column definitions for output structure. Must match mapping column names. |
+| 3 | Read By | `READ_BY` | Enum | JsonPath | Extraction method: `JsonPath` or `Xpath`. Determines which query syntax is used for loop and mapping. |
+| 4 | JSONPath API Version | `JSON_PATH_VERSION` / `API_VERSION` | Enum | Latest (2_1_0) | JSONPath library version selection. Affects query syntax support. Only visible when `READ_BY=JsonPath`. |
+| 5 | Loop JSONPath Query | `LOOP_QUERY` / `JSON_LOOP_QUERY` | String (Expression) | -- | **Mandatory**. JSONPath expression for the loop node, e.g., `"$.store.goods.book[*]"`. Defines the iteration context for field extraction. Each match produces one output row. |
+| 6 | Loop XPath Query | `LOOP_XPATH_QUERY` | String (Expression) | -- | **Mandatory (XPath mode)**. XPath expression for the loop node. Only visible when `READ_BY=Xpath`. |
+| 7 | Mapping Table | `MAPPING_4_JSONPATH` | Table | -- | Column-to-JSONPath mappings. Each row maps a schema column to a JSONPath query expression. Auto-populated from schema. |
+| 8 | JSON Field | `JSONFIELD` | String | First column | Specifies which input column contains the JSON data to parse. If not set, uses the first column. |
+| 9 | Die On Error | `DIE_ON_ERROR` | Boolean (CHECK) | `false` | Stop the entire job on extraction error. When unchecked, failed rows are routed to the REJECT flow (if connected) or silently dropped. |
 
-### Mapping Table Parsing Analysis
+### 3.2 Advanced Settings
 
-The converter parses `MAPPING_4_JSONPATH` by iterating `elementValue` entries in steps of 2
-(line 2472-2476):
+| # | Parameter | Talend XML Name | Type | Default | Description |
+|---|-----------|-----------------|------|---------|-------------|
+| 10 | Use Loop Node as Root | `USE_LOOP_AS_ROOT` | Boolean (CHECK) | `false` | When enabled, restricts mapping queries to children of the loop node. When disabled, mapping queries are executed against the full JSON document. Affects query context resolution. |
+| 11 | Split List | `SPLIT_LIST` | Boolean (CHECK) | `false` | When a JSONPath query returns an array, split each element into a separate output row rather than serializing the array. |
+| 12 | Encoding | `ENCODING` | Dropdown / Custom | `UTF-8` | Character encoding for JSON data handling. |
+| 13 | tStatCatcher Statistics | `TSTATCATCHER_STATS` | Boolean (CHECK) | `false` | Capture processing metadata for tStatCatcher. Rarely used. |
+| 14 | Label | `LABEL` | String | -- | Text label for the component in Talend Studio. No runtime impact. |
 
+### 3.3 Connection Types
+
+| Connector | Direction | Type | Description |
+|-----------|-----------|------|-------------|
+| `FLOW` (Main) | Input | Row > Main | Incoming rows containing JSON data in one column. Required -- component cannot function without upstream data. |
+| `FLOW` (Main) | Output | Row > Main | Successfully extracted rows matching the output schema. One output row per loop query match per input row. |
+| `REJECT` | Output | Row > Reject | Rows that failed JSON parsing or field extraction. Includes ALL original schema columns (with partial data) PLUS `errorCode` (String) and `errorMessage` (String). Only active when `DIE_ON_ERROR=false`. |
+| `SUBJOB_OK` | Output (Trigger) | Trigger | Fires when the entire subjob containing this component completes successfully. |
+| `SUBJOB_ERROR` | Output (Trigger) | Trigger | Fires when the subjob fails with an error. |
+| `COMPONENT_OK` | Output (Trigger) | Trigger | Fires when this specific component completes successfully. |
+| `COMPONENT_ERROR` | Output (Trigger) | Trigger | Fires when this specific component fails. |
+
+### 3.4 GlobalMap Variables
+
+| Variable Pattern | Type | When Set | Description |
+|------------------|------|----------|-------------|
+| `{id}_NB_LINE` | Integer | After execution | Total number of input rows processed. |
+| `{id}_NB_LINE_OK` | Integer | After execution | Number of rows successfully output via FLOW. |
+| `{id}_NB_LINE_REJECT` | Integer | After execution | Number of rows sent to REJECT flow. |
+| `{id}_ERROR_MESSAGE` | String | On error | Last error message if any error occurred. |
+
+### 3.5 Behavioral Notes
+
+1. **Loop query semantics**: The loop query defines the iteration context. For `$.data[*]`, each array element under `data` produces one output row. If the loop query matches zero elements, the input row produces zero output rows (NOT an error).
+
+2. **Mapping query context**: When `USE_LOOP_AS_ROOT=true`, mapping queries like `$.name` are resolved relative to the current loop item. When `false`, `$.name` resolves against the full JSON document. This distinction is critical for correct field extraction.
+
+3. **REJECT flow**: When `DIE_ON_ERROR=false` and a REJECT link is connected, rows that fail JSON parsing (malformed JSON) or field extraction are sent to REJECT with `errorCode` and `errorMessage`. When REJECT is NOT connected, errors are silently dropped.
+
+4. **JSONPath vs XPath**: The `READ_BY` parameter controls which query syntax is used. JSONPath is the modern default; XPath is legacy. The two modes use different loop and mapping parameters.
+
+5. **JSON Field selection**: The `JSONFIELD` parameter specifies which input column contains JSON data. When not set, the component uses the first column. This is important when the input flow has multiple columns.
+
+6. **Array handling**: When a JSONPath query returns multiple values (array), Talend serializes the array as a JSON string in the output column. With `SPLIT_LIST=true`, each element becomes a separate output row instead.
+
+7. **NB_LINE semantics**: `NB_LINE` counts INPUT rows processed, not output rows. Since one input row can produce multiple output rows (via loop query array expansion), `NB_LINE_OK` may exceed `NB_LINE`.
+
+8. **Null/missing fields**: When a mapping query matches no value in the current loop item, Talend sets the output column to null. This differs from setting it to empty string.
+
+---
+
+## 4. Converter Audit
+
+### 4.1 Parameter Extraction
+
+The converter uses a **dedicated parser method** (`parse_textract_json_fields()` in `component_parser.py` lines 2448-2478). This is dispatched correctly via `converter.py` line 327: `elif component_type == 'tExtractJSONFields': component = self.component_parser.parse_textract_json_fields(node, component)`.
+
+**Converter flow**:
+1. `converter.py:_parse_component()` calls `component_parser.parse_base_component(node)` for generic parameter extraction
+2. Then calls `component_parser.parse_textract_json_fields(node, component)` for tExtractJSONFields-specific parameters
+3. `parse_textract_json_fields()` uses local `get_param()` helper to extract `elementParameter` values
+4. Mapping table is parsed from `MAPPING_4_JSONPATH` `elementValue` children with stride-2 assumption
+
+| # | Talend XML Parameter | Extracted? | V1 Config Key | Converter Line | Notes |
+|----|----------------------|------------|---------------|----------------|-------|
+| 1 | `READ_BY` | Yes | `read_by` | 2455 | Default `'JSONPATH'`. Extracted but **never used by engine** -- engine always uses JSONPath. |
+| 2 | `JSON_PATH_VERSION` | Yes | `json_path_version` | 2456 | Default `'2_1_0'`. Extracted but **never used by engine**. |
+| 3 | `LOOP_QUERY` / `JSON_LOOP_QUERY` | Yes | `loop_query` | 2458-2461 | Tries `LOOP_QUERY` first, falls back to `JSON_LOOP_QUERY`. Strips surrounding quotes. |
+| 4 | `DIE_ON_ERROR` | Yes | `die_on_error` | 2462 | Boolean conversion from string `'true'/'false'`. Correct. |
+| 5 | `ENCODING` | Yes | `encoding` | 2463 | Default `'UTF-8'`. Matches Talend default for this component. |
+| 6 | `USE_LOOP_AS_ROOT` | Yes | `use_loop_as_root` | 2464 | Boolean conversion. Extracted but **not implemented by engine**. |
+| 7 | `SPLIT_LIST` | Yes | `split_list` | 2465 | Boolean conversion. Extracted but **not implemented by engine**. |
+| 8 | `JSONFIELD` | Yes | `json_field` | 2466 | Extracted but **engine always uses first column** (hardcoded `row[0]`). |
+| 9 | `MAPPING_4_JSONPATH` | Yes | `mapping` | 2468-2477 | Parsed as list of `{schema_column, query}` dicts. See issues below. |
+| 10 | `LOOP_XPATH_QUERY` | **No** | -- | -- | XPath loop query not extracted. XPath mode completely unsupported. |
+| 11 | `MAPPING_XPATH` | **No** | -- | -- | XPath mapping queries not extracted. |
+| 12 | `MAPPING_GET_NODES` | **No** | -- | -- | XPath-specific. Not extracted. |
+| 13 | `MAPPING_IS_ARRAY` | **No** | -- | -- | XPath-specific array flag not extracted. |
+| 14 | `TSTATCATCHER_STATS` | **No** | -- | -- | Not extracted (low priority). |
+
+**Summary**: 9 of 14 parameters extracted (64%). 5 missing parameters relate to XPath mode (3), runtime metadata (1), and label (1). The critical JSONPath parameters are all extracted.
+
+### 4.2 Schema Extraction
+
+Schema is extracted generically in `parse_base_component()` for both FLOW and REJECT connectors.
+
+| Schema Attribute | Extracted? | Notes |
+|------------------|-----------|-------|
+| `name` | Yes | Column name |
+| `type` | Yes | Converted to Python types via `ExpressionConverter.convert_type()` |
+| `nullable` | Yes | Boolean from string |
+| `key` | Yes | Boolean from string |
+| `length` | Yes | Integer if present |
+| `precision` | Yes | Integer if present |
+| `pattern` (date) | Yes | Java-to-Python date pattern conversion |
+| `default` | **No** | Column default not extracted |
+| `talendType` | **No** | Original Talend type not preserved |
+
+### 4.3 Converter Issues
+
+| ID | Priority | Issue |
+|----|----------|-------|
+| CONV-EJF-001 | **P1** | **Mapping table stride-2 parsing is fragile**: Lines 2472-2476 assume `elementValue` children alternate between schema column and query in strict pairs. If the Talend XML structure has additional attributes (e.g., `GET_NODES`, `IS_ARRAY` from XPath mode) interleaved, or if the entry count is odd, the parser will either crash (`IndexError` at `entries[i+1]`) or silently misalign columns with queries. No bounds checking on `i+1`. |
+| CONV-EJF-002 | **P2** | **XPath mode completely unsupported**: `LOOP_XPATH_QUERY`, `MAPPING_XPATH`, `MAPPING_GET_NODES`, `MAPPING_IS_ARRAY` are all unextracted. Jobs using `READ_BY=Xpath` will produce incomplete config with no loop query. The engine will crash at runtime with "Missing required config: 'loop_query'" since XPath queries are not mapped. |
+| CONV-EJF-003 | **P2** | **`json_field` extracted but engine ignores it**: Converter extracts `JSONFIELD` (line 2466) but engine hardcodes `row[0]` (line 170). If input has multiple columns and `JSONFIELD` specifies column 2, the wrong column is parsed. Silent data corruption. |
+| CONV-EJF-004 | **P2** | **Schema type format violates STANDARDS.md**: Types converted to Python format (`str`, `int`) instead of Talend format (`id_String`, `id_Integer`). Same issue as other components -- cross-cutting. |
+| CONV-EJF-005 | **P3** | **Misplaced comment in `_map_component_parameters()`**: Line 294 of `component_parser.py` reads `# tExtractJSONFields mapping` but the code block below (lines 295-309) handles `tExtractDelimitedFields`. This is a copy-paste error in the comment that causes developer confusion. |
+| CONV-EJF-008 | **P1** | **Converter mapping parser ignores `elementRef` attribute**: Lines 2472-2476 rely on fragile positional stride-2 ordering of `elementValue` children instead of using the semantic `elementRef` attribute to distinguish schema-column entries from query entries. This means the parser assumes strict column/query alternation by position rather than by declared role. If the Talend XML emits entries in a different order, or if additional entry types are interleaved, the parser silently misaligns columns with queries. This is the root cause of CONV-EJF-001. |
+
+---
+
+## 5. Engine Feature Parity
+
+### 5.1 Feature Implementation Status
+
+| # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
+|----|----------------|-------------|----------|-----------------|-------|
+| 1 | Parse JSON from input column | **Yes** | Medium | `_process()` line 170 | Uses `json.loads(row[0])` -- **hardcoded to first column**. Ignores `json_field` config. |
+| 2 | Loop JSONPath query | **Yes** | High | `_extract_fields()` line 258 | Parses loop query, iterates matches. Each match produces one output row. |
+| 3 | Field mapping extraction | **Yes** | Medium | `_extract_fields()` lines 273-329 | Supports `schema_column`/`column` and `query`/`jsonpath` key variants. |
+| 4 | Die on error | **Yes** | High | `_process()` lines 182-188 | Raises `ComponentExecutionError` on row error when `die_on_error=true`. |
+| 5 | REJECT flow | **Partial** | Low | `_process()` lines 191-195 | Produces reject rows with `errorJSONField`, `errorCode`, `errorMessage`. **Missing**: Does not include all original schema columns. Only captures `row[0]` as `errorJSONField`. |
+| 6 | Wildcard query handling | **Yes** | Medium | `_extract_fields()` lines 305-313 | Detects `[*]` or `.*` in query string to preserve arrays. Heuristic-based, not semantic. |
+| 7 | Complex object serialization | **Yes** | High | `_process()` lines 208-209 | Serializes list/dict values to JSON strings via `json.dumps()`. |
+| 8 | Empty input handling | **Yes** | High | `_process()` lines 141-144 | Returns empty DataFrames for None/empty input. |
+| 9 | Statistics tracking | **Yes** | Medium | `_process()` line 220 | `_update_stats(rows_in, rows_out, rows_rejected)`. NB_LINE counts input rows, NB_LINE_OK counts output rows. |
+| 10 | **JSON Field column selection** | **No** | N/A | -- | `json_field` config is ignored. Always reads `row[0]`. |
+| 11 | **Use Loop As Root** | **No** | N/A | -- | `use_loop_as_root` config is extracted but never read by engine. The `_is_relative_query()` heuristic partially mimics this behavior but is hardcoded to specific property names. |
+| 12 | **Split List** | **No** | N/A | -- | `split_list` config is extracted but never read by engine. Array results are serialized as JSON strings, never split into separate rows. |
+| 13 | **XPath mode** | **No** | N/A | -- | No XPath support at all. Only JSONPath via `jsonpath_ng` library. |
+| 14 | **Query context (relative vs absolute)** | **Broken** | N/A | `_is_relative_query()` lines 341-364 | Hardcoded property-name heuristic. See BUG-EJF-003. |
+| 15 | **`{id}_ERROR_MESSAGE` globalMap** | **No** | N/A | -- | Error message not stored in globalMap. |
+| 16 | **Encoding support** | **No** | N/A | -- | `encoding` config is extracted but never used. `json.loads()` operates on Python strings (already decoded). Would be relevant if input were bytes. |
+
+### 5.2 Behavioral Differences from Talend
+
+| ID | Priority | Description |
+|----|----------|-------------|
+| ENG-EJF-001 | **P0** | **`_is_relative_query()` is a hardcoded heuristic that silently produces wrong results**: Lines 341-364 determine whether a JSONPath query runs against the current loop item or the full document. The method uses a hardcoded list of "relative patterns" (`$.skill`, `$.level`, `$.name`, `$.value`) that is never actually referenced (dead code on lines 352-357), and a heuristic `query.count('.') <= 1 and not query.startswith('$.employee')` (line 361) that is specific to one test case. This means: (a) `$.employee.name` is treated as absolute (runs on full doc) even when the loop iterates employees; (b) `$.address` is treated as relative even when it should access the root `address` field; (c) the hardcoded `$.employee` check is specific to one test case, not a general solution. In Talend, `USE_LOOP_AS_ROOT` controls this behavior deterministically. This bug causes **silent data corruption** -- wrong values extracted without any error. |
+| ENG-EJF-002 | **P1** | **No `json_field` column selection**: Engine hardcodes `row[0]` (line 170) regardless of `json_field` config. If the input DataFrame has the JSON column at index 1 or later, the wrong column is parsed. This causes either `json.loads` failure (if column 0 is not JSON) or silent extraction of wrong data (if column 0 happens to be valid but different JSON). |
+| ENG-EJF-003 | **P1** | **No `use_loop_as_root` implementation**: Config value is extracted by converter but never read. The broken `_is_relative_query()` heuristic is the only mechanism, and it does not consult this config flag. |
+| ENG-EJF-004 | **P1** | **No `split_list` implementation**: When a JSONPath query returns an array, Talend with `SPLIT_LIST=true` creates separate output rows per element. V1 always serializes arrays as JSON strings. Jobs relying on `SPLIT_LIST` will get a single column containing `[1, 2, 3]` instead of three separate rows. |
+| ENG-EJF-005 | **P1** | **REJECT flow missing original schema columns**: Talend REJECT includes ALL schema columns (with partial data) plus `errorCode` and `errorMessage`. V1 reject only includes `errorJSONField` (raw JSON string), `errorCode`, and `errorMessage`. Downstream components expecting schema-conformant reject rows will fail. |
+| ENG-EJF-006 | **P2** | **No-match loop query falls back to entire document**: When the loop query matches zero elements (line 264-266), the engine falls back to `matches = [json_data]`, processing the entire JSON document as a single item. In Talend, zero loop matches produce zero output rows. This fallback produces one spurious output row with potentially incorrect values. |
+| ENG-EJF-007 | **P2** | **`{id}_ERROR_MESSAGE` not set in globalMap**: When errors occur, the error message is not stored in globalMap for downstream reference. |
+| ENG-EJF-008 | **P2** | **NB_LINE semantics mismatch**: `_update_stats(rows_in, rows_out, rows_rejected)` passes `rows_in` (input row count) as NB_LINE and `rows_out` (output row count including expanded rows from loop) as NB_LINE_OK. Since one input row can produce N output rows via array expansion, NB_LINE_OK can exceed NB_LINE, which is correct per Talend semantics. However, `rows_rejected` only counts input rows that failed entirely -- partial extraction failures within a single row (individual mapping queries failing) are not counted as rejects. |
+| ENG-EJF-009 | **P3** | **No XPath mode**: Jobs using `READ_BY=Xpath` will fail. XPath is legacy and rarely used, but it is a documented Talend feature. |
+
+### 5.3 GlobalMap Variable Coverage
+
+| Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
+|----------|-------------|----------|-----------------|-------|
+| `{id}_NB_LINE` | Yes | **Yes** | `_update_stats()` -> `_update_global_map()` -> `global_map.put_component_stat()` | Set correctly via base class mechanism (if `_update_global_map()` bug is fixed). |
+| `{id}_NB_LINE_OK` | Yes | **Yes** | Same mechanism | Counts output rows (post-expansion). |
+| `{id}_NB_LINE_REJECT` | Yes | **Yes** | Same mechanism | Counts input rows that failed entirely. |
+| `{id}_ERROR_MESSAGE` | Yes (official) | **No** | -- | Not implemented. |
+| `{id}_EXECUTION_TIME` | N/A (v1 only) | **Yes** | Base class | V1-specific, not in Talend. |
+
+---
+
+## 6. Code Quality
+
+### 6.1 Bugs
+
+| ID | Priority | Location | Description |
+|----|----------|----------|-------------|
+| BUG-EJF-001 | **P0** | `src/v1/engine/base_component.py:304` | **`_update_global_map()` references undefined variable `value`**: The log statement on line 304 uses `{stat_name}: {value}` but the variable in the for loop (line 301) is named `stat_value`, not `value`. This causes `NameError` at runtime whenever `global_map` is not None. **CROSS-CUTTING**: This bug affects ALL components, not just ExtractJSONFields, since `_update_global_map()` is called by `execute()` on line 218 after every component execution. Every component will crash when globalMap is provided. |
+| BUG-EJF-002 | **P0** | `src/v1/engine/global_map.py:26-28` | **`GlobalMap.get()` references undefined `default` parameter**: The method signature is `def get(self, key: str) -> Optional[Any]` (line 26), but the body calls `self._map.get(key, default)` (line 28). The `default` parameter is not in the method signature, causing `NameError` on every `.get()` call. Additionally, `get_component_stat()` on line 58 calls `self.get(key, default)` with two arguments, but `get()` only accepts one. **CROSS-CUTTING**: Affects all code using `global_map.get()`. |
+| BUG-EJF-003 | **P0** | `src/v1/engine/components/transform/extract_json_fields.py:341-364` | **`_is_relative_query()` is a hardcoded heuristic causing silent data corruption**: The method contains a hardcoded list of "relative patterns" (`$.skill`, `$.level`, `$.name`, `$.value`) that are never actually used (dead code on lines 352-357), and a heuristic `query.count('.') <= 1 and not query.startswith('$.employee')` (line 361) that is specific to one test case. For ANY query with 2+ dots (e.g., `$.address.city`), the method returns `False`, causing the query to run against the full document instead of the current loop item. For example, with loop query `$.employees[*]` and mapping query `$.department.name`, the query runs on the full document root rather than the current employee object, producing incorrect results with no error or warning. This is not a theoretical bug -- it will silently produce wrong data for any non-trivial nested JSON structure. |
+| BUG-EJF-004 | **P1** | `src/v1/engine/components/transform/extract_json_fields.py:170` | **`json.loads(row[0])` crashes on non-string values**: `row[0]` may be `NaN` (float), `None`, a numeric value, or already a parsed dict/list (if upstream component produced Python objects rather than JSON strings). `json.loads()` requires a string argument. Passing `NaN` raises `TypeError: the JSON object must be str, bytes or bytearray, not float`. Passing `None` raises `TypeError`. This is caught by the outer try/except (line 179), but with `die_on_error=true`, the entire job crashes on a single NaN cell. With `die_on_error=false`, the row is rejected, but the error message is unhelpful (`TypeError` instead of "Column value is not a valid JSON string"). |
+| BUG-EJF-005 | **P1** | `src/v1/engine/components/transform/extract_json_fields.py:264-266` | **Zero loop matches fallback to entire document**: When the loop query matches zero elements, the engine falls back to `matches = [json_data]`. This produces a spurious output row. In Talend, zero matches produce zero rows. Example: `loop_query="$.nonexistent[*]"` on `{"data": [1,2,3]}` -- Talend produces 0 rows; V1 produces 1 row with the entire JSON as context, likely extracting `""` for all mapped fields. |
+| BUG-EJF-006 | **P1** | `src/v1/engine/components/transform/extract_json_fields.py:71-109` | **`_validate_config()` does not validate JSONPath syntax**: Unlike other components where `_validate_config()` is dead code, this component DOES call it (line 130-134). However, it does not validate JSONPath syntax (invalid queries like `$.[[[` pass validation and crash at runtime in `_extract_fields()`), does not check `json_field` existence, and does not validate that mapping queries are parseable. |
+| BUG-EJF-007 | **P2** | `src/v1/engine/components/transform/extract_json_fields.py:301-303` | **No-match fields set to empty string instead of None**: When a JSONPath query returns no matches (line 301-303), the value is set to `row[col] = ''` (empty string). In Talend, missing fields produce `null`. This difference means: (a) downstream null checks (`pd.isna()`) will not detect missing values; (b) numeric columns will contain empty strings instead of NaN, causing type conversion failures; (c) `validate_schema()` integer conversion with `pd.to_numeric(errors='coerce')` will convert `''` to NaN then `fillna(0)` to 0, masking missing data. |
+| BUG-EJF-008 | **P2 -- DOWNGRADED (Not a bug)** | `src/v1/engine/components/transform/extract_json_fields.py:208-209` | **Serialization lambda NaN/None bypass is correct behavior**: The lambda `lambda v: json.dumps(v) if isinstance(v, (list, dict)) else v` lets `NaN` and `None` pass through unchanged. This is actually correct -- `json.dumps(None)` would produce the string `'null'` which is wrong (it would inject a literal string into the output instead of preserving the Python null/NaN sentinel). The pass-through allows downstream pandas operations and `validate_schema()` to handle nulls properly. **Previously reported as a bug; downgraded after adversarial review.** |
+| BUG-EJF-009 | **P2** | `src/v1/engine/components/transform/extract_json_fields.py:192` | **Reject flow accesses `row[0]` which may fail on non-integer index**: In the reject handler (line 192), `'errorJSONField': row[0]` assumes the DataFrame has integer-indexed columns. If the input DataFrame has named columns, `row[0]` accesses the first column by position (which works for positional indexing via `.iterrows()`), but if the first column contains a non-serializable value (e.g., a large binary blob), this could cause issues in downstream processing of the reject DataFrame. |
+| BUG-EJF-010 | **P1** | `src/v1/engine/components/transform/extract_json_fields.py:322-325` | **Per-mapping `except Exception` silently swallows configuration errors**: The per-field extraction try/except (lines 322-325) catches all exceptions and sets the field to `''`. This means a bad JSONPath syntax error in a mapping query (e.g., `$.[[[`) fails silently on every single row, producing `''` for that column with zero visibility. There is no per-field error accumulation, no counter for how many times a mapping query failed, and the warning log (line 324) is easily lost in verbose output. A systemic configuration error (wrong JSONPath in mapping) is indistinguishable from "field not present in data". This should at minimum accumulate per-field failure counts and surface them at the end of processing. |
+| BUG-EJF-011 | **P2** | `src/v1/engine/components/transform/extract_json_fields.py:192` | **Reject output stores entire raw JSON per failed row**: The reject handler stores `'errorJSONField': row[0]` which is the full raw JSON string from the input column. For large JSON documents (multi-MB per row), this creates a memory bomb in the reject DataFrame -- every failed row duplicates the entire JSON payload. The reject output also lacks a row index for correlation back to the input DataFrame, making debugging difficult. Should store a truncated preview and the original row index instead. |
+| BUG-EJF-012 | **P3** | `src/v1/engine/components/transform/extract_json_fields.py:305` | **Wildcard detection via string matching is fragile**: The check `'[*]' in query or '.*' in query` (line 305) uses string containment to detect wildcard queries. This can false-positive on queries like `$.field_with_star_name` (contains `.*` as part of field name) or false-negative on recursive descent (`$..field`). A semantic check on the parsed JSONPath expression would be more reliable. |
+
+### 6.2 Naming Consistency
+
+| ID | Priority | Issue |
+|----|----------|-------|
+| NAME-EJF-001 | **P2** | **Dual key support (`schema_column`/`column`, `query`/`jsonpath`)**: Lines 275-277 support two different key names for each mapping field. This is defensive coding but undocumented -- the converter always produces `schema_column` and `query`. The `column`/`jsonpath` variants appear to be legacy or from a different converter version. Should be documented or deprecated. |
+| NAME-EJF-002 | **P3** | **`errorJSONField` in reject output** vs Talend's pattern of including all schema columns. The key name is non-standard and not aligned with Talend reject schema conventions. |
+
+### 6.3 Standards Compliance
+
+| ID | Priority | Standard | Violation |
+|----|----------|----------|-----------|
+| STD-EJF-001 | **P1** | "`_validate_config()` should catch all configuration errors" | Validation does not check JSONPath syntax validity. Invalid queries pass validation and crash in `_extract_fields()`. |
+| STD-EJF-002 | **P2** | "Use Talend type format (`id_String`) in schemas" (STANDARDS.md) | Converter converts to Python types (`str`, `int`) instead of preserving Talend types. Cross-cutting issue. |
+| STD-EJF-003 | **P2** | "Use `None` for null values" (Talend compatibility) | No-match fields set to `''` (empty string) instead of `None`. Breaks null semantics. |
+
+### 6.4 Debug Artifacts
+
+| ID | Priority | Issue |
+|----|----------|-------|
+| DBG-EJF-001 | **P3** | **Excessive debug logging in hot path**: Lines 167, 171, 175, 261, 271, 282, 290, 294, 298, 304, 313, 320, 325, 329, 332 all contain `logger.debug()` calls inside the row-processing and field-extraction loops. For a DataFrame with 100K rows and 10 fields, this generates 1M+ debug log messages even when debug logging is disabled (the f-string formatting still executes). Should use `logger.isEnabledFor(logging.DEBUG)` guard or lazy formatting (`logger.debug("msg %s", var)`). |
+| DBG-EJF-002 | **P3** | **Dead code in `_is_relative_query()`**: Lines 352-357 define `relative_patterns` list but never use it. The list is assigned to a local variable that is never referenced. |
+
+### 6.5 Security
+
+| ID | Priority | Issue |
+|----|----------|-------|
+| SEC-EJF-001 | **P3** | **No JSONPath injection protection**: JSONPath queries from config are passed directly to `jsonpath_ng.parse()`. If config is attacker-controlled (unlikely in Talend-converted jobs), malicious queries could cause DoS via pathological expressions (deep recursion, excessive wildcards). Not a concern for trusted Talend-converted configs. |
+
+### 6.6 Logging Quality
+
+| Aspect | Assessment |
+|--------|------------|
+| Logger setup | Module-level `logger = logging.getLogger(__name__)` -- correct |
+| Component ID prefix | All log messages use `[{self.id}]` prefix -- correct |
+| Level usage | INFO for start/complete, DEBUG for details, WARNING for recoverable issues, ERROR for failures -- correct |
+| Start/complete logging | `_process()` logs start (line 147) and completion (line 221-222) -- correct |
+| Sensitive data | No sensitive data logged (JSON content in debug only) -- acceptable |
+| No print statements | No `print()` calls -- correct |
+| Performance concern | See DBG-EJF-001 -- excessive debug logging in hot path |
+
+### 6.7 Error Handling Quality
+
+| Aspect | Assessment |
+|--------|------------|
+| Custom exceptions | Uses `ConfigurationError` and `ComponentExecutionError` -- correct |
+| Exception chaining | Uses `raise ... from e` pattern on line 188 -- correct |
+| `die_on_error` handling | Three-tier: config validation raises always (line 134), row-level respects flag (line 183-188), outer catch-all wraps in `ComponentExecutionError` (line 237) -- correct structure |
+| No bare `except` | All except clauses specify `Exception` -- correct |
+| Error messages | Include component ID, row index, and error details -- correct |
+| Graceful degradation | Returns empty DataFrame for empty input (line 144) -- correct |
+| **Gap** | Individual mapping query failures (line 322-325) are silently caught and set to `''`. No mechanism to report partial extraction failures. Talend would include these in reject output. See BUG-EJF-010. |
+
+### 6.8 Type Hints
+
+| Aspect | Assessment |
+|--------|------------|
+| Method signatures | All methods have return type hints -- correct |
+| Parameter types | `_process()`, `_extract_fields()`, `_is_relative_query()` all have parameter type hints -- correct |
+| Complex types | Uses `Dict[str, Any]`, `List[Dict]`, `Optional[pd.DataFrame]` -- correct |
+| `DataValidationError` imported but unused | Line 14 imports `DataValidationError` but it is never raised -- minor dead import |
+
+---
+
+## 7. Performance & Memory
+
+| ID | Priority | Issue |
+|----|----------|-------|
+| PERF-EJF-001 | **P1** | **Row-by-row processing via `iterrows()`**: Line 165 uses `input_data.iterrows()` to process each row individually. For DataFrames with 100K+ rows, this is extremely slow compared to vectorized approaches. Each row triggers `json.loads()`, `jsonpath_ng.parse()` (compiles JSONPath expression from scratch), and individual field extractions. The JSONPath compilation happens INSIDE the row loop for BOTH the loop query (line 258) and each mapping query (lines 289, 293), meaning for N rows and M mappings, there are `N * (1 + M)` JSONPath compilations of the SAME expressions. |
+| PERF-EJF-002 | **P2** | **No JSONPath expression caching**: `jsonpath_ng.parse()` compiles a JSONPath expression string into an expression tree. The same expressions (loop_query, mapping queries) are parsed on every row and every field. Caching the compiled expressions outside the row loop would eliminate redundant compilation. For 100K rows with 5 mappings, this eliminates 600K unnecessary parse calls. |
+| PERF-EJF-003 | **P3** | **Debug logging f-string evaluation in hot path**: See DBG-EJF-001. Even when debug level is disabled, Python still evaluates all f-string expressions, including `{row.values}`, `{json_data}`, `{extracted_rows}` which may involve serializing large objects. |
+
+### 7.1 Memory Management Assessment
+
+| Aspect | Assessment |
+|--------|------------|
+| Output accumulation | `main_output` list (line 161) accumulates all extracted rows in memory before converting to DataFrame (line 198). For large JSON arrays producing many rows, this can use significant memory. |
+| Reject accumulation | `reject_output` list (line 162) accumulates all reject rows. Typically small. |
+| JSON parsing | `json.loads()` creates in-memory representation of full JSON per row. Large JSON documents consume proportional memory. |
+| No streaming support | Unlike file input components, there is no streaming/chunked mode for JSON extraction itself. The base class `_execute_streaming()` chunks the INPUT DataFrame, but each chunk is still processed row-by-row. |
+
+### 7.2 Streaming Mode Limitations
+
+| Issue | Description |
+|-------|-------------|
+| Reject output lost in streaming | Base class `_execute_streaming()` (line 270-271) only collects `chunk_result['main']`. The `reject` key from `_process()` return value is silently dropped. Streaming mode loses ALL reject data. |
+| Stats accumulation | `_update_stats()` is called per chunk via `_process()`. Base class correctly accumulates via `+=` (lines 308-310). |
+| No output streaming | Even in streaming mode, each chunk's output is accumulated in `results` list and then `pd.concat()`ed (line 275). For very large output (e.g., many loop matches per input row), this can exhaust memory. |
+
+---
+
+## 8. Testing
+
+### 8.1 Current Coverage
+
+| Test Type | Exists? | File | Notes |
+|-----------|---------|------|-------|
+| V1 engine unit tests | **No** | -- | Zero test files found for `ExtractJSONFields` v1 engine component |
+| V1 engine integration tests | **No** | -- | No v1 engine integration tests found |
+
+**Key finding**: The v1 engine has ZERO tests for this component. All 364 lines of v1 engine code are completely unverified.
+
+### 8.2 Recommended Test Cases
+
+#### P0 -- Must Have Before Production
+
+| # | Test Case | Priority | Description |
+|----|-----------|----------|-------------|
+| 1 | Basic JSON extraction | P0 | Input DataFrame with JSON strings, simple loop query `$.items[*]`, extract `$.name` and `$.value`. Verify correct column values. |
+| 2 | Empty input DataFrame | P0 | Pass empty DataFrame. Verify empty result, stats (0, 0, 0), no error. |
+| 3 | None input | P0 | Pass `None`. Verify empty result, stats (0, 0, 0). |
+| 4 | Invalid JSON + die_on_error=true | P0 | Input with malformed JSON string. Verify `ComponentExecutionError` raised. |
+| 5 | Invalid JSON + die_on_error=false | P0 | Input with malformed JSON string. Verify reject DataFrame has the error, main has remaining rows. |
+| 6 | Statistics tracking | P0 | Verify `NB_LINE`, `NB_LINE_OK`, `NB_LINE_REJECT` correct after extraction. |
+| 7 | `_is_relative_query()` correctness | P0 | Verify that mapping queries for nested properties (e.g., `$.address.city`) resolve correctly against loop items, NOT the full document. **This test will FAIL with current code**, demonstrating BUG-EJF-003. |
+
+#### P1 -- Important
+
+| # | Test Case | Priority | Description |
+|----|-----------|----------|-------------|
+| 8 | NaN in JSON column | P1 | Input DataFrame with NaN in column 0. Verify graceful handling (reject row, not crash). |
+| 9 | Non-string in JSON column | P1 | Input DataFrame with integer/dict/None in column 0. Verify correct behavior. |
+| 10 | Nested JSON extraction | P1 | Loop on `$.data.records[*]`, extract `$.details.name`. Verify nested path resolution. |
+| 11 | Array result serialization | P1 | Mapping query returns array. Verify serialized as JSON string in output. |
+| 12 | Multiple input rows | P1 | Input with 5 rows, each containing different JSON. Verify all rows processed. |
+| 13 | Loop query with zero matches | P1 | Loop query matches nothing. Verify zero output rows (currently buggy -- produces 1 row). |
+| 14 | `json_field` column selection | P1 | Input with multiple columns, JSON in column 2. Set `json_field`. Verify correct column used (currently ignores config). |
+| 15 | Reject flow schema | P1 | Verify reject DataFrame includes all original schema columns per Talend conventions. |
+| 16 | Config validation -- missing loop_query | P1 | Verify `ConfigurationError` raised. |
+| 17 | Config validation -- empty mapping | P1 | Verify `ConfigurationError` raised. |
+| 18 | GlobalMap integration | P1 | Verify `{id}_NB_LINE` etc. set in globalMap after execution (currently crashes due to BUG-EJF-001). |
+
+#### P2 -- Hardening
+
+| # | Test Case | Priority | Description |
+|----|-----------|----------|-------------|
+| 19 | Large DataFrame performance | P2 | Benchmark 10K rows with 5 mappings. Measure time and memory. |
+| 20 | Deeply nested JSON | P2 | JSON with 10+ nesting levels. Verify extraction works. |
+| 21 | Unicode in JSON values | P2 | JSON with CJK, emoji, RTL characters. Verify correct extraction and serialization. |
+| 22 | Empty JSON object `{}` | P2 | Input row with `"{}"`. Loop query matches nothing. Verify behavior. |
+| 23 | Empty JSON array `[]` | P2 | Input row with `"[]"`. Loop query on root array. Verify behavior. |
+| 24 | Mixed valid/invalid rows | P2 | 3 valid JSON rows, 2 invalid. Verify 3 main + 2 reject. |
+| 25 | Wildcard query false positive | P2 | Query `$.field_with_star` (contains `.*` substring). Verify not treated as wildcard. |
+| 26 | Thread safety | P2 | Two ExtractJSONFields instances processing concurrently. Verify no shared state corruption. |
+
+---
+
+## 9. Issues Summary
+
+### P0 -- Critical
+
+| ID | Category | Summary |
+|----|----------|---------|
+| BUG-EJF-001 | Bug (Cross-Cutting) | `_update_global_map()` in `base_component.py:304` references undefined variable `value` (should be `stat_value`). Will crash ALL components when `global_map` is set. |
+| BUG-EJF-002 | Bug (Cross-Cutting) | `GlobalMap.get()` in `global_map.py:28` references undefined parameter `default`. Will crash on any `global_map.get()` call. `get_component_stat()` also passes two args to single-arg `get()`. |
+| BUG-EJF-003 | Bug | `_is_relative_query()` is a hardcoded heuristic with dead code and a test-case-specific condition (`$.employee`). Causes silent data corruption for any non-trivial nested JSON. Queries with 2+ dots always run against full document instead of loop item. |
+| TEST-EJF-001 | Testing | Zero v1 unit tests for this component. All 364 lines of engine code are unverified. |
+| ENG-EJF-001 | Engine | `_is_relative_query()` heuristic silently produces wrong extraction results. Not just a code smell -- actively corrupts output data. |
+
+### P1 -- Major
+
+| ID | Category | Summary |
+|----|----------|---------|
+| CONV-EJF-001 | Converter | Mapping table stride-2 parsing is fragile. Odd entry count causes `IndexError`. No bounds checking. |
+| CONV-EJF-008 | Converter | Converter mapping parser ignores `elementRef` attribute (lines 2472-2476), relying on fragile positional stride-2 ordering instead of semantic attribute. Root cause of CONV-EJF-001. |
+| ENG-EJF-002 | Engine | No `json_field` column selection -- engine hardcodes `row[0]` regardless of config. |
+| ENG-EJF-003 | Engine | No `use_loop_as_root` implementation -- config extracted but ignored. |
+| ENG-EJF-004 | Engine | No `split_list` implementation -- arrays always serialized, never split into rows. |
+| ENG-EJF-005 | Engine | REJECT flow missing original schema columns. Only includes `errorJSONField`, not full schema. |
+| BUG-EJF-004 | Bug | `json.loads(row[0])` crashes on NaN/None/non-string values. Unhelpful `TypeError` message. |
+| BUG-EJF-005 | Bug | Zero loop matches fallback to entire document. Produces spurious output row. |
+| BUG-EJF-006 | Bug | `_validate_config()` does not validate JSONPath syntax. Invalid queries pass and crash at runtime. |
+| BUG-EJF-010 | Bug | Per-mapping `except Exception` (lines 322-325) silently swallows configuration errors. Bad JSONPath syntax in mapping query fails silently on every row, producing `''` with zero visibility. No per-field error accumulation. |
+| STD-EJF-001 | Standards | Config validation incomplete -- no JSONPath syntax checking. |
+| PERF-EJF-001 | Performance | Row-by-row `iterrows()` with per-row JSONPath `parse()` compilation. N*M redundant compilations. |
+
+### P2 -- Moderate
+
+| ID | Category | Summary |
+|----|----------|---------|
+| CONV-EJF-002 | Converter | XPath mode completely unsupported -- 4 parameters not extracted. |
+| CONV-EJF-003 | Converter | `json_field` extracted by converter but ignored by engine. Silent data corruption when JSON is not in first column. |
+| CONV-EJF-004 | Converter | Schema type format uses Python types instead of Talend types (cross-cutting). |
+| ENG-EJF-006 | Engine | Zero loop matches fallback to processing entire document instead of producing zero rows. |
+| ENG-EJF-007 | Engine | `{id}_ERROR_MESSAGE` not set in globalMap. |
+| ENG-EJF-008 | Engine | NB_LINE semantics -- partial extraction failures within a row not counted as rejects. |
+| BUG-EJF-007 | Bug | No-match fields set to `''` instead of `None`. Breaks null semantics for downstream type conversion. |
+| BUG-EJF-008 | Bug (Downgraded) | ~~Serialization lambda does not handle NaN/None explicitly.~~ NaN bypass of serialization lambda is actually correct behavior -- `json.dumps(None)` would produce `'null'` string which is wrong. **No longer considered a bug.** |
+| BUG-EJF-009 | Bug | Reject handler accesses `row[0]` -- fragile assumption about column indexing. |
+| BUG-EJF-011 | Bug | Reject output stores entire raw JSON per failed row (line 192). Memory bomb for large documents. Also lacks row index for correlation. |
+| NAME-EJF-001 | Naming | Dual key support (`schema_column`/`column`, `query`/`jsonpath`) undocumented. |
+| STD-EJF-002 | Standards | Schema types in Python format, not Talend format (cross-cutting). |
+| STD-EJF-003 | Standards | No-match fields use `''` instead of `None` (breaks Talend null convention). |
+| PERF-EJF-002 | Performance | No JSONPath expression caching. Same expressions compiled N*M times. |
+
+### P3 -- Low
+
+| ID | Category | Summary |
+|----|----------|---------|
+| CONV-EJF-005 | Converter | Misplaced comment at line 294: says "tExtractJSONFields mapping" but code handles `tExtractDelimitedFields`. |
+| ENG-EJF-009 | Engine | No XPath mode support. |
+| BUG-EJF-012 | Bug | Wildcard detection via `'[*]' in query` is fragile string matching. (Renumbered from BUG-EJF-010.) |
+| NAME-EJF-002 | Naming | `errorJSONField` in reject output is non-standard key name. |
+| SEC-EJF-001 | Security | No JSONPath injection protection (low risk for trusted configs). |
+| DBG-EJF-001 | Debug | Excessive debug logging in hot path (15+ log calls per row per field). |
+| DBG-EJF-002 | Debug | Dead `relative_patterns` list in `_is_relative_query()` never referenced. |
+| PERF-EJF-003 | Performance | Debug f-string evaluation overhead in hot path. |
+
+### Issue Count Summary
+
+| Priority | Count | Categories |
+|----------|-------|------------|
+| P0 | 5 | 3 bugs (2 cross-cutting, 1 component-specific), 1 testing, 1 engine |
+| P1 | 12 | 2 converter, 4 engine, 4 bugs, 1 standards, 1 performance |
+| P2 | 14 (13 active) | 3 converter, 3 engine, 4 bugs (1 downgraded: BUG-EJF-008), 1 naming, 2 standards, 1 performance |
+| P3 | 8 | 1 converter, 1 engine, 1 bug, 1 naming, 1 security, 2 debug, 1 performance |
+| **Total** | **39 entries (38 active)** | Adversarial additions: BUG-EJF-010 (P1), CONV-EJF-008 (P1), BUG-EJF-011 (P2). BUG-EJF-008 (P2) downgraded to not-a-bug but retained for traceability. BUG-EJF-010 (P3, wildcard) renumbered to BUG-EJF-012. |
+
+---
+
+## 10. Recommendations
+
+### Immediate (Before Production)
+
+1. **Fix `_update_global_map()` bug** (BUG-EJF-001): Change `{stat_name}: {value}` to remove the stale `{value}` reference on `base_component.py` line 304. **Impact**: Fixes ALL components (cross-cutting). **Risk**: Very low.
+
+2. **Fix `GlobalMap.get()` bug** (BUG-EJF-002): Add `default: Any = None` parameter to the `get()` method signature in `global_map.py` line 26. **Impact**: Fixes ALL components. **Risk**: Very low.
+
+3. **Replace `_is_relative_query()` with `use_loop_as_root` flag** (BUG-EJF-003, ENG-EJF-001, ENG-EJF-003): Delete the entire `_is_relative_query()` method. Instead, read `self.config.get('use_loop_as_root', True)` (default True, matching Talend default behavior where mapping queries run against the loop item). When `use_loop_as_root=True`, ALL mapping queries execute on the current loop item. When `False`, queries starting with `$` execute on the full document. This is the single most impactful fix -- it eliminates silent data corruption.
+
+4. **Create unit test suite** (TEST-EJF-001): Implement at minimum the 7 P0 test cases listed in Section 8.2. These cover basic extraction, empty input, die_on_error modes, statistics, and the `_is_relative_query` regression.
+
+5. **Fix zero-match loop fallback** (BUG-EJF-005): Remove lines 264-266 (`if not matches: matches = [json_data]`). When the loop query matches zero elements, return an empty list from `_extract_fields()`. This matches Talend behavior.
+
+### Short-Term (Hardening)
+
+6. **Implement `json_field` column selection** (ENG-EJF-002): Replace `row[0]` on line 170 with `row[self.config.get('json_field', row.index[0])]`. If `json_field` is specified, use it as the column name/index. Otherwise, default to the first column.
+
+7. **Add NaN/None guard for `json.loads()`** (BUG-EJF-004): Before `json.loads(row[0])`, check `if pd.isna(row[col]) or row[col] is None:` and route to reject with a clear message. Also handle the case where `row[col]` is already a dict (skip `json.loads`).
+
+8. **Cache compiled JSONPath expressions** (PERF-EJF-001, PERF-EJF-002): Parse the loop query and all mapping queries ONCE before the row loop:
+   ```python
+   compiled_loop = parse(loop_query)
+   compiled_mappings = [(m, parse(m.get('query') or m.get('jsonpath'))) for m in mapping]
+   ```
+   Then use the compiled expressions inside the loop. This eliminates N*(1+M) redundant compilations.
+
+9. **Implement `split_list`** (ENG-EJF-004): When `self.config.get('split_list', False)` is True and a query returns a list, create one output row per element instead of serializing the list.
+
+10. **Use `None` for no-match fields** (BUG-EJF-007, STD-EJF-003): Change `row[col] = ''` (lines 303, 324, 328) to `row[col] = None`. This preserves null semantics for downstream type conversion and null-aware logic.
+
+11. **Fix REJECT flow schema** (ENG-EJF-005): Include all output schema columns (with whatever partial data was extracted) in the reject row, plus `errorCode` and `errorMessage`. Currently only includes `errorJSONField`.
+
+12. **Set `{id}_ERROR_MESSAGE` in globalMap** (ENG-EJF-007): In error handlers, call `self.global_map.put(f"{self.id}_ERROR_MESSAGE", str(e))` when `global_map` is available.
+
+### Long-Term (Optimization)
+
+13. **Add JSONPath syntax validation to `_validate_config()`** (BUG-EJF-006, STD-EJF-001): Try `parse(loop_query)` and `parse(query)` for each mapping during validation. Catch `JsonPathParserError` and add to error list.
+
+14. **Fix converter mapping table parsing** (CONV-EJF-001): Add bounds checking on `entries[i+1]` access. Handle odd entry counts gracefully. Consider parsing by `elementRef` attribute rather than stride-2 positional assumption.
+
+15. **Add debug logging guard** (DBG-EJF-001, PERF-EJF-003): Wrap hot-path debug logging with `if logger.isEnabledFor(logging.DEBUG):` or use lazy formatting `logger.debug("msg %s", var)`.
+
+16. **Consider vectorized JSON extraction** (PERF-EJF-001): For simple extraction patterns, consider using `pd.json_normalize()` or `df[col].apply(json.loads)` followed by vectorized column selection instead of row-by-row iteration.
+
+17. **Fix misplaced comment** (CONV-EJF-005): Change line 294 of `component_parser.py` from `# tExtractJSONFields mapping` to `# tExtractDelimitedFields mapping`.
+
+18. **Remove dead code** (DBG-EJF-002): Remove the unused `relative_patterns` list in `_is_relative_query()` (or delete the entire method per recommendation 3).
+
+---
+
+## Appendix A: Converter Parser Code
+
+```python
+# component_parser.py lines 2448-2478
+def parse_textract_json_fields(self, node, component: dict) -> dict:
+    """Parse tExtractJSONFields specific configuration from Talend XML node."""
+    def get_param(name, default=None):
+        param = node.find(f'.//elementParameter[@name="{name}"]')
+        return param.get('value', default) if param is not None else default
+
+    # Map Talend XML parameters to config
+    component['config']['read_by'] = get_param('READ_BY', 'JSONPATH')
+    component['config']['json_path_version'] = get_param('JSON_PATH_VERSION', '2_1_0')
+    # Remove extra quotes from loop_query
+    loop_query = get_param('LOOP_QUERY', '') or get_param('JSON_LOOP_QUERY', '')
+    if loop_query and loop_query.startswith('"') and loop_query.endswith('"'):
+        loop_query = loop_query[1:-1]
+    component['config']['loop_query'] = loop_query
+    component['config']['die_on_error'] = get_param('DIE_ON_ERROR', 'false').lower() == 'true'
+    component['config']['encoding'] = get_param('ENCODING', 'UTF-8')
+    component['config']['use_loop_as_root'] = get_param('USE_LOOP_AS_ROOT', 'false').lower() == 'true'
+    component['config']['split_list'] = get_param('SPLIT_LIST', 'false').lower() == 'true'
+    component['config']['json_field'] = get_param('JSONFIELD', '')
+
+    # Parse mapping table (MAPPING_4_JSONPATH)
+    mapping = []
+    mapping_table = node.find('.//elementParameter[@name="MAPPING_4_JSONPATH"]')
+    if mapping_table is not None:
+        entries = list(mapping_table.findall('elementValue'))
+        for i in range(0, len(entries), 2):
+            schema_col = entries[i].get('value', '').strip('"')
+            query = entries[i+1].get('value', '').strip('"')  # IndexError if odd count
+            mapping.append({'schema_column': schema_col, 'query': query})
+    component['config']['mapping'] = mapping
+    return component
+```
+
+**Notes on this code**:
+- Line 2458: Tries both `LOOP_QUERY` and `JSON_LOOP_QUERY` XML names. Good defensive coding.
+- Lines 2459-2460: Strips surrounding quotes. Talend XML stores JSONPath queries with double quotes.
+- Lines 2472-2476: Stride-2 parsing assumes strict column/query alternation. No bounds check on `entries[i+1]`.
+- Line 2466: `JSONFIELD` extracted but engine ignores it.
+- Lines 2464-2465: `USE_LOOP_AS_ROOT` and `SPLIT_LIST` extracted but engine ignores both.
+
+---
+
+## Appendix B: Engine Class Structure
+
+```
+ExtractJSONFields (BaseComponent)
+    Methods:
+        _validate_config() -> List[str]          # Called from _process(). Validates structure only.
+        _process(input_data) -> Dict[str, Any]   # Main entry point. Row-by-row processing.
+        _extract_fields(json_data, loop_query, mapping) -> List[Dict]
+                                                  # JSONPath extraction with loop iteration.
+        _is_relative_query(query) -> bool         # BROKEN. Hardcoded heuristic for query context.
+
+    Config Keys (from converter):
+        loop_query (str)          # Required. JSONPath loop expression.
+        mapping (list)            # Required. List of {schema_column, query} dicts.
+        die_on_error (bool)       # Default False.
+        read_by (str)             # Extracted but UNUSED.
+        json_path_version (str)   # Extracted but UNUSED.
+        encoding (str)            # Extracted but UNUSED.
+        use_loop_as_root (bool)   # Extracted but UNUSED.
+        split_list (bool)         # Extracted but UNUSED.
+        json_field (str)          # Extracted but UNUSED.
+
+    Returns:
+        {'main': pd.DataFrame, 'reject': pd.DataFrame}
+```
+
+---
+
+## Appendix C: Complete Talend Parameter to V1 Config Key Reference
+
+| Talend Parameter | V1 Config Key | Status | Priority to Add |
+|------------------|---------------|--------|-----------------|
+| `READ_BY` | `read_by` | Mapped (unused) | P3 (XPath) |
+| `JSON_PATH_VERSION` | `json_path_version` | Mapped (unused) | P3 |
+| `LOOP_QUERY` / `JSON_LOOP_QUERY` | `loop_query` | **Mapped (used)** | -- |
+| `DIE_ON_ERROR` | `die_on_error` | **Mapped (used)** | -- |
+| `ENCODING` | `encoding` | Mapped (unused) | P3 |
+| `USE_LOOP_AS_ROOT` | `use_loop_as_root` | Mapped (unused) | **P1** |
+| `SPLIT_LIST` | `split_list` | Mapped (unused) | **P1** |
+| `JSONFIELD` | `json_field` | Mapped (unused) | **P1** |
+| `MAPPING_4_JSONPATH` | `mapping` | **Mapped (used)** | -- |
+| `LOOP_XPATH_QUERY` | -- | **Not Mapped** | P3 |
+| `MAPPING_XPATH` | -- | **Not Mapped** | P3 |
+| `MAPPING_GET_NODES` | -- | **Not Mapped** | P3 |
+| `MAPPING_IS_ARRAY` | -- | **Not Mapped** | P3 |
+| `TSTATCATCHER_STATS` | -- | Not needed | -- |
+| `LABEL` | -- | Not needed | -- |
+| `PROPERTY_TYPE` | -- | Not needed | -- |
+
+---
+
+## Appendix D: `_is_relative_query()` Analysis
+
+This method (lines 341-364) is the most critical bug in the component. Here is the full code:
+
+```python
+def _is_relative_query(self, query: str) -> bool:
+    # Queries that should be executed on the current iteration item (relative)
+    relative_patterns = [          # DEAD CODE: never referenced
+        '$.skill',
+        '$.level',
+        '$.name',
+        '$.value',
+    ]
+
+    # Simple heuristic: if query is just accessing direct properties without complex paths,
+    # it's likely meant for the current iteration item
+    if query.count('.') <= 1 and not query.startswith('$.employee'):
+        return True
+
+    return False
+```
+
+**Problems**:
+1. `relative_patterns` list is defined but never used (dead code).
+2. `query.count('.') <= 1` means only `$.field` (one dot) is considered relative. `$.address.city` (two dots) is treated as absolute.
+3. `not query.startswith('$.employee')` is a hardcoded test-case-specific exclusion that has no general meaning.
+4. The method completely ignores the `use_loop_as_root` config parameter.
+5. The method is called ONLY for queries starting with `$.` (line 287), but in Talend with `USE_LOOP_AS_ROOT=true`, ALL queries should be relative regardless of prefix.
+
+**Impact**: For a JSON like `{"employees": [{"name": "Alice", "dept": {"id": 1, "name": "Eng"}}]}` with loop `$.employees[*]` and mapping `$.dept.name`:
+- **Talend** (USE_LOOP_AS_ROOT=true): Extracts `"Eng"` from the current employee.
+- **V1**: `_is_relative_query("$.dept.name")` returns `False` (2 dots). Query runs on full document. `$.dept.name` finds nothing at root level. Returns `''`.
+
+---
+
+## Appendix E: Edge Case Analysis
+
+### Edge Case 1: NaN in JSON column
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | Input column with null value -- row goes to REJECT if REJECT connected, otherwise skipped. |
+| **V1** | `json.loads(NaN)` raises `TypeError: the JSON object must be str, bytes or bytearray, not float`. Caught by row-level except. With `die_on_error=true`, crashes. With `false`, reject row created. |
+| **Verdict** | PARTIALLY CORRECT -- rejects the row but with unhelpful TypeError message. Should detect NaN before attempting parse. |
+
+### Edge Case 2: Empty string in JSON column
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | Empty string is not valid JSON. Row goes to REJECT. |
+| **V1** | `json.loads('')` raises `json.JSONDecodeError: Expecting value`. Caught by row-level except. Correctly rejected. |
+| **Verdict** | CORRECT |
+
+### Edge Case 3: Empty DataFrame input
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | No rows to process. NB_LINE=0. |
+| **V1** | Line 141: `input_data.empty` returns True. Returns empty DataFrames. Stats (0, 0, 0). |
+| **Verdict** | CORRECT |
+
+### Edge Case 4: HYBRID streaming mode
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | N/A (Talend Standard uses Java streaming). |
+| **V1** | Base class `_execute_streaming()` chunks input DataFrame and calls `_process()` per chunk. Reject output from each chunk is LOST (line 270-271 only keeps `main`). Stats accumulate correctly. |
+| **Verdict** | BUG -- reject data lost in streaming mode. |
+
+### Edge Case 5: `_update_global_map()` crash
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | N/A (Talend globalMap always works). |
+| **V1** | `base_component.py` line 304 references undefined `value` variable. When `global_map` is not None, `_update_global_map()` crashes with `NameError`. This is called from `execute()` line 218 (success path) and line 231 (error path). Every component with a globalMap will crash. |
+| **Verdict** | CRITICAL BUG -- all components broken when globalMap is provided. |
+
+### Edge Case 6: Component status tracking
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | Component status is tracked by the Talend runtime. |
+| **V1** | `execute()` sets `self.status = ComponentStatus.RUNNING` (line 192), then `SUCCESS` (line 220) or `ERROR` (line 228). However, if `_update_global_map()` crashes (BUG-EJF-001), the status is set to `ERROR` in the except block (line 228), then `_update_global_map()` is called AGAIN (line 231), causing a SECOND crash. The status correctly reflects `ERROR` but the double-crash on globalMap is problematic. |
+| **Verdict** | BUG -- cascading failure from `_update_global_map()`. |
+
+### Edge Case 7: Thread safety
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | Components run in dedicated threads with shared globalMap (synchronized). |
+| **V1** | `ExtractJSONFields` has no shared mutable state beyond what it inherits from `BaseComponent`. The `stats` dict and `status` field are instance-level. `global_map` is shared but `GlobalMap` has no locking. Concurrent `put()` calls on `GlobalMap._map` (a plain dict) are not thread-safe in CPython when keys collide. |
+| **Verdict** | POTENTIAL ISSUE -- GlobalMap not thread-safe for concurrent component execution. |
+
+### Edge Case 8: Type demotion from validate_schema
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | Types are enforced per the schema definition. Null integers remain null or become 0 depending on context. |
+| **V1** | `validate_schema()` in base_component.py converts `int64` columns with `nullable=True` using `fillna(0).astype('int64')` (line 352). This means: (a) extracted JSON integer fields that are null (`None`) become 0; (b) empty strings from no-match mappings (BUG-EJF-007) are first coerced to NaN by `pd.to_numeric(errors='coerce')`, then to 0 by `fillna(0)`. Missing data is silently converted to 0. |
+| **Verdict** | GAP -- null masking. Exacerbated by BUG-EJF-007 (empty strings instead of None). |
+
+### Edge Case 9: validate_schema nullable inverted
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | Non-nullable columns reject null values. Nullable columns allow null. |
+| **V1** | `base_component.py` line 351: `if pandas_type == 'int64' and col_def.get('nullable', True):` -- the `fillna(0)` only runs when `nullable=True`. When `nullable=False`, the NaN is NOT filled, which causes `astype('int64')` to fail (NaN cannot be cast to int64). The logic is INVERTED: nullable columns get `fillna(0)` (correct -- allows null, fills with default), but non-nullable columns should ALSO `fillna(0)` or reject the row (they do neither -- they crash). |
+| **Verdict** | BUG -- inverted nullable logic. Non-nullable integer columns with any null/NaN will crash `validate_schema()`. |
+
+### Edge Case 10: _validate_config dead code paths
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | N/A. |
+| **V1** | Unlike other components where `_validate_config()` is completely dead code (never called), `ExtractJSONFields._validate_config()` IS called from `_process()` line 130. However, it only validates structural correctness (key presence, types). It does not validate JSONPath syntax, so invalid queries like `$.[[[` pass validation and crash at runtime. The validation IS useful but incomplete. |
+| **Verdict** | PARTIAL -- called and useful, but incomplete. Not truly "dead code" for this component. |
+
+### Edge Case 11: JSONPath library edge cases
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | Uses Jayway JsonPath (Java library) with its own semantics. |
+| **V1** | Uses `jsonpath_ng` (Python library). Known differences from Jayway: (a) `$..field` recursive descent may produce different ordering; (b) filter expressions (`$[?(@.price < 10)]`) may have syntax differences; (c) `jsonpath_ng` does not support all Jayway extensions. These differences can cause silent result divergence between Talend and V1 for complex queries. |
+| **Verdict** | POTENTIAL GAP -- library differences may cause different extraction results for complex queries. |
+
+### Edge Case 12: json.loads on non-string input
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | Input is always a Java String. Type mismatch causes compilation error. |
+| **V1** | `row[0]` may be any Python type. `json.loads()` only accepts `str`, `bytes`, `bytearray`. Passing `int`, `float`, `dict`, `list`, `bool`, `None`, or `NaN` raises `TypeError`. If the upstream component already parsed JSON (producing a dict), `json.loads` fails. Should check `isinstance(row[col], str)` first and handle dict/list passthrough. |
+| **Verdict** | BUG -- no type check before `json.loads()`. See BUG-EJF-004. |
+
+### Edge Case 13: Reject flow format
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | Reject rows contain ALL output schema columns (with partial data) plus `errorCode` and `errorMessage` in green columns. |
+| **V1** | Reject rows contain only `errorJSONField` (raw JSON string), `errorCode` (`'PARSE_ERROR'`), and `errorMessage` (error string). Missing all schema columns. Downstream components expecting schema-conformant reject rows will fail with KeyError on expected columns. |
+| **Verdict** | GAP -- reject schema does not match Talend conventions. See ENG-EJF-005. |
+
+---
+
+## Appendix F: Cross-Cutting Issues
+
+The following issues were discovered during this audit but affect the entire v1 engine, not just `ExtractJSONFields`:
+
+| ID | Priority | Component | Issue |
+|----|----------|-----------|-------|
+| BUG-EJF-001 | **P0** | `base_component.py:304` | `_update_global_map()` references undefined `value` variable. Will crash ALL components. |
+| BUG-EJF-002 | **P0** | `global_map.py:28` | `GlobalMap.get()` references undefined `default` parameter. Will crash on any `get()` call. |
+| CONV-EJF-004 | **P2** | `component_parser.py` | Schema types converted to Python format instead of Talend format. Affects all components. |
+| -- | **P2** | `base_component.py:351` | `validate_schema()` nullable logic inverted for integer columns. Non-nullable integers with NaN crash. |
+| -- | **P2** | `base_component.py:255-278` | `_execute_streaming()` drops reject output from chunks. Affects all components with reject flows in streaming mode. |
+
+These should be tracked in a cross-cutting issues report as well.
+
+---
+
+## Appendix G: Implementation Fix Guides
+
+### Fix Guide: BUG-EJF-003 -- Replace `_is_relative_query()` with `use_loop_as_root`
+
+**File**: `src/v1/engine/components/transform/extract_json_fields.py`
+
+**Step 1**: Delete `_is_relative_query()` method entirely (lines 341-364).
+
+**Step 2**: Modify `_extract_fields()` to use `use_loop_as_root` config:
+
+```python
+def _extract_fields(self, json_data, loop_query, mapping):
+    use_loop_as_root = self.config.get('use_loop_as_root', True)
+    # ... existing loop code ...
+    for item_idx, item in enumerate(matches):
+        for m_idx, m in enumerate(mapping):
+            col = m.get('schema_column') or m.get('column')
+            query = m.get('query') or m.get('jsonpath')
+            if query:
+                # Determine context based on use_loop_as_root
+                if use_loop_as_root:
+                    context = item
+                else:
+                    context = json_data
+                jsonpath_matches = compiled_query.find(context)
+                # ... rest of extraction ...
+```
+
+**Impact**: Eliminates silent data corruption. **Risk**: Medium -- changes extraction behavior. Requires testing with existing jobs.
+
+---
+
+### Fix Guide: BUG-EJF-005 -- Remove zero-match fallback
+
+**File**: `src/v1/engine/components/transform/extract_json_fields.py`
+**Lines**: 264-266
+
+**Current code (wrong)**:
+```python
+if not matches:
+    logger.debug(f"[{self.id}] No matches for loop query, processing entire JSON data")
+    matches = [json_data]
+```
+
+**Fix**: Remove these 3 lines entirely. When `matches` is empty, the `for item_idx, item in enumerate(matches)` loop simply does not execute, producing zero output rows.
+
+**Impact**: Aligns with Talend behavior. **Risk**: Low -- any job relying on the fallback was already producing incorrect results.
+
+---
+
+### Fix Guide: PERF-EJF-001 -- Cache JSONPath expressions
+
+**File**: `src/v1/engine/components/transform/extract_json_fields.py`
+
+**In `_process()`, before the row loop (after line 153)**:
+```python
+# Pre-compile JSONPath expressions (cache outside row loop)
+compiled_loop_query = parse(loop_query)
+compiled_mapping_queries = []
+for m in mapping:
+    query = m.get('query') or m.get('jsonpath')
+    compiled_mapping_queries.append(parse(query) if query else None)
+```
+
+**In `_extract_fields()`, accept compiled expressions**:
+```python
+def _extract_fields(self, json_data, compiled_loop, compiled_mappings, mapping):
+    matches = [match.value for match in compiled_loop.find(json_data)]
+    # ... use compiled_mappings[m_idx].find(item) instead of parse(query).find(item) ...
+```
+
+**Impact**: Eliminates N*(1+M) redundant JSONPath compilations. **Risk**: Very low.
+
+---
+
+## Appendix H: Risk Assessment for Production Migration
+
+### High-Risk Scenarios
+
+| Scenario | Risk Level | Affected Jobs | Mitigation |
+|----------|-----------|---------------|------------|
+| Jobs with nested JSON extraction (`$.address.city`) | **Critical** | Any job with multi-dot mapping queries | Fix `_is_relative_query()` / implement `use_loop_as_root` |
+| Jobs with globalMap | **Critical** | Any job using globalMap | Fix `_update_global_map()` and `GlobalMap.get()` bugs |
+| Jobs using `json_field` column selection | **High** | Jobs where JSON is not in first column | Implement `json_field` support |
+| Jobs using `split_list` | **High** | Jobs expecting array expansion into rows | Implement `split_list` |
+| Jobs depending on REJECT flow schema | **Medium** | Jobs with downstream processing of reject rows | Fix reject schema to include all output columns |
+| Jobs with NaN/null in JSON column | **Medium** | Jobs with sparse input data | Add NaN/None guard before `json.loads()` |
+
+### Low-Risk Scenarios
+
+| Scenario | Risk Level | Notes |
+|----------|-----------|-------|
+| Jobs using XPath mode | Low | Rare in modern Talend jobs |
+| Jobs using tStatCatcher | Low | Monitoring only |
+| Jobs with simple `$.field` queries | Low | Current heuristic happens to work for single-dot queries |
+
+### Recommended Migration Strategy
+
+1. **Phase 1**: Fix all P0 bugs (cross-cutting `_update_global_map()`, `GlobalMap.get()`, and `_is_relative_query()`).
+2. **Phase 2**: Implement `json_field`, `use_loop_as_root`, `split_list` from already-extracted config.
+3. **Phase 3**: Create unit test suite covering all P0 and P1 test cases.
+4. **Phase 4**: Audit each target job's Talend configuration. Identify which features are used.
+5. **Phase 5**: Parallel-run migrated jobs against Talend originals. Compare output row-for-row, paying special attention to nested JSON extraction results.
+
+---
+
+## Appendix I: Detailed Engine Code Analysis
+
+### `_validate_config()` (Lines 71-109)
+
+This method validates structural correctness of the configuration dictionary:
+
+**Validates**:
+- `loop_query` is present, is a string, and is non-empty after stripping whitespace
+- `mapping` is present, is a list, and is non-empty
+- Each mapping entry is a dict with either `schema_column` or `column` key
+- Each mapping entry has either `query` or `jsonpath` key
+- `die_on_error` is a boolean if present
+
+**Does NOT validate**:
+- JSONPath syntax (invalid queries like `$.[[[` pass)
+- `json_field` references a valid column name
+- `use_loop_as_root` is boolean
+- `split_list` is boolean
+- `encoding` is a valid encoding name
+- `read_by` is a valid enum value (`JSONPATH` or `XPATH`)
+- Mapping queries are valid JSONPath expressions
+
+**Call site**: Called from `_process()` line 130. Unlike many other components where `_validate_config()` is dead code, this component does invoke it. Validation errors raise `ConfigurationError` immediately (line 134), regardless of `die_on_error` setting -- this is correct behavior (config errors are unrecoverable).
+
+**Quality**: Good structure but incomplete coverage. The dual-key support (`schema_column`/`column`, `query`/`jsonpath`) is validated with `or` logic (line 97-98, 101-102), which is correct but means neither key is individually required.
+
+### `_process()` (Lines 111-237)
+
+The main processing method follows this flow:
+
+1. **Validate config** (line 130-134): Call `_validate_config()`, raise on errors.
+2. **Handle list input** (line 137-138): Convert list to DataFrame if needed. This is a defensive measure for non-standard callers.
+3. **Handle empty input** (line 141-144): Return empty DataFrames with stats (0, 0, 0).
+4. **Extract config** (line 151-153): Read `loop_query`, `mapping`, `die_on_error` from config with defaults.
+5. **Row-by-row processing** (line 165-195):
+   - For each row via `iterrows()`:
+     - Parse JSON from first column via `json.loads(row[0])`
+     - Call `_extract_fields()` to get list of extracted row dicts
+     - Extend `main_output` list
+   - On exception:
+     - If `die_on_error`: raise `ComponentExecutionError`
+     - Else: append reject dict to `reject_output`
+6. **Build DataFrames** (line 198-199): Convert lists to DataFrames.
+7. **Serialize complex objects** (line 205-211): For each column in main_df, apply lambda to serialize list/dict values as JSON strings.
+8. **Update stats** (line 220): Call `_update_stats(rows_in, rows_out, rows_rejected)`.
+9. **Return** (line 224): Return `{'main': main_df, 'reject': reject_df}`.
+
+**Exception handling**:
+- Line 226-228: Re-raise `ComponentExecutionError` (from die_on_error path)
+- Line 230-232: Re-raise `ConfigurationError` (from validation)
+- Line 234-237: Catch-all wraps any other exception in `ComponentExecutionError`
+
+**Key observations**:
+- Config is extracted TWICE: once by `_validate_config()` (lines 76, 83) and once by `_process()` (lines 151-153). The second extraction uses `.get()` with defaults, which means even if validation passed, the defaults could mask missing values (though this is unlikely given validation checks for key presence).
+- The `json.loads()` call (line 170) has no type guard. If `row[0]` is not a string, it raises `TypeError`.
+- The serialization loop (lines 206-211) iterates ALL columns, not just those that might contain complex objects. For DataFrames with many string columns, this is wasteful (the `isinstance` check is cheap but the iteration overhead adds up).
+
+### `_extract_fields()` (Lines 239-339)
+
+This method performs the actual JSONPath extraction:
+
+1. **Parse loop query** (line 258): `jsonpath_expr = parse(loop_query)` -- compiles the JSONPath expression from scratch on EVERY call (once per input row).
+2. **Find loop matches** (line 259): `matches = [match.value for match in jsonpath_expr.find(json_data)]`
+3. **Zero-match fallback** (line 264-266): If no matches, use `[json_data]` as the match list. **BUG**: Should produce zero rows.
+4. **For each match** (line 269-332):
+   - For each mapping (line 273-329):
+     - Get column name and query from mapping dict
+     - Determine query context via `_is_relative_query()` (line 287-294). **BUG**: Hardcoded heuristic.
+     - Execute JSONPath query on chosen context (line 289 or 293)
+     - Handle results:
+       - No matches: set `''` (line 302-303). **BUG**: Should be `None`.
+       - Wildcard query with single scalar: flatten (line 307-309)
+       - Wildcard query with multiple/complex: keep as array (line 311-312)
+       - Regular query with single value: use scalar (line 316-317)
+       - Regular query with multiple values: keep as array (line 319)
+     - On exception: set `''` and log warning (line 322-325)
+   - Append row dict to `extracted_rows`
+
+**Key observations**:
+- The `parse()` function is called N*(1+M) times where N is input rows and M is mapping count. For 10K rows with 5 mappings, that is 60K parse calls.
+- The `_is_relative_query()` dispatch (line 287) only activates for queries starting with `$.`. Queries starting with `@.` or without prefix are always executed on the current item, which is correct for Talend's relative query syntax.
+- The wildcard detection (line 305) uses string matching (`'[*]' in query or '.*' in query`), which is a heuristic that can produce false positives and false negatives.
+
+### `_is_relative_query()` (Lines 341-364)
+
+Fully analyzed in Appendix D. Summary: **This method is fundamentally broken.** It uses a hardcoded, test-case-specific heuristic that produces wrong results for any non-trivial nested JSON extraction.
+
+---
+
+## Appendix J: Type Mapping Comparison
+
+### Converter Output (ExpressionConverter.convert_type)
+
+| Talend Type | Converter Output |
+|-------------|-----------------|
+| `id_String` | `str` |
+| `id_Integer` | `int` |
+| `id_Long` | `int` |
+| `id_Float` | `float` |
+| `id_Double` | `float` |
+| `id_Boolean` | `bool` |
+| `id_Date` | `datetime` |
+| `id_BigDecimal` | `Decimal` |
+
+### Engine validate_schema() (post-extraction conversion in base_component.py)
+
+| Type Input | Pandas Dtype | Conversion Method |
+|------------|-------------|-------------------|
+| `id_String` / `str` | `object` | No conversion |
+| `id_Integer` / `int` | `int64` (non-nullable) | `pd.to_numeric(errors='coerce')` then `fillna(0).astype('int64')` when nullable=True |
+| `id_Long` / `long` | `int64` (non-nullable) | Same as Integer |
+| `id_Float` / `float` | `float64` | `pd.to_numeric(errors='coerce')` |
+| `id_Double` / `double` | `float64` | Same as Float |
+| `id_Boolean` / `bool` | `bool` | `.astype('bool')` |
+| `id_Date` / `date` | `datetime64[ns]` | `pd.to_datetime()` -- no format specification |
+| `id_BigDecimal` / `decimal` | `object` | No conversion in validate_schema |
+
+### Impact on ExtractJSONFields
+
+For `ExtractJSONFields`, the type mapping is particularly important because:
+
+1. **Empty string values** (`''`) from no-match mappings (BUG-EJF-007) are passed to `validate_schema()`. For integer columns:
+   - `pd.to_numeric('', errors='coerce')` -> `NaN`
+   - `fillna(0)` -> `0`
+   - `astype('int64')` -> `0`
+   - Result: Missing JSON fields silently become `0` instead of remaining null/None.
+
+2. **Boolean columns** with empty string values:
+   - `.astype('bool')` on `''` -> `False`
+   - Result: Missing JSON boolean fields become `False` instead of null.
+
+3. **Date columns** with empty string values:
+   - `pd.to_datetime('')` -> may raise or return `NaT`
+   - Result: Depends on pandas version and error handling.
+
+4. **Nested objects serialized as JSON strings** pass through `validate_schema()` as `object` type columns. No conversion needed, but if the schema specifies `int` or `float` for a column that actually contains a serialized JSON array (e.g., `"[1, 2, 3]"`), `pd.to_numeric` will fail and coerce to NaN.
+
+---
+
+## Appendix K: JSONPath Library Comparison (jsonpath_ng vs Jayway JsonPath)
+
+### Feature Parity
+
+| Feature | Jayway JsonPath (Talend) | jsonpath_ng (V1) | Compatible? |
+|---------|--------------------------|-----------------|-------------|
+| Basic property access (`$.store.name`) | Yes | Yes | Yes |
+| Array index (`$.store.books[0]`) | Yes | Yes | Yes |
+| Array wildcard (`$.store.books[*]`) | Yes | Yes | Yes |
+| Recursive descent (`$..name`) | Yes | Yes | **Partial** -- ordering may differ |
+| Filter expressions (`$[?(@.price < 10)]`) | Yes | Via `jsonpath_ng.ext` | **No** -- requires `jsonpath_ng.ext.parse` instead of `jsonpath_ng.parse` |
+| Array slice (`$.store.books[0:2]`) | Yes | Yes | Yes |
+| Multiple properties (`$['name','age']`) | Yes | Limited | **Partial** |
+| Current node (`@`) | Yes | Yes | Yes |
+| Script expressions | Yes (Groovy/JS) | No | **No** |
+| Length function (`$.store.books.length()`) | Yes | No | **No** |
+| Min/Max/Avg functions | Yes | No | **No** |
+
+### Known Divergences
+
+1. **Filter expressions**: Talend's Jayway JsonPath supports `$[?(@.price < 10)]` natively. The standard `jsonpath_ng.parse()` used in V1 does NOT support filter expressions. The extended parser `jsonpath_ng.ext.parse()` does, but V1 imports `from jsonpath_ng import parse` (line 11), using the basic parser. Any Talend job using JSONPath filter expressions will fail at runtime with a parse error.
+
+2. **Recursive descent ordering**: Both libraries support `$..field`, but the order of results may differ. Jayway returns results in document order; `jsonpath_ng` also returns in document order but may differ for complex structures with multiple matching paths.
+
+3. **Functions**: Jayway supports `.length()`, `.min()`, `.max()`, `.avg()`, `.stddev()`, `.concat()`, `.keys()`, `.append()`. None are available in `jsonpath_ng`. Talend jobs using these in mapping queries will fail.
+
+4. **Null handling**: Jayway returns Java `null` for missing values. `jsonpath_ng` simply returns no match (empty list). This difference is partially mitigated by V1's no-match handling (setting `''`), but the semantics differ.
+
+### Recommendation
+
+Consider switching to `jsonpath_ng.ext.parse` to gain filter expression support:
+```python
+# Change line 11 from:
+from jsonpath_ng import parse
+# To:
+from jsonpath_ng.ext import parse
+```
+This is a backward-compatible change -- `jsonpath_ng.ext.parse` supports all standard JSONPath features plus extensions.
+
+---
+
+## Appendix L: Comparison with Similar Extract Components
+
+| Feature | tExtractJSONFields (V1) | tExtractDelimitedFields (V1) | tExtractXMLField (V1) |
+|---------|------------------------|------------------------------|----------------------|
+| Engine file | `extract_json_fields.py` (364 lines) | `extract_delimited_fields.py` | `extract_xml_fields.py` |
+| Input format | JSON string in DataFrame column | Delimited string in DataFrame column | XML string in DataFrame column |
+| Extraction method | JSONPath via `jsonpath_ng` | String split by delimiter | XPath (if implemented) |
+| Loop/iteration support | Yes (loop_query) | N/A (single-level split) | Yes (loop_xpath) |
+| Nested extraction | Yes (multi-level JSONPath) | No (flat split only) | Yes (multi-level XPath) |
+| _validate_config() called? | **Yes** | TBD | TBD |
+| REJECT flow | Partial (missing schema columns) | TBD | TBD |
+| die_on_error | Yes | Yes | Yes |
+| Column selection (json_field/field) | Config extracted, **engine ignores** | TBD | TBD |
+| V1 Unit tests | **No** | **No** | **No** |
+| Cross-cutting bugs apply? | Yes (globalMap, validate_schema) | Yes | Yes |
+
+**Observation**: The lack of v1 unit tests is systemic across ALL extract components. The cross-cutting `_update_global_map()` and `GlobalMap.get()` bugs affect all of them equally.
+
+---
+
+## Appendix M: Detailed Fix Guide for All P0/P1 Issues
+
+### Fix Guide: BUG-EJF-001 -- `_update_global_map()` undefined variable
+
+**File**: `src/v1/engine/base_component.py`
+**Line**: 304
+
+**Current code (broken)**:
+```python
+logger.info(f"Component {self.id}: Updated stats - NB_LINE:{self.stats['NB_LINE']} NB_LINE_OK:{self.stats['NB_LINE_OK']} NB_LINE_REJECT:{self.stats['NB_LINE_REJECT']} {stat_name}: {value}")
+```
+
+**Fix**:
+```python
+logger.info(f"Component {self.id}: Updated stats - NB_LINE:{self.stats['NB_LINE']} NB_LINE_OK:{self.stats['NB_LINE_OK']} NB_LINE_REJECT:{self.stats['NB_LINE_REJECT']}")
+```
+
+**Explanation**: `{value}` references an undefined variable (the loop variable is `stat_value`). The `{stat_name}` reference would show only the last loop iteration value, which is misleading. Best fix is to remove both stale references.
+
+**Impact**: Fixes ALL components (cross-cutting). **Risk**: Very low (log message only).
+
+---
+
+### Fix Guide: BUG-EJF-002 -- `GlobalMap.get()` undefined default
+
+**File**: `src/v1/engine/global_map.py`
+**Line**: 26-28
+
+**Current code (broken)**:
+```python
+def get(self, key: str) -> Optional[Any]:
+    """Retrieve a value from the global map"""
+    return self._map.get(key, default)
+```
+
+**Fix**:
+```python
+def get(self, key: str, default: Any = None) -> Optional[Any]:
+    """Retrieve a value from the global map"""
+    return self._map.get(key, default)
+```
+
+**Impact**: Fixes ALL components and any code calling `global_map.get()`. Also fixes `get_component_stat()` on line 58 which passes two arguments. **Risk**: Very low (adds optional parameter with backward-compatible default).
+
+---
+
+### Fix Guide: BUG-EJF-004 -- json.loads on non-string
+
+**File**: `src/v1/engine/components/transform/extract_json_fields.py`
+**Line**: 170
+
+**Current code**:
+```python
+json_data = json.loads(row[0])
+```
+
+**Fix**:
+```python
+# Determine which column to read JSON from
+json_col = self.config.get('json_field', '') or row.index[0]
+raw_value = row[json_col] if json_col in row.index else row.iloc[0]
+
+# Handle non-string inputs
+if raw_value is None or (isinstance(raw_value, float) and pd.isna(raw_value)):
+    raise ValueError(f"JSON column '{json_col}' contains null/NaN value")
+elif isinstance(raw_value, (dict, list)):
+    # Already parsed (upstream component returned Python objects)
+    json_data = raw_value
+elif isinstance(raw_value, str):
+    json_data = json.loads(raw_value)
+else:
+    raise ValueError(
+        f"JSON column '{json_col}' contains non-string value of type "
+        f"{type(raw_value).__name__}: {repr(raw_value)[:100]}"
+    )
+```
+
+**Impact**: Fixes json_field column selection (ENG-EJF-002), NaN handling (BUG-EJF-004), and dict passthrough. **Risk**: Medium -- changes column selection behavior. Requires testing.
+
+---
+
+### Fix Guide: BUG-EJF-005 -- Zero-match loop fallback
+
+**File**: `src/v1/engine/components/transform/extract_json_fields.py`
+**Lines**: 264-266
+
+**Delete these lines**:
+```python
+# If no matches found for loop query, try to process the entire JSON data
+if not matches:
+    logger.debug(f"[{self.id}] No matches for loop query, processing entire JSON data")
+    matches = [json_data]
+```
+
+**Replace with** (optional, for logging):
+```python
+if not matches:
+    logger.debug(f"[{self.id}] No matches for loop query '{loop_query}', producing 0 output rows")
+```
+
+**Impact**: Aligns with Talend behavior. Zero loop matches produce zero output rows. **Risk**: Low.
+
+---
+
+### Fix Guide: BUG-EJF-006 -- Add JSONPath syntax validation
+
+**File**: `src/v1/engine/components/transform/extract_json_fields.py`
+
+**Add to `_validate_config()`, after the existing mapping validation (after line 102)**:
+```python
+# Validate JSONPath syntax
+try:
+    parse(self.config['loop_query'])
+except Exception as e:
+    errors.append(f"Config 'loop_query' has invalid JSONPath syntax: {e}")
+
+for i, mapping_entry in enumerate(self.config.get('mapping', [])):
+    query = mapping_entry.get('query') or mapping_entry.get('jsonpath')
+    if query:
+        try:
+            parse(query)
+        except Exception as e:
+            errors.append(f"Config 'mapping[{i}]' query has invalid JSONPath syntax: {e}")
+```
+
+**Impact**: Catches invalid queries at configuration time with clear error messages. **Risk**: Very low.
+
+---
+
+### Fix Guide: CONV-EJF-001 -- Mapping table bounds checking
+
+**File**: `src/converters/complex_converter/component_parser.py`
+**Lines**: 2472-2476
+
+**Current code**:
 ```python
 for i in range(0, len(entries), 2):
     schema_col = entries[i].get('value', '').strip('"')
@@ -165,1535 +1232,478 @@ for i in range(0, len(entries), 2):
     mapping.append({'schema_column': schema_col, 'query': query})
 ```
 
-**Issue**: This assumes entries always come in exact pairs (SCHEMA_COLUMN, QUERY). In Talend
-XML, the `MAPPING_4_JSONPATH` element can also contain `GET_NODES` and `IS_ARRAY` values,
-which would shift the pairing if present. If there are 4 values per row instead of 2, the
-step-of-2 logic would produce incorrect schema_column/query pairings.
-
-### Converter Issues
-
-| ID | Priority | Issue |
-|----|----------|-------|
-| CONV-EJF-001 | **P1** | **Mapping table stride assumption**: The parser assumes exactly 2 `elementValue` entries per mapping row (SCHEMA_COLUMN + QUERY). If Talend XML includes `GET_NODES` or `IS_ARRAY` values in the same table, the stride of 2 would produce wrong column-query pairings. Should dynamically detect the number of columns per row by checking `elementRef` attributes. |
-| CONV-EJF-002 | **P1** | **JSONFIELD extracted but not consumed by engine**: The converter correctly extracts `JSONFIELD` to `config['json_field']`, but the engine's `ExtractJSONFields._process()` ignores it entirely and always reads from `row[0]` (the first column). This means when the JSON source is not the first input column, extraction will fail or produce wrong results. |
-| CONV-EJF-003 | **P2** | **Misleading comment on line 294**: The comment `# tExtractJSONFields mapping` is placed above the `tExtractDelimitedFields` branch, which is confusing for maintainers. This is a copy-paste error in the comment. |
-| CONV-EJF-004 | **P2** | **No validation of loop_query format**: The converter strips quotes but does not validate that the loop query is a syntactically valid JSONPath expression. Malformed queries will only be caught at engine runtime. |
-| CONV-EJF-005 | **P3** | **tStatCatcher Statistics not extracted**: Low priority since tStatCatcher is rarely used in production, but noted for completeness. |
-
----
-
-## 3. Engine Feature Parity Audit
-
-### Feature Implementation Status
-
-| Talend Feature | Implemented? | Fidelity | Notes |
-|----------------|-------------|----------|-------|
-| JSONPath extraction via loop query | Yes | Medium | Uses `jsonpath_ng.parse()` instead of Jayway JsonPath; syntax differences exist |
-| Loop query iteration (each match = 1 row) | Yes | High | Correct iteration pattern |
-| Per-column mapping with JSONPath | Yes | Medium | Supports `query` and `jsonpath` keys |
-| JSONFIELD source column selection | **No** | **N/A** | **Always reads `row[0]` -- ignores configured source column** |
-| Use loop node as root | **No** | **N/A** | **Config extracted but not used in engine logic** |
-| Split list (array expansion) | **No** | **N/A** | **Config extracted but not used in engine logic** |
-| Die on error | Yes | High | Raises `ComponentExecutionError` when `true` |
-| Encoding | **No** | **N/A** | **Config extracted but not used** (JSON is already parsed from string, not from file) |
-| JSON Path version | **No** | **N/A** | **Config extracted but not used** (`jsonpath_ng` has no version selection) |
-| Read By mode (JsonPath vs XPath) | **No** | **N/A** | **Only JSONPath mode is implemented; XPath mode not supported** |
-| REJECT flow with errorCode/errorMessage | Partial | Low | Produces reject rows but format differs from Talend; uses `errorJSONField` instead of schema columns + error columns |
-| GlobalMap NB_LINE variable | Yes | High | Set via `_update_stats()` and `_update_global_map()` |
-| GlobalMap ERROR_MESSAGE variable | **No** | **N/A** | **Not set on errors** |
-| Schema-based type coercion | **No** | **N/A** | **No type conversion on extracted values** |
-| Null handling for missing matches | **No** | **Low** | **Returns empty string `''` instead of `None`/`null`** |
-| Array/wildcard query handling | Yes | Medium | Detects `[*]` and `.*` patterns for array preservation |
-| Complex object serialization | Yes | High | Serializes dicts/lists as JSON strings |
-| Mapping: Get Nodes | **No** | **N/A** | XPath-only feature, not implemented |
-| Mapping: Is Array | **No** | **N/A** | XPath-only feature, not implemented |
-| Context variable resolution | Yes | High | Handled by `BaseComponent.execute()` via `context_manager.resolve_dict()` |
-
-### Behavioral Differences from Talend
-
-| ID | Priority | Difference |
-|----|----------|------------|
-| ENG-EJF-001 | **P0** | **JSONFIELD (source column) ignored**: The engine hardcodes `json_data = json.loads(row[0])` at line 170, always reading from the first column of the input DataFrame. In Talend, the `JSONFIELD` parameter specifies which column contains the JSON string. When the JSON column is not the first column (e.g., a flow from `tFileInputDelimited` with multiple columns where JSON is in column 3), the engine will attempt to parse the wrong column and either crash or produce incorrect results. This is a **data corruption** risk. |
-| ENG-EJF-002 | **P0** | **`_is_relative_query()` uses hardcoded property names**: The method that determines whether a JSONPath query should execute on the current loop item or the full document contains hardcoded property names (`$.skill`, `$.level`, `$.name`, `$.value`) and a hardcoded exclusion pattern (`$.employee`). This is fundamentally broken for any JSON structure that does not use these exact property names. A query like `$.department` would be incorrectly treated as absolute (executed on full JSON), while `$.name` would be relative. This produces **silently wrong results** depending on the field names in the user's data. |
-| ENG-EJF-003 | **P0** | **Fallback to entire JSON when loop query has no matches**: At line 264, when the loop query matches nothing, the engine falls back to `matches = [json_data]` (the entire JSON document). In Talend, zero loop matches means zero output rows. This fallback will produce an unexpected single output row containing data from the wrong context level, causing **silent data corruption**. |
-| ENG-EJF-004 | **P1** | **`use_loop_as_root` config not honored**: The converter extracts `use_loop_as_root` but the engine never reads or uses this config value. In Talend, this setting controls whether mapping queries are relative to the loop element or the document root. The engine instead uses the broken `_is_relative_query()` heuristic. |
-| ENG-EJF-005 | **P1** | **`split_list` config not honored**: The converter extracts `split_list` but the engine never uses it. In Talend, when `SPLIT_LIST=true` and a mapping query returns an array, each element becomes a separate row. The engine always preserves arrays as lists, never splitting them into rows. |
-| ENG-EJF-006 | **P1** | **JSONPath library incompatibility**: Talend uses Jayway JsonPath (Java) which supports filter expressions like `$..book[?(@.price<10)]`, deep scan `..`, and `@` for current object. Python's `jsonpath_ng` uses `this` instead of `@` and does not support all Jayway filter syntax. JSONPath expressions converted from Talend jobs may fail at runtime or return different results. The engine imports `from jsonpath_ng import parse` (base module) rather than `from jsonpath_ng.ext import parse` (extended module with more features). |
-| ENG-EJF-007 | **P1** | **Reject flow format differs from Talend**: Talend's reject rows contain the output schema columns (with whatever values were extracted before failure) plus `errorCode` (Integer) and `errorMessage` (String). The engine's reject rows contain `errorJSONField` (the raw JSON string), `errorCode` (String 'PARSE_ERROR'), and `errorMessage` -- missing the schema columns and using a string error code instead of an integer. |
-| ENG-EJF-008 | **P1** | **No schema-based type coercion**: Talend converts extracted values to the schema-defined types (Integer, Float, Date, BigDecimal, etc.) with type conversion errors routed to REJECT. The engine outputs all values as raw Python objects without any type conversion. Compare with `FileInputJSON` (line 214-240) which does implement type coercion. |
-| ENG-EJF-009 | **P2** | **Missing matches return empty string instead of null**: When a mapping query matches nothing, the engine sets the column to `''` (empty string). Talend sets it to `null`. This difference affects downstream null checks and filtering logic. |
-| ENG-EJF-010 | **P2** | **ERROR_MESSAGE GlobalMap variable not set**: Talend sets the `ERROR_MESSAGE` global variable when an error occurs. The engine does not set this variable. |
-| ENG-EJF-011 | **P2** | **No XPath mode support**: The `READ_BY` parameter can be `'JSONPATH'` or `'Xpath'` in Talend. The engine only supports JSONPath. XPath mode is silently ignored. |
-| ENG-EJF-012 | **P3** | **Encoding config unused**: The `encoding` config is extracted by the converter but never used by the engine. Since the engine receives JSON as a string in a DataFrame column (already decoded), encoding is not directly applicable. However, if the JSON string contains encoding-specific characters that were not properly decoded upstream, this could cause issues. |
-
----
-
-## 4. Code Quality Audit
-
-### Bugs
-
-| ID | Priority | Location | Description |
-|----|----------|----------|-------------|
-| BUG-EJF-001 | **P0** | `extract_json_fields.py` line 170 | **Hardcoded `row[0]` for JSON source**: `json_data = json.loads(row[0])` always reads the first column. The `JSONFIELD` config (stored as `config['json_field']`) is never consulted. If the input DataFrame has columns `['id', 'name', 'json_payload']` and `JSONFIELD='json_payload'`, the engine will try to parse the `id` column as JSON. This will raise `json.JSONDecodeError` for non-JSON first columns or silently parse the wrong column if it happens to be valid JSON. |
-| BUG-EJF-002 | **P0** | `extract_json_fields.py` lines 341-364 | **`_is_relative_query()` contains hardcoded field names**: The method checks against a static list `['$.skill', '$.level', '$.name', '$.value']` and a hardcoded exclusion `'$.employee'`. This was clearly written for a single specific test case and is not generalizable. Any JSON structure not using these exact property names will get incorrect relative/absolute query routing. The heuristic `query.count('.') <= 1` is also unreliable -- `$.a` has 1 dot (treated as relative) but `$.a.b` has 2 dots (treated as absolute), yet both could be valid relative queries within a loop element. |
-| BUG-EJF-003 | **P1** | `extract_json_fields.py` lines 263-266 | **Zero-match fallback to entire JSON document**: When `jsonpath_expr.find(json_data)` returns empty, the code falls back to `matches = [json_data]`. This means a misconfigured loop query (e.g., typo in path) will silently produce one row with data extracted from the wrong level of the JSON hierarchy instead of producing zero rows. This makes debugging very difficult. |
-| BUG-EJF-004 | **P1** | `extract_json_fields.py` line 287-289 | **Absolute query context uses original `json_data` from closure**: The `_extract_fields` method receives `json_data` as a parameter, but when it determines a query is "absolute" (via `_is_relative_query()` returning `False`), it executes the query on this same `json_data`. This is correct architecturally, but combined with the broken `_is_relative_query()`, queries that should be relative are executed on the full document, potentially returning multiple matches from sibling elements and corrupting the per-row data. |
-| BUG-EJF-005 | **P1** | `extract_json_fields.py` line 258 | **`jsonpath_ng.parse()` called inside loop**: The loop query is correctly parsed once at line 258, but each mapping query is parsed inside the inner loop at line 289/293 via `parse(query).find(...)`. Since `parse()` is called for every mapping in every loop iteration, and JSONPath parsing involves tokenization and AST construction, this causes unnecessary re-parsing. While not a correctness bug, it is a performance anti-pattern that becomes significant with large datasets. |
-| BUG-EJF-006 | **P2** | `extract_json_fields.py` line 11 | **Wrong `jsonpath_ng` module imported**: The engine imports `from jsonpath_ng import parse` (base module). The extended module `jsonpath_ng.ext` supports additional features like filter expressions, arithmetic, and string functions. The sibling `FileInputJSON` component correctly imports `from jsonpath_ng.ext import parse` (line 182). Using the base module means some valid JSONPath expressions that work in `FileInputJSON` will fail in `ExtractJSONFields`. |
-
-### Naming Consistency
-
-| ID | Priority | Issue |
-|----|----------|-------|
-| NAME-EJF-001 | **P2** | **Dual mapping key support (`schema_column`/`column`, `query`/`jsonpath`)**: The engine accepts both `schema_column` and `column` for column names, and both `query` and `jsonpath` for JSONPath expressions (lines 275-277). This is accommodating but creates ambiguity. The converter always produces `schema_column` and `query`, while `FileInputJSON` uses `column` and `jsonpath`. There is no documentation on which is canonical. |
-| NAME-EJF-002 | **P2** | **Reject key `errorJSONField` is non-standard**: Talend uses the output schema column names in reject rows. The engine uses a custom key `errorJSONField` that does not match Talend's reject format and would confuse downstream components expecting schema columns in reject data. |
-| NAME-EJF-003 | **P3** | **Config key `json_field` vs `JSONFIELD`**: The converter maps Talend's `JSONFIELD` to `json_field` (snake_case), which is correct per Python convention, but the engine never reads this key, making the naming moot. |
-
-### Standards Compliance
-
-| ID | Priority | Issue |
-|----|----------|-------|
-| STD-EJF-001 | **P1** | **`_validate_config()` does not validate all config keys**: The method validates `loop_query`, `mapping`, and `die_on_error` but does not validate `json_field`, `use_loop_as_root`, `split_list`, `encoding`, `read_by`, or `json_path_version`. Per methodology, all config parameters should be validated. Missing validation means invalid config values are silently accepted. |
-| STD-EJF-002 | **P2** | **No schema validation on output**: The engine does not call `self.validate_schema()` (provided by `BaseComponent`) on the output DataFrame. Schema-defined types are not enforced. Compare with `FileInputJSON` which performs type coercion in its `_process()` method. |
-| STD-EJF-003 | **P2** | **`_is_relative_query()` violates single-responsibility principle**: This method conflates domain knowledge (specific JSON property names) with query analysis logic. It should be a pure function that analyzes query structure, not one that contains hardcoded business-specific field names. |
-
-### Debug Artifacts
-
-| ID | Priority | Issue |
-|----|----------|-------|
-| DBG-EJF-001 | **P2** | **Excessive DEBUG logging in hot path**: Lines 167, 171, 175, 261, 271, 282, 294, 298, 304, 313, 320, 332 all contain `logger.debug()` calls inside the row-processing loop and the per-column extraction loop. With 100K rows and 10 columns per row, this produces 1M+ debug log entries. While these are at DEBUG level and typically suppressed, enabling debug logging for troubleshooting becomes impractical due to log volume. |
-| DBG-EJF-002 | **P3** | **Line 156-158 logs full config and DataFrame head at DEBUG**: `logger.debug(f"Input DataFrame head:\n{input_data.head()}")` can log sensitive data (JSON payloads may contain PII, API keys, etc.) to log files. Should be gated behind a separate verbose flag or redacted. |
-
-### Security
-
-| ID | Priority | Issue |
-|----|----------|-------|
-| SEC-EJF-001 | **P3** | **No input sanitization on JSONPath expressions**: JSONPath expressions from config are passed directly to `jsonpath_ng.parse()`. While `jsonpath_ng` does not support code execution like XPath's `evaluate()`, maliciously crafted JSONPath expressions could potentially cause excessive backtracking or memory consumption via deeply nested wildcard patterns. This is low risk since config comes from the converter, not user input at runtime. |
-
----
-
-## 5. Performance & Memory Audit
-
-| ID | Priority | Issue |
-|----|----------|-------|
-| PERF-EJF-001 | **P1** | **Row-by-row `iterrows()` processing**: The `_process()` method iterates rows using `input_data.iterrows()` (line 165), which is the slowest way to iterate a pandas DataFrame. For each row, it calls `json.loads()`, then iterates all mappings, and for each mapping calls `parse(query).find(item)`. This is O(rows * mappings) with Python-level loop overhead. For large datasets (100K+ rows with 10+ mapped columns), this will be extremely slow. Consider vectorized alternatives: `df[col].apply(json.loads)` for parsing, and batch JSONPath evaluation. |
-| PERF-EJF-002 | **P2** | **JSONPath expressions re-parsed on every invocation**: Inside `_extract_fields()`, `parse(query)` is called for every mapping on every loop iteration (lines 289, 293). JSONPath parsing involves tokenization and AST construction. Since the mapping queries are constant across all rows, they should be parsed once before the loop and reused. This would reduce parsing overhead by a factor of `num_rows * num_loop_matches`. |
-| PERF-EJF-003 | **P2** | **Serialization pass over all columns**: After extraction, the engine iterates every column of the output DataFrame and applies `json.dumps()` via `lambda` for any list/dict values (lines 206-211). This is O(rows * columns) even for columns that never contain complex objects. Should detect which columns actually contain complex types first. |
-| PERF-EJF-004 | **P3** | **`extend()` with per-row lists**: `main_output.extend(extracted_rows)` (line 177) is called per input row. Since `extracted_rows` is a list of dicts, and `main_output` is a flat list, this is efficient for append but could be further optimized by pre-allocating based on expected output size. Minor optimization. |
-
-### Streaming Mode Analysis
-
-The `BaseComponent._execute_streaming()` method (lines 255-278 of `base_component.py`) collects
-only `main` output from chunks and ignores `reject` data:
-
+**Fix**:
 ```python
-for chunk in chunks:
-    chunk_result = self._process(chunk)
-    if chunk_result.get('main') is not None:
-        results.append(chunk_result['main'])
+for i in range(0, len(entries) - 1, 2):  # -1 ensures i+1 is always valid
+    schema_col = entries[i].get('value', '').strip('"')
+    query = entries[i+1].get('value', '').strip('"')
+    if schema_col and query:  # Only add valid pairs
+        mapping.append({'schema_column': schema_col, 'query': query})
+    else:
+        logger.warning(f"Skipping incomplete mapping entry at index {i}: col='{schema_col}', query='{query}'")
+
+if len(entries) % 2 != 0:
+    logger.warning(f"Odd number of mapping entries ({len(entries)}). Last entry ignored.")
 ```
 
-This means that in streaming/hybrid mode, **all reject rows are silently dropped**. For
-`ExtractJSONFields` with `die_on_error=False`, this means extraction errors are completely
-invisible when processing large datasets that trigger streaming mode.
+**Impact**: Prevents `IndexError` on odd entry counts. Warns on incomplete mappings. **Risk**: Very low.
 
 ---
 
-## 6. Testing Audit
+### Fix Guide: ENG-EJF-004 -- Implement split_list
 
-| ID | Priority | Issue |
-|----|----------|-------|
-| TEST-EJF-001 | **P0** | **No unit tests exist**: There are no test files anywhere in the repository for `ExtractJSONFields`. Zero test coverage. The `tests/v1/` directory contains only `test_java_integration.py` and `tests/v1/unit/test_bridge_arrow_schema.py` -- neither tests this component. |
-| TEST-EJF-002 | **P1** | **No integration tests**: No integration test exercises `ExtractJSONFields` in a multi-step pipeline (e.g., `FileInputDelimited` -> `ExtractJSONFields` -> `FileOutputDelimited`). |
+**File**: `src/v1/engine/components/transform/extract_json_fields.py`
 
-### Recommended Test Cases
+**In `_extract_fields()`, after the value handling section (around line 300-320), add split_list support**:
 
-| Test | Priority | Description |
-|------|----------|-------------|
-| Basic JSON extraction | P0 | Input DataFrame with JSON strings, simple loop query `$.items[*]`, two mapped columns with direct property access. Verify correct row count and column values. |
-| JSONFIELD source column | P0 | Input DataFrame with 3 columns where JSON is in column index 2. Verify that the correct column is read (currently will fail -- validates BUG-EJF-001). |
-| Nested JSONPath queries | P0 | Loop query `$.data[*]`, mapping queries `$.name`, `$.address.city`, `$.tags[0]`. Verify nested values are correctly extracted. |
-| Empty loop query match | P0 | Loop query that matches nothing (e.g., `$.nonexistent[*]`). Verify zero output rows (currently will fail -- validates BUG-EJF-003). |
-| `_is_relative_query()` correctness | P0 | Input with loop query `$.employees[*]`, mapping query `$.department`. Verify that `$.department` is treated as relative to each employee (currently will fail -- validates BUG-EJF-002). |
-| `use_loop_as_root=true` | P1 | Set `use_loop_as_root=true`, verify mapping queries execute relative to loop element. |
-| `use_loop_as_root=false` | P1 | Set `use_loop_as_root=false`, verify mapping queries execute against full document. |
-| `split_list=true` | P1 | Mapping query returns array of 3 elements with `split_list=true`. Verify 3 separate rows are produced per loop match. |
-| Die on error = true | P1 | Malformed JSON input with `die_on_error=true`. Verify `ComponentExecutionError` is raised. |
-| Die on error = false + reject | P1 | Malformed JSON input with `die_on_error=false`. Verify reject DataFrame has correct `errorCode` (Integer) and `errorMessage` (String) and schema columns. |
-| Wildcard query `[*]` | P1 | Mapping query with `$.items[*].name`. Verify array result is preserved. |
-| Single-value extraction | P1 | Mapping query `$.name` returning single scalar. Verify scalar (not list) in output. |
-| Complex object serialization | P1 | Mapping query returns a dict/list. Verify JSON serialization in output DataFrame. |
-| Type coercion (Integer) | P1 | Schema defines Integer column, JSONPath extracts string `"42"`. Verify conversion to int. |
-| Type coercion (Date) | P1 | Schema defines Date column with pattern, JSONPath extracts date string. Verify conversion. |
-| Null/missing value handling | P2 | Mapping query matches nothing. Verify `None`/`null` in output (not empty string). |
-| Filter expression compatibility | P2 | JSONPath filter `$..book[?(@.price<10)]`. Verify compatibility with `jsonpath_ng`. |
-| Large dataset performance | P2 | 100K rows with 10 columns each. Measure execution time and memory. |
-| Streaming mode reject preservation | P2 | Large dataset triggering streaming mode with `die_on_error=false`. Verify reject rows are not lost. |
-| Multiple input rows | P1 | Input DataFrame with 5 rows, each containing different JSON. Verify all 5 are processed and results are correctly concatenated. |
-| Empty input | P2 | `None` and empty DataFrame inputs. Verify empty output without errors. |
-| Invalid JSONPath syntax | P2 | Malformed JSONPath in mapping (e.g., `$.[invalid`). Verify graceful error handling. |
-| `jsonpath_ng` vs `jsonpath_ng.ext` | P2 | Use extended JSONPath features (filters, arithmetic). Verify behavior with base vs ext import. |
-
----
-
-## 7. Cross-Component Comparison: ExtractJSONFields vs FileInputJSON
-
-The codebase contains two components that perform JSONPath extraction:
-
-1. **`ExtractJSONFields`** (`transform/extract_json_fields.py`) -- the subject of this audit
-2. **`FileInputJSON`** (`file/file_input_json.py`) -- reads JSON from files
-
-Despite serving different purposes (flow transform vs file input), `FileInputJSON` is
-significantly more mature and can serve as a reference implementation for fixing
-`ExtractJSONFields`. Key differences:
-
-| Feature | ExtractJSONFields | FileInputJSON |
-|---------|-------------------|---------------|
-| jsonpath_ng module | `jsonpath_ng` (base) | `jsonpath_ng.ext` (extended) |
-| Type coercion | None | Full (int, float, date) |
-| Reject format | `{errorJSONField, errorCode, errorMessage}` | `{schema_cols..., errorCode, errorMessage}` |
-| Null handling | Empty string `''` | Preserves as-is |
-| `use_loop_as_root` | Not implemented | Implemented (line 188-190) |
-| Relative query logic | Broken `_is_relative_query()` heuristic | Always relative to loop element |
-| Source data | Hardcoded `row[0]` | Reads from file/URL |
-| Schema support | None | Full schema with type mapping |
-| Advanced separators | None | Thousands/decimal separators |
-| Date validation | None | Pattern-based date parsing |
-
-This comparison confirms that the `FileInputJSON` implementation is the better reference for
-the JSONPath extraction logic, and `ExtractJSONFields` should be aligned with it.
-
----
-
-## 8. Detailed Analysis: The `_is_relative_query()` Problem
-
-This section provides a deep analysis of the most architecturally problematic code in the
-component.
-
-### Current Implementation (lines 341-364)
-
+Replace the current result handling with:
 ```python
-def _is_relative_query(self, query: str) -> bool:
-    relative_patterns = [
-        '$.skill',
-        '$.level',
-        '$.name',
-        '$.value',
-    ]
-    if query.count('.') <= 1 and not query.startswith('$.employee'):
-        return True
-    return False
+split_list = self.config.get('split_list', False)
+
+# Handle the extracted values
+if not values:
+    row[col] = None  # Fix BUG-EJF-007 at the same time
+elif split_list and isinstance(values, list) and len(values) > 1:
+    # Split mode: will create multiple rows later
+    row[col] = values  # Keep as list, expand after all columns processed
+    row['_needs_split'] = True
+elif '[*]' in query or '.*' in query:
+    if len(values) == 1 and not isinstance(values[0], (list, dict)):
+        row[col] = values[0]
+    else:
+        row[col] = values
+else:
+    row[col] = values[0] if len(values) == 1 else values
 ```
 
-### Problems
-
-1. **Hardcoded field names are never actually used**: The `relative_patterns` list is defined
-   but never referenced in the return logic. The list is dead code.
-
-2. **The actual heuristic `query.count('.') <= 1`** means:
-   - `$.name` (1 dot) -> relative (correct for simple properties)
-   - `$.address.city` (2 dots) -> absolute (WRONG -- this is a valid relative path)
-   - `$.items[*].value` (2 dots) -> absolute (WRONG)
-
-3. **The exclusion `not query.startswith('$.employee')`** is a single hardcoded business rule
-   that makes no sense outside the original test data.
-
-4. **The calling code (line 287)** only invokes `_is_relative_query()` when `query.startswith('$.')`,
-   meaning queries like `.name` or `name` are always treated as relative. But in practice,
-   all JSONPath queries start with `$.`, so this check is always `True`.
-
-### Correct Behavior
-
-In Talend, the query context is determined by the `USE_LOOP_AS_ROOT` setting, not by
-analyzing the query string:
-
-- **`USE_LOOP_AS_ROOT = true`**: ALL mapping queries execute relative to the current loop
-  element. The `$` in the query refers to the loop element, not the document root.
-- **`USE_LOOP_AS_ROOT = false`**: ALL mapping queries execute against the full document.
-  The `$` refers to the document root.
-
-The entire `_is_relative_query()` method should be replaced with a simple check of the
-`use_loop_as_root` config flag. The method, the `relative_patterns` list, and the
-per-query context switching logic should all be removed.
-
-### Recommended Fix
-
+Then after building `extracted_rows`, expand split rows:
 ```python
-def _extract_fields(self, json_data, loop_query, mapping):
-    use_loop_as_root = self.config.get('use_loop_as_root', True)
-    # ... loop iteration ...
-    for item in matches:
-        for m in mapping:
-            query = m.get('query') or m.get('jsonpath')
-            context = item if use_loop_as_root else json_data
-            jsonpath_matches = parse(query).find(context)
-            # ... value extraction ...
+if split_list:
+    expanded_rows = []
+    for row in extracted_rows:
+        if row.pop('_needs_split', False):
+            # Find list columns and expand
+            list_cols = {k: v for k, v in row.items() if isinstance(v, list)}
+            if list_cols:
+                max_len = max(len(v) for v in list_cols.values())
+                for idx in range(max_len):
+                    new_row = dict(row)
+                    for col, vals in list_cols.items():
+                        new_row[col] = vals[idx] if idx < len(vals) else None
+                    expanded_rows.append(new_row)
+            else:
+                expanded_rows.append(row)
+        else:
+            expanded_rows.append(row)
+    extracted_rows = expanded_rows
 ```
 
----
-
-## 9. Detailed Analysis: jsonpath_ng vs Jayway JsonPath Compatibility
-
-### Syntax Differences
-
-| Feature | Jayway JsonPath (Talend/Java) | jsonpath_ng (Python) | Impact |
-|---------|-------------------------------|----------------------|--------|
-| Root reference | `$` | `$` | Compatible |
-| Child access | `$.store.book` | `$.store.book` | Compatible |
-| Array index | `$[0]` | `$[0]` | Compatible |
-| Wildcard | `$[*]` | `$[*]` | Compatible |
-| Deep scan | `$..book` | `$..book` | Compatible (base module) |
-| Current object | `@` | `this` | **INCOMPATIBLE** -- Talend queries using `@` in filters will fail |
-| Filter expression | `$[?(@.price<10)]` | `$[?this.price < 10]` | **INCOMPATIBLE** -- different syntax |
-| Array slice | `$[0:3]` | `$[0:3]` | Compatible |
-| Multiple results | Returns JSON array | Returns list of `DatumInContext` | Different API, handled by code |
-| Length function | `$.store.book.length()` | Not supported in base | **INCOMPATIBLE** |
-| Min/Max/Sum | `$.store.book[*].price.min()` | Not supported in base | **INCOMPATIBLE** |
-
-### Risk Assessment
-
-- **Low-risk queries**: Simple property access (`$.name`), array iteration (`$.items[*]`),
-  nested access (`$.a.b.c`) -- these are compatible and cover ~80% of typical usage.
-- **Medium-risk queries**: Deep scan (`$..name`) -- compatible but may return results in
-  different order.
-- **High-risk queries**: Filter expressions (`$[?(@.price<10)]`), function calls
-  (`$.length()`) -- these will fail or produce wrong results.
-
-### Mitigation
-
-The engine should import `from jsonpath_ng.ext import parse` instead of `from jsonpath_ng import parse`.
-The `.ext` module adds support for:
-- Filter expressions (with Python syntax)
-- Arithmetic operations
-- String functions
-- Named operators
-
-Additionally, a compatibility layer should translate common Jayway patterns to jsonpath_ng
-patterns (e.g., `@` -> `this` in filter expressions).
+**Impact**: Enables array expansion into rows per Talend `SPLIT_LIST` behavior. **Risk**: Medium -- new feature, requires testing.
 
 ---
 
-## 10. Issues Summary
+### Fix Guide: ENG-EJF-005 -- REJECT flow with schema columns
 
-### All Issues by Priority
+**File**: `src/v1/engine/components/transform/extract_json_fields.py`
 
-#### P0 -- Critical (5 issues)
+**Replace the reject append block (lines 191-195)**:
 
-| ID | Category | Summary |
-|----|----------|---------|
-| ENG-EJF-001 | Feature Gap | JSONFIELD source column ignored -- always reads `row[0]`, causing data corruption when JSON is not in first column |
-| ENG-EJF-002 | Feature Gap | `_is_relative_query()` uses hardcoded field names and broken heuristic -- produces silently wrong results |
-| ENG-EJF-003 | Feature Gap | Zero loop query matches falls back to entire JSON document instead of producing zero rows |
-| BUG-EJF-001 | Bug | Hardcoded `row[0]` ignores `config['json_field']` -- parses wrong column |
-| BUG-EJF-002 | Bug | `_is_relative_query()` dead code (`relative_patterns` never used) and broken dot-counting heuristic |
-| TEST-EJF-001 | Testing | Zero unit tests for this component |
-
-#### P1 -- Major (10 issues)
-
-| ID | Category | Summary |
-|----|----------|---------|
-| CONV-EJF-001 | Converter | Mapping table stride assumption -- may produce wrong column-query pairs if `GET_NODES`/`IS_ARRAY` values present |
-| CONV-EJF-002 | Converter | JSONFIELD extracted but not consumed by engine |
-| ENG-EJF-004 | Feature Gap | `use_loop_as_root` config not honored |
-| ENG-EJF-005 | Feature Gap | `split_list` config not honored |
-| ENG-EJF-006 | Feature Gap | JSONPath library incompatibility (jsonpath_ng base vs Jayway JsonPath) |
-| ENG-EJF-007 | Feature Gap | Reject flow format differs from Talend (missing schema columns, string errorCode) |
-| ENG-EJF-008 | Feature Gap | No schema-based type coercion |
-| BUG-EJF-003 | Bug | Zero-match fallback to entire JSON document |
-| BUG-EJF-004 | Bug | Broken relative query routing causes wrong query context |
-| BUG-EJF-005 | Bug | JSONPath expressions re-parsed inside inner loop (performance) |
-| PERF-EJF-001 | Performance | Row-by-row `iterrows()` processing for large datasets |
-| STD-EJF-001 | Standards | `_validate_config()` does not validate all config keys |
-| TEST-EJF-002 | Testing | No integration tests |
-
-#### P2 -- Moderate (10 issues)
-
-| ID | Category | Summary |
-|----|----------|---------|
-| CONV-EJF-003 | Converter | Misleading comment on line 294 (wrong component name) |
-| CONV-EJF-004 | Converter | No validation of loop_query format in converter |
-| ENG-EJF-009 | Feature Gap | Missing matches return empty string instead of null |
-| ENG-EJF-010 | Feature Gap | ERROR_MESSAGE GlobalMap variable not set |
-| ENG-EJF-011 | Feature Gap | No XPath mode support |
-| BUG-EJF-006 | Bug | Wrong `jsonpath_ng` module imported (base instead of ext) |
-| NAME-EJF-001 | Naming | Dual mapping key support creates ambiguity |
-| NAME-EJF-002 | Naming | Reject key `errorJSONField` is non-standard |
-| STD-EJF-002 | Standards | No schema validation on output DataFrame |
-| STD-EJF-003 | Standards | `_is_relative_query()` violates single-responsibility principle |
-| DBG-EJF-001 | Debug | Excessive DEBUG logging in hot path (1M+ entries possible) |
-| PERF-EJF-002 | Performance | JSONPath expressions re-parsed on every invocation |
-| PERF-EJF-003 | Performance | Serialization pass iterates all columns unnecessarily |
-
-#### P3 -- Low (5 issues)
-
-| ID | Category | Summary |
-|----|----------|---------|
-| CONV-EJF-005 | Converter | tStatCatcher Statistics not extracted |
-| ENG-EJF-012 | Feature Gap | Encoding config unused |
-| NAME-EJF-003 | Naming | Config key `json_field` naming is moot since engine ignores it |
-| DBG-EJF-002 | Debug | Debug logging may expose sensitive data (PII, API keys in JSON) |
-| SEC-EJF-001 | Security | No input sanitization on JSONPath expressions |
-| PERF-EJF-004 | Performance | Minor `extend()` optimization opportunity |
-
----
-
-## 11. Recommendations
-
-### Immediate -- Before Production (P0 fixes)
-
-1. **Fix JSONFIELD source column selection** (ENG-EJF-001, BUG-EJF-001):
-   Replace `json_data = json.loads(row[0])` with dynamic column lookup using
-   `config['json_field']`. Fall back to first column only if `json_field` is empty/missing.
-
-2. **Replace `_is_relative_query()` with `use_loop_as_root` check** (ENG-EJF-002, BUG-EJF-002, ENG-EJF-004):
-   Delete the entire `_is_relative_query()` method. Replace the query context logic in
-   `_extract_fields()` with a simple check: if `use_loop_as_root` is `True`, execute all
-   mapping queries on the current loop element; if `False`, execute on the full document.
-   Default to `True` (Talend's default behavior).
-
-3. **Remove zero-match fallback** (ENG-EJF-003, BUG-EJF-003):
-   When the loop query matches nothing, return an empty list instead of falling back to
-   `[json_data]`. This matches Talend behavior.
-
-4. **Create comprehensive unit test suite** (TEST-EJF-001):
-   Write tests for all recommended test cases listed in Section 6.
-
-### Short-Term -- Hardening (P1 fixes)
-
-5. **Switch to `jsonpath_ng.ext`** (ENG-EJF-006, BUG-EJF-006):
-   Change import from `from jsonpath_ng import parse` to `from jsonpath_ng.ext import parse`
-   to support filter expressions and extended features.
-
-6. **Implement `split_list` support** (ENG-EJF-005):
-   When `split_list=True` and a mapping query returns an array, expand each element into a
-   separate row (Cartesian product with other columns in the same loop iteration).
-
-7. **Fix reject flow format** (ENG-EJF-007):
-   Reject rows should contain the output schema columns (with partial data) plus `errorCode`
-   (Integer) and `errorMessage` (String), matching Talend's format.
-
-8. **Implement schema-based type coercion** (ENG-EJF-008):
-   Use the output schema to convert extracted values to the declared types. Reference
-   `FileInputJSON._process()` (lines 214-240) for the implementation pattern.
-
-9. **Pre-parse JSONPath expressions** (BUG-EJF-005, PERF-EJF-002):
-   Parse all mapping JSONPath expressions once before entering the row loop, storing compiled
-   expressions in a dict keyed by column name.
-
-10. **Fix converter mapping table stride** (CONV-EJF-001):
-    Detect the number of columns per mapping row by checking `elementRef` attributes instead
-    of assuming a fixed stride of 2.
-
-11. **Validate all config parameters** (STD-EJF-001):
-    Extend `_validate_config()` to validate `json_field`, `use_loop_as_root`, `split_list`,
-    `encoding`, and `read_by`.
-
-### Long-Term -- Optimization (P2/P3 fixes)
-
-12. **Return `None` instead of empty string for missing matches** (ENG-EJF-009):
-    Change `row[col] = ''` to `row[col] = None` when a mapping query matches nothing.
-
-13. **Set ERROR_MESSAGE GlobalMap variable** (ENG-EJF-010):
-    Set `self.global_map.put(f'{self.id}_ERROR_MESSAGE', str(e))` on errors.
-
-14. **Standardize mapping key names** (NAME-EJF-001):
-    Choose either `schema_column`/`query` or `column`/`jsonpath` as canonical and deprecate
-    the alternative.
-
-15. **Reduce debug logging volume** (DBG-EJF-001):
-    Move per-row/per-column debug logging behind a `TRACE` level or aggregate into per-batch
-    summaries.
-
-16. **Consider vectorized processing** (PERF-EJF-001):
-    For the common case where all input rows have the same JSON structure, consider batch
-    processing using `df[col].apply(json.loads)` and vectorized JSONPath evaluation.
-
-17. **Add JSONPath compatibility layer** (ENG-EJF-006):
-    Implement a translator that converts common Jayway JsonPath syntax (e.g., `@` in filters)
-    to `jsonpath_ng` equivalents before parsing.
-
----
-
-## 12. Appendix A: Complete Source Code Listing with Annotations
-
-### `extract_json_fields.py` -- Line-by-Line Analysis
-
-| Lines | Section | Assessment |
-|-------|---------|------------|
-| 1-16 | Module docstring, imports, logger | Uses `jsonpath_ng` base instead of `jsonpath_ng.ext`; `DataValidationError` imported but never used |
-| 19-69 | Class docstring | Comprehensive but documents behavior that does not match implementation (e.g., "JSON data is expected in the first column" should reference JSONFIELD) |
-| 71-109 | `_validate_config()` | Validates `loop_query`, `mapping`, `die_on_error` only; misses 6+ other config keys |
-| 111-237 | `_process()` | Main processing method; hardcoded `row[0]`; correct `die_on_error` handling; correct stats tracking |
-| 136-138 | List input handling | Converts list to DataFrame; undocumented feature; could mask upstream bugs |
-| 165-195 | Row iteration loop | Uses `iterrows()` (slow); handles JSON parsing errors correctly per die_on_error |
-| 197-213 | Result DataFrame construction | Correct serialization of complex objects; correct stats update |
-| 239-339 | `_extract_fields()` | Core extraction logic; broken query context routing; correct wildcard handling |
-| 257-266 | Loop query execution + fallback | Fallback to `[json_data]` on zero matches is incorrect |
-| 287-294 | Relative vs absolute query routing | Uses broken `_is_relative_query()` heuristic |
-| 300-319 | Value extraction and handling | Correct wildcard array preservation; correct scalar flattening |
-| 341-364 | `_is_relative_query()` | Hardcoded field names (dead code), broken dot-counting heuristic |
-
-### `component_parser.py` lines 2448-2478 -- Converter Analysis
-
-| Lines | Section | Assessment |
-|-------|---------|------------|
-| 2448-2449 | Method signature + docstring | Correct |
-| 2450-2452 | `get_param()` helper | Clean helper for XML parameter extraction |
-| 2455-2466 | Basic parameter extraction | All key params extracted; correct boolean conversion; checks both `LOOP_QUERY` and `JSON_LOOP_QUERY` |
-| 2468-2477 | Mapping table parsing | Assumes stride of 2; risk of misalignment if GET_NODES/IS_ARRAY present |
-
----
-
-## 13. Appendix B: Converter-to-Engine Config Key Mapping
-
-This table shows the complete flow from Talend XML parameter to converter config key to
-engine usage.
-
-| Talend XML Param | Converter Config Key | Engine Reads? | Engine Uses? | Notes |
-|------------------|---------------------|---------------|-------------|-------|
-| `READ_BY` | `read_by` | No | No | Only JSONPath supported; config ignored |
-| `JSON_PATH_VERSION` | `json_path_version` | No | No | `jsonpath_ng` has no version selector |
-| `LOOP_QUERY` / `JSON_LOOP_QUERY` | `loop_query` | Yes | Yes | Core functionality |
-| `DIE_ON_ERROR` | `die_on_error` | Yes | Yes | Correct behavior |
-| `ENCODING` | `encoding` | No | No | JSON already decoded from string |
-| `USE_LOOP_AS_ROOT` | `use_loop_as_root` | No | No | **Critical gap** -- should control query context |
-| `SPLIT_LIST` | `split_list` | No | No | Array expansion not implemented |
-| `JSONFIELD` | `json_field` | No | No | **Critical gap** -- source column ignored |
-| `MAPPING_4_JSONPATH` | `mapping` | Yes | Yes | Core functionality |
-
-**5 of 9 extracted config keys are not used by the engine.** This represents a 55% waste
-rate in converter effort and, more critically, means 5 Talend features are silently ignored
-at runtime.
-
----
-
-## 14. Appendix C: Comparison with FileInputJSON Implementation
-
-This appendix highlights specific code patterns from `FileInputJSON` that should be adopted
-by `ExtractJSONFields`.
-
-### JSONPath Import (FileInputJSON line 182)
-
-```python
-from jsonpath_ng.ext import parse  # Extended module with filter support
-```
-
-vs ExtractJSONFields line 11:
-
-```python
-from jsonpath_ng import parse  # Base module only
-```
-
-### Type Coercion (FileInputJSON lines 214-240)
-
-`FileInputJSON` implements comprehensive type coercion:
-- Integer conversion with advanced separator handling
-- Float conversion with advanced separator handling
-- Date parsing with pattern-based validation
-- Error routing to reject flow on conversion failure
-
-`ExtractJSONFields` has **zero** type coercion.
-
-### Reject Row Format (FileInputJSON lines 244-246)
-
-```python
-reject_row = dict(row) if row else {}  # Preserves partial schema data
-reject_row['errorCode'] = 'PARSE_ERROR'
-reject_row['errorMessage'] = str(err)
-```
-
-vs ExtractJSONFields lines 191-195:
-
+**Current**:
 ```python
 reject_output.append({
-    'errorJSONField': row[0],  # Raw JSON string, not schema columns
+    'errorJSONField': row[0],
     'errorCode': 'PARSE_ERROR',
     'errorMessage': str(e)
 })
 ```
 
-### Use Loop As Root (FileInputJSON lines 188-190)
-
+**Fix**:
 ```python
-if use_loop_as_root:
-    if len(elements) == 1 and isinstance(elements[0], list):
-        elements = elements[0]
+# Build reject row with all schema columns set to None
+reject_row = {}
+for m in mapping:
+    col = m.get('schema_column') or m.get('column')
+    reject_row[col] = None
+# Add Talend-standard error columns
+reject_row['errorCode'] = 'PARSE_ERROR'
+reject_row['errorMessage'] = str(e)
+reject_output.append(reject_row)
 ```
 
-`ExtractJSONFields` does not implement this.
+**Impact**: Reject rows now include all output schema columns per Talend conventions. **Risk**: Medium -- changes reject DataFrame structure. Downstream components may need adjustment.
 
 ---
 
-## 15. Appendix D: Dependency Analysis
+## Appendix N: Base Class Analysis (ExtractJSONFields-Specific Impact)
 
-### Runtime Dependencies
+### `execute()` Lifecycle (base_component.py lines 188-234)
 
-| Package | Version | Purpose | Risk |
-|---------|---------|---------|------|
-| `jsonpath_ng` | Any | JSONPath parsing and evaluation | Medium -- base module lacks filter expressions; should use `.ext` |
-| `pandas` | >= 1.x | DataFrame operations | Low |
-| `json` | stdlib | JSON parsing | Low |
+When `ExtractJSONFields.execute(input_data)` is called by the engine:
 
-### Internal Dependencies
+1. **Set status RUNNING** (line 192): `self.status = ComponentStatus.RUNNING`
+2. **Resolve Java expressions** (lines 197-198): If `java_bridge` is set, call `_resolve_java_expressions()`. For ExtractJSONFields, this would resolve `{{java}}` markers in `loop_query`, `mapping[*].query`, etc. Typically not relevant since JSONPath queries rarely contain Java expressions, but possible if a context variable is embedded.
+3. **Resolve context variables** (lines 201-202): If `context_manager` is set, call `context_manager.resolve_dict(self.config)`. This resolves `${context.var}` in all config values. Important for dynamic JSONPath queries.
+4. **Auto-select mode** (lines 205-208): HYBRID mode checks input DataFrame memory usage against `MEMORY_THRESHOLD_MB` (3GB). For typical JSON extraction inputs, this will almost always select BATCH mode.
+5. **Execute** (lines 211-214): Call `_execute_batch(input_data)` or `_execute_streaming(input_data)`.
+6. **Update stats** (line 217): Set `EXECUTION_TIME`.
+7. **Update globalMap** (line 218): **CRASHES** due to BUG-EJF-001.
+8. **Set status SUCCESS** (line 220): Reached only if `_update_global_map()` succeeds (it does not).
 
-| Module | Purpose | Risk |
-|--------|---------|------|
-| `BaseComponent` | Component lifecycle, stats, execution modes | Low -- well-tested |
-| `ComponentExecutionError` | Error raising for `die_on_error` | Low |
-| `ConfigurationError` | Config validation errors | Low |
-| `DataValidationError` | Imported but **never used** (dead import) | Cosmetic |
+### `_execute_streaming()` Impact (base_component.py lines 255-278)
+
+When streaming mode is selected (input > 3GB):
+
+```python
+def _execute_streaming(self, input_data):
+    # ...
+    results = []
+    for chunk in chunks:
+        chunk_result = self._process(chunk)
+        if chunk_result.get('main') is not None:
+            results.append(chunk_result['main'])  # <-- ONLY keeps 'main'
+    # ...
+```
+
+**Problem for ExtractJSONFields**: `_process()` returns `{'main': main_df, 'reject': reject_df}`. The streaming wrapper only collects `chunk_result['main']`. The `reject` key is silently dropped for every chunk. All reject data is lost.
+
+**Impact**: In streaming mode, `die_on_error=false` with invalid JSON rows will silently lose the reject information. The stats will still count rejects (via `_update_stats()`), but the actual reject DataFrame is gone.
+
+### `validate_schema()` Impact (base_component.py lines 314-359)
+
+`ExtractJSONFields._process()` does NOT call `validate_schema()`. The base class `execute()` does not call it either. This means the output DataFrame from ExtractJSONFields is never schema-validated. Any downstream component receiving this DataFrame gets raw extracted values without type coercion.
+
+**Implications**:
+- Integer columns remain as Python `int` or `str` (from JSON values)
+- Boolean columns remain as Python `bool` or `str`
+- Date columns remain as `str` (JSON has no date type)
+- If the downstream component expects typed data per the schema, it must call `validate_schema()` itself
+
+**Recommendation**: Add `validate_schema()` call before returning from `_process()`:
+```python
+if not main_df.empty and self.output_schema:
+    main_df = self.validate_schema(main_df, self.output_schema)
+```
 
 ---
 
-## 16. Appendix E: Risk Matrix for Production Deployment
+## Appendix O: Detailed Walkthrough of `_is_relative_query()` Failures
 
-| Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
-| JSON column is not first column | High (multi-column input flows are common) | Critical (wrong data parsed) | Fix JSONFIELD handling (ENG-EJF-001) |
-| Relative query returns wrong data | High (most JSONPath queries have 2+ dots) | Critical (silent data corruption) | Replace `_is_relative_query()` (ENG-EJF-002) |
-| Zero loop matches produce phantom row | Medium (depends on data quality) | High (unexpected row in output) | Remove fallback (ENG-EJF-003) |
-| JSONPath filter syntax fails | Medium (depends on query complexity) | Medium (runtime crash) | Switch to `jsonpath_ng.ext` (ENG-EJF-006) |
-| Type mismatches downstream | High (no coercion means string types) | Medium (downstream errors) | Implement type coercion (ENG-EJF-008) |
-| Reject data lost in streaming mode | Low (requires large dataset) | High (silent data loss) | Fix streaming reject handling (BaseComponent) |
-| Performance degradation on large data | Medium (iterrows + re-parsing) | Medium (slow execution) | Pre-parse + optimize (PERF-EJF-001/002) |
+### Test Case 1: Simple Nested Property
 
----
-
-## 17. Appendix F: Recommended Implementation Priority
-
-### Phase 1: Critical Fixes (1-2 days)
-
-1. Fix `row[0]` to use `config['json_field']` with fallback
-2. Delete `_is_relative_query()`, implement `use_loop_as_root` logic
-3. Remove zero-match fallback
-4. Switch import to `jsonpath_ng.ext`
-
-### Phase 2: Feature Parity (2-3 days)
-
-5. Implement `split_list` support
-6. Fix reject row format (include schema columns, integer errorCode)
-7. Implement schema-based type coercion (reference FileInputJSON)
-8. Return `None` for missing matches instead of empty string
-9. Pre-parse JSONPath expressions for performance
-
-### Phase 3: Testing & Hardening (2-3 days)
-
-10. Write comprehensive unit test suite (20+ test cases from Section 6)
-11. Write integration tests (pipeline with upstream/downstream components)
-12. Performance benchmarks (10K, 100K, 1M rows)
-13. Validate config exhaustively in `_validate_config()`
-
-### Phase 4: Polish (1 day)
-
-14. Fix converter mapping stride
-15. Standardize mapping key names
-16. Reduce debug logging volume
-17. Set ERROR_MESSAGE GlobalMap variable
-18. Remove dead import (`DataValidationError`)
-
-**Total estimated effort: 6-9 developer days**
-
----
-
-## 18. Appendix G: Detailed Walkthrough of `_process()` Method
-
-This appendix provides a step-by-step walkthrough of the main processing method, annotating
-each section with its correctness status, Talend equivalence, and identified issues.
-
-### Step 1: Configuration Validation (lines 130-134)
-
-```python
-config_errors = self._validate_config()
-if config_errors:
-    error_msg = f"Configuration validation failed: {'; '.join(config_errors)}"
-    logger.error(f"[{self.id}] {error_msg}")
-    raise ConfigurationError(error_msg)
-```
-
-**Assessment**: CORRECT pattern. Validation is called before processing begins. However,
-as noted in STD-EJF-001, the validation itself is incomplete -- it only checks 3 of 9+
-config keys. A malformed `json_field` or invalid `use_loop_as_root` value will pass
-validation and cause runtime errors later.
-
-**Talend Equivalence**: Talend validates all properties at design time in the Studio and
-again at runtime before the component starts. The v1 engine has no design-time validation,
-so runtime validation must be comprehensive.
-
-### Step 2: List Input Handling (lines 137-138)
-
-```python
-if isinstance(input_data, list):
-    input_data = pd.DataFrame(input_data)
-```
-
-**Assessment**: UNDOCUMENTED feature. This converts a raw Python list to a DataFrame. While
-defensive, it masks potential upstream bugs where a component incorrectly outputs a list
-instead of a DataFrame. The docstring for `_process()` states the input should be a DataFrame,
-but this code silently accepts lists.
-
-**Talend Equivalence**: No equivalent. Talend components always receive typed row flows, never
-raw lists. This conversion is a Python-specific accommodation.
-
-**Risk**: Low. The conversion is harmless but could hide bugs in upstream components that
-should be returning DataFrames.
-
-### Step 3: Empty Input Handling (lines 141-144)
-
-```python
-if input_data is None or input_data.empty:
-    logger.warning(f"[{self.id}] Empty input received")
-    self._update_stats(0, 0, 0)
-    return {'main': pd.DataFrame(), 'reject': pd.DataFrame()}
-```
-
-**Assessment**: CORRECT. Returns empty DataFrames for both main and reject outputs when
-input is empty or None. Statistics are updated with zeros. This matches Talend behavior
-where an empty input flow produces no output.
-
-**Minor Issue**: The log level is `warning`, but an empty input may be normal (e.g., when
-upstream filters remove all rows). Should be `info` or `debug`.
-
-### Step 4: Configuration Extraction (lines 151-153)
-
-```python
-loop_query = self.config.get('loop_query', '')
-mapping = self.config.get('mapping', [])
-die_on_error = self.config.get('die_on_error', False)
-```
-
-**Assessment**: CORRECT extraction with sensible defaults. However, `json_field`,
-`use_loop_as_root`, and `split_list` are NOT extracted here, which is the root cause of
-several P0/P1 issues.
-
-**What should be added**:
-```python
-json_field = self.config.get('json_field', None)
-use_loop_as_root = self.config.get('use_loop_as_root', True)
-split_list = self.config.get('split_list', False)
-```
-
-### Step 5: Row Iteration (lines 165-195)
-
-```python
-for row_idx, row in input_data.iterrows():
-    try:
-        json_data = json.loads(row[0])  # BUG: hardcoded row[0]
-        extracted_rows = self._extract_fields(json_data, loop_query, mapping)
-        main_output.extend(extracted_rows)
-    except Exception as e:
-        if die_on_error:
-            raise ComponentExecutionError(...)
-        reject_output.append({
-            'errorJSONField': row[0],
-            'errorCode': 'PARSE_ERROR',
-            'errorMessage': str(e)
-        })
-```
-
-**Assessment**: Multiple issues identified:
-
-1. **`row[0]` hardcoded** (BUG-EJF-001): Should be `row[json_field]` or
-   `row.iloc[json_field_index]`.
-
-2. **`iterrows()` performance** (PERF-EJF-001): Slowest pandas iteration method. For
-   100K rows, this is approximately 10x slower than `apply()` and 100x slower than
-   vectorized operations.
-
-3. **Exception handling is too broad**: Catches `Exception` which includes `KeyError`,
-   `TypeError`, `MemoryError`, etc. Should catch `json.JSONDecodeError` specifically for
-   JSON parsing failures and let other exceptions propagate.
-
-4. **Reject row format** (ENG-EJF-007): Uses `errorJSONField` (the raw JSON string) instead
-   of the output schema columns with partial data. Talend preserves whatever columns were
-   successfully extracted before the error occurred.
-
-5. **`die_on_error` behavior is correct**: When `True`, wraps the exception in
-   `ComponentExecutionError` with the original exception chained. When `False`, captures
-   the error in the reject output. This matches Talend behavior.
-
-### Step 6: Result Construction (lines 198-213)
-
-```python
-main_df = pd.DataFrame(main_output)
-reject_df = pd.DataFrame(reject_output)
-
-if not main_df.empty:
-    for col in main_df.columns:
-        main_df[col] = main_df[col].apply(
-            lambda v: json.dumps(v) if isinstance(v, (list, dict)) else v
-        )
-```
-
-**Assessment**: MOSTLY CORRECT. Complex objects (lists, dicts) are serialized to JSON strings,
-which matches Talend behavior for complex type columns. However:
-
-1. **Serialization is applied to ALL columns** (PERF-EJF-003): Even columns that never
-   contain complex objects are scanned. Should pre-identify columns with complex types.
-
-2. **No type coercion before serialization** (ENG-EJF-008): Talend would have already
-   converted values to schema-defined types before output. The engine outputs raw Python
-   objects.
-
-3. **`reject_df` is not serialized**: If reject rows contain complex objects (unlikely but
-   possible), they would not be serialized.
-
-### Step 7: Statistics Update (lines 216-223)
-
-```python
-rows_out = len(main_df)
-rows_rejected = len(reject_df)
-self._update_stats(rows_in, rows_out, rows_rejected)
-```
-
-**Assessment**: CORRECT. Statistics tracking matches the expected pattern. `rows_in` is the
-number of INPUT rows (not output rows), `rows_out` is the main output count, and
-`rows_rejected` is the reject count.
-
-**Note**: `rows_in` counts INPUT DataFrame rows, not total loop match rows. If one input row
-contains JSON with 10 array elements and the loop query matches all 10, `NB_LINE` will be 1
-(the input row count), not 10 (the output row count). In Talend, `NB_LINE` represents the
-number of input rows read, so this is technically correct, but `NB_LINE_OK` reporting the
-output row count (which may be 10x the input) could be confusing.
-
----
-
-## 19. Appendix H: Detailed Walkthrough of `_extract_fields()` Method
-
-### Method Signature (line 239)
-
-```python
-def _extract_fields(self, json_data: Any, loop_query: str, mapping: List[Dict]) -> List[Dict]:
-```
-
-**Assessment**: The method does not receive `use_loop_as_root` or `split_list` config values
-as parameters, which is why it cannot implement those features. The method should either
-receive these as parameters or read them from `self.config`.
-
-### Loop Query Execution (lines 256-266)
-
-```python
-jsonpath_expr = parse(loop_query)
-matches = [match.value for match in jsonpath_expr.find(json_data)]
-
-if not matches:
-    matches = [json_data]  # FALLBACK - BUG
-```
-
-**Assessment**: The loop query is correctly parsed and executed on the full JSON document.
-The fallback on line 264-265 is the critical bug (BUG-EJF-003). When the loop query matches
-nothing, the method should return an empty list, not process the entire document as a single
-"match".
-
-**Talend Behavior**: If the loop query matches zero elements, zero rows are output. The
-component logs a warning but does not produce any data.
-
-**Impact of the bug**: Consider a JSON document `{"users": []}` with loop query `$.users[*]`.
-The array is empty, so zero matches are expected. But the fallback produces one "match" which
-is the entire document `{"users": []}`. The mapping queries then execute against this wrong
-context, potentially extracting data from unrelated parts of the document (if they match
-anything) or returning empty strings (if they don't). Either way, an unexpected row appears
-in the output.
-
-### Per-Item Extraction Loop (lines 269-332)
-
-```python
-for item_idx, item in enumerate(matches):
-    row = {}
-    for m_idx, m in enumerate(mapping):
-        col = m.get('schema_column') or m.get('column')
-        query = m.get('query') or m.get('jsonpath')
-
-        if query:
-            # Determine query context (broken logic)
-            if query.startswith('$.') and not self._is_relative_query(query):
-                jsonpath_matches = parse(query).find(json_data)  # Full document
-            else:
-                jsonpath_matches = parse(query).find(item)  # Current item
-```
-
-**Assessment**: This is where the relative/absolute query routing occurs, and it is the
-source of the most critical behavioral bugs.
-
-**The decision tree is**:
-1. Does the query start with `$.`? (Almost always yes for JSONPath)
-   - If NO: execute on current item (relative). Correct for queries like `.name`.
-   - If YES: call `_is_relative_query(query)`
-     - If returns `True`: execute on current item
-     - If returns `False`: execute on full document
-
-**The problem**: `_is_relative_query()` uses a broken heuristic that depends on the number
-of dots and hardcoded field names. This means the same query (`$.name`) is treated as
-relative, but (`$.address.city`) is treated as absolute -- even though both should be
-relative when `USE_LOOP_AS_ROOT=true`.
-
-**Example of data corruption**:
-
-Input JSON:
+**Input JSON**:
 ```json
 {
   "employees": [
-    {"name": "Alice", "department": {"code": "ENG", "name": "Engineering"}},
-    {"name": "Bob", "department": {"code": "MKT", "name": "Marketing"}}
+    {"name": "Alice", "department": {"id": 1, "name": "Engineering"}},
+    {"name": "Bob", "department": {"id": 2, "name": "Marketing"}}
   ]
 }
 ```
 
-Loop query: `$.employees[*]`
-Mapping: `{"schema_column": "emp_name", "query": "$.name"}`
-Mapping: `{"schema_column": "dept_name", "query": "$.department.name"}`
+**Config**:
+- `loop_query`: `$.employees[*]`
+- `mapping`: `[{"schema_column": "emp_name", "query": "$.name"}, {"schema_column": "dept_name", "query": "$.department.name"}]`
 
-With the broken heuristic:
-- `$.name` has 1 dot -> `_is_relative_query` returns `True` -> executes on current employee
-  -> returns `"Alice"` for first row. **CORRECT**.
-- `$.department.name` has 2 dots -> `_is_relative_query` returns `False` -> executes on
-  **full document** -> `$.department.name` matches nothing at the root level ->
-  returns `''`. **WRONG** -- should return `"Engineering"`.
+**Expected output** (Talend with USE_LOOP_AS_ROOT=true):
+| emp_name | dept_name |
+|----------|-----------|
+| Alice | Engineering |
+| Bob | Marketing |
 
-If instead the full document happened to have a `$.department.name` field at the root,
-both rows would get the SAME value from the root, not the per-employee value. This is
-**silent data corruption**.
+**V1 actual output**:
+- `$.name`: `_is_relative_query("$.name")` -> `query.count('.') = 1`, `<= 1` -> returns `True`. Query runs on loop item. **CORRECT**: Returns "Alice"/"Bob".
+- `$.department.name`: `_is_relative_query("$.department.name")` -> `query.count('.') = 2`, `> 1` -> returns `False`. Query runs on FULL document. `$.department.name` on root: no match. Returns `''`.
 
-### Value Extraction (lines 300-320)
+| emp_name | dept_name |
+|----------|-----------|
+| Alice | |
+| Bob | |
 
-```python
-if not values:
-    row[col] = ''  # Should be None
-elif '[*]' in query or '.*' in query:
-    if len(values) == 1 and not isinstance(values[0], (list, dict)):
-        row[col] = values[0]  # Flatten single scalar
-    else:
-        row[col] = values  # Keep as array
-else:
-    if len(values) == 1:
-        row[col] = values[0]  # Flatten single value
-    else:
-        row[col] = values  # Multiple values -> array
-```
+**Result**: **WRONG**. Department names are silently lost.
 
-**Assessment**: The wildcard detection via string matching (`'[*]' in query`) is a reasonable
-heuristic for determining whether the result should be an array. However, it has edge cases:
+### Test Case 2: Accessing Root-Level Property
 
-1. **Escaped brackets**: A query like `$.field\[\*\]` would match the string check but the
-   escape might change semantics.
-
-2. **Nested wildcards**: `$.a[*].b[*]` contains `[*]` so it preserves as array, but the
-   nesting means the result structure is a flattened list of all `.b` values across all
-   `.a` elements, which may not be the intended shape.
-
-3. **Empty string for missing values** (ENG-EJF-009): Talend produces `null`, not empty
-   string. This difference causes issues with downstream null checks:
-   ```python
-   # In Talend: row.name == null -> true
-   # In v1 engine: row['name'] == '' -> different semantics
-   ```
-
-### Error Handling in Extraction (lines 322-325)
-
-```python
-except Exception as e:
-    row[col] = ''
-    logger.warning(f"[{self.id}] Failed to execute query '{query}' for column '{col}': {e}")
-```
-
-**Assessment**: When a single column's JSONPath query fails, the column is set to empty
-string and processing continues for other columns. This is a LENIENT approach.
-
-**Talend Behavior**: In Talend, a JSONPath evaluation error on any column typically causes
-the entire row to be rejected (sent to REJECT flow), not just the failed column. The v1
-engine's approach means partial rows with some empty columns silently appear in the main
-output, which could cause data quality issues downstream.
-
-**Recommendation**: When any column extraction fails, the entire row should be routed to
-reject (when `die_on_error=False`) rather than producing a partial row in main output.
-
----
-
-## 20. Appendix I: Converter Parsing Deep Dive
-
-### XML Structure for tExtractJSONFields
-
-In a typical Talend `.item` XML file, a tExtractJSONFields component appears as:
-
-```xml
-<node componentName="tExtractJSONFields" componentVersion="0.101"
-      offsetLabelX="0" offsetLabelY="0" posX="448" posY="288">
-  <elementParameter field="TEXT" name="UNIQUE_NAME" value="tExtractJSONFields_1"/>
-  <elementParameter field="CLOSED_LIST" name="READ_BY" value="JSONPATH"/>
-  <elementParameter field="TEXT" name="LOOP_QUERY" value="&quot;$.data[*]&quot;"/>
-  <elementParameter field="CHECK" name="DIE_ON_ERROR" value="false"/>
-  <elementParameter field="ENCODING_TYPE" name="ENCODING" value="&quot;UTF-8&quot;"/>
-  <elementParameter field="CHECK" name="USE_LOOP_AS_ROOT" value="true"/>
-  <elementParameter field="CHECK" name="SPLIT_LIST" value="false"/>
-  <elementParameter field="CLOSED_LIST" name="JSONFIELD" value="json_column"/>
-  <elementParameter field="TABLE" name="MAPPING_4_JSONPATH">
-    <elementValue elementRef="SCHEMA_COLUMN" value="name"/>
-    <elementValue elementRef="QUERY" value="&quot;$.name&quot;"/>
-    <elementValue elementRef="SCHEMA_COLUMN" value="age"/>
-    <elementValue elementRef="QUERY" value="&quot;$.age&quot;"/>
-  </elementParameter>
-  <metadata connector="FLOW" name="tExtractJSONFields_1">
-    <column key="false" length="-1" name="name" nullable="true" type="id_String"/>
-    <column key="false" length="-1" name="age" nullable="true" type="id_Integer"/>
-  </metadata>
-  <metadata connector="REJECT" name="tExtractJSONFields_1">
-    <column key="false" length="-1" name="name" nullable="true" type="id_String"/>
-    <column key="false" length="-1" name="age" nullable="true" type="id_Integer"/>
-    <column key="false" length="-1" name="errorCode" nullable="true" type="id_Integer"/>
-    <column key="false" length="-1" name="errorMessage" nullable="true" type="id_String"/>
-  </metadata>
-</node>
-```
-
-### Converter Parsing Analysis
-
-**Parameter extraction (lines 2455-2466)**:
-
-The converter iterates `elementParameter` nodes by name. This is correct and handles
-both `LOOP_QUERY` and `JSON_LOOP_QUERY` variants (different Talend versions use different
-parameter names). The quote stripping on lines 2459-2460 correctly handles Talend's habit
-of wrapping string values in quotes.
-
-**Boolean conversion** is handled correctly:
-```python
-component['config']['die_on_error'] = get_param('DIE_ON_ERROR', 'false').lower() == 'true'
-```
-
-This produces a proper Python `bool`, not a string `'true'`/`'false'`.
-
-**Mapping table parsing (lines 2468-2477)**:
-
-The mapping table parsing assumes a strict alternating pattern: SCHEMA_COLUMN, QUERY,
-SCHEMA_COLUMN, QUERY, etc. This works for the common case where the Talend mapping table
-has exactly 2 columns.
-
-**However**, Talend's `MAPPING_4_JSONPATH` can include additional columns:
-- `GET_NODES` (Boolean) -- XPath mode
-- `IS_ARRAY` (Boolean) -- XPath mode
-
-When these additional columns are present, the XML would look like:
-```xml
-<elementParameter field="TABLE" name="MAPPING_4_JSONPATH">
-  <elementValue elementRef="SCHEMA_COLUMN" value="name"/>
-  <elementValue elementRef="QUERY" value="&quot;$.name&quot;"/>
-  <elementValue elementRef="GET_NODES" value="false"/>
-  <elementValue elementRef="IS_ARRAY" value="false"/>
-  <elementValue elementRef="SCHEMA_COLUMN" value="age"/>
-  <elementValue elementRef="QUERY" value="&quot;$.age&quot;"/>
-  <elementValue elementRef="GET_NODES" value="false"/>
-  <elementValue elementRef="IS_ARRAY" value="false"/>
-</elementParameter>
-```
-
-With 4 values per row and a stride of 2, the parser would produce:
-- Row 1: `schema_col="name"`, `query="$.name"` -- CORRECT
-- Row 2: `schema_col="false"` (GET_NODES value), `query="false"` (IS_ARRAY value) -- WRONG
-- Row 3: `schema_col="age"`, `query="$.age"` -- CORRECT
-- Row 4: `schema_col="false"`, `query="false"` -- WRONG
-
-This would produce phantom mapping entries with nonsensical column names and queries,
-leading to either empty columns in the output or JSONPath parse errors.
-
-**Recommended fix**: Check the `elementRef` attribute to determine the column type:
-```python
-entries = list(mapping_table.findall('elementValue'))
-current_entry = {}
-for entry in entries:
-    ref = entry.get('elementRef', '')
-    value = entry.get('value', '').strip('"')
-    if ref == 'SCHEMA_COLUMN':
-        if current_entry:
-            mapping.append(current_entry)
-        current_entry = {'schema_column': value}
-    elif ref == 'QUERY':
-        current_entry['query'] = value
-    elif ref == 'GET_NODES':
-        current_entry['get_nodes'] = value.lower() == 'true'
-    elif ref == 'IS_ARRAY':
-        current_entry['is_array'] = value.lower() == 'true'
-if current_entry:
-    mapping.append(current_entry)
-```
-
-### REJECT Schema Handling
-
-The converter's general schema parsing extracts both `FLOW` and `REJECT` metadata connectors.
-The REJECT schema in Talend includes ALL output schema columns PLUS `errorCode` and
-`errorMessage`. This means reject rows carry partial data (whatever was extracted before the
-error) plus error information.
-
-The converter correctly extracts both schemas, but the engine's `ExtractJSONFields` does not
-use the REJECT schema when constructing reject rows. Instead, it creates a custom format
-with `errorJSONField`, `errorCode`, and `errorMessage`.
-
----
-
-## 21. Appendix J: Error Handling Flow Analysis
-
-This section traces the complete error handling flow through the component, from input to
-output, documenting each decision point and its correctness.
-
-### Error Flow Diagram
-
-```
-Input DataFrame
-    |
-    v
-[For each row]
-    |
-    v
-json.loads(row[0])  --ERROR--> [die_on_error?]
-    |                               |
-    | (success)                     +--YES--> raise ComponentExecutionError
-    |                               |
-    v                               +--NO--> append to reject_output
-[_extract_fields()]                          {errorJSONField, errorCode, errorMessage}
-    |
-    v
-[parse(loop_query)] --ERROR--> propagate (no per-row handling)
-    |
-    | (no matches)
-    +--FALLBACK--> matches = [json_data]  <-- BUG: should return []
-    |
-    | (has matches)
-    v
-[For each match]
-    |
-    v
-[For each mapping]
-    |
-    v
-[parse(query).find(context)] --ERROR--> row[col] = ''  <-- LENIENT: should reject row
-    |
-    | (no values)
-    +---> row[col] = ''  <-- Should be None
-    |
-    | (has values)
-    v
-[wildcard?]
-    |
-    +--YES--> preserve as array or flatten single scalar
-    |
-    +--NO--> take first value or preserve array for multiple
-    |
-    v
-[Append row to extracted_rows]
-    |
-    v
-[Return extracted_rows to _process()]
-```
-
-### Error Classification
-
-| Error Type | Current Handling | Correct Handling | Impact |
-|-----------|-----------------|-----------------|--------|
-| JSON parse error (`json.JSONDecodeError`) | Caught by outer `except Exception`; routed per `die_on_error` | Should catch specifically `json.JSONDecodeError` | Minor -- broad catch works but could mask other errors |
-| Loop query parse error | Caught in `_extract_fields` outer `try/except`; re-raised | Correct -- invalid loop query should always fail | None |
-| Loop query zero matches | Falls back to `[json_data]` | Should return empty list | **P0** -- phantom row |
-| Mapping query parse error | Caught per-column; sets `''` | Should reject entire row | **P1** -- partial rows in output |
-| Mapping query zero matches | Sets `''` | Should set `None` | **P2** -- semantics differ |
-| Type coercion error | Not applicable (no coercion) | Should reject row | **P1** -- when implemented |
-| Memory error | Not caught specifically | Should fail fast | Low risk |
-
-### Reject Row Format Comparison
-
-**Talend REJECT row**:
+**Input JSON**:
 ```json
 {
-  "name": "Alice",
-  "age": null,
-  "errorCode": 1,
-  "errorMessage": "Cannot convert 'abc' to Integer for column 'age'"
+  "company": "Acme Corp",
+  "employees": [
+    {"name": "Alice"},
+    {"name": "Bob"}
+  ]
 }
 ```
 
-Note: Talend preserves partial data (name was successfully extracted, age failed), uses an
-Integer error code, and provides a descriptive error message.
+**Config**:
+- `loop_query`: `$.employees[*]`
+- `mapping`: `[{"schema_column": "emp_name", "query": "$.name"}, {"schema_column": "company", "query": "$.company"}]`
+- `use_loop_as_root`: `false` (need to access root-level property)
 
-**V1 Engine REJECT row** (current):
+**Expected output** (Talend with USE_LOOP_AS_ROOT=false):
+| emp_name | company |
+|----------|---------|
+| Alice | Acme Corp |
+| Bob | Acme Corp |
+
+**V1 actual output**:
+- `$.name`: `_is_relative_query("$.name")` -> returns `True`. Query runs on loop item. Returns "Alice"/"Bob". **CORRECT** (coincidentally).
+- `$.company`: `_is_relative_query("$.company")` -> `query.count('.') = 1`, `<= 1` -> returns `True`. Query runs on loop item. `$.company` on employee object: no match. Returns `''`.
+
+| emp_name | company |
+|----------|---------|
+| Alice | |
+| Bob | |
+
+**Result**: **WRONG**. Company name is lost because the heuristic treats ALL single-dot queries as relative, even when `USE_LOOP_AS_ROOT=false`.
+
+### Test Case 3: The Hardcoded `$.employee` Exclusion
+
+**Input JSON**:
 ```json
 {
-  "errorJSONField": "{\"name\": \"Alice\", \"age\": \"abc\"}",
-  "errorCode": "PARSE_ERROR",
-  "errorMessage": "Error processing row 0: Expecting value: ..."
+  "employee": {"name": "Alice", "skills": [{"skill": "Python"}, {"skill": "Java"}]}
 }
 ```
 
-Note: The engine replaces all schema columns with a single `errorJSONField` containing the
-raw JSON string. The `errorCode` is a generic string instead of an integer. Partial data is
-lost.
+**Config**:
+- `loop_query`: `$.employee.skills[*]`
+- `mapping`: `[{"schema_column": "skill_name", "query": "$.skill"}, {"schema_column": "emp_name", "query": "$.employee.name"}]`
 
-**Downstream Impact**: Components that process reject rows (e.g., `tLogRow` connected to the
-reject output) expect the schema columns to be present. The v1 engine's format will cause
-`KeyError` in downstream components that try to access schema columns from reject rows.
+**V1 actual output**:
+- `$.skill`: `_is_relative_query("$.skill")` -> `query.count('.') = 1`, `<= 1`, `not query.startswith('$.employee')` -> returns `True`. Query runs on loop item. **CORRECT**: Returns "Python"/"Java".
+- `$.employee.name`: `_is_relative_query("$.employee.name")` -> `query.count('.') = 2`, `> 1` -> returns `False`. Query runs on FULL document. `$.employee.name` finds "Alice". Returns "Alice".
+
+| skill_name | emp_name |
+|------------|----------|
+| Python | Alice |
+| Java | Alice |
+
+**Result**: **CORRECT** -- but ONLY because of the hardcoded `$.employee` exclusion. If the root key were named anything else (e.g., `$.staff.name`), it would still return `True` at line 361 (1 dot, and does not start with `$.employee`), running on the loop item where `$.staff.name` has no match.
+
+This demonstrates that the heuristic was tuned for exactly one test case and fails for general use.
 
 ---
 
-## 22. Appendix K: Streaming Mode Impact Analysis
+## Appendix P: jsonpath_ng Import Analysis
 
-### How Streaming Mode is Triggered
-
-The `BaseComponent.execute()` method (line 188) delegates to `_auto_select_mode()` when
-the execution mode is `HYBRID` (the default). The auto-selection checks the input DataFrame
-memory usage against `MEMORY_THRESHOLD_MB` (3072 MB / 3 GB):
-
+**Current import** (line 11):
 ```python
-if memory_usage_mb > self.MEMORY_THRESHOLD_MB:
-    return ExecutionMode.STREAMING
+from jsonpath_ng import parse
 ```
 
-For `ExtractJSONFields`, the input DataFrame contains JSON strings. A single JSON string
-column with 1M rows at ~1KB per JSON string would use ~1GB of memory. Datasets with larger
-JSON payloads or more rows could easily exceed the 3GB threshold.
+This imports the **basic** `jsonpath_ng` parser, which supports standard JSONPath syntax but NOT:
+- Filter expressions: `$[?(@.price < 10)]`
+- Arithmetic in filters: `$[?(@.price * 2 < 100)]`
+- String functions: `$[?(@.name =~ /^A/)]`
+- `len()`, `sum()`, etc.
 
-### Streaming Mode Data Loss
-
-When streaming mode is active, `_execute_streaming()` processes chunks and collects results:
-
+**Alternative** -- `jsonpath_ng.ext`:
 ```python
-for chunk in chunks:
-    chunk_result = self._process(chunk)
-    if chunk_result.get('main') is not None:
-        results.append(chunk_result['main'])
-# Reject data is NOT collected
+from jsonpath_ng.ext import parse
 ```
 
-**Critical observation**: The `reject` key from `chunk_result` is never collected. This means:
+This imports the **extended** parser, which adds:
+- Filter expressions: `$[?(@.price < 10)]` (operator: `<`, `>`, `<=`, `>=`, `==`, `!=`)
+- Arithmetic: `$[?(@.price + @.tax > 100)]`
+- Named operators: `sorted()`, `len()`, `sum()`, `avg()`
+- String matching: `$[?(@.name =~ "Alice")]`
 
-1. All reject rows from all chunks are **silently discarded**.
-2. `NB_LINE_REJECT` statistics are accumulated by `_update_stats()` within each `_process()`
-   call, but the actual reject DataFrames are lost.
-3. Downstream components connected to the REJECT output will receive **no data** even though
-   the statistics indicate rejections occurred.
+**Recommendation**: Switch to `jsonpath_ng.ext.parse` to maximize compatibility with Talend's Jayway JsonPath library, which supports filter expressions natively. The extended parser is fully backward-compatible with the basic parser.
 
-This creates a particularly dangerous situation: the component reports that it rejected N
-rows (correct statistics), but no reject data is available for inspection or routing. This
-makes debugging impossible and violates the principle of least surprise.
-
-### Streaming Mode and ExtractJSONFields Specifics
-
-For `ExtractJSONFields`, streaming mode has an additional complication: a single input row
-can produce multiple output rows (one per loop query match). When the input is chunked, this
-row-to-multiple-row expansion still works correctly because each input row is self-contained
-(its JSON string is complete). However, the output chunk sizes will be unpredictable -- an
-input chunk of 1000 rows might produce 10,000 output rows if each JSON contains 10 loop
-matches.
-
-This is not a bug per se, but it means memory usage during streaming is not well controlled.
-The output DataFrame for a single chunk could be 10x larger than the input chunk.
+**Risk**: Very low. The `ext` module is part of the same `jsonpath_ng` package (no new dependency). All existing JSONPath expressions will continue to work.
 
 ---
 
-## 23. Appendix L: Comparison with ExtractDelimitedFields
-
-Both `ExtractJSONFields` and `ExtractDelimitedFields` are field-extraction transform
-components. Comparing their implementations reveals consistency issues.
-
-| Aspect | ExtractJSONFields | ExtractDelimitedFields |
-|--------|-------------------|----------------------|
-| Source column selection | Hardcoded `row[0]` | Uses `config['field']` |
-| Validation completeness | Partial (3 keys) | More complete |
-| Error handling | Broad `except Exception` | Specific exception types |
-| Reject format | Custom `errorJSONField` | Standard schema + error columns |
-| Type coercion | None | Basic type handling |
-| Config utilization | 44% of extracted config used | Higher utilization |
-| Debug logging | Excessive | Moderate |
-
-This comparison shows that `ExtractDelimitedFields` is more mature and can serve as a
-secondary reference (alongside `FileInputJSON`) for improving `ExtractJSONFields`.
-
----
-
-## 24. Appendix M: JSONPath Query Pattern Catalog
-
-This section documents common JSONPath query patterns used in real Talend jobs and their
-compatibility with `jsonpath_ng`.
-
-### Fully Compatible Patterns (Safe)
-
-| Pattern | Example | Description | jsonpath_ng Support |
-|---------|---------|-------------|---------------------|
-| Root property | `$.name` | Direct child of root | Full |
-| Nested property | `$.address.city` | Multi-level child | Full |
-| Array index | `$.items[0]` | Specific array element | Full |
-| Array wildcard | `$.items[*]` | All array elements | Full |
-| Nested array | `$.data[*].values[*]` | Nested array iteration | Full |
-| Deep scan | `$..name` | Find all `name` nodes at any depth | Full |
-
-### Partially Compatible Patterns (Caution)
-
-| Pattern | Example | Description | jsonpath_ng Support |
-|---------|---------|-------------|---------------------|
-| Array slice | `$.items[0:3]` | Array subset | Full in ext module |
-| Union | `$.items[0,2,4]` | Specific indices | Full in ext module |
-| Deep scan + property | `$..address.city` | All cities at any depth | Depends on structure |
-
-### Incompatible Patterns (Will Fail or Differ)
-
-| Pattern | Example | Description | jsonpath_ng Issue |
-|---------|---------|-------------|-------------------|
-| Filter with `@` | `$[?(@.price<10)]` | Filter by property value | `@` not supported; use `this` |
-| Filter with `&&` | `$[?(@.a>1 && @.b<5)]` | Compound filter | Syntax differs |
-| Length function | `$.items.length()` | Array/string length | Not supported in base |
-| String functions | `$.items[?(@.name =~ /foo.*/i)]` | Regex filter | Not supported |
-| Script expression | `$[(@.length-1)]` | Computed index | Not supported |
-
-### Migration Recommendations for Query Patterns
-
-For each incompatible pattern, the following translation can be applied:
-
-1. **`@` -> `this`**: Replace current object reference in filters
-   - Jayway: `$[?(@.price < 10)]`
-   - jsonpath_ng.ext: `$[?this.price < 10]`
-
-2. **Compound filters**: Use Python-style boolean operators
-   - Jayway: `$[?(@.a > 1 && @.b < 5)]`
-   - jsonpath_ng.ext: `$[?(this.a > 1 & this.b < 5)]`
-
-3. **Length function**: Compute in Python after extraction
-   - Instead of `$.items.length()`, extract `$.items` and call `len()` in Python
-
-4. **Regex filters**: Not directly translatable; must be implemented as post-extraction
-   Python filters
-
----
-
-## 25. Appendix N: Data Type Handling Gap Analysis
-
-This section compares how Talend handles data types in tExtractJSONFields output versus
-the v1 engine's behavior.
-
-### Talend Type Coercion in tExtractJSONFields
-
-Talend performs automatic type coercion based on the output schema definition:
-
-| Schema Type | JSON Value | Talend Output | V1 Engine Output | Match? |
-|-------------|-----------|---------------|------------------|--------|
-| `id_String` | `"hello"` | `"hello"` (String) | `"hello"` (str) | Yes |
-| `id_String` | `42` | `"42"` (String) | `42` (int) | **No** |
-| `id_Integer` | `42` | `42` (Integer) | `42` (int) | Yes |
-| `id_Integer` | `"42"` | `42` (Integer, parsed) | `"42"` (str) | **No** |
-| `id_Integer` | `"abc"` | REJECT row | `"abc"` (str) in main | **No** |
-| `id_Float` | `3.14` | `3.14` (Float) | `3.14` (float) | Yes |
-| `id_Float` | `"3.14"` | `3.14` (Float, parsed) | `"3.14"` (str) | **No** |
-| `id_Boolean` | `true` | `true` (Boolean) | `True` (bool) | Yes |
-| `id_Boolean` | `"true"` | `true` (Boolean, parsed) | `"true"` (str) | **No** |
-| `id_Date` | `"2024-01-15"` | `Date` object (parsed with pattern) | `"2024-01-15"` (str) | **No** |
-| `id_BigDecimal` | `99.999` | `BigDecimal("99.999")` | `99.999` (float, precision lost) | **No** |
-| `id_List` | `[1,2,3]` | `List<Object>` | `"[1, 2, 3]"` (JSON string) | **No** |
-| null | `null` | `null` | `''` (empty string) | **No** |
-
-**Summary**: Out of 12 common type scenarios, only 4 produce matching output. The remaining
-8 scenarios produce different types or values, which can cause downstream processing errors,
-incorrect aggregations, or failed type comparisons.
-
-### Impact on Downstream Components
-
-| Downstream Component | Expected Input | V1 Engine Provides | Failure Mode |
-|---------------------|----------------|-------------------|--------------|
-| `tFilterRow` with `age > 18` | Integer | String `"42"` | String comparison, wrong results |
-| `tAggregateRow` with `SUM(amount)` | Float/Decimal | String `"3.14"` | Type error or zero sum |
-| `tMap` with date calculation | Date object | String `"2024-01-15"` | Cannot perform date arithmetic |
-| `tFileOutputDelimited` | Any | Any | Works (all written as strings) |
-| `tLogRow` | Any | Any | Works (display only) |
-
----
-
-## 26. Appendix O: Production Readiness Checklist
-
-| # | Criterion | Status | Blocking? | Notes |
-|---|-----------|--------|-----------|-------|
-| 1 | Core extraction works for simple cases | PASS | -- | Simple `$.property` queries work |
-| 2 | JSONFIELD source column honored | **FAIL** | **Yes** | Always reads `row[0]` |
-| 3 | Loop query produces correct row count | **FAIL** | **Yes** | Zero matches produce phantom row |
-| 4 | Relative queries work correctly | **FAIL** | **Yes** | Broken `_is_relative_query()` |
-| 5 | `use_loop_as_root` config honored | **FAIL** | **Yes** | Config ignored |
-| 6 | `split_list` config honored | **FAIL** | Conditional | Only blocking if used in jobs |
-| 7 | Reject flow produces correct format | **FAIL** | Conditional | Blocking if reject flow is connected |
-| 8 | Type coercion matches Talend | **FAIL** | Conditional | Blocking for typed schemas |
-| 9 | Statistics (NB_LINE) are accurate | PASS | -- | |
-| 10 | die_on_error works correctly | PASS | -- | |
-| 11 | Empty/null input handled | PASS | -- | |
-| 12 | Complex objects serialized | PASS | -- | |
-| 13 | JSONPath compatibility sufficient | **WARN** | Conditional | Depends on query complexity |
-| 14 | Performance acceptable for production | **WARN** | Conditional | Degrades at scale |
-| 15 | Unit tests exist | **FAIL** | **Yes** | Zero tests |
-| 16 | Streaming mode preserves reject data | **FAIL** | Conditional | |
-
-**Result**: 4 mandatory blocking failures, 5 conditional failures. Component is
-**NOT production ready**.
-
----
-
-## 27. Appendix P: Suggested Unit Test Implementation
-
-This appendix provides concrete test outlines that should be implemented as part of the
-remediation effort.
-
-### Test File: `tests/v1/unit/test_extract_json_fields.py`
+## Appendix Q: Complete Engine Method Signatures
 
 ```python
-# Test class structure outline
+class ExtractJSONFields(BaseComponent):
+    """
+    Extract fields from JSON data based on JSONPath queries.
+    Talend equivalent: tExtractJSONFields
+    """
 
-class TestExtractJSONFieldsValidation:
-    """Tests for _validate_config()"""
-    # test_missing_loop_query_raises_error
-    # test_missing_mapping_raises_error
-    # test_empty_mapping_raises_error
-    # test_invalid_mapping_entry_type_raises_error
-    # test_mapping_without_column_raises_error
-    # test_mapping_without_query_raises_error
-    # test_invalid_die_on_error_type_raises_error
-    # test_valid_config_passes_validation
+    def _validate_config(self) -> List[str]:
+        """
+        Validate component configuration.
+        Returns list of error strings (empty if valid).
+        Called from: _process() line 130.
+        """
 
-class TestExtractJSONFieldsBasic:
-    """Tests for basic extraction functionality"""
-    # test_simple_object_extraction
-    # test_array_loop_extraction
-    # test_nested_property_extraction
-    # test_multiple_mappings
-    # test_empty_input_returns_empty
-    # test_none_input_returns_empty
+    def _process(
+        self,
+        input_data: Optional[pd.DataFrame] = None
+    ) -> Dict[str, Any]:
+        """
+        Process input data and extract JSON fields using JSONPath queries.
+        Returns: {'main': pd.DataFrame, 'reject': pd.DataFrame}
+        Raises: ComponentExecutionError, ConfigurationError
+        Called from: BaseComponent._execute_batch() or _execute_streaming()
+        """
 
-class TestExtractJSONFieldsSourceColumn:
-    """Tests for JSONFIELD source column selection"""
-    # test_json_in_first_column
-    # test_json_in_named_column
-    # test_json_in_non_first_column
-    # test_missing_json_field_config_falls_back_to_first_column
+    def _extract_fields(
+        self,
+        json_data: Any,          # Parsed JSON (dict/list/scalar)
+        loop_query: str,          # JSONPath loop expression
+        mapping: List[Dict]       # List of {schema_column, query} dicts
+    ) -> List[Dict]:
+        """
+        Extract fields from JSON data using JSONPath queries.
+        Returns list of row dicts.
+        Called from: _process() line 174.
+        """
 
-class TestExtractJSONFieldsLoopQuery:
-    """Tests for loop query behavior"""
-    # test_array_wildcard_loop
-    # test_nested_array_loop
-    # test_zero_matches_returns_empty (validates BUG-EJF-003 fix)
-    # test_single_match_returns_one_row
-    # test_deep_scan_loop
-
-class TestExtractJSONFieldsQueryContext:
-    """Tests for relative vs absolute query context"""
-    # test_use_loop_as_root_true_relative_queries
-    # test_use_loop_as_root_false_absolute_queries
-    # test_nested_property_relative_to_loop_element
-    # test_multi_dot_query_relative_to_loop_element (validates BUG-EJF-002 fix)
-
-class TestExtractJSONFieldsSplitList:
-    """Tests for split_list behavior"""
-    # test_split_list_true_expands_array
-    # test_split_list_false_preserves_array
-    # test_split_list_with_scalar_no_expansion
-
-class TestExtractJSONFieldsErrorHandling:
-    """Tests for error handling"""
-    # test_die_on_error_true_raises_exception
-    # test_die_on_error_false_produces_reject_row
-    # test_reject_row_contains_schema_columns
-    # test_reject_row_contains_integer_error_code
-    # test_reject_row_contains_error_message
-    # test_invalid_json_string_handling
-    # test_invalid_jsonpath_syntax_handling
-
-class TestExtractJSONFieldsTypeCoercion:
-    """Tests for schema-based type coercion"""
-    # test_integer_coercion
-    # test_float_coercion
-    # test_string_coercion_from_number
-    # test_date_coercion_with_pattern
-    # test_boolean_coercion
-    # test_null_value_handling
-
-class TestExtractJSONFieldsWildcard:
-    """Tests for wildcard and array queries"""
-    # test_wildcard_preserves_array
-    # test_single_wildcard_match_flattened
-    # test_deep_scan_wildcard
-    # test_complex_object_serialized_to_json
-
-class TestExtractJSONFieldsPerformance:
-    """Performance regression tests"""
-    # test_10k_rows_under_5_seconds
-    # test_100k_rows_under_60_seconds
-    # test_memory_usage_proportional_to_input
+    def _is_relative_query(
+        self,
+        query: str               # JSONPath query string
+    ) -> bool:
+        """
+        BROKEN. Determine if query is relative to loop context.
+        Always returns True for single-dot queries, False for multi-dot.
+        Called from: _extract_fields() line 287.
+        Should be: replaced with use_loop_as_root config flag.
+        """
 ```
 
-This test suite covers approximately 45 test cases across 9 test classes, providing
-comprehensive coverage of all identified issues and behavioral requirements.
+---
+
+## Appendix R: Complete Execution Flow Diagram
+
+```
+Engine calls component.execute(input_data: pd.DataFrame)
+    |
+    v
+BaseComponent.execute()
+    |-- Set status = RUNNING
+    |-- Resolve Java expressions (if java_bridge)
+    |-- Resolve context variables (if context_manager)
+    |-- Auto-select mode (BATCH if input < 3GB)
+    |-- _execute_batch(input_data)
+    |       |
+    |       v
+    |   ExtractJSONFields._process(input_data)
+    |       |-- _validate_config() -> raise ConfigurationError on errors
+    |       |-- Handle list input -> convert to DataFrame
+    |       |-- Handle None/empty input -> return empty DFs, stats (0,0,0)
+    |       |-- For each row in input_data.iterrows():
+    |       |       |-- json.loads(row[0])  <-- BUG: hardcoded column, no type check
+    |       |       |-- _extract_fields(json_data, loop_query, mapping)
+    |       |       |       |-- parse(loop_query)  <-- RE-COMPILED EVERY ROW
+    |       |       |       |-- Find loop matches
+    |       |       |       |-- If no matches: [json_data]  <-- BUG: should be []
+    |       |       |       |-- For each match:
+    |       |       |       |       |-- For each mapping:
+    |       |       |       |       |       |-- _is_relative_query()  <-- BROKEN
+    |       |       |       |       |       |-- parse(query)  <-- RE-COMPILED EVERY ROW*MAPPING
+    |       |       |       |       |       |-- Execute query on context
+    |       |       |       |       |       |-- Handle result (scalar/array/empty)
+    |       |       |       |       |-- Append row dict
+    |       |       |       |-- Return extracted_rows
+    |       |       |-- Extend main_output with extracted_rows
+    |       |       |-- On error: reject or raise
+    |       |-- Build main_df, reject_df
+    |       |-- Serialize complex objects (json.dumps for list/dict)
+    |       |-- _update_stats(rows_in, rows_out, rows_rejected)
+    |       |-- Return {'main': main_df, 'reject': reject_df}
+    |
+    |-- stats['EXECUTION_TIME'] = elapsed
+    |-- _update_global_map()  <-- CRASHES (BUG-EJF-001)
+    |-- Set status = SUCCESS  <-- NEVER REACHED
+    |-- Return result with stats
+```
 
 ---
 
-## 28. Appendix Q: Related Components and Integration Points
+## Appendix S: Converter Dispatch Chain
 
-### Upstream Components (Typical Sources)
+```
+converter.py:convert_job()
+    |
+    v
+converter.py:_parse_component(node)
+    |-- Extract component_type from node attributes
+    |-- Call component_parser.parse_base_component(node)
+    |       |-- Extract all elementParameter values into config_raw
+    |       |-- Call _map_component_parameters(component_type, config_raw)
+    |       |       |-- For 'tExtractJSONFields': falls through to line 294
+    |       |       |       (COMMENT BUG: says "tExtractJSONFields" but code is tExtractDelimitedFields)
+    |       |       |-- Returns generic config (may be incomplete)
+    |       |-- Parse metadata schemas (FLOW, REJECT)
+    |       |-- Mark Java expressions
+    |       |-- Return component dict
+    |
+    |-- elif component_type == 'tExtractJSONFields':  (line 327)
+    |       component = self.component_parser.parse_textract_json_fields(node, component)
+    |       |-- Extract READ_BY, JSON_PATH_VERSION
+    |       |-- Extract LOOP_QUERY / JSON_LOOP_QUERY (with quote stripping)
+    |       |-- Extract DIE_ON_ERROR, ENCODING, USE_LOOP_AS_ROOT, SPLIT_LIST, JSONFIELD
+    |       |-- Parse MAPPING_4_JSONPATH table (stride-2)
+    |       |-- Return updated component
+    |
+    v
+Result: component dict with config, schema, connections
+```
 
-| Component | Connection | Data Shape | Notes |
-|-----------|-----------|-----------|-------|
-| `tFileInputDelimited` | FLOW | Multi-column CSV with one JSON column | Most common; JSON column is NOT always first |
-| `tRESTClient` | FLOW | Response body as JSON string | Usually single-column; JSON is likely first |
-| `tFixedFlowInput` | FLOW | Static test data with JSON strings | Used for testing/development |
-| `tMap` | FLOW | Transformed data with JSON column | JSON column position varies |
-| `tFileInputJSON` | FLOW | Pre-parsed JSON data | Less common; usually used directly |
+**Note**: The `parse_base_component()` call happens FIRST (generic extraction), then the dedicated `parse_textract_json_fields()` call OVERRIDES/SUPPLEMENTS the generic config. The generic `_map_component_parameters()` for tExtractJSONFields falls through to the default case (no dedicated branch in the generic mapper), so the dedicated parser is the primary source of config.
 
-### Downstream Components (Typical Targets)
-
-| Component | Connection | Expectation | Risk |
-|-----------|-----------|-------------|------|
-| `tMap` | FLOW | Typed columns matching schema | **HIGH** -- type mismatches |
-| `tFilterRow` | FLOW | Typed columns for comparison | **HIGH** -- string vs int comparisons fail |
-| `tLogRow` | FLOW / REJECT | Any columns for display | Low -- display only |
-| `tFileOutputDelimited` | FLOW | String columns for CSV | Low -- strings always work |
-| `tAggregateRow` | FLOW | Numeric columns for aggregation | **HIGH** -- string values cause errors |
-| `tUniqRow` | FLOW | Comparable columns | Medium -- string comparison semantics differ |
-| `tSortRow` | FLOW | Comparable columns | Medium -- string vs numeric sort |
-
-### Integration Test Scenarios
-
-Based on the upstream/downstream analysis, the following integration test scenarios should
-be prioritized:
-
-1. **`tFileInputDelimited` -> `tExtractJSONFields` -> `tFileOutputDelimited`**: Basic
-   pipeline with multi-column CSV input where JSON is in a non-first column.
-
-2. **`tFixedFlowInput` -> `tExtractJSONFields` -> `tMap`**: Test that extracted values
-   are correctly typed for downstream mapping operations.
-
-3. **`tFixedFlowInput` -> `tExtractJSONFields` (with reject) -> `tLogRow`**: Test that
-   reject rows are correctly formatted and contain schema columns plus error information.
-
-4. **`tRESTClient` -> `tExtractJSONFields` -> `tAggregateRow`**: Test that numeric values
-   are correctly extracted and aggregable.
+However, there is a subtle issue: `parse_base_component()` calls `_map_component_parameters('tExtractJSONFields', config_raw)`. Looking at the generic mapper code, there is no `elif component_type == 'tExtractJSONFields'` branch. This means `_map_component_parameters()` returns the raw `config_raw` dict. Then `parse_textract_json_fields()` overwrites specific keys. The result is that the component config contains BOTH the raw Talend XML parameters (from generic extraction) AND the mapped config keys (from dedicated parser). This dual presence is generally harmless since the engine reads the mapped keys, but it means the config dict is larger than necessary and contains unmapped raw values.
 
 ---
 
-## 29. Final Assessment
+## Appendix T: Additional Edge Cases from Checklist
 
-### Summary
+### Edge Case 14: List input instead of DataFrame
 
-The `ExtractJSONFields` component has **critical defects** that make it unsafe for production
-deployment. The three P0 issues (hardcoded source column, broken relative query heuristic,
-and phantom row on zero matches) can each independently cause silent data corruption. The
-broken `_is_relative_query()` method is particularly dangerous because it uses hardcoded
-field names from a specific test case, meaning it will produce wrong results for virtually
-any real-world JSON structure that does not use the exact property names `skill`, `level`,
-`name`, or `value`.
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | N/A -- Talend always passes row flows. |
+| **V1** | Line 137-138: `if isinstance(input_data, list): input_data = pd.DataFrame(input_data)`. This converts a list of dicts to a DataFrame. If the list contains strings (JSON strings), `pd.DataFrame(['{"a":1}', '{"a":2}'])` creates a single-column DataFrame with column `0` containing the JSON strings. This works correctly with the `row[0]` access pattern. |
+| **Verdict** | CORRECT -- defensive coding that handles non-standard callers. |
 
-The component also has significant feature gaps: 55% of converter-extracted config values
-are unused by the engine, there is no type coercion, the reject format does not match Talend,
-and zero tests exist.
+### Edge Case 15: Very large JSON document per row
 
-The sibling `FileInputJSON` component implements many of the missing features (type coercion,
-`use_loop_as_root`, extended JSONPath) and should be used as the primary reference for
-remediation.
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | Limited by Java heap. Typically handles up to ~2GB JSON strings. |
+| **V1** | `json.loads()` creates a Python object graph. A 100MB JSON string may consume 500MB+ as Python objects. No memory check before parsing. For very large documents, this can cause OOM. |
+| **Verdict** | POTENTIAL ISSUE -- no memory protection for large per-row JSON documents. |
 
-### Production Readiness Verdict
+### Edge Case 16: Concurrent access to shared globalMap
 
-**NOT READY** -- Requires Phase 1 and Phase 2 fixes (estimated 3-5 days) before any
-production deployment. Phase 3 (testing) should run concurrently to validate fixes.
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | GlobalMap access is synchronized via Java's `ConcurrentHashMap`. |
+| **V1** | `GlobalMap._map` is a plain Python `dict`. In CPython, the GIL provides some protection for simple dict operations (`get`, `put`), but dict resizing during concurrent inserts is not atomic. For production use with concurrent component execution, `GlobalMap` should use `threading.Lock` or `concurrent.futures`-compatible patterns. |
+| **Verdict** | POTENTIAL ISSUE -- not thread-safe for concurrent execution. |
 
-### Estimated Total Issues
+### Edge Case 17: JSON with duplicate keys
 
-| Priority | Count |
-|----------|-------|
-| P0 | 6 |
-| P1 | 11 |
-| P2 | 13 |
-| P3 | 6 |
-| **Total** | **36** |
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | Jayway JsonPath follows RFC 7159 (keys should be unique but duplicates are not forbidden). Last value wins. |
+| **V1** | `json.loads()` follows Python's JSON parser: last value wins for duplicate keys. This matches Jayway behavior. `jsonpath_ng` operates on the parsed Python dict (already deduplicated). |
+| **Verdict** | CORRECT -- both libraries handle duplicates the same way (last value wins). |
+
+### Edge Case 18: JSON with numeric keys
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | JSON keys are always strings per RFC 7159. `{"1": "value"}` is valid. |
+| **V1** | `json.loads()` correctly parses `{"1": "value"}` with string key `"1"`. JSONPath `$.1` or `$['1']` can access it. `jsonpath_ng` handles both syntaxes. |
+| **Verdict** | CORRECT |
+
+### Edge Case 19: Extremely deep nesting
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | Limited by Java stack depth. Typically handles ~100 levels. |
+| **V1** | `json.loads()` has a default recursion limit. Python's default `sys.getrecursionlimit()` is 1000. Very deep JSON (>500 levels) may hit recursion limits. `jsonpath_ng.parse()` also uses recursion for parsing. |
+| **Verdict** | EDGE CASE -- extremely deep nesting (>500 levels) may cause RecursionError. Rare in practice. |
+
+### Edge Case 20: Unicode escape sequences in JSON
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | Java's JSON parser handles `\uXXXX` escapes. |
+| **V1** | Python's `json.loads()` handles `\uXXXX` escapes correctly, including surrogate pairs for characters outside BMP (U+10000 to U+10FFFF). |
+| **Verdict** | CORRECT |

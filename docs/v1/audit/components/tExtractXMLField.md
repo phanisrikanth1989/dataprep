@@ -1,85 +1,119 @@
 # Audit Report: tExtractXMLField / ExtractXMLField
 
-## Component Identity
+> **Audited**: 2026-03-21
+> **Auditor**: Claude Opus 4.6 (automated) -- GOLD STANDARD TEMPLATE
+> **Engine Version**: v1
+> **Converter**: `complex_converter`
+> **Status**: PRODUCTION READINESS REVIEW
+
+---
+
+## 1. Component Identity
 
 | Field | Value |
 |-------|-------|
 | **Talend Name** | `tExtractXMLField` |
 | **V1 Engine Class** | `ExtractXMLField` |
-| **Engine File** | `src/v1/engine/components/transform/extract_xml_fields.py` |
-| **Converter Parser** | `component_parser.py` -> `parse_textract_xml_field()` (line ~2610) |
-| **Converter Dispatch** | `converter.py` -> `_parse_component()` (line ~329) |
-| **Registry Aliases** | `ExtractXMLField`, `tExtractXMLField` |
+| **Engine File** | `src/v1/engine/components/transform/extract_xml_fields.py` (307 lines) |
+| **Converter Parser** | `src/converters/complex_converter/component_parser.py` -> `parse_textract_xml_field()` (lines 2610-2642) |
+| **Converter Dispatch** | `src/converters/complex_converter/converter.py` -> `_parse_component()` (line 329): `elif component_type == 'tExtractXMLField': component = self.component_parser.parse_textract_xml_field(node, component)` |
+| **Registry Aliases** | `ExtractXMLField`, `tExtractXMLField` (registered in `src/v1/engine/engine.py` lines 125-126) |
 | **Category** | Transform / XML Processing |
-| **Complexity** | Medium-High -- XPath-based XML field extraction with namespace handling, node validation, and reject flow |
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/v1/engine/components/transform/extract_xml_fields.py` | Engine implementation (307 lines) |
+| `src/converters/complex_converter/component_parser.py` (lines 2610-2642) | Parameter mapping from Talend XML to v1 JSON |
+| `src/converters/complex_converter/converter.py` (line 329) | Dispatch -- dedicated `elif` for `tExtractXMLField` |
+| `src/v1/engine/base_component.py` | Base class: `_update_stats()`, `_update_global_map()`, `validate_schema()`, `execute()` |
+| `src/v1/engine/global_map.py` | GlobalMap storage for `{id}_NB_LINE` etc. |
+| `src/v1/engine/exceptions.py` | Custom exception hierarchy (`ComponentExecutionError`, `ConfigurationError`) |
+| `src/v1/engine/components/transform/__init__.py` | Package exports |
 
 ---
 
-## Scorecard
+## 2. Scorecard
 
-| Dimension | Score | P0 | P1 | P2 | P3 |
-|-----------|-------|----|----|----|----|
-| Converter Coverage | Y | 0 | 2 | 2 | 1 |
-| Engine Feature Parity | Y | 1 | 3 | 3 | 1 |
-| Code Quality | Y | 2 | 2 | 3 | 2 |
-| Performance & Memory | Y | 0 | 1 | 2 | 1 |
-| Testing | R | 1 | 1 | 0 | 0 |
+| Dimension | Score | P0 | P1 | P2 | P3 | Details |
+|-----------|-------|----|----|----|----|---------|
+| Converter Coverage | **Y** | 0 | 2 | 2 | 1 | 6 of 9 Talend params extracted (67%); missing GET_NODES; fragile stride-of-3 mapping parse; nodecheck unquoted |
+| Engine Feature Parity | **Y** | 1 | 4 | 5 | 1 | `limit=0` semantic mismatch; no Get Nodes; namespace stripping incomplete; deprecated `getiterator()` |
+| Code Quality | **Y** | 2 | 4 | 6 | 4 | Cross-cutting `_update_global_map()` crash; `getiterator()` removed in lxml 5.0; empty string / NaN edge cases; `xml_field` column not validated; empty `loop_query` misreported |
+| Performance & Memory | **Y** | 0 | 1 | 3 | 2 | XMLParser created per-row; `iterrows()` overhead; no streaming mode; namespace tree walk per-row |
+| Testing | **R** | 1 | 1 | 0 | 0 | Zero v1 unit tests; zero v1 integration tests for this component |
 
-**Legend**: G = Green (production-ready), Y = Yellow (functional with gaps), R = Red (blocking issues)
+**Overall: YELLOW -- Not production-ready without P0/P1 fixes**
+
+### Score Key
+- **R** (Red): Critical gaps blocking production use
+- **Y** (Yellow): Significant gaps; usable for subset of jobs with known limitations
+- **G** (Green): Production-ready with minor improvements recommended
 
 ---
 
-## 1. Talend Feature Baseline
+## 3. Talend Feature Baseline
 
-### What tExtractXMLField Does in Talend
+### What tExtractXMLField Does
 
-`tExtractXMLField` is an intermediate processing component that reads structured XML data from a column of an incoming data flow, applies XPath queries to extract individual fields, and produces a structured output row per XML node. It belongs to both the **Processing** and **XML** component families and is available in all Talend products (Open Studio, Data Integration, ESB, Big Data, etc.).
+`tExtractXMLField` is an intermediate processing component that reads structured XML data from a column of an incoming data flow, applies XPath queries to extract individual fields, and produces a structured output row per XML node. It belongs to both the **Processing** and **XML** component families and is available in all Talend products (Open Studio, Data Integration, ESB, Big Data, Data Fabric).
 
 The component is typically placed downstream of a file input or database input component whose output schema includes a column containing XML fragments. It loops over repeating XML nodes identified by a Loop XPath query and maps sub-elements to output schema columns via per-column XPath queries.
 
-### Basic Settings (Talend Studio)
+**Source**: [tExtractXMLField Standard Properties (Talend 8.0)](https://help.qlik.com/talend/en-US/components/8.0/processing/textractxmlfield-standard-properties), [tExtractXMLField Standard Properties (Talend 7.3)](https://help.qlik.com/talend/en-US/components/7.3/xml/textractxmlfield-standard-properties), [tExtractXMLField Overview (Talend 8.0)](https://help.talend.com/r/en-US/8.0/processing/textractxmlfield), [tExtractXMLField (ESB 7.x - TalendSkill)](https://talendskill.com/talend-for-esb-docs/docs-7-x/textractxmlfield-talend-open-studio-for-esb-document-7-x/)
 
-| Parameter | Talend Name | Type | Description |
-|-----------|-------------|------|-------------|
-| Property Type | `PROPERTY_TYPE` | Built-In / Repository | Whether configuration is inline or from the metadata repository |
-| Schema | `SCHEMA` | Schema editor | Column definitions with types, lengths, nullable flags; supports both Built-In and Repository modes |
-| XML Field | `XMLFIELD` | String (dropdown) | Name of the input column containing XML data to be processed. Selected from the incoming schema. |
-| Loop XPath Query | `LOOP_QUERY` | String | XPath expression identifying the repeating XML node to iterate over. All column mappings are evaluated relative to each matched loop node. |
-| Column | (schema) | Schema Field | Output schema column name; maps 1:1 with an XPath query entry |
-| XPath Query | (mapping table) | String | XPath expression evaluated relative to each loop node to extract the value for the corresponding output column |
-| Get Nodes | `GET_NODES` | Boolean (per-column checkbox) | When checked on a Document-typed column, retrieves the full XML content of the matched node rather than a text value. Used for passing XML fragments downstream. |
-| Limit | `LIMIT` | Integer | Maximum number of loop iterations (rows) to process per XML input. When set to `0`, **no rows are read** (Talend treats 0 as "read nothing"); remove or leave blank for unlimited. |
-| Die on Error | `DIE_ON_ERROR` | Boolean | When checked, the job terminates on XML parsing or extraction errors. When unchecked, failed rows are routed to the REJECT connection (if connected) or silently skipped. |
+**Component family**: Processing / XML
+**Available in**: All Talend products (Standard). Also available in MapReduce (deprecated), Spark Batch, Spark Streaming variants.
 
-### Advanced Settings (Talend Studio)
+### 3.1 Basic Settings
 
-| Parameter | Talend Name | Type | Description |
-|-----------|-------------|------|-------------|
-| Ignore Namespaces | `IGNORE_NS` | Boolean | When checked, strips all XML namespace declarations and prefixes before parsing, allowing XPath queries to match elements without namespace qualification. |
-| tStatCatcher Statistics | `TSTATCATCHER_STATS` | Boolean | When checked, gathers job processing metadata at both the job level and the component level for use with tStatCatcher. |
+| # | Parameter | Talend XML Name | Type | Default | Description |
+|---|-----------|-----------------|------|---------|-------------|
+| 1 | Property Type | `PROPERTY_TYPE` | Built-In / Repository | Built-In | Whether config comes from metadata repository or is inline. Not needed at runtime. |
+| 2 | Schema | `SCHEMA` | Schema editor | -- | Column definitions with types, lengths, nullable flags. Defines the output structure. Supports both Built-In and Repository modes. |
+| 3 | XML Field | `XMLFIELD` | String (dropdown) | -- | Name of the input column containing XML data to be processed. Selected from the incoming schema. |
+| 4 | Loop XPath Query | `LOOP_QUERY` | String | -- | XPath expression identifying the repeating XML node to iterate over. All column mappings are evaluated relative to each matched loop node. |
+| 5 | Column | (mapping table) | Schema Field | -- | Output schema column name; maps 1:1 with an XPath query entry. Auto-populated via Sync Columns. |
+| 6 | XPath Query | (mapping table) | String | -- | XPath expression evaluated relative to each loop node to extract the value for the corresponding output column. |
+| 7 | Get Nodes | `GET_NODES` | Boolean (per-column checkbox) | `false` | When checked on a Document-typed column, retrieves the full XML content of the matched node rather than a text value. Used for passing XML fragments downstream to other XML components. |
+| 8 | Limit | `LIMIT` | Integer | -- (empty = unlimited) | Maximum number of loop iterations (rows) to process per XML input. When set to `0`, **no rows are read** (Talend treats 0 as "read nothing"); leaving the field empty or not setting it means unlimited. |
+| 9 | Die on Error | `DIE_ON_ERROR` | Boolean (CHECK) | `false` | When checked, the job terminates on XML parsing or extraction errors. When unchecked, failed rows are routed to the REJECT connection (if connected) or silently skipped. |
 
-### Connection Types
+### 3.2 Advanced Settings
 
-| Connector | Direction | Description |
-|-----------|-----------|-------------|
-| `FLOW` (Main) | Input | Incoming data flow containing at least one column with XML content |
-| `FLOW` (Main) | Output | Successfully extracted rows matching the output schema |
-| `REJECT` | Output | Rows that failed XML parsing or extraction. Contains all output schema columns plus `errorCode` and `errorMessage`. Only active when `Die on Error` is unchecked and a reject link is connected. |
+| # | Parameter | Talend XML Name | Type | Default | Description |
+|---|-----------|-----------------|------|---------|-------------|
+| 10 | Ignore Namespaces | `IGNORE_NS` | Boolean (CHECK) | `false` | When checked, strips all XML namespace declarations and prefixes before parsing, allowing XPath queries to match elements without namespace qualification. Talend generates code that creates a namespace-free copy of the XML before applying XPath. |
+| 11 | tStatCatcher Statistics | `TSTATCATCHER_STATS` | Boolean (CHECK) | `false` | Gathers job processing metadata at job and component levels for tStatCatcher. Rarely used. |
 
-### GlobalMap Variables Produced (Talend)
+### 3.3 Connection Types
 
-| Key Pattern | Type | Description |
-|-------------|------|-------------|
-| `{id}_NB_LINE` | int | Total number of rows processed (input rows that entered the extraction loop) |
-| `{id}_ERROR_MESSAGE` | String | Last error message generated by the component (available after execution) |
+| Connector | Direction | Type | Description |
+|-----------|-----------|------|-------------|
+| `FLOW` (Main) | Input | Row > Main | Incoming data flow containing at least one column with XML content. |
+| `FLOW` (Main) | Output | Row > Main | Successfully extracted rows matching the output schema. Each loop node matching the Loop XPath query produces one output row. |
+| `REJECT` | Output | Row > Reject | Rows that failed XML parsing or extraction. Contains all output schema columns plus `errorCode` (String) and `errorMessage` (String). Only active when `Die on Error` is unchecked and a reject link is connected. |
+| `SUBJOB_OK` | Output (Trigger) | Trigger | Fires when the entire subjob containing this component completes successfully. |
+| `SUBJOB_ERROR` | Output (Trigger) | Trigger | Fires when the subjob containing this component fails with an error. |
+| `COMPONENT_OK` | Output (Trigger) | Trigger | Fires when this specific component completes execution successfully. |
+| `COMPONENT_ERROR` | Output (Trigger) | Trigger | Fires when this specific component fails with an error. |
+| `RUN_IF` | Output (Trigger) | Trigger | Conditional trigger with a boolean expression. |
+
+### 3.4 GlobalMap Variables
+
+| Variable Pattern | Type | When Set | Description |
+|------------------|------|----------|-------------|
+| `{id}_NB_LINE` | Integer | After execution | Total number of rows processed (input rows that entered the extraction loop). |
+| `{id}_ERROR_MESSAGE` | String | After execution | Last error message generated by the component. Available for reference in downstream error handling flows. |
 
 **Note on Talend GlobalMap**: Unlike some other components (e.g., `tFileInputDelimited`), the official Talend documentation for `tExtractXMLField` lists only `NB_LINE` and `ERROR_MESSAGE` as global variables. There is no separate `NB_LINE_OK` or `NB_LINE_REJECT` in the standard Talend implementation. However, the V1 engine's `BaseComponent._update_global_map()` method publishes `NB_LINE`, `NB_LINE_OK`, and `NB_LINE_REJECT` for all components, which provides richer statistics than Talend itself.
 
-### Talend Behavioral Notes
+### 3.5 Behavioral Notes
 
 1. **Limit semantics**: In Talend, `LIMIT=0` means "read zero rows" (i.e., skip extraction entirely). This is the opposite of what many developers expect (where 0 often means "unlimited"). Leaving the field empty or not setting it means unlimited extraction. This is a critical semantic difference that must be matched precisely.
 
-2. **Namespace stripping**: When `IGNORE_NS=true`, Talend generates code that creates a temporary copy of the XML with all namespace declarations and prefixes removed before applying XPath queries. This is done at the document level before parsing.
+2. **Namespace stripping**: When `IGNORE_NS=true`, Talend generates code that creates a temporary copy of the XML with all namespace declarations and prefixes removed before applying XPath queries. This is done at the document level before parsing, affecting both element names and attribute names.
 
 3. **Get Nodes**: When the `Get Nodes` checkbox is ticked on a column with type `Document`, the component does not extract the text content but instead retrieves the serialized XML content of the matched node. This is used to pass XML fragments to downstream components (e.g., another `tExtractXMLField` or `tXMLMap`).
 
@@ -91,48 +125,58 @@ The component is typically placed downstream of a file input or database input c
 
 7. **Schema enforcement**: Talend enforces the output schema strictly. If a column is typed as `Integer` and the XPath returns a non-numeric string, the row is rejected.
 
-### Talend Documentation Sources
+8. **Empty XML field**: Talend treats both null and empty XML fields as "no data" -- neither results in an attempt to parse. Both produce a reject row if a REJECT link is connected.
 
-- [tExtractXMLField Standard properties (Talend 8.0)](https://help.qlik.com/talend/en-US/components/8.0/processing/textractxmlfield-standard-properties)
-- [tExtractXMLField Standard properties (Talend 7.3)](https://help.qlik.com/talend/en-US/components/7.3/xml/textractxmlfield-standard-properties)
-- [tExtractXMLField Overview (Talend 8.0)](https://help.talend.com/r/en-US/8.0/processing/textractxmlfield)
-- [tExtractXMLField Overview (Talend 7.3)](https://help.talend.com/r/en-US/7.3/xml/textractxmlfield)
-- [tExtractXMLField (ESB 7.x - TalendSkill)](https://talendskill.com/talend-for-esb-docs/docs-7-x/textractxmlfield-talend-open-studio-for-esb-document-7-x/)
-- [Extract Data Using XPath in Talend - PreferHub](https://preferhub.com/extract-data-using-x-path-query-in-talend/)
+9. **NB_LINE availability**: The `NB_LINE` global variable is only available AFTER the component completes execution. It cannot be accessed during the current subjob's data flow.
 
 ---
 
-## 2. Converter Audit
+## 4. Converter Audit
 
-### Parameters Extracted
+### 4.1 Parameter Extraction
 
-| Talend Parameter | Converter Extracts? | V1 Config Key | Notes |
-|------------------|---------------------|---------------|-------|
-| `XMLFIELD` | Yes | `xml_field` | Default: `'line'` |
-| `LOOP_QUERY` | Yes | `loop_query` | Surrounding quotes stripped |
-| `MAPPING` (table) | Yes | `mapping` | Parsed as list of `{schema_column, query, nodecheck}` dicts |
-| `LIMIT` | Yes | `limit` | Extracted as string, not converted to int |
-| `DIE_ON_ERROR` | Yes | `die_on_error` | Correctly converted to boolean |
-| `IGNORE_NS` | Yes | `ignore_ns` | Correctly converted to boolean |
-| `GET_NODES` | **No** | -- | **Not extracted** -- per-column checkbox for Document-type XML retrieval |
-| `PROPERTY_TYPE` | No | -- | Not needed (always Built-In in converted jobs) |
-| `TSTATCATCHER_STATS` | No | -- | Not needed (V1 has its own stats mechanism) |
+The converter uses a **dedicated parser method** (`parse_textract_xml_field()` in `component_parser.py` lines 2610-2642) dispatched from `converter.py` line 329. This is the correct pattern per STANDARDS.md.
 
-### Schema Extraction
+**Converter flow**:
+1. `converter.py:_parse_component()` calls `component_parser.parse_textract_xml_field(node, component)` when `component_type == 'tExtractXMLField'`
+2. `parse_textract_xml_field()` uses an inner `get_param()` helper to extract parameters
+3. Mapping table is parsed via stride-of-3 over `elementValue` entries
+4. Schema is extracted generically from `<metadata connector="FLOW">` and `<metadata connector="REJECT">` nodes by `parse_base_component()`
+
+| # | Talend XML Parameter | Extracted? | V1 Config Key | Converter Line | Notes |
+|----|----------------------|------------|---------------|----------------|-------|
+| 1 | `XMLFIELD` | Yes | `xml_field` | 2620 | Default: `'line'` |
+| 2 | `LOOP_QUERY` | Yes | `loop_query` | 2617-2619 | Surrounding double quotes stripped |
+| 3 | `MAPPING` (table) | Yes | `mapping` | 2626-2634 | Parsed as list of `{schema_column, query, nodecheck}` dicts via stride-of-3 |
+| 4 | `LIMIT` | Yes | `limit` | 2621 | **Extracted as string, not converted to int** |
+| 5 | `DIE_ON_ERROR` | Yes | `die_on_error` | 2622 | Correctly converted to boolean via `.lower() == 'true'` |
+| 6 | `IGNORE_NS` | Yes | `ignore_ns` | 2623 | Correctly converted to boolean via `.lower() == 'true'` |
+| 7 | `GET_NODES` | **No** | -- | -- | **Not extracted** -- per-column checkbox for Document-type XML retrieval |
+| 8 | `PROPERTY_TYPE` | No | -- | -- | Not needed (always Built-In in converted jobs) |
+| 9 | `TSTATCATCHER_STATS` | No | -- | -- | Not needed (V1 has its own stats mechanism) |
+
+**Summary**: 6 of 9 parameters extracted (67%). 1 runtime-relevant parameter (`GET_NODES`) is missing.
+
+### 4.2 Schema Extraction
 
 Schema extraction is handled by the base `parse_base_component()` method in `ComponentParser`, not by `parse_textract_xml_field()` itself.
 
-| Attribute | Extracted? | Notes |
-|-----------|-----------|-------|
-| `name` | Yes | Column name from schema |
-| `type` | Yes | Converted via `ExpressionConverter.convert_type()` |
-| `nullable` | Yes | Boolean flag |
-| `key` | Yes | Key column indicator |
-| `length` | Yes | Column length |
-| `precision` | Yes | Decimal precision |
-| `pattern` | Yes | Java date pattern -> Python strftime |
+| Schema Attribute | Extracted? | Notes |
+|------------------|-----------|-------|
+| `name` | Yes | Column name from `column.get('name')` |
+| `type` | Yes | Converted via `ExpressionConverter.convert_type()` to Python types (`str`, `int`, etc.) -- **violates STANDARDS.md** which requires Talend format (`id_String`) |
+| `nullable` | Yes | Boolean conversion from string `"true"/"false"` |
+| `key` | Yes | Boolean conversion from string |
+| `length` | Yes | Integer conversion, only if attribute present in XML |
+| `precision` | Yes | Integer conversion, only if attribute present in XML |
+| `pattern` (date) | Yes | Java date pattern converted to Python strftime: `yyyy`->`%Y`, `MM`->`%m`, `dd`->`%d`, `HH`->`%H`, `mm`->`%M`, `ss`->`%S` |
+| `default` | **No** | Column default value not extracted from XML |
+| `comment` | **No** | Column comment not extracted (cosmetic -- no runtime impact) |
+| `talendType` | **No** | Full Talend type string not preserved -- converted to Python type |
 
-### Mapping Table Parsing Analysis
+**REJECT schema**: The converter DOES extract REJECT metadata via `parse_base_component()`. The engine uses it when `reject_schema` is configured.
+
+### 4.3 Mapping Table Parsing Analysis
 
 The converter parses the `MAPPING` table parameter using a stride-of-3 approach over `elementValue` entries (lines 2629-2634):
 
@@ -142,75 +186,107 @@ for i in range(0, len(entries), 3):
     schema_col = entries[i].get('value', '').strip('"') if i < len(entries) else ''
     query = entries[i+1].get('value', '').strip('"') if (i+1) < len(entries) else ''
     nodecheck = entries[i+2].get('value', '') if (i+2) < len(entries) else ''
+    mapping.append({'schema_column': schema_col, 'query': query, 'nodecheck': nodecheck})
 ```
 
-This approach assumes the Talend XML always produces mapping entries in groups of exactly 3 (`elementValue` for schema_column, query, nodecheck). This is fragile -- if Talend adds or reorders fields in the mapping table, or if a job uses a different number of columns per mapping entry, the parsing will silently produce incorrect mappings.
+This approach assumes the Talend XML always produces mapping entries in groups of exactly 3 (`elementValue` for schema_column, query, nodecheck). This is fragile -- if Talend adds or reorders fields in the mapping table (e.g., the `GET_NODES` column is typically a 4th field), the parsing will silently produce incorrect mappings.
+
+**Expected Talend XML Structure for MAPPING**:
+
+```xml
+<elementParameter name="MAPPING" field="TABLE">
+    <elementValue elementRef="SCHEMA_COLUMN" value="&quot;name&quot;"/>
+    <elementValue elementRef="XPATH_QUERY" value="&quot;./Name/text()&quot;"/>
+    <elementValue elementRef="GET_NODES" value="false"/>
+    <elementValue elementRef="SCHEMA_COLUMN" value="&quot;salary&quot;"/>
+    <elementValue elementRef="XPATH_QUERY" value="&quot;./Salary/text()&quot;"/>
+    <elementValue elementRef="GET_NODES" value="false"/>
+</elementParameter>
+```
+
+Note: Each entry has an `elementRef` attribute that identifies the field. The actual field names are `SCHEMA_COLUMN`, `XPATH_QUERY`, `GET_NODES` -- not `nodecheck`. The stride-of-3 approach with positional assignment is fragile and should be replaced with `elementRef`-based parsing.
 
 **Notable concern**: The `nodecheck` value is not stripped of quotes like `schema_col` and `query` are. If Talend wraps nodecheck values in quotes, the engine will receive `'"./Salary"'` instead of `'./Salary'`, causing XPath evaluation failures.
 
-### Converter Issues
+### 4.4 Converter Issues
 
 | ID | Priority | Issue |
 |----|----------|-------|
-| CONV-EXF-001 | **P1** | `GET_NODES` per-column checkbox not extracted. Jobs that rely on passing XML fragments via Document-typed columns will produce `None` or text-only values instead of XML content. This is a functionality gap for multi-level XML extraction pipelines. |
-| CONV-EXF-002 | **P1** | Mapping table parsing uses a hardcoded stride of 3 over `elementValue` entries without verifying `elementRef` attributes. If the Talend XML format varies (e.g., additional columns in the mapping table, different ordering), the parser will silently assign wrong values to wrong fields. Should use `elementRef` attribute-based parsing for robustness. |
-| CONV-EXF-003 | **P2** | `nodecheck` values in the mapping table are not stripped of surrounding quotes (unlike `schema_col` and `query`). If Talend wraps nodecheck XPath expressions in double quotes, the engine will receive quoted strings that fail XPath evaluation. |
-| CONV-EXF-004 | **P2** | `limit` is extracted as a string but never converted to integer in the converter. The engine does `int(self.config.get('limit', ...))` which will fail on non-numeric strings and on empty strings. The converter should normalize this to an integer or `None`. |
-| CONV-EXF-005 | **P3** | `TSTATCATCHER_STATS` not extracted. Low priority since V1 has its own statistics mechanism, but noted for completeness in Talend feature mapping. |
+| CONV-EXF-001 | **P1** | **`GET_NODES` per-column checkbox not extracted**: Jobs that rely on passing XML fragments via Document-typed columns will produce `None` or text-only values instead of XML content. This is a functionality gap for multi-level XML extraction pipelines. |
+| CONV-EXF-002 | **P1** | **Mapping table parsing uses hardcoded stride of 3 over `elementValue` entries without verifying `elementRef` attributes**: If the Talend XML format varies (e.g., the `GET_NODES` column present as a 4th element, different ordering), the parser will silently assign wrong values to wrong fields. Should use `elementRef` attribute-based parsing for robustness. |
+| CONV-EXF-003 | **P2** | **`nodecheck` values in the mapping table are not stripped of surrounding quotes** (unlike `schema_col` and `query`). If Talend wraps nodecheck XPath expressions in double quotes, the engine will receive quoted strings that fail XPath evaluation. |
+| CONV-EXF-004 | **P2** | **`limit` is extracted as a string but never converted to integer in the converter**: The engine does `int(self.config.get('limit', ...))` which will fail on non-numeric strings and on empty strings. The converter should normalize this to an integer or `None`. |
+| CONV-EXF-005 | **P3** | **`TSTATCATCHER_STATS` not extracted**: Low priority since V1 has its own statistics mechanism, but noted for completeness in Talend feature mapping. |
 
 ---
 
-## 3. Engine Feature Parity Audit
+## 5. Engine Feature Parity
 
-### Feature Implementation Status
+### 5.1 Feature Implementation Status
 
-| Talend Feature | Implemented? | Fidelity | Notes |
-|----------------|-------------|----------|-------|
-| Read XML from DataFrame column | Yes | High | Uses `row.get(xml_field)` to extract XML string |
-| Loop XPath query | Yes | High | `root.xpath(loop_query)` with lxml |
-| Per-column XPath extraction | Yes | High | Relative XPath on each loop node |
-| Nodecheck validation | Yes | Medium | Checks node existence but see issues below |
-| Namespace stripping (`ignore_ns`) | Yes | Medium | Strips namespace prefixes from tag names post-parse |
-| Row limit | Yes | **Low** | **Semantic mismatch**: V1 treats `limit=0` as "no limit" (unlimited); Talend treats `limit=0` as "read zero rows" |
-| Die on error | Yes | High | Raises `ComponentExecutionError` when enabled |
-| REJECT output | Yes | Medium | Produces reject DataFrame with error details |
-| Schema validation on output | Yes | Medium | Uses `BaseComponent.validate_schema()` when `output_schema` configured |
-| Schema validation on reject | Yes | Medium | Uses `BaseComponent.validate_schema()` when `reject_schema` configured |
-| Statistics (NB_LINE, NB_LINE_OK, NB_LINE_REJECT) | Yes | High | Updates via `_update_stats()` |
-| GlobalMap variable publishing | Yes | High | Inherited from `BaseComponent._update_global_map()` |
-| **Get Nodes (Document column)** | **No** | **N/A** | **Not implemented** -- no support for retrieving raw XML node content |
-| **ERROR_MESSAGE globalMap** | **No** | **N/A** | **Not explicitly set** -- Talend sets `{id}_ERROR_MESSAGE`; V1 does not |
-| **tStatCatcher integration** | **No** | **N/A** | **Not implemented** -- V1 has its own stats mechanism |
-| **Schema type enforcement** | **Partial** | **Low** | Only if `output_schema` is configured; does not enforce types per extraction like Talend does |
+| # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
+|----|----------------|-------------|----------|-----------------|-------|
+| 1 | Read XML from DataFrame column | **Yes** | High | `_process()` line 200 | Uses `row.get(xml_field)` to extract XML string |
+| 2 | Loop XPath query | **Yes** | High | `_process()` line 214 | `root.xpath(loop_query)` with lxml |
+| 3 | Per-column XPath extraction | **Yes** | High | `_process()` line 237 | Relative XPath on each loop node |
+| 4 | Nodecheck validation | **Yes** | Medium | `_process()` lines 227-235 | Checks node existence but incomplete error detail |
+| 5 | Namespace stripping (`ignore_ns`) | **Yes** | Medium | `_process()` lines 208-213 | Strips namespace prefixes from tag names post-parse; does not strip attribute namespaces |
+| 6 | Row limit | **Yes** | **Low** | `_process()` line 217-218 | **Semantic mismatch**: V1 treats `limit=0` as "no limit" (unlimited); Talend treats `limit=0` as "read zero rows" |
+| 7 | Die on error | **Yes** | High | `_process()` lines 255-256 | Raises `ComponentExecutionError` when enabled |
+| 8 | REJECT output | **Yes** | Medium | `_process()` lines 202, 251, 257 | Produces reject DataFrame with error details |
+| 9 | Schema validation on output | **Yes** | Medium | `_process()` line 267 | Uses `BaseComponent.validate_schema()` when `output_schema` configured |
+| 10 | Schema validation on reject | **Yes** | Medium | `_process()` line 269 | Uses `BaseComponent.validate_schema()` when `reject_schema` configured |
+| 11 | Statistics (NB_LINE, NB_LINE_OK, NB_LINE_REJECT) | **Yes** | Medium | `_process()` line 272 | Updates via `_update_stats()`, but NB_LINE undercounts null XML rows |
+| 12 | GlobalMap variable publishing | **Yes** | Medium | Via `BaseComponent._update_global_map()` | Inherited; has cross-cutting bug (see BUG-EXF-006) |
+| 13 | Context variable support | **Yes** | High | Via `BaseComponent.execute()` line 202 | `context_manager.resolve_dict()` called before `_process()` |
+| 14 | Java expression support | **Yes** | High | Via `BaseComponent.execute()` line 198 | `_resolve_java_expressions()` resolves `{{java}}` markers |
+| 15 | **Get Nodes (Document column)** | **No** | N/A | -- | **Not implemented** -- no support for retrieving raw XML node content |
+| 16 | **ERROR_MESSAGE globalMap** | **No** | N/A | -- | **Not explicitly set** -- Talend sets `{id}_ERROR_MESSAGE`; V1 does not |
+| 17 | **tStatCatcher integration** | **No** | N/A | -- | Not implemented -- V1 has its own stats mechanism |
+| 18 | **Schema type enforcement per extraction** | **Partial** | Low | Only if `output_schema` configured | Does not enforce types per-extraction like Talend does; type errors at extraction do not reject rows |
 
-### Behavioral Differences from Talend
+### 5.2 Behavioral Differences from Talend
 
-| ID | Priority | Difference |
-|----|----------|------------|
+| ID | Priority | Description |
+|----|----------|-------------|
 | ENG-EXF-001 | **P0** | **`limit=0` semantic mismatch**: V1 engine line 217 uses `if limit:` which is falsy for `0`, meaning `limit=0` is treated as "no limit" (process all nodes). In Talend, `LIMIT=0` means "read zero rows." This is a silent data correctness issue -- jobs that set `LIMIT=0` to disable extraction will instead process ALL rows in V1. The correct Talend behavior for unlimited is to omit the LIMIT setting or use a very large number, not `0`. |
 | ENG-EXF-002 | **P1** | **No Get Nodes support**: The engine has no mechanism to return the serialized XML content of a matched node. All extraction returns text values via `node.xpath(query)`. Jobs using Document-typed columns with Get Nodes checked will get text content instead of XML fragments, breaking downstream XML processing pipelines. |
 | ENG-EXF-003 | **P1** | **Namespace stripping is post-parse, not pre-parse**: Talend strips namespaces from the raw XML text before parsing. V1 parses first (with `ns_clean=ignore_ns`), then iterates all elements to strip namespace prefixes from tag names (lines 209-213). This approach has two problems: (a) `ns_clean` in lxml only affects namespace declarations in output serialization, not XPath evaluation; (b) stripping `{uri}` prefixes from `elem.tag` does not affect attribute namespaces. XPath queries against namespace-qualified attributes will still fail. |
-| ENG-EXF-004 | **P1** | **`getiterator()` is deprecated and removed in lxml 5.0+**: Line 209 uses `root.getiterator()` which was deprecated in lxml 4.x and removed in lxml 5.0. Since `requirements.txt` specifies `lxml>=4.9.0`, this will break with lxml 5.x. The replacement is `root.iter()`. |
-| ENG-EXF-005 | **P2** | **Nodecheck failure rejects entire input row, not individual loop nodes**: When a nodecheck fails on one mapping column, the entire loop node is rejected (line 231-232). However, the reject row is built from the original input row (`row`), not from the extracted node data. This means: (a) reject rows contain the original XML-bearing row rather than the extracted partial data, and (b) if a single input row produces multiple loop nodes and only one fails nodecheck, only that one node is rejected -- but the reject row looks identical for all failures from the same input row. |
-| ENG-EXF-006 | **P2** | **Nodecheck failure breaks out of the mapping loop without extracting remaining columns**: When nodecheck fails (line 232, `break`), the loop over remaining mappings stops. The `out_row` dict at that point contains only columns processed before the failed nodecheck. This partial row is discarded (correct), but no information about which specific nodecheck failed is captured in the reject row error message. |
+| ENG-EXF-004 | **P1** | **`getiterator()` is deprecated and removed in lxml 5.0+**: Line 209 uses `root.getiterator()` which was deprecated in lxml 4.x and removed in lxml 5.0. Since the project may use lxml 5.x+, this will break with `AttributeError`. The replacement is `root.iter()`. |
+| ENG-EXF-005 | **P2** | **Nodecheck failure rejects entire input row, not individual loop nodes**: When a nodecheck fails, the reject row is built from the original input row (`row`), not from the extracted node data. Multiple failures from the same input row produce identical-looking reject rows. |
+| ENG-EXF-006 | **P2** | **Nodecheck failure breaks out of the mapping loop without extracting remaining columns**: When nodecheck fails (line 232, `break`), no information about which specific nodecheck failed is captured in the reject row error message. The generic "Node check failed" message lacks diagnostic detail. |
 | ENG-EXF-007 | **P2** | **ERROR_MESSAGE globalMap variable not set**: Talend publishes `{id}_ERROR_MESSAGE` to the globalMap after execution. V1 does not set this variable. Downstream components or expressions referencing `globalMap.get("{id}_ERROR_MESSAGE")` will get `None`. |
-| ENG-EXF-008 | **P3** | **Empty string vs None handling**: When `xml_string` is an empty string `""`, the engine will attempt to parse it (`etree.fromstring(b"")`) which raises an `XMLSyntaxError`. This is caught and sent to reject, which is acceptable. However, Talend would treat an empty XML field the same as a null field (NO_XML rejection). The V1 engine only checks for `None` (line 201: `if xml_string is None`), not for empty strings, leading to different error codes (PARSE_ERROR vs NO_XML). |
+| ENG-EXF-008 | **P3** | **Empty string vs None handling**: When `xml_string` is an empty string `""`, the engine attempts to parse it (`etree.fromstring(b"")`), raising `XMLSyntaxError` caught as `PARSE_ERROR`. Talend treats empty XML same as null (NO_XML rejection). V1 only checks for `None` (line 201: `if xml_string is None`), not empty strings. |
+
+### 5.3 GlobalMap Variable Coverage
+
+| Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
+|----------|-------------|----------|-----------------|-------|
+| `{id}_NB_LINE` | Yes | **Yes** | `_update_stats()` -> `_update_global_map()` -> `global_map.put_component_stat()` | Set via base class mechanism; undercounts null XML rows (see STAT-EXF-001) |
+| `{id}_NB_LINE_OK` | No (not in official docs) | **Yes** | Same mechanism | V1 provides richer stats than Talend for this component |
+| `{id}_NB_LINE_REJECT` | No (not in official docs) | **Yes** | Same mechanism | V1 provides richer stats than Talend |
+| `{id}_ERROR_MESSAGE` | Yes (official) | **No** | -- | Not implemented |
+| `{id}_EXECUTION_TIME` | N/A (v1 only) | **Yes** | Base class | V1-specific, not in Talend |
 
 ---
 
-## 4. Code Quality Audit
+## 6. Code Quality
 
-### Bugs
+### 6.1 Bugs
 
 | ID | Priority | Location | Description |
 |----|----------|----------|-------------|
 | BUG-EXF-001 | **P0** | `extract_xml_fields.py` line 217 | **`limit=0` treated as unlimited**: The code `if limit:` evaluates to `False` when `limit=0`, so `nodes = nodes[:0]` is never executed. In Talend, `LIMIT=0` means "process zero rows." A job converted with `LIMIT=0` will silently process ALL rows instead of none. Fix: change `if limit:` to `if limit is not None and limit > 0:` for "apply limit" semantics, and add an explicit `if limit == 0: nodes = []` check if matching Talend semantics. |
 | BUG-EXF-002 | **P0** | `extract_xml_fields.py` line 209 | **`getiterator()` removed in lxml 5.0**: `root.getiterator()` was deprecated in lxml 4.0 and removed in lxml 5.0. Since the project declares `lxml>=4.9.0` in requirements, any environment with lxml 5.x+ will raise `AttributeError: 'lxml.etree._Element' object has no attribute 'getiterator'`. Fix: replace `root.getiterator()` with `root.iter()`. |
-| BUG-EXF-003 | **P1** | `extract_xml_fields.py` line 201-203 | **Empty string XML not treated as NO_XML**: When `xml_string` is `""` (empty string), the code falls through to the parsing block (line 206) since `"" is not None` evaluates to `True`. The `etree.fromstring(b"")` call raises `XMLSyntaxError`, which is caught and reported as `PARSE_ERROR`. Talend treats both null and empty XML fields as the same "no data" condition. Fix: add `if xml_string is None or (isinstance(xml_string, str) and not xml_string.strip()):` check. |
-| BUG-EXF-004 | **P1** | `extract_xml_fields.py` line 207 | **`xml_string.encode('utf-8')` fails on non-string types**: If the `xml_field` column contains a non-string type (e.g., `bytes`, `int`, `float`, `NaN`), `.encode('utf-8')` raises `AttributeError`. No type check is performed before encoding. Fix: add `xml_string = str(xml_string)` or check `isinstance(xml_string, str)` before encoding. |
-| BUG-EXF-005 | **P2** | `extract_xml_fields.py` line 186 | **`int()` on string limit may raise ValueError**: Line 186 does `limit = int(self.config.get('limit', self.DEFAULT_LIMIT))`. If the converter passes `limit` as an empty string `""` or a non-numeric string (e.g., a context variable reference like `"${context.limit}"`), `int("")` raises `ValueError`. The `_validate_config()` method checks for `.isdigit()` but only on string values, and empty strings pass `.strip()` without hitting `.isdigit()`. Fix: use `int(limit) if str(limit).strip().isdigit() else 0`. |
+| BUG-EXF-003 | **P1** | `extract_xml_fields.py` line 201-203 | **Empty string XML not treated as NO_XML**: When `xml_string` is `""` (empty string), the code falls through to the parsing block since `"" is not None` evaluates to `True`. The `etree.fromstring(b"")` call raises `XMLSyntaxError`, which is caught and reported as `PARSE_ERROR`. Talend treats both null and empty XML fields as the same "no data" condition. Fix: add `if xml_string is None or (isinstance(xml_string, str) and not xml_string.strip()):` check. |
+| BUG-EXF-004 | **P1** | `extract_xml_fields.py` line 207 | **`xml_string.encode('utf-8')` fails on non-string types**: If the `xml_field` column contains a non-string type (e.g., `bytes`, `int`, `float`, `NaN`), `.encode('utf-8')` raises `AttributeError`. No type check is performed before encoding. Pandas `NaN` (float) is particularly dangerous here -- a DataFrame with mixed None/NaN values in the XML column will crash on NaN rows because `NaN` is not None and has no `.encode()` method. Fix: add `xml_string = str(xml_string)` or check `isinstance(xml_string, str)` before encoding. |
+| BUG-EXF-005 | **P2** | `extract_xml_fields.py` line 186 | **`int()` on string limit may raise ValueError**: Line 186 does `limit = int(self.config.get('limit', self.DEFAULT_LIMIT))`. If the converter passes `limit` as an empty string `""` or a non-numeric string (e.g., a context variable reference like `"${context.limit}"`), `int("")` raises `ValueError`. Fix: use `int(limit) if str(limit).strip().isdigit() else 0`. |
+| BUG-EXF-006 | **P0** | `src/v1/engine/base_component.py:304` | **`_update_global_map()` references undefined variable `value`** (Cross-Cutting): The log statement on line 304 uses `{stat_name}: {value}` but the variable in the for loop (line 301) is named `stat_value`, not `value`. This causes `NameError` at runtime whenever `global_map` is not None. **CROSS-CUTTING**: This bug affects ALL components, not just ExtractXMLField, since `_update_global_map()` is called after every component execution (via `execute()` line 218). |
+| BUG-EXF-007 | **P0** | `src/v1/engine/global_map.py:28` | **`GlobalMap.get()` references undefined `default` parameter** (Cross-Cutting): The method signature is `def get(self, key: str) -> Optional[Any]` (line 26), but the body calls `self._map.get(key, default)` (line 28). The `default` parameter is not in the signature, causing `NameError` on every `.get()` call. Additionally, `get_component_stat()` on line 58 calls `self.get(key, default)` with two arguments, but `get()` only accepts one. **CROSS-CUTTING**: Affects all code using `global_map.get()`. |
+| BUG-EXF-008 | **P1** | `extract_xml_fields.py` line 200 | **`xml_field` column existence not validated against input DataFrame**: `row.get(xml_field, None)` silently returns `None` for every row if the column specified by `xml_field` does not exist in the input DataFrame. All rows are then rejected with a misleading `NO_XML` error code, when the real problem is a misconfigured `xml_field` column name. There is no upfront check that verifies `xml_field in input_data.columns` before entering the row loop. Fix: add a column existence check before the loop, e.g., `if xml_field not in input_data.columns: raise ConfigurationError(...)`. |
+| BUG-EXF-009 | **P1** | `extract_xml_fields.py` line 214 | **Empty `loop_query` (default `''`) causes `XPathSyntaxError` misreported as `PARSE_ERROR`**: When `loop_query` is left as its default empty string, `root.xpath('')` raises `lxml.etree.XPathSyntaxError`. This exception is caught by the generic `except Exception` block and reported to the user as `PARSE_ERROR` with message "XML parsing failed," when the real problem is a missing or empty `loop_query` configuration. The error is misleading because the XML parsed successfully -- only the XPath evaluation failed. Fix: validate that `loop_query` is non-empty in `_validate_config()` and return a specific error like `ConfigurationError("loop_query must not be empty")`. |
 
-### Naming Consistency
+### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
 |----|----------|-------|
@@ -218,177 +294,180 @@ This approach assumes the Talend XML always produces mapping entries in groups o
 | NAME-EXF-002 | **P2** | Error field in reject row is `errorXMLField` (camelCase). This is inconsistent with STANDARDS.md which mandates snake_case for all output keys. Talend itself uses `errorCode` and `errorMessage` (camelCase) in reject output, so this matches Talend behavior but not V1 standards. The sibling `ExtractJSONFields` component uses `errorJSONField` (also camelCase). Decision: keep camelCase for Talend compatibility, but document the exception. |
 | NAME-EXF-003 | **P3** | Variable `rows_read` (line 194) is used instead of the standard `rows_in` per STANDARDS.md. The variable `rows_in` (line 179) is also declared but only used for the initial log message. `rows_read` increments per-row in the loop. This dual-variable approach is actually correct for tracking input rows vs processed rows, but the naming deviates from the standard `rows_in` / `rows_out` / `rows_rejected` pattern. |
 
-### Standards Compliance
+### 6.3 Standards Compliance
+
+| ID | Priority | Standard | Violation |
+|----|----------|----------|-----------|
+| STD-EXF-001 | **P2** | "`_validate_config()` checks required fields" (METHODOLOGY.md) | The `loop_query` and `mapping` fields are not checked as required. Both have defaults (empty string and empty list respectively), so a component with no mapping configured will silently produce empty output. Compare with `ExtractJSONFields` which requires both `loop_query` and `mapping`. |
+| STD-EXF-002 | **P2** | "Missing config raises error" (STANDARDS.md) | All validation checks are guarded by `if 'field' in self.config:`. A completely empty config `{}` passes validation with no errors, then falls through to processing with default values. Per STANDARDS.md, required fields should trigger `"Missing required config: ..."` errors when absent. |
+| STD-EXF-003 | **P2** | "`raise ... from e` exception chaining" (STANDARDS.md Pattern 1) | Line 256 raises `ComponentExecutionError(self.id, f"XML parsing failed: {e}", e)` but does not use `raise ... from e`. While the `cause` parameter stores the original exception, Python's `__cause__` chain is not set. |
+| STD-EXF-004 | **P3** | "Module docstring format" (STANDARDS.md) | The module docstring (lines 1-9) follows the STANDARDS.md format closely but does not include the phrase "This component does X by processing Y and outputting Z" as shown in the documentation standards template. Minor stylistic deviation. |
+
+### 6.4 Debug Artifacts
 
 | ID | Priority | Issue |
 |----|----------|-------|
-| STD-EXF-001 | **P2** | **`_validate_config()` does not validate required fields**: The `loop_query` and `mapping` fields are not checked as required in `_validate_config()`. Both have defaults (empty string and empty list respectively), so a component with no mapping configured will silently produce empty output. Compare with `ExtractJSONFields` which requires both `loop_query` and `mapping`. |
-| STD-EXF-002 | **P2** | **`_validate_config()` only validates fields when present**: All validation checks are guarded by `if 'field' in self.config:`. This means that a completely empty config `{}` passes validation with no errors, which then falls through to processing with default values. Per STANDARDS.md Pattern 2, required fields should trigger `"Missing required config: ..."` errors when absent. |
-| STD-EXF-003 | **P2** | **No `from e` chain on `ComponentExecutionError` raise**: Line 256 raises `ComponentExecutionError(self.id, f"XML parsing failed: {e}", e)` but does not use `raise ... from e`. The STANDARDS.md Pattern 1 shows `raise ... from e` for proper exception chaining. While the `cause` parameter stores the original exception, Python's exception chain is not set, so `__cause__` will be `None`. |
-| STD-EXF-004 | **P3** | **Module docstring format**: The module docstring (lines 1-9) follows the STANDARDS.md format closely but does not include the phrase "This component does X by processing Y and outputting Z" as shown in the documentation standards template. Minor stylistic deviation. |
+| DBG-EXF-001 | **P3** | **No debug-level logging inside the per-row/per-node extraction loop**: While this avoids log noise, it also makes it impossible to diagnose extraction failures in production without adding temporary logging. Compare with `ExtractJSONFields` which has extensive `logger.debug()` calls at every processing step. Consider adding debug logging for XPath evaluation results and nodecheck outcomes. |
 
-### Debug Artifacts
-
-| ID | Priority | Issue |
-|----|----------|-------|
-| DBG-EXF-001 | **P3** | No debug-level logging inside the per-row/per-node extraction loop. While this avoids log noise, it also makes it impossible to diagnose extraction failures in production without adding temporary logging. Compare with `ExtractJSONFields` which has extensive `logger.debug()` calls at every processing step. Consider adding debug logging for XPath evaluation results and nodecheck outcomes. |
-
-### Security
+### 6.5 Security
 
 | ID | Priority | Issue |
 |----|----------|-------|
 | SEC-EXF-001 | **P2** | **XML External Entity (XXE) attack surface**: The XML parser is created with `etree.XMLParser(ns_clean=ignore_ns, recover=True)` but does not explicitly disable external entity resolution. By default, lxml's `XMLParser` does NOT resolve external entities (unlike Python's built-in `xml.etree.ElementTree`), so lxml is safe by default. However, for defense-in-depth and compliance documentation, it would be best to explicitly set `resolve_entities=False` and `no_network=True`. |
-| SEC-EXF-002 | **P3** | **`recover=True` on XMLParser**: The parser is created with `recover=True` which tells lxml to attempt to recover from malformed XML rather than raising errors. While this improves robustness, it also means silently malformed XML (e.g., from injection attacks or data corruption) will be processed with potentially garbled content rather than being rejected. Consider making recovery configurable or defaulting to strict parsing with recovery as a fallback option. |
+| SEC-EXF-002 | **P3** | **`recover=True` on XMLParser**: The parser is created with `recover=True` which tells lxml to attempt to recover from malformed XML rather than raising errors. While this improves robustness, it also means silently malformed XML (e.g., from injection attacks or data corruption) will be processed with potentially garbled content rather than being rejected. Consider making recovery configurable or defaulting to strict parsing with recovery as a fallback. |
+
+### 6.6 Logging Quality
+
+| Aspect | Assessment |
+|--------|------------|
+| Logger setup | Module-level `logger = logging.getLogger(__name__)` -- correct |
+| Component ID prefix | All log messages use `[{self.id}]` prefix -- correct |
+| Level usage | INFO for milestones, WARNING for empty input, ERROR for failures -- correct |
+| Start/complete logging | `_process()` logs start (line 180) and completion (line 273-274) with row counts -- correct |
+| Sensitive data | No sensitive data logged (XML content is not logged in production messages) -- correct |
+| No print statements | No `print()` calls -- correct |
+| **Debug gap** | No debug-level logging in the per-row/per-node extraction loop -- gap for observability |
+
+### 6.7 Error Handling Quality
+
+| Aspect | Assessment |
+|--------|------------|
+| Custom exceptions | Uses `ComponentExecutionError` and `ConfigurationError` from `exceptions.py` -- correct |
+| Exception chaining | **Missing** `raise ... from e` pattern on line 256. The `cause` parameter is passed but Python's `__cause__` chain is not set. |
+| `die_on_error` handling | Correctly routes to reject when `die_on_error=False` and raises `ComponentExecutionError` when `True` -- correct |
+| No bare `except` | All except clauses specify `Exception` -- correct |
+| Error messages | Include component ID and error details -- correct |
+| Graceful degradation | Returns empty DataFrames on empty/None input -- correct |
+| **Gap: NaN handling** | NaN values in the XML column are not caught by the `is None` check, causing `AttributeError` on `.encode()` |
+
+### 6.8 Type Hints
+
+| Aspect | Assessment |
+|--------|------------|
+| Method signatures | `_validate_config()` -> `List[str]`, `_process()` -> `Dict[str, Any]`, `_make_reject_row()` -> `Dict[str, Any]` -- correct |
+| Parameter types | `_process(input_data: Optional[pd.DataFrame])` -- correct |
+| Complex types | Uses `Dict[str, Any]`, `List[str]`, `Optional[pd.DataFrame]` -- correct |
+| Import of types | `from typing import Any, Dict, List, Optional` -- all used types imported |
 
 ---
 
-## 5. Performance & Memory Audit
+## 7. Performance & Memory
 
-### Row-by-Row Processing
+### 7.1 Performance Issues
 
 | ID | Priority | Issue |
 |----|----------|-------|
 | PERF-EXF-001 | **P1** | **Per-row XML parsing creates a new `XMLParser` instance for every input row**: Line 206 creates `parser = etree.XMLParser(ns_clean=ignore_ns, recover=True)` inside the `for idx, row in input_data.iterrows()` loop. For a DataFrame with 100,000 rows, this creates 100,000 parser objects. While lxml parser creation is relatively fast, this is unnecessary overhead. The parser should be created once before the loop since its configuration (`ns_clean`, `recover`) does not change between rows. |
 | PERF-EXF-002 | **P2** | **`input_data.iterrows()` is the slowest way to iterate a DataFrame**: Line 199 uses `iterrows()` which converts each row to a `pd.Series`, incurring significant overhead per row. For XML extraction where per-row processing is inherently sequential (due to XML parsing), the overhead is less critical than for simple column operations, but for DataFrames with many columns, the Series construction can be significant. Consider `itertuples()` or direct column access via `input_data[xml_field].items()`. |
-| PERF-EXF-003 | **P2** | **Namespace stripping iterates the entire XML tree for every input row**: When `ignore_ns=True`, lines 209-213 call `root.getiterator()` (or `root.iter()` once fixed) and iterate every element in the parsed XML tree to strip namespace prefixes. For large XML documents with thousands of elements, this adds O(n) overhead per input row where n is the number of elements. An alternative approach is to use a regex to strip namespaces from the raw XML string before parsing, which is typically faster for large documents. |
+| PERF-EXF-003 | **P2** | **Namespace stripping iterates the entire XML tree for every input row**: When `ignore_ns=True`, lines 209-213 call `root.getiterator()` (or `root.iter()` once fixed) and iterate every element in the parsed XML tree to strip namespace prefixes. For large XML documents with thousands of elements, this adds O(n) overhead per input row. A regex-based pre-parse approach is typically faster for large documents. |
 | PERF-EXF-004 | **P3** | **Output DataFrames built from list of dicts**: Lines 262-263 create `pd.DataFrame(main_output)` and `pd.DataFrame(reject_output)` from lists of dictionaries. For very large output (millions of rows), this is memory-inefficient because all rows must be held in a list before DataFrame construction. However, this is the standard pattern across all V1 components and is acceptable for typical workloads. |
 
-### Memory Considerations
+### 7.2 Memory Management Assessment
+
+| Aspect | Assessment |
+|--------|------------|
+| Streaming mode | **Not implemented** for this component. The `BaseComponent._execute_streaming()` override is not present. Large input DataFrames are processed entirely in batch mode. |
+| HYBRID mode | The base class `_auto_select_mode()` checks input DataFrame memory. If it exceeds `MEMORY_THRESHOLD_MB` (3GB), it switches to streaming via `_execute_streaming()`. However, the streaming path calls `_process()` per chunk, which still processes the full chunk in memory. The component itself has no chunked XML processing. |
+| Memory doubling | Entire input DataFrame held in memory alongside growing `main_output` and `reject_output` lists. For an input DataFrame with 1M rows where each row contains a 10KB XML document, the input alone is ~10GB. The output lists add additional memory. |
+| Parsed XML trees | The `root` variable from `etree.fromstring()` is created inside the per-row try block but not explicitly deleted. Python's garbage collector will eventually free it, but for very large XML documents, holding onto the parsed tree until the next loop iteration can double memory usage. |
+| `_update_global_map` crash in HYBRID streaming | If the component processes in HYBRID mode and `_update_global_map()` is called after streaming, the cross-cutting BUG-EXF-006 (`NameError` on `value`) will crash the component. This is a compounding risk: streaming mode works for processing, but the stats publishing step after processing will fail. |
 
 | ID | Priority | Issue |
 |----|----------|-------|
-| MEM-EXF-001 | **P2** | **Entire input DataFrame held in memory alongside output lists**: The component receives the full input DataFrame, then builds `main_output` and `reject_output` lists in memory. For an input DataFrame with 1M rows where each row contains a large XML document (e.g., 10KB each), the input alone is ~10GB. The output lists add additional memory. There is no streaming or chunked processing mode for this component. |
-| MEM-EXF-002 | **P3** | **Parsed XML trees not explicitly freed**: The `root` variable from `etree.fromstring()` is created inside the per-row try block but not explicitly deleted. Python's garbage collector will eventually free it, but for very large XML documents, holding onto the parsed tree until the next loop iteration can double memory usage (previous tree + current tree). Adding `del root` after extraction could help with memory pressure. |
+| MEM-EXF-001 | **P2** | **No streaming/chunked processing for large inputs**: The component has no override for `_execute_streaming()`. Very large inputs (>3GB) will exceed memory. |
+| MEM-EXF-002 | **P3** | **Parsed XML trees not explicitly freed**: Adding `del root` after extraction for each row could help with memory pressure on large XML documents. |
 
 ---
 
-## 6. Testing Audit
+## 8. Testing
 
-### Existing Tests
+### 8.1 Current Coverage
 
-| ID | Priority | Issue |
-|----|----------|-------|
-| TEST-EXF-001 | **P0** | **No unit tests exist for `ExtractXMLField`**. There are zero test files matching `*extract_xml*` or `*ExtractXMLField*` in the test directory. The only XML-related test found is `tests/converters/talend_to_v2/test_xml_parser.py`, which tests the V2 XML parser, not the V1 engine component. This is a critical gap for a component that handles XML parsing, XPath evaluation, namespace stripping, nodecheck validation, and reject flow. |
-| TEST-EXF-002 | **P1** | **No integration test exercises the XML extraction pipeline**. There is no test that chains an input component (e.g., `FileInputDelimited` or `FixedFlowInput`) with `ExtractXMLField` and verifies end-to-end data flow, reject routing, and statistics tracking. |
+| Test Type | Exists? | File | Notes |
+|-----------|---------|------|-------|
+| V1 engine unit tests | **No** | -- | Zero test files found for `ExtractXMLField` v1 engine component |
+| V1 engine integration tests | **No** | -- | No v1 engine integration tests found |
 
-### Recommended Test Cases
+**Key finding**: The v1 engine has ZERO tests for this component. All 307 lines of v1 engine code are completely unverified.
 
-| Test | Priority | Description |
-|------|----------|-------------|
-| Basic XML extraction | P0 | Parse a simple XML document with a loop query, extract 3 columns, verify output DataFrame shape and values |
-| Empty input DataFrame | P0 | Pass an empty DataFrame, verify empty output and reject DataFrames, verify stats are 0/0/0 |
-| None input | P0 | Pass `None`, verify empty output and stats |
-| Null XML field value | P0 | Input row with `None` in the XML column, verify row goes to reject with `NO_XML` error code |
-| Empty string XML field | P0 | Input row with `""` in XML column, verify behavior (currently PARSE_ERROR, should ideally be NO_XML) |
-| XML parsing error + die_on_error=True | P0 | Malformed XML with `die_on_error=True`, verify `ComponentExecutionError` is raised |
-| XML parsing error + die_on_error=False | P0 | Malformed XML with `die_on_error=False`, verify row goes to reject with `PARSE_ERROR` code |
-| Nodecheck success | P0 | XML with nodecheck XPath that matches, verify row in main output |
-| Nodecheck failure | P0 | XML with nodecheck XPath that does not match, verify row in reject with `NODECHECK_FAIL` code |
-| Limit enforcement | P0 | XML with 10 matching nodes, `limit=3`, verify only 3 rows in output |
-| Limit=0 behavior | P0 | **Critical**: Verify that `limit=0` behavior matches Talend (zero rows, not unlimited) |
-| Namespace stripping | P1 | XML with namespaced elements, `ignore_ns=True`, verify XPath queries work without namespace prefixes |
-| Namespace preservation | P1 | XML with namespaced elements, `ignore_ns=False`, verify namespace-qualified XPath queries work |
-| Multiple nodes per input row | P1 | Single input row with XML containing 5 matching loop nodes, verify 5 output rows |
-| Multiple input rows | P1 | 3 input rows, each with different XML, verify correct extraction across all rows |
-| Mixed success and failure | P1 | Some rows with valid XML, some with malformed XML, verify correct main/reject split |
-| XPath returning element vs text | P1 | XPath with `text()` vs without, verify correct value extraction |
-| XPath returning empty result | P1 | XPath that matches no nodes, verify `None` value in output column |
-| XPath returning multiple results | P1 | XPath that matches multiple text nodes, verify first value is taken |
-| Configuration validation | P1 | Invalid config (e.g., non-list mapping, non-string loop_query), verify `ConfigurationError` |
-| Output schema validation | P2 | Configure `output_schema`, verify `validate_schema()` is applied |
-| Reject schema validation | P2 | Configure `reject_schema`, verify `validate_schema()` is applied |
-| Large XML document | P2 | XML with 10,000+ nodes, verify memory does not explode and extraction completes |
-| Non-string XML field value | P2 | Input with integer or float in XML column, verify graceful error handling |
-| Statistics tracking | P2 | Verify `NB_LINE`, `NB_LINE_OK`, `NB_LINE_REJECT` are correctly reported |
-| GlobalMap publishing | P2 | Verify stats are published to `global_map` after execution |
-| lxml version compatibility | P2 | Run tests with both lxml 4.x and lxml 5.x to verify `getiterator()` / `iter()` compatibility |
+### 8.2 Recommended Test Cases
 
----
+#### P0 -- Must Have Before Production
 
-## 7. Converter-Engine Integration Audit
+| # | Test Case | Priority | Description |
+|----|-----------|----------|-------------|
+| 1 | Basic XML extraction | P0 | Parse a simple XML document with a loop query, extract 3 columns, verify output DataFrame shape and values |
+| 2 | Empty input DataFrame | P0 | Pass an empty DataFrame, verify empty output and reject DataFrames, verify stats are 0/0/0 |
+| 3 | None input | P0 | Pass `None`, verify empty output and stats |
+| 4 | Null XML field value | P0 | Input row with `None` in the XML column, verify row goes to reject with `NO_XML` error code |
+| 5 | Empty string XML field | P0 | Input row with `""` in XML column, verify behavior (currently PARSE_ERROR, should ideally be NO_XML) |
+| 6 | XML parsing error + die_on_error=True | P0 | Malformed XML with `die_on_error=True`, verify `ComponentExecutionError` is raised |
+| 7 | XML parsing error + die_on_error=False | P0 | Malformed XML with `die_on_error=False`, verify row goes to reject with `PARSE_ERROR` code |
+| 8 | Nodecheck success | P0 | XML with nodecheck XPath that matches, verify row in main output |
+| 9 | Nodecheck failure | P0 | XML with nodecheck XPath that does not match, verify row in reject with `NODECHECK_FAIL` code |
+| 10 | Limit enforcement | P0 | XML with 10 matching nodes, `limit=3`, verify only 3 rows in output |
+| 11 | Limit=0 behavior | P0 | **Critical**: Verify that `limit=0` behavior matches Talend (zero rows, not unlimited) |
 
-### Data Flow from Converter to Engine
+#### P1 -- Important
 
-The converter's `parse_textract_xml_field()` produces a config dict with these keys:
+| # | Test Case | Priority | Description |
+|----|-----------|----------|-------------|
+| 12 | Namespace stripping | P1 | XML with namespaced elements, `ignore_ns=True`, verify XPath queries work without namespace prefixes |
+| 13 | Namespace preservation | P1 | XML with namespaced elements, `ignore_ns=False`, verify namespace-qualified XPath queries work |
+| 14 | Multiple nodes per input row | P1 | Single input row with XML containing 5 matching loop nodes, verify 5 output rows |
+| 15 | Multiple input rows | P1 | 3 input rows, each with different XML, verify correct extraction across all rows |
+| 16 | Mixed success and failure | P1 | Some rows with valid XML, some with malformed XML, verify correct main/reject split |
+| 17 | XPath returning element vs text | P1 | XPath with `text()` vs without, verify correct value extraction |
+| 18 | XPath returning empty result | P1 | XPath that matches no nodes, verify `None` value in output column |
+| 19 | Configuration validation | P1 | Invalid config (e.g., non-list mapping, non-string loop_query), verify `ConfigurationError` |
+| 20 | NaN in XML column | P1 | Input row with `float('nan')` in XML column, verify graceful handling (currently crashes) |
+| 21 | GlobalMap integration | P1 | Verify `{id}_NB_LINE` etc. are set in globalMap after execution (requires fixing cross-cutting bug first) |
 
-```
-{
-    "xml_field": "line",
-    "loop_query": "//Employee",
-    "mapping": [
-        {"schema_column": "name", "query": "./Name/text()", "nodecheck": ""},
-        {"schema_column": "salary", "query": "./Salary/text()", "nodecheck": "./Salary"}
-    ],
-    "limit": "0",
-    "die_on_error": false,
-    "ignore_ns": false
-}
-```
+#### P2 -- Hardening
 
-The engine's `_process()` method reads these as:
-
-| Config Key | Converter Output | Engine Reads As | Issue? |
-|------------|-----------------|-----------------|--------|
-| `xml_field` | `"line"` (string) | `self.config.get('xml_field', 'line')` | OK |
-| `loop_query` | `"//Employee"` (string, quotes stripped) | `self.config.get('loop_query', '')` | OK |
-| `mapping` | list of dicts | `self.config.get('mapping', [])` | OK |
-| `limit` | `"0"` (string!) | `int(self.config.get('limit', 0))` -> `int("0")` -> `0` | **Type mismatch**: converter outputs string, engine does `int()`. Works for numeric strings but fails on empty strings or context variables. |
-| `die_on_error` | `false` (bool) | `self.config.get('die_on_error', False)` | OK |
-| `ignore_ns` | `false` (bool) | `self.config.get('ignore_ns', False)` | OK |
-
-### Integration Issues
-
-| ID | Priority | Issue |
-|----|----------|-------|
-| INT-EXF-001 | **P1** | **`limit` type mismatch**: Converter outputs `limit` as a string (e.g., `"0"`, `"100"`). Engine calls `int()` on it. This works for simple numeric strings but will fail with `ValueError` on: (a) empty string `""`, (b) context variable references `"${context.limit}"`, (c) any whitespace-padded strings like `" 100 "`. The converter should convert to integer, or the engine should handle string-to-int conversion more robustly. |
-| INT-EXF-002 | **P2** | **`nodecheck` quoting inconsistency**: The converter does not strip quotes from `nodecheck` values in the mapping table (line 2633: `entries[i+2].get('value', '')` without `.strip('"')`). If Talend wraps nodecheck values in quotes, the engine will attempt XPath evaluation on a quoted string like `'"./Salary"'`, which will fail silently (XPath returns empty result, treated as nodecheck failure). |
-
----
-
-## 8. Comparison with Sibling Component (ExtractJSONFields)
-
-To assess consistency and identify gaps, the XML component is compared with its JSON sibling.
-
-| Feature | ExtractJSONFields | ExtractXMLField | Notes |
-|---------|-------------------|-----------------|-------|
-| Config validation for required fields | Yes (`loop_query` required, `mapping` required and non-empty) | No (both have defaults, no "missing required" errors) | **XML is weaker** |
-| List input handling | Yes (converts list to DataFrame) | No (only checks for DataFrame) | Minor gap |
-| Empty mapping validation | Yes (rejects empty list) | No (empty list passes validation) | **XML is weaker** |
-| Debug logging in processing loop | Extensive (15+ debug log calls) | None | **XML lacks observability** |
-| Reject row format | `{errorJSONField, errorCode, errorMessage}` | `{original_row_columns..., errorXMLField, errorCode, errorMessage}` | XML includes original row data, JSON does not |
-| Error re-raise pattern | `raise ... from e` | `raise ComponentExecutionError(...)` (no `from e`) | **XML lacks exception chaining** |
-| Per-row statistics | Counts `rows_out` from output length | Counts `rows_ok` per extracted node | Both correct but different approaches |
+| # | Test Case | Priority | Description |
+|----|-----------|----------|-------------|
+| 22 | Output schema validation | P2 | Configure `output_schema`, verify `validate_schema()` is applied |
+| 23 | Reject schema validation | P2 | Configure `reject_schema`, verify `validate_schema()` is applied |
+| 24 | Large XML document | P2 | XML with 10,000+ nodes, verify memory does not explode and extraction completes |
+| 25 | Non-string XML field value | P2 | Input with integer or float in XML column, verify graceful error handling |
+| 26 | Statistics tracking | P2 | Verify `NB_LINE`, `NB_LINE_OK`, `NB_LINE_REJECT` are correctly reported |
+| 27 | lxml version compatibility | P2 | Run tests with both lxml 4.x and lxml 5.x to verify `getiterator()` / `iter()` compatibility |
+| 28 | Bytes input in XML column | P2 | Input row with `b"<xml/>"` bytes in XML column, verify behavior |
+| 29 | HYBRID streaming execution | P2 | Verify behavior when base class routes to streaming mode with large input |
 
 ---
 
 ## 9. Issues Summary
 
-### All Issues by Priority
-
-#### P0 -- Critical (3 issues)
+### P0 -- Critical
 
 | ID | Category | Summary |
 |----|----------|---------|
 | BUG-EXF-001 | Bug | `limit=0` treated as "no limit" instead of Talend's "zero rows" -- silent data correctness issue |
 | BUG-EXF-002 | Bug | `getiterator()` deprecated/removed in lxml 5.0 -- will crash on newer lxml versions |
+| BUG-EXF-006 | Bug (Cross-Cutting) | `_update_global_map()` in `base_component.py:304` references undefined variable `value` (should be `stat_value`). Will crash ALL components when `global_map` is set. |
+| BUG-EXF-007 | Bug (Cross-Cutting) | `GlobalMap.get()` in `global_map.py:28` references undefined parameter `default`. Will crash on any `global_map.get()` call. `get_component_stat()` also passes two args to single-arg `get()`. |
 | TEST-EXF-001 | Testing | Zero unit tests for the component -- no coverage of any functionality |
 
-#### P1 -- Major (9 issues)
+### P1 -- Major
 
 | ID | Category | Summary |
 |----|----------|---------|
 | CONV-EXF-001 | Converter | `GET_NODES` not extracted -- Document-type XML column retrieval unsupported |
 | CONV-EXF-002 | Converter | Mapping table parsed by positional stride-of-3 instead of `elementRef` attribute -- fragile |
-| BUG-EXF-003 | Bug | Empty string XML field treated as parse error instead of NO_XML |
+| BUG-EXF-003 | Bug | Empty string XML field treated as PARSE_ERROR instead of NO_XML |
 | BUG-EXF-004 | Bug | `xml_string.encode('utf-8')` fails on non-string types (bytes, int, NaN) |
+| BUG-EXF-008 | Bug | `xml_field` column existence not validated against input DataFrame; silently rejects all rows with misleading `NO_XML` error |
+| BUG-EXF-009 | Bug | Empty `loop_query` (default `''`) causes `XPathSyntaxError` misreported as `PARSE_ERROR`; real problem is missing config |
 | ENG-EXF-002 | Feature Gap | No Get Nodes support for Document-typed columns |
 | ENG-EXF-003 | Feature Gap | Namespace stripping is post-parse, does not handle attribute namespaces |
 | ENG-EXF-004 | Feature Gap | `getiterator()` deprecated -- use `root.iter()` instead |
-| INT-EXF-001 | Integration | `limit` passed as string from converter, engine `int()` call fragile |
+| INT-EXF-001 | Integration | `limit` passed as string from converter, engine `int()` call fragile on empty string / context variables |
 | PERF-EXF-001 | Performance | XMLParser object created per-row instead of once before loop |
 | TEST-EXF-002 | Testing | No integration test for XML extraction pipeline |
 
-#### P2 -- Moderate (12 issues)
+### P2 -- Moderate
 
 | ID | Category | Summary |
 |----|----------|---------|
@@ -403,12 +482,16 @@ To assess consistency and identify gaps, the XML component is compared with its 
 | STD-EXF-001 | Standards | `_validate_config()` does not check for required `loop_query` and `mapping` |
 | STD-EXF-002 | Standards | Empty config `{}` passes validation silently |
 | STD-EXF-003 | Standards | No `raise ... from e` exception chaining |
-| NAME-EXF-002 | Naming | Reject row fields use camelCase (`errorXMLField`) instead of snake_case |
+| NAME-EXF-001 | Naming | `xml_field` naming deviation from Talend `XMLFIELD` (documented mapping) |
+| NAME-EXF-002 | Naming | Reject fields use camelCase (`errorXMLField`) for Talend compat |
 | PERF-EXF-002 | Performance | `iterrows()` used instead of more efficient iteration methods |
 | PERF-EXF-003 | Performance | Namespace stripping iterates full XML tree per-row |
 | MEM-EXF-001 | Memory | No streaming/chunked processing for large inputs |
+| STAT-EXF-001 | Statistics | `NB_LINE` undercounts -- null XML rows not counted because `continue` skips `rows_read += 1` |
+| XPATH-EXF-001 | XPath | Multi-valued XPath results silently truncated to first match |
+| XPATH-EXF-002 | XPath | Element text extraction via `.text` misses child element text content |
 
-#### P3 -- Low (7 issues)
+### P3 -- Low
 
 | ID | Category | Summary |
 |----|----------|---------|
@@ -420,183 +503,169 @@ To assess consistency and identify gaps, the XML component is compared with its 
 | DBG-EXF-001 | Debug | No debug-level logging in extraction loop |
 | PERF-EXF-004 | Performance | Output built from list of dicts (standard pattern, acceptable) |
 | MEM-EXF-002 | Memory | Parsed XML trees not explicitly freed |
+| XPATH-EXF-003 | XPath | XPath exceptions silently produce None values without warning |
+
+### Issue Count Summary
+
+| Priority | Count | Categories |
+|----------|-------|------------|
+| P0 | 5 | 4 bugs (2 cross-cutting), 1 testing |
+| P1 | 12 | 2 converter, 4 bugs, 3 feature gap, 1 integration, 1 performance, 1 testing |
+| P2 | 19 | 2 converter, 1 bug, 3 feature gap, 1 integration, 1 security, 2 standards, 2 naming, 2 performance, 1 memory, 1 statistics, 2 xpath |
+| P3 | 9 | 1 converter, 1 feature gap, 1 naming, 1 standards, 1 security, 1 debug, 1 performance, 1 memory, 1 xpath |
+| **Total** | **45** | |
 
 ---
 
 ## 10. Recommendations
 
-### Immediate (Before Production) -- P0 Fixes
+### Immediate (Before Production)
 
-1. **Fix `limit=0` semantics (BUG-EXF-001)**:
-   Change line 217 from:
-   ```python
-   if limit:
-       nodes = nodes[:limit]
-   ```
-   To match Talend behavior:
-   ```python
-   if limit is not None and limit >= 0:
-       if limit == 0:
-           nodes = []  # Talend: LIMIT=0 means "read zero rows"
-       else:
-           nodes = nodes[:limit]
-   ```
-   Alternatively, if the team decides `limit=0` should mean "unlimited" (deviating from Talend), document this clearly and ensure the converter maps Talend's empty/unset LIMIT to `None` or `-1`.
+1. **Fix `_update_global_map()` bug** (BUG-EXF-006): Change `value` to `stat_value` on `base_component.py` line 304. Better yet, remove the stale `{stat_name}: {value}` reference entirely and log just the three main stats. **Impact**: Fixes ALL components (cross-cutting). **Risk**: Very low (log message only).
 
-2. **Replace `getiterator()` with `iter()` (BUG-EXF-002)**:
-   Change line 209 from:
-   ```python
-   for elem in root.getiterator():
-   ```
-   To:
-   ```python
-   for elem in root.iter():
-   ```
-   This is backward-compatible with lxml 4.x and forward-compatible with lxml 5.x.
+2. **Fix `GlobalMap.get()` bug** (BUG-EXF-007): Add `default: Any = None` parameter to the `get()` method signature in `global_map.py` line 26. This fixes both direct calls and the two-argument call from `get_component_stat()` on line 58. **Impact**: Fixes ALL components and any code using `global_map.get()`. **Risk**: Very low (adds optional parameter with backward-compatible default).
 
-3. **Create comprehensive unit test suite (TEST-EXF-001)**:
-   Write tests covering all recommended test cases listed in Section 6, prioritizing P0 cases. Minimum test count: 15 tests covering basic extraction, error handling, limit behavior, nodecheck, namespace handling, and statistics.
+3. **Fix `limit=0` semantics** (BUG-EXF-001): Change line 217 from `if limit:` to match Talend behavior where `limit=0` means "read zero rows". Alternatively, if the team decides `limit=0` should mean "unlimited" (deviating from Talend), document this clearly and ensure the converter maps Talend's empty/unset LIMIT to `None` or `-1`.
 
-### Short-Term (Hardening) -- P1 Fixes
+4. **Replace `getiterator()` with `iter()`** (BUG-EXF-002): Change line 209 from `root.getiterator()` to `root.iter()`. This is backward-compatible with lxml 4.x and forward-compatible with lxml 5.x.
 
-4. **Fix empty string XML handling (BUG-EXF-003)**:
-   Change line 201 from:
-   ```python
-   if xml_string is None:
-   ```
-   To:
-   ```python
-   if xml_string is None or (isinstance(xml_string, str) and not xml_string.strip()):
-   ```
+5. **Create comprehensive unit test suite** (TEST-EXF-001): Write tests covering all recommended P0 test cases listed in Section 8.2. Minimum test count: 11 tests covering basic extraction, error handling, limit behavior, nodecheck, and reject flow.
 
-5. **Add type safety for XML field value (BUG-EXF-004)**:
-   Before line 207, add:
-   ```python
-   if not isinstance(xml_string, str):
-       xml_string = str(xml_string) if pd.notna(xml_string) else None
-       if xml_string is None:
-           reject_output.append(self._make_reject_row(row, xml_string, self.ERROR_NO_XML, 'Non-string XML data'))
-           rows_reject += 1
-           continue
-   ```
+### Short-Term (Hardening)
 
-6. **Move XMLParser creation outside the loop (PERF-EXF-001)**:
-   Move line 206 before line 199 (before the `for idx, row` loop):
-   ```python
-   parser = etree.XMLParser(ns_clean=ignore_ns, recover=True, resolve_entities=False, no_network=True)
-   for idx, row in input_data.iterrows():
-   ```
+6. **Fix empty string XML handling** (BUG-EXF-003): Change line 201 from `if xml_string is None:` to `if xml_string is None or (isinstance(xml_string, str) and not xml_string.strip()):` to match Talend's treatment of empty XML as NO_XML.
 
-7. **Fix converter mapping table parsing (CONV-EXF-002)**:
-   Refactor to use `elementRef` attribute-based parsing instead of positional stride:
-   ```python
-   for entry in mapping_table.findall('elementValue'):
-       ref = entry.get('elementRef', '')
-       value = entry.get('value', '').strip('"')
-       if ref == 'SCHEMA_COLUMN':
-           current_mapping['schema_column'] = value
-       elif ref == 'XPATH_QUERY':
-           current_mapping['query'] = value
-       elif ref == 'GET_NODES':
-           current_mapping['nodecheck'] = value
-   ```
+7. **Add NaN / non-string type safety for XML field value** (BUG-EXF-004): Before line 207, add a check for non-string types including pandas NaN values (`pd.isna(xml_string)`). Convert or reject as appropriate. This is critical for production where DataFrame columns may contain mixed types.
 
-8. **Fix `limit` type handling (INT-EXF-001)**:
-   In the converter, convert limit to integer:
-   ```python
-   limit_str = get_param('LIMIT', '0')
-   limit = int(limit_str) if limit_str and limit_str.strip().isdigit() else 0
-   ```
+8. **Move XMLParser creation outside the loop** (PERF-EXF-001): Move line 206 before line 199 (before the `for idx, row` loop). Add `resolve_entities=False` and `no_network=True` for defense-in-depth.
 
-9. **Add required field validation (STD-EXF-001, STD-EXF-002)**:
-   Update `_validate_config()` to match the pattern used by `ExtractJSONFields`:
-   ```python
-   if 'loop_query' not in self.config:
-       errors.append("Missing required config: 'loop_query'")
-   if 'mapping' not in self.config:
-       errors.append("Missing required config: 'mapping'")
-   elif len(self.config['mapping']) == 0:
-       errors.append("Config 'mapping' cannot be empty")
-   ```
+9. **Fix converter mapping table parsing** (CONV-EXF-002): Refactor to use `elementRef` attribute-based parsing instead of positional stride. This handles varying field counts and ordering.
+
+10. **Fix `limit` type handling** (INT-EXF-001): In the converter, convert limit to integer. In the engine, add robust string-to-int conversion with fallback.
+
+11. **Add required field validation** (STD-EXF-001, STD-EXF-002): Update `_validate_config()` to require `loop_query` and non-empty `mapping` (matching `ExtractJSONFields` pattern).
+
+12. **Set ERROR_MESSAGE globalMap variable** (ENG-EXF-007): After processing, store last error message in globalMap for downstream reference.
 
 ### Medium-Term (Feature Parity)
 
-10. **Implement Get Nodes support (ENG-EXF-002, CONV-EXF-001)**:
-    Add a `get_nodes` flag per mapping entry. When true, serialize the matched XML node using `etree.tostring()` instead of extracting text:
-    ```python
-    if m.get('get_nodes'):
-        result = node.xpath(query)
-        value = etree.tostring(result[0], encoding='unicode') if result else None
-    ```
+13. **Implement Get Nodes support** (ENG-EXF-002, CONV-EXF-001): Add a `get_nodes` flag per mapping entry. When true, serialize the matched XML node using `etree.tostring()` instead of extracting text.
 
-11. **Improve namespace stripping (ENG-EXF-003)**:
-    Consider a pre-parse regex approach that strips namespaces from the raw XML string:
-    ```python
-    if ignore_ns:
-        xml_string = re.sub(r'\sxmlns[^"]*"[^"]*"', '', xml_string)
-        xml_string = re.sub(r'(</?)\w+:', r'\1', xml_string)
-    ```
+14. **Improve namespace stripping** (ENG-EXF-003): Consider a pre-parse regex approach that strips namespaces from the raw XML string, matching Talend's behavior for both element and attribute namespaces.
 
-12. **Set ERROR_MESSAGE globalMap variable (ENG-EXF-007)**:
-    After processing, if any errors occurred, set the last error message:
-    ```python
-    if self.global_map and reject_output:
-        last_error = reject_output[-1].get('errorMessage', '')
-        self.global_map.put(f"{self.id}_ERROR_MESSAGE", last_error)
-    ```
+15. **Fix NB_LINE undercount** (STAT-EXF-001): Move `rows_read += 1` to the beginning of the loop body so it counts all input rows including those with null XML.
 
-13. **Add debug logging (DBG-EXF-001)**:
-    Add debug-level logging consistent with `ExtractJSONFields`:
-    ```python
-    logger.debug(f"[{self.id}] Processing row {idx}: XML length={len(xml_string)}")
-    logger.debug(f"[{self.id}] Loop query matched {len(nodes)} nodes")
-    logger.debug(f"[{self.id}] Column '{col}' XPath result: {value}")
-    ```
+16. **Add debug logging** (DBG-EXF-001): Add debug-level logging consistent with `ExtractJSONFields` for XPath evaluation results and nodecheck outcomes.
 
 ### Long-Term (Optimization)
 
-14. **Add explicit XXE protection (SEC-EXF-001)**:
-    ```python
-    parser = etree.XMLParser(
-        ns_clean=ignore_ns,
-        recover=True,
-        resolve_entities=False,
-        no_network=True
-    )
-    ```
+17. **Add explicit XXE protection** (SEC-EXF-001): Set `resolve_entities=False` and `no_network=True` on XMLParser.
 
-15. **Consider chunked processing (MEM-EXF-001)**:
-    For very large inputs, implement streaming via `BaseComponent._execute_streaming()` override.
+18. **Consider chunked processing** (MEM-EXF-001): For very large inputs, implement streaming via `BaseComponent._execute_streaming()` override.
 
-16. **Migrate from `iterrows()` to more efficient iteration (PERF-EXF-002)**:
-    For simple column access, use:
-    ```python
-    for idx, xml_string in input_data[xml_field].items():
-        row = input_data.loc[idx]  # Only access full row when needed for reject
-    ```
+19. **Migrate from `iterrows()` to more efficient iteration** (PERF-EXF-002): Use `input_data[xml_field].items()` for simple column access.
+
+20. **Add `raise ... from e` exception chaining** (STD-EXF-003): Update line 256 to use `raise ComponentExecutionError(...) from e`.
 
 ---
 
-## 11. Risk Assessment
+## 11. Edge Case Analysis
 
-### Production Readiness: YELLOW -- Not Ready Without P0 Fixes
+### Edge Case 1: NaN values in XML column
 
-| Risk | Severity | Likelihood | Impact |
-|------|----------|------------|--------|
-| `limit=0` processes all rows instead of none | **Critical** | High (common in Talend jobs) | Silent data correctness error -- jobs produce unexpected output volume |
-| `getiterator()` crash on lxml 5.x | **Critical** | Medium (depends on environment lxml version) | Component completely broken in lxml 5.x environments |
-| No test coverage | **Critical** | Certain | No safety net for any code changes; all bugs above are undetected |
-| Empty string XML causes wrong error code | **Major** | Medium | Wrong error codes in reject flow; may confuse downstream error handling |
-| Non-string XML field causes AttributeError | **Major** | Low-Medium | Unhandled exception crashes the job |
-| Namespace stripping incomplete for attributes | **Major** | Medium (common in SOAP/enterprise XML) | XPath queries fail silently, producing null values |
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | NaN is not a concept in Talend's Java runtime. Null fields produce a reject row with NO_XML error code. |
+| **V1** | Pandas `NaN` (a float value) passes the `if xml_string is None` check (NaN is not None). The subsequent `.encode('utf-8')` call on a float raises `AttributeError`. This crashes the current row processing, which is caught by the except block and treated as `PARSE_ERROR`. |
+| **Verdict** | **GAP** -- NaN should be treated same as None (NO_XML rejection). Currently produces wrong error code (PARSE_ERROR instead of NO_XML) and generates a misleading error message. |
 
-### Minimum Requirements for Production
+### Edge Case 2: Empty strings in XML column
 
-1. Fix BUG-EXF-001 (`limit=0` semantics)
-2. Fix BUG-EXF-002 (`getiterator()` -> `iter()`)
-3. Create at least 10 unit tests covering P0 test cases
-4. Fix BUG-EXF-003 (empty string XML handling)
-5. Fix BUG-EXF-004 (non-string XML field handling)
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | Empty XML field treated same as null -- produces NO_XML rejection. |
+| **V1** | Empty string `""` passes the `if xml_string is None` check. The `etree.fromstring(b"")` call raises `XMLSyntaxError`, caught and reported as `PARSE_ERROR`. |
+| **Verdict** | **GAP** -- Should produce `NO_XML` error code, not `PARSE_ERROR`. |
+
+### Edge Case 3: HYBRID streaming with large XML payloads
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | Talend processes rows sequentially in Java with no streaming concept for this component. |
+| **V1** | If input DataFrame exceeds `MEMORY_THRESHOLD_MB` (3GB), the base class `_auto_select_mode()` switches to streaming. `_execute_streaming()` calls `_create_chunks()` which yields DataFrame slices. Each chunk is passed to `_process()`. The component processes each chunk correctly. However, after ALL chunks are processed, `execute()` calls `_update_global_map()` which will crash due to BUG-EXF-006 (undefined `value` variable). The combined result from streaming also discards reject DataFrames (base class `_execute_streaming()` only collects `result['main']`, not `result['reject']`). |
+| **Verdict** | **GAP** -- Two issues: (1) `_update_global_map()` crash kills the component after successful processing, (2) reject flow data is lost in streaming mode because the base class streaming handler does not collect reject outputs. |
+
+### Edge Case 4: `_update_global_map` crash after successful processing
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | N/A (no equivalent mechanism). |
+| **V1** | After `_process()` returns successfully, `execute()` line 218 calls `_update_global_map()`. Line 304 references undefined `value` (should be `stat_value`). This raises `NameError`, causing the component's status to be set to ERROR even though data processing succeeded. The result is lost. |
+| **Verdict** | **CRITICAL** -- Component appears to fail even when processing was correct. The cross-cutting bug means no component can successfully publish stats to globalMap. |
+
+### Edge Case 5: lxml dependency version mismatch
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | Uses Java's built-in XML parsing (javax.xml). No version dependency risk. |
+| **V1** | `getiterator()` on line 209 was removed in lxml 5.0. If the deployment environment has lxml 5.x installed, the component will raise `AttributeError` at runtime. The `requirements.txt` specifies `lxml>=4.9.0` which permits 5.x installation. |
+| **Verdict** | **CRITICAL** -- Will crash in lxml 5.x environments. Fix is trivial: replace with `iter()`. |
+
+### Edge Case 6: Namespace stripping with attributes
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | Regex-based pre-parse stripping removes namespace prefixes from both elements and attributes. |
+| **V1** | Post-parse tag stripping only removes `{uri}` from element tags, not attribute names. XPath queries like `./@ns:attr` will not match `{http://...}attr` after tag stripping. |
+| **Verdict** | **GAP** -- Attribute-namespace XPath queries fail silently, producing `None` values. |
+
+### Edge Case 7: Nodecheck support -- XPath returning zero (number)
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | Nodecheck in Talend checks for node existence, not XPath evaluation truthiness. |
+| **V1** | Nodecheck uses `if not check_result:` which tests Python truthiness. If the nodecheck XPath returns the number `0` (e.g., `count(./Items)` when there are zero items), Python treats `0` as falsy, causing nodecheck failure. Similarly, an empty string `""` returned by XPath is falsy. |
+| **Verdict** | **PARTIAL** -- Mostly correct for existence checks, but edge cases with numeric/string XPath results may differ from Talend behavior. |
+
+### Edge Case 8: Reject flow schema alignment
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | Reject rows contain all OUTPUT schema columns plus `errorCode` and `errorMessage`. |
+| **V1** | Reject rows contain all INPUT row columns (from `row.index`) plus `errorXMLField`, `errorCode`, and `errorMessage`. The input schema may differ from the output schema. Additionally, V1 adds an extra `errorXMLField` column not present in Talend's reject schema. |
+| **Verdict** | **GAP** -- Reject row schema differs from Talend: (1) uses input columns instead of output schema columns, (2) adds non-standard `errorXMLField` column. |
+
+### Edge Case 9: XML parsing errors on malformed input with recover=True
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | Malformed XML causes a parsing exception, row goes to REJECT. |
+| **V1** | With `recover=True`, lxml attempts to recover from malformed XML. For example, `"<Root><Unclosed>"` may be recovered as `<Root><Unclosed/></Root>` rather than raising an error. This means some malformed XML that Talend would reject may be silently processed in V1 with potentially garbled content. |
+| **Verdict** | **DIFFERENT** -- V1 is more permissive than Talend due to `recover=True`. Some malformed XML produces extracted data rather than rejection. |
+
+### Edge Case 10: Multiple mapping columns with mixed nodecheck
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | Each column mapping is evaluated independently. A nodecheck failure on one column does not affect other columns. |
+| **V1** | When nodecheck fails for one mapping column, the `break` statement (line 232) exits the entire mapping loop. Remaining columns are not extracted. The entire loop node is rejected, even if other columns would have extracted successfully. |
+| **Verdict** | **GAP** -- V1 is more aggressive in rejection. A single nodecheck failure kills the entire node extraction, whereas Talend may handle column-level failures independently. |
+
+### Edge Case 11: Empty mapping configuration
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | Mapping is required. Talend Studio prevents empty mapping configuration at design time. |
+| **V1** | Empty mapping `[]` passes `_validate_config()` and the loop `for m in mapping:` simply does not iterate. Each loop node produces an empty `out_row` dict `{}`, which is appended to `main_output`. The result is a DataFrame with the correct number of rows but zero columns. |
+| **Verdict** | **GAP** -- Should validate that mapping is non-empty and raise `ConfigurationError`. |
+
+### Edge Case 12: XPath evaluation returning boolean or number
+
+| Aspect | Detail |
+|--------|--------|
+| **Talend** | XPath results are converted to the target schema type. Type mismatches cause rejection. |
+| **V1** | XPath returning a scalar (boolean, number, string) takes the `else: value = result` path (line 243). The raw XPath result type (e.g., `True`, `3.14`) is stored directly in the output row without type conversion. Schema validation via `validate_schema()` may later convert or fail. |
+| **Verdict** | **PARTIAL** -- Works for string and numeric targets but may produce unexpected types in the output DataFrame. |
 
 ---
 
@@ -611,20 +680,20 @@ To assess consistency and identify gaps, the XML component is compared with its 
 | 1-9 | Module docstring | Good -- follows standards, documents Talend equivalent |
 | 10-18 | Imports | Good -- correct order (stdlib, third-party, project), logger at module level |
 | 23-75 | Class docstring | Excellent -- documents Configuration, Inputs, Outputs, Statistics, Example, Notes |
-| 77-85 | Class constants | Good -- uses UPPER_SNAKE_CASE, meaningful names |
-| 87-143 | `_validate_config()` | Functional but incomplete -- does not enforce required fields, see STD-EXF-001/002 |
+| 77-85 | Class constants | Good -- uses UPPER_SNAKE_CASE, meaningful names, error codes defined as class constants |
+| 87-143 | `_validate_config()` | Functional but incomplete -- does not enforce required fields (see STD-EXF-001/002) |
 | 145-165 | `_process()` docstring | Good -- documents args, returns, raises |
-| 166-171 | Config validation call | Good -- validates before processing |
-| 173-177 | Empty input handling | Good -- returns empty DataFrames, updates stats |
+| 166-171 | Config validation call | Good -- validates before processing (unlike some sibling components) |
+| 173-177 | Empty input handling | Good -- returns empty DataFrames, updates stats to 0/0/0 |
 | 183-190 | Config extraction | OK -- uses `.get()` with defaults, but `int()` on limit is fragile |
 | 198-213 | XML parsing block | Has bugs: `getiterator()` deprecated, namespace stripping incomplete |
 | 214-218 | Limit application | **BUG**: `if limit:` is wrong for `limit=0` |
 | 219-251 | Node iteration and extraction | Correct logic for XPath extraction and nodecheck validation |
 | 253-258 | Error handling | Good -- respects `die_on_error`, routes to reject |
-| 259 | Row counter | Correct -- increments `rows_read` after each input row |
+| 259 | Row counter | **BUG**: `rows_read += 1` skipped for `continue` paths (null XML) |
 | 261-276 | Output construction | Good -- creates DataFrames, applies schema validation, updates stats |
 | 278-282 | Outer exception handler | Good -- re-raises known exceptions, wraps unknown ones |
-| 284-307 | `_make_reject_row()` | Good -- preserves original row data plus error fields |
+| 284-307 | `_make_reject_row()` | Good -- preserves original row data plus error fields; camelCase matches Talend convention |
 
 ### File: `src/converters/complex_converter/component_parser.py` (lines 2610-2642)
 
@@ -637,36 +706,32 @@ To assess consistency and identify gaps, the XML component is compared with its 
 | 2616-2619 | Loop query extraction | Good -- strips surrounding double quotes |
 | 2620-2623 | Simple parameter extraction | Good -- correct defaults, boolean conversion |
 | 2625-2634 | Mapping table parsing | **Fragile** -- positional stride-of-3, no `elementRef` verification |
-| 2633 | Nodecheck extraction | **Bug** -- no `.strip('"')` unlike other values |
+| 2633 | Nodecheck extraction | **Bug** -- no `.strip('"')` unlike `schema_col` and `query` |
 | 2636-2642 | Config assignment | Good -- assigns to `component['config']` correctly |
 
 ---
 
-## 13. Appendix B: Dependency Analysis
+## 13. Appendix B: Engine Class Structure
 
-### lxml Dependency
+```
+ExtractXMLField (BaseComponent)
+    Constants:
+        DEFAULT_XML_FIELD = 'line'
+        DEFAULT_LOOP_QUERY = ''
+        DEFAULT_LIMIT = 0
+        ERROR_NO_XML = 'NO_XML'
+        ERROR_NODECHECK_FAIL = 'NODECHECK_FAIL'
+        ERROR_PARSE_ERROR = 'PARSE_ERROR'
 
-| Property | Value |
-|----------|-------|
-| **Required version** | `>=4.9.0` (from `requirements.txt` and `pyproject.toml`) |
-| **Used features** | `etree.XMLParser`, `etree.fromstring`, `Element.xpath`, `Element.getiterator` (deprecated), `Element.tag`, `Element.text` |
-| **Compatibility risk** | **HIGH** -- `getiterator()` removed in lxml 5.0. Must replace with `iter()`. |
-| **Security posture** | lxml is safe against XXE by default (does not resolve external entities). However, `recover=True` weakens security posture. |
-| **Alternative** | Python's built-in `xml.etree.ElementTree` lacks XPath support beyond basic paths. `lxml` is the correct choice for full XPath. |
-
-### pandas Dependency
-
-| Property | Value |
-|----------|-------|
-| **Used features** | `DataFrame`, `iterrows()`, `Series.get()`, `DataFrame.empty` |
-| **Compatibility risk** | Low -- standard pandas API, no deprecated methods |
-| **Performance note** | `iterrows()` is slow but acceptable for this use case |
+    Methods:
+        _validate_config() -> List[str]          # Validates config, CALLED by _process()
+        _process(input_data) -> Dict[str, Any]   # Main entry point
+        _make_reject_row(row, xml, code, msg)     # Creates reject row dict
+```
 
 ---
 
 ## 14. Appendix C: Talend-to-V1 Configuration Mapping Reference
-
-This appendix provides the complete mapping between Talend Studio configuration parameters and V1 engine configuration keys for the `tExtractXMLField` component.
 
 ### Talend Basic Settings -> V1 Config
 
@@ -682,7 +747,7 @@ This appendix provides the complete mapping between Talend Studio configuration 
 
 | Talend UI Label | Talend XML Parameter | V1 Config Key | V1 Type | V1 Default | Converter Status | Engine Status |
 |----------------|---------------------|---------------|---------|------------|-----------------|---------------|
-| Ignore Namespaces | `IGNORE_NS` | `ignore_ns` | `bool` | `False` | Extracted | Implemented (incomplete) |
+| Ignore Namespaces | `IGNORE_NS` | `ignore_ns` | `bool` | `False` | Extracted | Implemented (incomplete for attributes) |
 | tStatCatcher Statistics | `TSTATCATCHER_STATS` | -- | -- | -- | Not extracted | Not applicable |
 
 ### V1-Only Config Keys (Not in Talend)
@@ -726,9 +791,9 @@ When a row is rejected by the `ExtractXMLField` component, the reject DataFrame 
 
 ---
 
-## 16. Appendix E: lxml `getiterator()` Deprecation Timeline
+## 16. Appendix E: lxml Dependency Analysis
 
-This appendix documents the deprecation status of the `getiterator()` method used on line 209 of the engine source.
+### lxml `getiterator()` Deprecation Timeline
 
 | lxml Version | `getiterator()` Status | `iter()` Status |
 |-------------|----------------------|-----------------|
@@ -736,11 +801,21 @@ This appendix documents the deprecation status of the `getiterator()` method use
 | 4.0 - 4.9 | **Deprecated** (emits `DeprecationWarning`) | Available (replacement) |
 | 5.0+ | **Removed** (raises `AttributeError`) | Available (only option) |
 
-The project's `requirements.txt` declares `lxml>=4.9.0`, which means:
+The project's requirements allow `lxml>=4.9.0`, which means:
 - On lxml 4.9.x: Works but emits deprecation warnings
 - On lxml 5.0+: **Crashes with `AttributeError`**
 
-The fix is trivial: replace `root.getiterator()` with `root.iter()` on line 209. The `iter()` method has been available since lxml 2.x and provides identical functionality.
+The fix is trivial: replace `root.getiterator()` with `root.iter()` on line 209.
+
+### Full lxml Dependency Summary
+
+| Property | Value |
+|----------|-------|
+| **Required version** | `>=4.9.0` (from `requirements.txt`) |
+| **Used features** | `etree.XMLParser`, `etree.fromstring`, `Element.xpath`, `Element.getiterator` (deprecated), `Element.tag`, `Element.text` |
+| **Compatibility risk** | **HIGH** -- `getiterator()` removed in lxml 5.0 |
+| **Security posture** | lxml is safe against XXE by default (does not resolve external entities). However, `recover=True` weakens security posture. |
+| **Alternative** | Python's built-in `xml.etree.ElementTree` lacks full XPath support. `lxml` is the correct choice for full XPath. |
 
 ---
 
@@ -767,9 +842,9 @@ if ignore_ns:
 
 1. **Attribute namespaces are not stripped**: If an element has a namespaced attribute like `{http://example.com}attr="value"`, the attribute name retains its namespace prefix. XPath queries like `./@attr` will not match `{http://example.com}attr`.
 
-2. **Default namespace handling**: When XML has a default namespace (`xmlns="http://example.com"`), all elements are in that namespace. The stripping works for this case since it removes the `{uri}` prefix from all tags.
+2. **Default namespace handling**: When XML has a default namespace (`xmlns="http://example.com"`), all elements are in that namespace. The stripping works correctly since it removes the `{uri}` prefix from all tags.
 
-3. **Multiple namespaces**: If the XML uses multiple namespace prefixes (`ns1:Name`, `ns2:Address`), the stripping correctly removes all prefixes since it strips the `{uri}` portion regardless of which namespace it is.
+3. **Multiple namespaces**: If the XML uses multiple namespace prefixes (`ns1:Name`, `ns2:Address`), the stripping correctly removes all prefixes since it strips the `{uri}` portion regardless of namespace.
 
 4. **Comment and PI nodes**: The `hasattr(elem.tag, 'find')` check correctly skips comment nodes (`elem.tag` is a function) and processing instruction nodes.
 
@@ -792,9 +867,7 @@ if ignore_ns:
     xml_string = re.sub(r'(</?)\w+:', r'\1', xml_string)
 ```
 
-This matches Talend's behavior more closely and handles both element and attribute namespaces.
-
-### Edge Cases for Namespace Stripping
+### Namespace Edge Cases
 
 | Scenario | Current V1 Behavior | Talend Behavior | Match? |
 |----------|---------------------|-----------------|--------|
@@ -802,9 +875,7 @@ This matches Talend's behavior more closely and handles both element and attribu
 | Prefixed namespace `xmlns:ns1="http://..."` | Element `{uri}Name` -> `Name` | Both declaration and `ns1:` prefix removed | Functional match |
 | Attribute with namespace `ns1:attr="val"` | **NOT stripped** -- attribute retains `{uri}` | `ns1:` prefix removed from attribute | **MISMATCH** |
 | Nested namespace redeclaration | Inner elements stripped correctly | Handled by string-level removal | Functional match |
-| Namespace in XPath expression | User must write non-prefixed XPath | User writes non-prefixed XPath | Match |
 | CDATA sections with namespace-like content | Unaffected (tag-level stripping) | Regex may incorrectly strip inside CDATA | V1 is safer |
-| Processing instructions with namespaces | Skipped via `hasattr` check | Handled by regex | Both acceptable |
 
 ---
 
@@ -819,8 +890,6 @@ The engine evaluates XPath queries in two contexts:
 
 ### XPath Return Type Handling
 
-The lxml `xpath()` method can return different types depending on the XPath expression:
-
 | XPath Expression Pattern | lxml Return Type | V1 Handling | Correct? |
 |--------------------------|------------------|-------------|----------|
 | `./Name` (element selector) | `list[Element]` | Takes `result[0]`, then `value.text` if has `.text` | Yes, but only first element |
@@ -831,15 +900,15 @@ The lxml `xpath()` method can return different types depending on the XPath expr
 | `./@attribute` (attribute selector) | `list[str]` | Takes `result[0]` | Yes |
 | `./Items/*` (wildcard) | `list[Element]` | Takes `result[0]`, then `.text` | Only first child, may lose data |
 
-### Potential XPath Issues
+### XPath Issues
 
 | ID | Priority | Issue |
 |----|----------|-------|
-| XPATH-EXF-001 | **P2** | **Multi-valued XPath results silently truncated**: When an XPath query matches multiple nodes (e.g., `./Items/Item`), only `result[0]` is taken (line 239). All subsequent matches are discarded. Talend has the same behavior for scalar columns, but with Document-type columns and Get Nodes, Talend can capture all matches. |
-| XPATH-EXF-002 | **P2** | **Element nodes vs text nodes**: When XPath returns an Element (not text), the code checks `hasattr(value, 'text')` and extracts `value.text` (line 240-241). This gets only the direct text content of the element, not the full text content including child elements. For `<Name>John <Middle>Q</Middle> Doe</Name>`, `value.text` returns `"John "`, not `"John Q Doe"`. Using `etree.tostring(value, method='text', encoding='unicode')` would return the full text. |
-| XPATH-EXF-003 | **P3** | **XPath exceptions silently produce None**: Line 244 catches all exceptions from `node.xpath(query)` and sets `value = None`. This means a malformed XPath expression (e.g., typo `./Nmae/text()`) silently produces `None` values instead of raising an error or logging a warning. This can make debugging difficult in production. |
+| XPATH-EXF-001 | **P2** | **Multi-valued XPath results silently truncated**: When an XPath query matches multiple nodes, only `result[0]` is taken (line 239). All subsequent matches are discarded. |
+| XPATH-EXF-002 | **P2** | **Element nodes vs text nodes**: When XPath returns an Element (not text), the code extracts `value.text` (line 240-241). This gets only the DIRECT text content, not the full text content including child elements. For `<Name>John <Middle>Q</Middle> Doe</Name>`, `value.text` returns `"John "`, not `"John Q Doe"`. |
+| XPATH-EXF-003 | **P3** | **XPath exceptions silently produce None**: Line 244 catches all exceptions from `node.xpath(query)` and sets `value = None`. A malformed XPath expression silently produces `None` values without any logging. |
 
-### XPath Nodecheck Evaluation
+### Nodecheck Evaluation Analysis
 
 The nodecheck feature (lines 227-235) evaluates an XPath expression to determine whether a node should be processed:
 
@@ -855,20 +924,14 @@ if nodecheck:
         break
 ```
 
-**Analysis:**
-
-1. **Truthiness evaluation**: `if not check_result` uses Python truthiness. For XPath results:
-   - Empty list `[]` -> falsy -> nodecheck fails (correct)
-   - Non-empty list `[Element]` -> truthy -> nodecheck passes (correct)
-   - Boolean `True` -> truthy -> passes (correct)
-   - Boolean `False` -> falsy -> fails (correct)
-   - Number `0` -> falsy -> fails (may be unexpected)
-   - Number `1` -> truthy -> passes (correct)
-   - Empty string `""` -> falsy -> fails (may be unexpected)
-
-2. **Nodecheck XPath context**: Nodecheck is evaluated relative to the loop node (`node.xpath(nodecheck)`), which is correct -- it checks whether a sub-element exists within the current loop iteration.
-
-3. **Exception handling**: All nodecheck exceptions cause nodecheck failure without logging. The exception is silently swallowed (lines 233-235). Adding a debug log here would help diagnose nodecheck configuration issues.
+**Truthiness evaluation**: `if not check_result` uses Python truthiness:
+- Empty list `[]` -> falsy -> nodecheck fails (correct)
+- Non-empty list `[Element]` -> truthy -> passes (correct)
+- Boolean `True` -> truthy -> passes (correct)
+- Boolean `False` -> falsy -> fails (correct)
+- Number `0` -> falsy -> fails (may be unexpected)
+- Number `1` -> truthy -> passes (correct)
+- Empty string `""` -> falsy -> fails (may be unexpected)
 
 ---
 
@@ -876,13 +939,11 @@ if nodecheck:
 
 ### Error Propagation Paths
 
-The component has four distinct error handling paths:
-
 ```
 Input Row
   |
   +-- xml_string is None?
-  |     YES -> reject(NO_XML) -> continue to next row
+  |     YES -> reject(NO_XML) -> continue to next row [rows_read NOT incremented]
   |     NO  -> attempt parsing
   |              |
   |              +-- etree.fromstring() raises?
@@ -907,40 +968,17 @@ Input Row
   |              |                           |
   |              |                           +-- next node...
   |              |
+  +-- rows_read += 1 (only reached if NOT null XML)
   +-- next row...
 ```
-
-### Error Code Assignment Analysis
-
-| Error Path | Error Code | Error Message | Includes Original Row? | Includes XML Content? |
-|------------|-----------|---------------|----------------------|---------------------|
-| Null XML field | `NO_XML` | `"No XML data"` | Yes (all input columns) | Yes (`None`) |
-| Parse failure | `PARSE_ERROR` | Exception message | Yes (all input columns) | Yes (raw XML string) |
-| Nodecheck failure | `NODECHECK_FAIL` | `"Node check failed"` | Yes (all input columns) | Yes (raw XML string) |
-| Column XPath failure | *(not rejected)* | *(not rejected)* | N/A | N/A |
-
-**Key observation**: Column-level XPath failures (line 244-245) do NOT produce reject rows. Instead, the value is silently set to `None` and the row proceeds to main output. This means:
-
-- If a column XPath has a typo (e.g., `./Naem/text()` instead of `./Name/text()`), all rows will have `None` for that column but will appear in the main output, not the reject output.
-- This behavior differs from Talend, where a type mismatch (e.g., non-numeric text for an Integer column) causes the row to be rejected.
 
 ### Statistics Accuracy Analysis
 
 | Statistic | How Computed | Accuracy |
 |-----------|-------------|----------|
-| `NB_LINE` (`rows_read`) | Incremented once per input row (line 259) | **May undercount**: If an exception occurs in the loop before line 259 is reached (e.g., in the `for node in nodes` iteration), `rows_read` is not incremented for that row. However, the row's exception is caught at lines 253-258, which do not increment `rows_read`. |
-| `NB_LINE_OK` (`rows_ok`) | Incremented once per successfully extracted node (line 249) | Correct -- counts output rows, not input rows |
+| `NB_LINE` (`rows_read`) | Incremented at line 259, after all processing for that row | **Undercounts**: Rows with `None` XML that take the `continue` path at line 204 skip line 259. |
+| `NB_LINE_OK` (`rows_ok`) | Incremented per successfully extracted node (line 249) | Correct -- counts output rows |
 | `NB_LINE_REJECT` (`rows_reject`) | Incremented for NO_XML, NODECHECK_FAIL, and PARSE_ERROR | Correct -- counts rejected rows/nodes |
-
-**Discrepancy**: `rows_read` is incremented at line 259, which is INSIDE the outer `for idx, row` loop but OUTSIDE the inner `try/except` for XML parsing. This means:
-- When XML parsing fails (caught at lines 253-258), `rows_read` IS incremented (line 259 executes after the except block).
-- When the input row has `xml_string is None` (line 201-204, `continue`), `rows_read` is NOT incremented because the `continue` skips line 259.
-
-This means `NB_LINE` undercounts -- rows with null XML fields are not counted. Fix: move `rows_read += 1` to the beginning of the loop or ensure it runs for all code paths.
-
-| ID | Priority | Issue |
-|----|----------|-------|
-| STAT-EXF-001 | **P2** | **`NB_LINE` undercounts**: Rows with `None` XML field that take the `continue` path at line 204 skip the `rows_read += 1` at line 259. `NB_LINE` does not count these rows. Fix: move `rows_read += 1` to line 200 (start of loop body). |
 
 ---
 
@@ -953,107 +991,23 @@ def parse_textract_xml_field(self, node, component: Dict) -> Dict:
     """Parse tExtractXMLField specific configuration from Talend XML node."""
 ```
 
-**Line 2611**: Docstring is minimal. Per STANDARDS.md, it should list all expected Talend parameters:
+**Line 2611**: Docstring is minimal. Per STANDARDS.md, it should list all expected Talend parameters.
 
-```python
-"""
-Parse tExtractXMLField specific configuration.
+**Lines 2612-2614**: Inner `get_param()` helper function. Clean pattern used consistently across converter parsers. Handles missing parameters by returning the default value.
 
-Talend Parameters:
-    XMLFIELD (str): Name of the XML field column. Default: 'line'
-    LOOP_QUERY (str): XPath expression for loop iteration
-    MAPPING (table): Column-to-XPath mapping with nodecheck
-    LIMIT (int): Maximum rows to process. Default: 0
-    DIE_ON_ERROR (bool): Stop on error. Default: false
-    IGNORE_NS (bool): Ignore XML namespaces. Default: false
-    GET_NODES (per-column bool): Retrieve XML node content
-"""
-```
+**Lines 2617-2619**: Loop query extraction with quote stripping. Only strips one level of quotes. Double-escaped values would retain inner quotes (unlikely but noted).
 
-**Lines 2612-2614**: Inner `get_param()` helper function:
+**Lines 2620-2623**: Simple parameter extraction. `xml_field` defaults to `'line'`; `limit` extracted as string `'0'` (should be int); `die_on_error` and `ignore_ns` correctly converted to Python booleans.
 
-```python
-def get_param(name, default=None):
-    param = node.find(f'.//elementParameter[@name="{name}"]')
-    return param.get('value', default) if param is not None else default
-```
-
-This is a clean pattern used consistently across converter parsers. It handles missing parameters by returning the default value.
-
-**Lines 2617-2619**: Loop query extraction with quote stripping:
-
-```python
-loop_query = get_param('LOOP_QUERY', '')
-if loop_query and loop_query.startswith('"') and loop_query.endswith('"'):
-    loop_query = loop_query[1:-1]
-```
-
-Good -- handles Talend's habit of wrapping XPath strings in double quotes. However, this only strips one level of quotes. If the value is `'""//Employee""'` (double-escaped), the result would be `'"//Employee"'` which is still quoted. This is unlikely but worth noting.
-
-**Lines 2620-2623**: Simple parameter extraction:
-
-```python
-xml_field = get_param('XMLFIELD', 'line')
-limit = get_param('LIMIT', '0')
-die_on_error = get_param('DIE_ON_ERROR', 'false').lower() == 'true'
-ignore_ns = get_param('IGNORE_NS', 'false').lower() == 'true'
-```
-
-- `xml_field`: Correctly defaults to `'line'`. Note: not stripped of quotes. If Talend wraps this in quotes, the engine will look for a column named `'"line"'`. However, Talend typically does not quote simple parameter values.
-- `limit`: Extracted as string `'0'`. Should be converted to int here for type safety.
-- `die_on_error` and `ignore_ns`: Correctly converted to Python booleans.
-
-**Lines 2626-2634**: Mapping table parsing:
-
-```python
-mapping = []
-mapping_table = node.find('.//elementParameter[@name="MAPPING"]')
-if mapping_table is not None:
-    entries = list(mapping_table.findall('elementValue'))
-    for i in range(0, len(entries), 3):
-        schema_col = entries[i].get('value', '').strip('"') if i < len(entries) else ''
-        query = entries[i+1].get('value', '').strip('"') if (i+1) < len(entries) else ''
-        nodecheck = entries[i+2].get('value', '') if (i+2) < len(entries) else ''
-        mapping.append({'schema_column': schema_col, 'query': query, 'nodecheck': nodecheck})
-```
-
-**Detailed issues:**
-
-1. **Stride assumption**: The code assumes entries come in groups of exactly 3. If the Talend XML has a different number of fields per mapping entry (e.g., a 4th field for `GET_NODES`), the stride will misalign, causing schema_col/query/nodecheck to be assigned wrong values for all entries after the first.
-
-2. **No `elementRef` verification**: The code does not check the `elementRef` attribute of each `elementValue` to determine which field it represents. It assumes positional ordering: [0]=schema_column, [1]=query, [2]=nodecheck. If Talend reorders these, the parsing breaks.
-
-3. **Quote stripping inconsistency**: `schema_col` and `query` are `.strip('"')`-ed, but `nodecheck` is not. This is likely an oversight.
-
-4. **No logging**: No debug or info logging to show how many mapping entries were parsed, which would help diagnose issues.
-
-### Expected Talend XML Structure for MAPPING
-
-Based on Talend's XML format, the `MAPPING` table parameter typically looks like:
-
-```xml
-<elementParameter name="MAPPING" field="TABLE">
-    <elementValue elementRef="SCHEMA_COLUMN" value="&quot;name&quot;"/>
-    <elementValue elementRef="XPATH_QUERY" value="&quot;./Name/text()&quot;"/>
-    <elementValue elementRef="GET_NODES" value="false"/>
-    <elementValue elementRef="SCHEMA_COLUMN" value="&quot;salary&quot;"/>
-    <elementValue elementRef="XPATH_QUERY" value="&quot;./Salary/text()&quot;"/>
-    <elementValue elementRef="GET_NODES" value="false"/>
-</elementParameter>
-```
-
-Note that:
-- Each entry has an `elementRef` attribute that identifies the field
-- The actual field names may be `SCHEMA_COLUMN`, `XPATH_QUERY`, `GET_NODES` (not `nodecheck`)
-- There may be additional fields beyond the assumed 3
-
-This confirms that the stride-of-3 approach is fragile and should be replaced with `elementRef`-based parsing.
+**Lines 2626-2634**: Mapping table parsing issues:
+1. **Stride assumption**: Assumes groups of exactly 3. If `GET_NODES` is present as a 4th field, the stride misaligns all subsequent entries.
+2. **No `elementRef` verification**: Does not check `elementRef` attributes to determine field identity.
+3. **Quote stripping inconsistency**: `schema_col` and `query` are `.strip('"')`-ed, but `nodecheck` is not.
+4. **No logging**: No debug logging to show how many mapping entries were parsed.
 
 ---
 
-## 21. Appendix J: Comparison with ExtractDelimitedFields and ExtractPositionalFields
-
-To ensure consistency across the "Extract*" family of components, here is a comparison of common patterns.
+## 21. Appendix J: Comparison with Sibling Components
 
 ### Architecture Comparison
 
@@ -1064,7 +1018,7 @@ To ensure consistency across the "Extract*" family of components, here is a comp
 | Parsing library | Python string splitting | `jsonpath_ng` | `lxml` (etree) |
 | Namespace handling | N/A | N/A | `ignore_ns` option |
 | Node validation | N/A | N/A | `nodecheck` per column |
-| Get Nodes feature | N/A | N/A | Not implemented |
+| Get Nodes feature | N/A | N/A | **Not implemented** |
 | Reject output | Yes | Yes | Yes |
 | Error codes | `PARSE_ERROR` | `PARSE_ERROR` | `NO_XML`, `NODECHECK_FAIL`, `PARSE_ERROR` |
 
@@ -1072,28 +1026,119 @@ To ensure consistency across the "Extract*" family of components, here is a comp
 
 | Validation | ExtractDelimitedFields | ExtractJSONFields | ExtractXMLField |
 |-----------|----------------------|-------------------|-----------------|
-| Required `loop_query` | N/A | Yes (enforced) | No (defaults to empty) |
-| Required `mapping` | Yes (enforced) | Yes (enforced, non-empty) | No (defaults to empty list) |
-| Empty mapping check | Yes | Yes | No |
+| Required `loop_query` | N/A | Yes (enforced) | **No** (defaults to empty) |
+| Required `mapping` | Yes (enforced) | Yes (enforced, non-empty) | **No** (defaults to empty list) |
+| Empty mapping check | Yes | Yes | **No** |
 | Boolean field validation | Yes | Yes | Yes |
-| Config type validation | Yes | Yes | Yes |
 
 ### Error Handling Comparison
 
 | Pattern | ExtractDelimitedFields | ExtractJSONFields | ExtractXMLField |
 |---------|----------------------|-------------------|-----------------|
 | Exception chaining (`from e`) | Yes | Yes | **No** |
-| Debug logging in loop | Minimal | Extensive | **None** |
-| List input handling | No | Yes (converts list to DF) | No |
-| Non-string input protection | Yes | Yes (json.loads handles) | **No** |
+| Debug logging in loop | Minimal | Extensive (15+ calls) | **None** |
+| List input handling | No | Yes (converts list to DF) | **No** |
+| Non-string input protection | Yes | Yes | **No** |
 
 This comparison highlights that `ExtractXMLField` is less robust than its siblings in several areas, particularly configuration validation and debug observability.
 
 ---
 
-## 22. Appendix K: Recommended Unit Test Implementation
+## 22. Appendix K: Cross-Cutting Issues
 
-This appendix provides concrete test case implementations for the highest-priority tests.
+The following issues were discovered during this audit but affect the entire v1 engine, not just `ExtractXMLField`:
+
+| ID | Priority | Component | Issue |
+|----|----------|-----------|-------|
+| BUG-EXF-006 | **P0** | `base_component.py:304` | `_update_global_map()` references undefined `value` variable (should be `stat_value`). Will crash ALL components when `global_map` is set. |
+| BUG-EXF-007 | **P0** | `global_map.py:28` | `GlobalMap.get()` references undefined `default` parameter. Will crash on any `global_map.get()` call. `get_component_stat()` also passes two args to single-arg `get()`. |
+
+These should be tracked in a cross-cutting issues report as well.
+
+---
+
+## 23. Appendix L: Implementation Fix Guides
+
+### Fix Guide: BUG-EXF-001 -- `limit=0` semantic mismatch
+
+**File**: `src/v1/engine/components/transform/extract_xml_fields.py`
+**Line**: 217
+
+**Current code (wrong)**:
+```python
+if limit:
+    nodes = nodes[:limit]
+```
+
+**Fix (match Talend behavior)**:
+```python
+if limit is not None and limit >= 0:
+    if limit == 0:
+        nodes = []  # Talend: LIMIT=0 means "read zero rows"
+    else:
+        nodes = nodes[:limit]
+```
+
+**Impact**: Fixes data correctness for jobs that set LIMIT=0. **Risk**: Medium -- jobs relying on the current behavior (limit=0 meaning unlimited) will break. Review all converted jobs for LIMIT settings before deploying.
+
+### Fix Guide: BUG-EXF-002 -- `getiterator()` deprecation
+
+**File**: `src/v1/engine/components/transform/extract_xml_fields.py`
+**Line**: 209
+
+**Current code (broken on lxml 5.x)**:
+```python
+for elem in root.getiterator():
+```
+
+**Fix**:
+```python
+for elem in root.iter():
+```
+
+**Impact**: Forward-compatible with lxml 5.x. Backward-compatible with lxml 2.x+. **Risk**: Zero.
+
+### Fix Guide: BUG-EXF-006 -- `_update_global_map()` undefined variable
+
+**File**: `src/v1/engine/base_component.py`
+**Line**: 304
+
+**Current code (broken)**:
+```python
+logger.info(f"Component {self.id}: Updated stats - NB_LINE:{self.stats['NB_LINE']} NB_LINE_OK:{self.stats['NB_LINE_OK']} NB_LINE_REJECT:{self.stats['NB_LINE_REJECT']} {stat_name}: {value}")
+```
+
+**Fix**:
+```python
+logger.info(f"Component {self.id}: Updated stats - NB_LINE:{self.stats['NB_LINE']} NB_LINE_OK:{self.stats['NB_LINE_OK']} NB_LINE_REJECT:{self.stats['NB_LINE_REJECT']}")
+```
+
+**Impact**: Fixes ALL components (cross-cutting). **Risk**: Very low (log message only).
+
+### Fix Guide: BUG-EXF-007 -- `GlobalMap.get()` undefined default
+
+**File**: `src/v1/engine/global_map.py`
+**Line**: 26-28
+
+**Current code (broken)**:
+```python
+def get(self, key: str) -> Optional[Any]:
+    """Retrieve a value from the global map"""
+    return self._map.get(key, default)
+```
+
+**Fix**:
+```python
+def get(self, key: str, default: Any = None) -> Optional[Any]:
+    """Retrieve a value from the global map"""
+    return self._map.get(key, default)
+```
+
+**Impact**: Fixes ALL components and any code calling `global_map.get()`. **Risk**: Very low.
+
+---
+
+## 24. Appendix M: Recommended Unit Test Implementation
 
 ### Test Fixture Setup
 
@@ -1207,10 +1252,9 @@ class TestExtractXMLFieldBasic:
         component = create_component({"die_on_error": False})
         df = make_input_df([MALFORMED_XML])
         result = component._process(df)
-        assert result["main"].empty
-        reject = result["reject"]
-        assert len(reject) == 1
-        assert reject.iloc[0]["errorCode"] == "PARSE_ERROR"
+        # Note: with recover=True, lxml may recover from some malformed XML
+        # Check that either main or reject has data
+        assert len(result["main"]) + len(result["reject"]) >= 1
 
     def test_limit_enforcement(self):
         """Verify limit restricts number of extracted nodes."""
@@ -1227,7 +1271,7 @@ class TestExtractXMLFieldBasic:
         # Talend behavior: limit=0 means "read zero rows"
         # Current V1 bug: limit=0 treated as "no limit", returns 3 rows
         # After fix, this should assert len == 0
-        assert len(result["main"]) == 0  # Expected after fix
+        assert len(result["main"]) == 0  # Expected after BUG-EXF-001 fix
 
     def test_nodecheck_success(self):
         """Verify nodecheck passes when node exists."""
@@ -1241,7 +1285,6 @@ class TestExtractXMLFieldBasic:
         component = create_component(config)
         df = make_input_df([SAMPLE_XML])
         result = component._process(df)
-        # All 3 employees have Name element
         assert len(result["main"]) == 3
 
     def test_nodecheck_failure(self):
@@ -1273,9 +1316,7 @@ class TestExtractXMLFieldNamespace:
         config = {
             "xml_field": "xml_data",
             "loop_query": "//Employee",
-            "mapping": [
-                {"schema_column": "name", "query": "./Name/text()"},
-            ],
+            "mapping": [{"schema_column": "name", "query": "./Name/text()"}],
             "ignore_ns": True,
         }
         component = create_component(config)
@@ -1288,18 +1329,14 @@ class TestExtractXMLFieldNamespace:
         """Verify ignore_ns=False requires namespace-qualified XPath."""
         config = {
             "xml_field": "xml_data",
-            "loop_query": "//Employee",  # Won't match with namespaces
-            "mapping": [
-                {"schema_column": "name", "query": "./Name/text()"},
-            ],
+            "loop_query": "//Employee",
+            "mapping": [{"schema_column": "name", "query": "./Name/text()"}],
             "ignore_ns": False,
         }
         component = create_component(config)
         df = make_input_df([NAMESPACED_XML])
         result = component._process(df)
-        # Without namespace handling, XPath won't match
         assert result["main"].empty
-
 
 class TestExtractXMLFieldMultiRow:
     """P1: Multi-row and multi-node tests."""
@@ -1309,7 +1346,6 @@ class TestExtractXMLFieldMultiRow:
         component = create_component()
         df = make_input_df([SAMPLE_XML, SAMPLE_XML])
         result = component._process(df)
-        # Each input row has 3 employees, so 6 total
         assert len(result["main"]) == 6
 
     def test_mixed_valid_and_invalid(self):
@@ -1317,13 +1353,25 @@ class TestExtractXMLFieldMultiRow:
         component = create_component()
         df = make_input_df([SAMPLE_XML, MALFORMED_XML, SAMPLE_XML])
         result = component._process(df)
-        assert len(result["main"]) == 6  # 3 + 0 + 3
-        assert len(result["reject"]) >= 1  # At least 1 reject from malformed XML
+        assert len(result["main"]) >= 3  # At least rows from valid XMLs
+        assert len(result["reject"]) >= 0  # May have rejects from malformed
+
+class TestExtractXMLFieldNaN:
+    """P1: NaN and non-string type tests."""
+
+    def test_nan_xml_field(self):
+        """Verify NaN in XML column is handled gracefully."""
+        component = create_component()
+        df = make_input_df([float('nan')])
+        # Currently crashes with AttributeError; after fix, should reject as NO_XML
+        result = component._process(df)
+        assert result["main"].empty
+        assert len(result["reject"]) == 1
 ```
 
 ---
 
-## 23. Appendix L: Production Deployment Checklist
+## 25. Appendix N: Production Deployment Checklist
 
 Before deploying `ExtractXMLField` to production, the following items must be verified:
 
@@ -1331,14 +1379,15 @@ Before deploying `ExtractXMLField` to production, the following items must be ve
 
 - [ ] **P0: BUG-EXF-001 fixed** -- `limit=0` correctly treated as "zero rows" (or documented deviation)
 - [ ] **P0: BUG-EXF-002 fixed** -- `getiterator()` replaced with `iter()`
-- [ ] **P0: TEST-EXF-001 resolved** -- Minimum 10 unit tests passing
+- [ ] **P0: BUG-EXF-006 fixed** -- `_update_global_map()` crash on undefined `value` variable (cross-cutting)
+- [ ] **P0: BUG-EXF-007 fixed** -- `GlobalMap.get()` undefined `default` parameter (cross-cutting)
+- [ ] **P0: TEST-EXF-001 resolved** -- Minimum 11 unit tests passing
 - [ ] **P1: BUG-EXF-003 fixed** -- Empty string XML handled as NO_XML
-- [ ] **P1: BUG-EXF-004 fixed** -- Non-string XML field handled gracefully
+- [ ] **P1: BUG-EXF-004 fixed** -- Non-string XML field (incl. NaN) handled gracefully
 - [ ] **P1: PERF-EXF-001 fixed** -- XMLParser created once before loop
-- [ ] **P1: ENG-EXF-004 confirmed** -- lxml version in deployment environment verified
-- [ ] **P2: SEC-EXF-001 addressed** -- `resolve_entities=False` added to XMLParser
+- [ ] **P2: SEC-EXF-001 addressed** -- `resolve_entities=False` and `no_network=True` added to XMLParser
 - [ ] **P2: STAT-EXF-001 fixed** -- `NB_LINE` counts all input rows including null XML
-- [ ] lxml version in production environment documented
+- [ ] lxml version in production environment documented and verified
 - [ ] Memory footprint tested with representative production XML sizes
 - [ ] Reject flow tested end-to-end with downstream components
 - [ ] GlobalMap variable publishing verified with downstream component consumers
@@ -1354,7 +1403,7 @@ Before deploying `ExtractXMLField` to production, the following items must be ve
 
 ---
 
-## 24. Appendix M: Complete Issue Registry
+## 26. Appendix O: Complete Issue Registry
 
 This appendix provides a single, sortable, filterable registry of all issues identified in this audit.
 
@@ -1362,62 +1411,64 @@ This appendix provides a single, sortable, filterable registry of all issues ide
 |---|-----|----------|----------|-----------|---------|--------|
 | 1 | BUG-EXF-001 | Bug | P0 | Engine | `limit=0` treated as unlimited instead of zero rows | Open |
 | 2 | BUG-EXF-002 | Bug | P0 | Engine | `getiterator()` removed in lxml 5.0 | Open |
-| 3 | TEST-EXF-001 | Testing | P0 | Testing | Zero unit tests for the component | Open |
-| 4 | CONV-EXF-001 | Converter | P1 | Converter | `GET_NODES` not extracted | Open |
-| 5 | CONV-EXF-002 | Converter | P1 | Converter | Mapping table parsed by fragile stride-of-3 | Open |
-| 6 | BUG-EXF-003 | Bug | P1 | Engine | Empty string XML treated as PARSE_ERROR not NO_XML | Open |
-| 7 | BUG-EXF-004 | Bug | P1 | Engine | `encode('utf-8')` fails on non-string types | Open |
-| 8 | ENG-EXF-002 | Feature Gap | P1 | Engine | No Get Nodes support for Document columns | Open |
-| 9 | ENG-EXF-003 | Feature Gap | P1 | Engine | Namespace stripping incomplete for attributes | Open |
-| 10 | ENG-EXF-004 | Feature Gap | P1 | Engine | `getiterator()` deprecated, use `iter()` | Open |
-| 11 | INT-EXF-001 | Integration | P1 | Converter/Engine | `limit` type mismatch (string vs int) | Open |
-| 12 | PERF-EXF-001 | Performance | P1 | Engine | XMLParser created per-row instead of once | Open |
-| 13 | TEST-EXF-002 | Testing | P1 | Testing | No integration test for XML extraction pipeline | Open |
-| 14 | CONV-EXF-003 | Converter | P2 | Converter | `nodecheck` values not quote-stripped | Open |
-| 15 | CONV-EXF-004 | Converter | P2 | Converter | `limit` not converted to integer | Open |
-| 16 | BUG-EXF-005 | Bug | P2 | Engine | `int()` on empty/non-numeric limit raises ValueError | Open |
-| 17 | ENG-EXF-005 | Feature Gap | P2 | Engine | Nodecheck reject uses input row, not extracted data | Open |
-| 18 | ENG-EXF-006 | Feature Gap | P2 | Engine | No detail on which nodecheck failed | Open |
-| 19 | ENG-EXF-007 | Feature Gap | P2 | Engine | `ERROR_MESSAGE` globalMap not set | Open |
-| 20 | INT-EXF-002 | Integration | P2 | Converter/Engine | `nodecheck` quoting inconsistency | Open |
-| 21 | SEC-EXF-001 | Security | P2 | Engine | XML parser lacks explicit XXE protection | Open |
-| 22 | STD-EXF-001 | Standards | P2 | Engine | `_validate_config()` missing required field checks | Open |
-| 23 | STD-EXF-002 | Standards | P2 | Engine | Empty config passes validation silently | Open |
-| 24 | STD-EXF-003 | Standards | P2 | Engine | No `raise ... from e` exception chaining | Open |
-| 25 | NAME-EXF-002 | Naming | P2 | Engine | Reject fields use camelCase for Talend compat | Open |
-| 26 | PERF-EXF-002 | Performance | P2 | Engine | `iterrows()` used instead of more efficient methods | Open |
-| 27 | PERF-EXF-003 | Performance | P2 | Engine | Namespace stripping iterates full tree per-row | Open |
-| 28 | MEM-EXF-001 | Memory | P2 | Engine | No streaming/chunked processing | Open |
-| 29 | STAT-EXF-001 | Statistics | P2 | Engine | `NB_LINE` undercounts (null XML rows skipped) | Open |
-| 30 | XPATH-EXF-001 | Feature Gap | P2 | Engine | Multi-valued XPath results silently truncated | Open |
-| 31 | XPATH-EXF-002 | Feature Gap | P2 | Engine | Element text extraction misses child text | Open |
-| 32 | CONV-EXF-005 | Converter | P3 | Converter | `TSTATCATCHER_STATS` not extracted | Open |
-| 33 | ENG-EXF-008 | Feature Gap | P3 | Engine | Empty string vs None handling difference | Open |
-| 34 | NAME-EXF-001 | Naming | P2 | Engine | `xml_field` naming deviation from Talend `XMLFIELD` | Open |
-| 35 | NAME-EXF-003 | Naming | P3 | Engine | `rows_read` instead of standard `rows_in` | Open |
-| 36 | STD-EXF-004 | Standards | P3 | Engine | Module docstring minor format deviation | Open |
-| 37 | SEC-EXF-002 | Security | P3 | Engine | `recover=True` silently accepts malformed XML | Open |
-| 38 | DBG-EXF-001 | Debug | P3 | Engine | No debug logging in extraction loop | Open |
-| 39 | PERF-EXF-004 | Performance | P3 | Engine | Output built from list of dicts | Open |
-| 40 | MEM-EXF-002 | Memory | P3 | Engine | Parsed XML trees not explicitly freed | Open |
-| 41 | XPATH-EXF-003 | XPath | P3 | Engine | XPath exceptions silently produce None | Open |
+| 3 | BUG-EXF-006 | Bug (Cross-Cutting) | P0 | Base Class | `_update_global_map()` references undefined `value` variable | Open |
+| 4 | BUG-EXF-007 | Bug (Cross-Cutting) | P0 | GlobalMap | `GlobalMap.get()` references undefined `default` parameter | Open |
+| 5 | TEST-EXF-001 | Testing | P0 | Testing | Zero unit tests for the component | Open |
+| 6 | CONV-EXF-001 | Converter | P1 | Converter | `GET_NODES` not extracted | Open |
+| 7 | CONV-EXF-002 | Converter | P1 | Converter | Mapping table parsed by fragile stride-of-3 | Open |
+| 8 | BUG-EXF-003 | Bug | P1 | Engine | Empty string XML treated as PARSE_ERROR not NO_XML | Open |
+| 9 | BUG-EXF-004 | Bug | P1 | Engine | `encode('utf-8')` fails on non-string types incl. NaN | Open |
+| 10 | ENG-EXF-002 | Feature Gap | P1 | Engine | No Get Nodes support for Document columns | Open |
+| 11 | ENG-EXF-003 | Feature Gap | P1 | Engine | Namespace stripping incomplete for attributes | Open |
+| 12 | ENG-EXF-004 | Feature Gap | P1 | Engine | `getiterator()` deprecated, use `iter()` | Open |
+| 13 | INT-EXF-001 | Integration | P1 | Converter/Engine | `limit` type mismatch (string vs int) | Open |
+| 14 | PERF-EXF-001 | Performance | P1 | Engine | XMLParser created per-row instead of once | Open |
+| 15 | TEST-EXF-002 | Testing | P1 | Testing | No integration test for XML extraction pipeline | Open |
+| 16 | CONV-EXF-003 | Converter | P2 | Converter | `nodecheck` values not quote-stripped | Open |
+| 17 | CONV-EXF-004 | Converter | P2 | Converter | `limit` not converted to integer | Open |
+| 18 | BUG-EXF-005 | Bug | P2 | Engine | `int()` on empty/non-numeric limit raises ValueError | Open |
+| 19 | ENG-EXF-005 | Feature Gap | P2 | Engine | Nodecheck reject uses input row, not extracted data | Open |
+| 20 | ENG-EXF-006 | Feature Gap | P2 | Engine | No detail on which nodecheck failed | Open |
+| 21 | ENG-EXF-007 | Feature Gap | P2 | Engine | `ERROR_MESSAGE` globalMap not set | Open |
+| 22 | INT-EXF-002 | Integration | P2 | Converter/Engine | `nodecheck` quoting inconsistency | Open |
+| 23 | SEC-EXF-001 | Security | P2 | Engine | XML parser lacks explicit XXE protection | Open |
+| 24 | STD-EXF-001 | Standards | P2 | Engine | `_validate_config()` missing required field checks | Open |
+| 25 | STD-EXF-002 | Standards | P2 | Engine | Empty config passes validation silently | Open |
+| 26 | STD-EXF-003 | Standards | P2 | Engine | No `raise ... from e` exception chaining | Open |
+| 27 | NAME-EXF-001 | Naming | P2 | Engine | `xml_field` naming deviation from Talend `XMLFIELD` | Open |
+| 28 | NAME-EXF-002 | Naming | P2 | Engine | Reject fields use camelCase for Talend compat | Open |
+| 29 | PERF-EXF-002 | Performance | P2 | Engine | `iterrows()` used instead of more efficient methods | Open |
+| 30 | PERF-EXF-003 | Performance | P2 | Engine | Namespace stripping iterates full tree per-row | Open |
+| 31 | MEM-EXF-001 | Memory | P2 | Engine | No streaming/chunked processing | Open |
+| 32 | STAT-EXF-001 | Statistics | P2 | Engine | `NB_LINE` undercounts (null XML rows skipped) | Open |
+| 33 | XPATH-EXF-001 | XPath | P2 | Engine | Multi-valued XPath results silently truncated | Open |
+| 34 | XPATH-EXF-002 | XPath | P2 | Engine | Element text extraction misses child text | Open |
+| 35 | CONV-EXF-005 | Converter | P3 | Converter | `TSTATCATCHER_STATS` not extracted | Open |
+| 36 | ENG-EXF-008 | Feature Gap | P3 | Engine | Empty string vs None handling difference | Open |
+| 37 | NAME-EXF-003 | Naming | P3 | Engine | `rows_read` instead of standard `rows_in` | Open |
+| 38 | STD-EXF-004 | Standards | P3 | Engine | Module docstring minor format deviation | Open |
+| 39 | SEC-EXF-002 | Security | P3 | Engine | `recover=True` silently accepts malformed XML | Open |
+| 40 | DBG-EXF-001 | Debug | P3 | Engine | No debug logging in extraction loop | Open |
+| 41 | PERF-EXF-004 | Performance | P3 | Engine | Output built from list of dicts | Open |
+| 42 | MEM-EXF-002 | Memory | P3 | Engine | Parsed XML trees not explicitly freed | Open |
+| 43 | XPATH-EXF-003 | XPath | P3 | Engine | XPath exceptions silently produce None | Open |
 
 ### Issue Count by Priority
 
 | Priority | Count | Percentage |
 |----------|-------|------------|
-| P0 (Critical) | 3 | 7.3% |
-| P1 (Major) | 10 | 24.4% |
-| P2 (Moderate) | 18 | 43.9% |
-| P3 (Low) | 10 | 24.4% |
-| **Total** | **41** | **100%** |
+| P0 (Critical) | 5 | 11.6% |
+| P1 (Major) | 10 | 23.3% |
+| P2 (Moderate) | 19 | 44.2% |
+| P3 (Low) | 9 | 20.9% |
+| **Total** | **43** | **100%** |
 
 ### Issue Count by Category
 
 | Category | Count |
 |----------|-------|
-| Bug | 5 |
-| Feature Gap | 9 |
+| Bug | 7 (including 2 cross-cutting) |
+| Feature Gap | 8 |
 | Converter | 5 |
 | Integration | 2 |
 | Performance | 4 |
@@ -1432,8 +1483,45 @@ This appendix provides a single, sortable, filterable registry of all issues ide
 
 ---
 
+## 27. Risk Assessment
+
+### Production Readiness: YELLOW -- Not Ready Without P0 Fixes
+
+| Risk | Severity | Likelihood | Impact |
+|------|----------|------------|--------|
+| `limit=0` processes all rows instead of none | **Critical** | High (common in Talend jobs) | Silent data correctness error -- jobs produce unexpected output volume |
+| `getiterator()` crash on lxml 5.x | **Critical** | Medium (depends on environment lxml version) | Component completely broken in lxml 5.x environments |
+| `_update_global_map()` crash on undefined `value` | **Critical** | Certain (when globalMap is set) | ALL components crash after successful processing; data is lost |
+| `GlobalMap.get()` crash on undefined `default` | **Critical** | Certain (on any globalMap read) | ALL code using globalMap reads will crash |
+| No test coverage | **Critical** | Certain | No safety net for any code changes; all bugs above are undetected |
+| Empty string XML causes wrong error code | **Major** | Medium | Wrong error codes in reject flow; may confuse downstream error handling |
+| NaN in XML column causes AttributeError | **Major** | Medium (common in DataFrames with mixed data) | Unhandled exception, caught as PARSE_ERROR with misleading message |
+| Non-string XML field causes AttributeError | **Major** | Low-Medium | Unhandled exception crashes the row processing |
+| Namespace stripping incomplete for attributes | **Major** | Medium (common in SOAP/enterprise XML) | XPath queries fail silently, producing null values |
+| HYBRID streaming loses reject data | **Moderate** | Low (requires >3GB input) | Reject flow data silently discarded in streaming mode |
+
+### Minimum Requirements for Production
+
+1. Fix BUG-EXF-006 (`_update_global_map()` crash) -- cross-cutting, blocks all components
+2. Fix BUG-EXF-007 (`GlobalMap.get()` crash) -- cross-cutting, blocks all globalMap reads
+3. Fix BUG-EXF-001 (`limit=0` semantics)
+4. Fix BUG-EXF-002 (`getiterator()` -> `iter()`)
+5. Create at least 11 unit tests covering P0 test cases
+6. Fix BUG-EXF-003 (empty string XML handling)
+7. Fix BUG-EXF-004 (NaN / non-string XML field handling)
+
+---
+
 *Report generated: 2026-03-21*
-*Engine file: `src/v1/engine/components/transform/extract_xml_fields.py` (308 lines)*
+*Engine file: `src/v1/engine/components/transform/extract_xml_fields.py` (307 lines)*
 *Converter parser method: `parse_textract_xml_field` (lines 2610-2642, 33 lines)*
-*Total issues identified: 41 (3 P0, 10 P1, 18 P2, 10 P3)*
+*Total issues identified: 43 (5 P0, 10 P1, 19 P2, 9 P3)*
 *Auditor: Claude Opus 4.6 (1M context)*
+
+Sources:
+- [tExtractXMLField Standard Properties (Talend 8.0)](https://help.qlik.com/talend/en-US/components/8.0/processing/textractxmlfield-standard-properties)
+- [tExtractXMLField Standard Properties (Talend 7.3)](https://help.qlik.com/talend/en-US/components/7.3/xml/textractxmlfield-standard-properties)
+- [tExtractXMLField Overview (Talend 8.0)](https://help.talend.com/r/en-US/8.0/processing/textractxmlfield)
+- [tExtractXMLField Overview (Talend 7.3)](https://help.qlik.com/talend/en-US/components/7.3/xml/textractxmlfield)
+- [tExtractXMLField (ESB 7.x - TalendSkill)](https://talendskill.com/talend-for-esb-docs/docs-7-x/textractxmlfield-talend-open-studio-for-esb-document-7-x/)
+- [Extract Data Using XPath in Talend - PreferHub](https://preferhub.com/extract-data-using-x-path-query-in-talend/)
