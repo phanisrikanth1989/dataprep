@@ -102,14 +102,21 @@ class FileInputDelimitedConverter(ComponentConverter):
     def _parse_trim_select(node: TalendNode) -> Dict[str, bool]:
         """Parse TRIMSELECT table to extract per-column trim configuration.
         
-        Returns a dict mapping column names to trim boolean values.
+        Only includes columns where trim is explicitly set to true.
+        If TRIMALL is enabled, this method returns empty (no per-column config needed).
         The TABLE structure alternates between SCHEMA_COLUMN and TRIM values.
         """
+        # If TRIMALL is true, no need for per-column configuration
+        trim_all = node.params.get("TRIMALL", False)
+        if trim_all:
+            return {}
+        
         trim_select_table = node.params.get("TRIMSELECT")
         if not trim_select_table:
             return {}
         
         # Convert list of {elementRef, value} dicts to column trim mapping
+        # Only include columns that have trim set to true
         trim_map: Dict[str, bool] = {}
         current_column = None
         
@@ -120,6 +127,8 @@ class FileInputDelimitedConverter(ComponentConverter):
             if element_ref == "SCHEMA_COLUMN":
                 current_column = value
             elif element_ref == "TRIM" and current_column:
-                trim_map[current_column] = value.lower() == "true"
+                # Only add if trim is true to avoid unnecessary entries
+                if value.lower() == "true":
+                    trim_map[current_column] = True
         
         return trim_map
