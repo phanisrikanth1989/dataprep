@@ -1,0 +1,25 @@
+"""File-related component converters."""
+from . import file_archive  # noqa: F401
+from . import file_copy  # noqa: F401
+from . import file_delete  # noqa: F401
+from . import file_exist  # noqa: F401
+from . import fixed_flow_input  # noqa: F401
+from . import file_input_delimited  # noqa: F401
+from . import file_input_excel  # noqa: F401
+from . import file_input_fullrow  # noqa: F401
+from . import file_input_json  # noqa: F401
+from . import file_input_msxml  # noqa: F401
+from . import file_input_properties  # noqa: F401
+from . import file_input_positional  # noqa: F401
+from . import file_input_raw  # noqa: F401
+from . import file_input_xml  # noqa: F401
+from . import file_list  # noqa: F401
+from . import file_output_delimited  # noqa: F401
+from . import file_output_ebcdic  # noqa: F401
+from . import file_output_positional  # noqa: F401
+from . import file_output_xml  # noqa: F401
+from . import file_properties  # noqa: F401
+from . import file_touch  # noqa: F401
+from . import file_row_count  # noqa: F401
+from . import file_unarchive  # noqa: F401
+from . import set_global_var  # noqa: F401
