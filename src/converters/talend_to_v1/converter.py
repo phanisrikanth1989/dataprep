@@ -7,19 +7,38 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from .components.base import ComponentResult, TalendConnection, TalendNode
-from .components.registry import REGISTRY
-from .expression_converter import ExpressionConverter
-from .trigger_mapper import TriggerResult, map_triggers
-from .type_mapping import convert_type
-from .validator import ValidationReport, validate_config
-from .xml_parser import TalendJob, XmlParser
-
-# Import components package to trigger auto-registration of all converters
-from . import components as _components  # noqa: F401
+# Handle running as standalone script: add parent directories to path
+if __name__ == "__main__":
+    current_dir = Path(__file__).parent
+    talend_to_v1_dir = current_dir
+    converters_dir = talend_to_v1_dir.parent
+    src_dir = converters_dir.parent
+    
+    if str(src_dir) not in sys.path:
+        sys.path.insert(0, str(src_dir))
+    
+    from converters.talend_to_v1.components.base import ComponentResult, TalendConnection, TalendNode
+    from converters.talend_to_v1.components.registry import REGISTRY
+    from converters.talend_to_v1.expression_converter import ExpressionConverter
+    from converters.talend_to_v1.trigger_mapper import TriggerResult, map_triggers
+    from converters.talend_to_v1.type_mapping import convert_type
+    from converters.talend_to_v1.validator import ValidationReport, validate_config
+    from converters.talend_to_v1.xml_parser import TalendJob, XmlParser
+    from converters.talend_to_v1 import components as _components  # noqa: F401
+else:
+    from .components.base import ComponentResult, TalendConnection, TalendNode
+    from .components.registry import REGISTRY
+    from .expression_converter import ExpressionConverter
+    from .trigger_mapper import TriggerResult, map_triggers
+    from .type_mapping import convert_type
+    from .validator import ValidationReport, validate_config
+    from .xml_parser import TalendJob, XmlParser
+    # Import components package to trigger auto-registration of all converters
+    from . import components as _components  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
@@ -399,3 +418,21 @@ def convert_job(
         logger.info("Wrote V1 config to %s", out)
 
     return config
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python converter.py <input_path> [output_path]")
+        sys.exit(1)
+
+    input_file = sys.argv[1]
+    output_file = sys.argv[2] if len(sys.argv) > 2 else None
+
+    try:
+        result = convert_job(input_file, output_file)
+        if not output_file:
+            print(json.dumps(result, indent=2))
+    except Exception as e:
+        logger.exception("Conversion failed")
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
