@@ -2,8 +2,8 @@
 
 Fixes:
   CONV-FRC-001: DIE_ON_ERROR was not extracted by the old converter.
-  CONV-FRC-002: Default encoding corrected to "UTF-8" (old code used bare UTF-8
-                without quotes, which could mismatch Talend's quoted default).
+  CONV-FRC-002: Default encoding corrected to "ISO-8859-15" (Talend's actual
+                default, previously incorrect "UTF-8").
   CONV-FRC-005: Null-safety — old code crashed when XML elements were missing
                 because it called .get() on None. The new code uses safe helpers.
 """
@@ -33,12 +33,20 @@ class FileRowCountConverter(ComponentConverter):
         filename = self._get_str(node, "FILENAME")
         row_separator = self._get_str(node, "ROWSEPARATOR", default="\\n")
         ignore_empty_row = self._get_bool(node, "IGNORE_EMPTY_ROW", default=False)
-        encoding = self._get_str(node, "ENCODING", default="UTF-8")
+        encoding = self._get_str(node, "ENCODING", default="ISO-8859-15")
         die_on_error = self._get_bool(node, "DIE_ON_ERROR", default=False)
 
         if not filename:
             warnings.append(
                 "FILENAME is empty — this is a required parameter"
+            )
+
+        # Engine-gap warning
+        if row_separator != "\\n":
+            warnings.append(
+                f"ROWSEPARATOR={row_separator}: engine row_separator is "
+                "noted as 'not implemented' — non-standard separators may "
+                "produce incorrect counts"
             )
 
         config: Dict[str, Any] = {
@@ -47,6 +55,9 @@ class FileRowCountConverter(ComponentConverter):
             "ignore_empty_row": ignore_empty_row,
             "encoding": encoding,
             "die_on_error": die_on_error,
+            # Metadata
+            "tstatcatcher_stats": self._get_bool(node, "TSTATCATCHER_STATS", False),
+            "label": self._get_str(node, "LABEL"),
         }
 
         component = self._build_component_dict(
