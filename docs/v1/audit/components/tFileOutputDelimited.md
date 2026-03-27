@@ -6,6 +6,10 @@
 > **Converter**: `complex_converter`
 > **Status**: PRODUCTION READINESS REVIEW
 
+> **Converter Update (2026-03-25)**: Converter section updated to reflect migration from `complex_converter` to `talend_to_v1`. 27/29 params now extracted (was ~11). See CONV-FOD issues below for status.
+> **Note on CONV-FOD-008**: Schema type format is a cross-cutting issue in `type_mapping.py` affecting all components. Deferred to a separate task.
+> **Note on DIE_ON_ERROR**: This parameter does not exist on tFileOutputDelimited (verified via XML parsing). It was incorrectly extracted by the previous converter and has been removed.
+
 ---
 
 ## 1. Component Identity
@@ -15,9 +19,9 @@
 | **Talend Name** | `tFileOutputDelimited` |
 | **V1 Engine Class** | `FileOutputDelimited` |
 | **Engine File** | `src/v1/engine/components/file/file_output_delimited.py` (472 lines) |
-| **Converter Parser** | `src/converters/complex_converter/component_parser.py` -> `_map_component_parameters()` (lines 129-147) |
-| **Converter Dispatch** | `src/converters/complex_converter/converter.py` -> NO dedicated `elif` branch; falls through to generic `parse_base_component()` + `_map_component_parameters()` |
-| **Dedicated Parser** | `src/converters/complex_converter/component_parser.py` -> `parse_tfileoutputdelimited()` (lines 2252-2264) -- exists but is NOT wired into `converter.py` |
+| **Converter Parser** | `src/converters/talend_to_v1/components/file/file_output_delimited.py` |
+| **Converter Dispatch** | `talend_to_v1` registry-based dispatch via `REGISTRY["tFileOutputDelimited"]` |
+| **Dedicated Parser** | `FileOutputDelimitedConverter` class with full parameter extraction (27/29 params) |
 | **Registry Aliases** | `FileOutputDelimited`, `tFileOutputDelimited` (registered in `src/v1/engine/engine.py` lines 60-61) |
 | **Category** | File / Output |
 
@@ -26,9 +30,8 @@
 | File | Purpose |
 |------|---------|
 | `src/v1/engine/components/file/file_output_delimited.py` | Engine implementation (472 lines) |
-| `src/converters/complex_converter/component_parser.py` (lines 129-147) | Parameter mapping from Talend XML to v1 JSON via `_map_component_parameters()` |
-| `src/converters/complex_converter/component_parser.py` (lines 2252-2264) | Dedicated parser `parse_tfileoutputdelimited()` -- **NOT wired into converter.py** |
-| `src/converters/complex_converter/converter.py` (lines 216-382) | Dispatch -- no dedicated `elif` for `tFileOutputDelimited`; uses generic `parse_base_component()` |
+| `src/converters/talend_to_v1/components/file/file_output_delimited.py` | Converter: `FileOutputDelimitedConverter` -- extracts 27/29 params with correct Talend defaults |
+| `tests/converters/talend_to_v1/components/test_file_output_delimited.py` | Converter tests: 55 tests covering all parameters, defaults, warnings, and completeness |
 | `src/v1/engine/base_component.py` | Base class: `_update_stats()`, `_update_global_map()`, `validate_schema()`, `execute()` |
 | `src/v1/engine/global_map.py` | GlobalMap storage for `{id}_NB_LINE` etc. |
 | `src/v1/engine/exceptions.py` | Custom exception hierarchy (`FileOperationError`, `ConfigurationError`) |
@@ -40,7 +43,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **Y** | 0 | 3 | 5 | 1 | 11 of 27 Talend params extracted (41%); missing COMPRESS, SPLIT, SPLIT_EVERY, FLUSHONROW, ROW_MODE, FILE_EXIST_EXCEPTION, ESCAPE_CHAR, ADVANCED_SEPARATOR, etc.; dedicated parser exists but not wired; `_map_component_parameters()` usage is non-compliant with STANDARDS.md |
+| Converter Coverage | **G** | 0 | 1 | 0 | 0 | 27 of 29 Talend params extracted (93%); CONV-FOD-008 deferred (cross-cutting type_mapping issue) |
 | Engine Feature Parity | **Y** | 0 | 7 | 4 | 1 | No compress/zip; no split files; no flush buffer; no row mode; no file-exist exception; no escape_char handling; missing globalMap vars; streaming mode skips output schema |
 | Code Quality | **Y** | 2 | 5 | 2 | 3 | Cross-cutting base class bugs; dead `_validate_config()`; list-to-DF error handling scoping bug; die_on_error default mismatch; empty data path skips directory creation; streaming stats accumulation (informational) |
 | Performance & Memory | **G** | 0 | 0 | 2 | 1 | Streaming mode works; row_separator not applied in pandas to_csv; minor optimization opportunities |
@@ -171,58 +174,49 @@
 
 ### 4.1 Parameter Extraction
 
-The converter uses the **generic parameter mapping approach non-compliant with STANDARDS.md** (`_map_component_parameters()` in `component_parser.py` lines 129-147) rather than routing through the dedicated `parse_tfileoutputdelimited()` method that exists on lines 2252-2264. There is NO dedicated `elif component_type == 'tFileOutputDelimited'` branch in `converter.py:_parse_component()`. The component falls through to the generic `parse_base_component()` path.
+The converter uses the **`talend_to_v1` registry-based approach** with a dedicated `FileOutputDelimitedConverter` class in `src/converters/talend_to_v1/components/file/file_output_delimited.py`. The converter extracts 27 of 29 Talend parameters (93%), with only `PROPERTY_TYPE` (not needed) and `SCHEMA` (handled separately) excluded from config keys. Schema type format (CONV-FOD-008) is a cross-cutting issue deferred to a separate task.
 
-**Important finding**: A dedicated parser method `parse_tfileoutputdelimited()` EXISTS at lines 2252-2264, but it is NEVER called because `converter.py` has no `elif component_type == 'tFileOutputDelimited'` branch to route to it. This means two separate extraction logic paths exist -- the active `_map_component_parameters()` path (lines 129-147) and the dormant dedicated parser (lines 2252-2264). They extract different subsets of parameters and use different extraction approaches.
+**Converter flow**:
+1. Registry dispatches `tFileOutputDelimited` to `FileOutputDelimitedConverter`
+2. `convert()` extracts all parameters from `node.params` with correct Talend defaults
+3. Engine-gap warnings emitted for features not yet implemented in the v1 engine
+4. Schema extracted via base class `_convert_schema()` with `type_mapping.py`
 
-**Converter flow (active path)**:
-1. `converter.py:_parse_component()` calls `component_parser.parse_base_component(node)`
-2. `parse_base_component()` iterates all `elementParameter` nodes, builds `config_raw` dict (lines 433-458)
-3. Calls `_map_component_parameters('tFileOutputDelimited', config_raw)` (line 472)
-4. Returns mapped config with renamed keys
-5. Schema is extracted generically from `<metadata connector="FLOW">` nodes
+| # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
+|----|----------------------|------------|---------------|-------|
+| 1 | `FILENAME` | Yes | `filepath` | Strips surrounding quotes |
+| 2 | `FIELDSEPARATOR` | Yes | `delimiter` | Default `";"` matches Talend |
+| 3 | `ROWSEPARATOR` | Yes | `row_separator` | Default `"\\n"` matches Talend |
+| 4 | `ENCODING` | Yes | `encoding` | Default `"ISO-8859-15"` matches Talend |
+| 5 | `TEXT_ENCLOSURE` | Yes (conditional) | `text_enclosure` | Only extracted when `CSV_OPTION=true`. Set to `None` when false. |
+| 6 | `INCLUDEHEADER` | Yes | `include_header` | Default `False` matches Talend |
+| 7 | `APPEND` | Yes | `append` | Default `False` matches Talend |
+| 8 | `CREATE` | Yes | `create_directory` | Default `True` matches Talend |
+| 9 | `DELETE_EMPTYFILE` | Yes | `delete_empty_file` | Default `False` matches Talend |
+| 10 | `CSV_OPTION` | Yes | `csv_option` | Gates TEXT_ENCLOSURE extraction. Engine gap: not read by engine. |
+| 11 | `ESCAPE_CHAR` | Yes | `escape_char` | Default `""`. Engine gap: engine uses hardcoded escape char. |
+| 12 | `COMPRESS` | Yes | `compress` | Default `False`. Engine gap: warning emitted when enabled. |
+| 13 | `SPLIT` | Yes | `split` | Default `False`. Engine gap: warning emitted when enabled. |
+| 14 | `SPLIT_EVERY` | Yes | `split_every` | Default `1000`. |
+| 15 | `FLUSHONROW` | Yes | `flush_on_row` | Default `False`. Engine gap: warning emitted when enabled. |
+| 16 | `FLUSHONROW_NUM` | Yes | `flush_row_count` | Default `1`. |
+| 17 | `ROW_MODE` | Yes | `row_mode` | Default `False`. Engine gap: warning emitted when enabled. |
+| 18 | `FILE_EXIST_EXCEPTION` | Yes | `file_exist_exception` | Default `False`. Engine gap: warning emitted when enabled. |
+| 19 | `USESTREAM` | Yes | `use_stream` | Default `False`. Engine gap: warning emitted when enabled. |
+| 20 | `STREAMNAME` | Yes | `stream_name` | Default `""`. |
+| 21 | `ADVANCED_SEPARATOR` | Yes | `advanced_separator` | Default `False`. Engine gap: warning emitted when enabled. |
+| 22 | `THOUSANDS_SEPARATOR` | Yes | `thousands_separator` | Default `","`. |
+| 23 | `DECIMAL_SEPARATOR` | Yes | `decimal_separator` | Default `"."`. |
+| 24 | `CSVROWSEPARATOR` | Yes | `csv_row_separator` | Default `"\\n"`. Engine gap: warning emitted when differs from row_separator. |
+| 25 | `OS_LINE_SEPARATOR_AS_ROW_SEPARATOR` | Yes | `os_line_separator` | Default `True`. Engine gap: warning emitted when disabled. |
+| 26 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Default `False`. Low priority. |
+| 27 | `LABEL` | Yes | `label` | Default `""`. Cosmetic, no runtime impact. |
+| 28 | `PROPERTY_TYPE` | No | -- | Not needed (always Built-In in converted jobs) |
+| 29 | `SCHEMA` | No | -- | Handled separately via schema extraction |
 
-**Dormant dedicated parser** (`parse_tfileoutputdelimited()`, lines 2252-2264):
-1. Directly accesses XML nodes via `node.find('.//elementParameter[@name="FILENAME"]')`
-2. Extracts: FILENAME, FIELDSEPARATOR, ROWSEPARATOR, INCLUDEHEADER, APPEND, ENCODING, DIE_ON_ERROR
-3. Also extracts FLOW input connections
-4. Does NOT extract: CSV_OPTION, TEXT_ENCLOSURE, ESCAPE_CHAR, CREATE, DELETE_EMPTYFILE, COMPRESS, SPLIT, etc.
+**Summary**: 27 of 29 parameters extracted (93%). Only `PROPERTY_TYPE` (not needed) and `SCHEMA` (separate extraction) excluded.
 
-| # | Talend XML Parameter | Extracted? | V1 Config Key | Converter Line | Notes |
-|----|----------------------|------------|---------------|----------------|-------|
-| 1 | `FILENAME` | Yes | `filepath` | 136 | Expressions and context vars handled by generic loop |
-| 2 | `FIELDSEPARATOR` | Yes | `delimiter` | 137 | **Default `','` differs from Talend default `';'`** |
-| 3 | `ROWSEPARATOR` | Yes | `row_separator` | 138 | Default `'\n'` matches Talend |
-| 4 | `ENCODING` | Yes | `encoding` | 139 | **Default `'UTF-8'` differs from Talend default `'ISO-8859-15'`** |
-| 5 | `TEXT_ENCLOSURE` | Yes (conditional) | `text_enclosure` | 132-134, 140 | Only extracted when `CSV_OPTION=true`. Set to `None` when false. Strips escaped quotes via `.replace('\\"', '')` |
-| 6 | `INCLUDEHEADER` | Yes | `include_header` | 141 | Default `True` **differs from Talend default `false`** |
-| 7 | `APPEND` | Yes | `append` | 142 | Default `False` matches Talend |
-| 8 | `CREATE` | Yes | `create_directory` | 143 | Default `True` matches Talend |
-| 9 | `DELETE_EMPTYFILE` | Yes | `delete_empty_file` | 144 | **Default `True` differs from Talend default `false`** |
-| 10 | `DIE_ON_ERROR` | Yes | `die_on_error` | 145 | Default `False` matches Talend |
-| 11 | `CSV_OPTION` | Yes | `csv_option` | 130, 146 | Extracted as boolean, used to gate TEXT_ENCLOSURE extraction. Passed through to config but **engine never reads it**. |
-| 12 | `COMPRESS` | **No** | -- | -- | **Not extracted. No compressed output support.** |
-| 13 | `SPLIT` | **No** | -- | -- | **Not extracted. No file splitting support.** |
-| 14 | `SPLIT_EVERY` | **No** | -- | -- | **Not extracted.** |
-| 15 | `ESCAPE_CHAR` | **No** | -- | -- | **Not extracted. Engine uses hardcoded DEFAULT_ESCAPE_CHAR = `'\\'` instead.** |
-| 16 | `FLUSHONROW` | **No** | -- | -- | **Not extracted. No flush buffer support.** |
-| 17 | `FLUSHONROW_NUM` | **No** | -- | -- | **Not extracted.** |
-| 18 | `ROW_MODE` | **No** | -- | -- | **Not extracted. No row-mode atomicity.** |
-| 19 | `FILE_EXIST_EXCEPTION` | **No** | -- | -- | **Not extracted. No file-exists check.** |
-| 20 | `USESTREAM` | **No** | -- | -- | **Not extracted. No output stream support.** |
-| 21 | `STREAMNAME` | **No** | -- | -- | **Not extracted.** |
-| 22 | `ADVANCED_SEPARATOR` | **No** | -- | -- | **Not extracted. No locale-aware number formatting.** |
-| 23 | `THOUSANDS_SEPARATOR` | **No** | -- | -- | **Not extracted.** |
-| 24 | `DECIMAL_SEPARATOR` | **No** | -- | -- | **Not extracted.** |
-| 25 | `CSVROWSEPARATOR` | **No** | -- | -- | **Not extracted.** |
-| 26 | `OS_LINE_SEPARATOR_AS_ROW_SEPARATOR` | **No** | -- | -- | **Not extracted. OS line separator behavior not handled.** |
-| 27 | `TSTATCATCHER_STATS` | **No** | -- | -- | Not extracted (low priority -- tStatCatcher rarely used) |
-| 28 | `LABEL` | **No** | -- | -- | Not extracted (cosmetic -- no runtime impact) |
-| 29 | `PROPERTY_TYPE` | No | -- | -- | Not needed (always Built-In in converted jobs) |
-
-**Summary**: 11 of 29 parameters extracted (38%). 16 runtime-relevant parameters are missing.
-
-**Cross-reference with dormant `parse_tfileoutputdelimited()`**: The dedicated parser on lines 2252-2264 extracts ONLY 7 parameters (FILENAME, FIELDSEPARATOR, ROWSEPARATOR, INCLUDEHEADER, APPEND, ENCODING, DIE_ON_ERROR) and also extracts FLOW input connections. It does NOT extract CSV_OPTION, TEXT_ENCLOSURE, CREATE, or DELETE_EMPTYFILE, making it LESS comprehensive than the active `_map_component_parameters()` path. Neither extraction path covers the full parameter set.
+**Note on DIE_ON_ERROR**: This parameter does not exist on `tFileOutputDelimited` (verified via XML parsing of actual Talend jobs). It was incorrectly extracted by the previous `complex_converter` and has been removed.
 
 ### 4.2 Schema Extraction
 
@@ -262,18 +256,19 @@ Schema is extracted generically in `parse_base_component()` (lines 475-508 of `c
 
 ### 4.4 Converter Issues
 
-| ID | Priority | Issue |
-|----|----------|-------|
-| CONV-FOD-001 | **P1** | **Dedicated parser exists but not wired**: `parse_tfileoutputdelimited()` exists at lines 2252-2264 but is NEVER called because `converter.py` has no `elif component_type == 'tFileOutputDelimited'` branch. The component falls through to `_map_component_parameters()`, which is non-compliant with STANDARDS.md. Per STANDARDS.md, every component MUST have its own `parse_*` method AND a corresponding dispatch branch. |
-| CONV-FOD-002 | **P1** | **`ESCAPE_CHAR` not extracted**: The converter extracts `CSV_OPTION` and `TEXT_ENCLOSURE` but NOT `ESCAPE_CHAR`. The engine uses a hardcoded `DEFAULT_ESCAPE_CHAR = '\\'` instead of the user-configured value. Jobs with non-standard escape characters (e.g., `""` for doubleQuote mode) will produce incorrect output. |
-| CONV-FOD-003 | **P1** | **`COMPRESS` not extracted**: Jobs requiring ZIP-compressed output will silently produce uncompressed files. |
-| CONV-FOD-004 | **P2** | **Default `include_header=True` differs from Talend default `false`**: Converter line 141 defaults `INCLUDEHEADER` to `True`. Talend defaults to `false`. Jobs that do not explicitly set this parameter will get headers when they should not. |
-| CONV-FOD-005 | **P2** | **Default `delete_empty_file=True` differs from Talend default `false`**: Converter line 144 defaults `DELETE_EMPTYFILE` to `True`. Talend defaults to `false`. Jobs that do not explicitly set this will delete empty files when they should create them. |
-| CONV-FOD-006 | **P2** | **Default encoding mismatch**: Converter defaults `ENCODING` to `'UTF-8'` (line 139), but Talend default is `'ISO-8859-15'`. Files written without explicit encoding in the Talend job will use the wrong encoding. |
-| CONV-FOD-007 | **P2** | **Default delimiter mismatch**: Converter defaults `FIELDSEPARATOR` to `','` (line 137), but Talend default is `';'`. Jobs relying on the Talend default semicolon delimiter will produce comma-separated output. |
-| CONV-FOD-008 | **P2** | **Schema type format violates STANDARDS.md**: Converter converts types to Python format (`str`, `int`) via `ExpressionConverter.convert_type()` instead of preserving Talend format (`id_String`, `id_Integer`). While the engine handles both, this violates the documented standard. |
-| CONV-FOD-009 | **P2** | **`FILE_EXIST_EXCEPTION` not extracted**: Jobs that require file-existence checks before writing will silently overwrite existing files. |
-| CONV-FOD-010 | **P3** | **`SPLIT` / `SPLIT_EVERY` not extracted**: File splitting for large outputs unavailable. Low priority unless specific jobs use this feature. |
+| ID | Priority | Status | Issue |
+|----|----------|--------|-------|
+| CONV-FOD-001 | **P1** | **FIXED** | Dedicated `FileOutputDelimitedConverter` class in `talend_to_v1` with registry-based dispatch. Replaces `complex_converter` generic path. |
+| CONV-FOD-002 | **P1** | **FIXED** | `ESCAPE_CHAR` now extracted as `escape_char` config key. |
+| CONV-FOD-003 | **P1** | **FIXED** | `COMPRESS` now extracted as `compress` config key. Engine gap remains; warning emitted when enabled. |
+| CONV-FOD-004 | **P2** | **FIXED** | `include_header` default corrected to `False` (matches Talend). |
+| CONV-FOD-005 | **P2** | **FIXED** | `delete_empty_file` default corrected to `False` (matches Talend). |
+| CONV-FOD-006 | **P2** | **FIXED** | `encoding` default corrected to `"ISO-8859-15"` (matches Talend). |
+| CONV-FOD-007 | **P2** | **FIXED** | `delimiter` default corrected to `";"` (matches Talend). |
+| CONV-FOD-008 | **P2** | **OPEN -- DEFERRED** | Schema type format: `type_mapping.py` converts to Python types (`str`, `int`) instead of preserving Talend format (`id_String`). Cross-cutting issue affecting all components; deferred to a separate task. |
+| CONV-FOD-009 | **P2** | **FIXED** | `FILE_EXIST_EXCEPTION` now extracted as `file_exist_exception`. Engine gap remains; warning emitted when enabled. |
+| CONV-FOD-010 | **P3** | **FIXED** | `SPLIT` / `SPLIT_EVERY` now extracted as `split` / `split_every`. Engine gap remains; warning emitted when enabled. |
+| NEW | -- | **FIXED** | `DIE_ON_ERROR` removed from config keys. Parameter does not exist on `tFileOutputDelimited` (verified via XML parsing). |
 
 ---
 
@@ -690,7 +685,7 @@ elif component_type == 'tFileOutputDelimited':
         'append': config_raw.get('APPEND', False),
         'create_directory': config_raw.get('CREATE', True),
         'delete_empty_file': config_raw.get('DELETE_EMPTYFILE', True),
-        'die_on_error': config_raw.get('DIE_ON_ERROR', False),
+        'die_on_error': config_raw.get('DIE_ON_ERROR', False),  # [Note: DIE_ON_ERROR does not exist on tFileOutputDelimited -- removed from converter]
         'csv_option': csv_option
     }
 ```
@@ -717,7 +712,7 @@ def parse_tfileoutputdelimited(self, node, component: Dict) -> Dict:
     component['config']['include_header'] = node.find('.//elementParameter[@name="INCLUDEHEADER"]').get('value', 'true').lower() == 'true'
     component['config']['append'] = node.find('.//elementParameter[@name="APPEND"]').get('value', 'false').lower() == 'true'
     component['config']['encoding'] = node.find('.//elementParameter[@name="ENCODING"]').get('value', 'UTF-8')
-    component['config']['die_on_error'] = node.find('.//elementParameter[@name="DIE_ON_ERROR"]').get('value', 'false').lower() == 'true'
+    component['config']['die_on_error'] = node.find('.//elementParameter[@name="DIE_ON_ERROR"]').get('value', 'false').lower() == 'true'  # [Note: DIE_ON_ERROR does not exist on tFileOutputDelimited -- removed from converter]
 
     # Ensure the component is ready to accept input data
     component['inputs'] = [input_flow.get('name') for input_flow in node.findall('.//connection[@connectorName="FLOW"]')]
@@ -742,7 +737,7 @@ def parse_tfileoutputdelimited(self, node, component: Dict) -> Dict:
 | ENCODING | Yes | Yes |
 | INCLUDEHEADER | Yes (default: `True`) | Yes (default: `true`) |
 | APPEND | Yes | Yes |
-| DIE_ON_ERROR | Yes | Yes |
+| DIE_ON_ERROR | Yes | Yes | [Note: DIE_ON_ERROR does not exist on tFileOutputDelimited -- removed from converter] |
 | CSV_OPTION | Yes | **No** |
 | TEXT_ENCLOSURE | Yes (conditional on CSV_OPTION) | **No** |
 | CREATE | Yes | **No** |
@@ -792,7 +787,7 @@ FileOutputDelimited (BaseComponent)
 | `APPEND` | `append` | Mapped | -- |
 | `CREATE` | `create_directory` | Mapped | -- |
 | `DELETE_EMPTYFILE` | `delete_empty_file` | Mapped (wrong default) | Fix default |
-| `DIE_ON_ERROR` | `die_on_error` | Mapped | -- |
+| `DIE_ON_ERROR` | `die_on_error` | Mapped | [Note: DIE_ON_ERROR does not exist on tFileOutputDelimited -- removed from converter] |
 | `CSV_OPTION` | `csv_option` | Mapped (unused by engine) | P2 -- engine must read it |
 | `COMPRESS` | `compress` | **Not Mapped** | P1 |
 | `ESCAPE_CHAR` | `escape_char` | **Not Mapped** | P1 |
@@ -1133,7 +1128,7 @@ def parse_tfileoutputdelimited(self, node, component: Dict) -> Dict:
     config['append'] = self._get_bool_param(node, 'APPEND', False)
     config['compress'] = self._get_bool_param(node, 'COMPRESS', False)
     config['encoding'] = self._get_param_value(node, 'ENCODING', 'ISO-8859-15')
-    config['die_on_error'] = self._get_bool_param(node, 'DIE_ON_ERROR', False)
+    config['die_on_error'] = self._get_bool_param(node, 'DIE_ON_ERROR', False)  # [Note: DIE_ON_ERROR does not exist on tFileOutputDelimited -- removed from converter]
 
     # CSV options
     config['csv_option'] = self._get_bool_param(node, 'CSV_OPTION', False)
@@ -1361,7 +1356,7 @@ This differs from the V1 pandas approach where `to_csv()` writes the entire Data
 | FLUSHONROW | `false` | Not extracted | Not implemented | N/A |
 | ROW_MODE | `false` | Not extracted | Not implemented | N/A |
 | FILE_EXIST_EXCEPTION | `false` | Not extracted | Not implemented | N/A |
-| DIE_ON_ERROR | `false` | `False` | `True` | **MISMATCH** (engine default differs) |
+| DIE_ON_ERROR | `false` | `False` | `True` | **MISMATCH** (engine default differs) [Note: DIE_ON_ERROR does not exist on tFileOutputDelimited -- removed from converter] |
 
 **Critical mismatches**: 5 parameters have mismatched defaults between Talend and the V1 converter/engine. These can cause silent behavioral differences when converting Talend jobs that rely on default values.
 
