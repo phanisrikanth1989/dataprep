@@ -1,4 +1,5 @@
 """Tests for tFilterRow / tFilterRows -> FilterRows converter."""
+import pytest
 from src.converters.talend_to_v1.components.base import (
     ComponentResult,
     SchemaColumn,
@@ -30,8 +31,10 @@ class TestFilterRowsConverter:
             "ADVANCED_COND": "",
             "CONDITIONS": [
                 {"elementRef": "INPUT_COLUMN", "value": "age"},
+                {"elementRef": "FUNCTION", "value": "EMPTY"},
                 {"elementRef": "OPERATOR", "value": ">"},
                 {"elementRef": "RVALUE", "value": "18"},
+                {"elementRef": "PREFILTER", "value": ""},
             ],
         })
         result = FilterRowsConverter().convert(node, [], {})
@@ -47,7 +50,9 @@ class TestFilterRowsConverter:
         assert cfg["use_advanced"] is False
         assert cfg["advanced_condition"] == ""
         assert len(cfg["conditions"]) == 1
-        assert cfg["conditions"][0] == {"column": "age", "operator": ">", "value": "18"}
+        assert cfg["conditions"][0] == {
+            "column": "age", "function": "EMPTY", "operator": ">", "value": "18", "prefilter": ""
+        }
 
     def test_conditions_parsing_multiple(self):
         """Multiple CONDITIONS rows are parsed into condition dicts."""
@@ -55,23 +60,29 @@ class TestFilterRowsConverter:
             "LOGICAL_OP": "&&",
             "CONDITIONS": [
                 {"elementRef": "INPUT_COLUMN", "value": "status"},
+                {"elementRef": "FUNCTION", "value": "EMPTY"},
                 {"elementRef": "OPERATOR", "value": "=="},
                 {"elementRef": "RVALUE", "value": '"active"'},
+                {"elementRef": "PREFILTER", "value": ""},
                 {"elementRef": "INPUT_COLUMN", "value": "score"},
+                {"elementRef": "FUNCTION", "value": "EMPTY"},
                 {"elementRef": "OPERATOR", "value": ">="},
                 {"elementRef": "RVALUE", "value": "50"},
+                {"elementRef": "PREFILTER", "value": ""},
                 {"elementRef": "INPUT_COLUMN", "value": "name"},
+                {"elementRef": "FUNCTION", "value": "EMPTY"},
                 {"elementRef": "OPERATOR", "value": "!="},
                 {"elementRef": "RVALUE", "value": '""'},
+                {"elementRef": "PREFILTER", "value": ""},
             ],
         })
         result = FilterRowsConverter().convert(node, [], {})
         conditions = result.component["config"]["conditions"]
 
         assert len(conditions) == 3
-        assert conditions[0] == {"column": "status", "operator": "==", "value": '"active"'}
-        assert conditions[1] == {"column": "score", "operator": ">=", "value": "50"}
-        assert conditions[2] == {"column": "name", "operator": "!=", "value": '""'}
+        assert conditions[0] == {"column": "status", "function": "EMPTY", "operator": "==", "value": '"active"', "prefilter": ""}
+        assert conditions[1] == {"column": "score", "function": "EMPTY", "operator": ">=", "value": "50", "prefilter": ""}
+        assert conditions[2] == {"column": "name", "function": "EMPTY", "operator": "!=", "value": '""', "prefilter": ""}
 
     def test_advanced_mode(self):
         """When USE_ADVANCED is true, advanced_condition is captured."""
@@ -192,3 +203,209 @@ class TestFilterRowsConverter:
         assert result.component["original_type"] == "tFilterRows"
         assert result.component["type"] == "FilterRows"
         assert result.component["id"] == "tFilterRows_1"
+
+
+# ---------------------------------------------------------------------------
+# Enhanced CONDITIONS + new params
+# ---------------------------------------------------------------------------
+
+class TestConditionsFunctionAndPrefilter:
+
+    def test_function_extracted(self):
+        node = _make_node(params={
+            "CONDITIONS": [
+                {"elementRef": "INPUT_COLUMN", "value": "name"},
+                {"elementRef": "FUNCTION", "value": "LENGTH"},
+                {"elementRef": "OPERATOR", "value": "<="},
+                {"elementRef": "RVALUE", "value": "50"},
+                {"elementRef": "PREFILTER", "value": ""},
+            ],
+        })
+        result = FilterRowsConverter().convert(node, [], {})
+        cond = result.component["config"]["conditions"][0]
+        assert cond["function"] == "LENGTH"
+        assert cond["prefilter"] == ""
+
+    def test_function_empty_when_not_set(self):
+        node = _make_node(params={
+            "CONDITIONS": [
+                {"elementRef": "INPUT_COLUMN", "value": "age"},
+                {"elementRef": "FUNCTION", "value": "EMPTY"},
+                {"elementRef": "OPERATOR", "value": ">"},
+                {"elementRef": "RVALUE", "value": "18"},
+                {"elementRef": "PREFILTER", "value": ""},
+            ],
+        })
+        result = FilterRowsConverter().convert(node, [], {})
+        cond = result.component["config"]["conditions"][0]
+        assert cond["function"] == "EMPTY"
+
+    def test_prefilter_extracted(self):
+        node = _make_node(params={
+            "CONDITIONS": [
+                {"elementRef": "INPUT_COLUMN", "value": "status"},
+                {"elementRef": "FUNCTION", "value": "EMPTY"},
+                {"elementRef": "OPERATOR", "value": "=="},
+                {"elementRef": "RVALUE", "value": '"active"'},
+                {"elementRef": "PREFILTER", "value": "row.enabled == true"},
+            ],
+        })
+        result = FilterRowsConverter().convert(node, [], {})
+        cond = result.component["config"]["conditions"][0]
+        assert cond["prefilter"] == "row.enabled == true"
+
+    def test_multiple_conditions_with_all_fields(self):
+        node = _make_node(params={
+            "CONDITIONS": [
+                {"elementRef": "INPUT_COLUMN", "value": "name"},
+                {"elementRef": "FUNCTION", "value": "LENGTH"},
+                {"elementRef": "OPERATOR", "value": ">"},
+                {"elementRef": "RVALUE", "value": "0"},
+                {"elementRef": "PREFILTER", "value": ""},
+                {"elementRef": "INPUT_COLUMN", "value": "amount"},
+                {"elementRef": "FUNCTION", "value": "ABS_VALUE"},
+                {"elementRef": "OPERATOR", "value": ">="},
+                {"elementRef": "RVALUE", "value": "100"},
+                {"elementRef": "PREFILTER", "value": ""},
+            ],
+        })
+        result = FilterRowsConverter().convert(node, [], {})
+        conditions = result.component["config"]["conditions"]
+        assert len(conditions) == 2
+        assert conditions[0]["function"] == "LENGTH"
+        assert conditions[1]["function"] == "ABS_VALUE"
+
+
+class TestNewTopLevelParams:
+
+    def test_die_on_error_default(self):
+        node = _make_node()
+        result = FilterRowsConverter().convert(node, [], {})
+        assert result.component["config"]["die_on_error"] is False
+
+    def test_die_on_error_extracted(self):
+        node = _make_node(params={"DIE_ON_ERROR": True})
+        result = FilterRowsConverter().convert(node, [], {})
+        assert result.component["config"]["die_on_error"] is True
+
+    def test_tstatcatcher_stats_default(self):
+        node = _make_node()
+        result = FilterRowsConverter().convert(node, [], {})
+        assert result.component["config"]["tstatcatcher_stats"] is False
+
+    def test_label_default(self):
+        node = _make_node()
+        result = FilterRowsConverter().convert(node, [], {})
+        assert result.component["config"]["label"] == ""
+
+
+# ---------------------------------------------------------------------------
+# Engine-gap warnings
+# ---------------------------------------------------------------------------
+
+class TestEngineGapWarnings:
+
+    def test_no_engine_warnings_for_defaults(self):
+        node = _make_node(params={
+            "CONDITIONS": [
+                {"elementRef": "INPUT_COLUMN", "value": "age"},
+                {"elementRef": "FUNCTION", "value": "EMPTY"},
+                {"elementRef": "OPERATOR", "value": ">"},
+                {"elementRef": "RVALUE", "value": "18"},
+                {"elementRef": "PREFILTER", "value": ""},
+            ],
+        })
+        result = FilterRowsConverter().convert(node, [], {})
+        engine_warnings = [w for w in result.warnings if "engine" in w.lower()]
+        assert engine_warnings == []
+
+    def test_warning_for_die_on_error(self):
+        node = _make_node(params={"DIE_ON_ERROR": True})
+        result = FilterRowsConverter().convert(node, [], {})
+        assert any("DIE_ON_ERROR" in w for w in result.warnings)
+
+    def test_warning_for_function_pre_transform(self):
+        node = _make_node(params={
+            "CONDITIONS": [
+                {"elementRef": "INPUT_COLUMN", "value": "name"},
+                {"elementRef": "FUNCTION", "value": "LENGTH"},
+                {"elementRef": "OPERATOR", "value": ">"},
+                {"elementRef": "RVALUE", "value": "0"},
+                {"elementRef": "PREFILTER", "value": ""},
+            ],
+        })
+        result = FilterRowsConverter().convert(node, [], {})
+        assert any("FUNCTION" in w for w in result.warnings)
+
+    def test_no_warning_for_function_empty(self):
+        node = _make_node(params={
+            "CONDITIONS": [
+                {"elementRef": "INPUT_COLUMN", "value": "age"},
+                {"elementRef": "FUNCTION", "value": "EMPTY"},
+                {"elementRef": "OPERATOR", "value": ">"},
+                {"elementRef": "RVALUE", "value": "18"},
+                {"elementRef": "PREFILTER", "value": ""},
+            ],
+        })
+        result = FilterRowsConverter().convert(node, [], {})
+        assert not any("FUNCTION" in w for w in result.warnings)
+
+    @pytest.mark.parametrize("operator", [
+        "CONTAINS", "NOT_CONTAINS", "STARTS_WITH", "ENDS_WITH", "MATCH_REGEX",
+    ])
+    def test_warning_for_string_operators(self, operator):
+        node = _make_node(params={
+            "CONDITIONS": [
+                {"elementRef": "INPUT_COLUMN", "value": "name"},
+                {"elementRef": "FUNCTION", "value": "EMPTY"},
+                {"elementRef": "OPERATOR", "value": operator},
+                {"elementRef": "RVALUE", "value": '"test"'},
+                {"elementRef": "PREFILTER", "value": ""},
+            ],
+        })
+        result = FilterRowsConverter().convert(node, [], {})
+        assert any("string operator" in w.lower() for w in result.warnings)
+
+    def test_warning_for_prefilter(self):
+        node = _make_node(params={
+            "CONDITIONS": [
+                {"elementRef": "INPUT_COLUMN", "value": "status"},
+                {"elementRef": "FUNCTION", "value": "EMPTY"},
+                {"elementRef": "OPERATOR", "value": "=="},
+                {"elementRef": "RVALUE", "value": '"active"'},
+                {"elementRef": "PREFILTER", "value": "row.enabled == true"},
+            ],
+        })
+        result = FilterRowsConverter().convert(node, [], {})
+        assert any("PREFILTER" in w for w in result.warnings)
+
+
+# ---------------------------------------------------------------------------
+# Component completeness
+# ---------------------------------------------------------------------------
+
+class TestComponentCompleteness:
+
+    def test_all_7_config_keys_present(self):
+        node = _make_node()
+        result = FilterRowsConverter().convert(node, [], {})
+        cfg = result.component["config"]
+        expected_keys = {
+            "logical_operator", "use_advanced", "advanced_condition",
+            "conditions", "die_on_error", "tstatcatcher_stats", "label",
+        }
+        assert set(cfg.keys()) == expected_keys
+
+    def test_conditions_have_5_fields(self):
+        node = _make_node(params={
+            "CONDITIONS": [
+                {"elementRef": "INPUT_COLUMN", "value": "col"},
+                {"elementRef": "FUNCTION", "value": "EMPTY"},
+                {"elementRef": "OPERATOR", "value": "=="},
+                {"elementRef": "RVALUE", "value": "1"},
+                {"elementRef": "PREFILTER", "value": ""},
+            ],
+        })
+        result = FilterRowsConverter().convert(node, [], {})
+        cond = result.component["config"]["conditions"][0]
+        assert set(cond.keys()) == {"column", "function", "operator", "value", "prefilter"}
