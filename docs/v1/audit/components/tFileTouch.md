@@ -3,8 +3,10 @@
 > **Audited**: 2026-03-21
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
-> **Converter**: `complex_converter`
+> **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
+
+> **Converter Update (2026-03-25)**: Converter section updated to reflect migration from `complex_converter` to `talend_to_v1`. All runtime params now extracted. See CONV-* issues below for status.
 
 ---
 
@@ -15,9 +17,8 @@
 | **Talend Name** | `tFileTouch` |
 | **V1 Engine Class** | `FileTouch` |
 | **Engine File** | `src/v1/engine/components/file/file_touch.py` (99 lines) |
-| **Converter Parser** | `src/converters/complex_converter/component_parser.py` -> `parse_tfiletouch()` (lines 1685-1689) |
-| **Converter Dispatch** | `src/converters/complex_converter/converter.py` -> dedicated `elif component_type == 'tFileTouch'` branch (lines 288-289) |
-| **Converter Parameter Mapping** | `src/converters/complex_converter/component_parser.py` -> `_map_component_parameters()` (lines 287-292) -- **dead code**, overwritten by dedicated parser |
+| **Converter Parser** | `src/converters/talend_to_v1/components/file/file_touch.py` |
+| **Converter Dispatch** | `talend_to_v1` registry-based dispatch via `REGISTRY["tFileTouch"]` |
 | **Registry Aliases** | `FileTouch`, `tFileTouch` (registered in `src/v1/engine/engine.py` lines 78-79) |
 | **Category** | File / Utility |
 
@@ -26,9 +27,7 @@
 | File | Purpose |
 |------|---------|
 | `src/v1/engine/components/file/file_touch.py` | Engine implementation (99 lines) |
-| `src/converters/complex_converter/component_parser.py` (lines 1685-1689) | Dedicated parser: `parse_tfiletouch()` |
-| `src/converters/complex_converter/component_parser.py` (lines 287-292) | Dead code: `_map_component_parameters()` tFileTouch branch (overwritten by dedicated parser) |
-| `src/converters/complex_converter/converter.py` (lines 288-289) | Dispatch to dedicated `parse_tfiletouch()` |
+| `src/converters/talend_to_v1/components/file/file_touch.py` | Dedicated `talend_to_v1` converter for tFileTouch |
 | `src/v1/engine/base_component.py` | Base class: `_update_stats()`, `_update_global_map()`, `validate_schema()`, `execute()` |
 | `src/v1/engine/global_map.py` | GlobalMap storage for `{id}_NB_LINE` etc. |
 | `src/v1/engine/exceptions.py` | Custom exception hierarchy (`FileOperationError`, `ConfigurationError`) |
@@ -40,7 +39,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **Y** | 0 | 2 | 1 | 1 | 2 of 3 Talend params extracted (67%); no quote stripping; no AttributeError guard; dead `_map_component_parameters` branch |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | `talend_to_v1` dedicated parser extracts 4 params (4 config keys). All runtime params mapped. CREATEDIR default corrected to `true`. |
 | Engine Feature Parity | **Y** | 0 | 3 | 2 | 0 | No `{id}_ERROR_MESSAGE`; no die_on_error; wrong `create_directory` default; exception swallowed in catch-all; return format inconsistency |
 | Code Quality | **Y** | 2 | 3 | 2 | 2 | Cross-cutting `_update_global_map()` crash; `GlobalMap.get()` crash; no `_validate_config()`; no custom exceptions; unused import |
 | Performance & Memory | **G** | 0 | 0 | 0 | 1 | Minimal -- single file touch operation; no memory concerns |
@@ -79,6 +78,7 @@
 | # | Parameter | Talend XML Name | Type | Default | Description |
 |---|-----------|-----------------|------|---------|-------------|
 | 3 | tStatCatcher Statistics | `TSTATCATCHER_STATS` | Boolean (CHECK) | `false` | Enables collection of processing metadata at job and component levels for the tStatCatcher component. Rarely used in production. |
+| 4 | Label | `LABEL` | String | -- | Text label for the component in the Talend Studio designer canvas. No runtime impact. |
 
 ### 3.3 Connection Types
 
@@ -131,37 +131,23 @@
 
 ### 4.1 Converter Flow
 
-The converter uses a **two-phase parsing approach** for tFileTouch:
+The `talend_to_v1` converter uses a dedicated parser (`src/converters/talend_to_v1/components/file/file_touch.py`) registered via `REGISTRY["tFileTouch"]`. The parser extracts all runtime parameters using safe `_get_str` / `_get_bool` helpers with null-safety and correct defaults.
 
-1. **Phase 1** (`converter.py` line 226): `parse_base_component(node)` is called, which:
-   - Creates the base component dict with `id`, `type`, `position`, empty `config`, `schema`, etc.
-   - Iterates all `elementParameter` nodes, builds `config_raw` dict (lines 433-458)
-   - Strips surrounding quotes from values (line 441-442)
-   - Converts boolean `CHECK` fields to Python booleans (line 445-446)
-   - Detects and wraps simple context variable references (lines 449-456)
-   - Marks Java expressions with `{{java}}` prefix (lines 462-469)
-   - Calls `_map_component_parameters('tFileTouch', config_raw)` (line 472), which returns `{'filename': ..., 'create_directory': ...}`
-   - Sets `component['config']` to the mapped parameters
-
-2. **Phase 2** (`converter.py` line 288-289): `parse_tfiletouch(node, component)` is called, which:
-   - **OVERWRITES** `component['config']['filename']` by reading raw XML value (line 1687)
-   - **OVERWRITES** `component['config']['create_directory']` by reading raw XML value (line 1688)
-
-**Critical observation**: Phase 2 overwrites all config values set by Phase 1. This means:
-- The quote stripping from Phase 1 (line 441-442) is undone -- the dedicated parser reads raw XML and does NOT strip quotes
-- The context variable wrapping from Phase 1 (lines 449-456) is undone
-- The Java expression marking from Phase 1 (lines 462-469) is undone
-- The `_map_component_parameters()` branch for tFileTouch (lines 287-292) is effectively **dead code**
+**Converter flow**:
+1. `talend_to_v1` registry dispatches to `file_touch.py` converter function
+2. Extracts all runtime parameters using `_get_str()` and `_get_bool()` helpers (null-safe)
+3. `CREATEDIR` default corrected to `true` (matching Talend)
 
 ### 4.2 Parameter Extraction
 
-| # | Talend XML Parameter | Extracted? | V1 Config Key | Converter Location | Notes |
-|----|----------------------|------------|---------------|---------------------|-------|
-| 1 | `FILENAME` | **Yes** | `filename` | `parse_tfiletouch()` line 1687 | **No quote stripping**. Raw XML `value` attribute used directly. If Talend XML contains `value="&quot;/path/file.txt&quot;"`, filename will include literal quotes. |
-| 2 | `CREATEDIR` | **Yes** | `create_directory` | `parse_tfiletouch()` line 1688 | Boolean conversion via `.lower() == 'true'`. Default `'false'` -- **differs from Talend default `true`**. |
-| 3 | `TSTATCATCHER_STATS` | **No** | -- | -- | Not extracted (low priority -- tStatCatcher rarely used) |
+| # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
+|----|----------------------|------------|---------------|-------|
+| 1 | `FILENAME` | Yes | `filename` | Quote-stripped, null-safe. |
+| 2 | `CREATEDIR` | Yes | `create_directory` | Boolean. Default `true` -- matches Talend. |
+| 3 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Not needed at runtime. |
+| 4 | `LABEL` | Yes | `label` | Not needed at runtime (cosmetic). |
 
-**Summary**: 2 of 3 parameters extracted (67%). Both runtime-relevant parameters are extracted but with behavioral issues.
+**Summary**: 4 of 4 parameters extracted (100%). All runtime-relevant parameters correctly mapped. CREATEDIR default corrected to `true`.
 
 ### 4.3 Expression Handling in Dedicated Parser
 
@@ -209,10 +195,10 @@ However, the Phase 1 extraction also has an issue: `config_raw.get('CREATEDIR', 
 
 | ID | Priority | Issue |
 |----|----------|-------|
-| CONV-FT-001 | **P1** | **No quote stripping in dedicated parser**: `parse_tfiletouch()` reads raw XML `value` attribute without stripping surrounding quotes. Talend XML commonly stores string values as `"&quot;/path/file.txt&quot;"`. After XML entity decoding, this becomes `"/path/to/file.txt"` (with literal quotes). The dedicated parser passes these through, causing the engine to attempt file operations on paths with embedded quote characters. The generic `parse_base_component()` Phase 1 correctly strips quotes (line 441-442) but its result is overwritten. |
-| CONV-FT-002 | **P1** | **No context variable or Java expression handling in dedicated parser**: `parse_tfiletouch()` reads `FILENAME` as raw string without detecting context references (`context.var`), wrapping them with `${...}`, or marking Java expressions with `{{java}}`. Any dynamic filename expression will be passed literally to the engine as an unresolved string, causing `FileNotFoundError` or creating files with expression text as the filename. The generic Phase 1 handling IS correct but is overwritten by Phase 2. |
-| CONV-FT-003 | **P2** | **No `AttributeError` guard on `.find()`**: `node.find('.//elementParameter[@name="FILENAME"]')` returns `None` if the XML element is missing. Calling `.get('value', '')` on `None` throws `AttributeError`. This crashes the entire conversion for any Talend XML where the `FILENAME` parameter is absent or differently named. Should use a guard: `elem = node.find(...); value = elem.get('value', '') if elem is not None else ''`. |
-| CONV-FT-004 | **P3** | **`create_directory` default `'false'` in dedicated parser differs from Talend default `true`**: Line 1688 uses `node.find('.//elementParameter[@name="CREATEDIR"]').get('value', 'false')`, defaulting to `'false'`. In Talend Studio, the `CREATEDIR` checkbox is checked by default (`true`). If the XML omits this parameter (which is unlikely for standard exports but possible for minimal XML), the converter produces the wrong default. Should default to `'true'`. |
+| CONV-FT-001 | ~~P1~~ | **FIXED (2026-03-25)**: `talend_to_v1` parser uses `_get_str()` helper which handles quote stripping. |
+| CONV-FT-002 | ~~P1~~ | **FIXED (2026-03-25)**: `talend_to_v1` parser uses safe extraction helpers. Expression handling delegated to base infrastructure. |
+| CONV-FT-003 | ~~P2~~ | **FIXED (2026-03-25)**: `talend_to_v1` parser uses `_get_str()`/`_get_bool()` helpers with null-safety. No `AttributeError` risk. |
+| CONV-FT-004 | ~~P3~~ | **FIXED (2026-03-25)**: `CREATEDIR` default corrected to `true`, matching Talend. |
 
 ---
 
