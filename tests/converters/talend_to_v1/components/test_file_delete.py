@@ -1,4 +1,5 @@
 """Tests for the FileDeleteConverter (tFileDelete -> FileDelete)."""
+import pytest
 import xml.etree.ElementTree as ET
 
 from src.converters.talend_to_v1.components.base import (
@@ -32,7 +33,7 @@ class TestFileDeleteConverterBasic:
     def test_basic_conversion(self):
         node = _make_node(params={
             "FILENAME": '"/tmp/old_data.csv"',
-            "FAILON": "true",
+            "FAIL_ON_ERROR": "true",
         })
         result = FileDeleteConverter().convert(node, [], {})
 
@@ -51,7 +52,7 @@ class TestFileDeleteConverterBasic:
     def test_fail_on_error_false(self):
         node = _make_node(params={
             "FILENAME": '"/data/temp.log"',
-            "FAILON": "false",
+            "FAIL_ON_ERROR": "false",
         })
         result = FileDeleteConverter().convert(node, [], {})
 
@@ -69,7 +70,7 @@ class TestFileDeleteConverterBasic:
         node = _make_node(params={})
         result = FileDeleteConverter().convert(node, [], {})
 
-        assert len(result.warnings) == 1
+        assert any("FILENAME" in w for w in result.warnings)
         assert "FILENAME" in result.warnings[0]
 
 
@@ -86,9 +87,113 @@ class TestFileDeleteConverterWarnings:
     def test_no_warnings_when_filename_provided(self):
         node = _make_node(params={
             "FILENAME": '"/tmp/test.txt"',
-            "FAILON": "true",
+            "FAIL_ON_ERROR": "true",
         })
         result = FileDeleteConverter().convert(node, [], {})
 
         assert result.warnings == []
         assert result.needs_review == []
+
+
+# ---------------------------------------------------------------------------
+# New parameters
+# ---------------------------------------------------------------------------
+
+class TestNewParams:
+
+    def test_folder_default_false(self):
+        node = _make_node()
+        result = FileDeleteConverter().convert(node, [], {})
+        assert result.component["config"]["folder"] is False
+
+    def test_folder_extracted(self):
+        node = _make_node(params={"FOLDER": True})
+        result = FileDeleteConverter().convert(node, [], {})
+        assert result.component["config"]["folder"] is True
+
+    def test_folder_file_default_false(self):
+        node = _make_node()
+        result = FileDeleteConverter().convert(node, [], {})
+        assert result.component["config"]["folder_file"] is False
+
+    def test_folder_file_extracted(self):
+        node = _make_node(params={"FOLDER_FILE": True})
+        result = FileDeleteConverter().convert(node, [], {})
+        assert result.component["config"]["folder_file"] is True
+
+    def test_directory_default_empty(self):
+        node = _make_node()
+        result = FileDeleteConverter().convert(node, [], {})
+        assert result.component["config"]["directory"] == ""
+
+    def test_directory_extracted(self):
+        node = _make_node(params={"DIRECTORY": '"/data/archive"'})
+        result = FileDeleteConverter().convert(node, [], {})
+        assert result.component["config"]["directory"] == "/data/archive"
+
+    def test_folder_file_path_default_empty(self):
+        node = _make_node()
+        result = FileDeleteConverter().convert(node, [], {})
+        assert result.component["config"]["folder_file_path"] == ""
+
+    def test_folder_file_path_extracted(self):
+        node = _make_node(params={"FOLDER_FILE_PATH": '"/data/cleanup"'})
+        result = FileDeleteConverter().convert(node, [], {})
+        assert result.component["config"]["folder_file_path"] == "/data/cleanup"
+
+    def test_tstatcatcher_stats_default_false(self):
+        node = _make_node()
+        result = FileDeleteConverter().convert(node, [], {})
+        assert result.component["config"]["tstatcatcher_stats"] is False
+
+    def test_label_default_empty(self):
+        node = _make_node()
+        result = FileDeleteConverter().convert(node, [], {})
+        assert result.component["config"]["label"] == ""
+
+
+# ---------------------------------------------------------------------------
+# Engine-gap warnings
+# ---------------------------------------------------------------------------
+
+class TestEngineGapWarnings:
+
+    def test_no_engine_warnings_for_defaults(self):
+        node = _make_node(params={"FILENAME": '"/tmp/test.txt"'})
+        result = FileDeleteConverter().convert(node, [], {})
+        engine_warnings = [w for w in result.warnings if "engine" in w.lower()]
+        assert engine_warnings == []
+
+    def test_warning_when_folder_enabled(self):
+        node = _make_node(params={"FILENAME": '"/tmp/test"', "FOLDER": True})
+        result = FileDeleteConverter().convert(node, [], {})
+        assert any("FOLDER" in w for w in result.warnings)
+
+    def test_warning_when_folder_file_enabled(self):
+        node = _make_node(params={"FILENAME": '"/tmp/test"', "FOLDER_FILE": True})
+        result = FileDeleteConverter().convert(node, [], {})
+        assert any("FOLDER_FILE" in w for w in result.warnings)
+
+    def test_no_warning_when_folder_disabled(self):
+        node = _make_node(params={"FILENAME": '"/tmp/test.txt"', "FOLDER": False})
+        result = FileDeleteConverter().convert(node, [], {})
+        engine_warnings = [w for w in result.warnings if "engine" in w.lower()]
+        assert engine_warnings == []
+
+
+# ---------------------------------------------------------------------------
+# Completeness
+# ---------------------------------------------------------------------------
+
+class TestCompleteness:
+
+    def test_all_8_config_keys_present(self):
+        node = _make_node()
+        result = FileDeleteConverter().convert(node, [], {})
+        cfg = result.component["config"]
+        expected_keys = {
+            "filename", "fail_on_error",
+            "folder", "folder_file", "directory", "folder_file_path",
+            "tstatcatcher_stats", "label",
+        }
+        assert set(cfg.keys()) == expected_keys
