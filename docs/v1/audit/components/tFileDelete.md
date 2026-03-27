@@ -3,8 +3,10 @@
 > **Audited**: 2026-03-21
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
-> **Converter**: `complex_converter`
+> **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
+
+> **Converter Update (2026-03-25)**: Converter section updated to reflect migration from `complex_converter` to `talend_to_v1`. All runtime params now extracted. See CONV-* issues below for status.
 
 ---
 
@@ -15,8 +17,8 @@
 | **Talend Name** | `tFileDelete` |
 | **V1 Engine Class** | `FileDelete` |
 | **Engine File** | `src/v1/engine/components/file/file_delete.py` (175 lines) |
-| **Converter Parser** | `src/converters/complex_converter/component_parser.py` -> `parse_base_component()` (line 388) -> `_map_component_parameters()` falls through to default `else: return config_raw` (line 385-386) |
-| **Converter Dispatch** | `src/converters/complex_converter/converter.py` -> `elif component_type == 'tFileDelete': component = self.component_parser.parse_base_component(node)` (line 284-285) |
+| **Converter Parser** | `src/converters/talend_to_v1/components/file/file_delete.py` |
+| **Converter Dispatch** | `talend_to_v1` registry-based dispatch via `REGISTRY["tFileDelete"]` |
 | **Registry Aliases** | `FileDelete`, `tFileDelete` (registered in `src/v1/engine/engine.py` lines 72-73) |
 | **Category** | File / Utility |
 
@@ -25,9 +27,7 @@
 | File | Purpose |
 |------|---------|
 | `src/v1/engine/components/file/file_delete.py` | Engine implementation (175 lines) |
-| `src/converters/complex_converter/component_parser.py` (line 31) | Component type mapping: `'tFileDelete': 'FileDelete'` |
-| `src/converters/complex_converter/component_parser.py` (lines 384-386) | Default `_map_component_parameters()` -- no dedicated tFileDelete branch; falls through to `return config_raw` |
-| `src/converters/complex_converter/converter.py` (lines 284-285) | Dispatch -- calls `parse_base_component(node)` for tFileDelete |
+| `src/converters/talend_to_v1/components/file/file_delete.py` | Dedicated `talend_to_v1` converter for tFileDelete |
 | `src/v1/engine/base_component.py` | Base class: `_update_stats()`, `_update_global_map()`, `validate_schema()`, `execute()` (381 lines) |
 | `src/v1/engine/global_map.py` | GlobalMap storage for `{id}_NB_LINE` etc. (86 lines) |
 | `src/v1/engine/exceptions.py` | Custom exception hierarchy (`FileOperationError`, `ConfigurationError`) |
@@ -39,7 +39,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **Y** | 0 | 2 | 2 | 0 | No dedicated parser; raw XML params passed through; Talend param names not mapped to engine config keys; `FOLDER` / `FOLDER_FILE` modes not explicitly parsed |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | `talend_to_v1` dedicated parser extracts 9 params (8 config keys). All runtime params mapped. FAIL_ON_ERROR renamed from FAILON. Path field mapping via FOLDER/FOLDER_FILE selection logic. |
 | Engine Feature Parity | **Y** | 0 | 4 | 3 | 1 | No DELETE_PATH globalMap var; no CURRENT_STATUS; no ERROR_MESSAGE; fail_on_error default inverted; no symlink handling |
 | Code Quality | **Y** | 2 | 3 | 2 | 2 | Cross-cutting base class bugs; dead `_validate_config()`; no path sanitization; empty string path accepted with .get default |
 | Performance & Memory | **G** | 0 | 0 | 0 | 1 | Simple file I/O; no memory concerns; minor optimization in redundant os.path checks |
@@ -83,6 +83,7 @@
 | # | Parameter | Talend XML Name | Type | Default | Description |
 |---|-----------|-----------------|------|---------|-------------|
 | 8 | tStatCatcher Statistics | `TSTATCATCHER_STATS` | Boolean (CHECK) | `false` | Capture processing metadata at job and component levels for the tStatCatcher component. Rarely used. |
+| 9 | Label | `LABEL` | String | -- | Text label for the component in the Talend Studio designer canvas. No runtime impact. |
 
 ### 3.3 Connection Types
 
@@ -138,35 +139,29 @@
 
 ### 4.1 Parameter Extraction
 
-The converter uses `parse_base_component()` which feeds all `elementParameter` nodes into a raw config dict, then passes through the default `else: return config_raw` branch of `_map_component_parameters()` since there is NO dedicated tFileDelete mapping. This means:
-
-1. **All Talend XML parameter names are preserved verbatim** (e.g., `FILENAME`, `FAIL_ON_ERROR`, `FOLDER`, `FOLDER_FILE`)
-2. **No mapping to engine-expected config keys** (e.g., `path`, `fail_on_error`, `is_directory`, `is_folder_file`)
-3. The engine reads `self.config.get('path', '')` but the converter produces `FILENAME`, `DIRECTORY`, or `FOLDER_FILE_PATH`
+The `talend_to_v1` converter uses a dedicated parser (`src/converters/talend_to_v1/components/file/file_delete.py`) registered via `REGISTRY["tFileDelete"]`. The parser extracts all runtime parameters using safe `_get_str` / `_get_bool` helpers with null-safety and correct defaults.
 
 **Converter flow**:
-1. `converter.py:_parse_component()` line 284: `elif component_type == 'tFileDelete':`
-2. Calls `self.component_parser.parse_base_component(node)` (line 285)
-3. `parse_base_component()` iterates all `elementParameter` nodes, builds `config_raw` dict (lines 433-458)
-4. Boolean CHECK fields are converted to Python booleans (line 445-446)
-5. Context variable detection and Java expression marking applied (lines 449-469)
-6. Calls `_map_component_parameters('tFileDelete', config_raw)` (line 472)
-7. No `tFileDelete` branch exists in `_map_component_parameters()` -- falls through to `else: return config_raw` (line 385-386)
-8. Raw config with Talend XML parameter names returned as-is
+1. `talend_to_v1` registry dispatches to `file_delete.py` converter function
+2. Extracts all runtime parameters using `_get_str()` and `_get_bool()` helpers (null-safe)
+3. Implements path field selection logic: if `FOLDER_FILE=true`, use `FOLDER_FILE_PATH`; if `FOLDER=true`, use `DIRECTORY`; otherwise use `FILENAME`
+4. Maps to engine config keys (`path`, `fail_on_error`, `is_directory`, `is_folder_file`)
+5. Extracts `FAIL_ON_ERROR` (renamed from Talend XML `FAILON` in some exports) with correct default `false`
 
-| # | Talend XML Parameter | Extracted? | V1 Config Key Expected | V1 Config Key Produced | Notes |
-|----|----------------------|------------|------------------------|------------------------|-------|
-| 1 | `FILENAME` | Yes (raw) | `path` | `FILENAME` | **Key mismatch**: Engine reads `self.config.get('path', '')` but converter produces `FILENAME`. The path will be empty string at runtime. |
-| 2 | `DIRECTORY` | Yes (raw) | `path` | `DIRECTORY` | **Key mismatch**: Same issue as FILENAME. Only present when FOLDER=true in Talend. |
-| 3 | `FOLDER_FILE_PATH` | Yes (raw) | `path` | `FOLDER_FILE_PATH` | **Key mismatch**: Same issue. Only present when FOLDER_FILE=true. |
-| 4 | `FAIL_ON_ERROR` | Yes (raw, boolean) | `fail_on_error` | `FAIL_ON_ERROR` | **Key mismatch**: Engine reads `fail_on_error` but converter produces `FAIL_ON_ERROR`. Engine default is `True`, Talend default is `false`. |
-| 5 | `FOLDER` | Yes (raw, boolean) | `is_directory` | `FOLDER` | **Key mismatch**: Engine reads `is_directory` but converter produces `FOLDER`. |
-| 6 | `FOLDER_FILE` | Yes (raw, boolean) | `is_folder_file` | `FOLDER_FILE` | **Key mismatch**: Engine reads `is_folder_file` but converter produces `FOLDER_FILE`. |
-| 7 | `TSTATCATCHER_STATS` | Yes (raw, boolean) | -- | `TSTATCATCHER_STATS` | Not needed at runtime (tStatCatcher rarely used). |
-| 8 | `PROPERTY_TYPE` | Yes (raw) | -- | `PROPERTY_TYPE` | Not needed (always Built-In in converted jobs). |
-| 9 | `LABEL` | Yes (raw) | -- | `LABEL` | Not needed at runtime (cosmetic). |
+| # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
+|----|----------------------|------------|---------------|-------|
+| 1 | `FILENAME` | Yes | `path` | Path field selection: used when FOLDER=false and FOLDER_FILE=false |
+| 2 | `DIRECTORY` | Yes | `path` | Path field selection: used when FOLDER=true |
+| 3 | `FOLDER_FILE_PATH` | Yes | `path` | Path field selection: used when FOLDER_FILE=true |
+| 4 | `FAIL_ON_ERROR` | Yes | `fail_on_error` | Default `false` matches Talend. Note: Talend XML name is `FAIL_ON_ERROR` (not `FAILON`). |
+| 5 | `FOLDER` | Yes | `is_directory` | Boolean. Controls path field selection. |
+| 6 | `FOLDER_FILE` | Yes | `is_folder_file` | Boolean. Controls path field selection. |
+| 7 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Not needed at runtime (tStatCatcher rarely used). |
+| 8 | `LABEL` | Yes | `label` | Not needed at runtime (cosmetic). |
 
-**Summary**: 0 of 6 runtime-relevant parameters are correctly mapped to engine config keys. The converter extracts the raw Talend parameters but does not rename them to match the engine's expected config keys. **This means every converted tFileDelete job will fail at runtime** because the engine cannot find `path` in the config (it will be under `FILENAME`, `DIRECTORY`, or `FOLDER_FILE_PATH`).
+**Summary**: All 6 runtime-relevant parameters are correctly extracted and mapped to engine config keys. Path field selection logic implemented. Null-safe extraction via `_get_str`/`_get_bool` helpers.
+
+> **Factual correction (2026-03-25)**: The original audit stated a `RECURSIVE` parameter existed. Standard Talend `tFileDelete` does NOT have a `RECURSIVE` parameter. The engine's `recursive` config key is a v1 extension, not a Talend feature. No `DIE_ON_ERROR` parameter exists on `tFileDelete` either -- the correct name is `FAIL_ON_ERROR`.
 
 ### 4.2 Schema Extraction
 
@@ -192,10 +187,10 @@ Schema extraction is irrelevant for `tFileDelete` since it does not produce data
 
 | ID | Priority | Issue |
 |----|----------|-------|
-| CONV-FDL-001 | **P1** | **No dedicated parser method**: `tFileDelete` uses `parse_base_component()` which falls through to the default `else: return config_raw` branch of `_map_component_parameters()`. ALL Talend XML parameter names are passed through verbatim (`FILENAME`, `FAIL_ON_ERROR`, `FOLDER`, etc.) without mapping to engine config keys (`path`, `fail_on_error`, `is_directory`, etc.). **This causes total runtime failure** -- the engine reads `self.config.get('path', '')` which will always be empty string since the actual path is stored under `FILENAME`, `DIRECTORY`, or `FOLDER_FILE_PATH`. |
-| CONV-FDL-002 | **P1** | **Path field selection logic missing**: Talend has THREE mutually exclusive path fields (`FILENAME`, `DIRECTORY`, `FOLDER_FILE_PATH`) controlled by the `FOLDER` and `FOLDER_FILE` checkboxes. The converter does not implement the selection logic to determine which field contains the actual path. A dedicated parser must check: if `FOLDER_FILE=true`, use `FOLDER_FILE_PATH`; if `FOLDER=true`, use `DIRECTORY`; otherwise use `FILENAME`. All three should map to the single engine config key `path`. |
-| CONV-FDL-003 | **P2** | **`FAIL_ON_ERROR` default mismatch**: The engine defaults `fail_on_error` to `True` (line 66 of `file_delete.py`), but Talend defaults `FAIL_ON_ERROR` to `false`. Even if the key mapping were correct, converted jobs that do not explicitly set `FAIL_ON_ERROR` would have inverted error behavior -- failing on missing files when Talend would silently continue. |
-| CONV-FDL-004 | **P2** | **`recursive` config key not populated**: The engine supports `self.config.get('recursive', False)` for recursive directory deletion (via `shutil.rmtree()`), but there is no corresponding Talend parameter. Standard Talend `tFileDelete` does NOT support recursive deletion (only deletes empty directories). The converter should either never set `recursive=True` or add a validation warning if a job requires recursive deletion. |
+| CONV-FDL-001 | ~~P1~~ | **FIXED (2026-03-25)**: `talend_to_v1` dedicated parser extracts all params with correct key mapping. Path field selection logic implemented. |
+| CONV-FDL-002 | ~~P1~~ | **FIXED (2026-03-25)**: Path field selection logic implemented in `talend_to_v1` converter. Checks FOLDER_FILE, then FOLDER, then defaults to FILENAME. All map to engine `path` key. |
+| CONV-FDL-003 | ~~P2~~ | **FIXED (2026-03-25)**: `talend_to_v1` converter sets `fail_on_error` default to `false`, matching Talend. Note: Talend XML name is `FAIL_ON_ERROR` (not `FAILON`). |
+| CONV-FDL-004 | ~~P2~~ | **FIXED (2026-03-25)**: `talend_to_v1` converter does not set `recursive=True`. No Talend equivalent exists. Engine extension only. |
 
 ---
 

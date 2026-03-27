@@ -3,8 +3,10 @@
 > **Audited**: 2026-03-21
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
-> **Converter**: `complex_converter`
+> **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
+
+> **Converter Update (2026-03-25)**: Converter section updated to reflect migration from `complex_converter` to `talend_to_v1`. All runtime params now extracted. See CONV-* issues below for status.
 
 ---
 
@@ -15,8 +17,8 @@
 | **Talend Name** | `tFileRowCount` |
 | **V1 Engine Class** | `FileRowCount` |
 | **Engine File** | `src/v1/engine/components/file/file_row_count.py` (229 lines) |
-| **Converter Parser** | `src/converters/complex_converter/component_parser.py` -> `parse_tfile_row_count()` (lines 1706-1718) |
-| **Converter Dispatch** | `src/converters/complex_converter/converter.py` -> dedicated `elif component_type == 'tFileRowCount'` branch (line 294) |
+| **Converter Parser** | `src/converters/talend_to_v1/components/file/file_row_count.py` |
+| **Converter Dispatch** | `talend_to_v1` registry-based dispatch via `REGISTRY["tFileRowCount"]` |
 | **Registry Aliases** | `FileRowCount`, `tFileRowCount` (registered in `src/v1/engine/engine.py` lines 82-83) |
 | **Category** | File / Utility |
 
@@ -25,8 +27,7 @@
 | File | Purpose |
 |------|---------|
 | `src/v1/engine/components/file/file_row_count.py` | Engine implementation (229 lines) |
-| `src/converters/complex_converter/component_parser.py` (lines 1706-1718) | Parameter mapping from Talend XML to v1 JSON |
-| `src/converters/complex_converter/converter.py` (line 294-295) | Dispatch -- dedicated `elif` branch for `tFileRowCount` |
+| `src/converters/talend_to_v1/components/file/file_row_count.py` | Dedicated `talend_to_v1` converter for tFileRowCount |
 | `src/v1/engine/base_component.py` | Base class: `_update_stats()`, `_update_global_map()`, `validate_schema()`, `execute()` |
 | `src/v1/engine/global_map.py` | GlobalMap storage for `{id}_NB_LINE`, `{id}_COUNT`, etc. |
 | `src/v1/engine/exceptions.py` | Custom exception hierarchy (`FileOperationError`, `ConfigurationError`) |
@@ -38,7 +39,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **R** | 1 | 1 | 2 | 1 | 4 of 6 Talend runtime params extracted (67%); dedicated parser method; missing DIE_ON_ERROR; encoding default mismatch; all 4 `.find().get()` calls crash on missing XML elements (P0); encoding value retains surrounding quotes from XML (P2) |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | `talend_to_v1` dedicated parser extracts 7 params (7 config keys). All runtime params mapped. ENCODING default corrected to ISO-8859-15. ROWSEPARATOR non-standard engine-gap noted. |
 | Engine Feature Parity | **Y** | 0 | 3 | 2 | 1 | No row_separator support; no die_on_error handling; return format is dict not DataFrame; no header row skip; no COUNT as Flow variable |
 | Code Quality | **Y** | 2 | 4 | 3 | 1 | Cross-cutting base class bugs; _validate_config() returns bool instead of List[str]; _validate_config() never called; GlobalMap.get() crash on verify read; _update_global_map() double-crash on error path masks original exception (P1) |
 | Performance & Memory | **G** | 0 | 0 | 1 | 1 | Line-by-line reading is correct for this component; minor optimization with buffered counting |
@@ -142,26 +143,26 @@
 
 ### 4.1 Parameter Extraction
 
-The converter uses a **dedicated parser method** (`parse_tfile_row_count()` in `component_parser.py` lines 1706-1718) with a dedicated `elif` branch in `converter.py` line 294. This is the correct approach per STANDARDS.md.
+The `talend_to_v1` converter uses a dedicated parser (`src/converters/talend_to_v1/components/file/file_row_count.py`) registered via `REGISTRY["tFileRowCount"]`. The parser extracts all runtime parameters using safe `_get_str` / `_get_bool` helpers with null-safety and correct defaults.
 
 **Converter flow**:
-1. `converter.py:_parse_component()` matches `component_type == 'tFileRowCount'` (line 294)
-2. Calls `self.component_parser.parse_tfile_row_count(node, component)` (line 295)
-3. `parse_tfile_row_count()` extracts 4 parameters from `elementParameter` XML nodes
-4. Returns component dict with mapped config keys
+1. `talend_to_v1` registry dispatches to `file_row_count.py` converter function
+2. Extracts all runtime parameters using `_get_str()` and `_get_bool()` helpers (null-safe)
+3. ENCODING default corrected to `ISO-8859-15` (matching Talend)
 
-| # | Talend XML Parameter | Extracted? | V1 Config Key | Converter Line | Notes |
-|----|----------------------|------------|---------------|----------------|-------|
-| 1 | `FILENAME` | Yes | `filename` | 1710 | Extracted via `node.find('.//elementParameter[@name="FILENAME"]').get('value', '')`. No quote stripping. |
-| 2 | `ROWSEPARATOR` | Yes | `row_separator` | 1712-1715 | Extracted with surrounding quote normalization: strips leading/trailing `"` if present. Default `'\n'`. |
-| 3 | `IGNORE_EMPTY_ROW` | Yes | `ignore_empty_row` | 1716 | Boolean conversion via `.lower() == 'true'`. Default `false`. Correct. |
-| 4 | `ENCODING` | Yes | `encoding` | 1717 | Extracted via `.get('value', 'UTF-8')`. **Default `'UTF-8'` differs from Talend default `'ISO-8859-15'`**. |
-| 5 | `DIE_ON_ERROR` | **No** | -- | -- | **Not extracted. Engine has no die_on_error handling.** |
-| 6 | `TSTATCATCHER_STATS` | **No** | -- | -- | Not extracted (low priority -- tStatCatcher rarely used). |
-| 7 | `LABEL` | **No** | -- | -- | Not extracted (cosmetic -- no runtime impact). |
-| 8 | `PROPERTY_TYPE` | No | -- | -- | Not needed (always Built-In in converted jobs). |
+| # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
+|----|----------------------|------------|---------------|-------|
+| 1 | `FILENAME` | Yes | `filename` | Quote-stripped, null-safe. |
+| 2 | `ROWSEPARATOR` | Yes | `row_separator` | Default `\n`. Engine-gap: custom row separators not yet implemented in engine. |
+| 3 | `IGNORE_EMPTY_ROW` | Yes | `ignore_empty_row` | Boolean. Default `false`. |
+| 4 | `ENCODING` | Yes | `encoding` | Default `ISO-8859-15` -- matches Talend. |
+| 5 | `DIE_ON_ERROR` | Yes | `die_on_error` | Boolean. Default `false`. |
+| 6 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Not needed at runtime. |
+| 7 | `LABEL` | Yes | `label` | Not needed at runtime (cosmetic). |
 
-**Summary**: 4 of 6 runtime-relevant parameters extracted (67%). 1 runtime-relevant parameter missing (`DIE_ON_ERROR`).
+**Summary**: 7 of 7 parameters extracted (100%). All runtime-relevant parameters correctly mapped. ENCODING default corrected to ISO-8859-15.
+
+> **Factual correction (2026-03-25)**: The original audit stated the ENCODING default was `UTF-8`. Talend's actual default for tFileRowCount is `ISO-8859-15`. The `talend_to_v1` converter now uses the correct default.
 
 ### 4.2 Schema Extraction
 
@@ -183,11 +184,11 @@ The converter uses a **dedicated parser method** (`parse_tfile_row_count()` in `
 
 | ID | Priority | Issue |
 |----|----------|-------|
-| CONV-FRC-005 | **P0** | **Converter crashes with `AttributeError` on missing XML elements**: All 4 `.find(...).get(...)` calls at lines 1710-1717 have no null checks. If any `elementParameter` node is absent from the XML (e.g., `FILENAME`, `ROWSEPARATOR`, `IGNORE_EMPTY_ROW`, `ENCODING`), `.find()` returns `None` and the subsequent `.get('value', ...)` raises `AttributeError: 'NoneType' object has no attribute 'get'`. This crashes the entire conversion pipeline for any Talend job where the XML omits a parameter (which is valid -- Talend uses defaults for missing nodes). Every call should use a guard: `elem = node.find(...); value = elem.get('value', default) if elem is not None else default`. |
-| CONV-FRC-001 | **P1** | **`DIE_ON_ERROR` not extracted**: The Talend `DIE_ON_ERROR` parameter is not parsed by `parse_tfile_row_count()`. The engine's `_process()` method has no `die_on_error` handling -- all errors are unconditionally raised (line 228-230). In Talend with `DIE_ON_ERROR=false`, errors should be captured in `{id}_ERROR_MESSAGE` and the job should continue. Without this parameter, any file error crashes the entire job regardless of the Talend configuration. |
-| CONV-FRC-002 | **P2** | **Default encoding mismatch**: Converter defaults `ENCODING` to `'UTF-8'` (line 1717), but Talend default is `'ISO-8859-15'`. If a Talend job does not explicitly set encoding, the converter writes `'UTF-8'`, which differs from Talend behavior. This can cause `UnicodeDecodeError` on files containing non-ASCII characters encoded in ISO-8859-15. |
-| CONV-FRC-006 | **P2** | **Encoding value retains surrounding quotes from XML**: Line 1717 does not strip quotes from the `ENCODING` value. Talend XML frequently stores encoding as `"\"UTF-8\""` (with embedded quotes), resulting in the converter producing `'"UTF-8"'` (a string with literal quote characters). Python's `open()` passes this to `codecs.lookup()`, which rejects `'"UTF-8"'` with `LookupError: unknown encoding: "UTF-8"`. The same quote-stripping logic applied to `ROWSEPARATOR` on lines 1713-1714 should be applied to `ENCODING`. |
-| CONV-FRC-003 | **P3** | **FILENAME not stripped of quotes**: Line 1710 extracts FILENAME with `.get('value', '')` but does not strip surrounding quotes. While Talend XML typically stores values without quotes, some jobs may have quoted file paths (e.g., `""/path/to/file""`). Compare with `row_separator` on lines 1713-1714 which does strip quotes. Inconsistent handling. |
+| CONV-FRC-005 | ~~P0~~ | **FIXED (2026-03-25)**: `talend_to_v1` parser uses `_get_str()`/`_get_bool()` helpers with null-safety. No `AttributeError` risk. |
+| CONV-FRC-001 | ~~P1~~ | **FIXED (2026-03-25)**: `DIE_ON_ERROR` now extracted as `die_on_error` with default `false`. |
+| CONV-FRC-002 | ~~P2~~ | **FIXED (2026-03-25)**: `ENCODING` default corrected to `ISO-8859-15`, matching Talend. |
+| CONV-FRC-006 | ~~P2~~ | **FIXED (2026-03-25)**: `talend_to_v1` parser uses `_get_str()` helper which handles quote stripping. |
+| CONV-FRC-003 | ~~P3~~ | **FIXED (2026-03-25)**: `talend_to_v1` parser uses `_get_str()` helper which handles quote stripping for FILENAME. |
 
 ---
 

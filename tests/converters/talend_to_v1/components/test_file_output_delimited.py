@@ -59,15 +59,14 @@ class TestBasicConversion:
         assert isinstance(result, ComponentResult)
         cfg = result.component["config"]
         assert cfg["filepath"] == ""
-        assert cfg["delimiter"] == ","
+        assert cfg["delimiter"] == ";"
         assert cfg["row_separator"] == "\\n"
-        assert cfg["encoding"] == "UTF-8"
+        assert cfg["encoding"] == "ISO-8859-15"
         assert cfg["text_enclosure"] is None
-        assert cfg["include_header"] is True
+        assert cfg["include_header"] is False
         assert cfg["append"] is False
         assert cfg["create_directory"] is True
-        assert cfg["delete_empty_file"] is True
-        assert cfg["die_on_error"] is False
+        assert cfg["delete_empty_file"] is False
         assert cfg["csv_option"] is False
 
     def test_all_params_mapped(self, converter):
@@ -83,7 +82,6 @@ class TestBasicConversion:
             "APPEND": "true",
             "CREATE": "false",
             "DELETE_EMPTYFILE": "false",
-            "DIE_ON_ERROR": "true",
         })
 
         result = converter.convert(node, [], {})
@@ -98,7 +96,6 @@ class TestBasicConversion:
         assert cfg["append"] is True
         assert cfg["create_directory"] is False
         assert cfg["delete_empty_file"] is False
-        assert cfg["die_on_error"] is True
         assert cfg["csv_option"] is True
 
     def test_component_structure(self, converter):
@@ -164,8 +161,7 @@ class TestWarnings:
         """An empty FILENAME should produce a warning."""
         node = _make_node()
         result = converter.convert(node, [], {})
-        assert len(result.warnings) == 1
-        assert "FILENAME" in result.warnings[0]
+        assert any("FILENAME" in w for w in result.warnings)
 
     def test_no_warning_when_filename_present(self, converter):
         """No warning when FILENAME is provided."""
@@ -244,3 +240,194 @@ class TestBooleanEdgeCases:
         cfg = result.component["config"]
         assert cfg["include_header"] is True
         assert cfg["append"] is False
+
+
+# ---------------------------------------------------------------------------
+# New parameters
+# ---------------------------------------------------------------------------
+
+class TestNewBooleanParams:
+
+    @pytest.mark.parametrize("xml_name,config_key,default", [
+        ("COMPRESS", "compress", False),
+        ("ADVANCED_SEPARATOR", "advanced_separator", False),
+        ("SPLIT", "split", False),
+        ("FLUSHONROW", "flush_on_row", False),
+        ("ROW_MODE", "row_mode", False),
+        ("FILE_EXIST_EXCEPTION", "file_exist_exception", False),
+        ("USESTREAM", "use_stream", False),
+        ("TSTATCATCHER_STATS", "tstatcatcher_stats", False),
+    ])
+    def test_bool_param_defaults(self, xml_name, config_key, default):
+        node = _make_node()
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        assert result.component["config"][config_key] is default
+
+    def test_os_line_separator_defaults_to_true(self):
+        node = _make_node()
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        assert result.component["config"]["os_line_separator"] is True
+
+    @pytest.mark.parametrize("xml_name,config_key", [
+        ("COMPRESS", "compress"),
+        ("ADVANCED_SEPARATOR", "advanced_separator"),
+        ("SPLIT", "split"),
+        ("FLUSHONROW", "flush_on_row"),
+        ("ROW_MODE", "row_mode"),
+        ("FILE_EXIST_EXCEPTION", "file_exist_exception"),
+        ("OS_LINE_SEPARATOR_AS_ROW_SEPARATOR", "os_line_separator"),
+        ("USESTREAM", "use_stream"),
+        ("TSTATCATCHER_STATS", "tstatcatcher_stats"),
+    ])
+    def test_bool_param_extracted_when_true(self, xml_name, config_key):
+        node = _make_node(params={xml_name: True})
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        assert result.component["config"][config_key] is True
+
+
+class TestNewStringIntParams:
+
+    def test_escape_char_default(self):
+        node = _make_node()
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        assert result.component["config"]["escape_char"] == ""
+
+    def test_escape_char_extracted(self):
+        node = _make_node(params={"ESCAPE_CHAR": '"\\\\"'})
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        assert result.component["config"]["escape_char"] == "\\\\"
+
+    def test_thousands_separator_default(self):
+        node = _make_node()
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        assert result.component["config"]["thousands_separator"] == ","
+
+    def test_decimal_separator_default(self):
+        node = _make_node()
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        assert result.component["config"]["decimal_separator"] == "."
+
+    def test_csv_row_separator_default(self):
+        node = _make_node()
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        assert result.component["config"]["csv_row_separator"] == "\\n"
+
+    def test_stream_name_default(self):
+        node = _make_node()
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        assert result.component["config"]["stream_name"] == ""
+
+    def test_label_default(self):
+        node = _make_node()
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        assert result.component["config"]["label"] == ""
+
+    def test_split_every_default(self):
+        node = _make_node()
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        assert result.component["config"]["split_every"] == 1000
+
+    def test_flush_row_count_default(self):
+        node = _make_node()
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        assert result.component["config"]["flush_row_count"] == 1
+
+    def test_split_every_extracted(self):
+        node = _make_node(params={"SPLIT_EVERY": "500"})
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        assert result.component["config"]["split_every"] == 500
+
+    def test_flush_row_count_extracted(self):
+        node = _make_node(params={"FLUSHONROW_NUM": "100"})
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        assert result.component["config"]["flush_row_count"] == 100
+
+
+# ---------------------------------------------------------------------------
+# Engine-gap warnings
+# ---------------------------------------------------------------------------
+
+class TestEngineGapWarnings:
+
+    def test_no_engine_warnings_for_defaults(self):
+        node = _make_node(params={"FILENAME": '"/data/out.csv"'})
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        engine_warnings = [w for w in result.warnings if "engine" in w.lower()]
+        assert engine_warnings == []
+
+    @pytest.mark.parametrize("xml_name,expected_substring", [
+        ("COMPRESS", "COMPRESS"),
+        ("SPLIT", "SPLIT"),
+        ("USESTREAM", "USESTREAM"),
+        ("ROW_MODE", "ROW_MODE"),
+        ("FILE_EXIST_EXCEPTION", "FILE_EXIST_EXCEPTION"),
+        ("FLUSHONROW", "FLUSHONROW"),
+        ("ADVANCED_SEPARATOR", "ADVANCED_SEPARATOR"),
+    ])
+    def test_warning_when_param_enabled(self, xml_name, expected_substring):
+        node = _make_node(params={"FILENAME": '"/data/out.csv"', xml_name: True})
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        assert any(expected_substring in w for w in result.warnings)
+
+    def test_warning_when_os_line_separator_disabled(self):
+        node = _make_node(params={
+            "FILENAME": '"/data/out.csv"',
+            "OS_LINE_SEPARATOR_AS_ROW_SEPARATOR": False,
+        })
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        assert any("OS_LINE_SEPARATOR" in w for w in result.warnings)
+
+    def test_warning_when_csv_row_separator_differs(self):
+        node = _make_node(params={
+            "FILENAME": '"/data/out.csv"',
+            "CSVROWSEPARATOR": '"\\r\\n"',
+            "ROWSEPARATOR": '"\\n"',
+        })
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        assert any("CSVROWSEPARATOR" in w for w in result.warnings)
+
+    def test_warning_when_escape_char_differs(self):
+        node = _make_node(params={
+            "FILENAME": '"/data/out.csv"',
+            "CSV_OPTION": "true",
+            "ESCAPE_CHAR": '"|"',
+        })
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        assert any("ESCAPE_CHAR" in w for w in result.warnings)
+
+    def test_die_on_error_not_in_config(self):
+        node = _make_node(params={"FILENAME": '"/data/out.csv"'})
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        assert "die_on_error" not in result.component["config"]
+
+
+# ---------------------------------------------------------------------------
+# Component completeness
+# ---------------------------------------------------------------------------
+
+class TestComponentCompleteness:
+
+    def test_all_27_config_keys_present(self):
+        node = _make_node()
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        cfg = result.component["config"]
+        expected_keys = {
+            "filepath", "delimiter", "row_separator", "encoding",
+            "text_enclosure", "include_header", "append", "create_directory",
+            "delete_empty_file", "csv_option",
+            "escape_char", "compress",
+            "advanced_separator", "thousands_separator", "decimal_separator",
+            "csv_row_separator",
+            "split", "split_every",
+            "flush_on_row", "flush_row_count", "row_mode",
+            "file_exist_exception", "os_line_separator",
+            "use_stream", "stream_name",
+            "tstatcatcher_stats", "label",
+        }
+        assert set(cfg.keys()) == expected_keys
+
+    def test_die_on_error_absent(self):
+        """DIE_ON_ERROR must NOT be in config keys."""
+        node = _make_node()
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        assert "die_on_error" not in result.component["config"]

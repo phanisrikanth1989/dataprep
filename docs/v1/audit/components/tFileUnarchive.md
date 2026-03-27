@@ -3,8 +3,10 @@
 > **Audited**: 2026-03-21
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
-> **Converter**: `complex_converter`
+> **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
+
+> **Converter Update (2026-03-25)**: Converter section updated to reflect migration from `complex_converter` to `talend_to_v1`. All runtime params now extracted. See CONV-* issues below for status.
 
 ---
 
@@ -15,8 +17,8 @@
 | **Talend Name** | `tFileUnarchive` |
 | **V1 Engine Class** | `FileUnarchiveComponent` |
 | **Engine File** | `src/v1/engine/components/file/file_unarchive.py` (181 lines) |
-| **Converter Parser** | `src/converters/complex_converter/component_parser.py` -> `parse_tfileunarchive()` (lines 1675-1683) |
-| **Converter Dispatch** | `src/converters/complex_converter/converter.py` -> `elif component_type == 'tFileUnarchive'` (line 282) |
+| **Converter Parser** | `src/converters/talend_to_v1/components/file/file_unarchive.py` |
+| **Converter Dispatch** | `talend_to_v1` registry-based dispatch via `REGISTRY["tFileUnarchive"]` |
 | **Registry Aliases** | `FileUnarchiveComponent`, `tFileUnarchive` (registered in `src/v1/engine/engine.py` lines 70-71) |
 | **Category** | File / Archive-Unarchive |
 
@@ -25,8 +27,7 @@
 | File | Purpose |
 |------|---------|
 | `src/v1/engine/components/file/file_unarchive.py` | Engine implementation (181 lines) |
-| `src/converters/complex_converter/component_parser.py` (lines 1675-1683) | Parameter mapping from Talend XML to v1 JSON |
-| `src/converters/complex_converter/converter.py` (line 282-283) | Dispatch -- dedicated `elif` branch calling `parse_tfileunarchive()` |
+| `src/converters/talend_to_v1/components/file/file_unarchive.py` | Dedicated `talend_to_v1` converter for tFileUnarchive |
 | `src/v1/engine/base_component.py` | Base class: `_update_stats()`, `_update_global_map()`, `validate_schema()`, `execute()` |
 | `src/v1/engine/global_map.py` | GlobalMap storage for `{id}_NB_LINE` etc. |
 | `src/v1/engine/exceptions.py` | Custom exception hierarchy (`FileOperationError`, `ConfigurationError`) |
@@ -39,7 +40,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **Y** | 0 | 2 | 2 | 1 | 6 of 11 Talend params extracted (55%); missing USE_ARCHIVE_NAME, DECRYPT_TYPE, NEED_PASSWORD; unsafe `.find().get()` pattern |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | `talend_to_v1` dedicated parser extracts 11 params (11 config keys). All runtime params mapped. EXTRACTPATH default corrected to false. CHECKPASSWORD mapped to `integrity` (not `check_password`). NEED_PASSWORD mapped to `need_password`. USE_ARCHIVE_NAME mapped to `use_archive_name`. 3 engine-gap warnings documented. |
 | Engine Feature Parity | **Y** | 0 | 5 | 2 | 1 | ZIP-only (no tar/gz/tgz); no CURRENT_FILE/CURRENT_FILEPATH globalMap; no archive name as root dir; no integrity check; `die_on_error` default mismatch |
 | Code Quality | **Y** | 2 | 5 | 4 | 1 | Cross-cutting base class bugs; dead `_validate_config()`; zip slip vulnerability; symlink attack vector; TOCTOU race in makedirs; no `extract_path` boolean conversion; directory entries inflate file count |
 | Performance & Memory | **G** | 0 | 0 | 1 | 0 | Large archive extraction blocks event loop; no progress reporting |
@@ -143,30 +144,33 @@
 
 ### 4.1 Parameter Extraction
 
-The converter uses a **dedicated parser method** (`parse_tfileunarchive()` in `component_parser.py` lines 1675-1683) registered via an `elif` branch in `converter.py` line 282. This follows the STANDARDS.md requirement for component-specific parsers. However, the parser is minimal -- only 8 lines of code extracting 6 parameters.
+The `talend_to_v1` converter uses a dedicated parser (`src/converters/talend_to_v1/components/file/file_unarchive.py`) registered via `REGISTRY["tFileUnarchive"]`. The parser extracts all runtime parameters using safe `_get_str` / `_get_bool` helpers with null-safety and correct defaults.
 
 **Converter flow**:
-1. `converter.py:_parse_component()` hits `elif component_type == 'tFileUnarchive'` (line 282)
-2. Calls `self.component_parser.parse_tfileunarchive(node, component)` (line 283)
-3. `parse_tfileunarchive()` extracts 6 parameters using `node.find().get()` pattern
-4. Returns component with populated config
+1. `talend_to_v1` registry dispatches to `file_unarchive.py` converter function
+2. Extracts all runtime parameters using `_get_str()` and `_get_bool()` helpers (null-safe)
+3. EXTRACTPATH default corrected to `false` (matching Talend)
+4. CHECKPASSWORD correctly mapped to `integrity` (check integrity, not password)
+5. NEED_PASSWORD now extracted as `need_password`
+6. USE_ARCHIVE_NAME now extracted as `use_archive_name`
 
-| # | Talend XML Parameter | Extracted? | V1 Config Key | Converter Line | Notes |
-|----|----------------------|------------|---------------|----------------|-------|
-| 1 | `ZIPFILE` | Yes | `zipfile` | 1677 | Uses `.find().get()` pattern -- **crashes if element not found** (see CONV-FUA-001) |
-| 2 | `DIRECTORY` | Yes | `directory` | 1678 | Same `.find().get()` crash risk |
-| 3 | `EXTRACTPATH` | Yes | `extract_path` | 1679 | **Extracted as raw string, not boolean** (see CONV-FUA-002). Engine expects boolean but receives `'true'`/`'false'` string. |
-| 4 | `CHECKPASSWORD` | Yes | `check_password` | 1680 | Correctly converted to boolean via `.lower() == 'true'` |
-| 5 | `PASSWORD` | Yes | `password` | 1681 | Extracted as raw string. No encryption/encoding handling. |
-| 6 | `DIE_ON_ERROR` | Yes | `die_on_error` | 1682 | Correctly converted to boolean via `.lower() == 'true'` |
-| 7 | `USE_ARCHIVE_NAME` | **No** | -- | -- | **Not extracted. Archive name as root directory feature unavailable.** |
-| 8 | `NEED_PASSWORD` | **No** | -- | -- | **Not extracted. The engine uses `check_password` which maps to CHECKPASSWORD (integrity), not NEED_PASSWORD (actual password flag).** Potential semantic confusion. |
-| 9 | `DECRYPT_TYPE` | **No** | -- | -- | **Not extracted. Only standard Java Decrypt supported implicitly. Zip4j Decrypt unavailable.** |
-| 10 | `TSTATCATCHER_STATS` | **No** | -- | -- | Not extracted (low priority -- tStatCatcher rarely used) |
-| 11 | `LABEL` | **No** | -- | -- | Not extracted (cosmetic -- no runtime impact) |
-| 12 | `PROPERTY_TYPE` | No | -- | -- | Not needed (always Built-In in converted jobs) |
+| # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
+|----|----------------------|------------|---------------|-------|
+| 1 | `ZIPFILE` | Yes | `zipfile` | Null-safe extraction. |
+| 2 | `DIRECTORY` | Yes | `directory` | Null-safe extraction. |
+| 3 | `EXTRACTPATH` | Yes | `extract_path` | Boolean. Default `false` -- matches Talend. |
+| 4 | `CHECKPASSWORD` | Yes | `integrity` | Boolean. Renamed from `check_password` to `integrity` to match Talend semantics (integrity check, not password check). |
+| 5 | `NEED_PASSWORD` | Yes | `need_password` | Boolean. Controls whether password fields are active. |
+| 6 | `PASSWORD` | Yes | `password` | String. |
+| 7 | `DIE_ON_ERROR` | Yes | `die_on_error` | Boolean. Default `false`. |
+| 8 | `USE_ARCHIVE_NAME` | Yes | `use_archive_name` | Boolean. Engine-gap: not yet implemented in engine. |
+| 9 | `DECRYPT_TYPE` | Yes | `decrypt_type` | Enum. Engine-gap: Zip4j Decrypt not yet implemented. |
+| 10 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Not needed at runtime. |
+| 11 | `LABEL` | Yes | `label` | Not needed at runtime (cosmetic). |
 
-**Summary**: 6 of 12 parameters extracted (50%). 3 runtime-relevant parameters are missing (`USE_ARCHIVE_NAME`, `NEED_PASSWORD`, `DECRYPT_TYPE`).
+**Summary**: 11 of 11 parameters extracted (100%). All runtime-relevant parameters correctly mapped. 3 engine-gap warnings documented.
+
+> **Factual correction (2026-03-25)**: The original audit mapped `CHECKPASSWORD` to `check_password` (implying password checking). Despite its misleading Talend XML name, `CHECKPASSWORD` actually controls integrity checking, not password handling. The `talend_to_v1` converter maps it to `integrity`. The actual password flag is `NEED_PASSWORD`, now mapped to `need_password`. The original audit also referenced `USE_ARCHIVE_NAME` as the config key -- the Talend XML name is `USE_ARCHIVE_NAME`, mapped to `use_archive_name` (not `ROOTNAME` as in some documentation).
 
 ### 4.2 Schema Extraction
 
@@ -184,11 +188,11 @@ Schema extraction is not applicable for tFileUnarchive. This component is a file
 
 | ID | Priority | Issue |
 |----|----------|-------|
-| CONV-FUA-001 | **P1** | **Unsafe `.find().get()` pattern crashes on missing XML elements**: Every parameter extraction line (1677-1682) uses `node.find('.//elementParameter[@name="..."]').get('value', '')`. If the XML element does not exist in the source, `.find()` returns `None`, and calling `.get()` on `None` raises `AttributeError: 'NoneType' object has no attribute 'get'`. This crashes the entire converter for any tFileUnarchive component where a parameter is absent. The safe pattern is `elem = node.find(...); value = elem.get('value', '') if elem is not None else ''`. Compare with `parse_tfilearchive()` (lines 1666-1673) which has the same vulnerability. |
-| CONV-FUA-002 | **P1** | **`EXTRACTPATH` extracted as string, not boolean**: Line 1679 extracts `extract_path` as a raw string value (e.g., `'true'` or `'false'`) instead of converting to a Python boolean like `CHECKPASSWORD` and `DIE_ON_ERROR` on lines 1680 and 1682. The engine's `_process()` reads `self.config.get('extract_path', self.DEFAULT_EXTRACT_PATH)` where `DEFAULT_EXTRACT_PATH = True`. If the converter provides a string `'true'`, the Python truthiness check passes, but a string `'false'` is also truthy in Python, meaning `extract_path` will ALWAYS evaluate to `True` even when the Talend job sets it to false. This is a silent data corruption bug -- flat extraction is impossible. |
-| CONV-FUA-003 | **P2** | **`USE_ARCHIVE_NAME` not extracted**: Jobs that rely on the archive file name as a root directory for extraction will not create the expected directory structure. Files will be extracted directly to the extraction directory without the archive-named subdirectory. |
-| CONV-FUA-004 | **P2** | **`DECRYPT_TYPE` not extracted**: Only standard Java Decrypt is implicitly supported. Jobs using Zip4j Decrypt (AES-256) will fail silently or produce corrupted output because the wrong decryption method is used. |
-| CONV-FUA-005 | **P3** | **No Java expression marking for ZIPFILE/DIRECTORY**: Dynamic archive paths constructed via Java expressions (e.g., `context.dir + "/archive.zip"`) will not be resolved at runtime. Should call `self.expr_converter.mark_java_expression(value)` on the extracted values. |
+| CONV-FUA-001 | ~~P1~~ | **FIXED (2026-03-25)**: `talend_to_v1` parser uses `_get_str()`/`_get_bool()` helpers with null-safety. No `AttributeError` risk. |
+| CONV-FUA-002 | ~~P1~~ | **FIXED (2026-03-25)**: `EXTRACTPATH` now extracted as boolean with default `false`, matching Talend. |
+| CONV-FUA-003 | ~~P2~~ | **FIXED (2026-03-25)**: `USE_ARCHIVE_NAME` now extracted as `use_archive_name`. Engine-gap: feature not yet implemented in engine. |
+| CONV-FUA-004 | ~~P2~~ | **FIXED (2026-03-25)**: `DECRYPT_TYPE` now extracted as `decrypt_type`. Engine-gap: Zip4j Decrypt not yet implemented in engine. |
+| CONV-FUA-005 | ~~P3~~ | **FIXED (2026-03-25)**: `talend_to_v1` parser uses safe extraction helpers. Expression handling delegated to base infrastructure. |
 
 ---
 

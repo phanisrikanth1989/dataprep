@@ -30,9 +30,8 @@ class FileUnarchiveConverter(ComponentConverter):
         # --- Extract config parameters ---
         zipfile = self._get_str(node, "ZIPFILE")
         directory = self._get_str(node, "DIRECTORY")
-        # Engine expects extract_path as bool (preserve directory structure)
-        extract_path = self._get_bool(node, "EXTRACTPATH", True)
-        check_password = self._get_bool(node, "CHECKPASSWORD")
+        extract_path = self._get_bool(node, "EXTRACTPATH", False)
+        need_password = self._get_bool(node, "CHECKPASSWORD")
         password = self._get_str(node, "PASSWORD")
         die_on_error = self._get_bool(node, "DIE_ON_ERROR")
 
@@ -41,9 +40,9 @@ class FileUnarchiveConverter(ComponentConverter):
             warnings.append("ZIPFILE is empty — this is a required parameter")
         if not directory:
             warnings.append("DIRECTORY is empty — this is a required parameter")
-        if check_password and not password:
+        if need_password and not password:
             warnings.append(
-                "CHECKPASSWORD is true but PASSWORD is empty"
+                "need_password is true but PASSWORD is empty"
             )
 
         # --- Build config dict ---
@@ -51,10 +50,34 @@ class FileUnarchiveConverter(ComponentConverter):
             "zipfile": zipfile,
             "directory": directory,
             "extract_path": extract_path,
-            "check_password": check_password,
+            "need_password": need_password,
             "password": password,
             "die_on_error": die_on_error,
+            # New params
+            "rootname": self._get_bool(node, "ROOTNAME", False),
+            "integrity": self._get_bool(node, "INTEGRITY", False),
+            "decrypt_type": self._get_str(node, "DECRYPT_TYPE"),
+            # Metadata
+            "tstatcatcher_stats": self._get_bool(node, "TSTATCATCHER_STATS", False),
+            "label": self._get_str(node, "LABEL"),
         }
+
+        # --- Engine-gap warnings ---
+        if config["integrity"]:
+            warnings.append(
+                "INTEGRITY=true: engine does not check archive integrity "
+                "before extraction"
+            )
+        if config["rootname"]:
+            warnings.append(
+                "ROOTNAME=true: engine does not create archive-named "
+                "subdirectory during extraction"
+            )
+        if config["decrypt_type"]:
+            warnings.append(
+                f"DECRYPT_TYPE={config['decrypt_type']}: engine only supports "
+                "basic zipfile password, not Zip4j"
+            )
 
         component = self._build_component_dict(
             node=node,

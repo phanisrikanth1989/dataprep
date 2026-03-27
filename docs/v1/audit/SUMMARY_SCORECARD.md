@@ -3,13 +3,13 @@
 ## Overview
 
 **Total components audited:** 54
-**Total issues found (raw):** 2,051
-**Estimated unique issues:** ~1,750-1,850 (after deducting cross-cutting duplicates)
-**Overall assessment:** NOT PRODUCTION-READY. The v1 engine has systemic quality gaps across all 54 components. Cross-cutting base class bugs affect every component. Zero components have adequate test coverage. 20 components are rated RED (broken/blocks production), 33 are rated YELLOW (works partially with gaps), and 1 is rated RED/YELLOW (borderline). No component achieved an overall GREEN rating.
+**Total issues found (raw):** 2,015
+**Estimated unique issues:** ~1,720-1,820 (after deducting cross-cutting duplicates)
+**Overall assessment:** NOT PRODUCTION-READY. The v1 engine has systemic quality gaps across all 54 components. Cross-cutting base class bugs affect every component. Zero components have adequate test coverage. 18 components are rated RED (broken/blocks production), 35 are rated YELLOW (works partially with gaps), and 1 is rated RED/YELLOW (borderline). No component achieved an overall GREEN rating.
 
 ### Important Note on Issue Counts
 
-The raw count of 2,051 includes **cross-cutting issues that are counted in every component report**. The same underlying bug appears as a separate issue ID in each affected report (e.g., `BUG-FID-001`, `BUG-FOD-001`, `BUG-MAP-001` are all the same `_update_global_map()` crash). This is intentional — each report is self-contained so developers working on a specific component see all issues relevant to them.
+The raw count of 2,015 includes **cross-cutting issues that are counted in every component report**. The same underlying bug appears as a separate issue ID in each affected report (e.g., `BUG-FID-001`, `BUG-FOD-001`, `BUG-MAP-001` are all the same `_update_global_map()` crash). This is intentional — each report is self-contained so developers working on a specific component see all issues relevant to them.
 
 **Cross-cutting duplicates (~200-250 entries from ~15-20 unique bugs):**
 
@@ -35,8 +35,8 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 
 | # | Component | Overall | Converter | Engine | Code Quality | Performance | Testing | P0 | P1 | P2 | P3 | Total |
 |---|-----------|---------|-----------|--------|-------------|-------------|---------|----|----|----|----|-------|
-| 1 | tFileInputDelimited | Y | Y | Y | Y | G | R | 3 | 13 | 17 | 7 | 40 |
-| 2 | tFileOutputDelimited | Y | Y | Y | Y | G | R | 3 | 17 | 17 | 10 | 47 |
+| 1 | tFileInputDelimited | Y | G | Y | Y | G | R | 2 | 12 | 17 | 7 | 38 |
+| 2 | tFileOutputDelimited | Y | G | Y | Y | G | R | 2 | 16 | 17 | 10 | 45 |
 | 3 | tFileInputExcel | Y | G | Y | Y | G | R | 5 | 12 | 21 | 11 | 49 |
 | 4 | tFileOutputExcel | Y | Y | Y | Y | Y | R | 4 | 14 | 19 | 7 | 44 |
 | 5 | tFileInputJSON | Y | Y | Y | Y | G | R | 4 | 16 | 17 | 7 | 44 |
@@ -47,19 +47,19 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 10 | tFileInputRaw | Y | Y | Y | R | Y | R | 4 | 11 | 11 | 7 | 33 |
 | 11 | tRowGenerator | R | Y | Y | R | Y | R | 5 | 14 | 12 | 6 | 37 |
 | 12 | tFixedFlowInput | Y | Y | Y | Y | G | R | 4 | 15 | 14 | 7 | 40 |
-| 13 | tFileArchive | Y | Y | Y | Y | G | R | 3 | 10 | 17 | 9 | 39 |
-| 14 | tFileUnarchive | Y | Y | Y | Y | G | R | 3 | 14 | 14 | 3 | 34 |
-| 15 | tFileCopy | R | R | Y | Y | G | R | 4 | 11 | 15 | 6 | 36 |
-| 16 | tFileDelete | Y | Y | Y | Y | G | R | 3 | 12 | 11 | 6 | 32 |
+| 13 | tFileArchive | Y | G | Y | Y | G | R | 2 | 8 | 17 | 9 | 36 |
+| 14 | tFileUnarchive | Y | G | Y | Y | G | R | 2 | 12 | 14 | 3 | 31 |
+| 15 | tFileCopy | Y | G | Y | Y | G | R | 2 | 9 | 15 | 6 | 32 |
+| 16 | tFileDelete | Y | G | Y | Y | G | R | 2 | 10 | 11 | 6 | 29 |
 | 17 | tFileExist | Y | Y | Y | Y | G | R | 6 | 11 | 7 | 3 | 27 |
-| 18 | tFileProperties | Y | G | Y | Y | Y | R | 3 | 8 | 14 | 8 | 33 |
-| 19 | tFileRowCount | R | R | Y | Y | G | R | 4 | 12 | 11 | 7 | 34 |
-| 20 | tFileTouch | Y | Y | Y | Y | G | R | 3 | 7 | 5 | 7 | 22 |
-| 21 | tFilterRow | R | Y | R | R | Y | R | 6 | 19 | 19 | 6 | 50 |
+| 18 | tFileProperties | Y | G | Y | Y | Y | R | 2 | 6 | 14 | 8 | 30 |
+| 19 | tFileRowCount | Y | G | Y | Y | G | R | 2 | 10 | 11 | 7 | 30 |
+| 20 | tFileTouch | Y | G | Y | Y | G | R | 2 | 5 | 5 | 7 | 19 |
+| 21 | tFilterRow | R | G | R | R | Y | R | 5 | 18 | 19 | 6 | 48 |
 | 22 | tFilterColumns | Y | Y | Y | Y | G | R | 3 | 14 | 8 | 6 | 31 |
 | 23 | tSortRow | R | Y | Y | R | Y | R | 4 | 15 | 17 | 8 | 44 |
 | 24 | tUniqueRow | Y | Y | Y | Y | G | R | 4 | 10 | 21 | 11 | 46 |
-| 25 | tMap | Y | Y | Y | Y | Y | R | 6 | 14 | 21 | 10 | 51 |
+| 25 | tMap | Y | G | Y | Y | Y | R | 5 | 11 | 19 | 9 | 44 |
 | 26 | tJoin | Y | Y | Y | Y | G | R | 6 | 12 | 13 | 5 | 36 |
 | 27 | tNormalize | R | G | Y | R | R | R | 5 | 9 | 11 | 4 | 29 |
 | 28 | tDenormalize | Y | Y | Y | Y | G | R | 3 | 9 | 9 | 7 | 28 |
@@ -98,16 +98,16 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 
 | Rating | Count | Percentage |
 |--------|-------|------------|
-| **R** (Red -- blocks production) | 20 | 37.0% |
+| **R** (Red -- blocks production) | 18 | 33.3% |
 | **R/Y** (Borderline) | 1 | 1.9% |
-| **Y** (Yellow -- partial, gaps exist) | 33 | 61.1% |
+| **Y** (Yellow -- partial, gaps exist) | 35 | 64.8% |
 | **G** (Green -- production-ready) | 0 | 0.0% |
 
 ### Per-Dimension Rating Distribution
 
 | Dimension | Red | Yellow | Green | N/A |
 |-----------|-----|--------|-------|-----|
-| Converter | 8 | 40 | 5 | 1 |
+| Converter | 6 | 32 | 15 | 1 |
 | Engine | 6 | 48 | 0 | 0 |
 | Code Quality | 16 | 38 | 0 | 0 |
 | Performance | 5 | 22 | 27 | 0 |
@@ -121,11 +121,11 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 
 | Priority | Total Issues | Percentage | Description |
 |----------|-------------|------------|-------------|
-| **P0** (Critical) | 234 | 11.4% | Blocks production use or causes data corruption/silent failures |
-| **P1** (Major) | 662 | 32.3% | Significant functional gap or behavioral divergence from Talend |
-| **P2** (Moderate) | 796 | 38.8% | Missing feature, code quality concern, or non-standard practice |
-| **P3** (Low) | 359 | 17.5% | Minor improvement, cosmetic issue, or rarely-used feature gap |
-| **Total** | **2,051** | -- | -- |
+| **P0** (Critical) | 221 | 11.0% | Blocks production use or causes data corruption/silent failures |
+| **P1** (Major) | 642 | 31.9% | Significant functional gap or behavioral divergence from Talend |
+| **P2** (Moderate) | 794 | 39.4% | Missing feature, code quality concern, or non-standard practice |
+| **P3** (Low) | 358 | 17.8% | Minor improvement, cosmetic issue, or rarely-used feature gap |
+| **Total** | **2,015** | -- | -- |
 
 ---
 
@@ -136,13 +136,13 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 1 | tAggregateRow | 8 | 13 | 17 | 11 | 49 | Y |
 | 2 | tSchemaComplianceCheck | 8 | 13 | 16 | 7 | 44 | R |
 | 3 | tPivotToColumnsDelimited | 7 | 15 | 22 | 6 | 50 | R |
-| 4 | tMap | 6 | 14 | 21 | 10 | 51 | Y |
-| 5 | tFilterRow | 6 | 19 | 19 | 6 | 50 | R |
-| 6 | tJavaRow | 6 | 14 | 17 | 9 | 46 | Y |
-| 7 | tUnpivotRow | 6 | 14 | 18 | 7 | 45 | R |
-| 8 | tJoin | 6 | 12 | 13 | 5 | 36 | Y |
-| 9 | tFileExist | 6 | 11 | 7 | 3 | 27 | Y |
-| 10 | tUnite | 6 | 7 | 8 | 4 | 25 | R |
+| 4 | tJavaRow | 6 | 14 | 17 | 9 | 46 | Y |
+| 5 | tUnpivotRow | 6 | 14 | 18 | 7 | 45 | R |
+| 6 | tJoin | 6 | 12 | 13 | 5 | 36 | Y |
+| 7 | tFileExist | 6 | 11 | 7 | 3 | 27 | Y |
+| 8 | tUnite | 6 | 7 | 8 | 4 | 25 | R |
+| 9 | tMap | 5 | 11 | 19 | 9 | 44 | Y |
+| 10 | tFilterRow | 5 | 18 | 19 | 6 | 48 | R |
 
 ---
 
@@ -176,8 +176,8 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis (to be cre
 
 | # | Component | Overall | P0 | P1 | P2 | P3 | Total |
 |---|-----------|---------|----|----|----|----|-------|
-| 1 | tFileInputDelimited | Y | 3 | 13 | 17 | 7 | 40 |
-| 2 | tFileOutputDelimited | Y | 3 | 17 | 17 | 10 | 47 |
+| 1 | tFileInputDelimited | Y | 2 | 12 | 17 | 7 | 38 |
+| 2 | tFileOutputDelimited | Y | 2 | 16 | 17 | 10 | 45 |
 | 3 | tFileInputExcel | Y | 5 | 12 | 21 | 11 | 49 |
 | 4 | tFileOutputExcel | Y | 4 | 14 | 19 | 7 | 44 |
 | 5 | tFileInputJSON | Y | 4 | 16 | 17 | 7 | 44 |
@@ -188,26 +188,26 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis (to be cre
 | 10 | tFileInputRaw | Y | 4 | 11 | 11 | 7 | 33 |
 | 11 | tRowGenerator | R | 5 | 14 | 12 | 6 | 37 |
 | 12 | tFixedFlowInput | Y | 4 | 15 | 14 | 7 | 40 |
-| 13 | tFileArchive | Y | 3 | 10 | 17 | 9 | 39 |
-| 14 | tFileUnarchive | Y | 3 | 14 | 14 | 3 | 34 |
-| 15 | tFileCopy | R | 4 | 11 | 15 | 6 | 36 |
-| 16 | tFileDelete | Y | 3 | 12 | 11 | 6 | 32 |
+| 13 | tFileArchive | Y | 2 | 8 | 17 | 9 | 36 |
+| 14 | tFileUnarchive | Y | 2 | 12 | 14 | 3 | 31 |
+| 15 | tFileCopy | Y | 2 | 9 | 15 | 6 | 32 |
+| 16 | tFileDelete | Y | 2 | 10 | 11 | 6 | 29 |
 | 17 | tFileExist | Y | 6 | 11 | 7 | 3 | 27 |
-| 18 | tFileProperties | Y | 3 | 8 | 14 | 8 | 33 |
-| 19 | tFileRowCount | R | 4 | 12 | 11 | 7 | 34 |
-| 20 | tFileTouch | Y | 3 | 7 | 5 | 7 | 22 |
+| 18 | tFileProperties | Y | 2 | 6 | 14 | 8 | 30 |
+| 19 | tFileRowCount | Y | 2 | 10 | 11 | 7 | 30 |
+| 20 | tFileTouch | Y | 2 | 5 | 5 | 7 | 19 |
 
-**Category summary:** 6 Red, 14 Yellow, 0 Green. Total issues: 771.
+**Category summary:** 4 Red, 16 Yellow, 0 Green. Total issues: 744.
 
 ### Transform Components (21)
 
 | # | Component | Overall | P0 | P1 | P2 | P3 | Total |
 |---|-----------|---------|----|----|----|----|-------|
-| 1 | tFilterRow | R | 6 | 19 | 19 | 6 | 50 |
+| 1 | tFilterRow | R | 5 | 18 | 19 | 6 | 48 |
 | 2 | tFilterColumns | Y | 3 | 14 | 8 | 6 | 31 |
 | 3 | tSortRow | R | 4 | 15 | 17 | 8 | 44 |
 | 4 | tUniqueRow | Y | 4 | 10 | 21 | 11 | 46 |
-| 5 | tMap | Y | 6 | 14 | 21 | 10 | 51 |
+| 5 | tMap | Y | 5 | 11 | 19 | 9 | 44 |
 | 6 | tJoin | Y | 6 | 12 | 13 | 5 | 36 |
 | 7 | tNormalize | R | 5 | 9 | 11 | 4 | 29 |
 | 8 | tDenormalize | Y | 3 | 9 | 9 | 7 | 28 |
@@ -225,7 +225,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis (to be cre
 | 20 | SwiftTransformer | R/Y | 5 | 7 | 17 | 8 | 37 |
 | 21 | SwiftBlockFormatter | Y | 3 | 10 | 16 | 9 | 38 |
 
-**Category summary:** 10 Red (incl. 1 R/Y), 11 Yellow, 0 Green. Total issues: 835.
+**Category summary:** 10 Red (incl. 1 R/Y), 11 Yellow, 0 Green. Total issues: 826.
 
 ### Aggregate Components (2)
 
@@ -287,8 +287,8 @@ This is the only component with every dimension rated RED. Type validation is br
 ### 5. Security vulnerabilities in code execution components
 Multiple components use `exec()` or `eval()` without sandboxing: PythonComponent, PythonRowComponent, PythonDataFrameComponent, tFixedFlowInput, tFilterRow (advanced mode), and tSetGlobalVar. No `__builtins__` restriction is applied.
 
-### 6. Converter crashes block 5 components entirely
-tFileCopy, tFileRowCount, PythonComponent, PythonRowComponent, and SwiftTransformer have converter-level crashes (P0) that prevent the component from being instantiated at all. These components cannot process any job until the converter is fixed.
+### 6. Converter crashes block 3 components entirely
+PythonComponent, PythonRowComponent, and SwiftTransformer have converter-level crashes (P0) that prevent the component from being instantiated at all. These components cannot process any job until the converter is fixed. (tFileCopy and tFileRowCount converter crashes have been fixed.)
 
 ### 7. No REJECT flow implementation across the engine
 Virtually no component implements the Talend REJECT output flow pattern. Error rows are silently dropped rather than being routed to error-handling paths. This is a fundamental behavioral gap compared to Talend.
@@ -314,7 +314,7 @@ The v1 engine cannot be deployed to production in its current state. The assessm
 
 2. **Zero test coverage**: No component has any meaningful test verification. Deploying untested code to production is unacceptable for an ETL engine where data integrity is paramount.
 
-3. **234 P0 (Critical) issues**: There are 234 issues classified as P0 across 54 components, averaging 4.3 critical bugs per component. These include crashes, data corruption, and silent failures.
+3. **221 P0 (Critical) issues**: There are 221 issues classified as P0 across 54 components, averaging 4.1 critical bugs per component. These include crashes, data corruption, and silent failures.
 
 ### Minimum Fix List for Production Viability
 

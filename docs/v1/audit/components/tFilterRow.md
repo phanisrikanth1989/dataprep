@@ -6,6 +6,9 @@
 > **Converter**: `complex_converter`
 > **Status**: PRODUCTION READINESS REVIEW
 
+> **Converter Update (2026-03-25)**: Converter section updated to reflect migration from `complex_converter` to `talend_to_v1`. CONDITIONS now captures all 5 fields (FUNCTION, PREFILTER added). DIE_ON_ERROR, TSTATCATCHER_STATS, LABEL now extracted.
+> **Note on CONV-FR-005**: Schema type format is a cross-cutting issue in `type_mapping.py` affecting all components. Deferred to a separate task.
+
 ---
 
 ## 1. Component Identity
@@ -15,9 +18,9 @@
 | **Talend Name** | `tFilterRow` (also `tFilterRows`) |
 | **V1 Engine Class** | `FilterRows` |
 | **Engine File** | `src/v1/engine/components/transform/filter_rows.py` (315 lines) |
-| **Converter Parser** | `src/converters/complex_converter/component_parser.py` -> `parse_filter_rows()` (lines 744-784) |
-| **Converter Dispatch** | `src/converters/complex_converter/converter.py` -> line 236: `component_type in ['tFilterRow', 'tFilterRows']` |
-| **Converter Fallback Map** | `src/converters/complex_converter/component_parser.py` -> `_map_component_parameters()` (lines 190-197) |
+| **Converter Parser** | `src/converters/talend_to_v1/components/transform/filter_rows.py` -> `FilterRowsConverter.convert()` |
+| **Converter Dispatch** | `src/converters/talend_to_v1/components/registry.py` -> registered as `tFilterRow` / `tFilterRows` |
+| **Converter Fallback Map** | N/A (dedicated converter, no fallback path) |
 | **Registry Aliases** | `FilterRows`, `tFilterRows` (registered in `src/v1/engine/engine.py` lines 103-104) |
 | **Missing Registry Alias** | `tFilterRow` (singular) -- NOT registered in engine.py. Only `FilterRows` and `tFilterRows` are registered. Talend XML will reference `tFilterRow` (singular), so converter output must use the plural form or the engine must add the singular alias. |
 | **Category** | Transform / Processing |
@@ -27,9 +30,9 @@
 | File | Purpose |
 |------|---------|
 | `src/v1/engine/components/transform/filter_rows.py` | Engine implementation (315 lines) |
-| `src/converters/complex_converter/component_parser.py` (lines 744-784) | Dedicated parser: extracts LOGICAL_OP, USE_ADVANCED, ADVANCED_COND, CONDITIONS table from Talend XML |
-| `src/converters/complex_converter/component_parser.py` (lines 190-197) | Fallback parameter mapping: maps CONDITIONS, LOGICAL_OP, USE_ADVANCED, ADVANCED_CONDITION |
-| `src/converters/complex_converter/converter.py` (line 236) | Dispatch: dedicated `elif` branch for `tFilterRow` / `tFilterRows` |
+| `src/converters/talend_to_v1/components/transform/filter_rows.py` | Dedicated converter: extracts LOGICAL_OP, USE_ADVANCED, ADVANCED_COND, CONDITIONS (all 5 fields), DIE_ON_ERROR, TSTATCATCHER_STATS, LABEL |
+| `src/converters/talend_to_v1/components/registry.py` | Registry: maps `tFilterRow` / `tFilterRows` to `FilterRowsConverter` |
+| `tests/converters/talend_to_v1/components/test_filter_rows.py` | 32 converter tests (config, conditions, warnings, completeness) |
 | `src/v1/engine/base_component.py` | Base class: `_update_stats()`, `_update_global_map()`, `validate_schema()`, `execute()` |
 | `src/v1/engine/global_map.py` | GlobalMap storage for `{id}_NB_LINE` etc. |
 | `src/v1/engine/engine.py` (lines 103-104, 570-576) | Component registry and result routing (filter/reject flow types) |
@@ -41,7 +44,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **Y** | 0 | 3 | 4 | 1 | 4 of ~10 Talend condition fields extracted; missing FUNCTION, PREFILTER; no operator normalization; dead `&&` replacement code; wrong fallback parameter name |
+| Converter Coverage | **G** | 0 | 0 | 1 | 0 | All 5 CONDITIONS fields extracted (FUNCTION, PREFILTER added). DIE_ON_ERROR, TSTATCATCHER_STATS, LABEL extracted. CONV-FR-001 through -008 fixed except -005 (type_mapping deferred). 32 tests passing. |
 | Engine Feature Parity | **R** | 2 | 5 | 3 | 1 | Only 6 of 14+ Talend operators supported; no FUNCTION pre-transforms; string coercion for all comparisons breaks numeric ordering; advanced mode uses Python eval() not Java |
 | Code Quality | **R** | 3 | 3 | 4 | 3 | `.toList()` typo crashes simple mode; 19 `print()` statements; `eval()` security risk; all comparisons use string coercion; potential index alignment issue |
 | Performance & Memory | **Y** | 0 | 1 | 2 | 1 | Row-by-row `eval()` in advanced mode; row-by-row debug print loop; no vectorized operator dispatch |
@@ -292,14 +295,14 @@ This is done via string `.replace()` which is fragile -- it replaces ALL occurre
 
 | ID | Priority | Issue |
 |----|----------|-------|
-| CONV-FR-001 | **P1** | **FUNCTION field not extracted**: The `parse_filter_rows()` method (line 768) iterates `elementValue` children but only extracts `INPUT_COLUMN`, `OPERATOR`, and `RVALUE`. The `FUNCTION` elementRef (e.g., `"LENGTH"`, `"LC"`, `"UC"`, `"TRIM"`, `"ABS_VALUE"`) is completely ignored. This means conditions using FUNCTION pre-transforms will produce incorrect filter results. For example, a condition that checks if a name's LENGTH is greater than 5 will instead compare the raw name string to "5" as a string comparison. |
-| CONV-FR-002 | **P1** | **PREFILTER field not extracted**: The `PREFILTER` elementRef is not extracted from the CONDITIONS table. While rarely used in practice, any Talend job relying on pre-filter expressions will silently lose that logic. |
-| CONV-FR-003 | **P1** | **DIE_ON_ERROR not extracted by dedicated parser**: The `parse_filter_rows()` method does not extract the `DIE_ON_ERROR` parameter. The engine has no die_on_error handling for FilterRows -- all errors propagate as exceptions. |
-| CONV-FR-004 | **P2** | **No operator normalization for string operators**: Operators like `CONTAINS`, `NOT_CONTAINS`, `STARTS_WITH`, `ENDS_WITH`, `MATCH_REGEX` are passed through verbatim from Talend XML to the engine config. The engine only supports `==`, `!=`, `<`, `>`, `<=`, `>=`. This creates a silent failure where all rows evaluate to False for unsupported operators. |
-| CONV-FR-005 | **P2** | **Schema type format violates STANDARDS.md**: Converter converts types to Python format (`str`, `int`) instead of preserving Talend format (`id_String`, `id_Integer`). This affects type-aware comparisons in the engine. |
-| CONV-FR-006 | **P3** | **LOGICAL_OP conversion uses fragile `.replace()`**: Line 752 performs `replace('&amp;&amp;', 'AND').replace('||', 'OR')` which could inadvertently modify parts of complex expressions if they contain these sequences (unlikely but fragile). |
-| CONV-FR-007 | **P2** | **Dead `&&` replacement code in converter**: `component_parser.py` line 752 does `replace('&amp;&amp;', 'AND')` but Python's ElementTree decodes XML entities before returning attribute values, so the value is `&&` not `&amp;&amp;`. The replacement never matches. The system works end-to-end because the engine's `LOGICAL_OPERATOR_MAPPING` handles `&&` -> `AND`, but the converter code is dead/misleading. |
-| CONV-FR-008 | **P2** | **Fallback mapping uses wrong Talend parameter name**: Line 196 uses `'ADVANCED_CONDITION'` but the actual Talend XML parameter name is `'ADVANCED_COND'`. If the fallback path is exercised with raw Talend parameter names, the advanced condition is silently lost (defaults to empty string). |
+| CONV-FR-001 | ~~P1~~ | **FIXED** -- FUNCTION field now extracted from CONDITIONS. The `talend_to_v1` converter extracts all 5 elementRef fields (INPUT_COLUMN, FUNCTION, OPERATOR, RVALUE, PREFILTER) from each condition row. Engine-gap warning emitted when FUNCTION is not EMPTY (engine does not support pre-transforms). |
+| CONV-FR-002 | ~~P1~~ | **FIXED** -- PREFILTER field now extracted from CONDITIONS. Engine-gap warning emitted when PREFILTER is non-empty. |
+| CONV-FR-003 | ~~P1~~ | **FIXED** -- DIE_ON_ERROR now extracted as `die_on_error` config key (defaults to False). Engine-gap warning emitted when True. |
+| CONV-FR-004 | ~~P2~~ | **ADDRESSED** -- String operators (CONTAINS, NOT_CONTAINS, STARTS_WITH, ENDS_WITH, MATCH_REGEX) are passed through with an engine-gap warning. The engine gap remains (engine does not implement these operators). |
+| CONV-FR-005 | **P2** | **OPEN -- DEFERRED** -- Schema type format (`type_mapping.py`) is a cross-cutting issue affecting all components. Deferred to a separate task. |
+| CONV-FR-006 | ~~P3~~ | **FIXED** -- New `talend_to_v1` converter uses a clean mapping dict (`{"&&": "AND", "||": "OR"}`) for logical operator conversion, not fragile `.replace()`. |
+| CONV-FR-007 | ~~P2~~ | **FIXED** -- New `talend_to_v1` converter does not have dead `&&` replacement code. The mapping dict handles `&&`, `||`, and XML-escaped `&amp;&amp;` variants. |
+| CONV-FR-008 | ~~P2~~ | **FIXED** -- New `talend_to_v1` converter uses the correct Talend parameter name `ADVANCED_COND`. No fallback path exists. |
 
 ---
 
@@ -503,9 +506,10 @@ The component contains **19 `print()` statements** throughout the code. Per STAN
 | V1 engine unit tests | **No** | -- | Zero test files found for `FilterRows` v1 engine component |
 | V1 engine integration tests | **No** | -- | No v1 engine integration tests found |
 | Converter tests (complex_converter) | **No** | -- | No dedicated tests for `parse_filter_rows()` |
+| Converter tests (talend_to_v1) | **Yes** | `tests/converters/talend_to_v1/components/test_filter_rows.py` | **32 tests passing** -- config extraction, CONDITIONS parsing (all 5 fields), advanced mode, defaults, logical operators, registration, schema passthrough, structure, engine-gap warnings, completeness |
 | Manual/smoke tests | Unknown | -- | No evidence of documented manual tests |
 
-**Key finding**: The `FilterRows` component has ZERO automated tests at any level. All 315 lines of v1 engine code are completely unverified. The `.toList()` typo on line 242 (BUG-FR-001) confirms this -- any test executing simple conditions on non-empty data would have caught this crash immediately.
+**Key finding**: The `talend_to_v1` converter now has 32 automated tests covering all 7 config keys and all 5 CONDITIONS fields. The v1 engine code (315 lines) remains untested. The `.toList()` typo on line 242 (BUG-FR-001) confirms this -- any test executing simple conditions on non-empty data would have caught this crash immediately.
 
 ### 8.2 Recommended Test Cases
 

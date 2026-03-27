@@ -63,7 +63,7 @@ class TestFileTouchConverterBasic:
         result = FileTouchConverter().convert(node, [], {})
 
         assert result.component["config"]["filename"] == ""
-        assert result.component["config"]["create_directory"] is False
+        assert result.component["config"]["create_directory"] is True
 
     def test_empty_filename_produces_warning(self):
         node = _make_node(params={})
@@ -92,3 +92,53 @@ class TestFileTouchConverterWarnings:
 
         assert result.warnings == []
         assert result.needs_review == []
+
+
+# ---------------------------------------------------------------------------
+# New parameters
+# ---------------------------------------------------------------------------
+
+class TestNewParams:
+
+    def test_tstatcatcher_stats_default_false(self):
+        node = _make_node(params={"FILENAME": '"/tmp/test.txt"'})
+        result = FileTouchConverter().convert(node, [], {})
+        assert result.component["config"]["tstatcatcher_stats"] is False
+
+    def test_tstatcatcher_stats_extracted(self):
+        node = _make_node(params={
+            "FILENAME": '"/tmp/test.txt"',
+            "TSTATCATCHER_STATS": "true",
+        })
+        result = FileTouchConverter().convert(node, [], {})
+        assert result.component["config"]["tstatcatcher_stats"] is True
+
+    def test_label_default_empty(self):
+        node = _make_node(params={"FILENAME": '"/tmp/test.txt"'})
+        result = FileTouchConverter().convert(node, [], {})
+        assert result.component["config"]["label"] == ""
+
+    def test_label_extracted(self):
+        node = _make_node(params={
+            "FILENAME": '"/tmp/test.txt"',
+            "LABEL": '"my_label"',
+        })
+        result = FileTouchConverter().convert(node, [], {})
+        assert result.component["config"]["label"] == "my_label"
+
+
+# ---------------------------------------------------------------------------
+# Completeness
+# ---------------------------------------------------------------------------
+
+class TestCompleteness:
+
+    def test_all_4_config_keys_present(self):
+        node = _make_node(params={"FILENAME": '"/tmp/test.txt"'})
+        result = FileTouchConverter().convert(node, [], {})
+        cfg = result.component["config"]
+        expected_keys = {
+            "filename", "create_directory",
+            "tstatcatcher_stats", "label",
+        }
+        assert set(cfg.keys()) == expected_keys

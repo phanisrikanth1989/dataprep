@@ -23,8 +23,7 @@ def _clean_logical_op(raw: str) -> str:
 def _parse_conditions(node: TalendNode) -> List[Dict[str, str]]:
     """Parse the CONDITIONS table parameter into a list of condition dicts.
 
-    XmlParser stores TABLE params as a flat list of {elementRef, value} dicts.
-    Each condition group is: INPUT_COLUMN, OPERATOR, RVALUE (in order).
+    Each condition row has 5 fields: INPUT_COLUMN, FUNCTION, OPERATOR, RVALUE, PREFILTER.
     """
     raw = node.params.get("CONDITIONS")
     if not raw or not isinstance(raw, list):
@@ -40,13 +39,15 @@ def _parse_conditions(node: TalendNode) -> List[Dict[str, str]]:
         if ref == "INPUT_COLUMN":
             if current:
                 conditions.append(current)
-            current = {"column": val}
+            current = {"column": val, "function": "", "operator": "", "value": "", "prefilter": ""}
+        elif ref == "FUNCTION" and current:
+            current["function"] = val
         elif ref == "OPERATOR" and current:
             current["operator"] = val
         elif ref == "RVALUE" and current:
             current["value"] = val
-            conditions.append(current)
-            current = {}
+        elif ref == "PREFILTER" and current:
+            current["prefilter"] = val
     if current:
         conditions.append(current)
     return conditions
@@ -78,11 +79,48 @@ class FilterRowsConverter(ComponentConverter):
                 "-- filter will have no effect"
             )
 
+        # Engine-gap warnings
+        if self._get_bool(node, "DIE_ON_ERROR", False):
+            warnings.append(
+                "DIE_ON_ERROR=true: engine FilterRows does not implement "
+                "die_on_error — all errors propagate as exceptions"
+            )
+
+        unsupported_functions = {
+            c.get("function", "")
+            for c in conditions
+            if c.get("function", "") and c.get("function", "") != "EMPTY"
+        }
+        if unsupported_functions:
+            warnings.append(
+                f"CONDITIONS use FUNCTION pre-transforms {unsupported_functions}: "
+                "engine does not support function pre-transforms"
+            )
+
+        string_ops = {"CONTAINS", "NOT_CONTAINS", "STARTS_WITH", "ENDS_WITH", "MATCH_REGEX"}
+        used_string_ops = {
+            c.get("operator", "") for c in conditions if c.get("operator", "") in string_ops
+        }
+        if used_string_ops:
+            warnings.append(
+                f"CONDITIONS use string operators {used_string_ops}: "
+                "engine only supports ==, !=, <, >, <=, >="
+            )
+
+        if any(c.get("prefilter", "").strip() for c in conditions):
+            warnings.append(
+                "CONDITIONS use PREFILTER expressions: "
+                "engine does not support pre-filter evaluation"
+            )
+
         config: Dict[str, Any] = {
             "logical_operator": logical_operator,
             "use_advanced": use_advanced,
             "advanced_condition": advanced_condition,
             "conditions": conditions,
+            "die_on_error": self._get_bool(node, "DIE_ON_ERROR", False),
+            "tstatcatcher_stats": self._get_bool(node, "TSTATCATCHER_STATS", False),
+            "label": self._get_str(node, "LABEL"),
         }
 
         schema_cols = self._parse_schema(node)

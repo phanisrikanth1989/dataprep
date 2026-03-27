@@ -156,6 +156,9 @@ class TestMapConverterLookups:
         assert lk["join_keys"][0] == {
             "lookup_column": "id",
             "expression": "{{java}}row1.id",
+            "type": "id_String",
+            "nullable": True,
+            "operator": "",
         }
 
     def test_lookup_left_outer_join(self):
@@ -269,11 +272,13 @@ class TestMapConverterVariables:
             "name": "v_name",
             "expression": "{{java}}row1.first + row1.last",
             "type": "id_String",
+            "nullable": True,
         }
         assert variables[1] == {
             "name": "v_total",
             "expression": "{{java}}row1.qty * row1.price",
             "type": "id_Double",
+            "nullable": True,
         }
 
     def test_variables_skip_empty_expression(self):
@@ -370,12 +375,20 @@ class TestMapConverterOutputs:
             "expression": "{{java}}row1.id",
             "type": "id_Integer",
             "nullable": False,
+            "operator": "",
+            "length": -1,
+            "precision": -1,
+            "pattern": "",
         }
         assert out["columns"][1] == {
             "name": "full_name",
             "expression": "{{java}}row1.first + row1.last",
             "type": "id_String",
             "nullable": True,
+            "operator": "",
+            "length": -1,
+            "precision": -1,
+            "pattern": "",
         }
 
     def test_output_filter(self):
@@ -639,10 +652,16 @@ class TestMapConverterFullScenario:
         assert lk["join_keys"][0] == {
             "lookup_column": "customer_id",
             "expression": "{{java}}customers.id",
+            "type": "id_String",
+            "nullable": True,
+            "operator": "",
         }
         assert lk["join_keys"][1] == {
             "lookup_column": "region",
             "expression": "{{java}}customers.region",
+            "type": "id_String",
+            "nullable": True,
+            "operator": "",
         }
 
         # ── Variables ──
@@ -695,3 +714,998 @@ class TestMapConverterFullScenario:
             "config", "schema", "inputs", "outputs",
         }
         assert set(comp.keys()) == expected_keys
+
+
+# ---------------------------------------------------------------------------
+# Test: top-level elementParameter params (Task 1)
+# ---------------------------------------------------------------------------
+
+class TestMapConverterTopLevelParams:
+    """Verify all 9 new top-level params are extracted from elementParameters."""
+
+    def _convert_with_params(self, params: dict):
+        """Helper: create a minimal tMap node with given params and convert."""
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml, params=params)
+        return MapConverter().convert(node, [], {})
+
+    # --- Defaults (no params provided) ---
+
+    def test_tstatcatcher_stats_default_false(self):
+        result = self._convert_with_params({})
+        assert result.component["config"]["tstatcatcher_stats"] is False
+
+    def test_label_default_empty(self):
+        result = self._convert_with_params({})
+        assert result.component["config"]["label"] == ""
+
+    def test_lkup_parallelize_default_false(self):
+        result = self._convert_with_params({})
+        assert result.component["config"]["lkup_parallelize"] is False
+
+    def test_enable_auto_convert_type_default_false(self):
+        result = self._convert_with_params({})
+        assert result.component["config"]["enable_auto_convert_type"] is False
+
+    def test_store_on_disk_default_false(self):
+        result = self._convert_with_params({})
+        assert result.component["config"]["store_on_disk"] is False
+
+    def test_temp_data_directory_default_empty(self):
+        result = self._convert_with_params({})
+        assert result.component["config"]["temp_data_directory"] == ""
+
+    def test_rows_buffer_size_default(self):
+        result = self._convert_with_params({})
+        assert result.component["config"]["rows_buffer_size"] == 2000000
+
+    def test_change_hash_and_equals_for_bigdecimal_default_false(self):
+        result = self._convert_with_params({})
+        assert result.component["config"]["change_hash_and_equals_for_bigdecimal"] is False
+
+    def test_link_style_default_empty(self):
+        result = self._convert_with_params({})
+        assert result.component["config"]["link_style"] == ""
+
+    # --- Extraction (params provided) ---
+
+    def test_tstatcatcher_stats_extracted(self):
+        result = self._convert_with_params({"TSTATCATCHER_STATS": "true"})
+        assert result.component["config"]["tstatcatcher_stats"] is True
+
+    def test_label_extracted(self):
+        result = self._convert_with_params({"LABEL": '"My tMap"'})
+        assert result.component["config"]["label"] == "My tMap"
+
+    def test_lkup_parallelize_extracted(self):
+        result = self._convert_with_params({"LKUP_PARALLELIZE": "true"})
+        assert result.component["config"]["lkup_parallelize"] is True
+
+    def test_enable_auto_convert_type_extracted(self):
+        result = self._convert_with_params({"ENABLE_AUTO_CONVERT_TYPE": "true"})
+        assert result.component["config"]["enable_auto_convert_type"] is True
+
+    def test_store_on_disk_extracted(self):
+        result = self._convert_with_params({"STORE_ON_DISK": "true"})
+        assert result.component["config"]["store_on_disk"] is True
+
+    def test_temp_data_directory_extracted(self):
+        result = self._convert_with_params({"TEMPORARY_DATA_DIRECTORY": '"/tmp/tmap"'})
+        assert result.component["config"]["temp_data_directory"] == "/tmp/tmap"
+
+    def test_rows_buffer_size_extracted(self):
+        result = self._convert_with_params({"ROWS_BUFFER_SIZE": "5000000"})
+        assert result.component["config"]["rows_buffer_size"] == 5000000
+
+    def test_change_hash_bigdecimal_extracted(self):
+        result = self._convert_with_params({"CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL": "true"})
+        assert result.component["config"]["change_hash_and_equals_for_bigdecimal"] is True
+
+    def test_link_style_extracted(self):
+        result = self._convert_with_params({"LINK_STYLE": '"AUTO"'})
+        assert result.component["config"]["link_style"] == "AUTO"
+
+
+# ---------------------------------------------------------------------------
+# Test: input table enhancements (Task 2)
+# ---------------------------------------------------------------------------
+
+class TestMapConverterInputEnhancements:
+    """Verify new attributes on main input, lookup tables, and join key entries."""
+
+    # --- Main input new attributes ---
+
+    def test_main_size_state_default(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        main = result.component["config"]["inputs"]["main"]
+        assert main["size_state"] == ""
+
+    def test_main_size_state_extracted(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1" sizeState="INTERMEDIATE"/>',
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        main = result.component["config"]["inputs"]["main"]
+        assert main["size_state"] == "INTERMEDIATE"
+
+    def test_main_activate_condensed_tool_default(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        main = result.component["config"]["inputs"]["main"]
+        assert main["activate_condensed_tool"] is False
+
+    def test_main_activate_global_map_default(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        main = result.component["config"]["inputs"]["main"]
+        assert main["activate_global_map"] is False
+
+    # --- Lookup new table-level attributes ---
+
+    def test_lookup_size_state_extracted(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml=(
+                '<inputTables name="row1"/>'
+                '<inputTables name="lk1" sizeState="MAXIMIZED">'
+                '  <mapperTableEntries name="id" expression="row1.id"/>'
+                '</inputTables>'
+            ),
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        lk = result.component["config"]["inputs"]["lookups"][0]
+        assert lk["size_state"] == "MAXIMIZED"
+
+    def test_lookup_persistent_default_false(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml=(
+                '<inputTables name="row1"/>'
+                '<inputTables name="lk1">'
+                '  <mapperTableEntries name="id" expression="row1.id"/>'
+                '</inputTables>'
+            ),
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        lk = result.component["config"]["inputs"]["lookups"][0]
+        assert lk["persistent"] is False
+
+    def test_lookup_persistent_true(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml=(
+                '<inputTables name="row1"/>'
+                '<inputTables name="lk1" persistent="true">'
+                '  <mapperTableEntries name="id" expression="row1.id"/>'
+                '</inputTables>'
+            ),
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        lk = result.component["config"]["inputs"]["lookups"][0]
+        assert lk["persistent"] is True
+
+    def test_lookup_activate_global_map_true(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml=(
+                '<inputTables name="row1"/>'
+                '<inputTables name="lk1" activateGlobalMap="true">'
+                '  <mapperTableEntries name="id" expression="row1.id"/>'
+                '</inputTables>'
+            ),
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        lk = result.component["config"]["inputs"]["lookups"][0]
+        assert lk["activate_global_map"] is True
+
+    # --- Join key entry enhancements ---
+
+    def test_join_key_type_extracted(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml=(
+                '<inputTables name="row1"/>'
+                '<inputTables name="lk1">'
+                '  <mapperTableEntries name="id" expression="row1.id" type="id_Integer"/>'
+                '</inputTables>'
+            ),
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        jk = result.component["config"]["inputs"]["lookups"][0]["join_keys"][0]
+        assert jk["type"] == "id_Integer"
+
+    def test_join_key_nullable_false(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml=(
+                '<inputTables name="row1"/>'
+                '<inputTables name="lk1">'
+                '  <mapperTableEntries name="id" expression="row1.id" nullable="false"/>'
+                '</inputTables>'
+            ),
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        jk = result.component["config"]["inputs"]["lookups"][0]["join_keys"][0]
+        assert jk["nullable"] is False
+
+    def test_join_key_operator_extracted(self):
+        """Join key with operator='=' should be detected and operator captured."""
+        raw_xml = _make_mapper_xml(
+            input_tables_xml=(
+                '<inputTables name="row1"/>'
+                '<inputTables name="lk1">'
+                '  <mapperTableEntries name="id" expression="row1.id" operator="="/>'
+                '</inputTables>'
+            ),
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        jk = result.component["config"]["inputs"]["lookups"][0]["join_keys"][0]
+        assert jk["operator"] == "="
+
+    # --- Correctness fix: operator-only join key detection ---
+
+    def test_join_key_detected_by_operator_only(self):
+        """Entry with operator='=' but NO expression should still be a join key."""
+        raw_xml = _make_mapper_xml(
+            input_tables_xml=(
+                '<inputTables name="row1"/>'
+                '<inputTables name="lk1">'
+                '  <mapperTableEntries name="id" operator="="/>'
+                '</inputTables>'
+            ),
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        lk = result.component["config"]["inputs"]["lookups"][0]
+        assert len(lk["join_keys"]) == 1
+        assert lk["join_keys"][0]["lookup_column"] == "id"
+        assert lk["join_keys"][0]["operator"] == "="
+        assert lk["join_keys"][0]["expression"] == ""
+
+    def test_non_join_entry_still_skipped(self):
+        """Entry with no expression AND no operator is NOT a join key."""
+        raw_xml = _make_mapper_xml(
+            input_tables_xml=(
+                '<inputTables name="row1"/>'
+                '<inputTables name="lk1">'
+                '  <mapperTableEntries name="col_a"/>'
+                '  <mapperTableEntries name="col_b" expression="row1.b"/>'
+                '</inputTables>'
+            ),
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        lk = result.component["config"]["inputs"]["lookups"][0]
+        assert len(lk["join_keys"]) == 1
+        assert lk["join_keys"][0]["lookup_column"] == "col_b"
+
+
+# ---------------------------------------------------------------------------
+# Test: variable table enhancements (Task 3)
+# ---------------------------------------------------------------------------
+
+class TestMapConverterVariableEnhancements:
+    """Verify table-level name/size_state and per-entry nullable on variables."""
+
+    # --- Table-level attributes (stored at config root) ---
+
+    def test_var_table_name_default(self):
+        """Default var table name is 'Var' when varTables has no name attr."""
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            var_tables_xml=(
+                '<varTables>'
+                '  <mapperTableEntries name="v1" expression="row1.x" type="id_String"/>'
+                '</varTables>'
+            ),
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        assert result.component["config"]["var_table_name"] == "Var"
+
+    def test_var_table_name_extracted(self):
+        """Custom var table name is captured."""
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            var_tables_xml=(
+                '<varTables name="MyVars">'
+                '  <mapperTableEntries name="v1" expression="row1.x" type="id_String"/>'
+                '</varTables>'
+            ),
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        assert result.component["config"]["var_table_name"] == "MyVars"
+
+    def test_var_table_name_empty_when_no_var_table(self):
+        """When there is no varTables element, var_table_name defaults to empty."""
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        assert result.component["config"]["var_table_name"] == ""
+
+    def test_var_table_size_state_default(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            var_tables_xml=(
+                '<varTables>'
+                '  <mapperTableEntries name="v1" expression="row1.x" type="id_String"/>'
+                '</varTables>'
+            ),
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        assert result.component["config"]["var_table_size_state"] == ""
+
+    def test_var_table_size_state_extracted(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            var_tables_xml=(
+                '<varTables sizeState="MINIMIZED">'
+                '  <mapperTableEntries name="v1" expression="row1.x" type="id_String"/>'
+                '</varTables>'
+            ),
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        assert result.component["config"]["var_table_size_state"] == "MINIMIZED"
+
+    # --- Per-entry nullable ---
+
+    def test_variable_nullable_default_true(self):
+        """Variables default to nullable=True when not specified."""
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            var_tables_xml=(
+                '<varTables>'
+                '  <mapperTableEntries name="v1" expression="row1.x" type="id_String"/>'
+                '</varTables>'
+            ),
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        assert result.component["config"]["variables"][0]["nullable"] is True
+
+    def test_variable_nullable_false(self):
+        """Variable with nullable='false' is captured."""
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            var_tables_xml=(
+                '<varTables>'
+                '  <mapperTableEntries name="v1" expression="row1.x"'
+                '    type="id_Integer" nullable="false"/>'
+                '</varTables>'
+            ),
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        assert result.component["config"]["variables"][0]["nullable"] is False
+
+
+# ---------------------------------------------------------------------------
+# Test: output table enhancements (Task 4)
+# ---------------------------------------------------------------------------
+
+class TestMapConverterOutputEnhancements:
+    """Verify new table-level and per-column attributes on outputs."""
+
+    # --- Table-level attributes ---
+
+    def test_output_size_state_default(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        assert result.component["config"]["outputs"][0]["size_state"] == ""
+
+    def test_output_size_state_extracted(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            output_tables_xml='<outputTables name="out1" sizeState="MAXIMIZED"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        assert result.component["config"]["outputs"][0]["size_state"] == "MAXIMIZED"
+
+    def test_output_catch_output_reject_default_false(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        assert result.component["config"]["outputs"][0]["catch_output_reject"] is False
+
+    def test_output_catch_output_reject_true(self):
+        """activateCondensedTool on OUTPUT means 'Catch Output Reject'."""
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            output_tables_xml=(
+                '<outputTables name="out1"'
+                '  activateExpressionFilter="true"'
+                '  expressionFilter="row1.x > 0"/>'
+                '<outputTables name="out2" activateCondensedTool="true"/>'
+            ),
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        outputs = result.component["config"]["outputs"]
+        assert outputs[0]["catch_output_reject"] is False
+        assert outputs[1]["catch_output_reject"] is True
+
+    def test_output_activate_global_map_default_false(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        assert result.component["config"]["outputs"][0]["activate_global_map"] is False
+
+    def test_output_activate_global_map_true(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            output_tables_xml='<outputTables name="out1" activateGlobalMap="true"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        assert result.component["config"]["outputs"][0]["activate_global_map"] is True
+
+    # --- Per-column attributes ---
+
+    def test_output_column_operator_default(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            output_tables_xml=(
+                '<outputTables name="out1">'
+                '  <mapperTableEntries name="col1" expression="row1.x" type="id_String"/>'
+                '</outputTables>'
+            ),
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        col = result.component["config"]["outputs"][0]["columns"][0]
+        assert col["operator"] == ""
+
+    def test_output_column_operator_extracted(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            output_tables_xml=(
+                '<outputTables name="out1">'
+                '  <mapperTableEntries name="col1" expression="row1.x"'
+                '    type="id_String" operator="="/>'
+                '</outputTables>'
+            ),
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        col = result.component["config"]["outputs"][0]["columns"][0]
+        assert col["operator"] == "="
+
+    def test_output_column_length_default(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            output_tables_xml=(
+                '<outputTables name="out1">'
+                '  <mapperTableEntries name="col1" expression="row1.x" type="id_String"/>'
+                '</outputTables>'
+            ),
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        col = result.component["config"]["outputs"][0]["columns"][0]
+        assert col["length"] == -1
+
+    def test_output_column_length_extracted(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            output_tables_xml=(
+                '<outputTables name="out1">'
+                '  <mapperTableEntries name="col1" expression="row1.x"'
+                '    type="id_String" length="50"/>'
+                '</outputTables>'
+            ),
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        col = result.component["config"]["outputs"][0]["columns"][0]
+        assert col["length"] == 50
+
+    def test_output_column_precision_default(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            output_tables_xml=(
+                '<outputTables name="out1">'
+                '  <mapperTableEntries name="col1" expression="row1.x" type="id_Double"/>'
+                '</outputTables>'
+            ),
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        col = result.component["config"]["outputs"][0]["columns"][0]
+        assert col["precision"] == -1
+
+    def test_output_column_precision_extracted(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            output_tables_xml=(
+                '<outputTables name="out1">'
+                '  <mapperTableEntries name="col1" expression="row1.x"'
+                '    type="id_Double" precision="4"/>'
+                '</outputTables>'
+            ),
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        col = result.component["config"]["outputs"][0]["columns"][0]
+        assert col["precision"] == 4
+
+    def test_output_column_pattern_default(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            output_tables_xml=(
+                '<outputTables name="out1">'
+                '  <mapperTableEntries name="col1" expression="row1.x" type="id_Date"/>'
+                '</outputTables>'
+            ),
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        col = result.component["config"]["outputs"][0]["columns"][0]
+        assert col["pattern"] == ""
+
+    def test_output_column_pattern_extracted(self):
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            output_tables_xml=(
+                '<outputTables name="out1">'
+                '  <mapperTableEntries name="col1" expression="row1.date"'
+                '    type="id_Date" pattern="&quot;yyyy-MM-dd&quot;"/>'
+                '</outputTables>'
+            ),
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        col = result.component["config"]["outputs"][0]["columns"][0]
+        assert col["pattern"] == '"yyyy-MM-dd"'
+
+    def test_output_column_all_new_attrs_together(self):
+        """A single column with all new attributes set."""
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            output_tables_xml=(
+                '<outputTables name="out1">'
+                '  <mapperTableEntries name="amount" expression="row1.amount"'
+                '    type="id_BigDecimal" nullable="false" operator=""'
+                '    length="10" precision="2" pattern=""/>'
+                '</outputTables>'
+            ),
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        col = result.component["config"]["outputs"][0]["columns"][0]
+        assert col == {
+            "name": "amount",
+            "expression": "{{java}}row1.amount",
+            "type": "id_BigDecimal",
+            "nullable": False,
+            "operator": "",
+            "length": 10,
+            "precision": 2,
+            "pattern": "",
+        }
+
+
+# ---------------------------------------------------------------------------
+# Test: engine-gap warnings (Task 5)
+# ---------------------------------------------------------------------------
+
+class TestMapConverterEngineGapWarnings:
+    """Verify engine-gap warnings are emitted for unsupported features."""
+
+    def _convert_with_params(self, params=None, input_xml=None, output_xml=None):
+        """Helper: build a tMap node and convert it."""
+        raw_xml = _make_mapper_xml(
+            input_tables_xml=input_xml or '<inputTables name="row1"/>',
+            output_tables_xml=output_xml or '<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml, params=params or {})
+        return MapConverter().convert(node, [], {})
+
+    # --- No warnings on defaults ---
+
+    def test_no_engine_gap_warnings_on_defaults(self):
+        """Default config should produce zero engine-gap warnings."""
+        result = self._convert_with_params()
+        engine_warnings = [w for w in result.warnings if "engine" in w.lower()]
+        assert engine_warnings == []
+
+    # --- Top-level warnings ---
+
+    def test_warning_lkup_parallelize(self):
+        result = self._convert_with_params(params={"LKUP_PARALLELIZE": "true"})
+        assert any("LKUP_PARALLELIZE" in w for w in result.warnings)
+
+    def test_warning_store_on_disk(self):
+        result = self._convert_with_params(params={"STORE_ON_DISK": "true"})
+        assert any("STORE_ON_DISK" in w for w in result.warnings)
+
+    def test_warning_enable_auto_convert_type(self):
+        result = self._convert_with_params(params={"ENABLE_AUTO_CONVERT_TYPE": "true"})
+        assert any("ENABLE_AUTO_CONVERT_TYPE" in w for w in result.warnings)
+
+    def test_warning_change_hash_bigdecimal(self):
+        result = self._convert_with_params(
+            params={"CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL": "true"}
+        )
+        assert any("CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL" in w for w in result.warnings)
+
+    def test_no_warning_lkup_parallelize_false(self):
+        result = self._convert_with_params(params={"LKUP_PARALLELIZE": "false"})
+        assert not any("LKUP_PARALLELIZE" in w for w in result.warnings)
+
+    # --- Per-lookup warnings ---
+
+    def test_warning_reload_at_each_row(self):
+        result = self._convert_with_params(
+            input_xml=(
+                '<inputTables name="row1"/>'
+                '<inputTables name="lk1" lookupMode="RELOAD_AT_EACH_ROW">'
+                '  <mapperTableEntries name="id" expression="row1.id"/>'
+                '</inputTables>'
+            ),
+        )
+        assert any("RELOAD_AT_EACH_ROW" in w and "lk1" in w for w in result.warnings)
+
+    def test_warning_reload_at_each_row_cache(self):
+        result = self._convert_with_params(
+            input_xml=(
+                '<inputTables name="row1"/>'
+                '<inputTables name="lk1" lookupMode="RELOAD_AT_EACH_ROW_CACHE">'
+                '  <mapperTableEntries name="id" expression="row1.id"/>'
+                '</inputTables>'
+            ),
+        )
+        assert any("RELOAD_AT_EACH_ROW_CACHE" in w and "lk1" in w for w in result.warnings)
+
+    def test_no_warning_load_once(self):
+        """LOAD_ONCE is supported -- no warning."""
+        result = self._convert_with_params(
+            input_xml=(
+                '<inputTables name="row1"/>'
+                '<inputTables name="lk1" lookupMode="LOAD_ONCE">'
+                '  <mapperTableEntries name="id" expression="row1.id"/>'
+                '</inputTables>'
+            ),
+        )
+        assert not any("RELOAD" in w for w in result.warnings)
+
+    def test_warning_lookup_persistent(self):
+        result = self._convert_with_params(
+            input_xml=(
+                '<inputTables name="row1"/>'
+                '<inputTables name="lk1" persistent="true">'
+                '  <mapperTableEntries name="id" expression="row1.id"/>'
+                '</inputTables>'
+            ),
+        )
+        assert any("persistent" in w and "lk1" in w for w in result.warnings)
+
+    def test_warning_lookup_activate_global_map(self):
+        result = self._convert_with_params(
+            input_xml=(
+                '<inputTables name="row1"/>'
+                '<inputTables name="lk1" activateGlobalMap="true">'
+                '  <mapperTableEntries name="id" expression="row1.id"/>'
+                '</inputTables>'
+            ),
+        )
+        assert any("activateGlobalMap" in w and "lk1" in w for w in result.warnings)
+
+    def test_warning_all_rows_matching(self):
+        result = self._convert_with_params(
+            input_xml=(
+                '<inputTables name="row1"/>'
+                '<inputTables name="lk1" matchingMode="ALL_ROWS">'
+                '  <mapperTableEntries name="id" expression="row1.id"/>'
+                '</inputTables>'
+            ),
+        )
+        assert any("ALL_ROWS" in w and "lk1" in w for w in result.warnings)
+
+    def test_no_warning_unique_match(self):
+        """UNIQUE_MATCH is supported -- no warning."""
+        result = self._convert_with_params(
+            input_xml=(
+                '<inputTables name="row1"/>'
+                '<inputTables name="lk1" matchingMode="UNIQUE_MATCH">'
+                '  <mapperTableEntries name="id" expression="row1.id"/>'
+                '</inputTables>'
+            ),
+        )
+        assert not any("ALL_ROWS" in w for w in result.warnings)
+
+    # --- Per-output warnings ---
+
+    def test_warning_catch_output_reject(self):
+        result = self._convert_with_params(
+            output_xml=(
+                '<outputTables name="out1"'
+                '  activateExpressionFilter="true"'
+                '  expressionFilter="row1.x > 0"/>'
+                '<outputTables name="out2" activateCondensedTool="true"/>'
+            ),
+        )
+        assert any("Catch Output Reject" in w and "out2" in w for w in result.warnings)
+
+    def test_warning_output_activate_global_map(self):
+        result = self._convert_with_params(
+            output_xml='<outputTables name="out1" activateGlobalMap="true"/>',
+        )
+        assert any("activateGlobalMap" in w and "out1" in w for w in result.warnings)
+
+    def test_no_warning_output_defaults(self):
+        """Output with defaults should not produce warnings."""
+        result = self._convert_with_params(
+            output_xml='<outputTables name="out1"/>',
+        )
+        output_warnings = [
+            w for w in result.warnings
+            if "out1" in w and "engine" in w.lower()
+        ]
+        assert output_warnings == []
+
+    # --- Multiple warnings from different sources ---
+
+    def test_multiple_warnings_accumulated(self):
+        """Multiple unsupported features produce multiple warnings."""
+        result = self._convert_with_params(
+            params={"STORE_ON_DISK": "true", "LKUP_PARALLELIZE": "true"},
+            input_xml=(
+                '<inputTables name="row1"/>'
+                '<inputTables name="lk1" persistent="true">'
+                '  <mapperTableEntries name="id" expression="row1.id"/>'
+                '</inputTables>'
+            ),
+            output_xml='<outputTables name="out1" activateGlobalMap="true"/>',
+        )
+        assert any("STORE_ON_DISK" in w for w in result.warnings)
+        assert any("LKUP_PARALLELIZE" in w for w in result.warnings)
+        assert any("persistent" in w for w in result.warnings)
+        assert any("activateGlobalMap" in w and "out1" in w for w in result.warnings)
+        assert len(result.warnings) >= 4
+
+
+# ---------------------------------------------------------------------------
+# Test: completeness (Task 6)
+# ---------------------------------------------------------------------------
+
+class TestMapConverterCompleteness:
+    """Verify ALL expected config keys are present after full conversion."""
+
+    def test_all_top_level_config_keys_present(self):
+        """Verify all 15 top-level config keys exist."""
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            var_tables_xml=(
+                '<varTables name="Var">'
+                '  <mapperTableEntries name="v1" expression="row1.x" type="id_String"/>'
+                '</varTables>'
+            ),
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        cfg = result.component["config"]
+
+        expected_keys = {
+            # Structural
+            "inputs",
+            "variables",
+            "outputs",
+            # Variable table-level
+            "var_table_name",
+            "var_table_size_state",
+            # elementParameter params
+            "die_on_error",
+            "tstatcatcher_stats",
+            "label",
+            "lkup_parallelize",
+            "enable_auto_convert_type",
+            "store_on_disk",
+            "temp_data_directory",
+            "rows_buffer_size",
+            "change_hash_and_equals_for_bigdecimal",
+            "link_style",
+        }
+        assert set(cfg.keys()) == expected_keys
+
+    def test_main_input_keys(self):
+        """Verify all keys on the main input dict."""
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        main = result.component["config"]["inputs"]["main"]
+
+        expected_main_keys = {
+            "name",
+            "filter",
+            "activate_filter",
+            "matching_mode",
+            "lookup_mode",
+            "size_state",
+            "persistent",
+            "activate_condensed_tool",
+            "activate_global_map",
+        }
+        assert set(main.keys()) == expected_main_keys
+
+    def test_lookup_keys(self):
+        """Verify all keys on a lookup dict."""
+        raw_xml = _make_mapper_xml(
+            input_tables_xml=(
+                '<inputTables name="row1"/>'
+                '<inputTables name="lk1">'
+                '  <mapperTableEntries name="id" expression="row1.id"/>'
+                '</inputTables>'
+            ),
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        lk = result.component["config"]["inputs"]["lookups"][0]
+
+        expected_lookup_keys = {
+            "name",
+            "matching_mode",
+            "lookup_mode",
+            "filter",
+            "activate_filter",
+            "join_keys",
+            "join_mode",
+            "size_state",
+            "persistent",
+            "activate_condensed_tool",
+            "activate_global_map",
+        }
+        assert set(lk.keys()) == expected_lookup_keys
+
+    def test_join_key_entry_keys(self):
+        """Verify all keys on a join key entry dict."""
+        raw_xml = _make_mapper_xml(
+            input_tables_xml=(
+                '<inputTables name="row1"/>'
+                '<inputTables name="lk1">'
+                '  <mapperTableEntries name="id" expression="row1.id"'
+                '    type="id_Integer" nullable="false" operator="="/>'
+                '</inputTables>'
+            ),
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        jk = result.component["config"]["inputs"]["lookups"][0]["join_keys"][0]
+
+        expected_jk_keys = {
+            "lookup_column",
+            "expression",
+            "type",
+            "nullable",
+            "operator",
+        }
+        assert set(jk.keys()) == expected_jk_keys
+
+    def test_variable_entry_keys(self):
+        """Verify all keys on a variable entry dict."""
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            var_tables_xml=(
+                '<varTables>'
+                '  <mapperTableEntries name="v1" expression="row1.x" type="id_String"/>'
+                '</varTables>'
+            ),
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        var = result.component["config"]["variables"][0]
+
+        expected_var_keys = {
+            "name",
+            "expression",
+            "type",
+            "nullable",
+        }
+        assert set(var.keys()) == expected_var_keys
+
+    def test_output_table_keys(self):
+        """Verify all keys on an output table dict."""
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            output_tables_xml='<outputTables name="out1"/>',
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        out = result.component["config"]["outputs"][0]
+
+        expected_output_keys = {
+            "name",
+            "is_reject",
+            "inner_join_reject",
+            "filter",
+            "activate_filter",
+            "columns",
+            "size_state",
+            "catch_output_reject",
+            "activate_global_map",
+        }
+        assert set(out.keys()) == expected_output_keys
+
+    def test_output_column_keys(self):
+        """Verify all keys on an output column dict."""
+        raw_xml = _make_mapper_xml(
+            input_tables_xml='<inputTables name="row1"/>',
+            output_tables_xml=(
+                '<outputTables name="out1">'
+                '  <mapperTableEntries name="col1" expression="row1.x"'
+                '    type="id_String" nullable="true"/>'
+                '</outputTables>'
+            ),
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = MapConverter().convert(node, [], {})
+        col = result.component["config"]["outputs"][0]["columns"][0]
+
+        expected_col_keys = {
+            "name",
+            "expression",
+            "type",
+            "nullable",
+            "operator",
+            "length",
+            "precision",
+            "pattern",
+        }
+        assert set(col.keys()) == expected_col_keys

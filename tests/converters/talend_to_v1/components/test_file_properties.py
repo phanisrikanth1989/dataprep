@@ -112,3 +112,53 @@ class TestFilePropertiesRegistry:
 
     def test_tfileproperties_in_type_list(self):
         assert "tFileProperties" in REGISTRY.list_types()
+
+
+# ---------------------------------------------------------------------------
+# New parameters
+# ---------------------------------------------------------------------------
+
+class TestNewParams:
+
+    def test_tstatcatcher_stats_default_false(self):
+        node = _make_node(params={"FILENAME": '"/tmp/data.csv"'})
+        result = FilePropertiesConverter().convert(node, [], {})
+        assert result.component["config"]["tstatcatcher_stats"] is False
+
+    def test_tstatcatcher_stats_extracted(self):
+        node = _make_node(params={
+            "FILENAME": '"/tmp/data.csv"',
+            "TSTATCATCHER_STATS": "true",
+        })
+        result = FilePropertiesConverter().convert(node, [], {})
+        assert result.component["config"]["tstatcatcher_stats"] is True
+
+    def test_label_default_empty(self):
+        node = _make_node(params={"FILENAME": '"/tmp/data.csv"'})
+        result = FilePropertiesConverter().convert(node, [], {})
+        assert result.component["config"]["label"] == ""
+
+    def test_label_extracted(self):
+        node = _make_node(params={
+            "FILENAME": '"/tmp/data.csv"',
+            "LABEL": '"file_props_step"',
+        })
+        result = FilePropertiesConverter().convert(node, [], {})
+        assert result.component["config"]["label"] == "file_props_step"
+
+
+# ---------------------------------------------------------------------------
+# Completeness
+# ---------------------------------------------------------------------------
+
+class TestCompleteness:
+
+    def test_all_4_config_keys_present(self):
+        node = _make_node(params={"FILENAME": '"/tmp/data.csv"'})
+        result = FilePropertiesConverter().convert(node, [], {})
+        cfg = result.component["config"]
+        expected_keys = {
+            "filename", "calculate_md5",
+            "tstatcatcher_stats", "label",
+        }
+        assert set(cfg.keys()) == expected_keys

@@ -22,7 +22,10 @@ class FileTouchConverter(ComponentConverter):
 
         config = {
             "filename": self._get_str(node, "FILENAME"),
-            "create_directory": self._get_bool(node, "CREATEDIR"),
+            "create_directory": self._get_bool(node, "CREATEDIR", True),
+            # Metadata
+            "tstatcatcher_stats": self._get_bool(node, "TSTATCATCHER_STATS", False),
+            "label": self._get_str(node, "LABEL"),
         }
 
         if not config["filename"]:

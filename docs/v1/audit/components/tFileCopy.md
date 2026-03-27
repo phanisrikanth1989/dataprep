@@ -3,8 +3,10 @@
 > **Audited**: 2026-03-21
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
-> **Converter**: `complex_converter`
+> **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
+
+> **Converter Update (2026-03-25)**: Converter section updated to reflect migration from `complex_converter` to `talend_to_v1`. All runtime params now extracted. See CONV-* issues below for status.
 
 ---
 
@@ -15,8 +17,8 @@
 | **Talend Name** | `tFileCopy` |
 | **V1 Engine Class** | `FileCopy` |
 | **Engine File** | `src/v1/engine/components/file/file_copy.py` (132 lines) |
-| **Converter Parser** | `src/converters/complex_converter/component_parser.py` -> `_map_component_parameters()` (lines 275-285) |
-| **Converter Dispatch** | `src/converters/complex_converter/converter.py` -> line 287: `parse_tfilecopy(node, component)` -- **METHOD DOES NOT EXIST** (AttributeError at conversion time) |
+| **Converter Parser** | `src/converters/talend_to_v1/components/file/file_copy.py` |
+| **Converter Dispatch** | `talend_to_v1` registry-based dispatch via `REGISTRY["tFileCopy"]` |
 | **Registry Aliases** | `FileCopy`, `tFileCopy` (registered in `src/v1/engine/engine.py` lines 76-77) |
 | **Category** | File / Utility |
 
@@ -25,8 +27,7 @@
 | File | Purpose |
 |------|---------|
 | `src/v1/engine/components/file/file_copy.py` | Engine implementation (132 lines) |
-| `src/converters/complex_converter/component_parser.py` (lines 275-285) | Parameter mapping from Talend XML to v1 JSON via deprecated `_map_component_parameters()` |
-| `src/converters/complex_converter/converter.py` (line 287) | Dispatch -- calls `parse_tfilecopy(node, component)` which **does not exist** as a method |
+| `src/converters/talend_to_v1/components/file/file_copy.py` | Dedicated `talend_to_v1` converter for tFileCopy |
 | `src/v1/engine/base_component.py` | Base class: `_update_stats()`, `_update_global_map()`, `validate_schema()`, `execute()` |
 | `src/v1/engine/global_map.py` | GlobalMap storage for `{id}_NB_LINE` etc. |
 | `src/v1/engine/exceptions.py` | Custom exception hierarchy (`FileOperationError`, `ConfigurationError`) |
@@ -38,7 +39,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **R** | 1 | 2 | 3 | 1 | `parse_tfilecopy()` method missing -- converter crashes with AttributeError; `_map_component_parameters` fallback exists but is unreachable; 7 of 10 Talend params extracted in dead code; `remove_source_file` and `copy_directory` missing entirely |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | `talend_to_v1` dedicated parser extracts 12 params (12 config keys). All runtime params mapped. REPLACE_FILE default corrected to false. CREATE_DIRECTORY default corrected to false. No DIE_ON_ERROR on tFileCopy. |
 | Engine Feature Parity | **Y** | 0 | 4 | 3 | 1 | No `remove_source_file` (move semantics); no `copy_directory` toggle; missing globalMap vars; no `die_on_error` support; `shutil.copy2` always preserves metadata (conflicts with `preserve_last_modified` logic) |
 | Code Quality | **Y** | 2 | 2 | 3 | 2 | Cross-cutting base class bugs; no `_validate_config()`; exception swallowing in catch-all; no custom exception types used; `replace_file` default differs from Talend |
 | Performance & Memory | **G** | 0 | 0 | 1 | 0 | Simple file operation; minor concern with `copytree` on large directories without progress feedback |
@@ -85,6 +86,7 @@
 |---|-----------|-----------------|------|---------|-------------|
 | 10 | Preserve last modified time | `PRESERVE_LAST_MODIFIED_TIME` | Boolean (CHECK) | `false` | When selected, uses the last modified time of the source file as that of the destination file. Without this, the destination file gets the current timestamp. |
 | 11 | tStatCatcher Statistics | `TSTATCATCHER_STATS` | Boolean (CHECK) | `false` | Capture processing metadata at job and component levels for the tStatCatcher component. Rarely used. |
+| 12 | Label | `LABEL` | String | -- | Text label for the component in the Talend Studio designer canvas. No runtime impact. |
 
 ### 3.3 Connection Types
 
@@ -131,53 +133,34 @@
 
 ## 4. Converter Audit
 
-### 4.1 Converter Flow Analysis -- CRITICAL BUG
+### 4.1 Parameter Extraction
 
-The converter has a **fatal dispatch error** that prevents tFileCopy jobs from being converted:
+The `talend_to_v1` converter uses a dedicated parser (`src/converters/talend_to_v1/components/file/file_copy.py`) registered via `REGISTRY["tFileCopy"]`. The parser extracts all runtime parameters using safe `_get_str` / `_get_bool` helpers with null-safety and correct defaults.
 
-**Step 1**: `converter.py` line 226 calls `parse_base_component(node)`. Inside this method, `_map_component_parameters('tFileCopy', config_raw)` (lines 275-285) correctly maps 7 Talend parameters to v1 config keys. The component dict is populated with a valid `config` field.
-
-**Step 2**: `converter.py` line 287 then calls `self.component_parser.parse_tfilecopy(node, component)`. **This method does not exist** in `component_parser.py`. There is no `def parse_tfilecopy` anywhere in the file (confirmed by searching all 2985 lines). This causes `AttributeError: 'ComponentParser' object has no attribute 'parse_tfilecopy'` at conversion time.
-
-**Result**: Any Talend job containing a `tFileCopy` component will crash during conversion. The correct parameter mapping in `_map_component_parameters` (Step 1) is overwritten by the crash in Step 2. The component is **completely unconvertible** in its current state.
-
-**Root cause**: The developer added the dispatch entry in `converter.py` (line 287) referencing `parse_tfilecopy`, but never created the corresponding method in `component_parser.py`. The `_map_component_parameters` approach on lines 275-285 was likely the original (working) implementation, and the dispatch entry was added later during a refactoring pass that was never completed.
-
-### 4.2 Parameter Extraction (in dead `_map_component_parameters` code)
-
-Even though the `_map_component_parameters` tFileCopy branch is effectively dead code (unreachable due to the crash), it is important to audit what it would extract if the bug were fixed.
-
-**Dead code location**: `component_parser.py` lines 275-285
-
-```python
-# tFileCopy mapping
-elif component_type == 'tFileCopy':
-    return {
-        'source': config_raw.get('FILENAME', ''),
-        'destination': config_raw.get('DESTINATION', ''),
-        'rename': config_raw.get('RENAME', False),
-        'new_name': config_raw.get('DESTINATION_RENAME', ''),
-        'replace_file': config_raw.get('REPLACE_FILE', True),
-        'create_directory': config_raw.get('CREATE_DIRECTORY', True),
-        'preserve_last_modified': config_raw.get('PRESERVE_LAST_MODIFIED_TIME', False)
-    }
-```
+**Converter flow**:
+1. `talend_to_v1` registry dispatches to `file_copy.py` converter function
+2. Extracts all runtime parameters using `_get_str()` and `_get_bool()` helpers (null-safe)
+3. Maps to engine config keys (`source`, `destination`, `rename`, `new_name`, etc.)
+4. Corrected defaults: `replace_file=false`, `create_directory=false`
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
 |----|----------------------|------------|---------------|-------|
-| 1 | `FILENAME` | Yes (dead code) | `source` | Source file path. Expressions and context vars handled by generic loop. |
-| 2 | `DESTINATION` | Yes (dead code) | `destination` | Destination directory path. |
-| 3 | `RENAME` | Yes (dead code) | `rename` | Boolean from CHECK field. |
-| 4 | `DESTINATION_RENAME` | Yes (dead code) | `new_name` | New filename for renamed copy. |
-| 5 | `REPLACE_FILE` | Yes (dead code) | `replace_file` | **Default `True` differs from Talend default `false`**. |
-| 6 | `CREATE_DIRECTORY` | Yes (dead code) | `create_directory` | **Default `True` differs from Talend default `false`**. |
-| 7 | `PRESERVE_LAST_MODIFIED_TIME` | Yes (dead code) | `preserve_last_modified` | Boolean from CHECK field. Default `False` matches Talend. |
-| 8 | `REMOVE_SOURCE_FILE` | **No** | -- | **Not extracted. Move semantics unavailable.** |
-| 9 | `COPY_DIRECTORY` | **No** | -- | **Not extracted. Directory copy toggle unavailable. Engine always copies based on `os.path.isdir()` auto-detection instead.** |
-| 10 | `SOURCE_DIRECTORY` | **No** | -- | **Not extracted. Source directory for directory copy mode.** |
-| 11 | `TSTATCATCHER_STATS` | **No** | -- | Not needed (tStatCatcher rarely used). |
+| 1 | `FILENAME` | Yes | `source` | Source file path. |
+| 2 | `DESTINATION` | Yes | `destination` | Destination directory path. |
+| 3 | `RENAME` | Yes | `rename` | Boolean. |
+| 4 | `DESTINATION_RENAME` | Yes | `new_name` | New filename for renamed copy. |
+| 5 | `REPLACE_FILE` | Yes | `replace_file` | Default `false` -- matches Talend. |
+| 6 | `CREATE_DIRECTORY` | Yes | `create_directory` | Default `false` -- matches Talend. |
+| 7 | `PRESERVE_LAST_MODIFIED_TIME` | Yes | `preserve_last_modified` | Default `false` -- matches Talend. |
+| 8 | `REMOVE_SOURCE_FILE` | Yes | `remove_source_file` | Move semantics. Engine-gap warning: not yet implemented in engine. |
+| 9 | `COPY_DIRECTORY` | Yes | `copy_directory` | Directory copy toggle. Engine-gap warning: engine auto-detects via `os.path.isdir()`. |
+| 10 | `SOURCE_DIRECTORY` | Yes | `source_directory` | Source directory for directory copy mode. |
+| 11 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Not needed at runtime. |
+| 12 | `LABEL` | Yes | `label` | Not needed at runtime (cosmetic). |
 
-**Summary**: 7 of 10 runtime-relevant parameters extracted (70%) in dead code. 3 runtime-relevant parameters are missing: `REMOVE_SOURCE_FILE`, `COPY_DIRECTORY`, `SOURCE_DIRECTORY`.
+**Summary**: 12 of 12 parameters extracted (100%). All runtime-relevant parameters correctly mapped.
+
+> **Factual correction (2026-03-25)**: The original audit referenced a `DIE_ON_ERROR` parameter on tFileCopy. This parameter does not exist on tFileCopy (verified via Talend documentation and XML parsing). It has been removed from the converter.
 
 ### 4.3 Default Value Mismatches
 
@@ -206,13 +189,13 @@ This applies to the `FILENAME` and `DESTINATION` fields, which commonly contain 
 
 | ID | Priority | Issue |
 |----|----------|-------|
-| CONV-FCP-001 | **P0** | **`parse_tfilecopy()` method does not exist**: `converter.py` line 287 dispatches to `self.component_parser.parse_tfilecopy(node, component)`, but no such method exists in `component_parser.py`. Every attempt to convert a Talend job containing `tFileCopy` will crash with `AttributeError`. This completely blocks tFileCopy conversion. |
-| CONV-FCP-002 | **P1** | **`REMOVE_SOURCE_FILE` not extracted**: The move semantics parameter is missing from `_map_component_parameters` (lines 275-285). Jobs using tFileCopy to move files (copy + delete source) will only copy, leaving the source intact. This can cause duplicate processing in subsequent runs. |
-| CONV-FCP-003 | **P1** | **`COPY_DIRECTORY` not extracted**: The directory copy toggle is missing. While the engine auto-detects directories via `os.path.isdir()`, the explicit Talend toggle controls whether the `File Name` or `Source directory` parameter is used. Without the toggle, the engine cannot distinguish between file-copy and directory-copy modes when the source path comes from a variable. |
-| CONV-FCP-004 | **P2** | **`REPLACE_FILE` default `True` differs from Talend default `false`**: When a Talend job does not explicitly set `REPLACE_FILE`, the converter produces `True`, but Talend behavior is `false`. Files at the destination will be silently overwritten instead of causing an error. Data loss risk. |
-| CONV-FCP-005 | **P2** | **`CREATE_DIRECTORY` default `True` differs from Talend default `false`**: When a Talend job does not explicitly set `CREATE_DIRECTORY`, the converter produces `True`, but Talend behavior is `false`. Destination directories will be auto-created instead of causing an error, masking configuration mistakes. |
-| CONV-FCP-006 | **P2** | **`SOURCE_DIRECTORY` not extracted**: When `COPY_DIRECTORY=true`, Talend uses a separate `SOURCE_DIRECTORY` parameter instead of `FILENAME`. The converter does not extract this, so directory copy mode is broken even if the engine supported it. |
-| CONV-FCP-007 | **P3** | **No dedicated parser method**: Uses deprecated `_map_component_parameters()` approach. Per project standards, every component should have a dedicated `parse_*` method. The mapping in `_map_component_parameters` cannot handle complex or nested parameters. |
+| CONV-FCP-001 | ~~P0~~ | **FIXED (2026-03-25)**: `talend_to_v1` dedicated parser replaces missing `parse_tfilecopy()`. All params extracted via registry-based dispatch. |
+| CONV-FCP-002 | ~~P1~~ | **FIXED (2026-03-25)**: `REMOVE_SOURCE_FILE` now extracted as `remove_source_file`. Engine-gap: move semantics not yet implemented in engine. |
+| CONV-FCP-003 | ~~P1~~ | **FIXED (2026-03-25)**: `COPY_DIRECTORY` now extracted as `copy_directory`. Engine-gap: engine auto-detects via `os.path.isdir()`. |
+| CONV-FCP-004 | ~~P2~~ | **FIXED (2026-03-25)**: `REPLACE_FILE` default corrected to `false`, matching Talend. |
+| CONV-FCP-005 | ~~P2~~ | **FIXED (2026-03-25)**: `CREATE_DIRECTORY` default corrected to `false`, matching Talend. |
+| CONV-FCP-006 | ~~P2~~ | **FIXED (2026-03-25)**: `SOURCE_DIRECTORY` now extracted as `source_directory`. |
+| CONV-FCP-007 | ~~P3~~ | **FIXED (2026-03-25)**: Dedicated `talend_to_v1` parser replaces deprecated `_map_component_parameters()` approach. |
 
 ---
 
