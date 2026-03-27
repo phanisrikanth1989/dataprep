@@ -68,7 +68,7 @@ class TestFileUnarchiveBasicConversion:
         assert cfg["zipfile"] == "/data/archive.zip"
         assert cfg["directory"] == "/data/output"
         assert cfg["extract_path"] is True
-        assert cfg["check_password"] is True
+        assert cfg["need_password"] is True
         assert cfg["password"] == "s3cret"
         assert cfg["die_on_error"] is True
         assert result.warnings == []
@@ -99,18 +99,18 @@ class TestFileUnarchiveDefaults:
 
         assert cfg["zipfile"] == ""
         assert cfg["directory"] == ""
-        assert cfg["extract_path"] is True  # default
-        assert cfg["check_password"] is False
+        assert cfg["extract_path"] is False  # default
+        assert cfg["need_password"] is False
         assert cfg["password"] == ""
         assert cfg["die_on_error"] is False
 
-    def test_check_password_default_false(self):
+    def test_need_password_default_false(self):
         node = _make_node(params={
             "ZIPFILE": '"a.zip"',
             "DIRECTORY": '"/tmp"',
         })
         result = _convert(node)
-        assert result.component["config"]["check_password"] is False
+        assert result.component["config"]["need_password"] is False
 
     def test_die_on_error_default_false(self):
         node = _make_node(params={
@@ -134,7 +134,7 @@ class TestFileUnarchiveWarnings:
         result = _convert(node)
         assert any("DIRECTORY" in w and "empty" in w for w in result.warnings)
 
-    def test_warning_when_check_password_true_but_password_empty(self):
+    def test_warning_when_need_password_true_but_password_empty(self):
         node = _make_node(params={
             "ZIPFILE": '"/data/archive.zip"',
             "DIRECTORY": '"/out"',
@@ -142,11 +142,11 @@ class TestFileUnarchiveWarnings:
         })
         result = _convert(node)
         assert any(
-            "CHECKPASSWORD" in w and "PASSWORD" in w
+            "need_password" in w and "PASSWORD" in w
             for w in result.warnings
         )
 
-    def test_no_warning_when_check_password_true_with_password(self):
+    def test_no_warning_when_need_password_true_with_password(self):
         node = _make_node(params={
             "ZIPFILE": '"/data/archive.zip"',
             "DIRECTORY": '"/out"',
@@ -182,7 +182,7 @@ class TestFileUnarchiveBooleanParsing:
             "PASSWORD": '"pw"',
         })
         result = _convert(node)
-        assert result.component["config"]["check_password"] is True
+        assert result.component["config"]["need_password"] is True
 
     def test_bool_false_string(self):
         node = _make_node(params={
@@ -210,7 +210,7 @@ class TestFileUnarchiveBooleanParsing:
             "PASSWORD": '"pw"',
         })
         result = _convert(node)
-        assert result.component["config"]["check_password"] is True
+        assert result.component["config"]["need_password"] is True
 
     def test_bool_string_zero(self):
         node = _make_node(params={
@@ -266,12 +266,130 @@ class TestFileUnarchiveEdgeCases:
         result = _convert(node)
         assert isinstance(result, ComponentResult)
 
-    def test_extract_path_defaults_to_true(self):
-        """extract_path defaults to True when not specified."""
+    def test_extract_path_defaults_to_false(self):
+        """extract_path defaults to False when not specified (Talend default)."""
         node = _make_node(params={
             "ZIPFILE": '"f.zip"',
             "DIRECTORY": '"d"',
         })
         result = _convert(node)
-        assert result.component["config"]["extract_path"] is True
+        assert result.component["config"]["extract_path"] is False
         assert result.warnings == []
+
+
+# ---------------------------------------------------------------------------
+# New parameters
+# ---------------------------------------------------------------------------
+
+class TestNewParams:
+
+    def test_rootname_default_false(self):
+        node = _make_node(params={"ZIPFILE": '"f.zip"', "DIRECTORY": '"d"'})
+        result = _convert(node)
+        assert result.component["config"]["rootname"] is False
+
+    def test_rootname_extracted(self):
+        node = _make_node(params={
+            "ZIPFILE": '"f.zip"', "DIRECTORY": '"d"',
+            "ROOTNAME": "true",
+        })
+        result = _convert(node)
+        assert result.component["config"]["rootname"] is True
+
+    def test_integrity_default_false(self):
+        node = _make_node(params={"ZIPFILE": '"f.zip"', "DIRECTORY": '"d"'})
+        result = _convert(node)
+        assert result.component["config"]["integrity"] is False
+
+    def test_integrity_extracted(self):
+        node = _make_node(params={
+            "ZIPFILE": '"f.zip"', "DIRECTORY": '"d"',
+            "INTEGRITY": "true",
+        })
+        result = _convert(node)
+        assert result.component["config"]["integrity"] is True
+
+    def test_decrypt_type_default_empty(self):
+        node = _make_node(params={"ZIPFILE": '"f.zip"', "DIRECTORY": '"d"'})
+        result = _convert(node)
+        assert result.component["config"]["decrypt_type"] == ""
+
+    def test_decrypt_type_extracted(self):
+        node = _make_node(params={
+            "ZIPFILE": '"f.zip"', "DIRECTORY": '"d"',
+            "DECRYPT_TYPE": '"Zip4j Decrypt"',
+        })
+        result = _convert(node)
+        assert result.component["config"]["decrypt_type"] == "Zip4j Decrypt"
+
+    def test_tstatcatcher_stats_default_false(self):
+        node = _make_node(params={"ZIPFILE": '"f.zip"', "DIRECTORY": '"d"'})
+        result = _convert(node)
+        assert result.component["config"]["tstatcatcher_stats"] is False
+
+    def test_label_default_empty(self):
+        node = _make_node(params={"ZIPFILE": '"f.zip"', "DIRECTORY": '"d"'})
+        result = _convert(node)
+        assert result.component["config"]["label"] == ""
+
+
+# ---------------------------------------------------------------------------
+# Engine-gap warnings
+# ---------------------------------------------------------------------------
+
+class TestEngineGapWarnings:
+
+    def test_no_engine_warnings_for_defaults(self):
+        node = _make_node(params={"ZIPFILE": '"f.zip"', "DIRECTORY": '"d"'})
+        result = _convert(node)
+        engine_warnings = [w for w in result.warnings if "engine" in w.lower()]
+        assert engine_warnings == []
+
+    def test_warning_when_integrity_enabled(self):
+        node = _make_node(params={
+            "ZIPFILE": '"f.zip"', "DIRECTORY": '"d"',
+            "INTEGRITY": "true",
+        })
+        result = _convert(node)
+        assert any("INTEGRITY" in w for w in result.warnings)
+
+    def test_warning_when_rootname_enabled(self):
+        node = _make_node(params={
+            "ZIPFILE": '"f.zip"', "DIRECTORY": '"d"',
+            "ROOTNAME": "true",
+        })
+        result = _convert(node)
+        assert any("ROOTNAME" in w for w in result.warnings)
+
+    def test_warning_when_decrypt_type_set(self):
+        node = _make_node(params={
+            "ZIPFILE": '"f.zip"', "DIRECTORY": '"d"',
+            "DECRYPT_TYPE": '"Zip4j Decrypt"',
+        })
+        result = _convert(node)
+        assert any("DECRYPT_TYPE" in w for w in result.warnings)
+
+    def test_no_warning_when_decrypt_type_empty(self):
+        node = _make_node(params={"ZIPFILE": '"f.zip"', "DIRECTORY": '"d"'})
+        result = _convert(node)
+        decrypt_warnings = [w for w in result.warnings if "DECRYPT_TYPE" in w]
+        assert decrypt_warnings == []
+
+
+# ---------------------------------------------------------------------------
+# Completeness
+# ---------------------------------------------------------------------------
+
+class TestCompleteness:
+
+    def test_all_11_config_keys_present(self):
+        node = _make_node(params={"ZIPFILE": '"f.zip"', "DIRECTORY": '"d"'})
+        result = _convert(node)
+        cfg = result.component["config"]
+        expected_keys = {
+            "zipfile", "directory", "extract_path",
+            "need_password", "password", "die_on_error",
+            "rootname", "integrity", "decrypt_type",
+            "tstatcatcher_stats", "label",
+        }
+        assert set(cfg.keys()) == expected_keys
