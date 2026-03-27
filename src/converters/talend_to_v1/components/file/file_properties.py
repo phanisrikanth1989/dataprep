@@ -23,6 +23,9 @@ class FilePropertiesConverter(ComponentConverter):
         config = {
             "filename": self._get_str(node, "FILENAME"),
             "calculate_md5": self._get_bool(node, "MD5"),
+            # Metadata
+            "tstatcatcher_stats": self._get_bool(node, "TSTATCATCHER_STATS", False),
+            "label": self._get_str(node, "LABEL"),
         }
 
         if not config["filename"]:
