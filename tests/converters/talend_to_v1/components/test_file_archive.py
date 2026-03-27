@@ -70,8 +70,8 @@ class TestFileArchiveBasicConversion:
         assert cfg["archive_format"] == "zip"
         assert cfg["include_subdirectories"] is True
         assert cfg["overwrite"] is True
-        assert cfg["compression_level"] == 9
-        assert cfg["die_on_error"] is True  # default
+        assert cfg["compression_level"] == "9"
+        assert cfg["die_on_error"] is False  # default
         assert result.warnings == []
 
     def test_component_structure_has_required_keys(self):
@@ -110,8 +110,8 @@ class TestFileArchiveDefaults:
         assert cfg["target"] == ""
         assert cfg["archive_format"] == "zip"
         assert cfg["include_subdirectories"] is False
-        assert cfg["overwrite"] is False
-        assert cfg["compression_level"] == 4
+        assert cfg["overwrite"] is True
+        assert cfg["compression_level"] == "Normal"
 
     def test_archive_format_default_zip(self):
         """ARCHIVE_FORMAT defaults to 'zip' when not specified."""
@@ -122,14 +122,14 @@ class TestFileArchiveDefaults:
         result = _convert(node)
         assert result.component["config"]["archive_format"] == "zip"
 
-    def test_compression_level_default_4(self):
-        """LEVEL defaults to 4 when not specified."""
+    def test_compression_level_default_normal(self):
+        """LEVEL defaults to 'Normal' when not specified (Talend enum label)."""
         node = _make_node(params={
             "SOURCE": '"/data"',
             "TARGET": '"/data.zip"',
         })
         result = _convert(node)
-        assert result.component["config"]["compression_level"] == 4
+        assert result.component["config"]["compression_level"] == "Normal"
 
 
 class TestFileArchiveWarnings:
@@ -251,10 +251,183 @@ class TestFileArchiveEdgeCases:
         assert result.component["config"]["source"] == "/src"
 
     def test_compression_level_as_string(self):
-        """LEVEL provided as a quoted string should parse to int."""
+        """LEVEL provided as a quoted string should stay as string."""
         node = _make_node(params={
             "SOURCE": '"s"', "TARGET": '"t"',
             "LEVEL": '"6"',
         })
         result = _convert(node)
-        assert result.component["config"]["compression_level"] == 6
+        assert result.component["config"]["compression_level"] == "6"
+
+
+# ---------------------------------------------------------------------------
+# New parameters
+# ---------------------------------------------------------------------------
+
+class TestNewParams:
+
+    def test_source_file_default_empty(self):
+        node = _make_node(params={"SOURCE": '"s"', "TARGET": '"t"'})
+        result = _convert(node)
+        assert result.component["config"]["source_file"] == ""
+
+    def test_source_file_extracted(self):
+        node = _make_node(params={
+            "SOURCE": '"s"', "TARGET": '"t"',
+            "SOURCE_FILE": '"/data/input.gz"',
+        })
+        result = _convert(node)
+        assert result.component["config"]["source_file"] == "/data/input.gz"
+
+    def test_create_directory_default_false(self):
+        node = _make_node(params={"SOURCE": '"s"', "TARGET": '"t"'})
+        result = _convert(node)
+        assert result.component["config"]["create_directory"] is False
+
+    def test_all_files_default_true(self):
+        """ALL_FILES defaults to True (unlike most booleans)."""
+        node = _make_node(params={"SOURCE": '"s"', "TARGET": '"t"'})
+        result = _convert(node)
+        assert result.component["config"]["all_files"] is True
+
+    def test_filemask_default_empty(self):
+        node = _make_node(params={"SOURCE": '"s"', "TARGET": '"t"'})
+        result = _convert(node)
+        assert result.component["config"]["filemask"] == ""
+
+    def test_encoding_default_empty(self):
+        node = _make_node(params={"SOURCE": '"s"', "TARGET": '"t"'})
+        result = _convert(node)
+        assert result.component["config"]["encoding"] == ""
+
+    def test_encrypt_files_default_false(self):
+        node = _make_node(params={"SOURCE": '"s"', "TARGET": '"t"'})
+        result = _convert(node)
+        assert result.component["config"]["encrypt_files"] is False
+
+    def test_encrypt_method_default_empty(self):
+        node = _make_node(params={"SOURCE": '"s"', "TARGET": '"t"'})
+        result = _convert(node)
+        assert result.component["config"]["encrypt_method"] == ""
+
+    def test_aes_key_strength_default_empty(self):
+        node = _make_node(params={"SOURCE": '"s"', "TARGET": '"t"'})
+        result = _convert(node)
+        assert result.component["config"]["aes_key_strength"] == ""
+
+    def test_password_default_empty(self):
+        node = _make_node(params={"SOURCE": '"s"', "TARGET": '"t"'})
+        result = _convert(node)
+        assert result.component["config"]["password"] == ""
+
+    def test_zip64_mode_default_empty(self):
+        node = _make_node(params={"SOURCE": '"s"', "TARGET": '"t"'})
+        result = _convert(node)
+        assert result.component["config"]["zip64_mode"] == ""
+
+    def test_use_sync_flush_default_false(self):
+        node = _make_node(params={"SOURCE": '"s"', "TARGET": '"t"'})
+        result = _convert(node)
+        assert result.component["config"]["use_sync_flush"] is False
+
+    def test_tstatcatcher_stats_default_false(self):
+        node = _make_node(params={"SOURCE": '"s"', "TARGET": '"t"'})
+        result = _convert(node)
+        assert result.component["config"]["tstatcatcher_stats"] is False
+
+    def test_label_default_empty(self):
+        node = _make_node(params={"SOURCE": '"s"', "TARGET": '"t"'})
+        result = _convert(node)
+        assert result.component["config"]["label"] == ""
+
+
+# ---------------------------------------------------------------------------
+# Engine-gap warnings
+# ---------------------------------------------------------------------------
+
+class TestEngineGapWarnings:
+
+    def test_no_engine_warnings_for_defaults(self):
+        """Default archive_format is zip, no encryption, no filemask."""
+        node = _make_node(params={"SOURCE": '"s"', "TARGET": '"t"'})
+        result = _convert(node)
+        engine_warnings = [w for w in result.warnings if "engine" in w.lower()]
+        assert engine_warnings == []
+
+    def test_warning_when_non_zip_format(self):
+        node = _make_node(params={
+            "SOURCE": '"s"', "TARGET": '"t"',
+            "ARCHIVE_FORMAT": '"tar.gz"',
+        })
+        result = _convert(node)
+        assert any("ARCHIVE_FORMAT" in w for w in result.warnings)
+
+    def test_warning_when_encrypt_files_enabled(self):
+        node = _make_node(params={
+            "SOURCE": '"s"', "TARGET": '"t"',
+            "ENCRYPT_FILES": "true",
+        })
+        result = _convert(node)
+        assert any("ENCRYPT_FILES" in w for w in result.warnings)
+
+    def test_warning_when_filemask_set(self):
+        node = _make_node(params={
+            "SOURCE": '"s"', "TARGET": '"t"',
+            "FILEMASK": '"*.csv"',
+        })
+        result = _convert(node)
+        assert any("FILEMASK" in w for w in result.warnings)
+
+    def test_warning_when_use_sync_flush_enabled(self):
+        node = _make_node(params={
+            "SOURCE": '"s"', "TARGET": '"t"',
+            "USE_SYNC_FLUSH": "true",
+        })
+        result = _convert(node)
+        assert any("USE_SYNC_FLUSH" in w for w in result.warnings)
+
+    def test_warning_when_zip64_mode_non_default(self):
+        node = _make_node(params={
+            "SOURCE": '"s"', "TARGET": '"t"',
+            "ZIP64_MODE": '"ALWAYS"',
+        })
+        result = _convert(node)
+        assert any("ZIP64_MODE" in w for w in result.warnings)
+
+    def test_no_warning_when_zip64_mode_asneeded(self):
+        node = _make_node(params={
+            "SOURCE": '"s"', "TARGET": '"t"',
+            "ZIP64_MODE": '"ASNEEDED"',
+        })
+        result = _convert(node)
+        zip64_warnings = [w for w in result.warnings if "ZIP64_MODE" in w]
+        assert zip64_warnings == []
+
+    def test_warning_when_create_directory_enabled(self):
+        node = _make_node(params={
+            "SOURCE": '"s"', "TARGET": '"t"',
+            "CREATE_DIRECTORY": "true",
+        })
+        result = _convert(node)
+        assert any("CREATE_DIRECTORY" in w for w in result.warnings)
+
+
+# ---------------------------------------------------------------------------
+# Completeness
+# ---------------------------------------------------------------------------
+
+class TestCompleteness:
+
+    def test_all_20_config_keys_present(self):
+        node = _make_node(params={"SOURCE": '"s"', "TARGET": '"t"'})
+        result = _convert(node)
+        cfg = result.component["config"]
+        expected_keys = {
+            "source", "target", "archive_format", "include_subdirectories",
+            "overwrite", "compression_level", "die_on_error",
+            "source_file", "create_directory", "all_files", "filemask",
+            "encoding", "encrypt_files", "encrypt_method", "aes_key_strength",
+            "password", "zip64_mode", "use_sync_flush",
+            "tstatcatcher_stats", "label",
+        }
+        assert set(cfg.keys()) == expected_keys

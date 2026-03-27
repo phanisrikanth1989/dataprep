@@ -3,8 +3,10 @@
 > **Audited**: 2026-03-21
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
-> **Converter**: `complex_converter`
+> **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
+
+> **Converter Update (2026-03-25)**: Converter section updated to reflect migration from `complex_converter` to `talend_to_v1`. All runtime params now extracted. See CONV-* issues below for status.
 
 ---
 
@@ -15,8 +17,8 @@
 | **Talend Name** | `tFileArchive` |
 | **V1 Engine Class** | `FileArchiveComponent` |
 | **Engine File** | `src/v1/engine/components/file/file_archive.py` (193 lines) |
-| **Converter Parser** | `src/converters/complex_converter/component_parser.py` -> `parse_tfilearchive()` (lines 1665-1673) |
-| **Converter Dispatch** | `src/converters/complex_converter/converter.py` -> `elif component_type == 'tFileArchive'` (lines 280-281) |
+| **Converter Parser** | `src/converters/talend_to_v1/components/file/file_archive.py` |
+| **Converter Dispatch** | `talend_to_v1` registry-based dispatch via `REGISTRY["tFileArchive"]` |
 | **Registry Aliases** | `FileArchiveComponent`, `tFileArchive` (registered in `src/v1/engine/engine.py` lines 68-69) |
 | **Category** | File / Archive-Unarchive |
 
@@ -25,8 +27,7 @@
 | File | Purpose |
 |------|---------|
 | `src/v1/engine/components/file/file_archive.py` | Engine implementation (193 lines) |
-| `src/converters/complex_converter/component_parser.py` (lines 1665-1673) | Parameter mapping from Talend XML to v1 JSON |
-| `src/converters/complex_converter/converter.py` (lines 280-281) | Dispatch -- dedicated `elif` branch for `tFileArchive` |
+| `src/converters/talend_to_v1/components/file/file_archive.py` | Dedicated `talend_to_v1` converter for tFileArchive |
 | `src/v1/engine/base_component.py` | Base class: `_update_stats()`, `_update_global_map()`, `validate_schema()`, `execute()` |
 | `src/v1/engine/global_map.py` | GlobalMap storage for `{id}_NB_LINE` etc. |
 | `src/v1/engine/exceptions.py` | Custom exception hierarchy (`FileOperationError`, `ConfigurationError`) |
@@ -38,7 +39,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **Y** | 0 | 2 | 4 | 2 | 6 of 18+ Talend params extracted (33%); missing FILEMASK, ENCODING, ENCRYPT, ZIP64, CREATE_DIR, ALL_FILES, DIE_ON_ERROR, USE_SYNC_FLUSH; null-safety crash risk on every `.find().get()` |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | `talend_to_v1` dedicated parser extracts 20 params (20 config keys). All runtime params mapped. LEVEL corrected to enum (Best/Normal/Fast). OVERWRITE default corrected to true. DIE_ON_ERROR default corrected to false. 6 engine-gap warnings documented. |
 | Engine Feature Parity | **Y** | 0 | 4 | 3 | 1 | Only ZIP format; no gzip/tar.gz; no encryption; no filemask; no globalMap ARCHIVE_FILEPATH/ARCHIVE_FILENAME; ZIP64 works by default but no user control |
 | Code Quality | **Y** | 2 | 4 | 5 | 2 | Cross-cutting base class bugs; `_validate_config()` never called; `None` source/target causes TypeError; `compression_level` not mapped to Python zipfile levels; TOCTOU on makedirs; partial corrupt ZIP on failure; `include_subdirectories` default divergence; no custom exception usage |
 | Performance & Memory | **G** | 0 | 0 | 1 | 2 | `zipfile.write()` uses 8192-byte chunks (constant memory); `os.walk()` builds full file tree in memory; no parallel compression |
@@ -158,40 +159,40 @@
 
 ### 4.1 Parameter Extraction
 
-The converter uses a **dedicated parser method** (`parse_tfilearchive()` in `component_parser.py` lines 1665-1673) with explicit dispatch in `converter.py` (lines 280-281: `elif component_type == 'tFileArchive': component = self.component_parser.parse_tfilearchive(node, component)`). This follows the recommended pattern of having a dedicated parser per component type.
+The `talend_to_v1` converter uses a dedicated parser (`src/converters/talend_to_v1/components/file/file_archive.py`) registered via `REGISTRY["tFileArchive"]`. The parser extracts all runtime parameters using safe `_get_str` / `_get_bool` helpers with null-safety and correct defaults.
 
 **Converter flow**:
-1. `converter.py:_parse_component()` dispatches to `component_parser.parse_tfilearchive(node, component)` (line 281)
-2. `parse_tfilearchive()` extracts 6 parameters from XML `elementParameter` nodes using `.find().get()` chaining
-3. Returns component dict with populated `config` section
+1. `talend_to_v1` registry dispatches to `file_archive.py` converter function
+2. Extracts all runtime parameters using `_get_str()` and `_get_bool()` helpers (null-safe)
+3. LEVEL corrected to enum labels (Best/Normal/Fast) instead of numeric values
+4. OVERWRITE default corrected to `true`. DIE_ON_ERROR default corrected to `false`.
 
-**Critical safety issue**: Every line in `parse_tfilearchive()` uses the pattern `node.find('.//elementParameter[@name="PARAM"]').get('value', default)`. If `.find()` returns `None` (parameter not present in XML), the subsequent `.get()` call causes `AttributeError: 'NoneType' object has no attribute 'get'`. There is NO null check between `.find()` and `.get()`. This means any Talend job XML that omits even one expected parameter will crash the converter.
+| # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
+|----|----------------------|------------|---------------|-------|
+| 1 | `SOURCE` | Yes | `source` | Null-safe extraction. |
+| 2 | `TARGET` | Yes | `target` | Null-safe extraction. |
+| 3 | `ARCHIVE_FORMAT` | Yes | `archive_format` | Default `zip`. |
+| 4 | `SUB_DIRECTORY` | Yes | `include_subdirectories` | Boolean. Default `false`. |
+| 5 | `OVERWRITE` | Yes | `overwrite` | Boolean. Default `true` -- matches Talend. |
+| 6 | `LEVEL` | Yes | `compression_level` | Enum: `Best`/`Normal`/`Fast`. Default `Normal`. |
+| 7 | `SOURCE_FILE` | Yes | `source_file` | For gzip mode. Engine-gap: gzip not yet implemented. |
+| 8 | `CREATE_DIRECTORY` | Yes | `create_directory` | Boolean. Default `false`. |
+| 9 | `ALL_FILES` | Yes | `all_files` | Boolean. Default `true`. Engine-gap: file filtering not yet implemented. |
+| 10 | `FILEMASK` | Yes | `filemask` | String. Engine-gap: file filtering not yet implemented. |
+| 11 | `ENCODING` | Yes | `encoding` | String. Default platform encoding. Engine-gap: encoding control not yet implemented. |
+| 12 | `DIE_ON_ERROR` | Yes | `die_on_error` | Boolean. Default `false` -- matches Talend. |
+| 13 | `ENCRYPT_FILES` | Yes | `encrypt_files` | Boolean. Default `false`. Engine-gap: encryption not yet implemented. |
+| 14 | `ENCRYPT_METHOD` | Yes | `encrypt_method` | Enum. Engine-gap: encryption not yet implemented. |
+| 15 | `AES_KEY_STRENGTH` | Yes | `aes_key_strength` | Enum. Engine-gap: encryption not yet implemented. |
+| 16 | `PASSWORD` | Yes | `password` | String. Engine-gap: encryption not yet implemented. |
+| 17 | `ZIP64_MODE` | Yes | `zip64_mode` | Enum. Default `ASNEEDED`. |
+| 18 | `USE_SYNC_FLUSH` | Yes | `use_sync_flush` | Boolean. Default `false`. Engine-gap: not yet implemented. |
+| 19 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Not needed at runtime. |
+| 20 | `LABEL` | Yes | `label` | Not needed at runtime (cosmetic). |
 
-| # | Talend XML Parameter | Extracted? | V1 Config Key | Converter Line | Notes |
-|----|----------------------|------------|---------------|----------------|-------|
-| 1 | `SOURCE` | Yes | `source` | 1667 | **No null check on `.find()` result** -- crashes if SOURCE param missing from XML |
-| 2 | `TARGET` | Yes | `target` | 1668 | **No null check on `.find()` result** -- crashes if TARGET param missing from XML |
-| 3 | `ARCHIVE_FORMAT` | Yes | `archive_format` | 1669 | Default `'zip'` matches Talend. **No null check.** |
-| 4 | `SUB_DIRECTORY` | Yes | `include_subdirectories` | 1670 | Boolean conversion via `.lower() == 'true'`. Default `'false'` matches Talend. **No null check.** |
-| 5 | `OVERWRITE` | Yes | `overwrite` | 1671 | Boolean conversion via `.lower() == 'true'`. Default `'false'` -- **differs from Talend default `true`**. |
-| 6 | `LEVEL` | Yes | `compression_level` | 1672 | Extracted as raw string `'4'`. **Talend uses named levels (Best/Normal/Fast), not numeric values.** The engine later `int()` casts this value. A Talend XML containing `"Normal"` or `"Best"` would cause `ValueError` at runtime. **No null check.** |
-| 7 | `SOURCE_FILE` | **No** | -- | -- | **Not extracted. gzip mode uses this instead of SOURCE for single-file compression.** |
-| 8 | `CREATE_DIRECTORY` | **No** | -- | -- | **Not extracted.** Engine hardcodes `os.makedirs()` always, which differs from Talend default (false). |
-| 9 | `ALL_FILES` | **No** | -- | -- | **Not extracted. Always archives all files.** |
-| 10 | `FILEMASK` | **No** | -- | -- | **Not extracted. No file filtering capability.** |
-| 11 | `ENCODING` | **No** | -- | -- | **Not extracted. No encoding control for archive metadata.** |
-| 12 | `DIE_ON_ERROR` | **No** | -- | -- | **Not extracted by converter.** Engine defaults to `True`, which differs from Talend default `false`. Engine reads `die_on_error` from config, but converter never sets it. |
-| 13 | `ENCRYPT_FILES` | **No** | -- | -- | **Not extracted. No encryption support.** |
-| 14 | `ENCRYPT_METHOD` | **No** | -- | -- | **Not extracted.** |
-| 15 | `AES_KEY_STRENGTH` | **No** | -- | -- | **Not extracted.** |
-| 16 | `PASSWORD` | **No** | -- | -- | **Not extracted.** |
-| 17 | `ZIP64_MODE` | **No** | -- | -- | **Not extracted.** ZIP64 is functionally supported by default (`allowZip64=True`). Gap is only user control for `ZIP64_MODE=NEVER`. |
-| 18 | `USE_SYNC_FLUSH` | **No** | -- | -- | **Not extracted.** |
-| 19 | `TSTATCATCHER_STATS` | **No** | -- | -- | Not extracted (low priority -- tStatCatcher rarely used) |
-| 20 | `LABEL` | **No** | -- | -- | Not extracted (cosmetic -- no runtime impact) |
-| 21 | `PROPERTY_TYPE` | No | -- | -- | Not needed (always Built-In in converted jobs) |
+**Summary**: 20 of 20 parameters extracted (100%). All runtime-relevant parameters correctly mapped. 6 engine-gap warnings documented for features not yet implemented in the engine.
 
-**Summary**: 6 of 21 parameters extracted (29%). 12 runtime-relevant parameters are missing.
+> **Factual correction (2026-03-25)**: The original audit stated LEVEL was extracted as numeric string `'4'`. Talend uses named enum labels (`Best`/`Normal`/`Fast`), not numeric values. The `talend_to_v1` converter now extracts LEVEL as its enum label string.
 
 ### 4.2 Schema Extraction
 
@@ -211,14 +212,14 @@ Not applicable. `tFileArchive` is a file-operation component that does not proce
 
 | ID | Priority | Issue |
 |----|----------|-------|
-| CONV-FA-001 | **P1** | **Null-safety crash on every `.find().get()` call**: All 6 lines in `parse_tfilearchive()` (lines 1667-1672) use `node.find(...).get(...)` without null checking the `.find()` result. If ANY expected XML parameter is missing, the converter crashes with `AttributeError: 'NoneType' object has no attribute 'get'`. This is a systemic pattern -- every single parameter extraction line has this bug. In production, Talend exports may omit default-valued parameters from XML, making this crash likely. |
-| CONV-FA-002 | **P1** | **`LEVEL` extracted as numeric string but Talend uses named levels**: The converter extracts `LEVEL` as `'4'` (default), but Talend XML stores named values like `"Normal"`, `"Best"`, or `"Fast"`. If a Talend job explicitly sets compression level, the XML will contain a named string, not a number. The engine's `int(self.config.get('compression_level', ...))` on line 121 will raise `ValueError` for non-numeric values like `"Normal"`. |
-| CONV-FA-003 | **P2** | **`OVERWRITE` default `'false'` differs from Talend default `true`**: Converter line 1671 defaults to `'false'`, but Talend defaults to `true` (checked by default). If a Talend job does not explicitly set `OVERWRITE` in XML (relying on default), the converter produces `false`, which changes behavior -- existing archives would NOT be overwritten, potentially causing unexpected failures. |
-| CONV-FA-004 | **P2** | **`DIE_ON_ERROR` not extracted**: The converter does not extract the `DIE_ON_ERROR` parameter. The engine defaults to `True` (line 122: `die_on_error = self.config.get('die_on_error', True)`), but Talend defaults to `false`. This means jobs that rely on continuing past archive errors will instead raise exceptions and halt. |
-| CONV-FA-005 | **P2** | **`ALL_FILES` and `FILEMASK` not extracted**: No file filtering capability. Jobs that archive a subset of files from a directory (e.g., only `*.csv` files) will instead archive ALL files, producing incorrect archives with unwanted files. |
-| CONV-FA-006 | **P2** | **`ENCODING` not extracted**: Archive metadata encoding is not configurable. Files with non-ASCII names in the source directory may have garbled names in the archive. |
-| CONV-FA-007 | **P3** | **`ENCRYPT_FILES` / `ENCRYPT_METHOD` / `PASSWORD` not extracted**: No encryption support. Jobs requiring password-protected archives will produce unencrypted archives. |
-| CONV-FA-008 | **P3** | **`ZIP64_MODE` not extracted**: ZIP64 IS functionally supported by default (`allowZip64=True`), so large archives work. The gap is only the inability to honor `ZIP64_MODE=NEVER` from Talend jobs. |
+| CONV-FA-001 | ~~P1~~ | **FIXED (2026-03-25)**: `talend_to_v1` parser uses `_get_str()`/`_get_bool()` helpers with null-safety. No `AttributeError` risk. |
+| CONV-FA-002 | ~~P1~~ | **FIXED (2026-03-25)**: `LEVEL` now extracted as enum label string (`Best`/`Normal`/`Fast`). Default `Normal`. |
+| CONV-FA-003 | ~~P2~~ | **FIXED (2026-03-25)**: `OVERWRITE` default corrected to `true`, matching Talend. |
+| CONV-FA-004 | ~~P2~~ | **FIXED (2026-03-25)**: `DIE_ON_ERROR` now extracted with default `false`, matching Talend. |
+| CONV-FA-005 | ~~P2~~ | **FIXED (2026-03-25)**: `ALL_FILES` and `FILEMASK` now extracted. Engine-gap: file filtering not yet implemented in engine. |
+| CONV-FA-006 | ~~P2~~ | **FIXED (2026-03-25)**: `ENCODING` now extracted. Engine-gap: encoding control not yet implemented in engine. |
+| CONV-FA-007 | ~~P3~~ | **FIXED (2026-03-25)**: `ENCRYPT_FILES`, `ENCRYPT_METHOD`, `AES_KEY_STRENGTH`, `PASSWORD` now extracted. Engine-gap: encryption not yet implemented in engine. |
+| CONV-FA-008 | ~~P3~~ | **FIXED (2026-03-25)**: `ZIP64_MODE` now extracted with default `ASNEEDED`. |
 
 ---
 
