@@ -74,7 +74,8 @@ class TestFileCopyBasicConversion:
         assert cfg["preserve_last_modified"] is True
         assert cfg["remove_source_file"] is True
         assert cfg["copy_directory"] is False
-        assert result.warnings == []
+        # REMOVE_SOURCE_FILE=true triggers engine-gap warning
+        assert any("REMOVE_SOURCE_FILE" in w for w in result.warnings)
 
     def test_component_structure_has_required_keys(self):
         node = _make_node(params={
@@ -104,23 +105,23 @@ class TestFileCopyDefaults:
         assert cfg["destination"] == ""
         assert cfg["rename"] is False
         assert cfg["new_name"] == ""
-        assert cfg["replace_file"] is True
-        assert cfg["create_directory"] is True
+        assert cfg["replace_file"] is False
+        assert cfg["create_directory"] is False
         assert cfg["preserve_last_modified"] is False
         assert cfg["remove_source_file"] is False
         assert cfg["copy_directory"] is False
 
-    def test_replace_file_default_true(self):
-        """REPLACE_FILE defaults to True when not specified."""
+    def test_replace_file_default_false(self):
+        """REPLACE_FILE defaults to False when not specified (Talend default)."""
         node = _make_node(params={"FILENAME": '"a.txt"', "DESTINATION": '"/tmp/"'})
         result = _convert(node)
-        assert result.component["config"]["replace_file"] is True
+        assert result.component["config"]["replace_file"] is False
 
-    def test_create_directory_default_true(self):
-        """CREATE_DIRECTORY defaults to True when not specified."""
+    def test_create_directory_default_false(self):
+        """CREATE_DIRECTORY defaults to False when not specified (Talend default)."""
         node = _make_node(params={"FILENAME": '"a.txt"', "DESTINATION": '"/tmp/"'})
         result = _convert(node)
-        assert result.component["config"]["create_directory"] is True
+        assert result.component["config"]["create_directory"] is False
 
     def test_remove_source_file_default_false(self):
         """REMOVE_SOURCE_FILE defaults to False (was missing in old code per audit)."""
@@ -275,3 +276,90 @@ class TestFileCopyEdgeCases:
         result = _convert(node)
         from src.converters.talend_to_v1.components.base import ComponentResult
         assert isinstance(result, ComponentResult)
+
+
+# ---------------------------------------------------------------------------
+# New parameters
+# ---------------------------------------------------------------------------
+
+class TestNewParams:
+
+    def test_source_directory_default_empty(self):
+        node = _make_node(params={"FILENAME": '"f"', "DESTINATION": '"d"'})
+        result = _convert(node)
+        assert result.component["config"]["source_directory"] == ""
+
+    def test_source_directory_extracted(self):
+        node = _make_node(params={
+            "FILENAME": '"f"', "DESTINATION": '"d"',
+            "SOURCE_DIRECTORY": '"/data/src"',
+        })
+        result = _convert(node)
+        assert result.component["config"]["source_directory"] == "/data/src"
+
+    def test_tstatcatcher_stats_default_false(self):
+        node = _make_node(params={"FILENAME": '"f"', "DESTINATION": '"d"'})
+        result = _convert(node)
+        assert result.component["config"]["tstatcatcher_stats"] is False
+
+    def test_label_default_empty(self):
+        node = _make_node(params={"FILENAME": '"f"', "DESTINATION": '"d"'})
+        result = _convert(node)
+        assert result.component["config"]["label"] == ""
+
+
+# ---------------------------------------------------------------------------
+# Engine-gap warnings
+# ---------------------------------------------------------------------------
+
+class TestEngineGapWarnings:
+
+    def test_no_engine_warnings_for_defaults(self):
+        node = _make_node(params={"FILENAME": '"f.txt"', "DESTINATION": '"/tmp/"'})
+        result = _convert(node)
+        engine_warnings = [w for w in result.warnings if "engine" in w.lower()]
+        assert engine_warnings == []
+
+    def test_warning_when_remove_source_file_enabled(self):
+        node = _make_node(params={
+            "FILENAME": '"f.txt"', "DESTINATION": '"/tmp/"',
+            "REMOVE_SOURCE_FILE": "true",
+        })
+        result = _convert(node)
+        assert any("REMOVE_SOURCE_FILE" in w for w in result.warnings)
+
+    def test_warning_when_copy_directory_enabled(self):
+        node = _make_node(params={
+            "FILENAME": '"f.txt"', "DESTINATION": '"/tmp/"',
+            "COPY_DIRECTORY": "true",
+        })
+        result = _convert(node)
+        assert any("COPY_DIRECTORY" in w for w in result.warnings)
+
+    def test_no_warning_when_remove_source_file_disabled(self):
+        node = _make_node(params={
+            "FILENAME": '"f.txt"', "DESTINATION": '"/tmp/"',
+            "REMOVE_SOURCE_FILE": "false",
+        })
+        result = _convert(node)
+        engine_warnings = [w for w in result.warnings if "engine" in w.lower()]
+        assert engine_warnings == []
+
+
+# ---------------------------------------------------------------------------
+# Completeness
+# ---------------------------------------------------------------------------
+
+class TestCompleteness:
+
+    def test_all_12_config_keys_present(self):
+        node = _make_node(params={"FILENAME": '"f"', "DESTINATION": '"d"'})
+        result = _convert(node)
+        cfg = result.component["config"]
+        expected_keys = {
+            "source", "destination", "rename", "new_name",
+            "replace_file", "create_directory", "preserve_last_modified",
+            "remove_source_file", "copy_directory", "source_directory",
+            "tstatcatcher_stats", "label",
+        }
+        assert set(cfg.keys()) == expected_keys

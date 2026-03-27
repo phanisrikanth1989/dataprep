@@ -32,12 +32,12 @@ class FileCopyConverter(ComponentConverter):
         destination = self._get_str(node, "DESTINATION")
         rename = self._get_bool(node, "RENAME")
         new_name = self._get_str(node, "DESTINATION_RENAME")
-        replace_file = self._get_bool(node, "REPLACE_FILE", True)
-        create_directory = self._get_bool(node, "CREATE_DIRECTORY", True)
+        replace_file = self._get_bool(node, "REPLACE_FILE", False)
+        create_directory = self._get_bool(node, "CREATE_DIRECTORY", False)
         preserve_last_modified = self._get_bool(node, "PRESERVE_LAST_MODIFIED_TIME")
-        # These two were missing from the old converter (audit fixes CONV-FC-001, FC-002)
         remove_source_file = self._get_bool(node, "REMOVE_SOURCE_FILE")
         copy_directory = self._get_bool(node, "COPY_DIRECTORY")
+        source_directory = self._get_str(node, "SOURCE_DIRECTORY")
 
         # --- Validation warnings ---
         if not source:
@@ -46,6 +46,18 @@ class FileCopyConverter(ComponentConverter):
             warnings.append("DESTINATION is empty")
         if rename and not new_name:
             warnings.append("RENAME is true but DESTINATION_RENAME is empty")
+
+        # --- Engine-gap warnings ---
+        if remove_source_file:
+            warnings.append(
+                "REMOVE_SOURCE_FILE=true: engine uses shutil.copy2 not "
+                "os.rename — not atomic move semantics"
+            )
+        if copy_directory:
+            warnings.append(
+                "COPY_DIRECTORY=true: engine has partial directory copy "
+                "support via shutil.copytree"
+            )
 
         # --- Build config dict ---
         config: Dict[str, Any] = {
@@ -58,6 +70,10 @@ class FileCopyConverter(ComponentConverter):
             "preserve_last_modified": preserve_last_modified,
             "remove_source_file": remove_source_file,
             "copy_directory": copy_directory,
+            "source_directory": source_directory,
+            # Metadata
+            "tstatcatcher_stats": self._get_bool(node, "TSTATCATCHER_STATS", False),
+            "label": self._get_str(node, "LABEL"),
         }
 
         component = self._build_component_dict(
