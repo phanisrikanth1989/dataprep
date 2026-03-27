@@ -5,6 +5,8 @@
 > **Engine Version**: v1
 > **Converter**: `complex_converter`
 > **Status**: PRODUCTION READINESS REVIEW
+>
+> **Converter update (2026-03-26)**: `talend_to_v1` converter implemented (`MapConverter`). 44/48 attributes extracted. Converter Coverage upgraded Y -> G. See updated Sections 2, 4.2.4, 4.5.
 
 ---
 
@@ -15,8 +17,8 @@
 | **Talend Name** | `tMap` |
 | **V1 Engine Class** | `Map` |
 | **Engine File** | `src/v1/engine/components/transform/map.py` (1164 lines) |
-| **Converter Parser** | `src/converters/complex_converter/component_parser.py` -> `parse_tmap()` (lines 511-681) |
-| **Converter Dispatch** | `src/converters/complex_converter/converter.py` -> `elif component_type == 'tMap':` (line 232-233) |
+| **Converter Parser** | `src/converters/talend_to_v1/components/transform/map.py` -> `MapConverter` (243 lines) |
+| **Converter Dispatch** | Registry-based: `@REGISTRY.register("tMap")` in `map.py` |
 | **Registry Aliases** | `Map`, `tMap` (registered in `src/v1/engine/engine.py` lines 99-100) |
 | **Category** | Transform / Processing |
 
@@ -25,8 +27,8 @@
 | File | Purpose |
 |------|---------|
 | `src/v1/engine/components/transform/map.py` | Engine implementation (1164 lines) |
-| `src/converters/complex_converter/component_parser.py` (lines 511-681) | Dedicated `parse_tmap()` method -- parses MapperData XML into v1 JSON config |
-| `src/converters/complex_converter/converter.py` (line 232-233) | Dispatch -- dedicated `elif` branch calling `parse_tmap()` |
+| `src/converters/talend_to_v1/components/transform/map.py` | `MapConverter` class -- parses MapperData XML into v1 JSON config |
+| `tests/converters/talend_to_v1/components/test_map.py` | 55+ tests covering all converter functionality |
 | `src/v1/engine/base_component.py` | Base class: `_update_stats()`, `_update_global_map()`, `validate_schema()`, `execute()` |
 | `src/v1/engine/engine.py` (lines 779-795) | Multi-input routing: `_get_input_data()` returns dict for multi-input components |
 | `src/v1/java_bridge/bridge.py` (lines 323-442) | Java bridge: `compile_tmap_script()`, `execute_compiled_tmap_chunked()`, `execute_tmap_preprocessing()` |
@@ -40,7 +42,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **Y** | 1 | 3 | 3 | 1 | Dedicated `parse_tmap()` exists; missing `DIE_ON_ERROR`, `STORE_ON_DISK`, `TEMP_DATA_DIR`, `catch_output_reject`; variable types converted but lost |
+| Converter Coverage | **G** | 0 | 0 | 1 | 1 | `talend_to_v1` converter extracts 44/48 attributes (4 excluded: MAP, LEVENSHTEIN, JACCARD, PREVIEW). Engine-gap warnings for unsupported features. 55+ tests. Remaining: CONV-MAP-006 (P2, matching_mode on main). |
 | Engine Feature Parity | **Y** | 1 | 6 | 5 | 2 | No RELOAD_AT_EACH_ROW; no store-temp-data; chunked parallel execution has race conditions; no catch_output_reject; UNIQUE_MATCH semantic deviation |
 | Code Quality | **Y** | 3 | 4 | 6 | 3 | Cross-cutting base class bugs; `parse_base_component()` returns None for tMap; parallel forEach race condition; `print()` in bridge; inner join reject detection fragile |
 | Performance & Memory | **Y** | 0 | 1 | 3 | 1 | Parallel stream execution is strong; but 50K chunk size is hard-coded; cartesian join has no size guard; Arrow serialization overhead |
@@ -289,20 +291,42 @@ The converter uses a **dedicated `parse_tmap()` method** in `component_parser.py
 | 19 | `mapperTableEntries@type` (column) | Yes | `outputs[].columns[].type` | 643 | **Kept in Talend format** -- good |
 | 20 | `mapperTableEntries@nullable` (column) | Yes | `outputs[].columns[].nullable` | 644 | Boolean conversion |
 
-#### 4.2.4 Missing Parameters
+#### 4.2.4 Newly Extracted Parameters (talend_to_v1 converter)
 
-| # | Talend XML Name | Extracted? | Notes |
-|----|-----------------|------------|-------|
-| 21 | `DIE_ON_ERROR` (elementParameter) | **No** | **CRITICAL**: `parse_base_component()` has an explicit skip for tMap in `components_with_dedicated_parsers` (lines 420-430), so the generic parameter extraction never runs. `DIE_ON_ERROR` is never extracted in the first place. `parse_tmap()` also does not extract it. Engine defaults to `true` (line 867 of map.py). |
-| 22 | `STORE_ON_DISK` | **No** | Not extracted. Engine has no disk-based lookup storage. |
-| 23 | `TEMP_DATA_DIR` | **No** | Not extracted. No temp directory support. |
-| 24 | `MAX_BUFFER_SIZE` | **No** | Not extracted. No buffer size configuration. |
-| 25 | `activateCondensedTool` (catch output reject) | **No** | Not extracted. Engine does not support catch-output-reject chaining between outputs. |
-| 26 | `TSTATCATCHER_STATS` | **No** | Not extracted (low priority -- tStatCatcher rarely used). |
-| 27 | `LABEL` | **No** | Not extracted (cosmetic -- no runtime impact). |
-| 28 | Lookup column entries WITHOUT expression | **No** | Lookup columns that are NOT join keys (no `expression` attribute) are not explicitly captured. The engine relies on prefixed column names from the pandas merge. This works but makes it implicit. |
+The `talend_to_v1` converter now extracts the following parameters that were previously missing:
 
-**Summary**: 20 of 28 meaningful parameters extracted (71%). 5 runtime-relevant parameters are missing (`DIE_ON_ERROR` being the most critical).
+| # | Parameter | V1 Config Key | Status |
+|----|-----------|---------------|--------|
+| 21 | `DIE_ON_ERROR` | `die_on_error` | **FIXED** (was CONV-MAP-001 P0) |
+| 22 | `STORE_ON_DISK` | `store_on_disk` | **FIXED** (was CONV-MAP-003 P1) |
+| 23 | `TEMPORARY_DATA_DIRECTORY` | `temp_data_directory` | **FIXED** (was CONV-MAP-003 P1) |
+| 24 | `ROWS_BUFFER_SIZE` | `rows_buffer_size` | **FIXED** (was CONV-MAP-003 P1) |
+| 25 | `activateCondensedTool` (output) | `catch_output_reject` | **FIXED** (was CONV-MAP-002 P1) |
+| 26 | `TSTATCATCHER_STATS` | `tstatcatcher_stats` | **FIXED** (was CONV-MAP-008 P3) |
+| 27 | `LABEL` | `label` | **FIXED** (newly added) |
+| 28 | `LKUP_PARALLELIZE` | `lkup_parallelize` | **NEW** (discovered during audit) |
+| 29 | `ENABLE_AUTO_CONVERT_TYPE` | `enable_auto_convert_type` | **NEW** |
+| 30 | `CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL` | `change_hash_and_equals_for_bigdecimal` | **NEW** |
+| 31 | `LINK_STYLE` | `link_style` | **NEW** |
+| 32 | `sizeState` (input/output/var) | `size_state` | **NEW** |
+| 33 | `persistent` (input) | `persistent` | **NEW** |
+| 34 | `activateCondensedTool` (input) | `activate_condensed_tool` | **NEW** |
+| 35 | `activateGlobalMap` (input/output) | `activate_global_map` | **NEW** |
+| 36 | `type` (join key entry) | `type` | **NEW** |
+| 37 | `nullable` (join key/variable) | `nullable` | **NEW** |
+| 38 | `operator` (join key/output col) | `operator` | **NEW** (also fixes join key detection) |
+| 39 | `length` (output col) | `length` | **FIXED** (was CONV-MAP-007 P2) |
+| 40 | `precision` (output col) | `precision` | **FIXED** (was CONV-MAP-007 P2) |
+| 41 | `pattern` (output col) | `pattern` | **FIXED** (was CONV-MAP-007 P2) |
+| 42 | `varTables@name` | `var_table_name` | **NEW** |
+| 43 | `varTables@sizeState` | `var_table_size_state` | **NEW** |
+
+**Summary**: 44 of 48 attributes now extracted (92%). 4 excluded: `MAP` (redundant), `LEVENSHTEIN`/`JACCARD` (fuzzy matching not supported), `PREVIEW` (UI bitmap).
+
+**Note on XML name corrections**:
+- Audit originally listed `TEMP_DATA_DIR` but real XML uses `TEMPORARY_DATA_DIRECTORY`
+- Audit originally listed `MAX_BUFFER_SIZE` but real XML uses `ROWS_BUFFER_SIZE`
+- Both verified against actual `.item` files in `sample_jobs/`
 
 ### 4.3 Schema Extraction
 
@@ -314,9 +338,9 @@ Schema is NOT extracted from `<metadata>` nodes for tMap. Instead, `parse_tmap()
 | `expression` (column) | Yes | From `mapperTableEntries@expression`, marked with `{{java}}` |
 | `type` (column) | Yes | From `mapperTableEntries@type`, **kept in Talend format** (e.g., `id_String`) |
 | `nullable` (column) | Yes | From `mapperTableEntries@nullable`, boolean conversion |
-| `length` | **No** | Not extracted from output column definitions |
-| `precision` | **No** | Not extracted from output column definitions |
-| `pattern` (date) | **No** | Not extracted from output column definitions |
+| `length` | **Yes** | Now extracted by `talend_to_v1` converter (CONV-MAP-007 FIXED) |
+| `precision` | **Yes** | Now extracted by `talend_to_v1` converter (CONV-MAP-007 FIXED) |
+| `pattern` (date) | **Yes** | Now extracted by `talend_to_v1` converter (CONV-MAP-007 FIXED) |
 | `key` | **No** | Not extracted from output column definitions |
 | `default` | **No** | Not extracted |
 | `comment` | **No** | Not extracted (cosmetic) |
@@ -341,16 +365,22 @@ Schema is NOT extracted from `<metadata>` nodes for tMap. Instead, `parse_tmap()
 
 ### 4.5 Converter Issues
 
-| ID | Priority | Issue |
-|----|----------|-------|
-| CONV-MAP-001 | **P0** | **`DIE_ON_ERROR` never extracted for tMap**: `parse_base_component()` has an explicit skip for tMap in `components_with_dedicated_parsers` (lines 420-430), so the generic parameter extraction never runs. `DIE_ON_ERROR` is never extracted in the first place. `parse_tmap()` also does not extract it. The engine then defaults to `die_on_error=True` (map.py line 867), which may differ from the Talend job's setting. Jobs with `DIE_ON_ERROR=false` will incorrectly die on expression errors instead of routing to reject. **Fix**: Add `'die_on_error': node.find('.//elementParameter[@name="DIE_ON_ERROR"]').get('value', 'true').lower() == 'true'` to the config built by `parse_tmap()` on line 667. |
-| CONV-MAP-002 | **P1** | **`catch_output_reject` not extracted**: The `activateCondensedTool` attribute on output tables is not parsed. Talend uses this for output-level reject chaining: when Output A has a filter and Output B has `catch_output_reject=true`, rows rejected by Output A's filter are routed to Output B. Without this, the reject chaining logic is missing entirely. |
-| CONV-MAP-003 | **P1** | **`STORE_ON_DISK` / `TEMP_DATA_DIR` / `MAX_BUFFER_SIZE` not extracted**: Engine cannot store lookup data on disk. Large lookups that exceed memory will cause OOM instead of graceful disk spillover. |
-| CONV-MAP-004 | **P1** | **`lookup_mode` extracted but unused**: The converter correctly extracts `lookupMode` (line 595) but the engine ignores it entirely. The engine always behaves as `LOAD_ONCE`. Jobs using `RELOAD_AT_EACH_ROW` will silently produce wrong results because the lookup is not re-queried per main row. |
-| CONV-MAP-005 | **P2** | **Dead code in variable type conversion**: Line 611 calls `self.expr_converter.convert_type()` but the result is not stored. The actual type on line 617 correctly uses the raw Talend type. The dead code wastes CPU cycles during conversion. |
-| CONV-MAP-006 | **P2** | **`matching_mode` extracted for main input but meaningless**: Line 562 extracts `matchingMode` for the main input table. However, matching mode only applies to lookups, not the main input. This creates a misleading configuration value. |
-| CONV-MAP-007 | **P2** | **Missing column `length`, `precision`, `pattern` extraction for output columns**: These schema attributes are not extracted from output column definitions. While the engine doesn't currently use them, they would be needed for strict type validation (e.g., Decimal precision, date format patterns). |
-| CONV-MAP-008 | **P3** | **`TSTATCATCHER_STATS` not extracted**: Low priority -- tStatCatcher is rarely used in production. |
+| ID | Priority | Issue | Status |
+|----|----------|-------|--------|
+| CONV-MAP-001 | **P0** | **`DIE_ON_ERROR` never extracted for tMap** | **FIXED** in `talend_to_v1` converter. Now extracted as `config["die_on_error"]` with correct `True` default. |
+| CONV-MAP-002 | **P1** | **`catch_output_reject` not extracted** | **FIXED** in `talend_to_v1` converter. `activateCondensedTool` on output tables now extracted as `catch_output_reject`. Engine-gap warning added. |
+| CONV-MAP-003 | **P1** | **`STORE_ON_DISK` / `TEMP_DATA_DIR` / `MAX_BUFFER_SIZE` not extracted** | **FIXED** in `talend_to_v1` converter. All three extracted (`store_on_disk`, `temp_data_directory`, `rows_buffer_size`). XML names corrected: `TEMPORARY_DATA_DIRECTORY`, `ROWS_BUFFER_SIZE`. Engine-gap warning for `STORE_ON_DISK`. |
+| CONV-MAP-004 | **P1** | **`lookup_mode` extracted but unused by engine** | **OPEN** -- converter correctly extracts. Engine gap remains (always LOAD_ONCE). Warning added for RELOAD modes. |
+| CONV-MAP-005 | **P2** | **Dead code in variable type conversion** | **FIXED** -- dead code eliminated in `talend_to_v1` rewrite (no `expr_converter.convert_type()` call). |
+| CONV-MAP-006 | **P2** | **`matching_mode` extracted for main input but meaningless** | **OPEN** -- kept intentionally for completeness. Documented in spec. |
+| CONV-MAP-007 | **P2** | **Missing column `length`, `precision`, `pattern` extraction** | **FIXED** in `talend_to_v1` converter. Output columns now include `length` (int, -1 default), `precision` (int, -1 default), `pattern` (str). |
+| CONV-MAP-008 | **P3** | **`TSTATCATCHER_STATS` not extracted** | **FIXED** in `talend_to_v1` converter. Extracted as `tstatcatcher_stats`. |
+
+**New issue identified:**
+
+| ID | Priority | Issue | Status |
+|----|----------|-------|--------|
+| CONV-MAP-009 | **P1** | **`operator` attribute not checked for join key detection** | **FIXED** in `talend_to_v1` converter. Some Talend versions use `operator="="` instead of or alongside non-empty `expression` to mark join keys. The converter now checks both `expression` and `operator` attributes. |
 
 ---
 
@@ -896,13 +926,15 @@ The Map component uses an optimized hybrid approach:
 
 ### Issue Count Summary
 
+> **Note**: 7 CONV-MAP issues fixed by `talend_to_v1` converter migration -- see Section 4.5 for details. Counts below reflect open issues only.
+
 | Priority | Count | Categories |
 |----------|-------|------------|
-| P0 | 6 | 3 bugs (2 cross-cutting + 1 converter/parser), 1 converter, 1 engine, 1 testing |
-| P1 | 14 | 3 converter, 5 engine, 4 bugs, 1 performance, 1 testing |
-| P2 | 21 | 3 converter, 5 engine, 4 bugs, 2 naming, 3 standards, 1 security, 3 performance |
-| P3 | 10 | 1 converter, 2 engine, 2 bugs, 1 naming, 1 standards, 1 security, 2 debug |
-| **Total** | **51** | |
+| P0 | 5 | 3 bugs (2 cross-cutting + 1 converter/parser), 1 engine, 1 testing (CONV-MAP-001 FIXED) |
+| P1 | 11 | 5 engine, 4 bugs, 1 performance, 1 testing (CONV-MAP-002, CONV-MAP-003, CONV-MAP-009 FIXED) |
+| P2 | 19 | 5 engine, 4 bugs, 2 naming, 3 standards, 1 security, 3 performance (CONV-MAP-005, CONV-MAP-007 FIXED) |
+| P3 | 9 | 2 engine, 2 bugs, 1 naming, 1 standards, 1 security, 2 debug (CONV-MAP-008 FIXED) |
+| **Total** | **44** | |
 
 ---
 
