@@ -3,8 +3,11 @@
 > **Audited**: 2026-03-21
 > **Auditor**: Claude Opus 4.6 (automated) -- GOLD STANDARD TEMPLATE
 > **Engine Version**: v1
-> **Converter**: `complex_converter`
+> **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
+
+> **Converter Update (2026-03-25)**: Converter section updated to reflect migration from `complex_converter` to `talend_to_v1`. 28/30 params now extracted (was 12/30). See CONV-FID issues below for status.
+> **Note on CONV-FID-004**: Schema type format (`str` vs `id_String`) is a cross-cutting issue in `type_mapping.py` affecting all 88+ component converters. Deferred to a separate task.
 
 ---
 
@@ -15,8 +18,8 @@
 | **Talend Name** | `tFileInputDelimited` |
 | **V1 Engine Class** | `FileInputDelimited` |
 | **Engine File** | `src/v1/engine/components/file/file_input_delimited.py` (575 lines) |
-| **Converter Parser** | `src/converters/complex_converter/component_parser.py` -> `_map_component_parameters()` (lines 109-126) |
-| **Converter Dispatch** | `src/converters/complex_converter/converter.py` -> NO dedicated `elif` branch; falls through to generic `parse_base_component()` + `_map_component_parameters()` |
+| **Converter Parser** | `src/converters/talend_to_v1/components/file/file_input_delimited.py` |
+| **Converter Dispatch** | `@REGISTRY.register("tFileInputDelimited")` decorator-based dispatch |
 | **Registry Aliases** | `FileInputDelimited`, `tFileInputDelimited` (registered in `src/v1/engine/engine.py` lines 58-59) |
 | **Category** | File / Input |
 
@@ -25,8 +28,7 @@
 | File | Purpose |
 |------|---------|
 | `src/v1/engine/components/file/file_input_delimited.py` | Engine implementation (575 lines) |
-| `src/converters/complex_converter/component_parser.py` (lines 109-126) | Parameter mapping from Talend XML to v1 JSON |
-| `src/converters/complex_converter/converter.py` (lines 64-68) | Dispatch -- no dedicated `elif` for `tFileInputDelimited`; uses generic `parse_base_component()` |
+| `src/converters/talend_to_v1/components/file/file_input_delimited.py` | Dedicated converter class with `@REGISTRY.register("tFileInputDelimited")` |
 | `src/v1/engine/base_component.py` | Base class: `_update_stats()`, `_update_global_map()`, `validate_schema()`, `execute()` |
 | `src/v1/engine/global_map.py` | GlobalMap storage for `{id}_NB_LINE` etc. |
 | `src/v1/engine/exceptions.py` | Custom exception hierarchy (`FileOperationError`, `ConfigurationError`) |
@@ -38,7 +40,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **Y** | 0 | 4 | 4 | 1 | 12 of 30 Talend params extracted (40%); missing CSV_OPTION, SPLITRECORD, UNCOMPRESS, etc.; deprecated generic mapper |
+| Converter Coverage | **G** | 0 | 1 | 0 | 0 | 28 of 30 Talend params extracted (93%); CONV-FID-004 (type format) deferred as cross-cutting |
 | Engine Feature Parity | **Y** | 1 | 5 | 3 | 1 | No REJECT flow; missing globalMap vars; no compressed/RFC4180; no CHECK_FIELDS_NUM/CHECK_DATE |
 | Code Quality | **Y** | 2 | 2 | 5 | 2 | Cross-cutting base class bugs; dead `_validate_config()`; single-string DF creation bug |
 | Performance & Memory | **G** | 0 | 0 | 2 | 1 | Streaming mode works; minor optimization opportunities in post-processing and engine selection |
@@ -171,51 +173,49 @@
 
 ### 4.1 Parameter Extraction
 
-The converter uses the **deprecated generic parameter mapping approach** (`_map_component_parameters()` in `component_parser.py` lines 109-126) rather than a dedicated `parse_file_input_delimited()` method. There is NO dedicated `elif component_type == 'tFileInputDelimited'` branch in `converter.py:_parse_component()`. The component falls through to the generic `parse_base_component()` path.
+The converter uses a **dedicated `FileInputDelimitedConverter` class** in `src/converters/talend_to_v1/components/file/file_input_delimited.py`, registered via `@REGISTRY.register("tFileInputDelimited")` decorator-based dispatch.
 
 **Converter flow**:
-1. `converter.py:_parse_component()` calls `component_parser.parse_base_component(node)`
-2. `parse_base_component()` iterates all `elementParameter` nodes, builds `config_raw` dict (lines 433-458)
-3. Calls `_map_component_parameters('tFileInputDelimited', config_raw)` (line 472)
-4. Returns mapped config with renamed keys
-5. Schema is extracted generically from `<metadata connector="FLOW">` and `<metadata connector="REJECT">` nodes
+1. Registry dispatches `tFileInputDelimited` to `FileInputDelimitedConverter.convert()`
+2. Extracts 28 of 30 Talend parameters with correct defaults
+3. Handles table parameters (`TRIMSELECT`, `DECODE_COLS`) via dedicated parsing
+4. Emits engine-gap warnings for features not yet supported by the v1 engine
+5. Schema is extracted from `<metadata connector="FLOW">` and `<metadata connector="REJECT">` nodes
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Converter Line | Notes |
 |----|----------------------|------------|---------------|----------------|-------|
 | 1 | `FILENAME` | Yes | `filepath` | 114 | Expressions and context vars handled by generic loop |
-| 2 | `FIELDSEPARATOR` | Yes | `delimiter` | 115 | **Default `','` differs from Talend default `';'`** |
+| 2 | `FIELDSEPARATOR` | Yes | `delimiter` | -- | Default `;` matches Talend |
 | 3 | `ROWSEPARATOR` | Yes | `row_separator` | 116 | Default `'\n'` matches Talend |
 | 4 | `HEADER` | Yes | `header_rows` | 117 | Converted to int via `.isdigit()` -- rejects negative values and expressions |
 | 5 | `FOOTER` | Yes | `footer_rows` | 118 | Same `.isdigit()` conversion as HEADER |
 | 6 | `LIMIT` | Yes | `limit` | 119 | Passed as raw string, engine handles int conversion |
-| 7 | `ENCODING` | Yes | `encoding` | 120 | **Default `'UTF-8'` differs from Talend default `'ISO-8859-15'`** |
+| 7 | `ENCODING` | Yes | `encoding` | -- | Default `ISO-8859-15` matches Talend |
 | 8 | `TEXT_ENCLOSURE` | Yes | `text_enclosure` | 121 | Strips escaped quotes via `.replace('\\\"', '')` |
 | 9 | `ESCAPE_CHAR` | Yes | `escape_char` | 122 | Complex double-replace: `.replace('\\\\', '').replace('\\\\\\', '\\')` |
 | 10 | `REMOVE_EMPTY_ROW` | Yes | `remove_empty_rows` | 123 | Boolean from CHECK field type |
 | 11 | `TRIMALL` | Yes | `trim_all` | 124 | Boolean from CHECK field type |
 | 12 | `DIE_ON_ERROR` | Yes | `die_on_error` | 125 | Boolean from CHECK field type. Default `False` matches Talend |
-| 13 | `CSV_OPTION` | **No** | -- | -- | **Not extracted. Engine has no RFC4180 toggle.** |
-| 14 | `SPLITRECORD` | **No** | -- | -- | **Not extracted. No multi-line field support toggle.** |
-| 15 | `UNCOMPRESS` | **No** | -- | -- | **Not extracted. No compressed file reading.** |
-| 16 | `CHECK_FIELDS_NUM` | **No** | -- | -- | **Not extracted. No row structure validation.** |
-| 17 | `CHECK_DATE` | **No** | -- | -- | **Not extracted. No strict date validation.** |
-| 18 | `ADVANCED_SEPARATOR` | **No** | -- | -- | **Not extracted. No locale-aware number parsing.** |
-| 19 | `THOUSANDS_SEPARATOR` | **No** | -- | -- | **Not extracted.** |
-| 20 | `DECIMAL_SEPARATOR` | **No** | -- | -- | **Not extracted.** |
-| 21 | `TRIMSELECT` | **No** | -- | -- | **Not extracted. Table parameter -- generic mapper cannot parse nested `elementValue` groups.** |
-| 22 | `RANDOM` | **No** | -- | -- | **Not extracted. Random sampling not available.** |
-| 23 | `NB_RANDOM` | **No** | -- | -- | **Not extracted.** |
-| 24 | `ENABLE_DECODE` | **No** | -- | -- | **Not extracted.** |
-| 25 | `DECODE_COLS` | **No** | -- | -- | **Not extracted. Table parameter.** |
-| 26 | `CSVROWSEPARATOR` | **No** | -- | -- | **Not extracted.** |
+| 13 | `CSV_OPTION` | Yes | `csv_option` | -- | Engine gap remains (no RFC4180 toggle). Warning emitted. |
+| 14 | `SPLITRECORD` | Yes | `split_record` | -- | Engine gap remains. Warning emitted. |
+| 15 | `UNCOMPRESS` | Yes | `uncompress` | -- | Engine gap remains. Warning emitted. |
+| 16 | `CHECK_FIELDS_NUM` | Yes | `check_fields_num` | -- | Engine gap remains. Warning emitted. |
+| 17 | `CHECK_DATE` | Yes | `check_date` | -- | Engine gap remains. Warning emitted. |
+| 18 | `ADVANCED_SEPARATOR` | Yes | `advanced_separator` | -- | Engine gap remains. Warning emitted. |
+| 19 | `THOUSANDS_SEPARATOR` | Yes | `thousands_separator` | -- | Engine gap remains. Warning emitted. |
+| 20 | `DECIMAL_SEPARATOR` | Yes | `decimal_separator` | -- | Engine gap remains. Warning emitted. |
+| 21 | `TRIMSELECT` | Yes | `trim_select` | -- | Table parsing extracts per-column trim config |
+| 22 | `RANDOM` | Yes | `random` | -- | Engine gap remains. Warning emitted. |
+| 23 | `NB_RANDOM` | Yes | `nb_random` | -- | Engine gap remains. Warning emitted. |
+| 24 | `ENABLE_DECODE` | Yes | `enable_decode` | -- | Engine gap remains. Warning emitted. |
+| 25 | `DECODE_COLS` | Yes | `decode_cols` | -- | Table parsing extracts per-column decode config |
+| 26 | `CSVROWSEPARATOR` | Yes | `csv_row_separator` | -- | Engine gap remains. Warning emitted. |
 | 27 | `SCHEMA_OPT_NUM` | **No** | -- | -- | Not needed at runtime (code generation optimization) |
-| 28 | `TSTATCATCHER_STATS` | **No** | -- | -- | Not extracted (low priority -- tStatCatcher rarely used) |
-| 29 | `LABEL` | **No** | -- | -- | Not extracted (cosmetic -- no runtime impact) |
+| 28 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | -- | Extracted for completeness |
+| 29 | `LABEL` | Yes | `label` | -- | Extracted for completeness (cosmetic) |
 | 30 | `PROPERTY_TYPE` | No | -- | -- | Not needed (always Built-In in converted jobs) |
 
-**Summary**: 12 of 30 parameters extracted (40%). 13 runtime-relevant parameters are missing.
-
-**Cross-reference with tFileInputPositional**: The converter for `tFileInputPositional` (lines 150-171) already extracts `ADVANCED_SEPARATOR`, `THOUSANDS_SEPARATOR`, `DECIMAL_SEPARATOR`, `CHECK_DATE`, and `UNCOMPRESS`. This demonstrates the converter team knows how to extract these parameters -- they simply have not been added to the `tFileInputDelimited` mapping.
+**Summary**: 28 of 30 parameters extracted (93%). Only `SCHEMA_OPT_NUM` and `PROPERTY_TYPE` excluded (no runtime impact).
 
 ### 4.2 Schema Extraction
 
@@ -257,16 +257,16 @@ Schema is extracted generically in `parse_base_component()` (lines 475-508 of `c
 
 | ID | Priority | Issue |
 |----|----------|-------|
-| CONV-FID-001 | **P1** | **No dedicated parser method**: `tFileInputDelimited` uses the deprecated `_map_component_parameters()` approach instead of a dedicated `parse_file_input_delimited()` method. This prevents extraction of table parameters (`TRIMSELECT`, `DECODE_COLS`) and limits extensibility. Per STANDARDS.md, every component MUST have its own `parse_*` method. |
-| CONV-FID-002 | **P1** | **`CSV_OPTION` not extracted**: Engine cannot distinguish between RFC4180 CSV mode and raw delimited mode. In Talend, `CSV_OPTION=true` changes parsing behavior significantly -- single-char delimiter, proper quoting, CSVROWSEPARATOR. Without this flag, CSV files with embedded delimiters inside quoted fields may parse incorrectly in edge cases. |
-| CONV-FID-003 | **P1** | **`SPLITRECORD` not extracted**: Multi-line quoted fields (embedded newlines inside quoted strings) cannot be explicitly controlled. While pandas handles some multi-line cases by default, the explicit toggle is missing. Critical for RFC4180 compliance. |
-| CONV-FID-004 | **P1** | **Schema type format violates STANDARDS.md**: Converter converts types to Python format (`str`, `int`) via `ExpressionConverter.convert_type()` instead of preserving Talend format (`id_String`, `id_Integer`). While the engine handles both, this violates the documented standard (STANDARDS.md line 865-878) and creates subtle type mapping differences (e.g., `Decimal` vs `id_BigDecimal` maps differently in `_build_dtype_dict()` vs `validate_schema()`). |
-| CONV-FID-005 | **P2** | **`UNCOMPRESS` not extracted**: Jobs reading compressed `.gz` or `.zip` files will fail at runtime with encoding or format errors. |
-| CONV-FID-006 | **P2** | **`CHECK_FIELDS_NUM` not extracted**: Row structure validation unavailable. Malformed rows with wrong field count will silently produce misaligned columns rather than being routed to REJECT. |
-| CONV-FID-007 | **P2** | **`ADVANCED_SEPARATOR` / `THOUSANDS_SEPARATOR` / `DECIMAL_SEPARATOR` not extracted**: Locale-aware number parsing unavailable. Files using European number format (e.g., `1.234.567,89`) will fail numeric conversion. |
-| CONV-FID-008 | **P2** | **Default encoding mismatch**: Converter defaults `ENCODING` to `'UTF-8'` (line 120), but Talend default is `'ISO-8859-15'`. If a Talend job does not explicitly set encoding, the converter writes `'UTF-8'`, which differs from Talend behavior. This can cause mojibake on files containing non-ASCII characters encoded in ISO-8859-15. |
-| CONV-FID-009 | **P2** | **Default delimiter mismatch**: Converter defaults `FIELDSEPARATOR` to `','` (line 115), but Talend default is `';'`. If a job relies on the Talend default semicolon delimiter, the converter produces the wrong delimiter value. |
-| CONV-FID-010 | **P3** | **`RANDOM` / `NB_RANDOM` not extracted**: Random sampling unavailable. Low priority -- rarely used in production Talend jobs. |
+| CONV-FID-001 | ~~P1~~ | **FIXED** -- Now has dedicated `FileInputDelimitedConverter` class in `talend_to_v1`. |
+| CONV-FID-002 | ~~P1~~ | **FIXED** -- `CSV_OPTION` now extracted. Engine gap remains (no RFC4180 toggle). Warning emitted. |
+| CONV-FID-003 | ~~P1~~ | **FIXED** -- `SPLITRECORD` now extracted. Engine gap remains. Warning emitted. |
+| CONV-FID-004 | **P1** | **OPEN -- DEFERRED** -- Type mapping is a cross-cutting issue in `type_mapping.py` affecting all components. Deferred to separate task. |
+| CONV-FID-005 | ~~P2~~ | **FIXED** -- `UNCOMPRESS` now extracted. Engine gap remains. Warning emitted. |
+| CONV-FID-006 | ~~P2~~ | **FIXED** -- `CHECK_FIELDS_NUM` now extracted. Engine gap remains. Warning emitted. |
+| CONV-FID-007 | ~~P2~~ | **FIXED** -- `ADVANCED_SEPARATOR`, `THOUSANDS_SEPARATOR`, `DECIMAL_SEPARATOR` now extracted. |
+| CONV-FID-008 | ~~P2~~ | **FIXED** -- Default encoding corrected to `ISO-8859-15`. |
+| CONV-FID-009 | ~~P2~~ | **FIXED** -- Default delimiter corrected to `;`. |
+| CONV-FID-010 | ~~P3~~ | **FIXED** -- `RANDOM` and `NB_RANDOM` now extracted. Engine gap remains. Warning emitted. |
 
 ---
 
@@ -365,7 +365,7 @@ Schema is extracted generically in `parse_base_component()` (lines 475-508 of `c
 | ID | Priority | Standard | Violation |
 |----|----------|----------|-----------|
 | STD-FID-001 | **P2** | "`_validate_config()` returns `List[str]`" (METHODOLOGY.md line 91) | Method exists but is never called. Contract is technically met but functionally useless. Dead code. |
-| STD-FID-002 | **P2** | "Every component MUST have its own `parse_*` method" (STANDARDS.md) | Uses deprecated `_map_component_parameters()` instead of a dedicated `parse_file_input_delimited()` method. Cannot handle table parameters. |
+| STD-FID-002 | ~~P2~~ | "Every component MUST have its own `parse_*` method" (STANDARDS.md) | **FIXED** -- Now has dedicated `FileInputDelimitedConverter` class in `talend_to_v1` with `@REGISTRY.register("tFileInputDelimited")`. |
 | STD-FID-003 | **P2** | "Use Talend type format (`id_String`) in schemas" (STANDARDS.md line 865) | Converter converts to Python types (`str`, `int`) instead of preserving Talend types (`id_String`, `id_Integer`). |
 | STD-FID-004 | **P3** | "No `print()` statements" (STANDARDS.md) | No print statements in `file_input_delimited.py` itself. Some exist in `component_parser.py` for other components but not for tFileInputDelimited specifically. |
 
@@ -515,10 +515,10 @@ The component has excellent logging throughout, following STANDARDS.md patterns:
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-FID-001 | Converter | No dedicated parser method -- uses deprecated `_map_component_parameters()`. Cannot handle table parameters (`TRIMSELECT`, `DECODE_COLS`). Violates STANDARDS.md. |
-| CONV-FID-002 | Converter | `CSV_OPTION` not extracted -- engine cannot enable RFC4180 CSV mode. |
-| CONV-FID-003 | Converter | `SPLITRECORD` not extracted -- multi-line quoted fields cannot be explicitly controlled. |
-| CONV-FID-004 | Converter | Schema types converted to Python format (`str`) instead of Talend format (`id_String`), violating STANDARDS.md. |
+| CONV-FID-001 | Converter | ~~No dedicated parser method~~ **FIXED** -- dedicated `FileInputDelimitedConverter` in `talend_to_v1`. |
+| CONV-FID-002 | Converter | ~~`CSV_OPTION` not extracted~~ **FIXED** -- now extracted. Engine gap remains. |
+| CONV-FID-003 | Converter | ~~`SPLITRECORD` not extracted~~ **FIXED** -- now extracted. Engine gap remains. |
+| CONV-FID-004 | Converter | Schema types converted to Python format (`str`) instead of Talend format (`id_String`). **OPEN -- DEFERRED** to cross-cutting `type_mapping.py` task. |
 | ENG-FID-001 | Engine | **No REJECT flow** -- bad rows are lost or cause job failure. Fundamental gap for data quality pipelines. |
 | ENG-FID-002 | Engine | No SPLITRECORD support -- multi-line fields not explicitly controlled. |
 | ENG-FID-003 | Engine | No compressed file reading -- gzip/zip files will fail. |
@@ -533,11 +533,11 @@ The component has excellent logging throughout, following STANDARDS.md patterns:
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-FID-005 | Converter | `UNCOMPRESS` not extracted -- compressed file reading unavailable. |
-| CONV-FID-006 | Converter | `CHECK_FIELDS_NUM` not extracted -- row structure validation unavailable. |
-| CONV-FID-007 | Converter | `ADVANCED_SEPARATOR` / `THOUSANDS_SEPARATOR` / `DECIMAL_SEPARATOR` not extracted. |
-| CONV-FID-008 | Converter | Default encoding mismatch: converter defaults to `UTF-8`, Talend defaults to `ISO-8859-15`. |
-| CONV-FID-009 | Converter | Default delimiter mismatch: converter defaults to `,`, Talend defaults to `;`. |
+| CONV-FID-005 | Converter | ~~`UNCOMPRESS` not extracted~~ **FIXED** -- now extracted. Engine gap remains. |
+| CONV-FID-006 | Converter | ~~`CHECK_FIELDS_NUM` not extracted~~ **FIXED** -- now extracted. Engine gap remains. |
+| CONV-FID-007 | Converter | ~~`ADVANCED_SEPARATOR` / separators not extracted~~ **FIXED** -- all three now extracted. |
+| CONV-FID-008 | Converter | ~~Default encoding mismatch~~ **FIXED** -- corrected to `ISO-8859-15`. |
+| CONV-FID-009 | Converter | ~~Default delimiter mismatch~~ **FIXED** -- corrected to `;`. |
 | ENG-FID-007 | Engine | No field count validation (CHECK_FIELDS_NUM) -- malformed rows produce misaligned columns. |
 | ENG-FID-008 | Engine | Single-char text enclosure only -- multi-char falls back to `QUOTE_NONE`, disabling all quoting. |
 | ENG-FID-009 | Engine | No date validation (CHECK_DATE) -- invalid dates silently become NaT instead of going to REJECT. |
@@ -546,7 +546,7 @@ The component has excellent logging throughout, following STANDARDS.md patterns:
 | BUG-FID-007 | Bug | Engine selection treats empty list `skiprows=[]` as non-None, forcing Python engine unnecessarily. |
 | NAME-FID-001 | Naming | `remove_empty_rows` (plural) inconsistent with `tFileInputPositional`'s `remove_empty_row` (singular). |
 | STD-FID-001 | Standards | `_validate_config()` exists but never called -- dead validation. |
-| STD-FID-002 | Standards | Uses deprecated `_map_component_parameters()` instead of dedicated `parse_*` method. |
+| STD-FID-002 | Standards | ~~Uses deprecated `_map_component_parameters()`~~ **FIXED** -- dedicated `FileInputDelimitedConverter` in `talend_to_v1`. |
 | STD-FID-003 | Standards | Converter uses Python type format in schema instead of Talend type format. |
 | PERF-FID-001 | Performance | Post-processing iterates string columns twice (trim pass + NaN fill pass). |
 | PERF-FID-002 | Performance | BigDecimal conversion uses slow `apply()` with lambda (row-by-row Python loop). |
@@ -555,7 +555,7 @@ The component has excellent logging throughout, following STANDARDS.md patterns:
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-FID-010 | Converter | `RANDOM` / `NB_RANDOM` not extracted -- random sampling unavailable (rarely used). |
+| CONV-FID-010 | Converter | ~~`RANDOM` / `NB_RANDOM` not extracted~~ **FIXED** -- now extracted. Engine gap remains. |
 | ENG-FID-010 | Engine | No hex/octal decode (`ENABLE_DECODE`). |
 | NAME-FID-002 | Naming | `header_rows` suffix differs from Talend's `HEADER` (intentional per STANDARDS.md). |
 | STD-FID-004 | Standards | `print()` statements in `component_parser.py` (other components, not this one specifically). |
@@ -568,10 +568,10 @@ The component has excellent logging throughout, following STANDARDS.md patterns:
 | Priority | Count | Categories |
 |----------|-------|------------|
 | P0 | 3 | 2 bugs (cross-cutting), 1 testing |
-| P1 | 13 | 4 converter, 6 engine, 2 bugs, 1 testing |
-| P2 | 17 | 5 converter, 3 engine, 3 bugs, 1 naming, 3 standards, 2 performance |
-| P3 | 7 | 1 converter, 1 engine, 1 naming, 1 standards, 1 security, 1 performance, 1 debug |
-| **Total** | **40** | |
+| P1 | 10 | 1 converter (CONV-FID-004 deferred), 6 engine, 2 bugs, 1 testing |
+| P2 | 12 | 0 converter (all fixed), 3 engine, 3 bugs, 1 naming, 3 standards, 2 performance |
+| P3 | 6 | 0 converter (all fixed), 1 engine, 1 naming, 1 standards, 1 security, 1 performance, 1 debug |
+| **Total** | **31** | 9 converter issues fixed (CONV-FID-001 through -010 except -004) |
 
 ---
 
