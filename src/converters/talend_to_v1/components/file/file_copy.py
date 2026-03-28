@@ -35,9 +35,9 @@ class FileCopyConverter(ComponentConverter):
         replace_file = self._get_bool(node, "REPLACE_FILE", False)
         create_directory = self._get_bool(node, "CREATE_DIRECTORY", False)
         preserve_last_modified = self._get_bool(node, "PRESERVE_LAST_MODIFIED_TIME")
-        remove_source_file = self._get_bool(node, "REMOVE_SOURCE_FILE")
-        copy_directory = self._get_bool(node, "COPY_DIRECTORY")
-        source_directory = self._get_str(node, "SOURCE_DIRECTORY")
+        remove_source_file = self._get_bool(node, "REMOVE_FILE")
+        copy_directory = self._get_bool(node, "ENABLE_COPY_DIRECTORY")
+        source_directory = self._get_str(node, "SOURCE_DERECTORY")
 
         # --- Validation warnings ---
         if not source:
@@ -50,12 +50,12 @@ class FileCopyConverter(ComponentConverter):
         # --- Engine-gap warnings ---
         if remove_source_file:
             warnings.append(
-                "REMOVE_SOURCE_FILE=true: engine uses shutil.copy2 not "
+                "REMOVE_FILE=true: engine uses shutil.copy2 not "
                 "os.rename — not atomic move semantics"
             )
         if copy_directory:
             warnings.append(
-                "COPY_DIRECTORY=true: engine has partial directory copy "
+                "ENABLE_COPY_DIRECTORY=true: engine has partial directory copy "
                 "support via shutil.copytree"
             )
 
