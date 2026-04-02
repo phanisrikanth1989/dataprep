@@ -51,9 +51,11 @@ class TestFileInputExcelConverter:
             "STOPREAD_ON_EMPTYROW": "true",
             "GENERATION_MODE": '"STREAM_MODE"',
             "ENCODING": '"ISO-8859-1"',
-            "SHEET_NAME": '"Sheet1"',
-            "EXECUTION_MODE": '"PARALLEL"',
-            "CHUNK_SIZE": '"1000"',
+            "TSTATCATCHER_STATS": "true",
+            "LABEL": '"my-label"',
+            "CONFIGURE_INFLATION_RATIO": "true",
+            "INFLATION_RATIO": '"0.01"',
+            "INCLUDE_PHONETICRUNS": "false",
         })
         result = FileInputExcelConverter().convert(node, [], {})
         comp = result.component
@@ -86,9 +88,11 @@ class TestFileInputExcelConverter:
         assert cfg["stopread_on_emptyrow"] is True
         assert cfg["generation_mode"] == "STREAM_MODE"
         assert cfg["encoding"] == "ISO-8859-1"
-        assert cfg["sheet_name"] == "Sheet1"
-        assert cfg["execution_mode"] == "PARALLEL"
-        assert cfg["chunk_size"] == "1000"
+        assert cfg["tstatcatcher_stats"] is True
+        assert cfg["label"] == "my-label"
+        assert cfg["configure_inflation_ratio"] is True
+        assert cfg["inflation_ratio"] == "0.01"
+        assert cfg["include_phoneticruns"] is False
 
     # ------------------------------------------------------------------ #
     # 2. Defaults when params are missing
@@ -102,16 +106,16 @@ class TestFileInputExcelConverter:
 
         assert cfg["filepath"] == "/data/file.xlsx"
         assert cfg["password"] == ""
-        assert cfg["version_2007"] is True
+        assert cfg["version_2007"] is False
         assert cfg["all_sheets"] is False
         assert cfg["sheetlist"] == []
-        assert cfg["header"] == 1
+        assert cfg["header"] == 0
         assert cfg["footer"] == 0
         assert cfg["limit"] == ""
         assert cfg["affect_each_sheet"] is False
         assert cfg["first_column"] == 1
         assert cfg["last_column"] == ""
-        assert cfg["die_on_error"] is False
+        assert cfg["die_on_error"] is True
         assert cfg["suppress_warn"] is False
         assert cfg["novalidate_on_cell"] is False
         assert cfg["advanced_separator"] is False
@@ -125,9 +129,12 @@ class TestFileInputExcelConverter:
         assert cfg["stopread_on_emptyrow"] is False
         assert cfg["generation_mode"] == "EVENT_MODE"
         assert cfg["encoding"] == "UTF-8"
-        assert cfg["sheet_name"] == ""
-        assert cfg["execution_mode"] == ""
-        assert cfg["chunk_size"] == ""
+        # New params
+        assert cfg["tstatcatcher_stats"] is False
+        assert cfg["label"] == ""
+        assert cfg["configure_inflation_ratio"] is False
+        assert cfg["inflation_ratio"] == ""
+        assert cfg["include_phoneticruns"] is True
 
     # ------------------------------------------------------------------ #
     # 3. Empty filename warning
@@ -394,3 +401,98 @@ class TestFileInputExcelConverter:
         assert cfg["sheetlist"] == []
         assert cfg["trim_select"] == []
         assert cfg["date_select"] == []
+
+
+class TestCompleteness:
+    """Verify all config keys are present."""
+
+    def test_all_30_config_keys_present(self):
+        """All expected config keys must be in the output."""
+        node = _make_node(params={"FILENAME": '"data.xlsx"'})
+        result = FileInputExcelConverter().convert(node, [], {})
+        cfg = result.component["config"]
+        expected_keys = {
+            "filepath", "password", "version_2007", "all_sheets", "sheetlist",
+            "header", "footer", "limit", "affect_each_sheet", "first_column",
+            "last_column", "die_on_error", "suppress_warn", "novalidate_on_cell",
+            "advanced_separator", "thousands_separator", "decimal_separator",
+            "trimall", "trim_select", "convertdatetostring", "date_select",
+            "read_real_value", "stopread_on_emptyrow", "generation_mode", "encoding",
+            "tstatcatcher_stats", "label",
+            "configure_inflation_ratio", "inflation_ratio", "include_phoneticruns",
+        }
+        assert set(cfg.keys()) == expected_keys
+
+    def test_phantom_params_removed(self):
+        """Phantom params sheet_name, execution_mode, chunk_size must NOT be present."""
+        node = _make_node(params={"FILENAME": '"data.xlsx"'})
+        result = FileInputExcelConverter().convert(node, [], {})
+        cfg = result.component["config"]
+        assert "sheet_name" not in cfg
+        assert "execution_mode" not in cfg
+        assert "chunk_size" not in cfg
+
+
+class TestEngineGapWarnings:
+    """Verify engine-gap warnings are generated for unsupported features."""
+
+    def test_no_warnings_for_defaults(self):
+        """Default config should produce only the FILENAME warning."""
+        node = _make_node(params={"FILENAME": '"data.xlsx"'})
+        result = FileInputExcelConverter().convert(node, [], {})
+        engine_warnings = [w for w in result.warnings if "engine" in w.lower()]
+        assert engine_warnings == []
+
+    def test_password_warning(self):
+        node = _make_node(params={"FILENAME": '"f.xlsx"', "PASSWORD": '"secret"'})
+        result = FileInputExcelConverter().convert(node, [], {})
+        assert any("PASSWORD" in w for w in result.warnings)
+
+    def test_advanced_separator_warning(self):
+        node = _make_node(params={"FILENAME": '"f.xlsx"', "ADVANCED_SEPARATOR": "true"})
+        result = FileInputExcelConverter().convert(node, [], {})
+        assert any("ADVANCED_SEPARATOR" in w for w in result.warnings)
+
+    def test_trimall_warning(self):
+        node = _make_node(params={"FILENAME": '"f.xlsx"', "TRIMALL": "true"})
+        result = FileInputExcelConverter().convert(node, [], {})
+        assert any("TRIMALL" in w for w in result.warnings)
+
+    def test_trim_select_warning(self):
+        node = _make_node(params={
+            "FILENAME": '"f.xlsx"',
+            "TRIMSELECT": [{"column": "col_a", "trim": "true"}],
+        })
+        result = FileInputExcelConverter().convert(node, [], {})
+        assert any("TRIMSELECT" in w for w in result.warnings)
+
+    def test_trimall_suppresses_trim_select_warning(self):
+        """When TRIMALL is true, TRIMSELECT warning should NOT fire (trimall takes precedence)."""
+        node = _make_node(params={
+            "FILENAME": '"f.xlsx"',
+            "TRIMALL": "true",
+            "TRIMSELECT": [{"column": "col_a", "trim": "true"}],
+        })
+        result = FileInputExcelConverter().convert(node, [], {})
+        assert any("TRIMALL" in w for w in result.warnings)
+        assert not any("TRIMSELECT" in w for w in result.warnings)
+
+    def test_convertdatetostring_warning(self):
+        node = _make_node(params={"FILENAME": '"f.xlsx"', "CONVERTDATETOSTRING": "true"})
+        result = FileInputExcelConverter().convert(node, [], {})
+        assert any("CONVERTDATETOSTRING" in w for w in result.warnings)
+
+    def test_stopread_on_emptyrow_warning(self):
+        node = _make_node(params={"FILENAME": '"f.xlsx"', "STOPREAD_ON_EMPTYROW": "true"})
+        result = FileInputExcelConverter().convert(node, [], {})
+        assert any("STOPREAD_ON_EMPTYROW" in w for w in result.warnings)
+
+    def test_read_real_value_warning(self):
+        node = _make_node(params={"FILENAME": '"f.xlsx"', "READ_REAL_VALUE": "true"})
+        result = FileInputExcelConverter().convert(node, [], {})
+        assert any("READ_REAL_VALUE" in w for w in result.warnings)
+
+    def test_affect_each_sheet_warning(self):
+        node = _make_node(params={"FILENAME": '"f.xlsx"', "AFFECT_EACH_SHEET": "true"})
+        result = FileInputExcelConverter().convert(node, [], {})
+        assert any("AFFECT_EACH_SHEET" in w for w in result.warnings)

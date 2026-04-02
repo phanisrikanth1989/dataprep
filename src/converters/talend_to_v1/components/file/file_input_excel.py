@@ -42,19 +42,19 @@ class FileInputExcelConverter(ComponentConverter):
             # Basic
             "filepath": filepath,
             "password": self._get_str(node, "PASSWORD"),
-            "version_2007": self._get_bool(node, "VERSION_2007", True),
+            "version_2007": self._get_bool(node, "VERSION_2007", False),
             "all_sheets": self._get_bool(node, "ALL_SHEETS", False),
             # Sheet selection
             "sheetlist": sheetlist,
             # Row/column
-            "header": self._get_int(node, "HEADER", 1),
+            "header": self._get_int(node, "HEADER", 0),
             "footer": self._get_int(node, "FOOTER", 0),
             "limit": self._get_str(node, "LIMIT"),
             "affect_each_sheet": self._get_bool(node, "AFFECT_EACH_SHEET", False),
             "first_column": self._get_int(node, "FIRST_COLUMN", 1),
             "last_column": self._get_str(node, "LAST_COLUMN"),
             # Error handling
-            "die_on_error": self._get_bool(node, "DIE_ON_ERROR", False),
+            "die_on_error": self._get_bool(node, "DIE_ON_ERROR", True),
             "suppress_warn": self._get_bool(node, "SUPPRESS_WARN", False),
             "novalidate_on_cell": self._get_bool(node, "NOVALIDATE_ON_CELL", False),
             # Advanced separators
@@ -73,11 +73,49 @@ class FileInputExcelConverter(ComponentConverter):
             # Generation / performance
             "generation_mode": self._get_str(node, "GENERATION_MODE", "EVENT_MODE"),
             "encoding": self._get_str(node, "ENCODING", "UTF-8"),
-            # Extra
-            "sheet_name": self._get_str(node, "SHEET_NAME"),
-            "execution_mode": self._get_str(node, "EXECUTION_MODE"),
-            "chunk_size": self._get_str(node, "CHUNK_SIZE"),
+            # Metadata
+            "tstatcatcher_stats": self._get_bool(node, "TSTATCATCHER_STATS", False),
+            "label": self._get_str(node, "LABEL"),
+            # Inflation ratio (zipbomb detection, Talend 8.0+)
+            "configure_inflation_ratio": self._get_bool(node, "CONFIGURE_INFLATION_RATIO", False),
+            "inflation_ratio": self._get_str(node, "INFLATION_RATIO"),
+            # Phonetic annotations (East Asian, Event mode)
+            "include_phoneticruns": self._get_bool(node, "INCLUDE_PHONETICRUNS", True),
         }
+
+        # --- Engine-gap warnings ---
+        if config["password"]:
+            warnings.append(
+                "PASSWORD set: engine does not fully support password-protected Excel files"
+            )
+        if config["advanced_separator"]:
+            warnings.append(
+                "ADVANCED_SEPARATOR=true: engine does not implement advanced separator processing"
+            )
+        if config["trimall"]:
+            warnings.append(
+                "TRIMALL=true: engine does not implement column trimming"
+            )
+        elif config["trim_select"]:
+            warnings.append(
+                "TRIMSELECT set: engine does not implement per-column trimming"
+            )
+        if config["convertdatetostring"]:
+            warnings.append(
+                "CONVERTDATETOSTRING=true: engine does not implement date-to-string conversion"
+            )
+        if config["stopread_on_emptyrow"]:
+            warnings.append(
+                "STOPREAD_ON_EMPTYROW=true: engine does not implement stop-on-empty-row"
+            )
+        if config["read_real_value"]:
+            warnings.append(
+                "READ_REAL_VALUE=true: engine does not implement read-real-value"
+            )
+        if config["affect_each_sheet"]:
+            warnings.append(
+                "AFFECT_EACH_SHEET=true: engine does not apply header/footer per-sheet independently"
+            )
 
         component = self._build_component_dict(
             node=node,
