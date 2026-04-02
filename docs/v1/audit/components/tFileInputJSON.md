@@ -3,8 +3,10 @@
 > **Audited**: 2026-03-21
 > **Auditor**: Claude Opus 4.6 (automated) -- GOLD STANDARD TEMPLATE
 > **Engine Version**: v1
-> **Converter**: `complex_converter`
+> **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
+
+> **Converter Update (2026-04-02)**: Converter section updated to reflect talend_to_v1 enhancements. 17 config keys (was 5). Structural MAPPING_JSONPATH parsing bug fixed (push-on-SCHEMA_COLUMN state machine). Mode-aware mapping extraction for 3 READ_BY modes. 4 engine-gap warnings. 23 converter tests.
 
 ---
 
@@ -38,7 +40,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **Y** | 1 | 3 | 3 | 1 | 5 of 18 Talend params extracted (28%); missing USE_URL, URL, READ_BY, API_VERSION, ADVANCED_SEPARATOR, VALIDATE_DATE, USE_LOOP_AS_ROOT, etc.; **P0 naming mismatch** -- converter writes `FileInputJSONComponent`, engine registers `FileInputJSON` |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 17 of 18 Talend params extracted (94%) via `talend_to_v1`. Mode-aware mapping extraction for JSONPATH/XPATH/NO_LOOP. Structural MAPPING_JSONPATH parsing bug fixed. 4 engine-gap warnings (XPATH mode, no-loop mode, CHECK_DATE, USEURL). 23 converter tests. |
 | Engine Feature Parity | **Y** | 0 | 6 | 3 | 1 | Has JSONPath extraction, URL reading, reject flow, schema type coercion, advanced separators, date checking. Missing XPath mode, globalMap `ERROR_MESSAGE`, Talend-default encoding. **`die_on_error` does not stop per-row errors; date pattern key mismatch makes date validation non-functional for converted jobs.** |
 | Code Quality | **Y** | 2 | 5 | 5 | 2 | Cross-cutting base class bugs; dead `validate_config()`; NaN handling gaps; type demotion via DataFrame construction; unused imports; **`die_on_error` per-row bypass; schema date key mismatch; `json.dumps()` crash on non-serializable values** |
 | Performance & Memory | **G** | 0 | 0 | 2 | 1 | Row-by-row JSONPath parsing is inherently slow for large files; list/dict serialization pass on output; no streaming mode for large JSON files |
@@ -145,6 +147,8 @@
 
 ## 4. Converter Audit
 
+> **Note (2026-04-02)**: The subsections below describe the old complex_converter code paths and are retained for historical reference. The active converter is talend_to_v1.
+
 ### 4.1 Parameter Extraction
 
 The converter uses a **dedicated parser method** (`parse_tfileinputjson()` in `component_parser.py` lines 1509-1520) registered via a dedicated `elif component_type == 'tFileInputJSON'` branch in `converter.py` line 274. This is the correct approach per STANDARDS.md.
@@ -224,14 +228,15 @@ Schema is extracted generically in `parse_base_component()`.
 
 | ID | Priority | Issue |
 |----|----------|-------|
-| CONV-FIJ-001 | **P0** | **Component name mismatch**: `component_mapping` on line 101 maps `tFileInputJSON` to `FileInputJSONComponent`, but the engine registry (`engine.py` lines 95-96) registers `FileInputJSON` and `tFileInputJSON`. The converter outputs `type: 'FileInputJSONComponent'` in the JSON config, which the engine will NOT find in its registry. **Result: Component instantiation will fail at runtime for any converted Talend job using tFileInputJSON.** |
-| CONV-FIJ-002 | **P1** | **`USE_URL` and `URL` not extracted**: The engine supports URL-based reading via `useurl` and `urlpath` config keys (lines 156-157, 168-173), but the converter never sets these. Talend jobs that read JSON from URLs will silently fall back to file reading and fail with missing filename error. |
-| CONV-FIJ-003 | **P1** | **`READ_BY` not extracted**: The engine has a `read_by` config key (line 162) but it is never set by the converter. XPath mode and "JSONPath without loop" mode are unavailable for converted jobs. |
-| CONV-FIJ-004 | **P1** | **No Java expression marking**: Unlike other dedicated parsers, `parse_tfileinputjson()` does not call `mark_java_expression()` on any values. Java expressions in FILENAME, JSON_LOOP_QUERY, or mapping queries will be passed as literal strings, causing runtime failures for jobs that use expressions like `context.basePath + "/file.json"`. |
-| CONV-FIJ-005 | **P2** | **`ADVANCED_SEPARATOR`, `THOUSANDS_SEPARATOR`, `DECIMAL_SEPARATOR` not extracted**: Engine has full support (lines 158-160, 221-229) but converter never populates these config keys. |
-| CONV-FIJ-006 | **P2** | **`USE_LOOP_AS_ROOT` not extracted**: Engine has support (lines 164, 188-190) but converter never sets it. |
-| CONV-FIJ-007 | **P2** | **`VALIDATE_DATE` not extracted**: Engine has `check_date` support (lines 161, 233-240) but converter never sets it. |
-| CONV-FIJ-008 | **P3** | **`API_VERSION` not extracted**: Engine has `json_path_version` config key (line 163) but it is never used in processing anyway. Low impact. |
+| CONV-FIJ-001 | ~~P0~~ | **FIXED** (type is `FileInputJSON`): ~~`component_mapping` on line 101 maps `tFileInputJSON` to `FileInputJSONComponent`, but the engine registry registers `FileInputJSON`.~~ Already fixed -- `talend_to_v1` outputs correct type `FileInputJSON`. |
+| CONV-FIJ-002 | ~~P1~~ | **FIXED in talend_to_v1** (useurl/urlpath extracted): ~~The engine supports URL-based reading via `useurl` and `urlpath` config keys, but the converter never sets these.~~ Now extracted by `talend_to_v1`. |
+| CONV-FIJ-003 | ~~P1~~ | **FIXED** (read_by extracted with mode-aware mapping): ~~`READ_BY` not extracted; XPath mode and "JSONPath without loop" mode unavailable.~~ Now extracted with mode-aware mapping extraction for JSONPATH/XPATH/NO_LOOP modes. |
+| CONV-FIJ-004 | ~~P1~~ | **NOT AN ISSUE for talend_to_v1** (complex_converter only): ~~No Java expression marking in `parse_tfileinputjson()`.~~ This issue applied only to the old `complex_converter` code path. The `talend_to_v1` converter uses a different architecture. |
+| CONV-FIJ-005 | ~~P2~~ | **FIXED** (separator params extracted): ~~`ADVANCED_SEPARATOR`, `THOUSANDS_SEPARATOR`, `DECIMAL_SEPARATOR` not extracted.~~ Now extracted by `talend_to_v1`. |
+| CONV-FIJ-006 | ~~P2~~ | **FIXED** (use_loop_as_root extracted): ~~`USE_LOOP_AS_ROOT` not extracted.~~ Now extracted by `talend_to_v1`. |
+| CONV-FIJ-007 | ~~P2~~ | **FIXED** (check_date extracted): ~~`VALIDATE_DATE` not extracted.~~ Now extracted by `talend_to_v1`. |
+| CONV-FIJ-008 | ~~P3~~ | **FIXED** (json_path_version extracted): ~~`API_VERSION` not extracted.~~ Now extracted by `talend_to_v1`. |
+| CONV-FIJ-009 | ~~P1~~ | **FIXED** -- MAPPING_JSONPATH structural parsing bug: ~~elementRef-as-column-name was wrong, producing entries where `column` is `"SCHEMA_COLUMN"` or `"QUERY"` instead of the actual column name.~~ Now uses alternating SCHEMA_COLUMN/QUERY pairs with push-on-SCHEMA_COLUMN state machine in `talend_to_v1`. |
 
 ---
 
@@ -315,7 +320,7 @@ Schema is extracted generically in `parse_base_component()`.
 
 | ID | Priority | Issue |
 |----|----------|-------|
-| NAME-FIJ-001 | **P1** | **Converter name `FileInputJSONComponent` vs engine name `FileInputJSON`**: The converter's `component_mapping` (line 101) outputs `FileInputJSONComponent` as the component type, but the engine registry uses `FileInputJSON`. This is not just a cosmetic issue -- it causes runtime failure. See CONV-FIJ-001. |
+| NAME-FIJ-001 | ~~P1~~ | ~~**Converter name `FileInputJSONComponent` vs engine name `FileInputJSON`**~~ **FIXED** in `talend_to_v1` -- type is now `FileInputJSON`. See CONV-FIJ-001. |
 | NAME-FIJ-002 | **P2** | **Config key `useurl` (no underscore) vs `urlpath` (no underscore)**: The engine uses `useurl` (line 156) instead of the more consistent `use_url` pattern used by other config keys (`use_loop_as_root`, line 164). Minor inconsistency. |
 | NAME-FIJ-003 | **P2** | **Config key `check_date` vs Talend `VALIDATE_DATE`**: The engine uses `check_date` (line 161) while Talend calls it `VALIDATE_DATE`. This differs from the standard Talend-to-v1 naming convention used by other components. |
 | NAME-FIJ-004 | **P3** | **Config key `json_path_version` vs Talend `API_VERSION`**: Non-standard mapping, but low impact since the key is never used. |
@@ -324,7 +329,7 @@ Schema is extracted generically in `parse_base_component()`.
 
 | ID | Priority | Standard | Violation |
 |----|----------|----------|-----------|
-| STD-FIJ-001 | **P1** | "Component name in converter mapping must match engine registry" | Converter outputs `FileInputJSONComponent`; engine registers `FileInputJSON`. Fatal mismatch. |
+| STD-FIJ-001 | ~~P1~~ | "Component name in converter mapping must match engine registry" | ~~Converter outputs `FileInputJSONComponent`; engine registers `FileInputJSON`. Fatal mismatch.~~ **FIXED** in `talend_to_v1`. |
 | STD-FIJ-002 | **P2** | "`validate_config()` returns `List[str]`" (METHODOLOGY.md) | Method exists but is never called. Contract technically met but functionally useless. Dead code. |
 | STD-FIJ-003 | **P2** | "Use Talend type format (`id_String`) in schemas" (STANDARDS.md) | Converter converts to Python types (`str`, `int`) via `ExpressionConverter.convert_type()`. |
 | STD-FIJ-004 | **P3** | "No unused imports" | `os`, `re`, `codecs` imported but never used. |
@@ -590,16 +595,17 @@ When `execution_mode=HYBRID` and input_data=None (file input component):
 |----|----------|---------|
 | BUG-FIJ-001 | Bug (Cross-Cutting) | `_update_global_map()` in `base_component.py:304` references undefined variable `value` (should be `stat_value`). Causes `NameError` at runtime when `global_map` is set. Component results are lost and status never reaches SUCCESS. Affects ALL components. |
 | BUG-FIJ-002 | Bug (Cross-Cutting) | `GlobalMap.get()` in `global_map.py:28` references undefined parameter `default`. Will crash on any `global_map.get()` call. `get_component_stat()` also passes two args to single-arg `get()`. Affects ALL components. |
-| CONV-FIJ-001 | Converter | **Component name mismatch**: Converter writes `type: 'FileInputJSONComponent'` to JSON config, but engine registers `FileInputJSON` and `tFileInputJSON`. Component instantiation will fail at runtime for ALL converted Talend jobs using tFileInputJSON. |
+| CONV-FIJ-001 | Converter | ~~**Component name mismatch**: Converter writes `type: 'FileInputJSONComponent'` to JSON config, but engine registers `FileInputJSON` and `tFileInputJSON`.~~ **FIXED** in `talend_to_v1` -- type is now `FileInputJSON`. |
 | TEST-FIJ-001 | Testing | Zero v1 unit tests for FileInputJSON. All 334 lines of engine code are unverified. |
 
 ### P1 -- Major
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-FIJ-002 | Converter | `USE_URL` and `URL` not extracted. Engine supports URL reading but converter never populates config keys. URL-based Talend jobs will fail. |
-| CONV-FIJ-003 | Converter | `READ_BY` not extracted. XPath mode and "JSONPath without loop" mode unavailable. |
-| CONV-FIJ-004 | Converter | No Java expression marking in `parse_tfileinputjson()`. Expressions in FILENAME, JSON_LOOP_QUERY, mapping queries passed as literal strings. |
+| CONV-FIJ-002 | Converter | ~~`USE_URL` and `URL` not extracted.~~ **FIXED** in `talend_to_v1` -- useurl/urlpath now extracted. |
+| CONV-FIJ-003 | Converter | ~~`READ_BY` not extracted.~~ **FIXED** in `talend_to_v1` -- read_by extracted with mode-aware mapping. |
+| CONV-FIJ-004 | Converter | ~~No Java expression marking in `parse_tfileinputjson()`.~~ **NOT AN ISSUE** for `talend_to_v1` (complex_converter only). |
+| CONV-FIJ-009 | Converter | ~~MAPPING_JSONPATH structural parsing bug (elementRef-as-column-name was wrong).~~ **FIXED** in `talend_to_v1` -- push-on-SCHEMA_COLUMN state machine. |
 | ENG-FIJ-001 | Engine | No XPath read mode. Only JSONPath supported. Jobs using XPath will fail. |
 | ENG-FIJ-002 | Engine | No "JSONPath without loop" mode. Jobs using direct query mode will fail. |
 | ENG-FIJ-003 | Engine | `{id}_ERROR_MESSAGE` not set in globalMap. Error details not available downstream. |
@@ -611,16 +617,16 @@ When `execution_mode=HYBRID` and input_data=None (file input component):
 | BUG-FIJ-005 | Bug | `validate_config()` is dead code. 48 lines of validation never executed. |
 | BUG-FIJ-007 | Bug | `die_on_error=True` does NOT stop per-row errors. Inner try/except (lines 200-247) never checks `die_on_error`. Always routes to reject regardless of setting. Behavioral divergence from Talend. *(Adversarial review)* |
 | BUG-FIJ-008 | Bug | Schema date pattern key mismatch: converter stores as `'date_pattern'` but engine reads `'pattern'`. Date validation completely non-functional for converted jobs. *(Adversarial review)* |
-| NAME-FIJ-001 | Naming | Converter name `FileInputJSONComponent` vs engine name `FileInputJSON`. Same root cause as CONV-FIJ-001. |
+| NAME-FIJ-001 | Naming | ~~Converter name `FileInputJSONComponent` vs engine name `FileInputJSON`.~~ **FIXED** in `talend_to_v1` -- same root cause as CONV-FIJ-001. |
 | TEST-FIJ-002 | Testing | No integration test for this component in a multi-step v1 job. |
 
 ### P2 -- Moderate
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-FIJ-005 | Converter | `ADVANCED_SEPARATOR`, `THOUSANDS_SEPARATOR`, `DECIMAL_SEPARATOR` not extracted. Engine has support but config never populated. |
-| CONV-FIJ-006 | Converter | `USE_LOOP_AS_ROOT` not extracted. Engine has support but config never populated. |
-| CONV-FIJ-007 | Converter | `VALIDATE_DATE` not extracted. Engine has `check_date` support but config never populated. |
+| CONV-FIJ-005 | Converter | ~~`ADVANCED_SEPARATOR`, `THOUSANDS_SEPARATOR`, `DECIMAL_SEPARATOR` not extracted.~~ **FIXED** in `talend_to_v1` -- separator params now extracted. |
+| CONV-FIJ-006 | Converter | ~~`USE_LOOP_AS_ROOT` not extracted.~~ **FIXED** in `talend_to_v1` -- use_loop_as_root now extracted. |
+| CONV-FIJ-007 | Converter | ~~`VALIDATE_DATE` not extracted.~~ **FIXED** in `talend_to_v1` -- check_date now extracted. |
 | ENG-FIJ-005 | Engine | Null/missing JSONPath match returns empty list `[]` instead of `None`. Causes confusing type coercion errors. |
 | ENG-FIJ-006 | Engine | Dead multi-match branch. `[*]`/`.*` check has identical code in both branches. |
 | ENG-FIJ-007 | Engine | `use_loop_as_root` only unwraps single-element lists. Does not fully implement Talend semantics. |
@@ -640,7 +646,7 @@ When `execution_mode=HYBRID` and input_data=None (file input component):
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-FIJ-008 | Converter | `API_VERSION` not extracted. Low impact (config key exists but is unused). |
+| CONV-FIJ-008 | Converter | ~~`API_VERSION` not extracted.~~ **FIXED** in `talend_to_v1` -- json_path_version now extracted. |
 | ENG-FIJ-008 | Engine | No Nashorn / JDK version handling. Not relevant for Python engine. |
 | NAME-FIJ-004 | Naming | `json_path_version` vs Talend `API_VERSION`. Non-standard but unused. |
 | STD-FIJ-004 | Standards | Unused imports `os`, `re`, `codecs`. |
@@ -652,13 +658,15 @@ When `execution_mode=HYBRID` and input_data=None (file input component):
 
 | Priority | Count | Categories |
 |----------|-------|------------|
-| P0 | 4 | 2 bugs (cross-cutting), 1 converter, 1 testing |
-| P1 | 16 | 3 converter, 6 engine, 5 bugs, 1 naming, 1 testing |
-| P2 | 17 | 3 converter, 3 engine, 4 bugs, 2 naming, 2 standards, 1 security, 2 performance |
-| P3 | 7 | 1 converter, 1 engine, 1 naming, 1 standards, 1 security, 1 debug, 1 performance |
-| **Total** | **44** | |
+| P0 | 4 (1 converter FIXED) | 2 bugs (cross-cutting), ~~1 converter~~, 1 testing |
+| P1 | 16 (4 converter FIXED, 1 naming FIXED, 1 standards FIXED) | ~~3 converter~~, 6 engine, 5 bugs, ~~1 naming~~, 1 testing; +1 new CONV-FIJ-009 FIXED |
+| P2 | 17 (3 converter FIXED) | ~~3 converter~~, 3 engine, 4 bugs, 2 naming, 2 standards, 1 security, 2 performance |
+| P3 | 7 (1 converter FIXED) | ~~1 converter~~, 1 engine, 1 naming, 1 standards, 1 security, 1 debug, 1 performance |
+| **Total** | **44** (9 converter issues FIXED by `talend_to_v1`, 1 naming FIXED, 1 standards FIXED = 11 resolved) | |
 
 > **Note**: BUG-FIJ-007, BUG-FIJ-008, and BUG-FIJ-009 were added from adversarial review (2026-03-21). Former BUG-FIJ-007 (empty match) renumbered to BUG-FIJ-010; former BUG-FIJ-008 (unused imports) renumbered to BUG-FIJ-011.
+>
+> **Note (2026-04-02)**: All 9 converter issues (CONV-FIJ-001 through CONV-FIJ-009) resolved by `talend_to_v1` enhancement. NAME-FIJ-001 and STD-FIJ-001 also resolved (same root cause as CONV-FIJ-001).
 
 ---
 
@@ -774,6 +782,8 @@ When `execution_mode=HYBRID` and input_data=None (file input component):
 
 ## Appendix A: Converter Parser Code
 
+> **SUPERSEDED (2026-04-02)**: This appendix documents the old `complex_converter` code. The active converter is now `src/converters/talend_to_v1/components/file/file_input_json.py` (`FileInputJSONConverter` class) with 17 config keys, push-on-SCHEMA_COLUMN state machine for mapping parsing, mode-aware extraction for 3 READ_BY modes, 4 engine-gap warnings, and 23 converter tests.
+
 ```python
 # component_parser.py lines 1509-1520
 def parse_tfileinputjson(self, node, component: Dict) -> Dict:
@@ -817,6 +827,8 @@ FileInputJSON (BaseComponent)
 ---
 
 ## Appendix C: Complete Talend Parameter to V1 Config Key Reference
+
+> **SUPERSEDED (2026-04-02)**: This appendix documents the old `complex_converter` mapping status. The active converter (`talend_to_v1`) now maps 17 of 18 runtime-relevant parameters. See the `talend_to_v1` converter at `src/converters/talend_to_v1/components/file/file_input_json.py`.
 
 | Talend Parameter | V1 Config Key | Status | Priority to Add |
 |------------------|---------------|--------|-----------------|
@@ -949,6 +961,8 @@ These should be tracked in a cross-cutting issues report as well.
 
 ## Appendix H: Implementation Fix Guides
 
+> **SUPERSEDED (2026-04-02)**: The CONV-FIJ-* fix guides below apply to the old `complex_converter` only. The active converter is now `src/converters/talend_to_v1/components/file/file_input_json.py` (`FileInputJSONConverter` class) where all converter issues (CONV-FIJ-001 through CONV-FIJ-009) are resolved.
+
 ### Fix Guide: CONV-FIJ-001 -- Component name mismatch
 
 **File**: `src/converters/complex_converter/component_parser.py`
@@ -1073,7 +1087,7 @@ for mapping_entry in mapping:
 | GlobalMap ERROR_MESSAGE | **No** | **No** | **No** | **No** |
 | V1 Unit tests | **No** | **No** | **No** | **No** |
 
-**Observation**: FileInputJSON is notable for having a REJECT flow implementation -- the only file input component in v1 that does. It also has engine-side support for advanced separators, date validation, and URL reading that other components lack. However, the converter does not populate these config keys, making the engine capabilities inaccessible through the standard conversion pipeline.
+**Observation**: FileInputJSON is notable for having a REJECT flow implementation -- the only file input component in v1 that does. It also has engine-side support for advanced separators, date validation, and URL reading that other components lack. ~~However, the converter does not populate these config keys, making the engine capabilities inaccessible through the standard conversion pipeline.~~ **Update (2026-04-02)**: The `talend_to_v1` converter now extracts all these config keys, making the engine capabilities accessible through the conversion pipeline.
 
 ---
 
@@ -1083,14 +1097,14 @@ for mapping_entry in mapping:
 
 | Scenario | Risk Level | Affected Jobs | Mitigation |
 |----------|-----------|---------------|------------|
-| **ANY converted tFileInputJSON job** | **Critical** | ALL jobs with tFileInputJSON | Fix CONV-FIJ-001 (name mismatch) -- without this fix, NO converted job will work |
+| ~~**ANY converted tFileInputJSON job**~~ | ~~Critical~~ | ~~ALL jobs with tFileInputJSON~~ | **FIXED** -- CONV-FIJ-001 resolved in `talend_to_v1` |
 | **ANY job with globalMap active** | **Critical** | ALL jobs (cross-cutting) | Fix BUG-FIJ-001 (_update_global_map crash) -- without this fix, ALL component results are lost |
-| Jobs using URL reading | **High** | REST API integration jobs | Fix CONV-FIJ-002 (extract USE_URL/URL from converter) |
-| Jobs using Java expressions in params | **High** | Jobs with dynamic paths | Fix CONV-FIJ-004 (add expression marking) |
-| Jobs using XPath read mode | **High** | XPath-based JSON extraction | Implement XPath support or document limitation |
+| ~~Jobs using URL reading~~ | ~~High~~ | ~~REST API integration jobs~~ | **FIXED** -- CONV-FIJ-002 resolved in `talend_to_v1` (useurl/urlpath extracted) |
+| ~~Jobs using Java expressions in params~~ | ~~High~~ | ~~Jobs with dynamic paths~~ | **NOT AN ISSUE** for `talend_to_v1` (complex_converter only) |
+| Jobs using XPath read mode | **High** | XPath-based JSON extraction | Engine limitation -- XPath mode not supported; converter emits warning |
 | Jobs referencing ERROR_MESSAGE | **Medium** | Error handling pipelines | Implement ENG-FIJ-003 |
-| Jobs using advanced separators | **Medium** | European number format | Fix CONV-FIJ-005 (extract separator params) |
-| Jobs using USE_LOOP_AS_ROOT | **Medium** | Complex JSON structures | Fix CONV-FIJ-006 |
+| ~~Jobs using advanced separators~~ | ~~Medium~~ | ~~European number format~~ | **FIXED** -- CONV-FIJ-005 resolved in `talend_to_v1` (separator params extracted) |
+| ~~Jobs using USE_LOOP_AS_ROOT~~ | ~~Medium~~ | ~~Complex JSON structures~~ | **FIXED** -- CONV-FIJ-006 resolved in `talend_to_v1` |
 
 ### Low-Risk Scenarios
 
