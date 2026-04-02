@@ -87,13 +87,26 @@ class FileInputPositionalConverter(ComponentConverter):
     ) -> ComponentResult:
         warnings: List[str] = []
 
+        # Determine which positional mode is active via ADVANCED_OPTION:
+        # ADVANCED_OPTION=false (Customize unchecked) → use PATTERN
+        # ADVANCED_OPTION=true  (Customize checked)   → use FORMATS
+        use_customize = self._get_bool(node, "ADVANCED_OPTION", False)
+
+        # Only populate the field that is actually active
+        pattern = "" if use_customize else self._get_str(node, "PATTERN")
+        formats = (
+            self._parse_formats_table(node.params.get("FORMATS", []))
+            if use_customize
+            else []
+        )
+
         config: Dict[str, Any] = {
             # Core params
             "filepath": self._get_str(node, "FILENAME"),
             "row_separator": self._get_str(node, "ROWSEPARATOR", "\\n"),
-            "pattern": self._get_str(node, "PATTERN"),
+            "pattern": pattern,
             "pattern_units": self._get_str(node, "PATTERN_UNITS", "SYMBOLS"),
-            "advanced_option": self._get_bool(node, "ADVANCED_OPTION", False),
+            "advanced_option": use_customize,
             "remove_empty_row": self._get_bool(node, "REMOVE_EMPTY_ROW", True),
             "trim_all": self._get_bool(node, "TRIMALL", True),
             "encoding": self._get_str(node, "ENCODING", "ISO-8859-15"),
@@ -113,8 +126,7 @@ class FileInputPositionalConverter(ComponentConverter):
             "tstatcatcher_stats": self._get_bool(node, "TSTATCATCHER_STATS", False),
             "label": self._get_str(node, "LABEL"),
             # Table parameters
-            "formats": self._parse_formats_table(
-                node.params.get("FORMATS", [])),
+            "formats": formats,
             "trim_select": self._parse_trim_select(
                 node.params.get("TRIMSELECT", [])),
         }
@@ -123,9 +135,10 @@ class FileInputPositionalConverter(ComponentConverter):
         if not config["filepath"]:
             warnings.append("FILENAME is empty — this is a required parameter")
 
-        # Warn when positional parsing config is incomplete:
-        # ADVANCED_OPTION=true means FORMATS table is used instead of PATTERN
-        if config["advanced_option"]:
+        # Validate the active positional mode based on ADVANCED_OPTION:
+        # ADVANCED_OPTION=true  (Customize checked)   → FORMATS must be populated
+        # ADVANCED_OPTION=false (Customize unchecked)  → PATTERN must be populated
+        if use_customize:
             if not config["formats"]:
                 warnings.append("FORMATS table is empty — 'Customize' positional parsing requires formats")
         elif not config["pattern"]:
