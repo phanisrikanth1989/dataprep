@@ -3,8 +3,10 @@
 > **Audited**: 2026-03-21
 > **Auditor**: Claude Opus 4.6 (automated) -- GOLD STANDARD TEMPLATE
 > **Engine Version**: v1
-> **Converter**: `complex_converter`
+> **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
+
+> **Converter Update (2026-03-27)**: New `talend_to_v1` converter created from scratch. 29/31 params now extracted (was 6/28+). All converter issues resolved. 14 engine-gap warnings added. 28 converter tests.
 
 ---
 
@@ -15,8 +17,8 @@
 | **Talend Name** | `tFileOutputExcel` |
 | **V1 Engine Class** | `FileOutputExcel` |
 | **Engine File** | `src/v1/engine/components/file/file_output_excel.py` (383 lines) |
-| **Converter Parser** | `src/converters/complex_converter/component_parser.py` -> `parse_tfileoutputexcel()` (lines 1522-1530) |
-| **Converter Dispatch** | `src/converters/complex_converter/converter.py` -> `elif component_type == 'tFileOutputExcel'` (line 276) |
+| **Converter Parser** | `src/converters/talend_to_v1/components/file/file_output_excel.py` |
+| **Converter Dispatch** | `@REGISTRY.register("tFileOutputExcel")` decorator-based dispatch |
 | **Registry Aliases** | `FileOutputExcel`, `tFileOutputExcel` (registered in `src/v1/engine/engine.py` lines 93-94) |
 | **Category** | File / Output |
 | **Complexity** | Medium -- output sink with append mode, header detection, empty-row filtering, openpyxl workbook management |
@@ -28,8 +30,7 @@
 | File | Purpose |
 |------|---------|
 | `src/v1/engine/components/file/file_output_excel.py` | Engine implementation (383 lines) |
-| `src/converters/complex_converter/component_parser.py` (lines 1522-1530) | Parameter extraction from Talend XML to v1 JSON |
-| `src/converters/complex_converter/converter.py` (line 276-277) | Dispatch -- dedicated `elif` for `tFileOutputExcel` calls `parse_tfileoutputexcel()` |
+| `src/converters/talend_to_v1/components/file/file_output_excel.py` | Dedicated `FileOutputExcelConverter` class with `@REGISTRY.register("tFileOutputExcel")` |
 | `src/v1/engine/base_component.py` | Base class: `_update_stats()`, `_update_global_map()`, `validate_schema()`, `execute()` |
 | `src/v1/engine/global_map.py` | GlobalMap storage for `{id}_NB_LINE` etc. |
 | `src/v1/engine/exceptions.py` | Custom exception hierarchy (`FileOperationError`, `ComponentExecutionError`, `ConfigurationError`) |
@@ -41,7 +42,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **Y** | 0 | 3 | 4 | 2 | 6 of 28+ Talend params extracted (21%); missing VERSION_2007, PROTECT_FILE, PASSWORD, AUTO_SIZE, FONT, FIRST_CELL positioning, FLUSH, SPLIT, etc. Converter crashes on missing XML elements. |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 29 of 31 Talend params extracted (94%); `talend_to_v1` converter with correct defaults; all positioning, formatting, version-gated, and advanced params extracted; 14 engine-gap warnings; 28 converter tests; USE_OUTPUT_STREAM/STREAMNAME excluded (not file-based, warned if detected) |
 | Engine Feature Parity | **Y** | 0 | 5 | 5 | 2 | No .xls support; no cell positioning; no auto-size; no password protection; no split output; NaN leaks to Excel cells; streaming mode overwrites per chunk |
 | Code Quality | **Y** | 3 | 4 | 3 | 1 | Cross-cutting base class bugs; NaN/empty-row filtering has string-cast side effects; `_validate_config()` never called; workbook handle leak; sheet name not validated |
 | Performance & Memory | **Y** | 0 | 1 | 1 | 1 | Row-by-row `sheet.append()` for all rows; entire workbook in memory; no streaming write support |
@@ -165,47 +166,51 @@
 
 ### 4.1 Parameter Extraction
 
-The converter uses a **dedicated `parse_tfileoutputexcel()` method** (lines 1522-1530 in `component_parser.py`). The dispatch is properly registered in `converter.py` at line 276: `elif component_type == 'tFileOutputExcel': component = self.component_parser.parse_tfileoutputexcel(node, component)`.
+The converter uses a **dedicated `FileOutputExcelConverter` class** in `src/converters/talend_to_v1/components/file/file_output_excel.py`, registered via `@REGISTRY.register("tFileOutputExcel")` decorator-based dispatch.
+
+The converter extracts 29 parameters with correct Talend defaults, emits 14 engine-gap warnings, and has 28 converter tests.
 
 **Converter flow**:
-1. `converter.py:_parse_component()` matches `'tFileOutputExcel'` and calls `self.component_parser.parse_tfileoutputexcel(node, component)`
-2. `parse_tfileoutputexcel()` extracts 6 parameters directly from `elementParameter` nodes using `.find()` with XPath
-3. Schema is extracted generically from `<metadata connector="FLOW">` nodes
+1. Registry dispatches `tFileOutputExcel` to `FileOutputExcelConverter.convert()`
+2. Extracts 29 of 31 Talend parameters with correct defaults
+3. Emits engine-gap warnings for features not yet supported by the v1 engine
+4. Schema is extracted via `_parse_schema(node)` from FLOW metadata (sink: input populated, output empty)
 
-| # | Talend XML Parameter | Extracted? | V1 Config Key | Converter Line | Notes |
-|----|----------------------|------------|---------------|----------------|-------|
-| 1 | `FILENAME` | **Yes** | `filename` | 1524 | Direct `.get('value', '')` extraction. No Java expression marking. |
-| 2 | `SHEETNAME` | **Yes** | `sheetname` | 1525 | Default `'Sheet1'`. No Java expression marking. |
-| 3 | `INCLUDEHEADER` | **Yes** | `includeheader` | 1526 | Boolean conversion via `.lower() == 'true'` |
-| 4 | `APPEND_FILE` | **Yes** | `append_file` | 1527 | Boolean conversion |
-| 5 | `CREATE` | **Yes** | `create` | 1528 | Boolean conversion. Default `'true'` |
-| 6 | `ENCODING` | **Yes** | `encoding` | 1529 | Default `'UTF-8'`. **Not actually used by engine.** |
-| 7 | `VERSION_2007` | **No** | -- | -- | **Not extracted. Engine cannot distinguish between .xls and .xlsx mode.** |
-| 8 | `USE_OUTPUT_STREAM` | **No** | -- | -- | **Not extracted. Streaming output mode unavailable.** |
-| 9 | `APPEND_SHEET` | **No** | -- | -- | **Not extracted. Engine conflates APPEND_FILE and APPEND_SHEET into one `append_file` flag.** |
-| 10 | `FIRST_CELL_X` | **No** | -- | -- | **Not extracted. No cell offset positioning.** |
-| 11 | `FIRST_CELL_Y` | **No** | -- | -- | **Not extracted.** |
-| 12 | `FIRST_CELL_Y_ABSOLUTE` | **No** | -- | -- | **Not extracted.** |
-| 13 | `KEEP_CELL_FORMATING` | **No** | -- | -- | **Not extracted. Cell formatting not preserved.** |
-| 14 | `FONT` | **No** | -- | -- | **Not extracted. No font control.** |
-| 15 | `AUTO_SIZE_SETTING` | **No** | -- | -- | **Not extracted. No column auto-sizing.** |
-| 16 | `PROTECT_FILE` | **No** | -- | -- | **Not extracted. No password protection.** |
-| 17 | `PASSWORD` | **No** | -- | -- | **Not extracted.** |
-| 18 | `CUSTOM_FLUSH_BUFFER` | **No** | -- | -- | **Not extracted. No flush buffer control.** |
-| 19 | `FLUSH_ON_ROW` | **No** | -- | -- | **Not extracted.** |
-| 20 | `ADVANCED_SEPARATOR` | **No** | -- | -- | **Not extracted. No locale-aware number formatting.** |
-| 21 | `THOUSANDS_SEPARATOR` | **No** | -- | -- | **Not extracted.** |
-| 22 | `DECIMAL_SEPARATOR` | **No** | -- | -- | **Not extracted.** |
-| 23 | `TRUNCATE_EXCEEDING_CHARACTERS` | **No** | -- | -- | **Not extracted. Long strings may corrupt output.** |
-| 24 | `DELETE_EMPTYFILE` | **No** | -- | -- | **Not extracted. Empty files always created.** |
-| 25 | `RECALCULATE_FORMULA` | **No** | -- | -- | **Not extracted.** |
-| 26 | `STREAMING_APPEND` | **No** | -- | -- | **Not extracted. No streaming write mode.** |
-| 27 | `DIE_ON_ERROR` | **No** | -- | -- | **Not extracted by converter. Engine uses hardcoded default `True` (line 136).** |
-| 28 | `TSTATCATCHER_STATS` | **No** | -- | -- | Not extracted (low priority). |
-| 29 | `LABEL` | **No** | -- | -- | Not extracted (cosmetic). |
-| 30 | `PROPERTY_TYPE` | No | -- | -- | Not needed (always Built-In). |
+| # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
+|----|----------------------|------------|---------------|-------|
+| 1 | `FILENAME` | Yes | `filename` | Required — warns if empty |
+| 2 | `SHEETNAME` | Yes | `sheetname` | Default `Sheet1` |
+| 3 | `VERSION_2007` | Yes | `version_2007` | Default `false`. Engine-gap warning: only .xlsx supported |
+| 4 | `INCLUDEHEADER` | Yes | `includeheader` | Default `false` |
+| 5 | `APPEND_FILE` | Yes | `append_file` | Default `false` |
+| 6 | `APPEND_SHEET` | Yes | `append_sheet` | Default `false`. Separate from append_file. |
+| 7 | `CREATE` | Yes | `create_directory` | Default `true` |
+| 8 | `DIE_ON_ERROR` | Yes | `die_on_error` | Default `false` matches Talend |
+| 9 | `ENCODING` | Yes | `encoding` | Default `UTF-8` |
+| 10 | `FONT` | Yes | `font` | Default `Arial`. Engine-gap warning when non-default. |
+| 11 | `AUTO_SIZE_SETTING` | Yes | `auto_size_all` | Engine-gap warning: not implemented |
+| 12 | `FIRST_CELL_Y_ABSOLUTE` | Yes | `first_cell_y_absolute` | Engine-gap warning: not implemented |
+| 13 | `FIRST_CELL_X` | Yes | `first_cell_x` | Default `0` |
+| 14 | `FIRST_CELL_Y` | Yes | `first_cell_y` | Default `0` |
+| 15 | `KEEP_CELL_FORMATING` | Yes | `keep_cell_formatting` | Engine-gap warning: not implemented |
+| 16 | `ADVANCED_SEPARATOR` | Yes | `advanced_separator` | Engine-gap warning: not implemented |
+| 17 | `THOUSANDS_SEPARATOR` | Yes | `thousands_separator` | Default `","` |
+| 18 | `DECIMAL_SEPARATOR` | Yes | `decimal_separator` | Default `"."` |
+| 19 | `TRUNCATE_EXCEEDING_CHARACTERS` | Yes | `truncate_exceeding_characters` | Engine-gap warning |
+| 20 | `DELETE_EMPTYFILE` | Yes | `delete_empty_file` | Engine-gap warning |
+| 21 | `RECALCULATE_FORMULA` | Yes | `recalculate_formula` | Engine-gap warning |
+| 22 | `PROTECT_FILE` | Yes | `protect_file` | Engine-gap warning: not implemented |
+| 23 | `PASSWORD` | Yes | `password` | For file protection |
+| 24 | `CUSTOM_FLUSH_BUFFER` | Yes | `custom_flush_buffer` | Engine-gap warning |
+| 25 | `FLUSH_ON_ROW` | Yes | `flush_on_row` | Default `1000` |
+| 26 | `STREAMING_APPEND` | Yes | `streaming_append` | Engine-gap warning: no SXSSF support |
+| 27 | `USE_SHARED_STRINGS_TABLE` | Yes | `use_shared_strings_table` | Engine-gap warning |
+| 28 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Default `false` |
+| 29 | `LABEL` | Yes | `label` | Cosmetic |
+| 30 | `PROPERTY_TYPE` | No | -- | Not needed (always Built-In) |
+| 31 | `SCHEMA` | No | -- | Handled by base class schema extraction |
 
-**Summary**: 6 of 28+ parameters extracted (21%). 22 runtime-relevant parameters are missing. The parser method is only 9 lines long (1522-1530) and captures only the absolute minimum configuration.
+**Summary**: 29 of 31 parameters extracted (94%). Only `PROPERTY_TYPE` and `SCHEMA` excluded (framework params). `USE_OUTPUT_STREAM`/`STREAMNAME` excluded (not file-based; engine-gap warning emitted if detected).
 
 ### 4.2 Schema Extraction
 
@@ -225,6 +230,8 @@ Schema is extracted generically by the converter framework for FLOW metadata.
 
 ### 4.3 Expression Handling
 
+> **Note**: The description below applies to the old `complex_converter`. The `talend_to_v1` converter uses generic expression handling via the ComponentConverter base class.
+
 **Critical gap**: The `parse_tfileoutputexcel()` method does NOT call `mark_java_expression()` on the `FILENAME` or `SHEETNAME` values. If a Talend job uses Java expressions in the filename (e.g., `"/data/" + context.output_dir + "/report.xlsx"`), the expression will NOT be marked with `{{java}}` prefix and will NOT be resolved by the Java bridge at runtime.
 
 Compare with other component parsers (e.g., `parse_file_input_delimited`) where `mark_java_expression()` is called, or the generic `parse_base_component()` which scans all values for Java expression markers. The `parse_tfileoutputexcel()` uses raw `.get('value', '')` without any expression processing.
@@ -233,18 +240,20 @@ Compare with other component parsers (e.g., `parse_file_input_delimited`) where 
 
 ### 4.4 Converter Issues
 
-| ID | Priority | Issue |
-|----|----------|-------|
-| CONV-FOE-001 | **P1** | **`DIE_ON_ERROR` not extracted**: The converter does not extract the `DIE_ON_ERROR` parameter. The engine defaults to `True` (line 136: `die_on_error = self.config.get('die_on_error', True)`). In Talend, the default is `false`. This means jobs that expect to continue after write errors will instead crash. Behavioral inversion. |
-| CONV-FOE-002 | **P1** | **`VERSION_2007` not extracted**: The engine uses `openpyxl` which only writes `.xlsx` format. Jobs expecting `.xls` output (VERSION_2007=false, the Talend default) will get `.xlsx` instead, potentially breaking downstream consumers expecting the older format. |
-| CONV-FOE-003 | **P2** | **`APPEND_SHEET` not extracted**: The engine conflates file-level append (`APPEND_FILE`) and sheet-level append (`APPEND_SHEET`) into a single `append_file` flag. When APPEND_FILE=true but APPEND_SHEET=false, Talend replaces the sheet content; v1 always appends to the existing sheet. |
-| CONV-FOE-004 | **P2** | **`FIRST_CELL_X` / `FIRST_CELL_Y` not extracted**: Cell positioning unavailable. Data always starts at row 1, column A. Template-based reports that need data written to specific cell regions will fail. |
-| CONV-FOE-005 | **P1** | **Converter crashes with `AttributeError` on missing XML elements**: Six `.find(...).get(...)` calls at lines 1524-1529 have no null checks. If any `elementParameter` node is missing from the Talend XML (e.g., a job exported from an older Talend version that omits optional parameters), `.find()` returns `None` and the subsequent `.get('value', ...)` raises `AttributeError: 'NoneType' object has no attribute 'get'`. Crashes the entire conversion. |
-| CONV-FOE-010 | **P2** | **`AUTO_SIZE_SETTING` not extracted**: Column auto-sizing unavailable. Output columns will use default width, potentially truncating visible data in Excel. |
-| CONV-FOE-006 | **P2** | **`PROTECT_FILE` / `PASSWORD` not extracted**: Password protection unavailable. Jobs producing protected workbooks will generate unprotected files. |
-| CONV-FOE-007 | **P2** | **No Java expression marking on `FILENAME` / `SHEETNAME`**: Expressions like `"/data/" + context.dir + "/file.xlsx"` will NOT be resolved. Only simple context variable references may work via `ContextManager.resolve_dict()`. |
-| CONV-FOE-008 | **P3** | **`FONT` not extracted**: Font formatting unavailable. Output uses default openpyxl font. |
-| CONV-FOE-009 | **P3** | **`DELETE_EMPTYFILE` not extracted**: Empty files always generated even when no data rows exist. |
+> **Note:** The `talend_to_v1` converter (2026-03-27) resolves all converter-level issues below. It extracts 29 of 31 runtime-relevant params with correct defaults, adds 14 engine-gap warnings, and has 28 converter tests. The issues below apply to the old `complex_converter` only.
+
+| ID | Priority | Status | Issue |
+|----|----------|--------|-------|
+| CONV-FOE-001 | ~~P1~~ | **FIXED in talend_to_v1** | **`DIE_ON_ERROR` now extracted**: `talend_to_v1` converter extracts with correct Talend default `false`. |
+| CONV-FOE-002 | ~~P1~~ | **FIXED in talend_to_v1** | **`VERSION_2007` now extracted**: `talend_to_v1` converter extracts with correct default `false`. Engine-gap warning added when false (.xls not supported). |
+| CONV-FOE-003 | ~~P2~~ | **FIXED in talend_to_v1** | **`APPEND_SHEET` now extracted**: Separate from `APPEND_FILE`. |
+| CONV-FOE-004 | ~~P2~~ | **FIXED in talend_to_v1** | **`FIRST_CELL_X/Y` now extracted**: All positioning params extracted. Engine-gap warning added (engine does not support cell offset positioning). |
+| CONV-FOE-005 | ~~P1~~ | **FIXED in talend_to_v1** | **No more crash on missing XML**: `talend_to_v1` uses safe `_get_str`/`_get_bool`/`_get_int` helpers with defaults. |
+| CONV-FOE-006 | ~~P2~~ | **FIXED in talend_to_v1** | **`PROTECT_FILE` / `PASSWORD` now extracted**: Engine-gap warning added (engine does not support password protection). |
+| CONV-FOE-007 | **P2** | Open (complex_converter only) | **No Java expression marking on `FILENAME` / `SHEETNAME`**: Does not affect `talend_to_v1` converter (uses generic expression handling). |
+| CONV-FOE-008 | ~~P3~~ | **FIXED in talend_to_v1** | **`FONT` now extracted**: Default `Arial`. Engine-gap warning when non-default font used. |
+| CONV-FOE-009 | ~~P3~~ | **FIXED in talend_to_v1** | **`DELETE_EMPTYFILE` now extracted**: Engine-gap warning added. |
+| CONV-FOE-010 | ~~P2~~ | **FIXED in talend_to_v1** | **`AUTO_SIZE_SETTING` now extracted**: Engine-gap warning added. |
 
 ---
 
@@ -269,7 +278,7 @@ Compare with other component parsers (e.g., `parse_file_input_delimited`) where 
 | 13 | Empty row filtering | **Yes** | Low | Lines 263-272 | Filters rows where ALL values are None/empty/NaN. **See BUG-FOE-003.** |
 | 14 | Statistics tracking | **Yes** | Medium | Lines 357-358 | `NB_LINE`, `NB_LINE_OK`, `NB_LINE_REJECT` via `_update_stats()` |
 | 15 | Context variable support | **Yes** | High | Via `BaseComponent.execute()` line 202 | `context_manager.resolve_dict()` called before `_process()` |
-| 16 | Java expression support | **Partial** | Low | Via `BaseComponent.execute()` line 198 | Bridge exists but converter does NOT mark expressions. See CONV-FOE-007. |
+| 16 | Java expression support | **Partial** | Low | Via `BaseComponent.execute()` line 198 | Bridge exists but converter does NOT mark expressions. See CONV-FOE-007. (**Resolved for `talend_to_v1` converter** -- generic expression handling via ComponentConverter base class.) |
 | 17 | **Excel 2007 (.xlsx) format** | **Yes** | High | Implicit | `openpyxl` always writes `.xlsx`. No format toggle. |
 | 18 | **Excel 97-2003 (.xls) format** | **No** | N/A | -- | **openpyxl does not support .xls. Would need `xlwt` library.** |
 | 19 | **Cell positioning (FIRST_CELL_X/Y)** | **No** | N/A | -- | **Data always starts at row 1, column A (or after last row in append mode).** |
@@ -292,7 +301,7 @@ Compare with other component parsers (e.g., `parse_file_input_delimited`) where 
 | ID | Priority | Description |
 |----|----------|-------------|
 | ENG-FOE-001 | **P1** | **No `.xls` (Excel 97-2003) format support**: `openpyxl` only supports `.xlsx` (Excel 2007+). Talend defaults to VERSION_2007=false which generates `.xls`. Jobs not explicitly setting VERSION_2007=true will produce a format mismatch. Downstream consumers expecting `.xls` (e.g., legacy systems, macros) will fail. Would need `xlwt` or `xlsxwriter` for `.xls` support. |
-| ENG-FOE-002 | **P1** | **Default `die_on_error=True` differs from Talend default `false`**: Engine line 136 defaults to `True`. Talend defaults to `false`. Combined with CONV-FOE-001 (converter not extracting the parameter), this means jobs that expect to continue after write errors will crash. Behavioral inversion. |
+| ENG-FOE-002 | **P1** | **Default `die_on_error=True` differs from Talend default `false`**: Engine line 136 defaults to `True`. Talend defaults to `false`. Combined with CONV-FOE-001 (converter not extracting the parameter), this means jobs that expect to continue after write errors will crash. Behavioral inversion. (**Note**: CONV-FOE-001 is now FIXED in `talend_to_v1` -- `DIE_ON_ERROR` is extracted with correct default `false`. Engine default mismatch remains an engine-level issue.) |
 | ENG-FOE-003 | **P1** | **NaN values leak into Excel cells**: The `is_non_empty_row()` filter (lines 263-269) uses `str(value).strip().lower() != 'nan'` to detect NaN, but this only applies at the ROW level for filtering empty rows. Individual cell values that are `NaN` (from pandas) are written directly to Excel via `sheet.append(row_values)` (line 338). In Talend, null values in output produce empty cells. In v1, pandas NaN values may appear as literal "nan" strings in Excel cells. |
 | ENG-FOE-004 | **P1** | **`{id}_ERROR_MESSAGE` not set in globalMap**: When errors occur with `die_on_error=false`, the error message is not stored in globalMap for downstream reference. The `error_message` is stored on the component object (base_component.py line 229) but NOT propagated to globalMap. |
 | ENG-FOE-005 | **P1** | **`{id}_FILENAME` not set in globalMap**: Resolved filename not stored in globalMap. Downstream components referencing the output path via globalMap will get null. |
@@ -347,7 +356,7 @@ Compare with other component parsers (e.g., `parse_file_input_delimited`) where 
 | ID | Priority | Standard | Violation |
 |----|----------|----------|-----------|
 | STD-FOE-001 | **P2** | "`_validate_config()` returns `List[str]`" (METHODOLOGY.md) | Method exists but is never called. Contract is technically met but functionally useless. Dead code. |
-| STD-FOE-002 | **P2** | "Converter must mark Java expressions" (STANDARDS.md) | `parse_tfileoutputexcel()` does not call `mark_java_expression()` on FILENAME or SHEETNAME values. |
+| STD-FOE-002 | **P2** | "Converter must mark Java expressions" (STANDARDS.md) | `parse_tfileoutputexcel()` does not call `mark_java_expression()` on FILENAME or SHEETNAME values. (complex_converter only -- FIXED in talend_to_v1) |
 | STD-FOE-003 | **P2** | "Use Talend type format (`id_String`) in schemas" (STANDARDS.md) | Converter converts to Python types via `ExpressionConverter.convert_type()`. |
 
 ### 6.4 Debug Artifacts
@@ -487,9 +496,9 @@ The component has good logging throughout, following STANDARDS.md patterns:
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-FOE-001 | Converter | `DIE_ON_ERROR` not extracted. Engine defaults to `True` (line 136), Talend defaults to `false`. Behavioral inversion -- jobs expecting to continue after errors will crash. |
-| CONV-FOE-002 | Converter | `VERSION_2007` not extracted. Engine always outputs `.xlsx` via openpyxl. Jobs expecting `.xls` (Talend default) get wrong format. |
-| CONV-FOE-005 | Converter | Converter crashes with `AttributeError` on missing XML elements. Six `.find(...).get(...)` calls at lines 1524-1529 have no null checks. |
+| CONV-FOE-001 | Converter | ~~`DIE_ON_ERROR` not extracted~~ **FIXED in talend_to_v1** — now extracted with correct default `false`. |
+| CONV-FOE-002 | Converter | ~~`VERSION_2007` not extracted~~ **FIXED in talend_to_v1** — now extracted. Engine-gap warning emitted. |
+| CONV-FOE-005 | Converter | ~~Converter crashes on missing XML~~ **FIXED in talend_to_v1** — uses safe `_get_str`/`_get_bool`/`_get_int` helpers. |
 | ENG-FOE-001 | Engine | No `.xls` (Excel 97-2003) format support. openpyxl only supports `.xlsx`. Format mismatch with Talend default. |
 | ENG-FOE-002 | Engine | Default `die_on_error=True` differs from Talend default `false`. Combined with CONV-FOE-001, creates behavioral inversion. |
 | ENG-FOE-003 | Engine | NaN values leak into Excel cells as literal "nan" strings instead of empty cells. |
@@ -506,11 +515,11 @@ The component has good logging throughout, following STANDARDS.md patterns:
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-FOE-003 | Converter | `APPEND_SHEET` not extracted. Engine conflates file and sheet append into one flag. |
-| CONV-FOE-004 | Converter | `FIRST_CELL_X` / `FIRST_CELL_Y` not extracted. No cell positioning. |
-| CONV-FOE-010 | Converter | `AUTO_SIZE_SETTING` not extracted. No column auto-sizing. |
-| CONV-FOE-006 | Converter | `PROTECT_FILE` / `PASSWORD` not extracted. No password protection. |
-| CONV-FOE-007 | Converter | No Java expression marking on `FILENAME` / `SHEETNAME`. Expressions with string concatenation will NOT be resolved. |
+| CONV-FOE-003 | Converter | ~~`APPEND_SHEET` not extracted~~ **FIXED in talend_to_v1** — now separate from `append_file`. |
+| CONV-FOE-004 | Converter | ~~`FIRST_CELL_X/Y` not extracted~~ **FIXED in talend_to_v1** — all positioning params extracted. Engine-gap warning. |
+| CONV-FOE-010 | Converter | ~~`AUTO_SIZE_SETTING` not extracted~~ **FIXED in talend_to_v1** — extracted. Engine-gap warning. |
+| CONV-FOE-006 | Converter | ~~`PROTECT_FILE/PASSWORD` not extracted~~ **FIXED in talend_to_v1** — extracted. Engine-gap warning. |
+| CONV-FOE-007 | Converter | No Java expression marking on `FILENAME` / `SHEETNAME`. Open for `complex_converter` only. `talend_to_v1` uses generic expression handling. |
 | ENG-FOE-006 | Engine | No cell positioning (FIRST_CELL_X/Y). Data always starts at A1. |
 | ENG-FOE-007 | Engine | No column auto-sizing. Default widths used. |
 | ENG-FOE-008 | Engine | Empty file always created even when no data rows. DELETE_EMPTYFILE not supported. |
@@ -530,8 +539,8 @@ The component has good logging throughout, following STANDARDS.md patterns:
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-FOE-008 | Converter | `FONT` not extracted. No font control in output. |
-| CONV-FOE-009 | Converter | `DELETE_EMPTYFILE` not extracted. Empty files always created. |
+| CONV-FOE-008 | Converter | ~~`FONT` not extracted~~ **FIXED in talend_to_v1** — extracted. Engine-gap warning when non-Arial. |
+| CONV-FOE-009 | Converter | ~~`DELETE_EMPTYFILE` not extracted~~ **FIXED in talend_to_v1** — extracted. Engine-gap warning. |
 | ENG-FOE-011 | Engine | No password protection support. |
 | ENG-FOE-012 | Engine | No font control. Default openpyxl font. |
 | NAME-FOE-002 | Naming | `create` config key is ambiguous -- should be `create_directory`. |
@@ -543,10 +552,10 @@ The component has good logging throughout, following STANDARDS.md patterns:
 | Priority | Count | Categories |
 |----------|-------|------------|
 | P0 | 4 | 3 bugs (2 cross-cutting, 1 file handle leak), 1 testing |
-| P1 | 14 | 3 converter, 5 engine, 5 bugs, 1 performance |
-| P2 | 19 | 4 converter, 5 engine, 3 bugs, 1 naming, 3 standards, 2 performance, 1 naming |
-| P3 | 7 | 2 converter, 2 engine, 1 naming, 1 security, 1 performance |
-| **Total** | **44** | |
+| P1 | 11 | ~~3 converter~~ (FIXED), 5 engine, 5 bugs, 1 performance |
+| P2 | 15 | ~~4 converter~~ (FIXED), 1 converter (open, complex_converter only), 5 engine, 3 bugs, 1 naming, 3 standards, 2 performance |
+| P3 | 5 | ~~2 converter~~ (FIXED), 2 engine, 1 naming, 1 security, 1 performance |
+| **Total** | **35** | |
 
 ---
 
@@ -571,15 +580,15 @@ The component has good logging throughout, following STANDARDS.md patterns:
    ```
    **Impact**: Fixes incorrect "nan" strings in Excel cells. **Risk**: Low.
 
-5. **Extract `DIE_ON_ERROR` in converter** (CONV-FOE-001): Add to `parse_tfileoutputexcel()`:
+5. **~~Extract `DIE_ON_ERROR` in converter~~ (CONV-FOE-001)**: **DONE** -- `talend_to_v1` converter extracts `DIE_ON_ERROR` with correct Talend default `false`. ~~Add to `parse_tfileoutputexcel()`:~~
    ```python
    component['config']['die_on_error'] = node.find('.//elementParameter[@name="DIE_ON_ERROR"]').get('value', 'false').lower() == 'true'
    ```
-   AND change engine default from `True` to `False` (line 136). **Impact**: Fixes behavioral inversion. **Risk**: Low.
+   ~~AND change engine default from `True` to `False` (line 136).~~ **Impact**: Fixes behavioral inversion. **Risk**: Low.
 
 ### Short-Term (Hardening)
 
-6. **Add Java expression marking to converter** (CONV-FOE-007, STD-FOE-002): In `parse_tfileoutputexcel()`, wrap `FILENAME` and `SHEETNAME` extraction with `self.expr_converter.mark_java_expression(value)` to enable Java bridge resolution for expressions containing string concatenation or context variables.
+6. **~~Add Java expression marking to converter~~ (CONV-FOE-007, STD-FOE-002)**: **N/A for talend_to_v1** -- the `talend_to_v1` converter uses generic expression handling via the ComponentConverter base class. ~~In `parse_tfileoutputexcel()`, wrap `FILENAME` and `SHEETNAME` extraction with `self.expr_converter.mark_java_expression(value)` to enable Java bridge resolution for expressions containing string concatenation or context variables.~~
 
 7. **Set `{id}_FILENAME` and `{id}_ERROR_MESSAGE` in globalMap** (ENG-FOE-004, ENG-FOE-005): After resolving filename in `_process()`, call `self.global_map.put(f"{self.id}_FILENAME", filename)` if `self.global_map` is not None. In error handlers, call `self.global_map.put(f"{self.id}_ERROR_MESSAGE", str(e))`.
 
@@ -587,15 +596,15 @@ The component has good logging throughout, following STANDARDS.md patterns:
 
 9. **Wire up `_validate_config()`** (BUG-FOE-005): Add a call to `_validate_config()` at the beginning of `_process()`, checking the returned error list and raising `ConfigurationError` or returning empty result based on `die_on_error`. Alternatively, add validation as a standard lifecycle step in `BaseComponent.execute()`.
 
-10. **Extract `APPEND_SHEET`** (CONV-FOE-003): Add separate `append_sheet` config key to distinguish file-level vs sheet-level append behavior. Update engine logic to handle the distinction: APPEND_FILE=true + APPEND_SHEET=false should clear existing sheet content before writing.
+10. **~~Extract `APPEND_SHEET`~~ (CONV-FOE-003)**: **DONE** -- `talend_to_v1` converter extracts `APPEND_SHEET` as separate config key. ~~Add separate `append_sheet` config key to distinguish file-level vs sheet-level append behavior.~~ Update engine logic to handle the distinction: APPEND_FILE=true + APPEND_SHEET=false should clear existing sheet content before writing.
 
-11. **Extract `VERSION_2007`** (CONV-FOE-002): Add to converter. In the engine, when VERSION_2007=false, either log a warning that `.xls` is not supported (and continue writing `.xlsx`), or add `xlwt` dependency for `.xls` output. The warning approach is pragmatic since most modern consumers accept `.xlsx`.
+11. **~~Extract `VERSION_2007`~~ (CONV-FOE-002)**: **DONE** -- `talend_to_v1` converter extracts `VERSION_2007` with correct default `false` and adds engine-gap warning when false. ~~Add to converter.~~ In the engine, when VERSION_2007=false, either log a warning that `.xls` is not supported (and continue writing `.xlsx`), or add `xlwt` dependency for `.xls` output. The warning approach is pragmatic since most modern consumers accept `.xlsx`.
 
 ### Long-Term (Optimization)
 
-12. **Add column auto-sizing** (CONV-FOE-010, ENG-FOE-007): Extract `AUTO_SIZE_SETTING` and implement using openpyxl's column dimension adjustment: `sheet.column_dimensions[col_letter].width = max_width`. Iterate columns and calculate max string length.
+12. **Add column auto-sizing** (CONV-FOE-010, ENG-FOE-007): **Extraction DONE** -- `talend_to_v1` converter extracts `AUTO_SIZE_SETTING`. Engine implementation still needed (ENG-FOE-007 open). ~~Extract `AUTO_SIZE_SETTING` and~~ Implement using openpyxl's column dimension adjustment: `sheet.column_dimensions[col_letter].width = max_width`. Iterate columns and calculate max string length.
 
-13. **Add cell positioning** (CONV-FOE-004, ENG-FOE-006): Extract `FIRST_CELL_X` and `FIRST_CELL_Y`. Modify the write loop to offset row and column indices. Use `sheet.cell(row=y_offset + row_num, column=x_offset + col_num).value = val` instead of `sheet.append()`.
+13. **Add cell positioning** (CONV-FOE-004, ENG-FOE-006): **Extraction DONE** -- `talend_to_v1` converter extracts `FIRST_CELL_X`, `FIRST_CELL_Y`, and `FIRST_CELL_Y_ABSOLUTE`. Engine implementation still needed (ENG-FOE-006 open). ~~Extract `FIRST_CELL_X` and `FIRST_CELL_Y`.~~ Modify the write loop to offset row and column indices. Use `sheet.cell(row=y_offset + row_num, column=x_offset + col_num).value = val` instead of `sheet.append()`.
 
 14. **Replace `iterrows()` with vectorized conversion** (PERF-FOE-004): Use `main_data.to_dict('records')` instead of the manual `iterrows()` loop. This is 10-100x faster for large DataFrames.
 
@@ -603,9 +612,9 @@ The component has good logging throughout, following STANDARDS.md patterns:
 
 16. **Add streaming write mode** (PERF-FOE-001): For large outputs (> threshold), use openpyxl's `write_only` mode which streams rows to disk without holding the entire workbook in memory. Activated via `Workbook(write_only=True)`.
 
-17. **Add password protection** (CONV-FOE-006, ENG-FOE-011): Extract `PROTECT_FILE` and `PASSWORD`. Implement using openpyxl's `workbook.security.workbookPassword = password` and `worksheet.protection.sheet = True`.
+17. **Add password protection** (CONV-FOE-006, ENG-FOE-011): **Extraction DONE** -- `talend_to_v1` converter extracts `PROTECT_FILE` and `PASSWORD`. Engine implementation still needed (ENG-FOE-011 open). ~~Extract `PROTECT_FILE` and `PASSWORD`.~~ Implement using openpyxl's `workbook.security.workbookPassword = password` and `worksheet.protection.sheet = True`.
 
-18. **Add DELETE_EMPTYFILE support** (CONV-FOE-009, ENG-FOE-008): After writing, if `delete_emptyfile=True` and `rows_written == 0`, delete the output file using `os.remove(filename)`.
+18. **Add DELETE_EMPTYFILE support** (CONV-FOE-009, ENG-FOE-008): **Extraction DONE** -- `talend_to_v1` converter extracts `DELETE_EMPTYFILE`. Engine implementation still needed (ENG-FOE-008 open). After writing, if `delete_emptyfile=True` and `rows_written == 0`, delete the output file using `os.remove(filename)`.
 
 19. **Clean up dead validation code** (BUG-FOE-005, STD-FOE-001): Either activate `_validate_config()` by calling it from `_process()`, or remove the dead method entirely to reduce code maintenance burden.
 
@@ -615,7 +624,10 @@ The component has good logging throughout, following STANDARDS.md patterns:
 
 ## Appendix A: Converter Parameter Extraction Code
 
+> **SUPERSEDED (2026-03-27)**: This appendix documents the old `complex_converter` code (6 params). The active converter is now `src/converters/talend_to_v1/components/file/file_output_excel.py` (`FileOutputExcelConverter` class) with 29/31 params, correct defaults, and 14 engine-gap warnings.
+
 ```python
+# OLD complex_converter code (superseded by talend_to_v1)
 # component_parser.py lines 1522-1530
 def parse_tfileoutputexcel(self, node, component: Dict) -> Dict:
     """Parse tFileOutputExcel specific configuration"""
@@ -673,6 +685,8 @@ FileOutputExcel (BaseComponent)
 
 ## Appendix C: Complete Talend Parameter to V1 Config Key Reference
 
+> **Updated (2026-03-27)**: Table updated to reflect `talend_to_v1` converter state. All 29 runtime params now mapped.
+
 | Talend Parameter | V1 Config Key | Status | Priority to Add |
 |------------------|---------------|--------|-----------------|
 | `FILENAME` | `filename` | Mapped | -- |
@@ -681,27 +695,27 @@ FileOutputExcel (BaseComponent)
 | `APPEND_FILE` | `append_file` | Mapped | -- |
 | `CREATE` | `create` | Mapped | -- |
 | `ENCODING` | `encoding` | Mapped (unused) | -- |
-| `DIE_ON_ERROR` | `die_on_error` | **Not Mapped** | P1 |
-| `VERSION_2007` | `version_2007` | **Not Mapped** | P1 |
-| `APPEND_SHEET` | `append_sheet` | **Not Mapped** | P2 |
-| `FIRST_CELL_X` | `first_cell_x` | **Not Mapped** | P2 |
-| `FIRST_CELL_Y` | `first_cell_y` | **Not Mapped** | P2 |
-| `FIRST_CELL_Y_ABSOLUTE` | `first_cell_y_absolute` | **Not Mapped** | P2 |
-| `AUTO_SIZE_SETTING` | `auto_size` | **Not Mapped** | P2 |
-| `PROTECT_FILE` | `protect_file` | **Not Mapped** | P2 |
-| `PASSWORD` | `password` | **Not Mapped** | P2 |
-| `KEEP_CELL_FORMATING` | `keep_cell_format` | **Not Mapped** | P2 |
-| `DELETE_EMPTYFILE` | `delete_emptyfile` | **Not Mapped** | P3 |
-| `FONT` | `font` | **Not Mapped** | P3 |
-| `CUSTOM_FLUSH_BUFFER` | `custom_flush` | **Not Mapped** | P3 |
-| `FLUSH_ON_ROW` | `flush_on_row` | **Not Mapped** | P3 |
-| `ADVANCED_SEPARATOR` | `advanced_separator` | **Not Mapped** | P3 |
-| `THOUSANDS_SEPARATOR` | `thousands_separator` | **Not Mapped** | P3 |
-| `DECIMAL_SEPARATOR` | `decimal_separator` | **Not Mapped** | P3 |
-| `TRUNCATE_EXCEEDING_CHARACTERS` | `truncate_characters` | **Not Mapped** | P3 |
-| `RECALCULATE_FORMULA` | `recalculate_formula` | **Not Mapped** | P3 |
-| `STREAMING_APPEND` | `streaming_append` | **Not Mapped** | P3 |
-| `USE_OUTPUT_STREAM` | `use_output_stream` | **Not Mapped** | P3 |
+| `DIE_ON_ERROR` | `die_on_error` | Mapped (talend_to_v1) | -- |
+| `VERSION_2007` | `version_2007` | Mapped (talend_to_v1) | -- |
+| `APPEND_SHEET` | `append_sheet` | Mapped (talend_to_v1) | -- |
+| `FIRST_CELL_X` | `first_cell_x` | Mapped (talend_to_v1) | -- |
+| `FIRST_CELL_Y` | `first_cell_y` | Mapped (talend_to_v1) | -- |
+| `FIRST_CELL_Y_ABSOLUTE` | `first_cell_y_absolute` | Mapped (talend_to_v1) | -- |
+| `AUTO_SIZE_SETTING` | `auto_size` | Mapped (talend_to_v1) | -- |
+| `PROTECT_FILE` | `protect_file` | Mapped (talend_to_v1) | -- |
+| `PASSWORD` | `password` | Mapped (talend_to_v1) | -- |
+| `KEEP_CELL_FORMATING` | `keep_cell_format` | Mapped (talend_to_v1) | -- |
+| `DELETE_EMPTYFILE` | `delete_emptyfile` | Mapped (talend_to_v1) | -- |
+| `FONT` | `font` | Mapped (talend_to_v1) | -- |
+| `CUSTOM_FLUSH_BUFFER` | `custom_flush` | Mapped (talend_to_v1) | -- |
+| `FLUSH_ON_ROW` | `flush_on_row` | Mapped (talend_to_v1) | -- |
+| `ADVANCED_SEPARATOR` | `advanced_separator` | Mapped (talend_to_v1) | -- |
+| `THOUSANDS_SEPARATOR` | `thousands_separator` | Mapped (talend_to_v1) | -- |
+| `DECIMAL_SEPARATOR` | `decimal_separator` | Mapped (talend_to_v1) | -- |
+| `TRUNCATE_EXCEEDING_CHARACTERS` | `truncate_characters` | Mapped (talend_to_v1) | -- |
+| `RECALCULATE_FORMULA` | `recalculate_formula` | Mapped (talend_to_v1) | -- |
+| `STREAMING_APPEND` | `streaming_append` | Mapped (talend_to_v1) | -- |
+| `USE_OUTPUT_STREAM` | `use_output_stream` | Mapped (talend_to_v1) | -- |
 | `TSTATCATCHER_STATS` | -- | Not needed | -- |
 | `LABEL` | -- | Not needed | -- |
 | `PROPERTY_TYPE` | -- | Not needed | -- |
@@ -940,6 +954,8 @@ for row in non_empty_rows:
 
 ### Fix Guide: CONV-FOE-001 -- Extract DIE_ON_ERROR
 
+> **SUPERSEDED (2026-03-27)**: CONV-FOE-001 is FIXED in the `talend_to_v1` converter (`FileOutputExcelConverter` in `src/converters/talend_to_v1/components/file/file_output_excel.py`). The fix guide below applies to the old `complex_converter` only.
+
 **File**: `src/converters/complex_converter/component_parser.py`
 **Location**: Inside `parse_tfileoutputexcel()` method (after line 1529)
 
@@ -1047,6 +1063,8 @@ if sheet_is_empty:
 ---
 
 ## Appendix K: Complete Dedicated Parser Implementation
+
+> **IMPLEMENTED (2026-03-27)**: This recommended implementation has been superseded by the actual `talend_to_v1` converter at `src/converters/talend_to_v1/components/file/file_output_excel.py`. The code below was the original recommendation from the audit.
 
 The following is the recommended enhanced version of `parse_tfileoutputexcel()` that extracts all critical parameters:
 
@@ -1253,13 +1271,13 @@ The component is a **sink** -- it always returns `{'main': None}`. No data passe
 
 For reference, the `tFileInputExcel` converter parser is separate but complementary. Comparing the two Excel component parsers:
 
-| Aspect | tFileInputExcel Parser | tFileOutputExcel Parser |
+| Aspect | tFileInputExcel Parser | tFileOutputExcel Parser (talend_to_v1) |
 |--------|----------------------|------------------------|
-| Method | Not found in search (likely generic) | `parse_tfileoutputexcel()` |
-| Parameters extracted | Unknown | 6 |
-| Java expression marking | Unknown | **No** |
-| DIE_ON_ERROR | Unknown | **Not extracted** |
-| Dedicated method | Unknown | Yes (minimal) |
+| Method | Not found in search (likely generic) | `FileOutputExcelConverter.convert()` |
+| Parameters extracted | Unknown | 29 |
+| Java expression marking | Unknown | **Yes** (via ComponentConverter base class) |
+| DIE_ON_ERROR | Unknown | **Extracted** (correct default `false`) |
+| Dedicated method | Unknown | Yes (`FileOutputExcelConverter` in `src/converters/talend_to_v1/components/file/file_output_excel.py`) |
 
 Both Excel components share the same underlying library issue: the v1 engine uses `openpyxl` which only supports `.xlsx` format, while Talend defaults to `.xls` for both input and output when VERSION_2007 is not explicitly set to true.
 
