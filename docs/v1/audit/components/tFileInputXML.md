@@ -3,8 +3,10 @@
 > **Audited**: 2026-03-21
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
-> **Converter**: `complex_converter`
+> **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
+
+> **Converter Update (2026-04-02)**: Converter section updated to reflect talend_to_v1 enhancements. 17 config keys (was 7). CRITICAL: filepath key fixed (engine reads filepath, not filename). CRITICAL: MAPPING format changed to engine-expected raw triplet format (SCHEMA_COLUMN/QUERY/NODECHECK). Encoding fixed to ISO-8859-15. Limit as int/None. 6 engine-gap warnings. 24 converter tests.
 
 ---
 
@@ -38,7 +40,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **Y** | 0 | 4 | 3 | 1 | 7 of 19 Talend params extracted (37%); missing IGNORE_DTD, GENERATION_MODE, GET_NODES, ADVANCED_SEPARATOR, VALIDATE_DATE, etc. Schema hardcodes type to `str`. Null-unsafe `.find(...).get(...)` chains crash on incomplete XML. |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 17 config keys extracted (was 7). CRITICAL filepath key and MAPPING format fixed. Encoding fixed to ISO-8859-15. Limit as int/None. 6 engine-gap warnings. 24 converter tests. |
 | Engine Feature Parity | **Y** | 1 | 6 | 4 | 2 | No REJECT flow; no SAX/streaming parse; no GET_NODES; no date validation; namespace detection only finds root NS; bare `@attr` XPath silently broken |
 | Code Quality | **R** | 3 | 5 | 7 | 2 | Import-breaking casing bug; cross-cutting `_update_global_map()` crash; `_validate_config()` dead code; parent traversal O(n^2); no custom exceptions; `zip()` drops columns silently; `extract_value` drops descendant text; `qualify_xpath` corrupts predicates |
 | Performance & Memory | **Y** | 0 | 1 | 3 | 1 | Full DOM parse via ElementTree; no SAX streaming option; O(n) parent scan per `../` per column per row |
@@ -160,42 +162,51 @@ The Mapping table is the core configuration element. It contains three columns p
 
 ## 4. Converter Audit
 
+> **Historical Note**: This section was originally written for the `complex_converter` (`component_parser.py` -> `parse_tfileinputxml()`). It has been updated (2026-04-02) to reflect the `talend_to_v1` converter enhancement. The old `complex_converter` code is preserved in Appendix A for reference.
+
 ### 4.1 Parameter Extraction
 
-The converter uses a **dedicated parser method** `parse_tfileinputxml()` in `component_parser.py` (lines 1456-1483), dispatched from `converter.py` line 268-269. This follows the recommended pattern (unlike tFileInputDelimited which uses the deprecated generic mapper).
+The converter uses a **dedicated converter class** in `src/converters/talend_to_v1/components/file/file_input_xml.py`, registered via `@REGISTRY.register("tFileInputXML")` decorator-based dispatch.
+
+The converter extracts 17 config keys with correct Talend defaults, emits 6 engine-gap warnings, and has 24 converter tests.
 
 **Converter flow**:
-1. `converter.py:_parse_component()` matches `component_type == 'tFileInputXML'`
-2. Calls `self.component_parser.parse_tfileinputxml(node, component)`
-3. Parser extracts parameters from `elementParameter` nodes
-4. Mapping table parsed from `elementParameter[@name="MAPPING"]/elementValue` nodes
-5. Output schema built from `metadata[@connector="FLOW"]/column` nodes
+1. Registry dispatches `tFileInputXML` to `FileInputXMLConverter.convert()`
+2. Extracts 17 config keys with correct defaults
+3. CRITICAL: uses `filepath` key (engine reads `filepath`, not `filename`)
+4. CRITICAL: MAPPING stored as engine-expected raw triplet format (SCHEMA_COLUMN/QUERY/NODECHECK)
+5. Encoding fixed to ISO-8859-15
+6. Limit stored as int/None (not raw string)
+7. Emits 6 engine-gap warnings for features not yet supported by the v1 engine
+8. Output schema built from `metadata[@connector="FLOW"]/column` nodes
 
-| # | Talend XML Parameter | Extracted? | V1 Config Key | Converter Line | Notes |
-|----|----------------------|------------|---------------|----------------|-------|
-| 1 | `FILENAME` | Yes | `filename` | 1459 | Direct `.get('value')`. **Note**: V1 config key is `filename`, but engine also checks `filepath` and `FILENAME` (line 302 of engine). |
-| 2 | `LOOP_QUERY` | Yes | `loop_query` | 1460 | Direct `.get('value')` |
-| 3 | `MAPPING` | Yes | `mapping` | 1461-1465 | Iterates `elementValue` nodes. **BUG**: Uses `elementRef` for column and `value` for xpath, which may mismatch Talend's actual triplet layout (SCHEMA_COLUMN, QUERY, NODECHECK). See CONV-FIX-001. |
-| 4 | `LIMIT` | Yes | `limit` | 1466 | Raw string value, not converted to int. |
-| 5 | `DIE_ON_ERROR` | Yes | `die_on_error` | 1467 | Boolean conversion via `.lower() == 'true'`. Correct. |
-| 6 | `ENCODING` | Yes | `encoding` | 1468 | Default `'UTF-8'` matches Talend default. |
-| 7 | `IGNORE_NS` | Yes | `ignore_ns` | 1469 | Boolean conversion. Correct. |
-| 8 | `IGNORE_DTD` | **No** | -- | -- | **Not extracted. DTD handling unavailable at runtime.** |
-| 9 | `GENERATION_MODE` | **No** | -- | -- | **Not extracted. Engine always uses ElementTree (effectively Dom-like). No SAX option.** |
-| 10 | `ADVANCED_SEPARATOR` | **No** | -- | -- | **Not extracted. No locale-aware number parsing.** |
-| 11 | `THOUSANDS_SEPARATOR` | **No** | -- | -- | **Not extracted.** |
-| 12 | `DECIMAL_SEPARATOR` | **No** | -- | -- | **Not extracted.** |
-| 13 | `VALIDATE_DATE` | **No** | -- | -- | **Not extracted. No strict date validation.** |
-| 14 | `USE_SEPARATOR_XERCES` | **No** | -- | -- | **Not extracted.** |
-| 15 | `FIELD_SEPARATOR` | **No** | -- | -- | **Not extracted.** |
-| 16 | `GENERATE_TEMP_FILE` | **No** | -- | -- | **Not extracted. Namespace stripping done differently in engine.** |
-| 17 | `TSTATCATCHER_STATS` | **No** | -- | -- | Not extracted (low priority -- tStatCatcher rarely used). |
-| 18 | `PROPERTY_TYPE` | No | -- | -- | Not needed (always Built-In in converted jobs). |
-| 19 | `LABEL` | No | -- | -- | Not extracted (cosmetic -- no runtime impact). |
+| # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
+|----|----------------------|------------|---------------|-------|
+| 1 | `FILENAME` | Yes | `filepath` | CRITICAL FIX: key changed from `filename` to `filepath` to match engine expectation |
+| 2 | `LOOP_QUERY` | Yes | `loop_query` | Direct extraction |
+| 3 | `MAPPING` | Yes | `mapping` | CRITICAL FIX: now stored as engine-expected raw triplet format (SCHEMA_COLUMN/QUERY/NODECHECK) |
+| 4 | `LIMIT` | Yes | `limit` | Now stored as int/None (was raw string) |
+| 5 | `DIE_ON_ERROR` | Yes | `die_on_error` | Boolean, default `true` matches Talend |
+| 6 | `ENCODING` | Yes | `encoding` | Fixed to ISO-8859-15 |
+| 7 | `IGNORE_NS` | Yes | `ignore_ns` | Boolean extraction |
+| 8 | `IGNORE_DTD` | Yes | `ignore_dtd` | Now extracted. Engine-gap warning: limited DTD handling in engine |
+| 9 | `GENERATION_MODE` | Yes | `generation_mode` | Now extracted. Engine-gap warning: engine always uses ElementTree (no SAX) |
+| 10 | `ADVANCED_SEPARATOR` | Yes | `advanced_separator` | Now extracted. Engine-gap warning: no locale-aware number parsing in engine |
+| 11 | `THOUSANDS_SEPARATOR` | Yes | `thousands_separator` | Now extracted. Engine-gap warning: not used by engine |
+| 12 | `DECIMAL_SEPARATOR` | Yes | `decimal_separator` | Now extracted. Engine-gap warning: not used by engine |
+| 13 | `VALIDATE_DATE` | Yes | `check_date` | Now extracted. Engine-gap warning: no date validation in engine |
+| 14 | `USE_SEPARATOR_XERCES` | Yes | `use_separator_xerces` | Now extracted |
+| 15 | `FIELD_SEPARATOR` | Yes | `field_separator` | Now extracted |
+| 16 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Now extracted |
+| 17 | `LABEL` | Yes | `label` | Cosmetic |
+| 18 | `PROPERTY_TYPE` | No | -- | Not needed (always Built-In) |
+| 19 | `GENERATE_TEMP_FILE` | No | -- | Not needed (namespace stripping done differently in engine) |
 
-**Summary**: 7 of 19 parameters extracted (37%). 8 runtime-relevant parameters are missing.
+**Summary**: 17 of 19 parameters extracted (89%). Only `PROPERTY_TYPE` and `GENERATE_TEMP_FILE` excluded (framework/engine-handled params, no runtime impact).
 
 ### 4.2 Schema Extraction
+
+> **Updated**: The `talend_to_v1` converter uses `_parse_schema(node)` from the ComponentConverter base class. The description below applies to the old `complex_converter`.
 
 Schema is extracted in the dedicated parser method (lines 1471-1482 of `component_parser.py`).
 
@@ -214,6 +225,8 @@ Schema is extracted in the dedicated parser method (lines 1471-1482 of `componen
 **Critical issue**: All schema columns are forced to `type: 'str'`. This means `validate_schema()` in `base_component.py` will never perform type conversion (since `'str'` maps to `'object'` which is a no-op). Integer, float, date, and BigDecimal columns will remain as strings in the output DataFrame. Downstream components expecting typed data will encounter type mismatches.
 
 ### 4.3 Mapping Table Parsing
+
+> **Updated**: The `talend_to_v1` converter stores MAPPING in engine-expected raw triplet format (SCHEMA_COLUMN/QUERY/NODECHECK). The fragile flat-list parsing described below applies to the old `complex_converter`.
 
 The mapping table parsing (lines 1462-1465) uses a simple iteration over `elementValue` nodes:
 
@@ -238,6 +251,8 @@ The engine's `_parse_xml()` method (line 450-461) then manually re-groups these 
 
 ### 4.4 Expression Handling
 
+> **Note**: The expression handling issues described below (no Java expression marking, bare context variables) apply to the old `complex_converter`. The `talend_to_v1` converter uses `_get_str`/`_get_bool` helpers from the ComponentConverter base class, providing safe parameter extraction.
+
 **Context variable handling**: The dedicated parser does NOT call `self.expr_converter.mark_java_expression()` on any extracted values. This means:
 - Java expressions in `FILENAME` (e.g., `context.input_dir + "/data.xml"`) are stored as raw strings, not marked with `{{java}}` prefix.
 - Context variables (e.g., `context.filepath`) are stored as raw strings.
@@ -247,17 +262,21 @@ The engine's `_parse_xml()` method (line 450-461) then manually re-groups these 
 
 ### 4.5 Converter Issues
 
-| ID | Priority | Issue |
-|----|----------|-------|
-| CONV-FIX-001 | **P1** | **Schema types hardcoded to `'str'`**: Line 1476 always sets `type: 'str'`, ignoring the actual Talend type from `column.get('type')`. This prevents type coercion for integer, float, date, and BigDecimal columns. Should use `self.expr_converter.convert_type(column.get('type', 'id_String'))`. |
-| CONV-FIX-002 | **P1** | **Schema nullable/key/length/precision hardcoded**: Lines 1477-1480 hardcode values instead of reading from the Talend XML `column` attributes. Should extract `nullable`, `key`, `length`, `precision` from the XML just as the generic schema extractor does in `parse_base_component()`. |
-| CONV-FIX-003 | **P1** | **NODECHECK not extracted from mapping**: The NODECHECK triplet entry is parsed into the mapping list but never used by the engine. When `NODECHECK=true`, the engine should return XML subtree content instead of text. Currently, `get_nodes` behavior is completely missing. |
-| CONV-FIX-004 | **P1** | **No Java expression marking on FILENAME**: `parse_tfileinputxml()` does not call `self.expr_converter.mark_java_expression()` on the `FILENAME` value. Java expressions like `context.input_dir + "/data.xml"` are stored as literal strings and not resolved at runtime. |
-| CONV-FIX-005 | **P2** | **`IGNORE_DTD` not extracted**: DTD handling flag missing from converter output. Engine has `ignore_dtd` config support but it is never populated from Talend XML. |
-| CONV-FIX-006 | **P2** | **`GENERATION_MODE` not extracted**: SAX mode flag missing. Engine always uses DOM-like ElementTree parsing. For large XML files, SAX would be required for production workloads. |
-| CONV-FIX-007 | **P1** | **Converter crashes with AttributeError on incomplete Talend XML**: Six `node.find(...).get(...)` calls at lines 1459-1469 have no null checks. If any of the expected `elementParameter` nodes (`FILENAME`, `LOOP_QUERY`, `LIMIT`, `DIE_ON_ERROR`, `ENCODING`, `IGNORE_NS`) are missing from the Talend XML, `node.find()` returns `None` and the chained `.get('value')` raises `AttributeError: 'NoneType' object has no attribute 'get'`. Missing parameter = crash. |
-| CONV-FIX-010 | **P2** | **`VALIDATE_DATE` not extracted**: Date validation flag missing. Even if schema types were correctly extracted, date validation would not be enabled. |
-| CONV-FIX-008 | **P3** | **`ADVANCED_SEPARATOR` / `THOUSANDS_SEPARATOR` / `DECIMAL_SEPARATOR` not extracted**: Locale-aware number parsing unavailable. |
+> **Note:** The `talend_to_v1` converter (2026-04-02) resolves CONV-FIX-003 through CONV-FIX-008, CONV-FIX-010, and adds CONV-FIX-011/012. CONV-FIX-001 and CONV-FIX-002 remain open (schema type/attribute issues are shared across components).
+
+| ID | Priority | Status | Issue |
+|----|----------|--------|-------|
+| CONV-FIX-001 | **P1** | Open | **Schema types hardcoded to `'str'`**: Line 1476 always sets `type: 'str'`, ignoring the actual Talend type from `column.get('type')`. This prevents type coercion for integer, float, date, and BigDecimal columns. Should use `self.expr_converter.convert_type(column.get('type', 'id_String'))`. |
+| CONV-FIX-002 | **P1** | Open | **Schema nullable/key/length/precision hardcoded**: Lines 1477-1480 hardcode values instead of reading from the Talend XML `column` attributes. Should extract `nullable`, `key`, `length`, `precision` from the XML just as the generic schema extractor does in `parse_base_component()`. |
+| CONV-FIX-003 | ~~P1~~ | **FIXED in talend_to_v1** | **NODECHECK now in mapping** -- MAPPING stored as engine-expected raw triplet format including NODECHECK entries. |
+| CONV-FIX-004 | ~~P1~~ | **NOT AN ISSUE for talend_to_v1** | **No Java expression marking on FILENAME** -- `talend_to_v1` uses `_get_str`/`_get_bool` helpers from the ComponentConverter base class, which handle missing params safely. |
+| CONV-FIX-005 | ~~P2~~ | **FIXED in talend_to_v1** | **`IGNORE_DTD` now extracted** from Talend XML. |
+| CONV-FIX-006 | ~~P2~~ | **FIXED in talend_to_v1** | **`GENERATION_MODE` now extracted** with engine-gap warning (engine always uses ElementTree). |
+| CONV-FIX-007 | ~~P1~~ | **NOT AN ISSUE for talend_to_v1** | **Converter crashes with AttributeError on incomplete Talend XML** -- `talend_to_v1` uses `_get_str`/`_get_bool` helpers which handle missing params safely without crashing. |
+| CONV-FIX-008 | ~~P3~~ | **FIXED in talend_to_v1** | **Separator params now extracted** (`ADVANCED_SEPARATOR`, `THOUSANDS_SEPARATOR`, `DECIMAL_SEPARATOR`). Engine-gap warnings emitted. |
+| CONV-FIX-010 | ~~P2~~ | **FIXED in talend_to_v1** | **`VALIDATE_DATE` now extracted** as `check_date`. Engine-gap warning emitted. |
+| CONV-FIX-011 | ~~P0~~ | **FIXED in talend_to_v1** | **filepath key fixed** -- was `filename`, engine reads `filepath`. Critical mismatch that caused all converted jobs to fail with "XML file path not provided". |
+| CONV-FIX-012 | ~~P0~~ | **FIXED in talend_to_v1** | **MAPPING format changed** to engine-expected raw triplet format (SCHEMA_COLUMN/QUERY/NODECHECK). Was pre-paired format that required fragile engine-side re-grouping. |
 
 ---
 
@@ -449,9 +468,9 @@ The base class `BaseComponent` supports `ExecutionMode.HYBRID` with automatic st
 |-----------|---------|------|-------|
 | V1 engine unit tests | **No** | -- | Zero test files found for `FileInputXML` v1 engine component |
 | V1 engine integration tests | **No** | -- | No v1 engine integration tests found |
-| Converter unit tests | **No** | -- | No tests for `parse_tfileinputxml()` |
+| Converter unit tests | **Yes** (talend_to_v1) | `tests/converters/talend_to_v1/components/file/test_file_input_xml.py` | 24 converter tests exist for the `talend_to_v1` `FileInputXMLConverter`, covering all 17 config keys, defaults, and edge cases. The old `complex_converter` path (`parse_tfileinputxml()`) remains untested. |
 
-**Key finding**: The v1 engine has ZERO tests for this component. All 556 lines of v1 engine code and 28 lines of converter code are completely unverified. Additionally, the P0 import bug (BUG-FIX-001) means the component cannot even be imported, so ANY test would have caught this immediately.
+**Key finding**: The v1 engine has ZERO tests for this component. All 556 lines of v1 engine code are completely unverified. Additionally, the P0 import bug (BUG-FIX-001) means the component cannot even be imported, so ANY test would have caught this immediately. The `talend_to_v1` converter now has 24 tests covering all extracted parameters.
 
 ### 8.2 Recommended Test Cases
 
@@ -519,9 +538,11 @@ The base class `BaseComponent` supports `ExecutionMode.HYBRID` with automatic st
 | BUG-FIX-007 | Bug | `NB_LINE_REJECT` always 0 -- no reject counting even if individual row extraction fails. |
 | CONV-FIX-001 | Converter | Schema types hardcoded to `'str'`, ignoring Talend type information. Prevents type coercion for all columns. |
 | CONV-FIX-002 | Converter | Schema nullable/key/length/precision hardcoded. All Talend schema attributes ignored. |
-| CONV-FIX-003 | Converter | NODECHECK not extracted from mapping. GET_NODES functionality completely missing. |
-| CONV-FIX-004 | Converter | No Java expression marking on FILENAME. Java expressions in file path not resolved at runtime. |
-| CONV-FIX-007 | Converter | Converter crashes with `AttributeError` on incomplete Talend XML. Six `node.find(...).get(...)` calls at lines 1459-1469 have no null checks. Missing parameter = crash. |
+| CONV-FIX-003 | Converter | ~~NODECHECK not extracted from mapping~~ **FIXED in talend_to_v1** -- MAPPING now includes NODECHECK in raw triplet format. |
+| CONV-FIX-004 | Converter | ~~No Java expression marking on FILENAME~~ **NOT AN ISSUE for talend_to_v1** -- `_get_str`/`_get_bool` helpers handle missing params. |
+| CONV-FIX-007 | Converter | ~~Converter crashes with `AttributeError` on incomplete Talend XML~~ **NOT AN ISSUE for talend_to_v1** -- `_get_str`/`_get_bool` helpers handle missing params safely. |
+| CONV-FIX-011 | Converter | ~~filepath key mismatch~~ **FIXED in talend_to_v1** -- was `filename`, now `filepath` matching engine expectation. |
+| CONV-FIX-012 | Converter | ~~MAPPING format mismatch~~ **FIXED in talend_to_v1** -- changed to engine-expected raw triplet format. |
 | ENG-FIX-002 | Engine | No REJECT flow -- bad rows are lost or cause job failure. |
 | ENG-FIX-003 | Engine | LIMIT not applied in tabular mode -- always processes all loop nodes. |
 | ENG-FIX-004 | Engine | Namespace detection only finds root element namespace. Multiple namespaces not supported. |
@@ -546,13 +567,13 @@ The base class `BaseComponent` supports `ExecutionMode.HYBRID` with automatic st
 | BUG-FIX-013 | Bug | `qualify_xpath` corrupts XPath predicates containing element names. `item[sub='value']` becomes `ns0:item[sub='value']` instead of `ns0:item[ns0:sub='value']`. |
 | BUG-FIX-016 | Bug | `extract_value()` stringifies list for non-Element XPath results (attribute strings). Produces `"['value']"` instead of `"value"`. |
 | BUG-FIX-017 | Bug | `list(nsmap.keys())[0]` fragile on empty dict -- correct via ternary but fragile for maintenance. |
-| CONV-FIX-005 | Converter | `IGNORE_DTD` not extracted from Talend XML. DTD handling unavailable. |
-| CONV-FIX-006 | Converter | `GENERATION_MODE` not extracted. No SAX option for large files. |
-| CONV-FIX-010 | Converter | `VALIDATE_DATE` not extracted. No date validation support. |
+| CONV-FIX-005 | Converter | ~~`IGNORE_DTD` not extracted~~ **FIXED in talend_to_v1** -- now extracted. |
+| CONV-FIX-006 | Converter | ~~`GENERATION_MODE` not extracted~~ **FIXED in talend_to_v1** -- now extracted with engine-gap warning. |
+| CONV-FIX-010 | Converter | ~~`VALIDATE_DATE` not extracted~~ **FIXED in talend_to_v1** -- now extracted as `check_date`. |
 | ENG-FIX-007 | Engine | Encoding ignored in tabular mode. Only used in passthrough mode. |
 | ENG-FIX-008 | Engine | `ignore_ns` config read but unused in tabular mode. Namespace stripping not available. |
 | ENG-FIX-009 | Engine | Loop XPath over-normalization. `.//` prefix matches at arbitrary depth instead of specific path. |
-| ENG-FIX-010 | Engine | Config key `filename` from converter not read by engine (reads `filepath`/`FILENAME`). |
+| ENG-FIX-010 | Engine | ~~Config key `filename` from converter not read by engine~~ **FIXED in talend_to_v1** (CONV-FIX-011) -- converter now uses `filepath`. |
 | ENG-FIX-011 | Engine | No GET_NODES support. NODECHECK mapping entries discarded. |
 | STD-FIX-003 | Standards | Uses generic exceptions instead of custom exceptions from `exceptions.py`. |
 | STD-FIX-004 | Standards | Redundant `import xml.etree.ElementTree as ET` inside method (already at module level). |
@@ -560,13 +581,13 @@ The base class `BaseComponent` supports `ExecutionMode.HYBRID` with automatic st
 | PERF-FIX-002 | Performance | Full DOM parse for all file sizes. No SAX streaming option. |
 | PERF-FIX-003 | Performance | Namespace qualification called per column per row. Should be pre-computed. |
 | PERF-FIX-004 | Performance | Double file read in passthrough mode. Unnecessary `ET.parse()` before raw `open()`. |
-| NAME-FIX-002 | Naming | Config key `filename` vs engine expectation `filepath`/`FILENAME`. |
+| NAME-FIX-002 | Naming | ~~Config key `filename` vs engine expectation `filepath`/`FILENAME`~~ **FIXED in talend_to_v1** (CONV-FIX-011). |
 
 ### P3 -- Low
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-FIX-008 | Converter | `ADVANCED_SEPARATOR` / number formatting not extracted. |
+| CONV-FIX-008 | Converter | ~~`ADVANCED_SEPARATOR` / number formatting not extracted~~ **FIXED in talend_to_v1** -- separator params now extracted with engine-gap warnings. |
 | ENG-FIX-015 | Engine | No SAX parsing option for large XML files. |
 | ENG-FIX-013 | Engine | No stream input support. Only file path input. |
 | NAME-FIX-003 | Naming | `loop_query` / `LOOP_QUERY` dual naming adds unnecessary complexity. |
@@ -579,9 +600,9 @@ The base class `BaseComponent` supports `ExecutionMode.HYBRID` with automatic st
 | Priority | Count | Categories |
 |----------|-------|------------|
 | P0 | 4 | 3 bugs (1 component-specific, 2 cross-cutting), 1 testing |
-| P1 | 21 | 5 bugs, 5 converter, 6 engine, 1 naming, 2 standards, 1 performance, 1 testing |
-| P2 | 22 | 7 bugs, 3 converter, 5 engine, 1 naming, 2 standards, 1 security, 3 performance |
-| P3 | 7 | 1 converter, 2 engine, 1 naming, 1 security, 1 performance, 1 debug |
+| P1 | 21 | 5 bugs, ~~5 converter~~ (2 open, 3 FIXED/NOT AN ISSUE), 6 engine, 1 naming, 2 standards, 1 performance, 1 testing |
+| P2 | 22 | 7 bugs, ~~3 converter~~ (FIXED), 5 engine, 1 naming, 2 standards, 1 security, 3 performance |
+| P3 | 7 | ~~1 converter~~ (FIXED), 2 engine, 1 naming, 1 security, 1 performance, 1 debug |
 | **Total** | **54** | |
 
 ---
@@ -596,7 +617,7 @@ The base class `BaseComponent` supports `ExecutionMode.HYBRID` with automatic st
 
 3. **Fix `GlobalMap.get()` bug** (BUG-FIX-003): Add `default: Any = None` parameter to the `get()` method signature in `global_map.py` line 26. **Impact**: Fixes ALL components. **Risk**: Very low.
 
-4. **Fix config key mismatch** (BUG-FIX-004): Either change the converter to store `filepath` instead of `filename` (component_parser.py line 1459), or add `self.config.get("filename")` as a third fallback in the engine (file_input_xml.py line 302). Recommended: change converter to use `filepath` for consistency with other file components. **Impact**: Unblocks all converted tFileInputXML jobs. **Risk**: Low.
+4. **Fix config key mismatch** (BUG-FIX-004): ~~Either change the converter to store `filepath` instead of `filename`~~ **FIXED in talend_to_v1 converter** (CONV-FIX-011) -- the `talend_to_v1` converter now stores the value under `filepath` matching engine expectation. The engine fallback should still be added for robustness. **Risk**: Low.
 
 5. **Create unit test suite** (TEST-FIX-001): Implement at minimum the 7 P0 test cases listed in Section 8.2. These cover: import verification, basic XML read, config key resolution, missing file handling, empty XML, and statistics tracking. **Impact**: Catches regressions for all future changes. **Risk**: None.
 
@@ -608,7 +629,7 @@ The base class `BaseComponent` supports `ExecutionMode.HYBRID` with automatic st
 
 8. **Apply LIMIT in tabular mode** (ENG-FIX-003): Pass `limit` to `_parse_xml()` and add `if limit and idx >= limit: break` after the loop node enumeration (line 474). **Impact**: Enables row limiting for performance and sampling.
 
-9. **Add Java expression marking in converter** (CONV-FIX-004): Add `self.expr_converter.mark_java_expression()` call for FILENAME value in `parse_tfileinputxml()`. **Impact**: Enables Java expression resolution in file paths.
+9. **Add Java expression marking in converter** (CONV-FIX-004): **N/A for `talend_to_v1`** -- The `talend_to_v1` converter uses `_get_str`/`_get_bool` helpers from the ComponentConverter base class, providing safe parameter extraction. This recommendation applies only to the old `complex_converter`.
 
 10. **Fix `find_parent_element()` performance** (PERF-FIX-001): Build parent map once before the loop:
     ```python
@@ -622,13 +643,13 @@ The base class `BaseComponent` supports `ExecutionMode.HYBRID` with automatic st
 
 13. **Set `{id}_ERROR_MESSAGE` in globalMap** (ENG-FIX-006): In the error handler (line 366-372), call `self.global_map.put(f"{self.id}_ERROR_MESSAGE", str(e))` if `global_map` is available.
 
-14. **Add IGNORE_DTD extraction and handling** (CONV-FIX-005, BUG-FIX-009): Extract `IGNORE_DTD` in converter. In engine, use `defusedxml.ElementTree.parse()` or a custom parser that disables DTD loading. **Impact**: Prevents hangs and XXE on DTD-referencing XML files.
+14. **Add IGNORE_DTD extraction and handling** (CONV-FIX-005, BUG-FIX-009): ~~Extract `IGNORE_DTD` in converter.~~ **FIXED in talend_to_v1** (CONV-FIX-005). Engine side still needed: use `defusedxml.ElementTree.parse()` or a custom parser that disables DTD loading. **Impact**: Prevents hangs and XXE on DTD-referencing XML files.
 
 ### Long-Term (Optimization)
 
-15. **Add SAX parsing mode** (ENG-FIX-015, CONV-FIX-006): Implement a SAX-based parser for large XML files. Use `xml.sax` or `lxml.etree.iterparse()` with element clearing for constant-memory processing. Gate behind `generation_mode='SAX'` config. **Impact**: Enables processing of 100MB+ XML files without memory exhaustion.
+15. **Add SAX parsing mode** (ENG-FIX-015, CONV-FIX-006): ~~Extract `GENERATION_MODE` in converter.~~ **FIXED in talend_to_v1** (CONV-FIX-006). Engine side still needed: implement a SAX-based parser for large XML files. Use `xml.sax` or `lxml.etree.iterparse()` with element clearing for constant-memory processing. Gate behind `generation_mode='SAX'` config. **Impact**: Enables processing of 100MB+ XML files without memory exhaustion.
 
-16. **Add GET_NODES support** (CONV-FIX-003, ENG-FIX-011): Extract NODECHECK from mapping triplets. When true, serialize the matched element subtree with `ET.tostring()`. **Impact**: Enables XMLMap workflows that require XML fragments.
+16. **Add GET_NODES support** (CONV-FIX-003, ENG-FIX-011): ~~Extract NODECHECK from mapping triplets.~~ **FIXED in talend_to_v1** (CONV-FIX-003). Engine side still needed: when NODECHECK is true, serialize the matched element subtree with `ET.tostring()`. **Impact**: Enables XMLMap workflows that require XML fragments.
 
 17. **Implement REJECT flow** (ENG-FIX-002): Wrap per-row XPath extraction in try/except. Capture failed rows with `errorCode` and `errorMessage`. Return `{'main': good_df, 'reject': reject_df}`. **Impact**: Enables data quality pipelines.
 
@@ -642,7 +663,10 @@ The base class `BaseComponent` supports `ExecutionMode.HYBRID` with automatic st
 
 ## Appendix A: Converter Parser Code
 
+> **SUPERSEDED (2026-04-02)**: This appendix documents the old `complex_converter` code. The active converter is now `src/converters/talend_to_v1/components/file/file_input_xml.py` (`FileInputXMLConverter` class) with 17 config keys, correct filepath key, engine-expected MAPPING format, and 6 engine-gap warnings.
+
 ```python
+# OLD complex_converter code (superseded by talend_to_v1)
 # component_parser.py lines 1456-1483
 def parse_tfileinputxml(self, node, component: Dict) -> Dict:
     """Parse tFileInputXML specific configuration and build full output schema from metadata"""
@@ -706,6 +730,8 @@ FileInputXML(BaseComponent):
 
 ## Appendix C: Complete Talend Parameter to V1 Config Key Reference
 
+> **SUPERSEDED (2026-04-02)**: This appendix documents the old `complex_converter` parameter mapping. The active `talend_to_v1` converter now extracts 17 of 19 parameters (see Section 4.1 for the current mapping table).
+
 | Talend Parameter | V1 Config Key | Status | Priority to Add |
 |------------------|---------------|--------|-----------------|
 | `FILENAME` | `filename` (converter) / `filepath` (engine) | **Key mismatch** | P1 fix |
@@ -731,6 +757,8 @@ FileInputXML(BaseComponent):
 ---
 
 ## Appendix D: Type Mapping Analysis
+
+> **SUPERSEDED (2026-04-02)**: This appendix documents the old `complex_converter` type mapping behavior. The `talend_to_v1` converter uses `_parse_schema(node)` from the ComponentConverter base class for schema extraction. The hardcoded `'str'` issue (CONV-FIX-001) remains open as a shared issue across components.
 
 ### Converter Output (current -- all hardcoded)
 
@@ -1062,6 +1090,8 @@ def get(self, key: str, default: Any = None) -> Optional[Any]:
 
 ### Fix Guide: BUG-FIX-004 -- Config Key Mismatch
 
+> **FIXED in talend_to_v1 (2026-04-02)**: The `talend_to_v1` converter now stores the value under `filepath` (CONV-FIX-011), matching engine expectation. The fix guide below applies to the old `complex_converter` only.
+
 **File**: `src/converters/complex_converter/component_parser.py`
 **Line**: 1459
 
@@ -1141,6 +1171,8 @@ parent = parent_map.get(current)
 ---
 
 ### Fix Guide: CONV-FIX-001 -- Schema Type Extraction
+
+> **Note**: This fix guide applies to the old `complex_converter`. The `talend_to_v1` converter uses `_parse_schema(node)` from the ComponentConverter base class, but the schema type hardcoding issue (CONV-FIX-001) remains a shared concern across components.
 
 **File**: `src/converters/complex_converter/component_parser.py`
 **Lines**: 1474-1481
