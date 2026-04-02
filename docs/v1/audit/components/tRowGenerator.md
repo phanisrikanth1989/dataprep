@@ -1,5 +1,15 @@
 # Audit Report: tRowGenerator / RowGenerator
 
+> **Audited**: 2026-03-21
+> **Auditor**: Claude Opus 4.6 (automated)
+> **Engine Version**: v1
+> **Converter**: `talend_to_v1`
+> **Status**: PRODUCTION READINESS REVIEW
+
+> **Converter Update (2026-04-01)**: Converter section updated to reflect migration from `complex_converter` to `talend_to_v1`. 4 config keys (was 2). NB_ROWS default fixed (1->100), type changed (int->str). Per-expression Java warnings. 34 converter tests.
+
+---
+
 ## Component Identity
 
 | Field | Value |
@@ -18,13 +28,13 @@
 
 ## Scorecard
 
-| Dimension | Score | P0 | P1 | P2 | P3 |
-|-----------|-------|----|----|----|----|
-| Converter Coverage | Y | 1 | 2 | 2 | 1 |
-| Engine Feature Parity | Y | 1 | 4 | 3 | 1 |
-| Code Quality | R | 2 | 3 | 5 | 3 |
-| Performance & Memory | Y | 0 | 1 | 2 | 1 |
-| Testing | R | 1 | 1 | 0 | 0 |
+| Dimension | Score | P0 | P1 | P2 | P3 | Details |
+|-----------|-------|----|----|----|----|---------|
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 4 config keys extracted; `talend_to_v1` converter with NB_ROWS default fixed (1->100), type kept as str; per-expression Java warnings; 34 converter tests |
+| Engine Feature Parity | Y | 1 | 4 | 3 | 1 | Most Talend routines unsupported; no Numeric.sequence(); no globalMap in expressions |
+| Code Quality | R | 2 | 3 | 5 | 3 | Unsafe eval(); 24 print() statements; false-positive hex decoding; naive + splitting |
+| Performance & Memory | Y | 0 | 1 | 2 | 1 | Per-row eval(); context dict fetched per-row-per-column |
+| Testing | R | 1 | 1 | 0 | 0 | Zero unit tests; zero integration tests |
 
 **Legend:** G = Green (good shape), Y = Yellow (issues but workable), R = Red (significant gaps)
 
@@ -166,22 +176,26 @@ Talend's `tRowGenerator` has a built-in Function editor that provides access to 
 
 ## 2. Converter Audit
 
+> **Historical Note (2026-04-01)**: This section was originally written against the `complex_converter` (`converter.py` -> `_parse_row_generator()`). It has been updated to reflect the `talend_to_v1` converter. The old `complex_converter` code is documented in Section 11 (Dead Code) and Section 16 (Converter Code Review).
+
 ### Converter Architecture Note
 
-There are **two** parsers for `tRowGenerator` in the codebase:
+The converter uses a **dedicated `RowGeneratorConverter` class** in `src/converters/talend_to_v1/components/misc/row_generator.py`, registered via `@REGISTRY.register("tRowGenerator")` decorator-based dispatch.
 
-1. **`converter.py` → `_parse_row_generator()`** (line 576): This is the **active** parser, called from the dispatch block at line 300. It extracts `NB_ROWS`, `VALUES` with hex decoding, and output schema. This is the one used in production.
+The converter extracts 4 config keys with correct Talend defaults (NB_ROWS default 100, kept as string for runtime resolution), emits per-expression Java warnings when Java expressions are detected, and has 34 converter tests.
 
-2. **`component_parser.py` → `parse_row_generator()`** (line 1725): This is an **unused/dead code** parser. It is never called from the converter dispatch. It uses a different config key (`rows` instead of `nb_rows`, `columns` instead of `values`) and does NOT decode hex values. This creates confusion.
+> **Note on old parsers**: There were **two** parsers in the old codebase: `converter.py` -> `_parse_row_generator()` (active) and `component_parser.py` -> `parse_row_generator()` (dead code). The `talend_to_v1` converter replaces both. See CONV-RG-002.
 
-### Parameters Extracted (Active Converter: `converter.py`)
+### Parameters Extracted (talend_to_v1 Converter)
 
-| Talend Parameter | Converter Extracts? | V1 Config Key | Notes |
-|------------------|---------------------|---------------|-------|
-| `NB_ROWS` | Yes | `nb_rows` | Extracted as raw string (not converted to int) |
-| `VALUES` → `SCHEMA_COLUMN` | Yes | `values[].schema_column` | Extracted correctly |
-| `VALUES` → `ARRAY` | Yes | `values[].array` | Hex decoding handled via `hexValue` attribute |
-| `SCHEMA` (output metadata) | Yes | `schema.output[]` | Extracted from `metadata[@connector="FLOW"]` |
+| # | Talend Parameter | Extracted? | V1 Config Key | Notes |
+|----|------------------|------------|---------------|-------|
+| 1 | `NB_ROWS` | Yes | `nb_rows` | Default `"100"` matches Talend (was `1` in old converter). Kept as string for runtime context resolution. |
+| 2 | `VALUES` → `SCHEMA_COLUMN` | Yes | `values[].schema_column` | Extracted correctly |
+| 3 | `VALUES` → `ARRAY` | Yes | `values[].array` | Hex decoding handled via `hexValue` attribute. Per-expression Java warning emitted when Java expressions detected. |
+| 4 | `SCHEMA` (output metadata) | Yes | `schema.output[]` | Extracted from `metadata[@connector="FLOW"]` via `_parse_schema()` |
+
+**Summary**: 4 of 4 runtime-relevant parameters extracted (100%). NB_ROWS default corrected from 1 to 100. Per-expression Java warnings emitted. 34 converter tests.
 
 ### Schema Extraction
 
@@ -215,30 +229,24 @@ if ref == 'ARRAY':
 
 The engine's `decode_if_hex()` function (line 118-126) provides a **secondary** hex decoding pass that attempts to decode any value that looks like hex (all hex chars, even length). This is a safety net but has significant problems (see Engine Audit section).
 
-### Expression Conversion Gap
+### Expression Handling
 
-**Critical observation**: The converter does NOT run `ExpressionConverter.convert()` on the ARRAY expressions. This means Talend/Java expressions like:
+> **Note**: The `talend_to_v1` converter now **warns** when Java expressions are detected in ARRAY values (CONV-RG-001 ADDRESSED). The converter does not convert the expressions to Python, but it emits per-expression warnings so that users are aware of the limitation. The expressions are still passed through to the engine as raw strings.
 
-- `Numeric.sequence("s1", 1, 1)`
-- `TalendDate.getRandomDate("2020-01-01", "2025-12-31")`
-- `TalendDataGenerator.getFirstName()`
-- `(String)globalMap.get("key") + "_suffix"`
-- `row1.someColumn` (if used in connected flows)
-
-...are passed through to the engine **as raw Java/Talend expressions**. The engine then attempts to `eval()` them as Python, which will fail for all but the simplest expressions.
-
-The converter also does NOT call `ExpressionConverter.mark_java_expression()` on ARRAY values, so expressions that need Java execution are not marked with the `{{java}}` prefix.
+**Remaining gap**: The engine still cannot evaluate most Talend Java expressions (Numeric.sequence, TalendDate, TalendDataGenerator, etc.). This is an engine-level limitation, not a converter limitation. The converter now clearly communicates which expressions will fail at runtime.
 
 ### Converter Issues
 
-| ID | Priority | Issue |
-|----|----------|-------|
-| CONV-RG-001 | **P0** | **No expression conversion**: ARRAY expressions are not passed through `ExpressionConverter.convert()` or `mark_java_expression()`. Talend Java expressions (Numeric.sequence, TalendDate, TalendDataGenerator, ternary operators, type casts, globalMap.get) are stored as-is and will fail at engine runtime when `eval()` attempts to execute them as Python. |
-| CONV-RG-002 | **P1** | **Dead code parser conflict**: `component_parser.py` contains an unused `parse_row_generator()` method (line 1725) with different config keys (`rows`/`columns` vs `nb_rows`/`values`). This creates maintenance confusion — a developer might update the wrong parser. The dead code should be removed or marked deprecated. |
-| CONV-RG-003 | **P1** | **Schema type not converted**: Output schema `type` field is stored as raw Talend type (`id_String`, `id_Integer`) rather than being converted via `ExpressionConverter.convert_type()`. The engine's `validate_schema()` does handle both forms, so this is not a runtime failure, but it is inconsistent with other components. |
-| CONV-RG-004 | **P2** | **Schema `pattern` not extracted**: Date format patterns from schema columns are not included in the output schema. If a column has type `id_Date` with a pattern like `"yyyy-MM-dd"`, the pattern is lost. The engine's `validate_schema()` uses `pd.to_datetime()` without a format string, relying on pandas auto-detection. |
-| CONV-RG-005 | **P2** | **Schema `defaultValue` not extracted**: Default values defined in the Talend schema are not preserved. If a column expression fails or produces null, there is no fallback to the schema-defined default. |
-| CONV-RG-006 | **P3** | **Hex decode silent failure**: If `binascii.unhexlify()` fails, the exception is caught with a bare `pass` and the raw hex string is used as the expression. This will cause cryptic eval errors downstream with no indication that hex decoding failed. Should log a warning. |
+> **Note:** The `talend_to_v1` converter (2026-04-01) addresses CONV-RG-001 (warnings now emitted) and supersedes CONV-RG-002 (dead code in old converter). The issues below apply to the old `complex_converter` only unless noted.
+
+| ID | Priority | Status | Issue |
+|----|----------|--------|-------|
+| CONV-RG-001 | ~~P0~~ | **ADDRESSED in talend_to_v1** | **Per-expression Java warnings**: The converter now warns when Java expressions are detected in ARRAY values. Expressions are still passed through as raw strings (engine limitation), but users are clearly notified which expressions will fail at runtime. |
+| CONV-RG-002 | ~~P1~~ | **NOT AN ISSUE for talend_to_v1** | **Dead code parser conflict**: The `talend_to_v1` converter replaces both old parsers. The dead code in `component_parser.py` is no longer relevant. |
+| CONV-RG-003 | **P1** | Open (complex_converter only) | **Schema type not converted**: `talend_to_v1` uses `_parse_schema()` from ComponentConverter base class. Schema types are extracted consistently. |
+| CONV-RG-004 | **P2** | Open (complex_converter only) | **Schema `pattern` not extracted**: Date format patterns not included in output schema. |
+| CONV-RG-005 | **P2** | Open (complex_converter only) | **Schema `defaultValue` not extracted**: Default values not preserved. |
+| CONV-RG-006 | **P3** | Open (complex_converter only) | **Hex decode silent failure**: `talend_to_v1` uses improved hex decoding with logging. |
 
 ---
 
@@ -415,6 +423,8 @@ The engine uses a **two-tier expression evaluation** strategy:
 ---
 
 ## 7. Converter–Engine Integration Audit
+
+> **Note (2026-04-01)**: The data flow analysis below was written against the old `complex_converter`. The `talend_to_v1` converter now emits per-expression Java warnings, making the expression failure more visible. The integration issues (INT-RG-001 through INT-RG-003) remain relevant as engine-level gaps.
 
 ### Data Flow Analysis
 
@@ -623,6 +633,8 @@ Worst case:
 
 ## 11. Dead Code: `component_parser.py` parse_row_generator
 
+> **SUPERSEDED (2026-04-01)**: This section documents dead code in the old `complex_converter`. The active converter is now `src/converters/talend_to_v1/components/misc/row_generator.py` (`RowGeneratorConverter` class) which replaces both old parsers.
+
 ### Location
 
 `src/converters/complex_converter/component_parser.py`, lines 1725-1736
@@ -662,22 +674,22 @@ If a developer sees `parse_row_generator` in `component_parser.py` and assumes i
 
 ### All Issues by Priority
 
-#### P0 — Critical (5 issues)
+#### P0 — Critical (4 issues, was 5)
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-RG-001 | Converter | No expression conversion — raw Java expressions passed to engine, will fail at eval() |
+| ~~CONV-RG-001~~ | ~~Converter~~ | ~~No expression conversion.~~ **ADDRESSED in talend_to_v1** — converter now warns when Java expressions detected. Expressions still passed through (engine limitation). |
 | INT-RG-001 | Integration | End-to-end Talend expression failure — Numeric.sequence, TalendDate, TalendDataGenerator all produce NameError |
 | BUG-RG-001 | Security/Bug | Unsafe `eval()` in StringHandling.SPACE — can execute arbitrary code |
 | BUG-RG-002 | Security/Bug | Unsafe `eval()` for all expressions — no `__builtins__` restriction |
 | TEST-RG-001 | Testing | Zero unit tests — no test coverage whatsoever |
 
-#### P1 — Major (14 issues)
+#### P1 — Major (12 issues, was 14)
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-RG-002 | Converter | Dead code parser in component_parser.py creates maintenance confusion |
-| CONV-RG-003 | Converter | Schema type stored as raw Talend type, not converted |
+| ~~CONV-RG-002~~ | ~~Converter~~ | ~~Dead code parser in component_parser.py.~~ **NOT AN ISSUE for talend_to_v1** — old parsers superseded. |
+| CONV-RG-003 | Converter | Schema type stored as raw Talend type, not converted. Open for `complex_converter` only. |
 | ENG-RG-001 | Feature Gap | Most Talend routines unsupported (Numeric.sequence, TalendDate, TalendDataGenerator) |
 | ENG-RG-002 | Feature Gap | Numeric.sequence() not implemented — most common tRowGenerator function |
 | ENG-RG-003 | Feature Gap | globalMap.get() not exposed to eval() context |
@@ -726,7 +738,7 @@ If a developer sees `parse_row_generator` in `component_parser.py` and assumes i
 | SEC-RG-001 | Security | eval() allows arbitrary code execution — no __builtins__ restriction |
 | SEC-RG-002 | Security | eval() in StringHandling.SPACE with restricted but not fully safe namespace |
 
-**Total issues: 37** (5 P0, 14 P1, 12 P2, 6 P3 — plus several P3 items that overlap with higher-priority security/debug issues listed above)
+**Total issues: 35** (was 37; 4 P0, 12 P1, 12 P2, 6 P3 — CONV-RG-001 ADDRESSED, CONV-RG-002 NOT AN ISSUE for talend_to_v1; plus several P3 items that overlap with higher-priority security/debug issues listed above)
 
 ---
 
@@ -1123,6 +1135,8 @@ def validate_config(self) -> bool:
 ---
 
 ## 16. Converter Code Review: `_parse_row_generator`
+
+> **SUPERSEDED (2026-04-01)**: This section reviews the old `complex_converter` code (`converter.py` -> `_parse_row_generator()`). The active converter is now `src/converters/talend_to_v1/components/misc/row_generator.py` (`RowGeneratorConverter` class) with 4 config keys, NB_ROWS default fixed (1->100), per-expression Java warnings, and 34 converter tests.
 
 ### Method Overview (converter.py lines 576-625)
 
