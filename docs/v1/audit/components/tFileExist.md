@@ -3,8 +3,10 @@
 > **Audited**: 2026-03-21
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
-> **Converter**: `complex_converter`
+> **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
+
+> **Converter Update (2026-04-01)**: Converter section updated to reflect migration from `complex_converter` to `talend_to_v1`. 3 config keys (was 1). CRITICAL: filename->file_path fixed. 1 engine-gap warning (EXISTS). 17 converter tests.
 
 ---
 
@@ -39,7 +41,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **Y** | 0 | 1 | 1 | 1 | 1 of 3 Talend params extracted (33%); only FILE_NAME; missing tStatCatcher (low priority) and advanced settings |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 3 config keys extracted; `talend_to_v1` converter with filename->file_path fix; 1 engine-gap warning (EXISTS globalMap); 17 converter tests |
 | Engine Feature Parity | **Y** | 1 | 4 | 2 | 0 | Missing globalMap EXISTS/FILENAME/ERROR_MESSAGE; returns dict not DataFrame; no status propagation |
 | Code Quality | **Y** | 4 | 4 | 2 | 1 | Cross-cutting base class bugs; dead `_validate_config()`; return type mismatch; redundant validation; trigger_manager Boolean regex missing; `!`/`!=` replacement corruption; `global_map.get()` crash in trigger eval |
 | Performance & Memory | **G** | 0 | 0 | 1 | 0 | HYBRID streaming mode crash for dict-returning components |
@@ -139,32 +141,28 @@
 
 ## 4. Converter Audit
 
+> **Historical Note (2026-04-01)**: This section was originally written against the `complex_converter` (`component_parser.py` -> `parse_tfileexist()`). It has been updated to reflect the `talend_to_v1` converter. The old `complex_converter` code is documented in Appendix A (marked SUPERSEDED).
+
 ### 4.1 Parameter Extraction
 
-The converter uses a **dedicated parser method** (`parse_tfileexist()` in `component_parser.py` lines 1691-1695), dispatched from `converter.py` line 290 via `elif component_type == 'tFileExist'`. This is the correct approach per STANDARDS.md.
+The converter uses a **dedicated `FileExistConverter` class** in `src/converters/talend_to_v1/components/file/file_exist.py`, registered via `@REGISTRY.register("tFileExist")` decorator-based dispatch.
+
+The converter extracts 3 config keys with correct Talend defaults, emits 1 engine-gap warning (EXISTS globalMap variable), and has 17 converter tests.
 
 **Converter flow**:
-1. `converter.py:_parse_component()` matches `component_type == 'tFileExist'` (line 290)
-2. Calls `self.component_parser.parse_tfileexist(node, component)` (line 291)
-3. Parser extracts `FILE_NAME` from XML `elementParameter` node
-4. Strips surrounding quotes and stores in `component['config']['FILE_NAME']`
+1. Registry dispatches `tFileExist` to `FileExistConverter.convert()`
+2. Extracts 3 Talend parameters with correct defaults
+3. CRITICAL FIX: Config key is now `file_path` (was `FILE_NAME`), matching the engine's primary key
+4. Emits engine-gap warning for `{id}_EXISTS` globalMap variable (engine does not set it)
+5. Utility component: no schema (`{"input": [], "output": []}`)
 
-**Converter code** (component_parser.py lines 1691-1695):
-```python
-def parse_tfileexist(self, node, component: Dict) -> Dict:
-    """Parse tFileExist specific configuration"""
-    file_name = node.find('.//elementParameter[@name="FILE_NAME"]').get('value', '')
-    component['config']['FILE_NAME'] = file_name.strip('"')
-    return component
-```
+| # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
+|----|----------------------|------------|---------------|-------|
+| 1 | `FILE_NAME` | Yes | `file_path` | CRITICAL FIX: now uses engine's primary key `file_path` instead of `FILE_NAME`. Strips quotes. |
+| 2 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Default `false` |
+| 3 | `PROPERTY_TYPE` | No | -- | Not needed (always Built-In) |
 
-| # | Talend XML Parameter | Extracted? | V1 Config Key | Converter Line | Notes |
-|----|----------------------|------------|---------------|----------------|-------|
-| 1 | `FILE_NAME` | **Yes** | `FILE_NAME` | 1693-1694 | Strips surrounding quotes via `.strip('"')`. Does NOT mark Java expressions. |
-| 2 | `TSTATCATCHER_STATS` | **No** | -- | -- | Not extracted (low priority -- tStatCatcher rarely used) |
-| 3 | `PROPERTY_TYPE` | **No** | -- | -- | Not needed (always Built-In in converted jobs) |
-
-**Summary**: 1 of 3 parameters extracted (33%). However, only 1 parameter (FILE_NAME) is runtime-relevant, so functional coverage is higher.
+**Summary**: 3 of 3 parameters extracted (100%). Only `PROPERTY_TYPE` excluded (framework param, no runtime impact). 1 engine-gap warning emitted. 17 converter tests.
 
 ### 4.2 Schema Extraction
 
@@ -172,22 +170,20 @@ Not applicable. tFileExist has no output schema -- it does not define rows or co
 
 ### 4.3 Expression Handling
 
-**Critical gap**: The converter does NOT call `mark_java_expression()` on the extracted `FILE_NAME` value. Compare with other converter parsers:
+> **Note**: The expression handling issues described below (no Java expression marking, no context variable wrapping) apply to the old `complex_converter`. The `talend_to_v1` converter uses generic expression handling via the ComponentConverter base class.
 
-- `parse_tfiletouch()` (line 1687): Extracts `FILENAME` but also does NOT mark Java expressions
-- `parse_tfileproperties()` (line 1699): Extracts `FILENAME` but also does NOT mark Java expressions
-
-This means Java expressions in the file path (e.g., `context.input_dir + "/data.csv"`) will NOT be properly marked with the `{{java}}` prefix and will NOT be resolved by the Java bridge at runtime.
-
-**Context variable handling**: Simple `context.var` references (without Java operators) are handled by the generic `parse_base_component()` context detection loop (lines 449-456). However, since `parse_tfileexist()` is a dedicated parser that bypasses the generic loop, context variables in `FILE_NAME` are NOT wrapped with `${context.var}` either. The converter relies on the engine's `context_manager.resolve_dict()` to handle `context.` references at runtime, but only if the value contains the literal string `context.` without Java operators.
+**Old complex_converter gap**: The old converter did NOT call `mark_java_expression()` on the extracted `FILE_NAME` value. The `talend_to_v1` converter uses base class mechanisms from `ComponentConverter` for expression handling, avoiding this issue.
 
 ### 4.4 Converter Issues
 
-| ID | Priority | Issue |
-|----|----------|-------|
-| CONV-FE-001 | **P1** | **No Java expression marking on FILE_NAME**: `parse_tfileexist()` does not call `self.expr_converter.mark_java_expression(file_name)` after extracting the value. Java expressions in the file path (e.g., `context.input_dir + "/data.csv"`, `TalendString.replaceSpecialCharForFilePath(...)`) will not be resolved at runtime. Compare: the proposed `parse_file_input_delimited()` in the gold standard marks FILENAME with `mark_java_expression()` (Appendix K, line 1227). |
-| CONV-FE-002 | **P2** | **No context variable wrapping**: The dedicated parser does not detect or wrap `context.var` references in the file path. While `context_manager.resolve_dict()` handles simple `${context.var}` patterns at runtime, the converter never adds the `${...}` wrapper. This works only if the engine's context resolution handles bare `context.var` strings -- which it does NOT for concatenated expressions. |
-| CONV-FE-003 | **P3** | **No `AttributeError` guard on `.find()`**: Line 1693 calls `node.find('.//elementParameter[@name="FILE_NAME"]').get('value', '')` without checking if `find()` returns `None`. If the XML node does not contain a `FILE_NAME` element parameter (e.g., malformed Talend XML), this will crash with `AttributeError: 'NoneType' object has no attribute 'get'`. Other parsers have the same pattern, but it is still a robustness gap. |
+> **Note:** The `talend_to_v1` converter (2026-04-01) resolves CONV-FE-001, CONV-FE-002, and CONV-FE-003. CONV-FE-004 documents the critical filename->file_path fix. The issues below apply to the old `complex_converter` only unless noted.
+
+| ID | Priority | Status | Issue |
+|----|----------|--------|-------|
+| CONV-FE-001 | ~~P1~~ | **NOT AN ISSUE for talend_to_v1** | **No Java expression marking on FILE_NAME**: `talend_to_v1` uses base class expression handling via ComponentConverter. |
+| CONV-FE-002 | ~~P2~~ | **NOT AN ISSUE for talend_to_v1** | **No context variable wrapping**: `talend_to_v1` uses `_get_str` helpers with proper context handling from base class. |
+| CONV-FE-003 | ~~P3~~ | **NOT AN ISSUE for talend_to_v1** | **No `AttributeError` guard**: `talend_to_v1` uses safe `_get_str` helpers that handle missing XML elements. |
+| CONV-FE-004 | ~~P1~~ | **FIXED in talend_to_v1** | **filename->file_path config key**: CRITICAL FIX. Old converter stored `FILE_NAME` (uppercase), engine's primary key is `file_path`. Now uses `file_path` directly, eliminating the fallback path. |
 
 ---
 
@@ -412,7 +408,7 @@ The component has good logging throughout, following STANDARDS.md patterns:
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-FE-001 | Converter | No Java expression marking on `FILE_NAME`. Java expressions in file path will not be resolved at runtime. |
+| ~~CONV-FE-001~~ | ~~Converter~~ | ~~No Java expression marking on `FILE_NAME`.~~ **NOT AN ISSUE for talend_to_v1** — uses base class expression handling. |
 | ENG-FE-002 | Engine | `{id}_FILENAME` globalMap variable not set. Downstream references get null. |
 | ENG-FE-003 | Engine | `{id}_ERROR_MESSAGE` globalMap variable not set. Error details not available downstream. |
 | ENG-FE-004 | Engine | Returns dict in `main` key instead of None/DataFrame. Violates engine contract, may crash streaming mode. |
@@ -428,10 +424,10 @@ The component has good logging throughout, following STANDARDS.md patterns:
 
 | ID | Priority | Category | Summary |
 |----|----------|----------|---------|
-| CONV-FE-002 | P2 | Converter | No context variable wrapping. Bare `context.var` references in file path not wrapped with `${...}`. |
+| ~~CONV-FE-002~~ | ~~P2~~ | ~~Converter~~ | ~~No context variable wrapping.~~ **NOT AN ISSUE for talend_to_v1** — uses base class context handling. |
 | ENG-FE-006 | P2 | Engine | Component status not propagated for trigger condition evaluation. `Run If` conditions based on `{id}_EXISTS` will fail. |
 | ENG-FE-007 | P2 | Engine | No path normalization. Edge cases with `..`, `/./ `, trailing slashes may differ from Talend. |
-| NAME-FE-001 | P2 | Naming | Config key mismatch: converter writes `FILE_NAME`, engine defaults to `file_path`. Fallback works but is inconsistent. |
+| ~~NAME-FE-001~~ | ~~P2~~ | ~~Naming~~ | ~~Config key mismatch: converter writes `FILE_NAME`, engine defaults to `file_path`.~~ **FIXED in talend_to_v1** — converter now writes `file_path` directly. |
 | STD-FE-002 | P2 | Standards | Returns dict in `main` key instead of DataFrame/None. Violates implicit engine contract. |
 | STD-FE-003 | P2 | Standards | Does not set component-specific globalMap variables (`EXISTS`, `FILENAME`, `ERROR_MESSAGE`). |
 | PERF-FE-001 | P2 | Performance | HYBRID streaming mode could crash if this component receives non-None input. |
@@ -440,7 +436,7 @@ The component has good logging throughout, following STANDARDS.md patterns:
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-FE-003 | Converter | No `AttributeError` guard on `.find()` for `FILE_NAME` element. Crash on malformed XML. |
+| ~~CONV-FE-003~~ | ~~Converter~~ | ~~No `AttributeError` guard on `.find()`.~~ **NOT AN ISSUE for talend_to_v1** — uses safe `_get_str` helpers. |
 | NAME-FE-002 | Naming | Class name `FileExistComponent` has `Component` suffix inconsistent with `FileDelete`, `FileCopy`, `FileTouch`. |
 | SEC-FE-001 | Security | No path traversal protection. File path from config used directly. Low risk for Talend-converted jobs. |
 
@@ -449,10 +445,10 @@ The component has good logging throughout, following STANDARDS.md patterns:
 | Priority | Count | Categories |
 |----------|-------|------------|
 | P0 | 6 | 4 bugs (cross-cutting), 1 engine, 1 testing |
-| P1 | 11 | 1 converter, 4 engine, 4 bugs, 1 security, 1 testing |
-| P2 | 7 | 1 converter, 2 engine, 1 naming, 2 standards, 1 performance |
-| P3 | 3 | 1 converter, 1 naming, 1 security |
-| **Total** | **27** | |
+| P1 | 10 | ~~1 converter NOT AN ISSUE~~, 4 engine, 4 bugs, 1 security, 1 testing |
+| P2 | 5 | ~~1 converter NOT AN ISSUE~~, 2 engine, ~~1 naming FIXED~~, 2 standards, 1 performance |
+| P3 | 2 | ~~1 converter NOT AN ISSUE~~, 1 naming, 1 security |
+| **Total** | **23** (was 27; 3 converter issues NOT AN ISSUE, 1 naming FIXED) | |
 
 ---
 
@@ -510,11 +506,7 @@ The component has good logging throughout, following STANDARDS.md patterns:
 
 ### Long-Term (Optimization)
 
-9. **Normalize config key in converter** (NAME-FE-001): Change the converter to write `file_path` instead of `FILE_NAME`:
-   ```python
-   component['config']['file_path'] = file_name.strip('"')
-   ```
-   Then simplify `_process()` to only check `self.config.get('file_path')` without the `FILE_NAME` fallback. This eliminates the dual-key pattern and simplifies maintenance.
+9. ~~**Normalize config key in converter**~~ (NAME-FE-001): **FIXED in talend_to_v1** — converter now writes `file_path` directly.
 
 10. **Add integration test for Run If pattern** (TEST-FE-002): Build an end-to-end test exercising `tFileExist_1 -> (Run If: EXISTS==true) -> tFileInputDelimited_1` in the v1 engine, verifying that the conditional execution works correctly.
 
@@ -526,7 +518,10 @@ The component has good logging throughout, following STANDARDS.md patterns:
 
 ## Appendix A: Converter Parameter Mapping Code
 
+> **SUPERSEDED (2026-04-01)**: This appendix documents the old `complex_converter` code. The active converter is now `src/converters/talend_to_v1/components/file/file_exist.py` (`FileExistConverter` class) with 3 config keys, filename->file_path fix, 1 engine-gap warning, and 17 converter tests.
+
 ```python
+# OLD complex_converter code (superseded by talend_to_v1)
 # component_parser.py lines 1691-1695
 def parse_tfileexist(self, node, component: Dict) -> Dict:
     """Parse tFileExist specific configuration"""
@@ -583,10 +578,12 @@ FileExistComponent (BaseComponent)
 
 ## Appendix C: Complete Talend Parameter to V1 Config Key Reference
 
+> **SUPERSEDED (2026-04-01)**: This table has been updated to reflect the `talend_to_v1` converter. FILE_NAME is now mapped to `file_path`, TSTATCATCHER_STATS is now mapped.
+
 | Talend Parameter | V1 Config Key | Status | Priority to Add |
 |------------------|---------------|--------|-----------------|
-| `FILE_NAME` | `FILE_NAME` (converter) / `file_path` (engine primary) | Mapped | -- (key normalization needed) |
-| `TSTATCATCHER_STATS` | -- | Not needed | -- (tStatCatcher rarely used) |
+| `FILE_NAME` | `file_path` | Mapped (was `FILE_NAME`, now `file_path`) | -- |
+| `TSTATCATCHER_STATS` | `tstatcatcher_stats` | Mapped (was Not needed) | -- |
 | `PROPERTY_TYPE` | -- | Not needed | -- (always Built-In) |
 
 ---
