@@ -22,7 +22,7 @@ class FileDeleteConverter(ComponentConverter):
 
         config: Dict[str, Any] = {
             "filename": self._get_str(node, "FILENAME"),
-            "fail_on_error": self._get_bool(node, "FAIL_ON_ERROR", False),
+            "fail_on_error": self._get_bool(node, "FAILON", False),
             # Deletion mode
             "folder": self._get_bool(node, "FOLDER", False),
             "folder_file": self._get_bool(node, "FOLDER_FILE", False),

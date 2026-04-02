@@ -37,7 +37,7 @@ from .components.transform import FilterColumns
 # from .components.database import OracleBulkExec, MSSqlConnection, MSSqlInput
 # from .components.database import OracleCommit
 from .components.aggregate import AggregateRow, UniqueRow
-from .components.aggregate import AggregateSortedRow, Denormalize, Normalize, Replicate
+from .components.transform import AggregateSortedRow, Denormalize, Normalize, Replicate
 from .components.context import ContextLoad
 from .components.control import Warn, Die, SleepComponent
 from .components.control import SendMailComponent

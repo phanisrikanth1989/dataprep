@@ -116,7 +116,7 @@ class FilterRowsConverter(ComponentConverter):
         config: Dict[str, Any] = {
             "logical_operator": logical_operator,
             "use_advanced": use_advanced,
-            "advanced_condition": advanced_condition,
+            "advanced_condition": f"{{{{java}}}}{advanced_condition}" if use_advanced and advanced_condition else advanced_condition,
             "conditions": conditions,
             "die_on_error": self._get_bool(node, "DIE_ON_ERROR", False),
             "tstatcatcher_stats": self._get_bool(node, "TSTATCATCHER_STATS", False),

@@ -49,7 +49,7 @@ class FileArchiveConverter(ComponentConverter):
         source = self._get_str(node, "SOURCE")
         target = self._get_str(node, "TARGET")
         archive_format = self._get_str(node, "ARCHIVE_FORMAT", default="zip")
-        include_subdirectories = self._get_bool(node, "SUB_DIRECTORY")
+        include_subdirectories = self._get_bool(node, "SUB_DIRECTROY")
         overwrite = self._get_bool(node, "OVERWRITE", True)
         compression_level = self._get_str(node, "LEVEL", default="Normal")
         die_on_error = self._get_bool(node, "DIE_ON_ERROR", False)

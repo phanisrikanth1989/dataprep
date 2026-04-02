@@ -56,7 +56,7 @@ class FileUnarchiveConverter(ComponentConverter):
             # New params
             "rootname": self._get_bool(node, "ROOTNAME", False),
             "integrity": self._get_bool(node, "INTEGRITY", False),
-            "decrypt_type": self._get_str(node, "DECRYPT_TYPE"),
+            "decrypt_type": self._get_str(node, "DECRYPT_METHOD"),
             # Metadata
             "tstatcatcher_stats": self._get_bool(node, "TSTATCATCHER_STATS", False),
             "label": self._get_str(node, "LABEL"),
@@ -75,7 +75,7 @@ class FileUnarchiveConverter(ComponentConverter):
             )
         if config["decrypt_type"]:
             warnings.append(
-                f"DECRYPT_TYPE={config['decrypt_type']}: engine only supports "
+                f"DECRYPT_METHOD={config['decrypt_type']}: engine only supports "
                 "basic zipfile password, not Zip4j"
             )
 

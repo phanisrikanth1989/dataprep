@@ -7,7 +7,7 @@ from .file_input_delimited import FileInputDelimited
 from .file_input_fullrow import FileInputFullRowComponent
 from .file_input_positional import FileInputPositional
 from .file_input_raw import FileInputRaw
-from .file_input_xml import FileInputXml
+from .file_input_xml import FileInputXML
 from .file_output_delimited import FileOutputDelimited
 from .file_output_positional import FileOutputPositional
 from .file_row_count import FileRowCount
@@ -30,7 +30,7 @@ __all__ = [
     'FileInputFullRowComponent',
     'FileInputPositional',
     'FileInputRaw',
-    'FileInputXml',
+    'FileInputXML',
     'FileOutputDelimited',
     'FileOutputPositional',
     'FileRowCount',
