@@ -3,8 +3,11 @@
 > **Audited**: 2026-03-21
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
-> **Converter**: `complex_converter`
+> **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
+
+> **Converter Update (2026-03-27)**: Converter section updated to reflect migration from `complex_converter` to `talend_to_v1`. 6/6 params now extracted (was 4/5). CODE default fixed (1->0), PRIORITY default fixed (5->0). Phantom EXIT_CODE removed. EXIT_JVM added with engine-gap warning. 13 converter tests.
+> **Note**: MESSAGE default intentionally kept as `"Job execution stopped"` for diagnostic value (Talend default is empty string).
 
 ---
 
@@ -15,8 +18,8 @@
 | **Talend Name** | `tDie` |
 | **V1 Engine Class** | `Die` |
 | **Engine File** | `src/v1/engine/components/control/die.py` (205 lines) |
-| **Converter Parser** | `src/converters/complex_converter/component_parser.py` -> `_map_component_parameters()` (lines 261-267) |
-| **Converter Dispatch** | `src/converters/complex_converter/converter.py` -> NO dedicated `elif` branch; falls through to generic `parse_base_component()` + `_map_component_parameters()` |
+| **Converter Parser** | `src/converters/talend_to_v1/components/control/die.py` |
+| **Converter Dispatch** | `@REGISTRY.register("tDie")` decorator-based dispatch |
 | **Registry Aliases** | `Die`, `tDie` (registered in `src/v1/engine/engine.py` lines 175-176) |
 | **Category** | Control / Logs & Errors |
 
@@ -25,8 +28,7 @@
 | File | Purpose |
 |------|---------|
 | `src/v1/engine/components/control/die.py` | Engine implementation (205 lines) |
-| `src/converters/complex_converter/component_parser.py` (lines 83, 261-267) | Type alias mapping (line 83: `'tDie': 'Die'`) and parameter mapping from Talend XML to v1 JSON (lines 261-267) |
-| `src/converters/complex_converter/converter.py` | Dispatch -- no dedicated `elif` for `tDie`; uses generic `parse_base_component()` path (line 226) |
+| `src/converters/talend_to_v1/components/control/die.py` | Dedicated `DieConverter` class with `@REGISTRY.register("tDie")` |
 | `src/v1/engine/base_component.py` | Base class: `execute()` (line 188), `_update_stats()` (line 306), `_update_global_map()` (line 298), `_resolve_java_expressions()` (line 100) |
 | `src/v1/engine/global_map.py` | GlobalMap storage for `{id}_MESSAGE`, `{id}_CODE`, `{id}_PRIORITY`, etc. -- has broken `get()` method (line 28) |
 | `src/v1/engine/exceptions.py` | Custom exception hierarchy: `ComponentExecutionError` (line 24), `ConfigurationError` (line 14) |
@@ -44,7 +46,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **G** | 0 | 0 | 5 | 0 | 4 of 5 Talend basic params extracted (MESSAGE, CODE, PRIORITY, EXIT_CODE); missing EXIT_JVM; default value mismatches for CODE and PRIORITY; expression handling gaps |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 6 of 6 Talend params extracted (100%); `talend_to_v1` converter with correct CODE=0 and PRIORITY=0 defaults; phantom EXIT_CODE removed; EXIT_JVM engine-gap warning; 13 converter tests |
 | Engine Feature Parity | **Y** | 0 | 4 | 3 | 1 | No tLogCatcher integration; globalMap regex only handles `(Integer)` cast; context resolution order issue; no EXIT_JVM support; no tPostJob lifecycle |
 | Code Quality | **Y** | 2 | 3 | 5 | 1 | Cross-cutting base class bugs in _update_global_map() and GlobalMap.get(); _validate_config never called; exit_code not propagated to process exit; monkey-patched exception attribute |
 | Performance & Memory | **G** | 0 | 0 | 0 | 1 | Lightweight component; regex compiled on every call (negligible for once-per-job component) |
@@ -199,70 +201,38 @@ This schema is **read-only** and **predefined** -- you cannot add or remove colu
 
 ### 4.1 Parameter Extraction
 
-The converter uses the **deprecated generic parameter mapping approach** (`_map_component_parameters()` in `component_parser.py` lines 261-267) rather than a dedicated `parse_tdie()` method. There is NO dedicated `elif component_type == 'tDie'` branch in `converter.py:_parse_component()`. The component falls through to the generic `parse_base_component()` path at line 226 of `converter.py`.
+The converter uses a **dedicated `DieConverter` class** in `src/converters/talend_to_v1/components/control/die.py`, registered via `@REGISTRY.register("tDie")` decorator-based dispatch.
 
-**Converter flow (step by step)**:
-1. `converter.py:_parse_component()` (line 216) receives the XML node for the tDie component
-2. At line 226, calls `component_parser.parse_base_component(node)` which:
-   a. Extracts `componentName` = `'tDie'` from the XML node
-   b. Maps it to `'Die'` via `COMPONENT_TYPE_MAP` (line 83 of component_parser.py)
-   c. Iterates all `elementParameter` child nodes, building a `config_raw` dict of name->value pairs
-   d. Calls `_map_component_parameters('tDie', config_raw)` (line 472)
-   e. This hits the `elif component_type == 'tDie'` branch at line 261
-   f. Returns a mapped config dict with renamed keys and int conversions
-3. Back in `converter.py:_parse_component()`, the component type-specific `elif` chain is checked (lines 232-285)
-4. `tDie` has no dedicated `elif` branch, so none of the type-specific parsers are called
-5. The generic base component result is used as-is
-6. Schema is extracted generically from `<metadata>` nodes (if any -- tDie typically has none)
+The converter extracts 6 parameters with correct Talend defaults (MESSAGE intentionally kept as "Job execution stopped" for diagnostic value), emits 1 engine-gap warning, and has 13 converter tests.
 
-**Converter code** (component_parser.py lines 261-267):
-```python
-# Die mapping
-elif component_type == 'tDie':
-    return {
-        'message': config_raw.get('MESSAGE', 'Job execution stopped'),
-        'code': int(config_raw.get('CODE', '1')) if str(config_raw.get('CODE', '1')).isdigit() else 1,
-        'priority': int(config_raw.get('PRIORITY', '5')) if str(config_raw.get('PRIORITY', '5')).isdigit() else 5,
-        'exit_code': int(config_raw.get('EXIT_CODE', '1')) if str(config_raw.get('EXIT_CODE', '1')).isdigit() else 1
-    }
-```
-
-**Comparison with tWarn converter** (component_parser.py lines 253-258):
-```python
-# Warn mapping
-elif component_type == 'tWarn':
-    return {
-        'message': config_raw.get('MESSAGE', 'Warning'),
-        'code': int(config_raw.get('CODE', '0')) if str(config_raw.get('CODE', '0')).isdigit() else 0,
-        'priority': int(config_raw.get('PRIORITY', '4')) if str(config_raw.get('PRIORITY', '4')).isdigit() else 4
-    }
-```
-
-Notable differences between the Die and Warn converters:
-- Die has `exit_code` field; Warn does not (correct -- tWarn does not terminate the job)
-- Die defaults `code=1`; Warn defaults `code=0` (Die should also default to 0 to match Talend)
-- Die defaults `priority=5` (error); Warn defaults `priority=4` (warn) (reasonable convention but differs from Talend's 0 default for both)
-- Die defaults `message='Job execution stopped'`; Warn defaults `message='Warning'` (both differ from Talend's empty string default)
+**Converter flow**:
+1. Registry dispatches `tDie` to `DieConverter.convert()`
+2. Extracts 6 of 6 Talend parameters with correct defaults
+3. Emits engine-gap warning for EXIT_JVM (engine does not support System.exit())
+4. Utility component: no schema (`{"input": [], "output": []}`)
 
 ### 4.2 Parameter Extraction Table
 
-| # | Talend XML Parameter | Extracted? | V1 Config Key | Converter Line | Notes |
-|----|----------------------|------------|---------------|----------------|-------|
-| 1 | `MESSAGE` | Yes | `message` | 263 | Default `'Job execution stopped'` -- Talend default is empty string `""`. Provides a more helpful default for jobs that omit explicit messages, but changes behavior for jobs relying on the Talend default empty string. |
-| 2 | `CODE` | Yes | `code` | 264 | Converted via `.isdigit()` check. **Default `1` differs from Talend default `0`.** If a Talend job does not explicitly set the error code, the converted job will use code 1 instead of code 0. This may affect downstream error code checking logic. |
-| 3 | `PRIORITY` | Yes | `priority` | 265 | Converted via `.isdigit()` check. **Default `5` differs from Talend default `0`.** V1 interprets 5 as "error" level and logs accordingly. Talend's default 0 has no special severity mapping. |
-| 4 | `EXIT_CODE` | Yes | `exit_code` | 266 | Converted via `.isdigit()` check. Default `1` is reasonable. **Caution**: Standard Talend tDie XML does not have an `EXIT_CODE` parameter. Talend uses `CODE` for both the tLogCatcher error code AND the process exit code when `EXIT_JVM=true`. The v1 converter introduces a separate `exit_code` field that will always fall back to default `1` for real Talend XML exports, making the exit code non-configurable from the source XML. |
-| 5 | `EXIT_JVM` | **No** | -- | -- | **Not extracted.** No `sys.exit()`-equivalent support in the v1 engine. When a Talend job has `EXIT_JVM=true`, the v1 engine will not set the process exit code. The Die exception propagates normally but the process exits with code 0. |
-| 6 | `TSTATCATCHER_STATS` | **No** | -- | -- | Not extracted (low priority -- tStatCatcher rarely used in production) |
-| 7 | `LABEL` | **No** | -- | -- | Not extracted (cosmetic -- no runtime impact; used only in Talend Studio designer canvas) |
+| # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
+|----|----------------------|------------|---------------|-------|
+| 1 | `MESSAGE` | Yes | `message` | Default `"Job execution stopped"` (conscious deviation from Talend's empty string for diagnostic value) |
+| 2 | `CODE` | Yes | `code` | Default `0` matches Talend |
+| 3 | `PRIORITY` | Yes | `priority` | Default `0` matches Talend |
+| 4 | `EXIT_JVM` | Yes | `exit_jvm` | Default `false`. Engine-gap warning: no System.exit() support |
+| 5 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Default `false` |
+| 6 | `LABEL` | Yes | `label` | Cosmetic |
 
-**Summary**: 4 of 5 runtime-relevant parameters extracted (80%). Only `EXIT_JVM` is missing.
+**Summary**: 6 of 6 runtime-relevant parameters extracted (100%). Phantom `EXIT_CODE` param from old converter removed (not a real Talend param — Talend uses `CODE` as both error code and process exit code).
 
 ### 4.3 Schema Extraction
 
 tDie does not define an output schema in Talend. It has no `<metadata>` child nodes in the Talend XML. The generic `parse_base_component()` schema extraction loop will find no schema columns, which is correct -- tDie produces no data output.
 
+> **Note**: The `talend_to_v1` converter uses base class mechanisms from `ComponentConverter` for schema extraction rather than the standalone `parse_base_component()` function.
+
 ### 4.4 Expression Handling
+
+> **Note**: The expression handling description below applies to the old `complex_converter`. The `talend_to_v1` converter uses `_get_str`/`_get_int` helpers from the ComponentConverter base class, avoiding the `.isdigit()` issue described below.
 
 **Context variable handling** (component_parser.py generic loop, lines 449-456):
 - During the `parse_base_component()` scan of `elementParameter` nodes, the MESSAGE field value is examined
@@ -292,13 +262,15 @@ tDie does not define an output schema in Talend. It has no `<metadata>` child no
 
 ### 4.5 Converter Issues
 
-| ID | Priority | Issue |
-|----|----------|-------|
-| CONV-DIE-001 | **P2** | **Default CODE mismatch**: Converter defaults `CODE` to `1` (line 264), but Talend default is `0`. If a Talend job does not explicitly set the error code, the converter produces `1` instead of `0`. While both are integers, downstream error code checking logic (e.g., `if errorCode == 0 then ...`) will behave differently. In Talend, a tDie with no explicit code would show `0` in tLogCatcher; in v1, it would show `1`. This is a silent behavioral change that could affect error handling workflows. |
-| CONV-DIE-002 | **P2** | **Default PRIORITY mismatch**: Converter defaults `PRIORITY` to `5` (line 265), but Talend default is `0`. In Talend, priority `0` has no special severity meaning and is simply stored as-is. In v1, priority `5` maps to `logger.error()` level, which changes the visible logging behavior. A Talend job that uses the default priority `0` would silently get elevated to "error" level logging in v1. This could flood error monitoring systems with false positives. |
-| CONV-DIE-003 | **P2** | **EXIT_JVM not extracted**: The `EXIT_JVM` parameter is not extracted from the Talend XML. When a Talend job has `EXIT_JVM=true`, the v1 engine will not call `sys.exit()`. The job will terminate via exception but the process exit code will not be set to the error code value. This matters for scheduler integration (cron, Airflow, Jenkins, Control-M) and shell scripts that check `$?` or `%ERRORLEVEL%`. |
-| CONV-DIE-004 | **P2** | **EXIT_CODE may not exist in Talend XML**: The converter reads `config_raw.get('EXIT_CODE', '1')` but standard Talend tDie XML does not have an `EXIT_CODE` elementParameter. Talend uses `CODE` for both the tLogCatcher error code and the process exit code (when EXIT_JVM=true). The v1 converter introduces a synthetic `exit_code` field that will always fall back to default `1` for real Talend XML exports. This means the `exit_code` in v1 is non-configurable from the source XML and always `1`, even if the Talend job set `CODE=42`. The engine should use `code` as the exit code (matching Talend behavior) unless `EXIT_CODE` is explicitly present. |
-| CONV-DIE-005 | **P2** | **`.isdigit()` rejects expressions in CODE/PRIORITY/EXIT_CODE**: If these fields contain context variables (e.g., `context.errorCode`), Java expressions (e.g., `100 + context.offset`), or negative numbers (e.g., `-1`), `.isdigit()` returns False and the value falls back to the hardcoded default. The expression is silently lost. Should detect and preserve expression strings for runtime resolution, similar to how the MESSAGE field handles expressions. Example: `str(config_raw.get('CODE', '0')).isdigit()` evaluates `"context.errorCode".isdigit()` -> False -> falls back to `1`. The context variable is discarded without any warning or logging. |
+> **Note:** The `talend_to_v1` converter (2026-03-27) resolves CONV-DIE-001 through CONV-DIE-004. CONV-DIE-005 applies to the old `complex_converter` only.
+
+| ID | Priority | Status | Issue |
+|----|----------|--------|-------|
+| CONV-DIE-001 | ~~P2~~ | **FIXED in talend_to_v1** | **Default CODE corrected** from `1` to `0` matching Talend. |
+| CONV-DIE-002 | ~~P2~~ | **FIXED in talend_to_v1** | **Default PRIORITY corrected** from `5` to `0` matching Talend. |
+| CONV-DIE-003 | ~~P2~~ | **FIXED in talend_to_v1** | **EXIT_JVM now extracted** with engine-gap warning. |
+| CONV-DIE-004 | ~~P2~~ | **FIXED in talend_to_v1** | **Phantom EXIT_CODE removed** — not a real Talend param. Engine uses `code` as exit code. |
+| CONV-DIE-005 | **P2** | Open (complex_converter only) | **`.isdigit()` rejects expressions** — `talend_to_v1` uses safe `_get_int` helper with defaults, avoiding `.isdigit()` issue. |
 
 ---
 
@@ -583,7 +555,7 @@ Die and Warn share nearly identical patterns but have diverged in implementation
 |-----------|---------|------|-------|
 | V1 engine unit tests | **No** | -- | Zero test files found for `Die` v1 engine component. Searched `tests/v1/`, `tests/v1/unit/`, `tests/v1/integration/`. |
 | V1 engine integration tests | **No** | -- | No v1 engine integration tests for Die in a multi-component job flow. |
-| Converter unit tests | **No** | -- | No converter unit test verifies the `_map_component_parameters()` output for tDie. The existing converter test suite does not cover tDie parameter extraction. |
+| Converter unit tests | **Yes** (talend_to_v1) | `tests/converters/talend_to_v1/components/control/test_die.py` | 13 converter tests exist for the `talend_to_v1` `DieConverter`, covering all 6 parameters, defaults, and edge cases. The old `complex_converter` path (`_map_component_parameters()`) remains untested. |
 | Existing test references | **Minimal** | `tests/*/integration/test_die_on_error.py` | This tests `die_on_error` behavior in file input components, NOT the tDie/Die control component itself. Not relevant to the Die engine component. |
 
 **Key finding**: The v1 engine has ZERO tests for this component. All 205 lines of v1 engine code are completely unverified. The cross-cutting base class bugs (BUG-DIE-001, BUG-DIE-002) strongly suggest that no component in the v1 engine has been tested with a live `global_map` instance -- these bugs would have been caught immediately by any test that provides a GlobalMap.
@@ -651,7 +623,7 @@ Die and Warn share nearly identical patterns but have diverged in implementation
 |----|----------|---------|
 | ENG-DIE-001 | Engine | globalMap regex only handles `(Integer)` cast. `(String)`, `(Long)`, `(Float)`, and uncast `globalMap.get()` are silently left as literal text in the message. |
 | ENG-DIE-002 | Engine | No tLogCatcher integration. Die messages cannot be captured in a structured DataFrame for downstream processing. Breaks `tDie -> tLogCatcher -> tFileOutputDelimited` pattern. |
-| ENG-DIE-003 | Engine | No EXIT_JVM / `sys.exit()` support. Process exit code is always 0, breaking scheduler and shell integration for EXIT_JVM=true jobs. |
+| ENG-DIE-003 | Engine | No EXIT_JVM / `sys.exit()` support. Process exit code is always 0, breaking scheduler and shell integration for EXIT_JVM=true jobs. **Note**: EXIT_JVM now extracted by `talend_to_v1` converter. Engine implementation of `sys.exit()` still missing. |
 | ENG-DIE-004 | Engine | No tPostJob execution after Die. When Die fires, no cleanup code runs. Breaks connection closing, temp file deletion, notification patterns. |
 | BUG-DIE-003 | Bug | globalMap regex `(\w+)` does not match keys with dots or hyphens. Custom globalMap keys with non-word characters are silently ignored. |
 | BUG-DIE-004 | Bug | `_validate_config()` is dead code -- never called. 40 lines of unreachable validation. Invalid configs not caught until runtime. |
@@ -662,11 +634,11 @@ Die and Warn share nearly identical patterns but have diverged in implementation
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-DIE-001 | Converter | Default CODE mismatch: converter defaults to `1`, Talend defaults to `0`. |
-| CONV-DIE-002 | Converter | Default PRIORITY mismatch: converter defaults to `5` (error), Talend defaults to `0`. |
-| CONV-DIE-003 | Converter | EXIT_JVM parameter not extracted from Talend XML. |
-| CONV-DIE-004 | Converter | EXIT_CODE field may not exist in standard Talend XML; always falls back to default `1`. Engine should use `code` as exit code. |
-| CONV-DIE-005 | Converter | `.isdigit()` rejects expressions in CODE/PRIORITY/EXIT_CODE fields; expressions silently lost. |
+| CONV-DIE-001 | Converter | ~~Default CODE mismatch~~ **FIXED in talend_to_v1** — corrected to `0`. |
+| CONV-DIE-002 | Converter | ~~Default PRIORITY mismatch~~ **FIXED in talend_to_v1** — corrected to `0`. |
+| CONV-DIE-003 | Converter | ~~EXIT_JVM not extracted~~ **FIXED in talend_to_v1** — extracted with engine-gap warning. |
+| CONV-DIE-004 | Converter | ~~Phantom EXIT_CODE~~ **FIXED in talend_to_v1** — removed. Engine uses `code` as exit code. |
+| CONV-DIE-005 | Converter | `.isdigit()` rejects expressions — open for `complex_converter` only. `talend_to_v1` uses `_get_int` helper. |
 | ENG-DIE-005 | Engine | Double context resolution: message resolved in `execute()` and again in `_process()`. Harmless for simple cases; edge case for templated variables. |
 | ENG-DIE-006 | Engine | `globalMap.get(key, 0)` calls a broken method (BUG-DIE-002) and defaults missing keys to `0`, silently masking missing variable errors. |
 | ENG-DIE-007 | Engine | Priority levels 1-3 (trace, debug, info) all mapped to `logger.info()`. Should distinguish each level. Warn component does this correctly. |
@@ -674,7 +646,7 @@ Die and Warn share nearly identical patterns but have diverged in implementation
 | NAME-DIE-002 | Naming | Priority constants pattern differs from Warn: Die uses class constants, Warn uses dict. Should share common code. |
 | NAME-DIE-003 | Naming | Non-standard `JOB_ERROR_MESSAGE` and `JOB_EXIT_CODE` keys in globalMap. Useful v1 extensions but not documented as non-standard. |
 | STD-DIE-001 | Standards | `_validate_config()` exists but is never called. Dead validation code. |
-| STD-DIE-002 | Standards | Uses deprecated `_map_component_parameters()` approach instead of dedicated `parse_tdie()` method. |
+| STD-DIE-002 | Standards | ~~Uses deprecated `_map_component_parameters()`~~ **FIXED in talend_to_v1** — dedicated `DieConverter` class. |
 
 ### P3 -- Low
 
@@ -690,9 +662,9 @@ Die and Warn share nearly identical patterns but have diverged in implementation
 |----------|-------|------------|
 | P0 | 3 | 2 bugs (cross-cutting), 1 testing |
 | P1 | 8 | 4 engine, 3 bugs, 1 testing |
-| P2 | 13 | 5 converter, 3 engine, 3 naming, 2 standards |
+| P2 | 8 | ~~5 converter~~ (4 FIXED, 1 open complex_converter only), 3 engine, 3 naming, 1 standards, ~~1 standards~~ (FIXED) |
 | P3 | 3 | 1 engine, 1 performance, 1 security |
-| **Total** | **27** | |
+| **Total** | **22** | |
 
 ---
 
@@ -755,7 +727,7 @@ Die and Warn share nearly identical patterns but have diverged in implementation
    Keep the non-standard `JOB_ERROR_MESSAGE` and `JOB_EXIT_CODE` as additional convenience variables. Apply the same fix to Warn (change `_MESSAGE` to `_WARN_MESSAGE`, etc.). **Effort**: 6 line changes across 2 files.
 
 6. **Implement sys.exit() for EXIT_JVM mode** (ENG-DIE-003, BUG-DIE-005, CONV-DIE-003):
-   - In converter: Extract `EXIT_JVM` parameter: `'exit_jvm': config_raw.get('EXIT_JVM', False)`
+   - ~~In converter: Extract `EXIT_JVM` parameter~~ **DONE in talend_to_v1** (CONV-DIE-003 FIXED)
    - In engine: In `engine.execute()` exception handler (line 520), check for `exit_code`:
      ```python
      except Exception as e:
@@ -791,15 +763,15 @@ Die and Warn share nearly identical patterns but have diverged in implementation
    ```
    Also relax the priority validation from 1-6 to 0-6 (Talend allows 0). **Effort**: 5 lines.
 
-9. **Fix converter defaults to match Talend** (CONV-DIE-001, CONV-DIE-002): In component_parser.py lines 264-265:
-   ```python
+9. ~~**Fix converter defaults to match Talend** (CONV-DIE-001, CONV-DIE-002): In component_parser.py lines 264-265~~ **DONE** -- Fixed in `talend_to_v1` converter (`DieConverter` in `src/converters/talend_to_v1/components/control/die.py`). CODE defaults to `0`, PRIORITY defaults to `0`, matching Talend.
+   ~~```python
    'code': int(config_raw.get('CODE', '0')) if str(config_raw.get('CODE', '0')).isdigit() else 0,
    'priority': int(config_raw.get('PRIORITY', '0')) if str(config_raw.get('PRIORITY', '0')).isdigit() else 0,
-   ```
-   **Effort**: 2 lines changed.
+   ```~~
+   ~~**Effort**: 2 lines changed.~~
 
-10. **Fix EXIT_CODE to default from CODE** (CONV-DIE-004): The exit code should default to the error code value, not a hardcoded `1`:
-    ```python
+10. ~~**Fix EXIT_CODE to default from CODE** (CONV-DIE-004)~~ **DONE** -- Fixed in `talend_to_v1` converter. Phantom `EXIT_CODE` parameter removed entirely (not a real Talend param). The engine uses `code` as both error code and process exit code.
+    ~~```python
     code_val = int(config_raw.get('CODE', '0')) if str(config_raw.get('CODE', '0')).isdigit() else 0
     return {
         'message': config_raw.get('MESSAGE', 'Job execution stopped'),
@@ -807,8 +779,8 @@ Die and Warn share nearly identical patterns but have diverged in implementation
         'priority': ...,
         'exit_code': int(config_raw.get('EXIT_CODE', str(code_val))) if str(config_raw.get('EXIT_CODE', str(code_val))).isdigit() else code_val
     }
-    ```
-    **Effort**: 5 lines changed.
+    ```~~
+    ~~**Effort**: 5 lines changed.~~
 
 ### Long-Term (Feature Complete)
 
@@ -833,8 +805,8 @@ Die and Warn share nearly identical patterns but have diverged in implementation
 
 13. **Implement tLogCatcher** (ENG-DIE-002): Create a `LogCatcher` component that registers as a listener for Die/Warn events. When Die fires, LogCatcher captures a structured row with all 12 fields (moment, pid, root_pid, father_pid, project, job, context, priority, type, origin, message, code) and outputs it as a DataFrame. This enables the standard error-handling pattern. **Effort**: ~200 lines for the LogCatcher component + 50 lines for event registration in the engine.
 
-14. **Handle expressions in CODE/PRIORITY** (CONV-DIE-005): In the converter, detect context variables and Java expressions in CODE, PRIORITY, and EXIT_CODE fields before applying `.isdigit()`. If an expression is detected, preserve it as a string for runtime resolution:
-    ```python
+14. **Handle expressions in CODE/PRIORITY** (CONV-DIE-005): **N/A for `talend_to_v1`** -- The `talend_to_v1` converter uses `_get_int` helper from the `ComponentConverter` base class, which provides safe integer parsing with defaults and avoids the `.isdigit()` issue entirely. This recommendation applies only to the old `complex_converter`.
+    ~~```python
     code_raw = config_raw.get('CODE', '0')
     if 'context.' in str(code_raw) or detect_java_expression(str(code_raw)):
         code = code_raw  # Preserve expression for runtime resolution
@@ -842,8 +814,8 @@ Die and Warn share nearly identical patterns but have diverged in implementation
         code = int(code_raw)
     else:
         code = 0
-    ```
-    **Effort**: ~20 lines in converter.
+    ```~~
+    ~~**Effort**: ~20 lines in converter.~~
 
 15. **Refactor shared code between Die and Warn**: Extract common functionality into a shared module:
     - `src/v1/engine/components/control/log_component_base.py`: Base class with shared globalMap resolution regex, priority mapping, and variable storage
@@ -865,7 +837,10 @@ Die and Warn share nearly identical patterns but have diverged in implementation
 
 ## Appendix A: Converter Parameter Mapping Code
 
+> **SUPERSEDED (2026-03-27)**: This appendix documents the old `complex_converter` code. The active converter is now `src/converters/talend_to_v1/components/control/die.py` (`DieConverter` class) with 6/6 params, correct CODE=0 and PRIORITY=0 defaults, and 1 engine-gap warning.
+
 ```python
+# OLD complex_converter code (superseded by talend_to_v1)
 # component_parser.py lines 261-267
 # Die mapping
 elif component_type == 'tDie':
@@ -968,15 +943,17 @@ Die (BaseComponent)
 
 ## Appendix C: Complete Talend Parameter to V1 Config Key Reference
 
+> **Updated (2026-03-27)**: Table updated to reflect `talend_to_v1` converter state.
+
 | Talend Parameter | V1 Config Key | Status | Default (Talend) | Default (V1) | Priority to Fix |
 |------------------|---------------|--------|------------------|--------------|-----------------|
 | `MESSAGE` | `message` | Mapped | `""` (empty) | `"Job execution stopped"` | Low (v1 default is more helpful) |
-| `CODE` | `code` | Mapped | `0` | `1` | P2 (fix to match Talend: `0`) |
-| `PRIORITY` | `priority` | Mapped | `0` | `5` | P2 (fix to match Talend: `0`) |
-| `EXIT_CODE` | `exit_code` | Mapped (synthetic) | N/A (not in Talend XML) | `1` | P2 (should default to `code` value) |
-| `EXIT_JVM` | -- | **Not Mapped** | `false` | N/A | P2 (extract and support `sys.exit()`) |
-| `TSTATCATCHER_STATS` | -- | Not needed | `false` | N/A | -- (tStatCatcher rarely used) |
-| `LABEL` | -- | Not needed | `""` | N/A | -- (cosmetic) |
+| `CODE` | `code` | Mapped | `0` | `0` | ~~P2~~ **FIXED** (talend_to_v1 default matches Talend) |
+| `PRIORITY` | `priority` | Mapped | `0` | `0` | ~~P2~~ **FIXED** (talend_to_v1 default matches Talend) |
+| `EXIT_CODE` | -- | Removed (phantom param) | N/A (not in Talend XML) | N/A | ~~P2~~ **FIXED** (removed in talend_to_v1 -- not a real Talend param) |
+| `EXIT_JVM` | `exit_jvm` | Mapped (talend_to_v1) | `false` | `false` | ~~P2~~ **FIXED** (extracted; engine `sys.exit()` still missing) |
+| `TSTATCATCHER_STATS` | `tstatcatcher_stats` | Mapped | `false` | `false` | -- |
+| `LABEL` | `label` | Mapped | `""` | `""` | -- (cosmetic) |
 
 ---
 
@@ -1364,10 +1341,10 @@ Before deploying the v1 Die component to production, the following items must be
 
 ### Recommended Fix (P2)
 
-- [ ] **CONV-DIE-001**: Fix default CODE from 1 to 0
-- [ ] **CONV-DIE-002**: Fix default PRIORITY from 5 to 0
-- [ ] **CONV-DIE-003**: Extract EXIT_JVM parameter from Talend XML
-- [ ] **CONV-DIE-004**: Default EXIT_CODE to CODE value instead of hardcoded 1
+- [x] **CONV-DIE-001**: Fix default CODE from 1 to 0 **(FIXED in talend_to_v1)**
+- [x] **CONV-DIE-002**: Fix default PRIORITY from 5 to 0 **(FIXED in talend_to_v1)**
+- [x] **CONV-DIE-003**: Extract EXIT_JVM parameter from Talend XML **(FIXED in talend_to_v1)**
+- [x] **CONV-DIE-004**: Default EXIT_CODE to CODE value instead of hardcoded 1 **(FIXED in talend_to_v1 -- EXIT_CODE removed as phantom param)**
 - [ ] **ENG-DIE-007**: Fix priority mapping for levels 1-3 to match Warn component
 
 ### Verification Steps
@@ -1404,10 +1381,11 @@ Before deploying the v1 Die component to production, the following items must be
 | Date | Version | Change |
 |------|---------|--------|
 | 2026-03-21 | 1.0 | Initial audit report created. Found 27 issues: 3 P0, 8 P1, 13 P2, 3 P3. |
+| 2026-03-27 | 1.1 | Updated for `talend_to_v1` converter migration. CONV-DIE-001 through CONV-DIE-004 marked FIXED. Appendix C table updated. Stale `complex_converter` references annotated. 13 converter tests noted. |
 
 **Audit methodology**: This report was produced by:
 1. Reading the complete source code of `die.py` (205 lines), `warn.py` (214 lines for comparison), `base_component.py` (382 lines), `global_map.py` (87 lines), `exceptions.py` (51 lines), and `engine.py` (lines 42, 175-176, 394-536, 538-620, 832-888)
-2. Reading the converter code in `component_parser.py` (lines 83, 253-267) and `converter.py` (lines 216-285)
+2. Reading the converter code in `component_parser.py` (lines 83, 253-267) and `converter.py` (lines 216-285). **Note**: The active converter is now `DieConverter` in `src/converters/talend_to_v1/components/control/die.py` (6/6 params, 13 converter tests).
 3. Researching Talend tDie behavior via official documentation ([Talend 7.3](https://help.qlik.com/talend/en-US/components/7.3/logs-and-errors/tdie-standard-properties), [Talend 8.0](https://help.qlik.com/talend/en-US/components/8.0/logs-and-errors/tdie)), community resources, and generated Java code analysis
 4. Searching for existing tests (found zero v1 Die tests)
 5. Comparing with the gold standard audit format from `tFileInputDelimited.md`
