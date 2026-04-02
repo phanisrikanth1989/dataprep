@@ -84,7 +84,33 @@ class FixedFlowInputConverter(ComponentConverter):
             "schema": schema_columns,
             "values_config": values_config,
             "rows": rows,
+            # Engine compatibility
+            "die_on_error": self._get_bool(node, "DIE_ON_ERROR", True),
+            # Metadata
+            "tstatcatcher_stats": self._get_bool(node, "TSTATCATCHER_STATS", False),
+            "label": self._get_str(node, "LABEL"),
         }
+
+        # Engine-gap warnings
+        if config["use_intable"]:
+            warnings.append(
+                "USE_INTABLE=true: INTABLE table parsing not yet implemented; "
+                "null rows will be generated"
+            )
+        if config["use_inlinecontent"]:
+            warnings.append(
+                "USE_INLINECONTENT=true: engine strips leading/trailing whitespace "
+                "from inline field values; if data contains significant whitespace, "
+                "values may differ from Talend behavior"
+            )
+
+        # Check if NB_ROWS was a dynamic variable (silently defaulted by _get_int)
+        raw_nb_rows = self._get_str(node, "NB_ROWS")
+        if raw_nb_rows and not raw_nb_rows.lstrip("-").isdigit():
+            warnings.append(
+                f"NB_ROWS contains dynamic variable '{raw_nb_rows}': engine does not "
+                f"support context resolution for NB_ROWS and will crash with ValueError"
+            )
 
         component = self._build_component_dict(
             node=node,

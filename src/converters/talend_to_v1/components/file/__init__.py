@@ -16,6 +16,7 @@ from . import file_input_xml  # noqa: F401
 from . import file_list  # noqa: F401
 from . import file_output_delimited  # noqa: F401
 from . import file_output_ebcdic  # noqa: F401
+from . import file_output_excel  # noqa: F401
 from . import file_output_positional  # noqa: F401
 from . import file_output_xml  # noqa: F401
 from . import file_properties  # noqa: F401

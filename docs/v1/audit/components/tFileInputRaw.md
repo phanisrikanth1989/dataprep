@@ -3,8 +3,10 @@
 > **Audited**: 2026-03-21
 > **Auditor**: Claude Opus 4.6 (automated) -- GOLD STANDARD TEMPLATE
 > **Engine Version**: v1
-> **Converter**: `complex_converter`
+> **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
+
+> **Converter Update (2026-04-02)**: Converter section updated to reflect talend_to_v1 enhancements. 8 config keys (was 4). Encoding fixed to ISO-8859-15. All 3 radio modes captured (AS_STRING, AS_BYTEARRAY, AS_INPUTSTREAM). type_name fixed from TFileInputRaw to FileInputRaw. 1 engine-gap warning (stream mode). 15 converter tests.
 
 ---
 
@@ -39,7 +41,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **Y** | 0 | 3 | 1 | 1 | 4 of 6 Talend params extracted (67%); missing Stream mode, no Java expression marking on FILENAME; crash on missing XML nodes; duplicate config keys from Phase 1 |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 8 config keys extracted (was 4). Encoding fixed to ISO-8859-15. All 3 radio modes captured. type_name fixed. 15 converter tests. See Converter Update note. |
 | Engine Feature Parity | **Y** | 0 | 3 | 2 | 0 | No FILENAME_PATH/ERROR_MESSAGE globalMap; hardcoded column name; no stream mode; die_on_error defaults to False |
 | Code Quality | **R** | 2 | 4 | 5 | 5 | debug_content() logs at INFO; _validate_config() dead code; overly broad exception; base class bugs cross-cutting; binary mode zero diagnostics; validate_schema() dead metadata |
 | Performance & Memory | **Y** | 0 | 1 | 1 | 1 | No large-file protection; unconditional debug_content() cost; DataFrame overhead for single value |
@@ -146,6 +148,8 @@ Unlike `tFileInputDelimited` (which splits rows and columns), `tFileInputRaw` de
 
 ## 4. Converter Audit
 
+> **Note (2026-04-02)**: The subsections below (4.1 through 4.x) describe the old `complex_converter` code paths and are retained for historical reference. The active converter is `talend_to_v1` — see the Converter Update note at the top of this report and the CONV-* issue disposition table at the end of this section for current status.
+
 ### 4.1 Parsing Architecture
 
 tFileInputRaw follows a **two-phase parsing** approach:
@@ -216,11 +220,11 @@ Schema extraction happens generically in `parse_base_component()` (Phase 1):
 
 | ID | Priority | Issue |
 |----|----------|-------|
-| CONV-FIR-001 | **P1** | **Stream mode not distinguished**: The `AS_STRING` boolean only captures two of the three Talend modes. "Stream file" mode (real-time file monitoring) has no representation in the extracted config. While streaming is an advanced feature, any Talend job using it will silently fall back to string-read behavior. The converter should extract the `MODE` parameter value (`STRING`, `BYTE_ARRAY`, `STREAM`) and map it to a three-valued config key. |
-| CONV-FIR-002 | **P2** | **Java expression marking bypassed**: `parse_t_file_input_raw` extracts `FILENAME` directly from the XML node with `strip('"')`, bypassing the `mark_java_expression()` step from Phase 1. If the filename is a Java expression like `context.input_dir + "/data.raw"`, it will not be properly marked for resolution. The engine's `_resolve_java_expressions()` requires the `{{java}}` prefix. Should add: `filename = self.expr_converter.mark_java_expression(filename)`. |
-| CONV-FIR-003 | **P1** | **Converter maps to `TFileInputRaw` with leading `T`**: In `component_parser.py` line 27, the mapping is `'tFileInputRaw': 'TFileInputRaw'`. This preserves the Talend `t` prefix as an uppercase `T`. Other components follow the pattern of dropping the `t` prefix entirely (e.g., `'tFileInputDelimited': 'FileInputDelimited'`, `'tFileCopy': 'FileCopy'`). While the engine compensates by registering both `TFileInputRaw` and `tFileInputRaw` as aliases (engine.py lines 80-81), this inconsistency could cause lookup failures if only the standard `FileInputRaw` name is used. |
-| CONV-FIR-004 | **P3** | **Duplicate config keys**: Phase 1 populates both Talend-named keys (`FILENAME`, `AS_STRING`, `ENCODING`, `DIE_ON_ERROR`, `LABEL`, etc.) and Phase 2 adds Python-named duplicates (`filename`, `as_string`, `encoding`, `die_on_error`). The config dictionary is polluted with unused keys. No functional impact but complicates debugging and increases serialized JSON size. |
-| CONV-FIR-006 | **P1** | **Converter crashes with AttributeError on missing XML parameter nodes**: Lines 2107-2110 chain `.find(...).get(...)` with no null checks. If any of the `elementParameter` nodes (`FILENAME`, `AS_STRING`, `ENCODING`, `DIE_ON_ERROR`) are absent from the Talend XML, `.find()` returns `None` and the subsequent `.get()` call raises `AttributeError: 'NoneType' object has no attribute 'get'`. The converter should guard each `.find()` result before calling `.get()`, or use a safe extraction helper. This is a crash-path bug that will surface on any non-standard or hand-edited Talend XML missing expected parameters. |
+| CONV-FIR-001 | ~~P1~~ FIXED | **Stream mode not distinguished**: ~~The `AS_STRING` boolean only captures two of the three Talend modes.~~ FIXED in talend_to_v1 (all 3 radio modes captured: AS_STRING, AS_BYTEARRAY, AS_INPUTSTREAM). |
+| CONV-FIR-002 | ~~P2~~ NOT AN ISSUE | **Java expression marking bypassed**: ~~`parse_t_file_input_raw` extracts `FILENAME` directly from the XML node with `strip('"')`, bypassing the `mark_java_expression()` step from Phase 1.~~ NOT AN ISSUE for talend_to_v1 (complex_converter only). |
+| CONV-FIR-003 | ~~P1~~ FIXED | **Converter maps to `TFileInputRaw` with leading `T`**: ~~In `component_parser.py` line 27, the mapping is `'tFileInputRaw': 'TFileInputRaw'`.~~ FIXED in talend_to_v1 (type_name changed to FileInputRaw). |
+| CONV-FIR-004 | ~~P3~~ NOT AN ISSUE | **Duplicate config keys**: ~~Phase 1 populates both Talend-named keys and Phase 2 adds Python-named duplicates.~~ NOT AN ISSUE for talend_to_v1 (complex_converter only). |
+| CONV-FIR-006 | ~~P1~~ NOT AN ISSUE | **Converter crashes with AttributeError on missing XML parameter nodes**: ~~Lines 2107-2110 chain `.find(...).get(...)` with no null checks.~~ NOT AN ISSUE for talend_to_v1 (_get_str/_get_bool handle missing params). |
 
 ---
 
@@ -495,9 +499,9 @@ The component reads the **entire file into memory** in a single `file.read()` ca
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-FIR-001 | Converter | Stream mode not distinguished. Only two of three Talend modes are captured. `AS_STRING` boolean cannot represent the three-mode choice. |
-| CONV-FIR-003 | Converter | Converter maps to `TFileInputRaw` with leading `T`, inconsistent with all other components that drop the `t` prefix. |
-| CONV-FIR-006 | Converter (Crash) | Converter crashes with `AttributeError` on missing XML parameter nodes. Lines 2107-2110 chain `.find(...).get(...)` with no null checks. |
+| CONV-FIR-001 | ~~Converter~~ FIXED | ~~Stream mode not distinguished.~~ FIXED in talend_to_v1 (all 3 radio modes captured). |
+| CONV-FIR-003 | ~~Converter~~ FIXED | ~~Converter maps to `TFileInputRaw` with leading `T`.~~ FIXED in talend_to_v1 (type_name changed to FileInputRaw). |
+| CONV-FIR-006 | ~~Converter (Crash)~~ NOT AN ISSUE | ~~Converter crashes with `AttributeError` on missing XML parameter nodes.~~ NOT AN ISSUE for talend_to_v1 (_get_str/_get_bool handle missing params). |
 | DEAD-FIR-001 | Code Quality | `_validate_config()` is never called. Dead code providing false sense of safety. Missing filename will cause obscure `TypeError` instead of clear error. |
 | DEAD-FIR-002 | Code Quality | `debug_content()` method is a development artifact that should not exist in production. |
 | ENG-FIR-001 | Feature Gap | `{id}_FILENAME_PATH` GlobalMap variable not set. Downstream audit/trigger flows broken. |
@@ -511,7 +515,7 @@ The component reads the **entire file into memory** in a single `file.read()` ca
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-FIR-002 | Converter | Java expression marking bypassed in `parse_t_file_input_raw`. Filenames with Java expressions won't resolve. |
+| CONV-FIR-002 | ~~Converter~~ NOT AN ISSUE | ~~Java expression marking bypassed in `parse_t_file_input_raw`.~~ NOT AN ISSUE for talend_to_v1 (complex_converter only). |
 | ENG-FIR-004 | Feature Gap | Hardcoded column name `'content'` ignores schema-defined output column names. Breaks downstream components expecting differently-named columns. |
 | ENG-FIR-005 | Feature Gap | "Stream file" mode not implemented. Jobs using it silently degrade. |
 | ENG-FIR-006 | Feature Gap | Python text mode may convert `\r\n` to `\n`. Talend preserves original line endings. |
@@ -527,7 +531,7 @@ The component reads the **entire file into memory** in a single `file.read()` ca
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-FIR-004 | Converter | Duplicate config keys from Phase 1 residual. No functional impact. |
+| CONV-FIR-004 | ~~Converter~~ NOT AN ISSUE | ~~Duplicate config keys from Phase 1 residual.~~ NOT AN ISSUE for talend_to_v1 (complex_converter only). |
 | BUG-FIR-005 | Bug | Error stats: `NB_LINE=1, NB_LINE_OK=0, NB_LINE_REJECT=0` violates `NB_LINE == NB_LINE_OK + NB_LINE_REJECT` invariant. Downgraded from P1: Talend's tFileInputRaw does not expose NB_LINE stats, so no downstream consumer expects this invariant. |
 | NAME-FIR-003 | Naming | Config key `filename` inconsistent with `filepath` used by other file components. |
 | STD-FIR-003 | Standards | `_process()` docstring lacks behavioral variation documentation. |
@@ -540,10 +544,10 @@ The component reads the **entire file into memory** in a single `file.read()` ca
 | Priority | Count | Categories |
 |----------|-------|------------|
 | P0 | 4 | 3 bugs (1 component, 2 cross-cutting), 1 testing |
-| P1 | 11 | 3 converter (incl. CONV-FIR-006 crash), 2 dead code, 2 engine, 2 bugs (incl. BUG-FIR-008 binary diagnostics), 1 performance, 1 testing |
-| P2 | 11 | 1 converter, 3 engine, 1 exception, 1 bug cross-cutting (BUG-FIR-009 validate_schema dead metadata), 2 naming, 2 standards, 1 performance |
-| P3 | 7 | 1 converter, 1 bug (BUG-FIR-005 downgraded from P1), 1 naming, 1 standards, 2 security, 1 performance |
-| **Total** | **33** | |
+| P1 | 8 | ~~3 converter~~ 0 converter (CONV-FIR-001 FIXED, CONV-FIR-003 FIXED, CONV-FIR-006 NOT AN ISSUE), 2 dead code, 2 engine, 2 bugs (incl. BUG-FIR-008 binary diagnostics), 1 performance, 1 testing |
+| P2 | 10 | ~~1 converter~~ 0 converter (CONV-FIR-002 NOT AN ISSUE), 3 engine, 1 exception, 1 bug cross-cutting (BUG-FIR-009 validate_schema dead metadata), 2 naming, 2 standards, 1 performance |
+| P3 | 6 | ~~1 converter~~ 0 converter (CONV-FIR-004 NOT AN ISSUE), 1 bug (BUG-FIR-005 downgraded from P1), 1 naming, 1 standards, 2 security, 1 performance |
+| **Total** | **28** | (was 33; 5 converter issues resolved by talend_to_v1) |
 
 ---
 
@@ -640,6 +644,8 @@ The component reads the **entire file into memory** in a single `file.read()` ca
 
 ## Appendix A: Converter Parameter Mapping Code
 
+> **SUPERSEDED**: This appendix documents the old `complex_converter` code. The `talend_to_v1` converter now handles tFileInputRaw with 8 config keys, all 3 radio modes, safe parameter extraction via `_get_str`/`_get_bool`, and correct type_name `FileInputRaw`.
+
 ```python
 # component_parser.py lines 2104-2118
 def parse_t_file_input_raw(self, node, component: Dict) -> Dict:
@@ -699,6 +705,8 @@ FileInputRaw (BaseComponent)
 ---
 
 ## Appendix C: Complete Talend Parameter to V1 Config Key Reference
+
+> **SUPERSEDED**: This appendix documents the old `complex_converter` parameter mapping. The `talend_to_v1` converter now maps 8 config keys including `as_bytearray`, `as_inputstream`, `tstatcatcher_stats`, and `label`, with encoding fixed to ISO-8859-15.
 
 | Talend Parameter | V1 Config Key | Status | Priority to Add |
 |------------------|---------------|--------|-----------------|

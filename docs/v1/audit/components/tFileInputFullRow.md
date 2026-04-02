@@ -3,8 +3,10 @@
 > **Audited**: 2026-03-21
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
-> **Converter**: `complex_converter`
+> **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
+
+> **Converter Update (2026-04-02)**: Converter section updated to reflect talend_to_v1 enhancements. 12 config keys (was 5). Encoding fixed to ISO-8859-15. remove_empty_row fixed to True. Limit changed from int to string (matching engine). Added header_rows, footer_rows, die_on_error, random, nb_random, tstatcatcher_stats, label. 4 engine-gap warnings. 19 converter tests.
 
 ---
 
@@ -40,7 +42,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **Y** | 0 | 5 | 3 | 1 | 5 of 12 runtime Talend params extracted (42%); missing HEADER, FOOTER, DIE_ON_ERROR; FILENAME not quote-stripped; dead code parser; row_separator quote-strip crash; encoding not quote-stripped |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 12 config keys covering all runtime-relevant params; `talend_to_v1` converter with correct defaults (encoding=ISO-8859-15, remove_empty_row=True); header_rows, footer_rows, die_on_error, random, nb_random, tstatcatcher_stats, label added; 4 engine-gap warnings; 19 converter tests |
 | Engine Feature Parity | **Y** | 0 | 5 | 2 | 1 | No header/footer skip; no REJECT flow; hardcoded column name; no ERROR_MESSAGE/FILENAME globalMap; limit=0 reads zero rows |
 | Code Quality | **Y** | 1 | 4 | 6 | 5 | unicode_escape crash risk; \r\n normalization bug; limit type fragility; dual validation methods; strip() filters whitespace-only lines |
 | Performance & Memory | **Y** | 0 | 1 | 1 | 1 | Entire file loaded into memory; intermediate list for filtering; suboptimal DataFrame construction |
@@ -149,6 +151,8 @@ The component belongs to the **File** family and is available in the Standard Jo
 
 ## 4. Converter Audit
 
+> **Note (2026-04-02)**: The subsections below (4.1 through 4.x) describe the old `complex_converter` code paths and are retained for historical reference. The active converter is `talend_to_v1` — see the Converter Update note at the top of this report and the CONV-* issue disposition table at the end of this section for current status.
+
 ### 4.1 Converter Architecture
 
 The complex converter has a dedicated dispatch for `tFileInputFullRow` at `converter.py` line 254:
@@ -236,13 +240,13 @@ If a Talend XML node for `tFileInputFullRow` is missing the `FILENAME` element (
 
 | ID | Priority | Issue |
 |----|----------|-------|
-| CONV-FIFR-001 | **P1** | **`HEADER` not extracted by complex converter**: The `parse_tfileinputfullrow()` method does not extract the `HEADER` parameter. Talend jobs that skip header rows will lose this setting during conversion, causing the header line(s) to appear as data rows in the output. |
-| CONV-FIFR-002 | **P1** | **`FOOTER` not extracted by complex converter**: The `parse_tfileinputfullrow()` method does not extract the `FOOTER` parameter. Talend jobs that skip footer rows will include trailer lines in the output data. |
-| CONV-FIFR-003 | **P1** | **`FILENAME` not quote-stripped in active parser**: The active `parse_tfileinputfullrow()` uses `.get('value', '')` without stripping quotes. Talend stores string parameters with surrounding double quotes (e.g., `"C:/data/file.txt"`). The dead code parser correctly calls `.strip('"')`, but the active parser does not, potentially passing literal quote characters in the file path. The engine will then try to open a file with quotes in the path, which will fail with `FileNotFoundError`. |
-| CONV-FIFR-004 | **P2** | **`DIE_ON_ERROR` not extracted by any converter path**: Neither the active parser nor the dead code parser extracts `DIE_ON_ERROR`. The v1 engine defaults to `True` internally, but jobs where it was explicitly set to `false` in Talend will not have graceful error handling after conversion. |
-| CONV-FIFR-005 | **P2** | **Dead code: `parse_file_input_full_row()` is never called**: The method at line 1073 is dead code. The converter dispatch at `converter.py:254` calls `parse_tfileinputfullrow()` instead. This creates confusion about which parser is canonical and has a naming inconsistency (`remove_empty_rows` vs `remove_empty_row`). |
-| CONV-FIFR-006 | **P2** | **Config key `filename` vs `filepath` naming**: The complex converter stores the file path as `filename` in the v1 config. However, other v1 file input components (e.g., `FileInputDelimited`) use `filepath`. This inconsistency means any generic code that expects `filepath` will not find the file path for this component. |
-| CONV-FIFR-007 | **P3** | **`RANDOM`/`NB_RANDOM` not extracted**: Random line extraction is not supported by any converter or engine. Low priority as this is a rarely used feature. |
+| CONV-FIFR-001 | ~~P1~~ | ~~**`HEADER` not extracted by complex converter**~~ **FIXED in talend_to_v1**: The `talend_to_v1` converter now extracts `HEADER` as `header_rows`. |
+| CONV-FIFR-002 | ~~P1~~ | ~~**`FOOTER` not extracted by complex converter**~~ **FIXED in talend_to_v1**: The `talend_to_v1` converter now extracts `FOOTER` as `footer_rows`. |
+| CONV-FIFR-003 | ~~P1~~ | ~~**`FILENAME` not quote-stripped in active parser**~~ **NOT AN ISSUE for talend_to_v1**: The `_get_str` helper handles quote-stripping automatically. |
+| CONV-FIFR-004 | ~~P2~~ | ~~**`DIE_ON_ERROR` not extracted by any converter path**~~ **FIXED in talend_to_v1**: `die_on_error` added with engine-matching default `True`. |
+| CONV-FIFR-005 | ~~P2~~ | ~~**Dead code: `parse_file_input_full_row()` is never called**~~ **NOT AN ISSUE for talend_to_v1**: This dead code exists only in `complex_converter`. The `talend_to_v1` converter is a separate, clean implementation. |
+| CONV-FIFR-006 | ~~P2~~ | ~~**Config key `filename` vs `filepath` naming**~~ Intentionally kept as `filename` -- engine reads `self.config.get('filename')`. |
+| CONV-FIFR-007 | ~~P3~~ | ~~**`RANDOM`/`NB_RANDOM` not extracted**~~ **FIXED in talend_to_v1**: `random` and `nb_random` extracted with engine-gap warning. |
 
 ---
 
@@ -385,7 +389,7 @@ The component has good logging that follows STANDARDS.md patterns:
 
 | ID | Priority | Issue |
 |----|----------|-------|
-| DEAD-FIFR-001 | **P2** | **`parse_file_input_full_row()` in `component_parser.py` (lines 1073-1088) is dead code**: This method is never called by any dispatch path. The converter dispatch at `converter.py:254` calls `parse_tfileinputfullrow()` instead. The dead code has different behavior (quote stripping, different config key naming) which creates confusion. Should be deleted or consolidated with the active parser. |
+| DEAD-FIFR-001 | ~~P2~~ | ~~**`parse_file_input_full_row()` in `component_parser.py` (lines 1073-1088) is dead code**~~ NOT AN ISSUE for talend_to_v1: This dead code exists only in `complex_converter`. The `talend_to_v1` converter is a separate, clean implementation. |
 
 ### 6.9 Security
 
@@ -496,9 +500,9 @@ The component has good logging that follows STANDARDS.md patterns:
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-FIFR-001 | Converter | `HEADER` not extracted by complex converter -- header rows appear as data |
-| CONV-FIFR-002 | Converter | `FOOTER` not extracted by complex converter -- footer rows appear as data |
-| CONV-FIFR-003 | Converter | `FILENAME` not quote-stripped in active parser -- literal quotes in file path cause FileNotFoundError |
+| CONV-FIFR-001 | ~~Converter~~ | ~~`HEADER` not extracted by complex converter~~ FIXED in talend_to_v1 |
+| CONV-FIFR-002 | ~~Converter~~ | ~~`FOOTER` not extracted by complex converter~~ FIXED in talend_to_v1 |
+| CONV-FIFR-003 | ~~Converter~~ | ~~`FILENAME` not quote-stripped in active parser~~ NOT AN ISSUE for talend_to_v1 |
 | ENG-FIFR-001 | Engine | No header row skipping in v1 engine -- HEADER config parameter not consumed |
 | ENG-FIFR-002 | Engine | No footer row skipping in v1 engine -- FOOTER config parameter not consumed |
 | ENG-FIFR-003 | Engine | No REJECT flow -- error rows are lost or cause job failure |
@@ -517,9 +521,9 @@ The component has good logging that follows STANDARDS.md patterns:
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-FIFR-004 | Converter | `DIE_ON_ERROR` not extracted by any converter path |
-| CONV-FIFR-005 | Converter | Dead code: `parse_file_input_full_row()` is never called |
-| CONV-FIFR-006 | Converter | Config key `filename` vs `filepath` naming inconsistency across v1 components |
+| CONV-FIFR-004 | ~~Converter~~ | ~~`DIE_ON_ERROR` not extracted by any converter path~~ FIXED in talend_to_v1 |
+| CONV-FIFR-005 | ~~Converter~~ | ~~Dead code: `parse_file_input_full_row()` is never called~~ NOT AN ISSUE for talend_to_v1 |
+| CONV-FIFR-006 | ~~Converter~~ | ~~Config key `filename` vs `filepath` naming~~ Intentionally kept as `filename` |
 | ENG-FIFR-005 | Engine | `{id}_ERROR_MESSAGE` not set in globalMap |
 | ENG-FIFR-006 | Engine | `{id}_FILENAME` not set in globalMap |
 | NAME-FIFR-001 | Naming | Config key singular/plural inconsistency (`remove_empty_row` vs `remove_empty_rows`) |
@@ -527,7 +531,7 @@ The component has good logging that follows STANDARDS.md patterns:
 | STD-FIFR-001 | Standards | `_validate_config()` does not validate `row_separator` |
 | STD-FIFR-002 | Standards | `_validate_config()` does not validate `die_on_error` type |
 | STD-FIFR-003 | Standards | Dual `validate_config()` / `_validate_config()` methods |
-| DEAD-FIFR-001 | Dead Code | `parse_file_input_full_row()` is dead code (duplicate: CONV-FIFR-005) |
+| DEAD-FIFR-001 | ~~Dead Code~~ | ~~`parse_file_input_full_row()` is dead code~~ NOT AN ISSUE for talend_to_v1 (complex_converter only) |
 | PERF-FIFR-002 | Performance | Intermediate list created for empty row filtering |
 | BUG-FIFR-012 | Bug | `remove_empty_row` uses `strip()` which filters whitespace-only lines. Talend only removes truly empty (zero-length) lines. Data loss for whitespace-preserving files. |
 | ERR-FIFR-001 | Error Handling | `FileNotFoundError` re-raised without wrapping in `FileOperationError` |
@@ -537,7 +541,7 @@ The component has good logging that follows STANDARDS.md patterns:
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-FIFR-007 | Converter | `RANDOM`/`NB_RANDOM` not extracted (rarely used) |
+| CONV-FIFR-007 | ~~Converter~~ | ~~`RANDOM`/`NB_RANDOM` not extracted~~ FIXED in talend_to_v1 |
 | ENG-FIFR-007 | Engine | `\r\n` normalization may alter data compared to Talend behavior |
 | NAME-FIFR-003 | Naming | File name `file_input_fullrow.py` naming convention |
 | NAME-FIFR-004 | Naming | Class name `FileInputFullRowComponent` suffix inconsistency |
@@ -686,6 +690,8 @@ The component has good logging that follows STANDARDS.md patterns:
 
 ## Appendix A: Converter Parameter Mapping Code
 
+> **SUPERSEDED (2026-04-02)**: This appendix documents the old `complex_converter` code. The active converter is now `src/converters/talend_to_v1/components/file/file_input_fullrow.py` (`FileInputFullRowConverter` class) with 12 config keys, correct defaults (encoding=ISO-8859-15, remove_empty_row=True), header_rows/footer_rows/die_on_error/random/nb_random added, and 4 engine-gap warnings. 19 converter tests.
+
 ### Active Parser: `parse_tfileinputfullrow()` (lines 1090-1097)
 
 ```python
@@ -709,6 +715,8 @@ def parse_tfileinputfullrow(self, node, component: Dict) -> Dict:
 - No null safety: If any `elementParameter` is missing from the XML, `node.find()` returns `None` and `.get()` raises `AttributeError`.
 
 ### Dead Code Parser: `parse_file_input_full_row()` (lines 1073-1088)
+
+> **SUPERSEDED (2026-04-02)**: This dead code exists only in `complex_converter`. The active converter is now `src/converters/talend_to_v1/components/file/file_input_fullrow.py` (`FileInputFullRowConverter` class), which is a clean implementation with no dead code.
 
 ```python
 def parse_file_input_full_row(self, node, component: Dict) -> Dict:
@@ -773,6 +781,8 @@ BaseComponent.execute(input_data)
 ---
 
 ## Appendix C: Complete Talend Parameter to V1 Config Key Reference
+
+> **SUPERSEDED (2026-04-02)**: This appendix documents the old `complex_converter` parameter mapping. The active converter is now `src/converters/talend_to_v1/components/file/file_input_fullrow.py` (`FileInputFullRowConverter` class) which maps all 12 runtime-relevant parameters with correct defaults and engine-gap warnings.
 
 | Talend Parameter | V1 Config Key | Status | Priority to Add |
 |------------------|---------------|--------|-----------------|

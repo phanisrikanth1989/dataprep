@@ -3,8 +3,9 @@
 > **Audited**: 2026-03-21
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
-> **Converter**: `complex_converter`
+> **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
+> **Converter Update (2026-04-01)**: Converter section updated to reflect migration from `complex_converter` to `talend_to_v1`. 23/25 params now extracted (was 17/23). 3 defaults fixed (encoding ISO-8859-15, remove_empty_row True, trim_all True). FORMATS and TRIMSELECT TABLE parsing added. 5 engine-gap warnings. 18 converter tests.
 
 ---
 
@@ -39,7 +40,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **Y** | 0 | 2 | 3 | 1 | 16 of 23 Talend params extracted (70%); dedicated `_map_component_parameters()` branch exists but missing `CUSTOMIZE`, `USE_BYTE_LENGTH`, per-column padding |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 23 of 25 Talend params extracted (92%); `talend_to_v1` converter with correct defaults; FORMATS and TRIMSELECT TABLE parsing; 5 engine-gap warnings; 18 converter tests |
 | Engine Feature Parity | **Y** | 0 | 5 | 3 | 2 | No REJECT flow; no compressed file reading; no `{id}_ERROR_MESSAGE` globalMap; no streaming mode for positional files; no per-column customize/padding |
 | Code Quality | **R** | 2 | 6 | 6 | 2 | Cross-cutting base class bugs; dead `_validate_config()`; `id_Boolean` mapped to `object`; advanced separator applied to ALL object columns; `check_date` ignores schema date pattern; `remove_empty_row` doesn't catch blank-but-not-NaN rows; `skipfooter`+`nrows` interaction wrong; UTF-8 BOM corrupts first field |
 | Performance & Memory | **G** | 0 | 0 | 2 | 1 | No streaming mode (batch only); post-processing iterates string columns twice; BigDecimal uses slow `apply()` |
@@ -164,6 +165,8 @@ When `CUSTOMIZE=true`, per-column settings become available:
 
 ## 4. Converter Audit
 
+> **Note (2026-04-02)**: The subsections below (4.1 through 4.x) describe the old `complex_converter` code paths and are retained for historical reference. The active converter is `talend_to_v1` — see the Converter Update note at the top of this report and the CONV-* issue disposition table at the end of this section for current status.
+
 ### 4.1 Parameter Extraction
 
 The converter uses the `_map_component_parameters()` method in `component_parser.py` (lines 150-171) with a dedicated `elif component_type == 'tFileInputPositional'` branch within that method. Unlike some components, this one HAS a specific mapping branch in `_map_component_parameters()`. However, there is NO dedicated `elif` branch in `converter.py:_parse_component()` -- it falls through to the generic `parse_base_component()` path.
@@ -244,11 +247,11 @@ Schema is extracted generically in `parse_base_component()` (lines 475-508 of `c
 
 | ID | Priority | Issue |
 |----|----------|-------|
-| CONV-FIP-001 | **P1** | **No dedicated parser method in `converter.py`**: `tFileInputPositional` has no dedicated `elif` branch in `converter.py:_parse_component()`. It falls through to generic `parse_base_component()` which then dispatches via `_map_component_parameters()`. While `_map_component_parameters()` DOES have a dedicated branch (lines 150-171), the lack of a dedicated parser method in `converter.py` prevents extraction of table parameters (`CUSTOMIZE` sub-params) and limits extensibility. Per STANDARDS.md, every component SHOULD have its own `parse_*` method for complex parameters. |
-| CONV-FIP-002 | **P1** | **`DIE_ON_ERROR` default mismatch**: Converter defaults `DIE_ON_ERROR` to `False` (line 164: `config_raw.get('DIE_ON_ERROR', False)`), but Talend documentation states default is `true` for this component. If a Talend job does not explicitly set `die_on_error`, the converter produces `False`, which differs from Talend behavior. This silences errors that Talend would have surfaced. |
-| CONV-FIP-003 | **P2** | **`CUSTOMIZE` not extracted**: Per-column padding character and alignment settings are unavailable. This is a table parameter that the generic mapper cannot parse. For positional files, this is important because fields are commonly padded with specific characters (spaces, zeros) and the Customize section defines how to strip them. Without this, all padding remains in the data. |
-| CONV-FIP-004 | **P2** | **`USE_BYTE_LENGTH` not extracted**: Double-byte character support unavailable. Files containing CJK characters or other multi-byte encodings where byte-based width counting is needed will be parsed incorrectly. |
-| CONV-FIP-005 | **P2** | **`PATTERN_UNITS` default mismatch**: Converter defaults to `'SYMBOLS'` (line 157), but Talend documentation lists default as `Bytes`. This can cause incorrect field splitting for multi-byte encoded files where byte and symbol widths differ. |
+| CONV-FIP-001 | ~~P1~~ | **FIXED in talend_to_v1** | **Dedicated converter class** with `@REGISTRY.register("tFileInputPositional")` dispatcher. FORMATS and TRIMSELECT TABLE parsing implemented. |
+| CONV-FIP-002 | ~~P1~~ | **NOT AN ISSUE** | Component XML `DEFAULT="false"` confirms converter default was correct. Audit incorrectly claimed Talend default is `true` based on documentation UI; component definition XML is authoritative. |
+| CONV-FIP-003 | ~~P2~~ | **FIXED in talend_to_v1** | **FORMATS table now extracted** via `_parse_formats_table()` using correct elementRef/value pairs. XML name is `ADVANCED_OPTION` (not `CUSTOMIZE` as audit originally stated). |
+| CONV-FIP-004 | ~~P2~~ | **FIXED in talend_to_v1** | **USE_BYTE now extracted**. XML name is `USE_BYTE` (not `USE_BYTE_LENGTH` as audit originally stated). |
+| CONV-FIP-005 | ~~P2~~ | **NOT AN ISSUE** | Component XML `CLOSED_LIST` with `DEFAULT=SYMBOLS` confirms converter default was correct. Audit incorrectly claimed Talend default is `Bytes` based on documentation. |
 | CONV-FIP-006 | **P2** | **Schema type format violates STANDARDS.md**: Converter converts types to Python format (`str`, `int`) via `ExpressionConverter.convert_type()` instead of preserving Talend format (`id_String`, `id_Integer`). While the engine handles both, this violates the documented standard and creates subtle type mapping differences (e.g., `bool` in converter output maps differently in `_build_dtype_dict()` vs `validate_schema()`). |
 | CONV-FIP-007 | **P3** | **`process_long_row` extracted but unused**: The converter extracts `PROCESS_LONG_ROW` as `process_long_row` (line 165), but the engine never reads this config key. This is dead config -- converter effort wasted, and users may believe they have long-row support when they do not. |
 
@@ -635,6 +638,8 @@ The component has good logging throughout, following STANDARDS.md patterns:
 ---
 
 ## Appendix A: Converter Parameter Mapping Code
+
+> **SUPERSEDED (2026-04-01)**: This appendix documents the old `complex_converter` code. The active converter is now `src/converters/talend_to_v1/components/file/file_input_positional.py` (`FileInputPositionalConverter` class) with 23/25 params, correct defaults, FORMATS/TRIMSELECT TABLE parsing, and 5 engine-gap warnings.
 
 ```python
 # component_parser.py lines 150-171
@@ -1059,6 +1064,8 @@ These should be tracked in a cross-cutting issues report as well.
 ---
 
 ## Appendix H: Implementation Fix Guides
+
+> **SUPERSEDED (2026-04-01)**: This fix guide is no longer needed. The `talend_to_v1` converter implements all recommended fixes.
 
 ### Fix Guide: BUG-FIP-001 -- `_update_global_map()` undefined variable
 

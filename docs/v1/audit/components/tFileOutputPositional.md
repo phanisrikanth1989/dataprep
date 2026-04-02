@@ -3,8 +3,9 @@
 > **Audited**: 2026-03-21
 > **Auditor**: Claude Opus 4.6 (automated) -- GOLD STANDARD TEMPLATE
 > **Engine Version**: v1
-> **Converter**: `complex_converter`
+> **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
+> **Converter Update (2026-04-01)**: Converter section updated to reflect migration from `complex_converter` to `talend_to_v1`. 18 config keys (was 12). Encoding default fixed (ISO-8859-15). Phantom die_on_error removed. FORMATS structural bug fixed (elementRef/value pairs). KEEP sub-field added. 6 engine-gap warnings. 16 converter tests.
 
 ---
 
@@ -41,7 +42,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **Y** | 0 | 3 | 4 | 1 | 12 of 20 Talend params extracted (60%); FORMATS table has dedicated parser; missing ADVANCED_SEPARATOR, USE_BYTE_LENGTH, OUTPUT_ROW_MODE; flush param name mismatch; CREATE vs CREATE_DIRECTORY |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 18 config keys covering all runtime-relevant params; `talend_to_v1` converter with correct defaults; FORMATS TABLE parsing fixed (elementRef/value) with KEEP; phantom die_on_error removed; 6 engine-gap warnings; 16 converter tests |
 | Engine Feature Parity | **R** | 1 | 3 | 4 | 2 | NOT REGISTERED in engine; no zip compression (only gzip); no advanced separator; missing globalMap variables |
 | Code Quality | **R** | 2 | 6 | 3 | 3 | Cross-cutting base class bugs; precision -1 ValueError; unicode_escape footgun; dead `_validate_config()`; NaN handling issues; gzip append mode bug |
 | Performance & Memory | **Y** | 0 | 1 | 2 | 0 | Row-by-row `iterrows()` is inherently slow; no vectorized formatting; schema_map rebuilt per row |
@@ -168,6 +169,8 @@ The Formats table is the core configuration of tFileOutputPositional. It defines
 
 ## 4. Converter Audit
 
+> **Note (2026-04-02)**: The subsections below (4.1 through 4.x) describe the old `complex_converter` code paths and are retained for historical reference. The active converter is `talend_to_v1` — see the Converter Update note at the top of this report and the CONV-* issue disposition table at the end of this section for current status.
+
 ### 4.1 Converter Architecture
 
 The converter uses a **two-stage approach** for `tFileOutputPositional`:
@@ -269,14 +272,16 @@ Schema is extracted generically in `parse_base_component()` (lines 475-508 of `c
 
 | ID | Priority | Issue |
 |----|----------|-------|
-| CONV-FOP-001 | **P1** | **`INCLUDEHEADER` default mismatch**: Converter defaults `include_header` to `True` (line 178), but Talend's default is `false` (unchecked). Jobs that rely on the Talend default of no header will incorrectly produce a header row in v1. This can corrupt positional file consumers that expect data starting at byte 0. |
-| CONV-FOP-002 | **P1** | **Formats table key case inconsistency**: The dedicated parser stores `SCHEMA_COLUMN` in uppercase but `size`, `padding_char`, `align`, `keep` in lowercase. While the engine handles both cases, a future refactor or third-party consumer of the JSON config may not. Should normalize all keys to lowercase. |
-| CONV-FOP-003 | **P2** | **`ADVANCED_SEPARATOR` / `THOUSANDS_SEPARATOR` / `DECIMAL_SEPARATOR` not extracted**: Locale-aware number formatting unavailable. Files requiring European number format (e.g., `1.234,56`) will produce incorrect output. |
-| CONV-FOP-004 | **P2** | **`USE_BYTE_LENGTH` not extracted**: Double-byte character sizing unavailable. CJK characters (which are 2-3 bytes in UTF-8) will be counted as 1 character, producing misaligned columns. |
-| CONV-FOP-005 | **P1** | **Converter XML parameter name mismatch for flush**: The converter reads `FLUSHONROW` (line 182) but Talend's actual XML parameter name is `CUSTOM_FLUSH_BUFFER`. The converter reads `FLUSHONROW_NUM` (line 183) but Talend uses `ROW_NUMBER`. Since `config_raw` is built from actual Talend XML element names, these lookups will never match the Talend XML, causing flush configuration to silently fall back to defaults (`False` and `1`). Jobs with custom flush settings will ignore them. |
-| CONV-FOP-006 | **P2** | **Converter `CREATE` may not match Talend's `CREATE_DIRECTORY`**: The converter reads `config_raw.get('CREATE', True)` (line 181), but the Talend XML parameter documented in Section 3.3 is `CREATE_DIRECTORY`. Other converters in the codebase use `CREATE_DIRECTORY`. If Talend emits `CREATE_DIRECTORY` in the XML, the `CREATE` lookup will miss it and silently default to `True` (which happens to be the correct default, masking the bug). |
+| CONV-FOP-001 | ~~P1~~ | **FIXED in talend_to_v1** | `talend_to_v1` converter defaults INCLUDEHEADER to `False` (correct). |
+| CONV-FOP-002 | ~~P1~~ | **FIXED in talend_to_v1** | FORMATS table keys now consistently lowercase in output. |
+| CONV-FOP-003 | ~~P2~~ | **FIXED in talend_to_v1** | `ADVANCED_SEPARATOR`, `THOUSANDS_SEPARATOR`, `DECIMAL_SEPARATOR` now extracted. |
+| CONV-FOP-004 | ~~P2~~ | **FIXED in talend_to_v1** | `USE_BYTE` now extracted. XML name is `USE_BYTE` (not `USE_BYTE_LENGTH` as audit originally stated). |
+| CONV-FOP-005 | ~~P1~~ | **NOT AN ISSUE** | Converter XML key names `FLUSHONROW`/`FLUSHONROW_NUM` were CORRECT. Audit incorrectly claimed they should be `CUSTOM_FLUSH_BUFFER`/`ROW_NUMBER`. Verified via real .item XML and component definition XML. |
+| CONV-FOP-006 | ~~P2~~ | **NOT AN ISSUE** | Converter XML key name `CREATE` was CORRECT. Audit incorrectly claimed it should be `CREATE_DIRECTORY`. Verified via real .item XML. |
 | CONV-FOP-007 | **P2** | **Schema type format violates STANDARDS.md**: Converter converts types to Python format (`str`, `int`) via `ExpressionConverter.convert_type()` instead of preserving Talend format (`id_String`, `id_Integer`). The engine handles both but this violates documented standards. |
-| CONV-FOP-008 | **P3** | **`keep` attribute not merged into schema**: The dedicated parser merges `size`, `padding_char`, and `align` into output schema columns (lines 2842-2847) but omits `keep`. This is inconsistent. |
+| CONV-FOP-008 | ~~P3~~ | **FIXED in talend_to_v1** | `KEEP` sub-field now extracted from FORMATS table. Values: A (All), L (Left), M (Middle), R (Right) per component XML CLOSED_LIST. |
+| CONV-FOP-009 | ~~P1~~ | **FIXED in talend_to_v1** | **Phantom `die_on_error` removed** — `DIE_ON_ERROR` not in `tFileOutputPositional_java.xml`. Was extracted with default `True` by old converter. |
+| CONV-FOP-010 | ~~P1~~ | **FIXED in talend_to_v1** | **FORMATS structural parsing bug fixed** — old converter used pre-grouped dicts but XML parser produces flat `{elementRef, value}` pairs. Tests passed only because mock data bypassed XML parser. |
 
 ---
 
@@ -635,6 +640,8 @@ No debug artifacts (print statements, `# ...existing code...` comments) found in
 ---
 
 ## Appendix A: Converter Parameter Mapping Code
+
+> **SUPERSEDED (2026-04-01)**: This appendix documents the old `complex_converter` code. The active converter is now `src/converters/talend_to_v1/components/file/file_output_positional.py` (`FileOutputPositionalConverter` class) with 18 config keys, correct defaults, fixed FORMATS parsing, and 6 engine-gap warnings.
 
 ### Generic Mapper (component_parser.py lines 172-187)
 
@@ -1021,6 +1028,8 @@ except Exception:
 ---
 
 ## Appendix H: Converter vs Engine Parameter Default Comparison
+
+> **SUPERSEDED (2026-04-01)**: This appendix documents the old `complex_converter` defaults. The active converter is now `src/converters/talend_to_v1/components/file/file_output_positional.py` (`FileOutputPositionalConverter` class) with correct defaults (encoding=ISO-8859-15, include_header=False, no phantom die_on_error).
 
 | Parameter | Converter Default (line) | Engine Default (line) | Talend Default | Match? |
 |-----------|--------------------------|----------------------|----------------|--------|

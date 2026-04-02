@@ -59,24 +59,24 @@ class TestReplicateConverterBasic:
         assert comp["type"] == "Replicate"
         assert comp["original_type"] == "tReplicate"
         assert comp["position"] == {"x": 320, "y": 160}
-        assert comp["config"]["connection_format"] == "row"
+        assert comp["config"]["tstatcatcher_stats"] is False
+        assert comp["config"]["label"] == ""
         assert comp["inputs"] == []
         assert comp["outputs"] == []
 
-    def test_explicit_connection_format(self):
+    def test_params_extracted(self):
         node = _make_node(
-            params={"CONNECTION_FORMAT": '"row"'},
+            params={
+                "TSTATCATCHER_STATS": "true",
+                "LABEL": '"replicate-step"',
+            },
             schema=_sample_schema(),
         )
         result = ReplicateConverter().convert(node, [], {})
 
-        assert result.component["config"]["connection_format"] == "row"
-
-    def test_no_params_uses_defaults(self):
-        node = _make_node(params={})
-        result = ReplicateConverter().convert(node, [], {})
-
-        assert result.component["config"]["connection_format"] == "row"
+        cfg = result.component["config"]
+        assert cfg["tstatcatcher_stats"] is True
+        assert cfg["label"] == "replicate-step"
 
     def test_no_warnings_on_valid_input(self):
         node = _make_node(schema=_sample_schema())
@@ -121,3 +121,22 @@ class TestReplicateConverterSchema:
         result = ReplicateConverter().convert(node, [], {})
 
         assert result.component["schema"] == {"input": [], "output": []}
+
+
+# --------------------------------------------------------------------- #
+#  Completeness
+# --------------------------------------------------------------------- #
+
+class TestCompleteness:
+    def test_all_2_config_keys_present(self):
+        node = _make_node(params={})
+        result = ReplicateConverter().convert(node, [], {})
+        cfg = result.component["config"]
+        expected_keys = {"tstatcatcher_stats", "label"}
+        assert set(cfg.keys()) == expected_keys
+
+    def test_phantom_param_connection_format_removed(self):
+        """connection_format is not a real Talend tReplicate param."""
+        node = _make_node(params={})
+        result = ReplicateConverter().convert(node, [], {})
+        assert "connection_format" not in result.component["config"]

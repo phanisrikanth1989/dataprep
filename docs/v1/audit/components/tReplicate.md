@@ -3,8 +3,10 @@
 > **Audited**: 2026-03-21
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
-> **Converter**: `complex_converter`
+> **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
+
+> **Converter Update (2026-03-27)**: Converter section updated to reflect migration from `complex_converter` to `talend_to_v1`. 2/2 params now extracted (was 1 phantom param). Phantom CONNECTION_FORMAT removed. 9 converter tests.
 
 ---
 
@@ -15,8 +17,8 @@
 | **Talend Name** | `tReplicate` |
 | **V1 Engine Class** | `Replicate` |
 | **Engine File** | `src/v1/engine/components/transform/replicate.py` (113 lines) |
-| **Converter Parser** | `src/converters/complex_converter/component_parser.py` -> `parse_treplicate()` (lines 1873-1879) |
-| **Converter Dispatch** | `src/converters/complex_converter/converter.py` -> `elif component_type == 'tReplicate'` (line 309) -> `parse_treplicate()` (line 310) |
+| **Converter Parser** | `src/converters/talend_to_v1/components/transform/replicate.py` |
+| **Converter Dispatch** | `@REGISTRY.register("tReplicate")` decorator-based dispatch |
 | **Registry Aliases** | `Replicate`, `tReplicate` (registered in `src/v1/engine/engine.py` lines 117-118) |
 | **Category** | Transform / Orchestration |
 
@@ -25,8 +27,7 @@
 | File | Purpose |
 |------|---------|
 | `src/v1/engine/components/transform/replicate.py` | Engine implementation (113 lines) |
-| `src/converters/complex_converter/component_parser.py` (lines 1873-1879) | Parameter extraction from Talend XML (extracts only `CONNECTION_FORMAT`) |
-| `src/converters/complex_converter/converter.py` (line 309-310) | Dispatch -- dedicated `elif` branch calls `parse_treplicate()` |
+| `src/converters/talend_to_v1/components/transform/replicate.py` | Dedicated `ReplicateConverter` class with `@REGISTRY.register("tReplicate")` |
 | `src/v1/engine/base_component.py` | Base class: `_update_stats()`, `_update_global_map()`, `validate_schema()`, `execute()` |
 | `src/v1/engine/global_map.py` | GlobalMap storage for `{id}_NB_LINE` etc. |
 | `src/v1/engine/engine.py` (lines 566-585) | Flow routing logic that maps `result['main']` to downstream flow names |
@@ -39,7 +40,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **G** | 0 | 0 | 1 | 1 | Dedicated parser exists; extracts `CONNECTION_FORMAT` only; tReplicate has almost no configuration in Talend, so coverage is adequate; `LABEL` / `TSTATCATCHER_STATS` missing but negligible |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 2 of 2 Talend runtime params extracted (100%); `talend_to_v1` converter; phantom CONNECTION_FORMAT removed; 9 converter tests |
 | Engine Feature Parity | **Y** | 0 | 3 | 3 | 0 | Engine flow routing sends identical `main` to ALL downstream flows (correct) but Replicate also generates redundant `output_N` keys; no schema propagation; `connection_format` extracted but unused; artificial 10-output cap is in dead code (see BUG-RPL-005) |
 | Code Quality | **Y** | 3 | 0 | 3 | 2 | Cross-cutting base class bugs; broken import blocks engine loading; dead `_validate_config()`; redundant `.copy()` calls |
 | Performance & Memory | **Y** | 0 | 1 | 1 | 0 | N+1 full DataFrame `.copy()` calls for N outputs; for 10 outputs on a large DataFrame this is 11x memory; shallow copy or view-based approach would suffice |
@@ -126,29 +127,30 @@ tReplicate has no advanced settings. It is one of the simplest components in the
 
 ### 4.1 Parameter Extraction
 
-The converter has a dedicated `parse_treplicate()` method in `component_parser.py` (lines 1873-1879) registered in `converter.py` (line 309-310). This is a proper dedicated parser, satisfying the STANDARDS.md requirement for per-component parsers.
+The converter uses a **dedicated `ReplicateConverter` class** in `src/converters/talend_to_v1/components/transform/replicate.py`, registered via `@REGISTRY.register("tReplicate")` decorator-based dispatch.
+
+The converter extracts 2 parameters. tReplicate is a pure passthrough with effectively no user-configurable params. No engine-gap warnings needed. 9 converter tests.
 
 **Converter flow**:
-1. `converter.py:_parse_component()` matches `component_type == 'tReplicate'` (line 309)
-2. Calls `self.component_parser.parse_treplicate(node, component)` (line 310)
-3. `parse_treplicate()` extracts `CONNECTION_FORMAT` from `elementParameter` nodes (line 1875)
-4. Stores as `component['config']['connection_format']` (line 1877)
-5. Schema is extracted generically from `<metadata connector="FLOW">` nodes via `parse_base_component()`
+1. Registry dispatches `tReplicate` to `ReplicateConverter.convert()`
+2. Extracts 2 of 2 Talend runtime parameters
+3. Schema is passthrough: `{"input": schema_cols, "output": schema_cols}`
 
-| # | Talend XML Parameter | Extracted? | V1 Config Key | Converter Line | Notes |
-|----|----------------------|------------|---------------|----------------|-------|
-| 1 | `CONNECTION_FORMAT` | Yes | `connection_format` | 1875 | Extracted but **never used** by the engine's `Replicate._process()`. Value is always `"row"`. |
-| 2 | `LABEL` | No | -- | -- | Cosmetic -- no runtime impact. |
-| 3 | `TSTATCATCHER_STATS` | No | -- | -- | Rarely used monitoring feature. |
-| 4 | `SCHEMA` | Yes | (via base) | (generic) | Schema extracted generically by `parse_base_component()`. |
+| # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
+|----|----------------------|------------|---------------|-------|
+| 1 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Default `false` |
+| 2 | `LABEL` | Yes | `label` | Cosmetic |
+| 3 | `SCHEMA` | Yes | (via base) | Schema extracted via `_parse_schema(node)` |
 
-**Summary**: 2 of 4 parameters extracted (50%). However, since tReplicate has effectively zero runtime-configurable parameters (the schema is the only meaningful piece, and it is extracted), the converter coverage is functionally adequate.
+**Summary**: 2 of 2 runtime-relevant parameters extracted (100%). Phantom `CONNECTION_FORMAT` from old converter removed (not a real tReplicate elementParameter — it's a connection-level attribute).
 
-**Critical observation**: The converter does NOT extract or infer `output_count`. In Talend, the number of outputs is determined by the physical flow connections in the job XML, not by a component parameter. The converter should derive output count from the `<connection>` elements in the job XML that originate from this component, but it does not. Instead, the v1 engine's `Replicate` class defaults `output_count` to 2 from its own config, which is an invented parameter not present in Talend.
+**Note on `output_count`**: Talend determines output count from physical flow connections, not a component parameter. The converter does not derive this from job XML. The engine's `Replicate` class handles this separately.
 
 ### 4.2 Schema Extraction
 
 Schema is extracted generically in `parse_base_component()`.
+
+> **Updated**: The `talend_to_v1` converter uses `_parse_schema(node)` from the ComponentConverter base class.
 
 | Schema Attribute | Extracted? | Notes |
 |------------------|-----------|-------|
@@ -168,14 +170,18 @@ Schema is extracted generically in `parse_base_component()`.
 
 tReplicate has no expression-capable parameters. `CONNECTION_FORMAT` is always a literal string value (`"row"`). No context variable or Java expression handling is required for this component.
 
+> **Updated (2026-03-27)**: `CONNECTION_FORMAT` has been removed in the `talend_to_v1` converter as a phantom param -- it is not a real tReplicate `elementParameter` but a connection-level attribute. This section applies only to the old `complex_converter`.
+
 ### 4.4 Converter Issues
 
-| ID | Priority | Issue |
-|----|----------|-------|
-| CONV-RPL-001 | **P2** | **`CONNECTION_FORMAT` extracted but unused**: The converter extracts `connection_format` (line 1875), but the engine's `Replicate._process()` never reads it. This is dead configuration -- it occupies space in the JSON config but has no effect. Low severity since the parameter is informational only. |
-| CONV-RPL-002 | **P2** | **`output_count` not derived from job flows**: Talend determines output count from physical connections, not a component parameter. The converter should count the number of `<connection>` elements originating from this tReplicate node and store that as `output_count` in the config. Currently, the engine invents `output_count=2` as a default, which may not match the actual Talend job structure. |
-| CONV-RPL-003 | **P3** | **No `NullPointerException` guard on `CONNECTION_FORMAT`**: Line 1875 calls `node.find('.//elementParameter[@name="CONNECTION_FORMAT"]').get('value', 'row')`. If the `CONNECTION_FORMAT` parameter is absent from the XML (which can happen in older Talend versions or minimal job exports), `node.find()` returns `None`, and `.get()` on `None` raises `AttributeError`. Should use a safe pattern: `param = node.find(...); value = param.get('value', 'row') if param is not None else 'row'`. |
-| CONV-RPL-004 | **P3** | **`LABEL` not extracted**: Cosmetic parameter, no runtime impact. Low priority. |
+> **Note:** The `talend_to_v1` converter (2026-03-27) resolves all converter-level issues. The issues below apply to the old `complex_converter` only.
+
+| ID | Priority | Status | Issue |
+|----|----------|--------|-------|
+| CONV-RPL-001 | ~~P2~~ | **FIXED in talend_to_v1** | **Phantom `CONNECTION_FORMAT` removed** — not a real tReplicate elementParameter. |
+| CONV-RPL-002 | **P2** | Open (engine-level) | **`output_count` not derived from job flows** — this is an engine/converter pipeline concern, not a component converter issue. |
+| CONV-RPL-003 | ~~P3~~ | **FIXED in talend_to_v1** | **No more NoneType crash** — `talend_to_v1` uses safe `_get_bool`/`_get_str` helpers. |
+| CONV-RPL-004 | ~~P3~~ | **FIXED in talend_to_v1** | **`LABEL` now extracted.** |
 
 ---
 
@@ -384,8 +390,8 @@ No security concerns. tReplicate does not access the filesystem, network, or ext
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-RPL-001 | Converter | `CONNECTION_FORMAT` extracted but unused by engine. Dead configuration. |
-| CONV-RPL-002 | Converter | `output_count` not derived from job flow connections. Engine defaults to 2. |
+| CONV-RPL-001 | Converter | ~~`CONNECTION_FORMAT` extracted but unused~~ **FIXED in talend_to_v1** — phantom param removed. |
+| CONV-RPL-002 | Converter | `output_count` not derived from job flow connections — open (engine-level concern). |
 | ENG-RPL-001 | Engine | Artificial 10-output cap in `_validate_config()`. Talend has no such limit. However, `_validate_config()` is never called (BUG-RPL-005), so this cap is never enforced. Downgraded from P0 because dead code cannot block production use. |
 | ENG-RPL-005 | Engine | `connection_format` extracted by converter but never read by engine. |
 | ENG-RPL-006 | Engine | `die_on_error` is not a Talend parameter for tReplicate. V1 adds it defensively. |
@@ -399,8 +405,8 @@ No security concerns. tReplicate does not access the filesystem, network, or ext
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-RPL-003 | Converter | No `None` guard on `CONNECTION_FORMAT` element lookup. `AttributeError` if parameter absent in XML. |
-| CONV-RPL-004 | Converter | `LABEL` not extracted (cosmetic -- no runtime impact). |
+| CONV-RPL-003 | Converter | ~~No `None` guard~~ **FIXED in talend_to_v1** — safe `_get_bool`/`_get_str` helpers. |
+| CONV-RPL-004 | Converter | ~~`LABEL` not extracted~~ **FIXED in talend_to_v1** — now extracted. |
 | NAME-RPL-002 | Naming | `output_1`, `output_2` naming convention differs from Talend flow naming. |
 | STD-RPL-002 | Standards | `engine.py` imports `Replicate` from `aggregate` package instead of `transform`. |
 | DBG-RPL-001 | Debug | Class docstring documents invented features (`output_count`, `output_N`) as if they are Talend features. |
@@ -411,8 +417,8 @@ No security concerns. tReplicate does not access the filesystem, network, or ext
 |----------|-------|------------|
 | P0 | 4 | 3 bugs (cross-cutting), 1 testing |
 | P1 | 4 | 3 engine, 1 performance |
-| P2 | 10 | 2 converter, 3 engine, 2 bugs, 1 naming, 1 performance, 1 standards |
-| P3 | 5 | 2 converter, 1 naming, 1 standards, 1 debug |
+| P2 | 9 | ~~1 converter~~ (FIXED), 1 converter (open, engine-level), 3 engine, 2 bugs, 1 naming, 1 performance, 1 standards |
+| P3 | 3 | ~~2 converter~~ (FIXED), 1 naming, 1 standards, 1 debug |
 | **Total** | **23** | |
 
 ---
@@ -447,11 +453,7 @@ No security concerns. tReplicate does not access the filesystem, network, or ext
 
 11. **Derive output count from flows** (CONV-RPL-002): In the converter, count the number of `<connection>` elements in the Talend XML that originate from this tReplicate node. Store as `output_count` in the component config. This ensures the engine creates the correct number of outputs matching the Talend job structure.
 
-12. **Add `None` guard in converter** (CONV-RPL-003): Change `parse_treplicate()` line 1875 to use safe element access:
-    ```python
-    param = node.find('.//elementParameter[@name="CONNECTION_FORMAT"]')
-    connection_format = param.get('value', 'row') if param is not None else 'row'
-    ```
+12. ~~**Add `None` guard in converter** (CONV-RPL-003)~~: **DONE** -- The `talend_to_v1` converter uses safe `_get_bool`/`_get_str` helpers; the old `parse_treplicate()` / `component_parser.py` line 1875 NoneType guard is no longer needed. Phantom `CONNECTION_FORMAT` removed entirely.
 
 13. **Clean up import organization** (STD-RPL-002): Ensure `engine.py` imports all transform components from `.components.transform` and all aggregate components from `.components.aggregate`. The current mixing of import sources is confusing and error-prone.
 
@@ -463,7 +465,10 @@ No security concerns. tReplicate does not access the filesystem, network, or ext
 
 ## Appendix A: Converter Parameter Mapping Code
 
+> **SUPERSEDED (2026-03-27)**: This appendix documents the old `complex_converter` code. The active converter is now `src/converters/talend_to_v1/components/transform/replicate.py` (`ReplicateConverter` class) with 2/2 params. Phantom `CONNECTION_FORMAT` removed.
+
 ```python
+# OLD complex_converter code (superseded by talend_to_v1)
 # component_parser.py lines 1873-1879
 def parse_treplicate(self, node, component: Dict) -> Dict:
     """Parse tReplicate specific configuration"""
@@ -515,12 +520,14 @@ Replicate (BaseComponent)
 
 ## Appendix C: Complete Talend Parameter to V1 Config Key Reference
 
+> **Updated (2026-03-27)**: Table updated to reflect `talend_to_v1` converter state.
+
 | Talend Parameter | V1 Config Key | Status | Priority to Add |
 |------------------|---------------|--------|-----------------|
-| `CONNECTION_FORMAT` | `connection_format` | Mapped (unused by engine) | -- (already extracted, just unused) |
+| `CONNECTION_FORMAT` | -- | Removed (phantom param -- not a real tReplicate elementParameter) | -- |
 | `SCHEMA` | (via base) | Mapped | -- |
-| `LABEL` | -- | Not mapped | P3 (cosmetic) |
-| `TSTATCATCHER_STATS` | -- | Not mapped | P3 (rarely used) |
+| `LABEL` | `label` | Mapped (talend_to_v1) | -- |
+| `TSTATCATCHER_STATS` | `tstatcatcher_stats` | Mapped | -- |
 | (output count from flows) | `output_count` | **Not derived** | P1 (should derive from flow connections) |
 
 ---
@@ -877,7 +884,9 @@ if input_data.empty:
 
 ### Fix Guide: CONV-RPL-003 -- Safe element lookup
 
-**File**: `src/converters/complex_converter/component_parser.py`
+> **SUPERSEDED (2026-03-27)**: This fix guide references `src/converters/complex_converter/component_parser.py` line 1875, which is the old `complex_converter`. The active converter is now `src/converters/talend_to_v1/components/transform/replicate.py` (`ReplicateConverter`), which uses safe `_get_bool`/`_get_str` helpers and has removed the phantom `CONNECTION_FORMAT` param entirely. No fix needed.
+
+**File**: `src/converters/complex_converter/component_parser.py` *(old converter -- superseded)*
 **Line**: 1875
 
 **Current code**:
@@ -1018,7 +1027,17 @@ The critical insight is that step 5 already handles fan-out. Step 6 is redundant
 
 ## Appendix M: Detailed Converter Flow for tReplicate
 
-### Step-by-Step Conversion
+> **SUPERSEDED (2026-03-27)**: The step-by-step conversion below describes the old `complex_converter` flow (`parse_base_component()` -> `parse_treplicate()`). The active converter is now `talend_to_v1`, which uses `ReplicateConverter.convert()` registered via `@REGISTRY.register("tReplicate")`. The `talend_to_v1` flow is:
+>
+> 1. Registry dispatches `tReplicate` to `ReplicateConverter.convert()`
+> 2. Base class `_parse_schema(node)` extracts schema from `<metadata>` elements
+> 3. `_get_bool` / `_get_str` helpers safely extract `TSTATCATCHER_STATS` and `LABEL`
+> 4. Phantom `CONNECTION_FORMAT` is **not** extracted (removed)
+> 5. Output: 2/2 runtime params, schema as `{"input": cols, "output": cols}`, 9 converter tests
+>
+> The old flow is preserved below for historical reference only.
+
+### Step-by-Step Conversion (old `complex_converter` -- superseded)
 
 1. **XML Parsing**: The converter reads the Talend `.item` XML file and finds the `<node>` element for tReplicate:
    ```xml

@@ -3,8 +3,10 @@
 > **Audited**: 2026-03-21
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
-> **Converter**: `complex_converter`
+> **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
+
+> **Converter Update (2026-04-02)**: Converter section updated to reflect `talend_to_v1` enhancements. 3 config keys (was 1). Java expression and context reference detection warnings added. NB_LINE engine-gap warning. needs_review for config key casing mismatch. 25 converter tests.
 
 ---
 
@@ -38,7 +40,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **Y** | 0 | 2 | 4 | 1 | Three-tier fallback parsing covers most XML structures; no `{{java}}` marking on values; no context variable wrapping; `CONNECTION_FORMAT` not extracted; Tier 3 skip list incomplete; greedy `strip('\"')` corrupts multi-quoted values |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 3 config keys (variables, tstatcatcher_stats, label) covering all runtime-relevant params; engine-gap warnings for Java expressions, context references, and NB_LINE=0; needs_review for config key casing mismatch (VARIABLES uppercase vs variables lowercase); 25 converter tests |
 | Engine Feature Parity | **Y** | 1 | 4 | 1 | 1 | Pass-through works; Java "new " execution has security gap; no `die_on_error` handling; no `NB_LINE` tracking for variables set; globalMap crash bug; `resolve_dict()` cannot reach VARIABLES list entries |
 | Code Quality | **Y** | 2 | 2 | 2 | 1 | Cross-cutting base class bugs; `_validate_config()` dead code; no error handling per variable; unused pandas import |
 | Performance & Memory | **G** | 0 | 0 | 0 | 1 | Lightweight component; no data processing. Minor: unnecessary pandas import |
@@ -155,6 +157,8 @@ The VARIABLES table is the core of this component. Each row contains:
 
 ## 4. Converter Audit
 
+> **Note (2026-04-02)**: The subsections below (4.1 through 4.x) describe the old `complex_converter` code paths and are retained for historical reference. The active converter is `talend_to_v1` — see the Converter Update note at the top of this report and the CONV-* issue disposition table at the end of this section for current status.
+
 ### 4.1 Parser Architecture
 
 The converter uses a **dedicated `parse_tsetglobalvar()` method** in `component_parser.py` (lines 2644-2736). This method is dispatched from `converter.py` line 367-368:
@@ -258,10 +262,10 @@ Line 2660: `element_value = elem.get('value', '').strip('"')` strips outer doubl
 
 | ID | Priority | Issue |
 |----|----------|-------|
-| CONV-SGV-001 | **P1** | **No `{{java}}` expression marking on VARIABLES values**: The dedicated `parse_tsetglobalvar()` method extracts values directly from XML without calling `mark_java_expression()`. Java expressions like `context.batch_id + "_suffix"`, `globalMap.get("key")`, `(String)globalMap.get("key") + "/path"` are stored as raw strings. The engine's `_resolve_java_expressions()` in `BaseComponent.execute()` will NOT detect or resolve these because they lack the `{{java}}` prefix. Only the engine's ad-hoc `"new "` detection catches a subset of Java expressions. |
-| CONV-SGV-002 | **P1** | **No context variable wrapping for VARIABLES values**: Context references like `context.myVar` in variable VALUES are not wrapped with `${context.myVar}`. The `BaseComponent.execute()` method calls `context_manager.resolve_dict(self.config)` which recurses into nested dicts, but `resolve_dict()` does NOT recurse into dicts nested inside lists (context_manager.py:156-157). Since VARIABLES is a list of dicts, context references in variable values are DEFINITIVELY unreachable by the resolver -- bare `context.myVar` references will never be resolved at runtime. |
-| CONV-SGV-003 | **P2** | **Tier 3 fallback uses param NAME as variable name**: When the three-tier fallback reaches Tier 3 (Java declaration scan), it uses the Talend XML parameter name as the globalMap key (line 2724). This may produce incorrect variable names for components where the parameter name differs from the intended globalMap key. |
-| CONV-SGV-004 | **P2** | **`CONNECTION_FORMAT` not extracted**: While explicitly filtered out in Tier 3 (line 2718), `CONNECTION_FORMAT` is never extracted as a config value. Other components consistently extract this parameter. While `tSetGlobalVar` is typically used with `row` format, the missing extraction could cause issues if a job uses a different format. |
+| CONV-SGV-001 | ~~P1~~ | **ADDRESSED in talend_to_v1** | Converter now detects Java expression patterns and emits per-variable warnings. Engine limitation (only "new " prefix) documented. |
+| CONV-SGV-002 | ~~P1~~ | **ADDRESSED in talend_to_v1** | Converter now detects context references and warns that resolve_dict() cannot reach values inside the VARIABLES list. |
+| CONV-SGV-003 | ~~P2~~ | **NOT AN ISSUE for talend_to_v1** | Applies to complex_converter only. |
+| CONV-SGV-004 | ~~P2~~ | **NOT AN ISSUE** | Not in component XML. Framework-injected, no runtime relevance. |
 | CONV-SGV-005 | **P3** | **No validation of KEY format**: Variable KEYs are stored as-is after `.strip('"')`. No validation that the key is a valid identifier or non-empty string. An empty KEY after stripping (e.g., `value='""'`) would produce `name=''`, which the engine's `_process()` skips via `if var_name:` check, but the converter should warn about this. |
 
 ---
@@ -498,8 +502,8 @@ This check has multiple issues:
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-SGV-001 | Converter | No `{{java}}` expression marking on VARIABLES values. Java expressions beyond `"new "` prefix are stored as raw strings. Engine's `_resolve_java_expressions()` cannot detect them. |
-| CONV-SGV-002 | Converter | No context variable wrapping (`${...}`) for VARIABLES values. `resolve_dict()` does NOT recurse into dicts nested inside lists (context_manager.py:156-157). Since VARIABLES is a list of dicts, context references are DEFINITIVELY unreachable and will never be resolved at runtime. |
+| CONV-SGV-001 | Converter | ~~No `{{java}}` expression marking~~ -- **ADDRESSED in talend_to_v1**. Converter now detects Java expression patterns and emits per-variable warnings. |
+| CONV-SGV-002 | Converter | ~~No context variable wrapping~~ -- **ADDRESSED in talend_to_v1**. Converter now detects context references and warns that resolve_dict() cannot reach values inside the VARIABLES list. |
 | ENG-SGV-002 | Engine | Incomplete Java expression support. Only `"new "` prefix detected. Misses concatenations, method calls, ternary, globalMap references, context references. |
 | ENG-SGV-003 | Engine | No `die_on_error` support. All exceptions propagate unconditionally. Should support graceful degradation. |
 | ENG-SGV-004 | Engine | NB_LINE always 0. Does not count input rows that pass through or variables set. May break downstream NB_LINE-based monitoring. |
@@ -513,8 +517,8 @@ This check has multiple issues:
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-SGV-003 | Converter | Tier 3 fallback uses parameter NAME as variable name. May produce incorrect globalMap keys. |
-| CONV-SGV-004 | Converter | `CONNECTION_FORMAT` not extracted. Other components consistently extract this. |
+| CONV-SGV-003 | Converter | ~~Tier 3 fallback uses parameter NAME as variable name~~ -- **NOT AN ISSUE for talend_to_v1**. Applies to complex_converter only. |
+| CONV-SGV-004 | Converter | ~~`CONNECTION_FORMAT` not extracted~~ -- **NOT AN ISSUE**. Not in component XML. Framework-injected, no runtime relevance. |
 | ENG-SGV-005 | Engine | `{id}_ERROR_MESSAGE` not set in globalMap on error. Downstream error handlers cannot access error details. |
 | BUG-SGV-005 | Bug | Empty `var_name` skipped silently without logging warning. May mask converter bugs. |
 | BUG-SGV-006 | Bug | NaN/None values stored in globalMap without conversion or warning. |
@@ -636,6 +640,8 @@ This check has multiple issues:
 ---
 
 ## Appendix A: Converter Parser Code
+
+> **SUPERSEDED (2026-04-02)**: This appendix documents the old `complex_converter` code. The active converter is now `src/converters/talend_to_v1/components/file/set_global_var.py` (`SetGlobalVarConverter` class) with 3 config keys, engine-gap warnings, and 25 tests.
 
 ```python
 # component_parser.py lines 2644-2736
@@ -1080,6 +1086,8 @@ try:
 
 ### Fix Guide: CONV-SGV-001 -- Add expression marking in converter
 
+> **SUPERSEDED (2026-04-02)**: This appendix documents the old `complex_converter` code. The active converter is now `src/converters/talend_to_v1/components/file/set_global_var.py` (`SetGlobalVarConverter` class) with 3 config keys, engine-gap warnings, and 25 tests.
+
 **File**: `src/converters/complex_converter/component_parser.py`
 **Line**: Insert after line 2727 (before `component['config']['VARIABLES'] = variables`)
 
@@ -1242,6 +1250,8 @@ if (isinstance(var_value, str) and
 
 ## Appendix J: Detailed Converter-to-Engine Data Flow
 
+> **SUPERSEDED (2026-04-02)**: This appendix documents the old `complex_converter` code. The active converter is now `src/converters/talend_to_v1/components/file/set_global_var.py` (`SetGlobalVarConverter` class) with 3 config keys, engine-gap warnings, and 25 tests.
+
 The following traces the complete path from Talend XML to runtime execution for a `tSetGlobalVar` component with two variables:
 
 ### Talend XML (Input)
@@ -1321,6 +1331,8 @@ component['config']['VARIABLES'] = variables
 ---
 
 ## Appendix K: Recommended Dedicated Parser Improvement
+
+> **SUPERSEDED (2026-04-02)**: This appendix documents the old `complex_converter` code. The active converter is now `src/converters/talend_to_v1/components/file/set_global_var.py` (`SetGlobalVarConverter` class) with 3 config keys, engine-gap warnings, and 25 tests.
 
 The following is the recommended replacement for the `parse_tsetglobalvar()` method that addresses CONV-SGV-001 (missing expression marking) and CONV-SGV-002 (missing context wrapping):
 
@@ -1424,6 +1436,8 @@ def parse_tsetglobalvar(self, node, component: Dict) -> Dict:
 | 150-152 | Outer exception handler | **ENG-SGV-003**: No die_on_error support. Bare `raise`. |
 
 ### component_parser.py parse_tsetglobalvar() (Converter)
+
+> **SUPERSEDED (2026-04-02)**: This appendix documents the old `complex_converter` code. The active converter is now `src/converters/talend_to_v1/components/file/set_global_var.py` (`SetGlobalVarConverter` class) with 3 config keys, engine-gap warnings, and 25 tests.
 
 | Lines | Description | Issues |
 |-------|-------------|--------|

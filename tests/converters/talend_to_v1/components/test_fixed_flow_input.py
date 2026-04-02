@@ -336,3 +336,73 @@ class TestFixedFlowInputConverter:
         )
         result = FixedFlowInputConverter().convert(node, [], {})
         assert result.component["config"]["values_config"]["name"] == "hello"
+
+    # ------------------------------------------------------------------
+    # 8. New params tests (added with enhancement)
+    # ------------------------------------------------------------------
+
+    def test_new_params_in_defaults(self):
+        """New params die_on_error, tstatcatcher_stats, label have correct defaults."""
+        node = _make_node(params={})
+        result = FixedFlowInputConverter().convert(node, [], {})
+        cfg = result.component["config"]
+        assert cfg["die_on_error"] is True
+        assert cfg["tstatcatcher_stats"] is False
+        assert cfg["label"] == ""
+
+    def test_all_config_keys_present(self):
+        """Exactly 14 config keys should be present after enhancement."""
+        node = _make_node(params={})
+        result = FixedFlowInputConverter().convert(node, [], {})
+        cfg = result.component["config"]
+        expected_keys = {
+            "nb_rows", "connection_format", "use_singlemode", "use_intable",
+            "use_inlinecontent", "row_separator", "field_separator",
+            "inline_content", "schema", "values_config", "rows",
+            "die_on_error", "tstatcatcher_stats", "label",
+        }
+        assert set(cfg.keys()) == expected_keys
+
+    # ------------------------------------------------------------------
+    # 9. Engine-gap warning tests
+    # ------------------------------------------------------------------
+
+    def test_engine_gap_warning_intable(self):
+        """USE_INTABLE=true triggers engine-gap warning about missing implementation."""
+        node = _make_node(params={"USE_INTABLE": "true", "USE_SINGLEMODE": "false"})
+        result = FixedFlowInputConverter().convert(node, [], {})
+        engine_gap_warnings = [w for w in result.warnings if "USE_INTABLE=true" in w]
+        assert len(engine_gap_warnings) == 1
+        assert "null rows will be generated" in engine_gap_warnings[0]
+
+    def test_engine_gap_warning_inline_whitespace(self):
+        """USE_INLINECONTENT=true triggers whitespace stripping warning."""
+        node = _make_node(params={
+            "USE_INLINECONTENT": "true",
+            "USE_SINGLEMODE": "false",
+            "INLINECONTENT": '"a;b\nc;d"',
+            "ROWSEPARATOR": '"\n"',
+            "FIELDSEPARATOR": '";"',
+        })
+        result = FixedFlowInputConverter().convert(node, [], {})
+        ws_warnings = [w for w in result.warnings if "whitespace" in w]
+        assert len(ws_warnings) == 1
+        assert "USE_INLINECONTENT=true" in ws_warnings[0]
+
+    def test_engine_gap_warning_nb_rows_dynamic(self):
+        """NB_ROWS with a context variable triggers engine-gap warning."""
+        node = _make_node(params={"NB_ROWS": "context.row_count"})
+        result = FixedFlowInputConverter().convert(node, [], {})
+        nb_warnings = [w for w in result.warnings if "NB_ROWS contains dynamic variable" in w]
+        assert len(nb_warnings) == 1
+        assert "context.row_count" in nb_warnings[0]
+        assert "ValueError" in nb_warnings[0]
+
+    def test_no_engine_gap_warnings_on_defaults(self):
+        """Default params produce no engine-gap warnings."""
+        node = _make_node(params={})
+        result = FixedFlowInputConverter().convert(node, [], {})
+        # No INTABLE, INLINECONTENT, or dynamic NB_ROWS warnings on defaults
+        assert not any("USE_INTABLE=true" in w for w in result.warnings)
+        assert not any("whitespace" in w for w in result.warnings)
+        assert not any("NB_ROWS contains" in w for w in result.warnings)

@@ -3,8 +3,10 @@
 > **Audited**: 2026-03-21
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
-> **Converter**: `complex_converter`
+> **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
+
+> **Converter Update (2026-03-27)**: Converter section updated to reflect migration from `complex_converter` to `talend_to_v1`. 9/10 params now extracted (was 5/7). ITEMSEPARATOR default fixed (`;` -> `,`). CSV_OPTION extracted. 2 engine-gap warnings added. 13 converter tests.
 
 ---
 
@@ -15,8 +17,8 @@
 | **Talend Name** | `tNormalize` |
 | **V1 Engine Class** | `Normalize` |
 | **Engine File** | `src/v1/engine/components/transform/normalize.py` (221 lines) |
-| **Converter Parser** | `src/converters/complex_converter/component_parser.py` -> `parse_tnormalize()` (lines 1921-1937) |
-| **Converter Dispatch** | `src/converters/complex_converter/converter.py` -> `elif component_type == 'tNormalize':` (line 315-316) |
+| **Converter Parser** | `src/converters/talend_to_v1/components/transform/normalize.py` |
+| **Converter Dispatch** | `@REGISTRY.register("tNormalize")` decorator-based dispatch |
 | **Registry Aliases** | `Normalize`, `tNormalize` (registered in `src/v1/engine/engine.py` lines 115-116) |
 | **Category** | Processing / Transform |
 
@@ -25,8 +27,7 @@
 | File | Purpose |
 |------|---------|
 | `src/v1/engine/components/transform/normalize.py` | Engine implementation (221 lines) |
-| `src/converters/complex_converter/component_parser.py` (lines 1921-1937) | Dedicated `parse_tnormalize()` method -- parameter mapping from Talend XML to v1 JSON |
-| `src/converters/complex_converter/converter.py` (line 315-316) | Dispatch -- dedicated `elif component_type == 'tNormalize'` branch |
+| `src/converters/talend_to_v1/components/transform/normalize.py` | Dedicated `NormalizeConverter` class with `@REGISTRY.register("tNormalize")` |
 | `src/v1/engine/base_component.py` | Base class: `_update_stats()`, `_update_global_map()`, `validate_schema()`, `execute()` |
 | `src/v1/engine/global_map.py` | GlobalMap storage for `{id}_NB_LINE` etc. |
 | `src/v1/engine/exceptions.py` | Custom exception hierarchy (`ConfigurationError`, `ComponentExecutionError`) |
@@ -39,7 +40,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **G** | 0 | 0 | 3 | 2 | 5 of 7 Talend runtime params extracted (71%); missing `DIE_ON_ERROR`, `CSV parameters`; dedicated parser method |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 9 of 10 Talend params extracted (90%); `talend_to_v1` converter with correct ITEMSEPARATOR default (comma); CSV_OPTION toggle extracted with engine-gap warning; 2 engine-gap warnings; 13 converter tests |
 | Engine Feature Parity | **Y** | 0 | 3 | 3 | 1 | `discard_trailing_empty_str` filters ALL empties not just trailing; null->empty string differs from Talend; NB_LINE wrong semantics |
 | Code Quality | **R** | 3 | 4 | 5 | 1 | Cross-cutting base class bugs; empty-separator crash; `iterrows()` anti-pattern; `row.copy()` type demotion (data fidelity); import path mismatch; discard-empty logic bug; null handling bug; empty DF loses schema; `str()` garbage on non-string types |
 | Performance & Memory | **R** | 1 | 1 | 1 | 0 | `iterrows()` + `row.copy()` + list-of-Series pattern is O(n*m) and creates massive intermediate memory; no vectorized alternative |
@@ -146,31 +147,34 @@ This order is documented in the official Talend example scenario, which shows: "
 
 ### 4.1 Parameter Extraction
 
-The converter uses a **dedicated parser method** (`parse_tnormalize()` in `component_parser.py` lines 1921-1937), which is the correct approach per standards. The method is registered in `converter.py` line 315-316 with a dedicated `elif component_type == 'tNormalize'` branch.
+The converter uses a **dedicated `NormalizeConverter` class** in `src/converters/talend_to_v1/components/transform/normalize.py`, registered via `@REGISTRY.register("tNormalize")` decorator-based dispatch.
+
+The converter extracts 9 parameters with correct Talend defaults, emits 2 engine-gap warnings, and has 13 converter tests.
 
 **Converter flow**:
-1. `converter.py:_parse_component()` detects `component_type == 'tNormalize'` (line 315)
-2. Calls `self.component_parser.parse_tnormalize(node, component)` (line 316)
-3. `parse_tnormalize()` extracts 5 parameters from `elementParameter` nodes via XPath
-4. Updates `component['config']` with the extracted values
-5. Returns the component dictionary
+1. Registry dispatches `tNormalize` to `NormalizeConverter.convert()`
+2. Extracts 9 of 10 Talend parameters with correct defaults
+3. Emits engine-gap warnings for features not yet supported by the v1 engine
+4. Schema is passthrough: `{"input": schema_cols, "output": schema_cols}`
 
-| # | Talend XML Parameter | Extracted? | V1 Config Key | Converter Line | Notes |
-|----|----------------------|------------|---------------|----------------|-------|
-| 1 | `NORMALIZE_COLUMN` | Yes | `normalize_column` | 1923 | Uses XPath `'.//elementParameter[@name="NORMALIZE_COLUMN"]'`. `.get('value', '')` with empty string default. |
-| 2 | `ITEMSEPARATOR` | Yes | `item_separator` | 1924 | **Default `';'` used if not found, then `.strip('"')` removes surrounding quotes.** Talend default is `","` (comma). The converter default of semicolon differs from Talend's comma default. |
-| 3 | `DEDUPLICATE` | Yes | `deduplicate` | 1925 | Boolean conversion via `.lower() == 'true'`. Default `false`. Correct. |
-| 4 | `TRIM` | Yes | `trim` | 1926 | Boolean conversion. Default `false`. Correct. |
-| 5 | `DISCARD_TRAILING_EMPTY_STR` | Yes | `discard_trailing_empty_str` | 1927 | Boolean conversion. Default `false`. Correct. |
-| 6 | `DIE_ON_ERROR` | **No** | -- | -- | **Not extracted by converter. Engine has its own `die_on_error` config key with default `False` but the converter does not propagate the Talend setting.** |
-| 7 | CSV Parameters (escape/enclosure) | **No** | -- | -- | **Not extracted. Engine has no CSV-aware splitting mode for the normalized column.** |
-| 8 | `TSTATCATCHER_STATS` | **No** | -- | -- | Not extracted (low priority -- tStatCatcher rarely used) |
-| 9 | `PROPERTY_TYPE` | No | -- | -- | Not needed (always Built-In in converted jobs) |
-| 10 | `LABEL` | No | -- | -- | Not extracted (cosmetic -- no runtime impact) |
+| # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
+|----|----------------------|------------|---------------|-------|
+| 1 | `NORMALIZE_COLUMN` | Yes | `normalize_column` | Required — warns if empty |
+| 2 | `ITEMSEPARATOR` | Yes | `item_separator` | Default `","` matches Talend |
+| 3 | `DEDUPLICATE` | Yes | `deduplicate` | Default `false` matches Talend |
+| 4 | `TRIM` | Yes | `trim` | Default `false` matches Talend |
+| 5 | `DISCARD_TRAILING_EMPTY_STR` | Yes | `discard_trailing_empty_str` | Engine-gap warning: filters ALL empties, not just trailing |
+| 6 | `DIE_ON_ERROR` | Yes | `die_on_error` | Default `false` matches Talend |
+| 7 | `CSV_OPTION` | Yes | `csv_option` | Engine-gap warning: CSV escape/enclosure not supported |
+| 8 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Default `false` |
+| 9 | `LABEL` | Yes | `label` | Cosmetic |
+| 10 | `PROPERTY_TYPE` | No | -- | Not needed (always Built-In) |
 
-**Summary**: 5 of 7 runtime-relevant parameters extracted (71%). 2 runtime-relevant parameters are missing (`DIE_ON_ERROR`, CSV parameters).
+**Summary**: 9 of 10 parameters extracted (90%). Only `PROPERTY_TYPE` excluded (framework param, no runtime impact).
 
 ### 4.2 Schema Extraction
+
+> **Updated**: The `talend_to_v1` converter uses `_parse_schema(node)` from the ComponentConverter base class. The description below applies to the old `complex_converter`.
 
 Schema is extracted generically in `parse_base_component()` (called before `parse_tnormalize()`). The schema for tNormalize has identical input and output structures.
 
@@ -188,6 +192,8 @@ Schema is extracted generically in `parse_base_component()` (called before `pars
 
 ### 4.3 Expression Handling
 
+> **Note**: The expression handling issues described below (stale separator default, NoneType crash, no expression detection) apply to the old `complex_converter`. The `talend_to_v1` converter fixes CONV-NRM-002 (separator default) and CONV-NRM-003 (safe parameter extraction).
+
 **NORMALIZE_COLUMN extraction**: The converter uses `node.find('.//elementParameter[@name="NORMALIZE_COLUMN"]').get('value', '')` (line 1923). This extracts the raw column name string. Since this is a dropdown-selected column name, it should always be a simple string without Java expressions or context variables. However, the converter does NOT validate that the value is non-empty.
 
 **ITEMSEPARATOR extraction**: The converter uses `.get('value', ';').strip('"')` (line 1924). The `.strip('"')` removes surrounding double quotes that Talend XML may include. However:
@@ -199,13 +205,15 @@ Schema is extracted generically in `parse_base_component()` (called before `pars
 
 ### 4.4 Converter Issues
 
-| ID | Priority | Issue |
-|----|----------|-------|
-| CONV-NRM-001 | **P2** | **`DIE_ON_ERROR` not extracted**: The converter does not extract the `DIE_ON_ERROR` parameter from the Talend XML. The engine has a `die_on_error` config key that defaults to `False`, but if a Talend job explicitly sets `DIE_ON_ERROR=true`, this setting is lost during conversion. Jobs that should fail-fast on normalization errors will silently continue instead. |
-| CONV-NRM-002 | **P2** | **Default item separator mismatch**: The converter defaults to `';'` (semicolon) on line 1924: `.get('value', ';')`. Talend's default item separator for tNormalize is `","` (comma). If a Talend job uses the default separator without explicitly setting it in the XML, the converter produces the wrong separator value, causing data to not be split at all or split incorrectly. |
-| CONV-NRM-003 | **P2** | **No NoneType guard on XML element lookups**: Lines 1923-1927 each call `node.find(...).get(...)` without checking if `node.find()` returns `None`. If any `elementParameter` node is missing from the XML (e.g., in older Talend versions or corrupted exports), an `AttributeError` will crash the converter. Should use safe access: `elem = node.find(...); value = elem.get('value', default) if elem is not None else default`. |
-| CONV-NRM-004 | **P3** | **No expression handling on ITEMSEPARATOR**: The converter does not check for Java expressions or context variables in the `ITEMSEPARATOR` value. If a Talend job uses `context.separator` as the item separator, it will be passed as the literal string `"context.separator"` instead of being resolved. |
-| CONV-NRM-005 | **P3** | **CSV parameters not extracted**: The `Use CSV parameters` advanced setting (escape mode and enclosure character) is not extracted. This means the engine cannot handle separator characters appearing inside quoted values within the normalized column. Low priority because this is a rarely used feature. |
+> **Note:** The `talend_to_v1` converter (2026-03-27) resolves CONV-NRM-001, CONV-NRM-002, CONV-NRM-003, and CONV-NRM-005. The issues below apply to the old `complex_converter` only unless noted.
+
+| ID | Priority | Status | Issue |
+|----|----------|--------|-------|
+| CONV-NRM-001 | ~~P2~~ | **FIXED in talend_to_v1** | **`DIE_ON_ERROR` now extracted** with correct default `false`. |
+| CONV-NRM-002 | ~~P2~~ | **FIXED in talend_to_v1** | **Default item separator corrected** from `";"` to `","` matching Talend. |
+| CONV-NRM-003 | ~~P2~~ | **FIXED in talend_to_v1** | **Safe parameter extraction** via `_get_str`/`_get_bool` helpers — no NoneType crashes. |
+| CONV-NRM-004 | **P3** | Open (complex_converter only) | **No expression handling on ITEMSEPARATOR** — `talend_to_v1` uses generic expression handling via base class. |
+| CONV-NRM-005 | ~~P3~~ | **FIXED in talend_to_v1** | **CSV_OPTION now extracted** as boolean toggle. Engine-gap warning emitted. Sub-params TBD. |
 
 ---
 
@@ -217,7 +225,7 @@ Schema is extracted generically in `parse_base_component()` (called before `pars
 |----|----------------|-------------|----------|-----------------|-------|
 | 1 | Split column by separator | **Yes** | High | `_process()` line 161 | Uses Python `str.split(item_separator)`. Correct basic behavior. |
 | 2 | Replicate non-normalized columns | **Yes** | High | `_process()` lines 187-190 | `row.copy()` for each split value preserves all other columns. Correct. |
-| 3 | Configurable item separator | **Yes** | Medium | `_process()` line 130 | `config.get('item_separator', ',')`. **Engine default `,` matches Talend, but converter default `;` does not.** |
+| 3 | Configurable item separator | **Yes** | Medium | `_process()` line 130 | `config.get('item_separator', ',')`. Engine default `,` matches Talend. ~~Converter default `;` does not~~ **FIXED in talend_to_v1**: converter default now `","`. |
 | 4 | Trim resulting values | **Yes** | High | `_process()` line 165 | `value.strip()` for each split value. Correct. |
 | 5 | Discard trailing empty strings | **Partial** | **Low** | `_process()` lines 167-168 | **Filters ALL empty strings, not just trailing ones.** Implementation is `[value for value in values if value]` which removes empties at ANY position. Talend only removes TRAILING empties. See ENG-NRM-001. |
 | 6 | Deduplicate output | **Yes** | High | `_process()` lines 170-178 | Order-preserving deduplication using seen-set pattern. Correct and matches Talend behavior. |
@@ -449,9 +457,9 @@ The component has good logging throughout:
 |----|----------|---------|
 | BUG-NRM-008 | Bug | Empty DataFrame returned on empty input (line 110) loses column schema. Returns `pd.DataFrame()` with NO columns. Downstream components expecting specific column names will crash with `KeyError`. Should return `pd.DataFrame(columns=input_data.columns)`. |
 | BUG-NRM-009 | Bug | `str()` conversion on non-string column values (line 158) produces garbage output. Float `1.5` split by `'.'` yields `['1', '5']`. List `[1,2,3]` becomes `'[1, 2, 3]'` split by `','` yields `['[1', ' 2', ' 3]']`. Talend restricts normalize column to string type; v1 silently accepts any type. |
-| CONV-NRM-001 | Converter | `DIE_ON_ERROR` not extracted from Talend XML. Jobs with `DIE_ON_ERROR=true` will silently use default `false`. |
-| CONV-NRM-002 | Converter | Default item separator `';'` differs from Talend default `','`. Jobs using default separator will produce wrong results. |
-| CONV-NRM-003 | Converter | No NoneType guard on XML element lookups. Missing `elementParameter` nodes crash the converter with `AttributeError`. |
+| CONV-NRM-001 | Converter | ~~`DIE_ON_ERROR` not extracted~~ **FIXED in talend_to_v1** — now extracted with default `false`. |
+| CONV-NRM-002 | Converter | ~~Default separator mismatch~~ **FIXED in talend_to_v1** — corrected to `","`. |
+| CONV-NRM-003 | Converter | ~~NoneType crash~~ **FIXED in talend_to_v1** — safe `_get_str`/`_get_bool` helpers. |
 | ENG-NRM-004 | Engine | Item separator treated as literal string; Talend treats it as regex. Regex separators will not work. |
 | ENG-NRM-005 | Engine | Processing order (trim, discard, deduplicate) differs from Talend (discard, trim, deduplicate). Edge cases produce different results. |
 | PERF-NRM-003 | Performance | `pd.DataFrame(list_of_series)` constructor is slow for large result sets. |
@@ -463,8 +471,8 @@ The component has good logging throughout:
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-NRM-004 | Converter | No expression handling on ITEMSEPARATOR -- Java expressions and context variables passed as literal strings. |
-| CONV-NRM-005 | Converter | CSV parameters not extracted -- separator chars inside quoted values cause incorrect splits. |
+| CONV-NRM-004 | Converter | No expression handling on ITEMSEPARATOR — open for `complex_converter` only. `talend_to_v1` uses generic expression handling. |
+| CONV-NRM-005 | Converter | ~~CSV parameters not extracted~~ **FIXED in talend_to_v1** — `CSV_OPTION` toggle extracted. Engine-gap warning. |
 | ENG-NRM-006 | Engine | No CSV-aware splitting -- quoted values with separator characters are split incorrectly. |
 | NAME-NRM-001 | Naming | Config key `discard_trailing_empty_str` uses abbreviation `_str` instead of `_strings`. |
 
@@ -474,9 +482,9 @@ The component has good logging throughout:
 |----------|-------|------------|
 | P0 | 5 | 3 bugs (2 cross-cutting, 1 empty-separator crash), 1 performance, 1 testing |
 | P1 | 9 | 4 bugs (incl. data fidelity type demotion), 3 engine, 1 performance, 1 testing |
-| P2 | 11 | 2 bugs (schema loss, str() garbage), 3 converter, 2 engine, 1 performance, 2 standards, 1 logic |
-| P3 | 4 | 2 converter, 1 engine, 1 naming |
-| **Total** | **29** | |
+| P2 | 8 | 2 bugs (schema loss, str() garbage), ~~3 converter~~ (FIXED), 2 engine, 1 performance, 2 standards, 1 logic |
+| P3 | 2 | ~~2 converter~~ (1 FIXED, 1 open complex_converter only), 1 engine, 1 naming |
+| **Total** | **24** | |
 
 ---
 
@@ -536,22 +544,11 @@ The component has good logging throughout:
 
 9. **Fix NB_LINE to use output count** (ENG-NRM-003): Change line 208 from `_update_stats(rows_in, rows_out, 0)` to `_update_stats(rows_out, rows_out, 0)` so that NB_LINE reflects output row count, matching Talend behavior. **Impact**: Fixes downstream globalMap references. **Risk**: Low.
 
-10. **Extract `DIE_ON_ERROR` in converter** (CONV-NRM-001): Add to `parse_tnormalize()`:
-    ```python
-    die_on_error_elem = node.find('.//elementParameter[@name="DIE_ON_ERROR"]')
-    die_on_error = die_on_error_elem.get('value', 'false').lower() == 'true' if die_on_error_elem is not None else False
-    component['config']['die_on_error'] = die_on_error
-    ```
-    **Impact**: Propagates fail-fast setting from Talend. **Risk**: Very low.
+10. ~~**Extract `DIE_ON_ERROR` in converter** (CONV-NRM-001)~~ **DONE** -- Fixed in `talend_to_v1` converter. `DIE_ON_ERROR` is now extracted with correct default `false`.
 
-11. **Fix converter default separator** (CONV-NRM-002): Change line 1924 from `.get('value', ';')` to `.get('value', ',')` to match Talend's default comma separator. **Impact**: Fixes jobs using default separator. **Risk**: Very low.
+11. ~~**Fix converter default separator** (CONV-NRM-002)~~ **DONE** -- Fixed in `talend_to_v1` converter. Default separator is now `","` matching Talend.
 
-12. **Add NoneType guards in converter** (CONV-NRM-003): Wrap each `node.find()` call with a None check:
-    ```python
-    elem = node.find('.//elementParameter[@name="NORMALIZE_COLUMN"]')
-    normalize_column = elem.get('value', '') if elem is not None else ''
-    ```
-    **Impact**: Prevents converter crashes on incomplete XML. **Risk**: Very low.
+12. ~~**Add NoneType guards in converter** (CONV-NRM-003)~~ **DONE** -- Fixed in `talend_to_v1` converter. Safe parameter extraction via `_get_str`/`_get_bool` helpers eliminates NoneType crashes.
 
 ### Long-Term (Optimization)
 
@@ -569,7 +566,10 @@ The component has good logging throughout:
 
 ## Appendix A: Converter Parameter Mapping Code
 
+> **SUPERSEDED (2026-03-27)**: This appendix documents the old `complex_converter` code. The active converter is now `src/converters/talend_to_v1/components/transform/normalize.py` (`NormalizeConverter` class) with 9/10 params, correct ITEMSEPARATOR default, and 2 engine-gap warnings.
+
 ```python
+# OLD complex_converter code (superseded by talend_to_v1)
 # component_parser.py lines 1921-1937
 def parse_tnormalize(self, node, component: Dict) -> Dict:
     """Parse tNormalize specific configuration"""
@@ -635,18 +635,20 @@ Normalize (BaseComponent)
 
 ## Appendix C: Complete Talend Parameter to V1 Config Key Reference
 
+> **Updated (2026-03-27)**: Table updated to reflect `talend_to_v1` converter state.
+
 | Talend Parameter | V1 Config Key | Status | Priority to Add |
 |------------------|---------------|--------|-----------------|
 | `NORMALIZE_COLUMN` | `normalize_column` | Mapped | -- |
-| `ITEMSEPARATOR` | `item_separator` | Mapped (default mismatch) | Fix default |
+| `ITEMSEPARATOR` | `item_separator` | Mapped (default mismatch NOW FIXED) | -- |
 | `DEDUPLICATE` | `deduplicate` | Mapped | -- |
 | `TRIM` | `trim` | Mapped | -- |
 | `DISCARD_TRAILING_EMPTY_STR` | `discard_trailing_empty_str` | Mapped | -- |
-| `DIE_ON_ERROR` | `die_on_error` | **Not Mapped** | P2 |
-| CSV Parameters | -- | **Not Mapped** | P3 |
-| `TSTATCATCHER_STATS` | -- | Not needed | -- (tStatCatcher rarely used) |
+| `DIE_ON_ERROR` | `die_on_error` | Mapped (FIXED in talend_to_v1) | -- |
+| CSV Parameters | `csv_option` | CSV_OPTION mapped (FIXED in talend_to_v1) | -- |
+| `TSTATCATCHER_STATS` | `tstatcatcher_stats` | Mapped | -- |
 | `PROPERTY_TYPE` | -- | Not needed | -- (always Built-In) |
-| `LABEL` | -- | Not needed | -- (cosmetic) |
+| `LABEL` | `label` | Mapped | -- |
 
 ---
 
@@ -895,7 +897,7 @@ The following issues were discovered during this audit but affect the entire v1 
 | BUG-NRM-001 | **P0** | `base_component.py:304` | `_update_global_map()` references undefined `value` variable. NameError crashes `execute()` entirely, preventing ANY component from returning results when `global_map` is set. The entire engine is broken. |
 | BUG-NRM-002 | **P0** | `global_map.py:28` | `GlobalMap.get()` references undefined `default` parameter. Will crash on any `get()` call. |
 | BUG-NRM-003 | **P1** | `engine.py:40` | Import path mismatch: imports `Normalize`, `Denormalize`, `AggregateSortedRow`, `Replicate` from `.components.aggregate` but they live in `.components.transform`. |
-| STD-NRM-001 | **P2** | `component_parser.py` | Schema types converted to Python format instead of Talend format. Affects all components. |
+| STD-NRM-001 | **P2** | `component_parser.py` (complex_converter only) | Schema types converted to Python format instead of Talend format. Affects all components. |
 
 These should be tracked in a cross-cutting issues report as well.
 
@@ -1063,7 +1065,7 @@ if deduplicate:
 | Jobs with embedded empties in values | **High** | Jobs where `"a,,b"` should preserve middle empty | Must fix discard trailing logic (BUG-NRM-004) |
 | Jobs referencing `{id}_NB_LINE` downstream | **Medium** | Jobs with conditional logic on row count | Must fix NB_LINE semantics (ENG-NRM-003) |
 | Jobs using regex separators | **Medium** | Jobs with whitespace or multi-pattern separators | Must add regex support (ENG-NRM-004) |
-| Jobs relying on Talend default separator | **Medium** | Jobs that don't explicitly set separator | Must fix converter default (CONV-NRM-002) |
+| Jobs relying on Talend default separator | ~~**Medium**~~ **FIXED** | Jobs that don't explicitly set separator | ~~Must fix converter default (CONV-NRM-002)~~ FIXED in `talend_to_v1` converter |
 
 ### Low-Risk Scenarios
 
@@ -1086,7 +1088,10 @@ if deduplicate:
 
 ## Appendix J: Converter Dispatch Code
 
+> **SUPERSEDED (2026-03-27)**: This appendix documents the old `complex_converter` dispatch code. The active converter is now `src/converters/talend_to_v1/components/transform/normalize.py` (`NormalizeConverter` class) using `@REGISTRY.register("tNormalize")` decorator-based dispatch.
+
 ```python
+# OLD complex_converter code (superseded by talend_to_v1)
 # converter.py lines 315-316
 elif component_type == 'tNormalize':
     component = self.component_parser.parse_tnormalize(node, component)
@@ -1111,11 +1116,15 @@ Registry (engine.py lines 115-116):
   'Normalize': Normalize
   'tNormalize': Normalize
 
-Converter name mapping (component_parser.py line 67):
+Converter name mapping (component_parser.py line 67) (complex_converter only):
   'tNormalize': 'Normalize'
+
+Note: The `talend_to_v1` converter uses registry-based lookup via
+@REGISTRY.register("tNormalize") decorator instead of the dict-based
+name mapping shown above.
 ```
 
-The registry aliases are correct: both `Normalize` and `tNormalize` map to the same class. The converter name mapping correctly maps the Talend component type `tNormalize` to the v1 class name `Normalize`. The only issue is the import path in `engine.py`.
+The registry aliases are correct: both `Normalize` and `tNormalize` map to the same class. The converter name mapping correctly maps the Talend component type `tNormalize` to the v1 class name `Normalize`. The only issue is the import path in `engine.py`. Note that the `talend_to_v1` converter bypasses this name mapping entirely, using `@REGISTRY.register("tNormalize")` decorator-based dispatch.
 
 ---
 

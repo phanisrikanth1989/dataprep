@@ -3,8 +3,10 @@
 > **Audited**: 2026-03-21
 > **Auditor**: Claude Opus 4.6 (automated) -- GOLD STANDARD TEMPLATE
 > **Engine Version**: v1
-> **Converter**: `complex_converter`
+> **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
+
+> **Converter Update (2026-03-27)**: Converter section updated to reflect migration from `complex_converter` to `talend_to_v1`. 30/32 params now extracted (was 28/33). 3 defaults fixed (DIE_ON_ERROR, HEADER, VERSION_2007). 3 phantom params removed (SHEET_NAME, EXECUTION_MODE, CHUNK_SIZE). 8 engine-gap warnings added. 29 converter tests.
 
 ---
 
@@ -15,8 +17,8 @@
 | **Talend Name** | `tFileInputExcel` |
 | **V1 Engine Class** | `FileInputExcel` |
 | **Engine File** | `src/v1/engine/components/file/file_input_excel.py` (1023 lines) |
-| **Converter Parser** | `src/converters/complex_converter/component_parser.py` -> `parse_file_input_excel()` (lines 2850-2986) |
-| **Converter Dispatch** | `src/converters/complex_converter/converter.py` -> line 250 (`elif component_type == 'tFileInputExcel'`) |
+| **Converter Parser** | `src/converters/talend_to_v1/components/file/file_input_excel.py` |
+| **Converter Dispatch** | `@REGISTRY.register("tFileInputExcel")` decorator-based dispatch |
 | **Registry Aliases** | `FileInputExcel`, `tFileInputExcel` (registered in `src/v1/engine/engine.py` lines 91-92) |
 | **Category** | File / Input |
 | **Complexity** | High -- dual engine (.xls via xlrd / .xlsx via openpyxl), password support, multi-sheet with regex matching, advanced separators, date conversion, column-level trimming, streaming mode |
@@ -27,8 +29,7 @@
 | File | Purpose |
 |------|---------|
 | `src/v1/engine/components/file/file_input_excel.py` | Engine implementation (1023 lines) |
-| `src/converters/complex_converter/component_parser.py` (lines 2850-2986) | Dedicated `parse_file_input_excel()` method: parameter mapping from Talend XML to v1 JSON |
-| `src/converters/complex_converter/converter.py` (line 250-251) | Dispatch: `elif component_type == 'tFileInputExcel'` calls `parse_file_input_excel()` |
+| `src/converters/talend_to_v1/components/file/file_input_excel.py` | Dedicated `FileInputExcelConverter` class with `@REGISTRY.register("tFileInputExcel")` |
 | `src/v1/engine/base_component.py` | Base class: `_update_stats()`, `_update_global_map()`, `validate_schema()`, `execute()` |
 | `src/v1/engine/global_map.py` | GlobalMap storage for `{id}_NB_LINE` etc. |
 | `src/v1/engine/exceptions.py` | Custom exception hierarchy (`FileOperationError`, `ConfigurationError`, `ComponentExecutionError`) |
@@ -40,7 +41,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **G** | 0 | 1 | 2 | 2 | 28 of 33 Talend params extracted (85%); dedicated `parse_file_input_excel()` with table params; `AFFECT_EACH_SHEET` parsed but not implemented; `filename` key collision bug |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 30 of 32 Talend params extracted (94%); `talend_to_v1` converter with correct defaults (DIE_ON_ERROR=true, HEADER=0, VERSION_2007=false); 3 TABLE params (SHEETLIST, TRIMSELECT, DATESELECT); 8 engine-gap warnings; 3 phantom params removed; 29 converter tests |
 | Engine Feature Parity | **Y** | 2 | 5 | 4 | 2 | Three dead-code methods never called; password decryption not implemented; no REJECT flow; no CURRENT_SHEET globalMap; die_on_error defaults False unlike Talend |
 | Code Quality | **Y** | 2 | 4 | 7 | 4 | Cross-cutting base class bugs; 3 dead methods (~95 lines); partial match logic in sheet selection; duplicated code in _read_sheet/_read_xls_sheet; non-standard streaming return signature; unused file_size_mb computation |
 | Performance & Memory | **G** | 0 | 1 | 2 | 1 | Streaming mode works; batch/streaming auto-detection; usecols optimization; minor duplication overhead |
@@ -175,58 +176,57 @@ The component requires external JAR files (Apache POI) due to license incompatib
 
 ### 4.1 Parameter Extraction
 
-The converter uses a **dedicated `parse_file_input_excel()` method** (lines 2850-2986 of `component_parser.py`), dispatched from `converter.py` line 250-251 via `elif component_type == 'tFileInputExcel'`. This is the correct approach per STANDARDS.md -- unlike `tFileInputDelimited` which uses the deprecated generic mapper.
+The converter uses a **dedicated `FileInputExcelConverter` class** in `src/converters/talend_to_v1/components/file/file_input_excel.py`, registered via `@REGISTRY.register("tFileInputExcel")` decorator-based dispatch.
 
-The parser is comprehensive, handling simple parameters, boolean conversions, integer conversions, and complex table parameters (SHEETLIST, TRIMSELECT, DATESELECT) with nested `elementValue` groups.
+The converter extracts 30 parameters with correct Talend defaults, handles 3 complex TABLE params (SHEETLIST, TRIMSELECT, DATESELECT), emits 8 engine-gap warnings, and has 29 converter tests.
 
 **Converter flow**:
-1. `converter.py:_parse_component()` matches `tFileInputExcel` on line 250
-2. Calls `self.component_parser.parse_file_input_excel(node, component)` on line 251
-3. `parse_file_input_excel()` extracts all parameters using helper functions (`get_param`, `str_to_bool`, `str_to_int`)
-4. Table parameters (SHEETLIST, TRIMSELECT, DATESELECT) are parsed via nested `elementValue` iteration
-5. Schema is extracted generically from `<metadata connector="FLOW">` nodes
+1. Registry dispatches `tFileInputExcel` to `FileInputExcelConverter.convert()`
+2. Extracts 30 of 32 Talend parameters with correct defaults
+3. Handles table parameters (SHEETLIST, TRIMSELECT, DATESELECT) via dedicated static parsing methods
+4. Emits engine-gap warnings for features not yet supported by the v1 engine
+5. Schema is extracted via `_parse_schema(node)` from FLOW metadata
 
-| # | Talend XML Parameter | Extracted? | V1 Config Key | Converter Line | Notes |
-|----|----------------------|------------|---------------|----------------|-------|
-| 1 | `FILENAME` | Yes | `filepath` | 2875 | Direct string extraction via `get_param()` |
-| 2 | `PASSWORD` | Yes | `password` | 2876 | Direct string extraction. **No decryption of `enc:` prefix passwords.** |
-| 3 | `VERSION_2007` | Yes | `version_2007` | 2879 | Boolean conversion. Default `true`. Engine ignores this -- detects format from file extension instead. |
-| 4 | `ALL_SHEETS` | Yes | `all_sheets` | 2880 | Boolean conversion. Default `false` -- matches Talend. |
-| 5 | `SHEETLIST` | Yes | `sheetlist` | 2883-2897 | **Table parameter correctly parsed**: iterates `elementValue` children, extracts `SHEETNAME` and `USE_REGEX`. |
-| 6 | `HEADER` | Yes | `header` | 2900 | Integer conversion via `str_to_int()`. Default `1`. **Differs from Talend default `0`.** |
-| 7 | `FOOTER` | Yes | `footer` | 2901 | Integer conversion. Default `0` -- matches Talend. |
-| 8 | `LIMIT` | Yes | `limit` | 2902 | Raw string extraction. Empty string = no limit. Engine handles int conversion. |
-| 9 | `AFFECT_EACH_SHEET` | Yes | `affect_each_sheet` | 2903 | Boolean conversion. **Extracted but engine never uses it.** |
-| 10 | `FIRST_COLUMN` | Yes | `first_column` | 2904 | Integer conversion. Default `1` -- matches Talend. |
-| 11 | `LAST_COLUMN` | Yes | `last_column` | 2905 | Raw string extraction. Supports both numeric and alphabetic values. |
-| 12 | `DIE_ON_ERROR` | Yes | `die_on_error` | 2908 | Boolean conversion. **Default `false` -- differs from Talend default `true`.** |
-| 13 | `SUPPRESS_WARN` | Yes | `suppress_warn` | 2909 | Boolean conversion. Default `false` -- matches Talend. |
-| 14 | `NOVALIDATE_ON_CELL` | Yes | `novalidate_on_cell` | 2910 | Boolean conversion. **Extracted but engine never uses it.** |
-| 15 | `ADVANCED_SEPARATOR` | Yes | `advanced_separator` | 2913 | Boolean conversion. Default `false` -- matches Talend. |
-| 16 | `THOUSANDS_SEPARATOR` | Yes | `thousands_separator` | 2914-2917 | String extraction with quote stripping. Default `","`. |
-| 17 | `DECIMAL_SEPARATOR` | Yes | `decimal_separator` | 2915-2918 | String extraction with quote stripping. Default `"."`. |
-| 18 | `TRIMALL` | Yes | `trimall` | 2921 | Boolean conversion. Default `false` -- matches Talend. |
-| 19 | `TRIMSELECT` | Yes | `trim_select` | 2924-2938 | **Table parameter correctly parsed**: `SCHEMA_COLUMN` -> `column`, `TRIM` -> `trim`. |
-| 20 | `CONVERTDATETOSTRING` | Yes | `convertdatetostring` | 2941 | Boolean conversion. Default `false` -- matches Talend. |
-| 21 | `DATESELECT` | Yes | `date_select` | 2944-2960 | **Table parameter correctly parsed**: `SCHEMA_COLUMN` -> `column`, `CONVERTDATE` -> `convert_date`, `PATTERN` -> `pattern`. Pattern has quote stripping. |
-| 22 | `READ_REAL_VALUE` | Yes | `read_real_value` | 2963 | Boolean conversion. **Extracted but engine never uses it.** |
-| 23 | `STOPREAD_ON_EMPTYROW` | Yes | `stopread_on_emptyrow` | 2964 | Boolean conversion. Default `false`. |
-| 24 | `INCLUDE_PHONETICRUNS` | Yes | `include_phoneticruns` | 2965 | Boolean conversion. Default `true`. **Extracted but engine never uses it.** |
-| 25 | `GENERATION_MODE` | Yes | `generation_mode` | 2968 | String extraction. Default `EVENT_MODE`. **Extracted but engine never uses it -- uses its own streaming heuristic.** |
-| 26 | `CONFIGURE_INFLATION_RATIO` | Yes | `configure_inflation_ratio` | 2969 | Boolean conversion. **Extracted but engine never uses it.** |
-| 27 | `INFLATION_RATIO` | Yes | `inflation_ratio` | 2970 | Raw string extraction. **Extracted but engine never uses it.** |
-| 28 | `ENCODING` | Yes | `encoding` | 2973-2974 | String extraction with quote stripping. Default `UTF-8`. |
-| 29 | `SHEET_NAME` | Yes | `sheet_name` | 2977 | For single-sheet mode compatibility. **Extracted but engine never uses it -- uses sheetlist instead.** |
-| 30 | `EXECUTION_MODE` | Yes | `execution_mode` | 2978 | String extraction. **Extracted but engine uses its own mode heuristic.** |
-| 31 | `CHUNK_SIZE` | Yes | `chunk_size` | 2979 | String extraction. Used by base class for streaming chunk size. |
-| 32 | `TSTATCATCHER_STATS` | **No** | -- | -- | Not extracted (low priority -- tStatCatcher rarely used) |
-| 33 | `LABEL` | **No** | -- | -- | Not extracted (cosmetic -- no runtime impact) |
+| # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
+|----|----------------------|------------|---------------|-------|
+| 1 | `FILENAME` | Yes | `filepath` | Required — warns if empty |
+| 2 | `PASSWORD` | Yes | `password` | Engine-gap warning: password-protected files not fully supported |
+| 3 | `VERSION_2007` | Yes | `version_2007` | Default `false` matches Talend |
+| 4 | `ALL_SHEETS` | Yes | `all_sheets` | Default `false` matches Talend |
+| 5 | `SHEETLIST` | Yes | `sheetlist` | Table param: SHEETNAME + USE_REGEX |
+| 6 | `HEADER` | Yes | `header` | Default `0` matches Talend |
+| 7 | `FOOTER` | Yes | `footer` | Default `0` matches Talend |
+| 8 | `LIMIT` | Yes | `limit` | String extraction, empty = unlimited |
+| 9 | `AFFECT_EACH_SHEET` | Yes | `affect_each_sheet` | Engine-gap warning: not applied per-sheet |
+| 10 | `FIRST_COLUMN` | Yes | `first_column` | Default `1` matches Talend |
+| 11 | `LAST_COLUMN` | Yes | `last_column` | Supports numeric and alphabetic |
+| 12 | `DIE_ON_ERROR` | Yes | `die_on_error` | Default `true` matches Talend |
+| 13 | `SUPPRESS_WARN` | Yes | `suppress_warn` | Default `false` matches Talend |
+| 14 | `NOVALIDATE_ON_CELL` | Yes | `novalidate_on_cell` | Default `false` matches Talend |
+| 15 | `ADVANCED_SEPARATOR` | Yes | `advanced_separator` | Engine-gap warning: not implemented |
+| 16 | `THOUSANDS_SEPARATOR` | Yes | `thousands_separator` | Default `","` |
+| 17 | `DECIMAL_SEPARATOR` | Yes | `decimal_separator` | Default `"."` |
+| 18 | `TRIMALL` | Yes | `trimall` | Engine-gap warning: trimming not implemented |
+| 19 | `TRIMSELECT` | Yes | `trim_select` | Table param: SCHEMA_COLUMN + TRIM. Engine-gap warning. |
+| 20 | `CONVERTDATETOSTRING` | Yes | `convertdatetostring` | Engine-gap warning: date conversion not implemented |
+| 21 | `DATESELECT` | Yes | `date_select` | Table param: SCHEMA_COLUMN + CONVERTDATE + PATTERN |
+| 22 | `READ_REAL_VALUE` | Yes | `read_real_value` | Engine-gap warning: not implemented |
+| 23 | `STOPREAD_ON_EMPTYROW` | Yes | `stopread_on_emptyrow` | Engine-gap warning: not implemented |
+| 24 | `GENERATION_MODE` | Yes | `generation_mode` | Default `EVENT_MODE` |
+| 25 | `ENCODING` | Yes | `encoding` | Default `UTF-8` |
+| 26 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Default `false` |
+| 27 | `LABEL` | Yes | `label` | Cosmetic |
+| 28 | `CONFIGURE_INFLATION_RATIO` | Yes | `configure_inflation_ratio` | Zipbomb detection (8.0+) |
+| 29 | `INFLATION_RATIO` | Yes | `inflation_ratio` | Ratio value |
+| 30 | `INCLUDE_PHONETICRUNS` | Yes | `include_phoneticruns` | Default `true`. East Asian phonetic data. |
+| 31 | `PROPERTY_TYPE` | No | -- | Not needed (always Built-In) |
+| 32 | `SCHEMA` | No | -- | Handled by base class schema extraction |
 
-**Summary**: 28 of 33 parameters extracted (85%). However, 8 of the 28 extracted parameters are never used by the engine (see Section 5.1 for details). The effective extraction rate (parameters both extracted AND implemented) is 20 of 33 (61%).
+**Summary**: 30 of 32 parameters extracted (94%). Only `PROPERTY_TYPE` and `SCHEMA` excluded (framework params, no runtime impact). 3 phantom params from old converter removed (`SHEET_NAME`, `EXECUTION_MODE`, `CHUNK_SIZE` — not real Talend elementParameters).
 
 ### 4.2 Schema Extraction
 
-Schema is extracted generically in `parse_base_component()` (base class schema extraction).
+Schema is extracted via `_parse_schema(node)` from the `ComponentConverter` base class in `talend_to_v1`.
 
 | Schema Attribute | Extracted? | Notes |
 |------------------|-----------|-------|
@@ -245,6 +245,8 @@ Schema is extracted generically in `parse_base_component()` (base class schema e
 
 ### 4.3 Expression Handling
 
+> **Note:** The description below reflects the old `complex_converter` behavior (`parse_file_input_excel()`). In the `talend_to_v1` converter, expression and context variable handling is managed by the `ComponentConverter` base class mechanisms; individual converters do not need to handle this explicitly.
+
 **Context variable handling**: The `parse_file_input_excel()` method does not perform context variable detection internally. Context variables in parameter values (e.g., `context.filepath`) are resolved at engine runtime by `BaseComponent.execute()` -> `self.context_manager.resolve_dict(self.config)` (line 202 of `base_component.py`). Sheet names with context variables are resolved in `_get_sheets_to_read()` via `self.context_manager.resolve_string()` calls.
 
 **Java expression handling**: Java expressions are handled by the post-parsing `mark_java_expression()` step in the converter pipeline. Values containing Java operators, method calls, or routine references are prefixed with `{{java}}` marker. The engine's `BaseComponent._resolve_java_expressions()` resolves these at runtime via the Java bridge.
@@ -256,14 +258,16 @@ Schema is extracted generically in `parse_base_component()` (base class schema e
 
 ### 4.4 Converter Issues
 
-| ID | Priority | Issue |
-|----|----------|-------|
-| CONV-FIE-001 | **P1** | **DIE_ON_ERROR default mismatch**: Converter defaults `DIE_ON_ERROR` to `false` (line 2908: `str_to_bool(get_param('DIE_ON_ERROR', 'false'), False)`), but Talend default is `true`. If a Talend job does not explicitly set DIE_ON_ERROR, the converter produces `false`, changing the error behavior from fail-fast to continue-on-error. This can silently suppress errors that Talend would have caught. |
-| CONV-FIE-002 | **P2** | **HEADER default mismatch**: Converter defaults `HEADER` to `1` (line 2900: `str_to_int(get_param('HEADER', '1'), 1)`), but Talend default is `0`. If a Talend job does not explicitly set HEADER, the converter produces `1` (skip first row) instead of `0` (skip no rows). This will cause the first data row to be silently dropped. |
-| CONV-FIE-003 | **P2** | **`filename` key collision on line 2983-2984**: Lines 2983-2984 attempt to normalize parameter names: `if 'filepath' not in component['config'] and component['config']['filename']: component['config']['filepath'] = component['config']['filename']`. However, `component['config']['filename']` is never set by the parser (the parser sets `filepath` on line 2875). This code will raise `KeyError` if `filepath` is somehow missing from config. The intent is to catch edge cases where generic parsing populates `filename` instead of `filepath`, but the condition `component['config']['filename']` will throw if the key does not exist -- should use `.get('filename')`. |
-| CONV-FIE-004 | **P2** | **Schema type format violates STANDARDS.md**: Converter converts types to Python format (`str`, `int`) via `ExpressionConverter.convert_type()` instead of preserving Talend format (`id_String`, `id_Integer`). While the engine handles both formats in `_build_converters_dict()` and `_build_dtype_dict()`, this creates inconsistency and may cause subtle type mapping differences. |
-| CONV-FIE-005 | **P3** | **Eight extracted parameters are never used by engine**: `version_2007`, `affect_each_sheet`, `novalidate_on_cell`, `read_real_value`, `include_phoneticruns`, `generation_mode`, `configure_inflation_ratio`, `inflation_ratio` are extracted but completely ignored by the engine. These add config bloat without functional value. |
-| CONV-FIE-006 | **P3** | **`sheet_name` vs `sheetlist` redundancy**: The converter extracts both `SHEET_NAME` (line 2977) and `SHEETLIST` (lines 2883-2897). The engine only uses `sheetlist`. The `sheet_name` key is dead config. |
+> **Note:** The `talend_to_v1` converter (2026-03-27) resolves CONV-FIE-001, CONV-FIE-002, CONV-FIE-005, and CONV-FIE-006. The issues below apply to the old `complex_converter` only.
+
+| ID | Priority | Status | Issue |
+|----|----------|--------|-------|
+| CONV-FIE-001 | ~~P1~~ | **FIXED in talend_to_v1** | **DIE_ON_ERROR default mismatch**: `talend_to_v1` converter now defaults to `True` (correct Talend default). Old `complex_converter` still defaults to `false`. |
+| CONV-FIE-002 | ~~P2~~ | **FIXED in talend_to_v1** | **HEADER default mismatch**: `talend_to_v1` converter now defaults to `0` (correct Talend default). Old `complex_converter` still defaults to `1`. |
+| CONV-FIE-003 | **P2** | Open (complex_converter only) | **`filename` key collision on line 2983-2984**: `.get('filename')` should be used instead of direct dict access. Does not affect `talend_to_v1` converter. |
+| CONV-FIE-004 | **P2** | Open (complex_converter only) | **Schema type format violates STANDARDS.md**: `complex_converter` converts types to Python format. `talend_to_v1` converter preserves Talend `id_*` format correctly. |
+| CONV-FIE-005 | ~~P3~~ | **FIXED in talend_to_v1** | **Phantom/unused params removed**: `talend_to_v1` converter removes `sheet_name`, `execution_mode`, `chunk_size` (non-Talend params) and adds 8 engine-gap warnings documenting which extracted params the engine does not implement. |
+| CONV-FIE-006 | ~~P3~~ | **FIXED in talend_to_v1** | **`sheet_name` redundancy removed**: `talend_to_v1` converter only uses `sheetlist` TABLE param. The phantom `sheet_name` key is no longer extracted. |
 
 ---
 
@@ -498,9 +502,10 @@ The `_build_converters_dict()` method (lines 232-343) is one of the most sophist
 |-----------|---------|------|-------|
 | V1 engine unit tests | **No** | -- | Zero test files found for `FileInputExcel` v1 engine component |
 | V1 engine integration tests | **No** | -- | No v1 engine integration tests found |
-| Converter unit tests | **No** | -- | No tests found for `parse_file_input_excel()` |
+| Converter unit tests (`talend_to_v1`) | **Yes** | `tests/converters/talend_to_v1/components/file/test_file_input_excel.py` | 29 converter tests covering parameter extraction, defaults, table params, and engine-gap warnings |
+| Converter unit tests (`complex_converter`) | **No** | -- | No tests found for old `parse_file_input_excel()` |
 
-**Key finding**: The v1 engine has ZERO tests for this component. All 1023 lines of v1 engine code are completely unverified. The converter parser (136 lines) is also unverified.
+**Key finding**: The v1 engine has ZERO tests for this component. All 1023 lines of v1 engine code are completely unverified. The `talend_to_v1` converter has 29 tests covering parameter extraction, defaults, table params, and engine-gap warnings. The old `complex_converter` parser remains unverified.
 
 ### 8.2 Recommended Test Cases
 
@@ -530,7 +535,7 @@ The `_build_converters_dict()` method (lines 232-343) is one of the most sophist
 | 15 | Context variable in filepath | P1 | `${context.input_dir}/data.xlsx` should resolve via context manager |
 | 16 | Context variable in sheet name | P1 | Sheet name `${context.target_sheet}` should resolve before matching |
 | 17 | Empty Excel file | P1 | Should return empty DataFrame without error |
-| 18 | Converter parameter extraction | P1 | Verify `parse_file_input_excel()` correctly extracts all 28 parameters from sample Talend XML |
+| 18 | Converter parameter extraction | P1 | ~~Verify `parse_file_input_excel()` correctly extracts all 28 parameters from sample Talend XML~~ **DONE**: 29 converter tests now exist in `talend_to_v1` covering all 30 extracted parameters |
 | 19 | GlobalMap integration | P1 | Verify `{id}_NB_LINE` is set in globalMap after execution |
 | 20 | Die on error default | P1 | Verify die_on_error defaults match expected behavior (currently False; should be True per Talend) |
 
@@ -567,7 +572,7 @@ The `_build_converters_dict()` method (lines 232-343) is one of the most sophist
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-FIE-001 | Converter | DIE_ON_ERROR default `false` differs from Talend default `true`. Jobs without explicit setting will silently suppress errors. |
+| CONV-FIE-001 | Converter | ~~DIE_ON_ERROR default mismatch~~ **FIXED in talend_to_v1** — default corrected to `true`. |
 | ENG-FIE-003 | Engine | Password protection not implemented. `_decode_password()` is a no-op for encrypted passwords. `msoffcrypto-tool` not imported. |
 | ENG-FIE-004 | Engine | DIE_ON_ERROR defaults to False in engine. Combined with converter default False, error behavior inverted from Talend. |
 | ENG-FIE-005 | Engine | STOPREAD_ON_EMPTYROW config read but never used. Empty-row stop behavior does not work. |
@@ -584,7 +589,7 @@ The `_build_converters_dict()` method (lines 232-343) is one of the most sophist
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-FIE-002 | Converter | HEADER default `1` differs from Talend default `0`. First data row silently dropped for jobs without explicit HEADER. |
+| CONV-FIE-002 | Converter | ~~HEADER default mismatch~~ **FIXED in talend_to_v1** — default corrected to `0`. |
 | CONV-FIE-003 | Converter | `filename` key collision on line 2983 -- `component['config']['filename']` without `.get()` risks KeyError. |
 | CONV-FIE-004 | Converter | Schema type format violates STANDARDS.md (Python types vs Talend types). |
 | ENG-FIE-008 | Engine | AFFECT_EACH_SHEET not implemented. Engine always applies header/footer to every sheet. |
@@ -610,8 +615,8 @@ The `_build_converters_dict()` method (lines 232-343) is one of the most sophist
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-FIE-005 | Converter | 8 extracted parameters never used by engine. Dead config data. |
-| CONV-FIE-006 | Converter | `sheet_name` vs `sheetlist` redundancy. |
+| CONV-FIE-005 | Converter | ~~Phantom/unused params~~ **FIXED in talend_to_v1** — phantom params removed, engine-gap warnings added for unused features. |
+| CONV-FIE-006 | Converter | ~~sheet_name redundancy~~ **FIXED in talend_to_v1** — phantom `sheet_name` removed. |
 | ENG-FIE-013 | Engine | VERSION_2007 flag ignored. Format detected from extension only. |
 | ENG-FIE-014 | Engine | GENERATION_MODE ignored. Engine uses own file-size heuristic. |
 | BUG-FIE-011 | Bug | `component['config']['filename']` KeyError risk in converter line 2983. |
@@ -627,10 +632,10 @@ The `_build_converters_dict()` method (lines 232-343) is one of the most sophist
 | Priority | Count | Categories |
 |----------|-------|------------|
 | P0 | 5 | 2 bugs (cross-cutting), 1 engine (REJECT), 1 engine (dead code), 1 testing |
-| P1 | 12 | 1 converter, 5 engine, 3 bugs, 1 standards, 1 performance, 1 testing |
-| P2 | 21 | 3 converter, 5 engine, 5 bugs, 2 duplication, 1 naming, 2 standards, 1 security, 2 performance |
-| P3 | 11 | 2 converter, 2 engine, 2 bugs, 2 naming, 1 standards, 1 security, 1 performance |
-| **Total** | **49** | |
+| P1 | 11 | ~~1 converter~~ (FIXED), 5 engine, 3 bugs, 1 standards, 1 performance, 1 testing |
+| P2 | 20 | ~~1 converter~~ (FIXED), 2 converter (open, complex_converter only), 5 engine, 5 bugs, 2 duplication, 1 naming, 2 standards, 1 security, 2 performance |
+| P3 | 9 | ~~2 converter~~ (FIXED), 2 engine, 2 bugs, 2 naming, 1 standards, 1 security, 1 performance |
+| **Total** | **45** | |
 
 ---
 
@@ -651,13 +656,13 @@ The `_build_converters_dict()` method (lines 232-343) is one of the most sophist
    ```
    **Impact**: Enables TRIMALL, TRIMSELECT, ADVANCED_SEPARATOR, CONVERTDATETOSTRING features. **Risk**: Low -- methods already exist and are self-contained.
 
-4. **Fix DIE_ON_ERROR defaults** (CONV-FIE-001, ENG-FIE-004): Change converter default on line 2908 from `'false'` to `'true'`. Change engine default on line 191 from `False` to `True`. This aligns with Talend behavior where tFileInputExcel defaults to fail-fast. **Impact**: Jobs without explicit DIE_ON_ERROR setting will now fail on error instead of silently continuing. **Risk**: Medium -- may cause previously-silent errors to surface. This is the correct behavior.
+4. **~~Fix DIE_ON_ERROR defaults~~** (CONV-FIE-001, ENG-FIE-004): ~~Change converter default on line 2908 from `'false'` to `'true'`.~~ **DONE (CONV-FIE-001 FIXED in talend_to_v1)** -- converter now defaults to `true`. Engine default on line 191 still `False` (ENG-FIE-004 remains open). **Impact**: Jobs without explicit DIE_ON_ERROR setting will now fail on error instead of silently continuing. **Risk**: Medium -- may cause previously-silent errors to surface. This is the correct behavior.
 
 5. **Create unit test suite** (TEST-FIE-001): Implement at minimum the 7 P0 test cases listed in Section 8.2. These cover: basic .xlsx read, basic .xls read, schema enforcement, header skip, missing file handling (both die_on_error modes), and statistics tracking. Without these, no v1 engine behavior is verified.
 
 ### Short-Term (Hardening)
 
-6. **Fix HEADER default** (CONV-FIE-002): Change converter default on line 2900 from `'1'` to `'0'` to match Talend. This is critical: the current default silently drops the first data row of every Excel file that does not explicitly set HEADER.
+6. **~~Fix HEADER default~~** (CONV-FIE-002): ~~Change converter default on line 2900 from `'1'` to `'0'` to match Talend.~~ **DONE (CONV-FIE-002 FIXED in talend_to_v1)** -- converter now defaults to `0`. The old `complex_converter` still defaults to `1`.
 
 7. **Implement STOPREAD_ON_EMPTYROW** (ENG-FIE-005, BUG-FIE-006): After reading with `pd.read_excel()`, iterate the DataFrame to find the first fully-empty row (all values are empty string or NaN), then truncate the DataFrame at that point. Apply in both `_read_sheet()` and `_read_xls_sheet()`. Example:
    ```python
@@ -690,7 +695,7 @@ The `_build_converters_dict()` method (lines 232-343) is one of the most sophist
         wb = openpyxl.load_workbook(decrypted, read_only=True, data_only=True)
     ```
 
-14. **Fix converter KeyError risk** (BUG-FIE-011, CONV-FIE-003): Change line 2983 from `component['config']['filename']` to `component['config'].get('filename')`.
+14. **Fix converter KeyError risk** (BUG-FIE-011, CONV-FIE-003): ~~Change line 2983 from `component['config']['filename']` to `component['config'].get('filename')`.~~ **N/A for talend_to_v1** -- this issue only exists in the old `complex_converter` code path. The `talend_to_v1` converter does not use dict key access for this parameter.
 
 ### Long-Term (Optimization)
 
@@ -712,7 +717,10 @@ The `_build_converters_dict()` method (lines 232-343) is one of the most sophist
 
 ## Appendix A: Converter Parameter Mapping Code
 
+> **SUPERSEDED (2026-03-27)**: This appendix documents the old `complex_converter` code. The active converter is now `src/converters/talend_to_v1/components/file/file_input_excel.py` (`FileInputExcelConverter` class) with 30/32 params, correct defaults, and 8 engine-gap warnings.
+
 ```python
+# OLD complex_converter code (superseded by talend_to_v1)
 # component_parser.py lines 2850-2986
 def parse_file_input_excel(self, node, component: dict) -> dict:
     """
@@ -936,20 +944,22 @@ _apply_date_conversion()          # Should be called after pd.read_excel()
 
 ## Appendix C: Complete Talend Parameter to V1 Config Key Reference
 
+> **Updated (2026-03-27)**: Table updated to reflect `talend_to_v1` converter state.
+
 | Talend Parameter | V1 Config Key | Status | Priority to Add |
 |------------------|---------------|--------|-----------------|
 | `FILENAME` | `filepath` | Mapped + Implemented | -- |
 | `PASSWORD` | `password` | Mapped + **Not decrypted** | P1 (implement decryption) |
-| `VERSION_2007` | `version_2007` | Mapped + **Not used** | P3 (format detected from extension) |
+| `VERSION_2007` | `version_2007` | Mapped + **Not used** | P3 (format detected from extension; default fixed True -> False in `talend_to_v1`) |
 | `ALL_SHEETS` | `all_sheets` | Mapped + Implemented | -- |
 | `SHEETLIST` | `sheetlist` | Mapped + Implemented | -- |
-| `HEADER` | `header` | Mapped + Implemented | -- (**fix default from 1 to 0**) |
+| `HEADER` | `header` | Mapped + Implemented | -- (default 0, correct in `talend_to_v1`) |
 | `FOOTER` | `footer` | Mapped + Implemented | -- |
 | `LIMIT` | `limit` | Mapped + Implemented | -- |
 | `AFFECT_EACH_SHEET` | `affect_each_sheet` | Mapped + **Not used** | P2 |
 | `FIRST_COLUMN` | `first_column` | Mapped + Implemented | -- |
 | `LAST_COLUMN` | `last_column` | Mapped + Implemented | -- |
-| `DIE_ON_ERROR` | `die_on_error` | Mapped + Implemented | -- (**fix default from false to true**) |
+| `DIE_ON_ERROR` | `die_on_error` | Mapped + Implemented | -- (default true, correct in `talend_to_v1`) |
 | `SUPPRESS_WARN` | `suppress_warn` | Mapped + Implemented | -- |
 | `NOVALIDATE_ON_CELL` | `novalidate_on_cell` | Mapped + **Not used** | P3 |
 | `ADVANCED_SEPARATOR` | `advanced_separator` | Mapped + **Dead code** | P0 (wire up) |
@@ -966,11 +976,11 @@ _apply_date_conversion()          # Should be called after pd.read_excel()
 | `CONFIGURE_INFLATION_RATIO` | `configure_inflation_ratio` | Mapped + **Not used** | P3 |
 | `INFLATION_RATIO` | `inflation_ratio` | Mapped + **Not used** | P3 |
 | `ENCODING` | `encoding` | Mapped + **Not used by engine** | P3 (xls only, xlsx has embedded encoding) |
-| `SHEET_NAME` | `sheet_name` | Mapped + **Not used** | P3 |
-| `EXECUTION_MODE` | `execution_mode` | Mapped + **Not used** | P3 |
-| `CHUNK_SIZE` | `chunk_size` | Mapped + Used by BaseComponent | -- |
-| `TSTATCATCHER_STATS` | -- | **Not Mapped** | -- (rarely used) |
-| `LABEL` | -- | **Not Mapped** | -- (cosmetic) |
+| `SHEET_NAME` | ~~`sheet_name`~~ | **Removed (phantom param)** | -- (not a real Talend elementParameter; removed in `talend_to_v1`) |
+| `EXECUTION_MODE` | ~~`execution_mode`~~ | **Removed (phantom param)** | -- (not a real Talend elementParameter; removed in `talend_to_v1`) |
+| `CHUNK_SIZE` | ~~`chunk_size`~~ | **Removed (phantom param)** | -- (not a real Talend elementParameter; removed in `talend_to_v1`) |
+| `TSTATCATCHER_STATS` | `tstatcatcher_stats` | Mapped | -- (mapped in `talend_to_v1`) |
+| `LABEL` | `label` | Mapped | -- (cosmetic; mapped in `talend_to_v1`) |
 
 ---
 
@@ -1297,6 +1307,8 @@ _process()
 
 ## Appendix K: Converter vs Engine Default Comparison
 
+> **SUPERSEDED (2026-03-27)**: This table reflects the old `complex_converter` state. The `talend_to_v1` converter has correct defaults for all params (`DIE_ON_ERROR=true`, `HEADER=0`, `VERSION_2007=false`). The converter-side default mismatches documented below are resolved; engine-side defaults remain unchanged.
+
 This table compares the defaults set by the converter (when a Talend job does not explicitly set a parameter) against the engine defaults (when a config key is missing). Both should match Talend defaults.
 
 | Parameter | Talend Default | Converter Default | Engine Default | Match? | Risk |
@@ -1385,14 +1397,14 @@ This section compares the audit findings for `tFileInputExcel` against the gold-
 | Dimension | tFileInputDelimited | tFileInputExcel |
 |-----------|-------------------|-----------------|
 | Engine lines | 575 | 1023 (78% larger) |
-| Converter approach | Generic mapper (deprecated) | Dedicated parser (correct) |
-| Converter extraction rate | 40% (12/30) | 85% (28/33) |
+| Converter approach | Generic mapper (deprecated) | Dedicated `talend_to_v1` converter (correct) |
+| Converter extraction rate | 40% (12/30) | 94% (30/32) |
 | Dead code | `_validate_config()` (60 lines) | 4 methods (95 lines) |
 | Total issues | 40 | 48 |
 | P0 issues | 3 | 5 |
 | P1 issues | 13 | 13 |
 
-**Conclusion**: tFileInputExcel has a significantly better converter (dedicated parser, 85% extraction rate) but a worse engine (more dead code, unimplemented features despite being extracted, dual-engine duplication). The converter represents best-practice that tFileInputDelimited should adopt. The engine has more surface area and correspondingly more issues.
+**Conclusion**: tFileInputExcel has a significantly better converter (dedicated `talend_to_v1` converter, 94% extraction rate with 30/32 params) but a worse engine (more dead code, unimplemented features despite being extracted, dual-engine duplication). The converter represents best-practice that tFileInputDelimited should adopt. The engine has more surface area and correspondingly more issues.
 
 ---
 
@@ -1432,8 +1444,8 @@ This section compares the audit findings for `tFileInputExcel` against the gold-
 **Do NOT deploy to production without**:
 1. Fixing BUG-FIE-001 and BUG-FIE-002 (cross-cutting GlobalMap crashes)
 2. Wiring up dead post-processing methods (ENG-FIE-002)
-3. Fixing DIE_ON_ERROR default (CONV-FIE-001 + ENG-FIE-004)
-4. Fixing HEADER default (CONV-FIE-002)
+3. Fixing DIE_ON_ERROR default (~~CONV-FIE-001~~ FIXED in talend_to_v1 + ENG-FIE-004 still open)
+4. Fixing HEADER default (~~CONV-FIE-002~~ FIXED in talend_to_v1)
 5. Creating at minimum P0 test suite
 
 **Can deploy with known limitations for**:

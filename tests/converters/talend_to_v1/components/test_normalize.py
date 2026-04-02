@@ -31,6 +31,9 @@ class TestNormalizeConverter:
             "TRIM": "true",
             "DISCARD_TRAILING_EMPTY_STR": "false",
             "DIE_ON_ERROR": "true",
+            "CSV_OPTION": "true",
+            "TSTATCATCHER_STATS": "true",
+            "LABEL": '"normalize-step"',
         })
         result = NormalizeConverter().convert(node, [], {})
         comp = result.component
@@ -47,6 +50,9 @@ class TestNormalizeConverter:
         assert cfg["trim"] is True
         assert cfg["discard_trailing_empty_str"] is False
         assert cfg["die_on_error"] is True
+        assert cfg["csv_option"] is True
+        assert cfg["tstatcatcher_stats"] is True
+        assert cfg["label"] == "normalize-step"
 
     def test_die_on_error_extracted(self):
         """CONV-NRM-001: die_on_error must be extracted (was missing in old code)."""
@@ -75,21 +81,24 @@ class TestNormalizeConverter:
         cfg = result.component["config"]
 
         assert cfg["normalize_column"] == ""
-        assert cfg["item_separator"] == ";"
+        assert cfg["item_separator"] == ","
         assert cfg["deduplicate"] is False
         assert cfg["trim"] is False
         assert cfg["discard_trailing_empty_str"] is False
         assert cfg["die_on_error"] is False
+        assert cfg["csv_option"] is False
+        assert cfg["tstatcatcher_stats"] is False
+        assert cfg["label"] == ""
         # Should warn about empty normalize_column
         assert any("no effect" in w.lower() for w in result.warnings)
 
-    def test_item_separator_default_semicolon(self):
-        """When ITEMSEPARATOR is absent, default to semicolon."""
+    def test_item_separator_default_comma(self):
+        """When ITEMSEPARATOR is absent, default to comma."""
         node = _make_node(params={
             "NORMALIZE_COLUMN": '"data"',
         })
         result = NormalizeConverter().convert(node, [], {})
-        assert result.component["config"]["item_separator"] == ";"
+        assert result.component["config"]["item_separator"] == ","
 
     def test_schema_passthrough(self):
         """Normalize passes through schema: both input and output match."""
@@ -134,3 +143,44 @@ class TestNormalizeConverter:
         from src.converters.talend_to_v1.components.registry import REGISTRY
         cls = REGISTRY.get("tNormalize")
         assert cls is NormalizeConverter
+
+
+class TestCompleteness:
+    """Verify all config keys are present."""
+
+    def test_all_9_config_keys_present(self):
+        node = _make_node(params={"NORMALIZE_COLUMN": '"col"'})
+        result = NormalizeConverter().convert(node, [], {})
+        cfg = result.component["config"]
+        expected_keys = {
+            "normalize_column", "item_separator", "csv_option", "deduplicate",
+            "trim", "discard_trailing_empty_str", "die_on_error",
+            "tstatcatcher_stats", "label",
+        }
+        assert set(cfg.keys()) == expected_keys
+
+
+class TestEngineGapWarnings:
+    """Verify engine-gap warnings."""
+
+    def test_no_engine_warnings_for_defaults(self):
+        node = _make_node(params={"NORMALIZE_COLUMN": '"col"'})
+        result = NormalizeConverter().convert(node, [], {})
+        engine_warnings = [w for w in result.warnings if "engine" in w.lower()]
+        assert engine_warnings == []
+
+    def test_csv_option_warning(self):
+        node = _make_node(params={
+            "NORMALIZE_COLUMN": '"col"',
+            "CSV_OPTION": "true",
+        })
+        result = NormalizeConverter().convert(node, [], {})
+        assert any("CSV_OPTION" in w for w in result.warnings)
+
+    def test_discard_trailing_empty_str_warning(self):
+        node = _make_node(params={
+            "NORMALIZE_COLUMN": '"col"',
+            "DISCARD_TRAILING_EMPTY_STR": "true",
+        })
+        result = NormalizeConverter().convert(node, [], {})
+        assert any("DISCARD_TRAILING_EMPTY_STR" in w for w in result.warnings)
