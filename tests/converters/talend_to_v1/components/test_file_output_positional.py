@@ -23,8 +23,8 @@ def _make_node(params=None, schema=None, component_id="tFileOutputPositional_1")
 class TestFileOutputPositionalConverter:
     """Tests for FileOutputPositionalConverter."""
 
-    def test_basic_config_params(self):
-        """All config params are extracted and quote-stripped correctly."""
+    def test_basic_config_all_params(self):
+        """All 18 config params are extracted and quote-stripped correctly."""
         node = _make_node(params={
             "FILENAME": '"/data/output.pos"',
             "ROWSEPARATOR": '"\\r\\n"',
@@ -36,7 +36,13 @@ class TestFileOutputPositionalConverter:
             "FLUSHONROW": "true",
             "FLUSHONROW_NUM": "100",
             "DELETE_EMPTYFILE": "true",
-            "DIE_ON_ERROR": "false",
+            "ADVANCED_SEPARATOR": "true",
+            "THOUSANDS_SEPARATOR": '"."',
+            "DECIMAL_SEPARATOR": '","',
+            "USE_BYTE": "true",
+            "ROW_MODE": "true",
+            "TSTATCATCHER_STATS": "true",
+            "LABEL": '"output_label"',
             "FORMATS": [],
         })
         result = FileOutputPositionalConverter().convert(node, [], {})
@@ -48,7 +54,7 @@ class TestFileOutputPositionalConverter:
         assert comp["position"] == {"x": 200, "y": 400}
 
         cfg = comp["config"]
-        assert cfg["filename"] == "/data/output.pos"
+        assert cfg["filepath"] == "/data/output.pos"
         assert cfg["row_separator"] == "\\r\\n"
         assert cfg["append"] is True
         assert cfg["include_header"] is True
@@ -58,29 +64,48 @@ class TestFileOutputPositionalConverter:
         assert cfg["flush_on_row"] is True
         assert cfg["flush_on_row_num"] == 100
         assert cfg["delete_empty_file"] is True
-        assert cfg["die_on_error"] is False
+        assert cfg["advanced_separator"] is True
+        assert cfg["thousands_separator"] == "."
+        assert cfg["decimal_separator"] == ","
+        assert cfg["use_byte"] is True
+        assert cfg["row_mode"] is True
+        assert cfg["tstatcatcher_stats"] is True
+        assert cfg["label"] == "output_label"
         assert cfg["formats"] == []
+        # Verify phantom removed
+        assert "die_on_error" not in cfg
+        # Verify old key name gone
+        assert "filename" not in cfg
 
     def test_defaults_when_params_missing(self):
-        """Missing params fall back to sensible defaults."""
+        """Missing params fall back to correct Talend defaults."""
         node = _make_node(params={
             "FILENAME": '"/data/file.pos"',
         })
         result = FileOutputPositionalConverter().convert(node, [], {})
         cfg = result.component["config"]
 
-        assert cfg["filename"] == "/data/file.pos"
+        assert cfg["filepath"] == "/data/file.pos"
         assert cfg["row_separator"] == "\\n"
         assert cfg["append"] is False
         assert cfg["include_header"] is False
         assert cfg["compress"] is False
-        assert cfg["encoding"] == "UTF-8"
+        assert cfg["encoding"] == "ISO-8859-15"
         assert cfg["create"] is True
         assert cfg["flush_on_row"] is False
         assert cfg["flush_on_row_num"] == 1
         assert cfg["delete_empty_file"] is False
-        assert cfg["die_on_error"] is True
+        assert cfg["advanced_separator"] is False
+        assert cfg["thousands_separator"] == ","
+        assert cfg["decimal_separator"] == "."
+        assert cfg["use_byte"] is False
+        assert cfg["row_mode"] is False
+        assert cfg["tstatcatcher_stats"] is False
+        assert cfg["label"] == ""
         assert cfg["formats"] == []
+        # Phantom must not exist
+        assert "die_on_error" not in cfg
+        assert "filename" not in cfg
 
     def test_empty_filename_produces_warning(self):
         """An empty FILENAME triggers a warning."""
@@ -95,65 +120,107 @@ class TestFileOutputPositionalConverter:
         assert len(result.warnings) == 0
 
     def test_formats_table_parsing(self):
-        """FORMATS TABLE param is parsed into a list of format dicts."""
+        """FORMATS TABLE is parsed from flat elementRef/value pairs with KEEP."""
         node = _make_node(params={
             "FILENAME": '"/data/output.pos"',
             "FORMATS": [
-                {
-                    "SCHEMA_COLUMN": "id",
-                    "size": "10",
-                    "padding_char": " ",
-                    "align": "RIGHT",
-                },
-                {
-                    "SCHEMA_COLUMN": "name",
-                    "size": "30",
-                    "padding_char": " ",
-                    "align": "LEFT",
-                },
-                {
-                    "SCHEMA_COLUMN": "amount",
-                    "size": "15",
-                    "padding_char": "0",
-                    "align": "RIGHT",
-                },
+                {"elementRef": "SCHEMA_COLUMN", "value": "id"},
+                {"elementRef": "SIZE", "value": "10"},
+                {"elementRef": "PADDING_CHAR", "value": "' '"},
+                {"elementRef": "ALIGN", "value": "'L'"},
+                {"elementRef": "KEEP", "value": "'A'"},
+                {"elementRef": "SCHEMA_COLUMN", "value": "name"},
+                {"elementRef": "SIZE", "value": "30"},
+                {"elementRef": "PADDING_CHAR", "value": "' '"},
+                {"elementRef": "ALIGN", "value": "'R'"},
+                {"elementRef": "KEEP", "value": "'L'"},
+                {"elementRef": "SCHEMA_COLUMN", "value": "amount"},
+                {"elementRef": "SIZE", "value": "15"},
+                {"elementRef": "PADDING_CHAR", "value": "'0'"},
+                {"elementRef": "ALIGN", "value": "'R'"},
+                {"elementRef": "KEEP", "value": "'R'"},
             ],
         })
         result = FileOutputPositionalConverter().convert(node, [], {})
-        cfg = result.component["config"]
+        fmts = result.component["config"]["formats"]
 
-        assert len(cfg["formats"]) == 3
+        assert len(fmts) == 3
 
-        assert cfg["formats"][0]["schema_column"] == "id"
-        assert cfg["formats"][0]["size"] == "10"
-        assert cfg["formats"][0]["padding_char"] == " "
-        assert cfg["formats"][0]["align"] == "RIGHT"
-
-        assert cfg["formats"][1]["schema_column"] == "name"
-        assert cfg["formats"][1]["size"] == "30"
-        assert cfg["formats"][1]["align"] == "LEFT"
-
-        assert cfg["formats"][2]["schema_column"] == "amount"
-        assert cfg["formats"][2]["size"] == "15"
-        assert cfg["formats"][2]["padding_char"] == "0"
-        assert cfg["formats"][2]["align"] == "RIGHT"
+        assert fmts[0] == {"schema_column": "id", "size": "10", "padding_char": "' '", "align": "'L'", "keep": "'A'"}
+        assert fmts[1] == {"schema_column": "name", "size": "30", "padding_char": "' '", "align": "'R'", "keep": "'L'"}
+        assert fmts[2] == {"schema_column": "amount", "size": "15", "padding_char": "'0'", "align": "'R'", "keep": "'R'"}
 
     def test_formats_partial_entries(self):
         """FORMATS entries with only some fields still get parsed."""
         node = _make_node(params={
             "FILENAME": '"/data/output.pos"',
             "FORMATS": [
-                {"SCHEMA_COLUMN": "code", "size": "5"},
+                {"elementRef": "SCHEMA_COLUMN", "value": "code"},
+                {"elementRef": "SIZE", "value": "5"},
             ],
         })
         result = FileOutputPositionalConverter().convert(node, [], {})
-        cfg = result.component["config"]
+        fmts = result.component["config"]["formats"]
 
-        assert len(cfg["formats"]) == 1
-        assert cfg["formats"][0]["schema_column"] == "code"
-        assert cfg["formats"][0]["size"] == "5"
-        assert "padding_char" not in cfg["formats"][0]
-        assert "align" not in cfg["formats"][0]
+        assert len(fmts) == 1
+        assert fmts[0]["schema_column"] == "code"
+        assert fmts[0]["size"] == "5"
+        assert "padding_char" not in fmts[0]
+        assert "align" not in fmts[0]
+        assert "keep" not in fmts[0]
+
+    def test_formats_keep_values(self):
+        """All four KEEP values are preserved correctly."""
+        node = _make_node(params={
+            "FILENAME": '"/data/output.pos"',
+            "FORMATS": [
+                {"elementRef": "SCHEMA_COLUMN", "value": "c1"},
+                {"elementRef": "KEEP", "value": "'A'"},
+                {"elementRef": "SCHEMA_COLUMN", "value": "c2"},
+                {"elementRef": "KEEP", "value": "'L'"},
+                {"elementRef": "SCHEMA_COLUMN", "value": "c3"},
+                {"elementRef": "KEEP", "value": "'M'"},
+                {"elementRef": "SCHEMA_COLUMN", "value": "c4"},
+                {"elementRef": "KEEP", "value": "'R'"},
+            ],
+        })
+        result = FileOutputPositionalConverter().convert(node, [], {})
+        fmts = result.component["config"]["formats"]
+
+        assert len(fmts) == 4
+        assert fmts[0]["keep"] == "'A'"
+        assert fmts[1]["keep"] == "'L'"
+        assert fmts[2]["keep"] == "'M'"
+        assert fmts[3]["keep"] == "'R'"
+
+    def test_engine_gap_warnings(self):
+        """Engine-gap warnings fire when non-default values are set."""
+        node = _make_node(params={
+            "FILENAME": '"/data/output.pos"',
+            "COMPRESS": "true",
+            "ADVANCED_SEPARATOR": "true",
+            "USE_BYTE": "true",
+            "FLUSHONROW": "true",
+            "DELETE_EMPTYFILE": "true",
+            "ROW_MODE": "true",
+        })
+        result = FileOutputPositionalConverter().convert(node, [], {})
+        warning_text = " ".join(result.warnings)
+
+        assert "COMPRESS=true" in warning_text
+        assert "ADVANCED_SEPARATOR=true" in warning_text
+        assert "USE_BYTE=true" in warning_text
+        assert "FLUSHONROW=true" in warning_text
+        assert "DELETE_EMPTYFILE=true" in warning_text
+        assert "ROW_MODE=true" in warning_text
+
+    def test_no_warnings_on_defaults(self):
+        """No engine-gap warnings when all params are default."""
+        node = _make_node(params={
+            "FILENAME": '"/data/output.pos"',
+        })
+        result = FileOutputPositionalConverter().convert(node, [], {})
+        assert len(result.warnings) == 0
 
     def test_schema_parsed_into_input(self):
         """Schema columns appear under schema.input for this output component."""
@@ -227,7 +294,10 @@ class TestFileOutputPositionalConverter:
             "CREATE": "0",
             "FLUSHONROW": "true",
             "DELETE_EMPTYFILE": "false",
-            "DIE_ON_ERROR": "true",
+            "ADVANCED_SEPARATOR": "true",
+            "USE_BYTE": "1",
+            "ROW_MODE": "false",
+            "TSTATCATCHER_STATS": "true",
         })
         result = FileOutputPositionalConverter().convert(node, [], {})
         cfg = result.component["config"]
@@ -237,7 +307,10 @@ class TestFileOutputPositionalConverter:
         assert cfg["create"] is False
         assert cfg["flush_on_row"] is True
         assert cfg["delete_empty_file"] is False
-        assert cfg["die_on_error"] is True
+        assert cfg["advanced_separator"] is True
+        assert cfg["use_byte"] is True
+        assert cfg["row_mode"] is False
+        assert cfg["tstatcatcher_stats"] is True
 
     def test_int_params_from_quoted_strings(self):
         """Integer params handle quoted string values."""
