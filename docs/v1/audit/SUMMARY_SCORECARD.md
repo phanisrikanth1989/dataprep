@@ -3,8 +3,8 @@
 ## Overview
 
 **Total components audited:** 54
-**Total issues found (raw):** 2,015
-**Estimated unique issues:** ~1,720-1,820 (after deducting cross-cutting duplicates)
+**Total issues found (raw):** 1,913
+**Estimated unique issues:** ~1,663-1,713 (after deducting cross-cutting duplicates)
 **Overall assessment:** NOT PRODUCTION-READY. The v1 engine has systemic quality gaps across all 54 components. Cross-cutting base class bugs affect every component. Zero components have adequate test coverage. 18 components are rated RED (broken/blocks production), 35 are rated YELLOW (works partially with gaps), and 1 is rated RED/YELLOW (borderline). No component achieved an overall GREEN rating.
 
 ### Important Note on Issue Counts
@@ -37,21 +37,21 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 |---|-----------|---------|-----------|--------|-------------|-------------|---------|----|----|----|----|-------|
 | 1 | tFileInputDelimited | Y | G | Y | Y | G | R | 2 | 12 | 17 | 7 | 38 |
 | 2 | tFileOutputDelimited | Y | G | Y | Y | G | R | 2 | 16 | 17 | 10 | 45 |
-| 3 | tFileInputExcel | Y | G | Y | Y | G | R | 5 | 12 | 21 | 11 | 49 |
-| 4 | tFileOutputExcel | Y | Y | Y | Y | Y | R | 4 | 14 | 19 | 7 | 44 |
-| 5 | tFileInputJSON | Y | Y | Y | Y | G | R | 4 | 16 | 17 | 7 | 44 |
-| 6 | tFileInputXML | R | Y | Y | R | Y | R | 4 | 21 | 22 | 7 | 54 |
-| 7 | tFileInputPositional | R | Y | Y | R | G | R | 3 | 13 | 20 | 6 | 42 |
-| 8 | tFileOutputPositional | R | Y | R | R | Y | R | 4 | 13 | 16 | 6 | 39 |
-| 9 | tFileInputFullRow | Y | Y | Y | Y | Y | R | 4 | 16 | 15 | 10 | 45 |
-| 10 | tFileInputRaw | Y | Y | Y | R | Y | R | 4 | 11 | 11 | 7 | 33 |
-| 11 | tRowGenerator | R | Y | Y | R | Y | R | 5 | 14 | 12 | 6 | 37 |
-| 12 | tFixedFlowInput | Y | Y | Y | Y | G | R | 4 | 15 | 14 | 7 | 40 |
+| 3 | tFileInputExcel | Y | G | Y | Y | G | R | 5 | 11 | 20 | 9 | 45 |
+| 4 | tFileOutputExcel | Y | G | Y | Y | Y | R | 4 | 11 | 15 | 5 | 35 |
+| 5 | tFileInputJSON | Y | G | Y | Y | G | R | 4 | 8 | 14 | 6 | 32 |
+| 6 | tFileInputXML | R | G | Y | R | Y | R | 4 | 14 | 18 | 6 | 42 |
+| 7 | tFileInputPositional | R | G | Y | R | G | R | 3 | 11 | 17 | 5 | 36 |
+| 8 | tFileOutputPositional | R | G | R | R | Y | R | 4 | 8 | 12 | 5 | 29 |
+| 9 | tFileInputFullRow | Y | G | Y | Y | Y | R | 4 | 9 | 11 | 9 | 33 |
+| 10 | tFileInputRaw | Y | G | Y | R | Y | R | 4 | 8 | 10 | 6 | 28 |
+| 11 | tRowGenerator | R | G | Y | R | Y | R | 5 | 12 | 10 | 5 | 32 |
+| 12 | tFixedFlowInput | Y | G | Y | Y | G | R | 4 | 14 | 14 | 7 | 39 |
 | 13 | tFileArchive | Y | G | Y | Y | G | R | 2 | 8 | 17 | 9 | 36 |
 | 14 | tFileUnarchive | Y | G | Y | Y | G | R | 2 | 12 | 14 | 3 | 31 |
 | 15 | tFileCopy | Y | G | Y | Y | G | R | 2 | 9 | 15 | 6 | 32 |
 | 16 | tFileDelete | Y | G | Y | Y | G | R | 2 | 10 | 11 | 6 | 29 |
-| 17 | tFileExist | Y | Y | Y | Y | G | R | 6 | 11 | 7 | 3 | 27 |
+| 17 | tFileExist | Y | G | Y | Y | G | R | 6 | 8 | 6 | 2 | 22 |
 | 18 | tFileProperties | Y | G | Y | Y | Y | R | 2 | 6 | 14 | 8 | 30 |
 | 19 | tFileRowCount | Y | G | Y | Y | G | R | 2 | 10 | 11 | 7 | 30 |
 | 20 | tFileTouch | Y | G | Y | Y | G | R | 2 | 5 | 5 | 7 | 19 |
@@ -61,9 +61,9 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 24 | tUniqueRow | Y | Y | Y | Y | G | R | 4 | 10 | 21 | 11 | 46 |
 | 25 | tMap | Y | G | Y | Y | Y | R | 5 | 11 | 19 | 9 | 44 |
 | 26 | tJoin | Y | Y | Y | Y | G | R | 6 | 12 | 13 | 5 | 36 |
-| 27 | tNormalize | R | G | Y | R | R | R | 5 | 9 | 11 | 4 | 29 |
+| 27 | tNormalize | R | G | Y | R | R | R | 5 | 9 | 8 | 2 | 24 |
 | 28 | tDenormalize | Y | Y | Y | Y | G | R | 3 | 9 | 9 | 7 | 28 |
-| 29 | tReplicate | Y | G | Y | Y | Y | R | 4 | 4 | 10 | 5 | 23 |
+| 29 | tReplicate | Y | G | Y | Y | Y | R | 4 | 4 | 9 | 4 | 21 |
 | 30 | tLogRow | Y | Y | Y | Y | G | R | 3 | 10 | 19 | 9 | 41 |
 | 31 | tUnite | R | Y | R | R | Y | R | 6 | 7 | 8 | 4 | 25 |
 | 32 | tAggregateRow | Y | Y | Y | Y | G | R | 8 | 13 | 17 | 11 | 49 |
@@ -75,12 +75,12 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 38 | tPivotToColumnsDelimited | R | Y | Y | R | Y | R | 7 | 15 | 22 | 6 | 50 |
 | 39 | tUnpivotRow | R | R | Y | Y | Y | R | 6 | 14 | 18 | 7 | 45 |
 | 40 | tSchemaComplianceCheck | R | R | R | R | R | R | 8 | 13 | 16 | 7 | 44 |
-| 41 | tDie | Y | G | Y | Y | G | R | 3 | 8 | 13 | 3 | 27 |
+| 41 | tDie | Y | G | Y | Y | G | R | 3 | 8 | 8 | 3 | 22 |
 | 42 | tWarn | Y | Y | Y | Y | G | R | 3 | 6 | 6 | 4 | 19 |
 | 43 | tSleep | Y | Y | Y | Y | G | R | 3 | 7 | 4 | 4 | 18 |
 | 44 | tSendMail | Y | Y | Y | Y | G | R | 3 | 17 | 16 | 7 | 43 |
 | 45 | tContextLoad | R | Y | Y | R | G | R | 4 | 14 | 19 | 6 | 43 |
-| 46 | tSetGlobalVar | Y | Y | Y | Y | G | R | 3 | 10 | 11 | 5 | 29 |
+| 46 | tSetGlobalVar | Y | G | Y | Y | G | R | 3 | 6 | 7 | 4 | 20 |
 | 47 | tJava | Y | Y | Y | Y | R | R | 5 | 12 | 13 | 8 | 38 |
 | 48 | tJavaRow | Y | Y | Y | Y | Y | R | 6 | 14 | 17 | 9 | 46 |
 | 49 | tXMLMap | R | R | R | R | Y | R | 6 | 19 | 24 | 9 | 58 |
@@ -107,7 +107,7 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 
 | Dimension | Red | Yellow | Green | N/A |
 |-----------|-----|--------|-------|-----|
-| Converter | 6 | 32 | 15 | 1 |
+| Converter | 6 | 21 | 26 | 1 |
 | Engine | 6 | 48 | 0 | 0 |
 | Code Quality | 16 | 38 | 0 | 0 |
 | Performance | 5 | 22 | 27 | 0 |
@@ -121,11 +121,11 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 
 | Priority | Total Issues | Percentage | Description |
 |----------|-------------|------------|-------------|
-| **P0** (Critical) | 221 | 11.0% | Blocks production use or causes data corruption/silent failures |
-| **P1** (Major) | 642 | 31.9% | Significant functional gap or behavioral divergence from Talend |
-| **P2** (Moderate) | 794 | 39.4% | Missing feature, code quality concern, or non-standard practice |
-| **P3** (Low) | 358 | 17.8% | Minor improvement, cosmetic issue, or rarely-used feature gap |
-| **Total** | **2,015** | -- | -- |
+| **P0** (Critical) | 221 | 11.4% | Blocks production use or causes data corruption/silent failures |
+| **P1** (Major) | 596 | 31.2% | Significant functional gap or behavioral divergence from Talend |
+| **P2** (Moderate) | 754 | 39.4% | Missing feature, code quality concern, or non-standard practice |
+| **P3** (Low) | 342 | 17.9% | Minor improvement, cosmetic issue, or rarely-used feature gap |
+| **Total** | **1,913** | -- | -- |
 
 ---
 
@@ -178,26 +178,26 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis (to be cre
 |---|-----------|---------|----|----|----|----|-------|
 | 1 | tFileInputDelimited | Y | 2 | 12 | 17 | 7 | 38 |
 | 2 | tFileOutputDelimited | Y | 2 | 16 | 17 | 10 | 45 |
-| 3 | tFileInputExcel | Y | 5 | 12 | 21 | 11 | 49 |
-| 4 | tFileOutputExcel | Y | 4 | 14 | 19 | 7 | 44 |
-| 5 | tFileInputJSON | Y | 4 | 16 | 17 | 7 | 44 |
-| 6 | tFileInputXML | R | 4 | 21 | 22 | 7 | 54 |
-| 7 | tFileInputPositional | R | 3 | 13 | 20 | 6 | 42 |
-| 8 | tFileOutputPositional | R | 4 | 13 | 16 | 6 | 39 |
-| 9 | tFileInputFullRow | Y | 4 | 16 | 15 | 10 | 45 |
-| 10 | tFileInputRaw | Y | 4 | 11 | 11 | 7 | 33 |
-| 11 | tRowGenerator | R | 5 | 14 | 12 | 6 | 37 |
-| 12 | tFixedFlowInput | Y | 4 | 15 | 14 | 7 | 40 |
+| 3 | tFileInputExcel | Y | 5 | 11 | 20 | 9 | 45 |
+| 4 | tFileOutputExcel | Y | 4 | 11 | 15 | 5 | 35 |
+| 5 | tFileInputJSON | Y | 4 | 8 | 14 | 6 | 32 |
+| 6 | tFileInputXML | R | 4 | 14 | 18 | 6 | 42 |
+| 7 | tFileInputPositional | R | 3 | 11 | 17 | 5 | 36 |
+| 8 | tFileOutputPositional | R | 4 | 8 | 12 | 5 | 29 |
+| 9 | tFileInputFullRow | Y | 4 | 9 | 11 | 9 | 33 |
+| 10 | tFileInputRaw | Y | 4 | 8 | 10 | 6 | 28 |
+| 11 | tRowGenerator | R | 5 | 12 | 10 | 5 | 32 |
+| 12 | tFixedFlowInput | Y | 4 | 14 | 14 | 7 | 39 |
 | 13 | tFileArchive | Y | 2 | 8 | 17 | 9 | 36 |
 | 14 | tFileUnarchive | Y | 2 | 12 | 14 | 3 | 31 |
 | 15 | tFileCopy | Y | 2 | 9 | 15 | 6 | 32 |
 | 16 | tFileDelete | Y | 2 | 10 | 11 | 6 | 29 |
-| 17 | tFileExist | Y | 6 | 11 | 7 | 3 | 27 |
+| 17 | tFileExist | Y | 6 | 8 | 6 | 2 | 22 |
 | 18 | tFileProperties | Y | 2 | 6 | 14 | 8 | 30 |
 | 19 | tFileRowCount | Y | 2 | 10 | 11 | 7 | 30 |
 | 20 | tFileTouch | Y | 2 | 5 | 5 | 7 | 19 |
 
-**Category summary:** 4 Red, 16 Yellow, 0 Green. Total issues: 744.
+**Category summary:** 4 Red, 16 Yellow, 0 Green. Total issues: 663.
 
 ### Transform Components (21)
 
@@ -209,9 +209,9 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis (to be cre
 | 4 | tUniqueRow | Y | 4 | 10 | 21 | 11 | 46 |
 | 5 | tMap | Y | 5 | 11 | 19 | 9 | 44 |
 | 6 | tJoin | Y | 6 | 12 | 13 | 5 | 36 |
-| 7 | tNormalize | R | 5 | 9 | 11 | 4 | 29 |
+| 7 | tNormalize | R | 5 | 9 | 8 | 2 | 24 |
 | 8 | tDenormalize | Y | 3 | 9 | 9 | 7 | 28 |
-| 9 | tReplicate | Y | 4 | 4 | 10 | 5 | 23 |
+| 9 | tReplicate | Y | 4 | 4 | 9 | 4 | 21 |
 | 10 | tLogRow | Y | 3 | 10 | 19 | 9 | 41 |
 | 11 | tUnite | R | 6 | 7 | 8 | 4 | 25 |
 | 12 | tExtractDelimitedFields | R | 5 | 13 | 14 | 7 | 39 |
@@ -225,7 +225,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis (to be cre
 | 20 | SwiftTransformer | R/Y | 5 | 7 | 17 | 8 | 37 |
 | 21 | SwiftBlockFormatter | Y | 3 | 10 | 16 | 9 | 38 |
 
-**Category summary:** 10 Red (incl. 1 R/Y), 11 Yellow, 0 Green. Total issues: 826.
+**Category summary:** 10 Red (incl. 1 R/Y), 11 Yellow, 0 Green. Total issues: 819.
 
 ### Aggregate Components (2)
 
@@ -240,13 +240,13 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis (to be cre
 
 | # | Component | Overall | P0 | P1 | P2 | P3 | Total |
 |---|-----------|---------|----|----|----|----|-------|
-| 1 | tDie | Y | 3 | 8 | 13 | 3 | 27 |
+| 1 | tDie | Y | 3 | 8 | 8 | 3 | 22 |
 | 2 | tWarn | Y | 3 | 6 | 6 | 4 | 19 |
 | 3 | tSleep | Y | 3 | 7 | 4 | 4 | 18 |
 | 4 | tSendMail | Y | 3 | 17 | 16 | 7 | 43 |
-| 5 | tSetGlobalVar | Y | 3 | 10 | 11 | 5 | 29 |
+| 5 | tSetGlobalVar | Y | 3 | 6 | 7 | 4 | 20 |
 
-**Category summary:** 0 Red, 5 Yellow, 0 Green. Total issues: 136.
+**Category summary:** 0 Red, 5 Yellow, 0 Green. Total issues: 122.
 
 ### Context Components (1)
 
