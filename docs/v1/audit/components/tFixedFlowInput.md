@@ -3,8 +3,10 @@
 > **Audited**: 2026-03-21
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
-> **Converter**: `complex_converter`
+> **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
+
+> **Converter Update (2026-04-01)**: Converter section updated to reflect migration from `complex_converter` to `talend_to_v1`. 14 config keys (was 11). Added die_on_error, tstatcatcher_stats, label. 3 engine-gap warnings. 21 converter tests.
 
 ---
 
@@ -39,7 +41,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 |-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **Y** | 0 | 2 | 3 | 1 | Dedicated parser exists; 7 of ~10 Talend params extracted (~70%); INTABLE parsing stubbed; context vars in inline content not documented; VALUES pairing fragile |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 14 config keys extracted; `talend_to_v1` converter with die_on_error, tstatcatcher_stats, label added; 3 engine-gap warnings (INTABLE, NB_ROWS expressions, VALUES pairing); 21 converter tests |
 | Engine Feature Parity | **Y** | 1 | 8 | 2 | 1 | Three modes implemented; nb_rows ignored in inline mode (correct); no validate_schema() call; no REJECT flow; `_resolve_value()` uses `eval()`; globalMap cast/regex handling broken (BUG-FFI-010/011/012); resolve_dict() skips List[Dict] (BUG-FFI-013) |
 | Code Quality | **Y** | 2 | 3 | 5 | 2 | Cross-cutting base class bugs; dead `_validate_config()`; `eval()` security risk; bare `except` clauses; `_update_stats()` semantics wrong; negative int coercion (BUG-FFI-014) |
 | Performance & Memory | **G** | 0 | 0 | 1 | 1 | Data generated in-memory (appropriate for fixed row component); minor optimization opportunities |
@@ -147,37 +149,41 @@
 
 ## 4. Converter Audit
 
+> **Historical Note (2026-04-01)**: This section was originally written against the `complex_converter` (`component_parser.py` -> `parse_tfixedflowinput()`). It has been updated to reflect the `talend_to_v1` converter. The old `complex_converter` code is documented in Appendix A (marked SUPERSEDED).
+
 ### 4.1 Parameter Extraction
 
-The converter uses a **dedicated parser method** `parse_tfixedflowinput()` in `component_parser.py` (lines 1532-1663). This is dispatched from `converter.py` line 278 via `elif component_type == 'tFixedFlowInput'`. This follows the recommended pattern (unlike `tFileInputDelimited` which uses the deprecated generic mapper).
+The converter uses a **dedicated `FixedFlowInputConverter` class** in `src/converters/talend_to_v1/components/misc/fixed_flow_input.py`, registered via `@REGISTRY.register("tFixedFlowInput")` decorator-based dispatch.
+
+The converter extracts 14 config keys with correct Talend defaults, emits 3 engine-gap warnings, and has 21 converter tests.
 
 **Converter flow**:
-1. `converter.py:_parse_component()` identifies `tFixedFlowInput` at line 278
-2. Calls `self.component_parser.parse_tfixedflowinput(node, component)`
-3. Parser extracts: `NB_ROWS`, `CONNECTION_FORMAT`, mode flags, inline content params, schema, VALUES table, INTABLE (stubbed), generates `rows` list
+1. Registry dispatches `tFixedFlowInput` to `FixedFlowInputConverter.convert()`
+2. Extracts 14 Talend parameters with correct defaults
+3. Emits engine-gap warnings for INTABLE (stub), NB_ROWS expression support, and VALUES pairing
 4. Schema extracted from `<metadata connector="FLOW">` nodes
 5. VALUES table parsed by iterating `elementValue` pairs
 6. Pre-generates `rows` list from configuration for engine consumption
 
-| # | Talend XML Parameter | Extracted? | V1 Config Key | Converter Line | Notes |
-|----|----------------------|------------|---------------|----------------|-------|
-| 1 | `NB_ROWS` | Yes | `nb_rows` | 1553 | Converted to `int()` -- will throw `ValueError` on non-numeric strings (e.g., context vars) |
-| 2 | `CONNECTION_FORMAT` | Yes | `connection_format` | 1554 | Default `'row'` -- informational, not used by engine |
-| 3 | `USE_SINGLEMODE` | Yes | `use_singlemode` | 1557 | Boolean via `str_to_bool()` helper |
-| 4 | `USE_INTABLE` | Yes | `use_intable` | 1558 | Boolean via `str_to_bool()` helper |
-| 5 | `USE_INLINECONTENT` | Yes | `use_inlinecontent` | 1559 | Boolean via `str_to_bool()` helper |
-| 6 | `ROWSEPARATOR` | Yes | `row_separator` | 1566 | Default `'\n'` matches Talend |
-| 7 | `FIELDSEPARATOR` | Yes | `field_separator` | 1567 | Default `';'` matches Talend default |
-| 8 | `INLINECONTENT` | Yes | `inline_content` | 1568 | Default `''` |
-| 9 | `VALUES` | Yes | `values_config` + `rows` | 1586-1609 | Parsed via `elementValue` pair iteration |
-| 10 | `INTABLE` | **Stub** | `intable_data` | 1614-1618 | **`pass` statement -- INTABLE parsing not implemented** |
-| 11 | `SCHEMA` | Yes | `schema` | 1571-1578 | Extracted from `<metadata connector="FLOW">` with type conversion |
-| 12 | `DIE_ON_ERROR` | **No** | -- | -- | **Not extracted by parser. Engine defaults to `True`.** |
-| 13 | `TSTATCATCHER_STATS` | **No** | -- | -- | Not extracted (low priority -- tStatCatcher rarely used) |
-| 14 | `LABEL` | **No** | -- | -- | Not extracted (cosmetic -- no runtime impact) |
-| 15 | `PROPERTY_TYPE` | No | -- | -- | Not needed (always Built-In in converted jobs) |
+| # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
+|----|----------------------|------------|---------------|-------|
+| 1 | `NB_ROWS` | Yes | `nb_rows` | Default `1`. Engine-gap warning: `int()` conversion crashes on context var expressions |
+| 2 | `CONNECTION_FORMAT` | Yes | `connection_format` | Default `'row'` -- informational, not used by engine |
+| 3 | `USE_SINGLEMODE` | Yes | `use_singlemode` | Boolean via `_get_bool()` helper |
+| 4 | `USE_INTABLE` | Yes | `use_intable` | Boolean via `_get_bool()` helper |
+| 5 | `USE_INLINECONTENT` | Yes | `use_inlinecontent` | Boolean via `_get_bool()` helper |
+| 6 | `ROWSEPARATOR` | Yes | `row_separator` | Default `'\n'` matches Talend |
+| 7 | `FIELDSEPARATOR` | Yes | `field_separator` | Default `';'` matches Talend default |
+| 8 | `INLINECONTENT` | Yes | `inline_content` | Default `''` |
+| 9 | `VALUES` | Yes | `values_config` + `rows` | Parsed via `elementValue` pair iteration |
+| 10 | `INTABLE` | **Stub** | `intable_data` | Engine-gap warning: INTABLE parsing not implemented |
+| 11 | `SCHEMA` | Yes | `schema` | Extracted from `<metadata connector="FLOW">` via `_parse_schema()` |
+| 12 | `DIE_ON_ERROR` | Yes | `die_on_error` | Default `true` matches Talend |
+| 13 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Default `false` |
+| 14 | `LABEL` | Yes | `label` | Cosmetic |
+| 15 | `PROPERTY_TYPE` | No | -- | Not needed (always Built-In) |
 
-**Summary**: 9 of 11 runtime-relevant parameters extracted (~82%). 1 critical stub (INTABLE), 1 missing runtime parameter (DIE_ON_ERROR).
+**Summary**: 14 of 15 parameters extracted (93%). Only `PROPERTY_TYPE` excluded (framework param, no runtime impact). 3 engine-gap warnings emitted. 21 converter tests.
 
 ### 4.2 Schema Extraction
 
@@ -228,14 +234,16 @@ The converter pre-parses inline content rows at conversion time (lines 1632-1649
 
 ### 4.5 Converter Issues
 
-| ID | Priority | Issue |
-|----|----------|-------|
-| CONV-FFI-001 | **P1** | **INTABLE parsing is a stub**: `parse_tfixedflowinput()` line 1617-1618 contains only `pass`. Any job using `USE_INTABLE=true` will get an empty `intable_data` list, causing the engine to generate null-filled rows. The Inline Table mode is completely non-functional at the converter level. |
-| CONV-FFI-002 | **P1** | **DIE_ON_ERROR not extracted**: The converter does not extract `DIE_ON_ERROR` from the Talend XML. The engine defaults to `True` (line 156 of `fixed_flow_input.py`), which matches Talend's default for this component. However, if a job explicitly sets `DIE_ON_ERROR=false`, the converter will not pass this through, and the engine will still fail on errors instead of returning an empty DataFrame. |
-| CONV-FFI-003 | **P2** | **VALUES pairing assumes alternating order**: The paired iteration (`for i in range(0, len(elements), 2)`) assumes `elementValue` elements always alternate SCHEMA_COLUMN then VALUE. If Talend XML ever groups them differently (e.g., all SCHEMA_COLUMNs first, then all VALUEs), parsing will silently produce wrong mappings. Should use `elementRef` attribute to match pairs dynamically. |
-| CONV-FFI-004 | **P2** | **NB_ROWS `int()` conversion crashes on expressions**: Line 1553 does `int(get_param('NB_ROWS', '1'))`. If `NB_ROWS` contains a context variable (`context.rowCount`) or Java expression, `int()` throws `ValueError`. Should handle non-numeric values gracefully like `tFileInputDelimited` does with `.isdigit()`. |
-| CONV-FFI-005 | **P2** | **Schema type format violates STANDARDS.md**: Types are converted to Python format (`str`, `int`) via `ExpressionConverter.convert_type()` instead of preserving Talend format (`id_String`, `id_Integer`). While the engine's `validate_schema()` handles both formats, this violates the documented standard. |
-| CONV-FFI-006 | **P3** | **Redundant inline content parsing**: Both converter (lines 1632-1649) and engine (`_generate_inline_content_rows()`) parse inline content. The converter-generated `rows` are ignored by the engine in inline content mode because the engine checks `use_inlinecontent` before checking `rows`. The converter's inline parsing is dead code for this mode. |
+> **Note:** The `talend_to_v1` converter (2026-04-01) resolves CONV-FFI-002. CONV-FFI-001 remains P1 as an engine-gap (not a converter fix). The issues below apply to the old `complex_converter` only unless noted.
+
+| ID | Priority | Status | Issue |
+|----|----------|--------|-------|
+| CONV-FFI-001 | **P1** | Open (engine-gap) | **INTABLE parsing is a stub**: Inline Table mode is non-functional at the converter level. The `talend_to_v1` converter now emits an engine-gap warning when `USE_INTABLE=true` is detected. |
+| CONV-FFI-002 | ~~P1~~ | **FIXED in talend_to_v1** | **DIE_ON_ERROR now extracted** with correct default `true` matching Talend. |
+| CONV-FFI-003 | **P2** | Open (structural) | **VALUES pairing assumes alternating order**: The paired iteration assumes `elementValue` elements always alternate SCHEMA_COLUMN then VALUE. Fragile if XML structure varies. |
+| CONV-FFI-004 | **P2** | Open (engine-gap warning) | **NB_ROWS `int()` conversion crashes on expressions**: `talend_to_v1` converter now emits engine-gap warning when NB_ROWS contains non-numeric value. |
+| CONV-FFI-005 | **P2** | Open (complex_converter only) | **Schema type format violates STANDARDS.md**: `talend_to_v1` uses `_parse_schema()` from ComponentConverter base class. |
+| CONV-FFI-006 | **P3** | Open (complex_converter only) | **Redundant inline content parsing**: Both converter and engine parse inline content. Converter's inline parsing is dead code for this mode. |
 
 ---
 
@@ -474,8 +482,8 @@ The converter pre-parses inline content rows at conversion time (lines 1632-1649
 
 | ID | Category | Summary |
 |----|----------|---------|
-| CONV-FFI-001 | Converter | INTABLE parsing is a stub (`pass` on line 1618). Any job using Inline Table mode gets empty data. |
-| CONV-FFI-002 | Converter | `DIE_ON_ERROR` not extracted from Talend XML. Jobs with `DIE_ON_ERROR=false` will still fail on errors. |
+| CONV-FFI-001 | Converter | INTABLE parsing is a stub. Engine-gap warning now emitted by `talend_to_v1` converter. Any job using Inline Table mode gets empty data. |
+| ~~CONV-FFI-002~~ | ~~Converter~~ | ~~`DIE_ON_ERROR` not extracted.~~ **FIXED in talend_to_v1** — now extracted with correct default `true`. |
 | ENG-FFI-002 | Engine | `_resolve_value()` uses `eval()` on partially user-controlled string (line 321). Code injection vulnerability. |
 | ENG-FFI-003 | Engine | `validate_schema()` never called on output DataFrame. Generated data has unvalidated types. |
 | ENG-FFI-004 | Engine | Inline content field separator normalization only handles `\\|`. Other escapes (`\\t`, `\\;`, `\\,`) not normalized. |
@@ -526,10 +534,10 @@ The converter pre-parses inline content rows at conversion time (lines 1632-1649
 | Priority | Count | Categories |
 |----------|-------|------------|
 | P0 | 4 | 2 bugs (cross-cutting), 1 engine, 1 testing |
-| P1 | 15 | 2 converter, 4 engine, 6 bugs (incl. 1 cross-cutting), 1 security, 1 standards, 1 testing |
+| P1 | 14 | 1 converter (engine-gap), ~~1 converter FIXED~~, 4 engine, 6 bugs (incl. 1 cross-cutting), 1 security, 1 standards, 1 testing |
 | P2 | 14 | 3 converter, 3 engine, 4 bugs, 1 naming, 2 standards, 1 performance |
 | P3 | 7 | 1 converter, 1 engine, 1 security, 1 naming, 1 standards, 1 debug, 1 performance |
-| **Total** | **40** | |
+| **Total** | **39** (was 40; 1 converter issue FIXED) | |
 
 ---
 
@@ -637,7 +645,10 @@ except (ValueError, TypeError):
 
 ## Appendix A: Converter Parser Code
 
+> **SUPERSEDED (2026-04-01)**: This appendix documents the old `complex_converter` code. The active converter is now `src/converters/talend_to_v1/components/misc/fixed_flow_input.py` (`FixedFlowInputConverter` class) with 14 config keys, die_on_error/tstatcatcher_stats/label added, 3 engine-gap warnings, and 21 converter tests.
+
 ```python
+# OLD complex_converter code (superseded by talend_to_v1)
 # component_parser.py lines 1532-1663
 def parse_tfixedflowinput(self, node, component: Dict) -> Dict:
     """Parse tFixedFlowInput specific configuration to match Talend behavior"""
@@ -716,6 +727,8 @@ FixedFlowInputComponent (BaseComponent)
 
 ## Appendix C: Complete Talend Parameter to V1 Config Key Reference
 
+> **SUPERSEDED (2026-04-01)**: This table has been updated to reflect the `talend_to_v1` converter. DIE_ON_ERROR, TSTATCATCHER_STATS, and LABEL are now mapped.
+
 | Talend Parameter | V1 Config Key | Status | Priority to Add |
 |------------------|---------------|--------|-----------------|
 | `NB_ROWS` | `nb_rows` | Mapped | -- |
@@ -727,11 +740,11 @@ FixedFlowInputComponent (BaseComponent)
 | `FIELDSEPARATOR` | `field_separator` | Mapped | -- |
 | `INLINECONTENT` | `inline_content` | Mapped | -- |
 | `VALUES` | `values_config` + `rows` | Mapped | -- |
-| `INTABLE` | `intable_data` | **Stub** | P1 |
+| `INTABLE` | `intable_data` | **Stub** (engine-gap warning) | P1 |
 | `SCHEMA` | `schema` | Mapped | -- |
-| `DIE_ON_ERROR` | `die_on_error` | **Not Mapped** | P1 |
-| `TSTATCATCHER_STATS` | -- | Not needed | -- (tStatCatcher rarely used) |
-| `LABEL` | -- | Not needed | -- (cosmetic) |
+| `DIE_ON_ERROR` | `die_on_error` | Mapped (was **Not Mapped**) | -- |
+| `TSTATCATCHER_STATS` | `tstatcatcher_stats` | Mapped (was Not needed) | -- |
+| `LABEL` | `label` | Mapped (was Not needed) | -- |
 | `PROPERTY_TYPE` | -- | Not needed | -- (always Built-In) |
 
 ---
