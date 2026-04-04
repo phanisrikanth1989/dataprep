@@ -1,4 +1,21 @@
-"""Converter for Talend tHashOutput component."""
+"""Converter for Talend tHashOutput component.
+
+tHashOutput stores incoming data in an in-memory hash structure so that
+downstream components (typically tHashInput) can look up rows by key.
+No v1 engine implementation exists -- all config keys are engine_gap.
+
+Config mapping (10 params total -- 8 unique + 2 framework):
+    LINK_WITH                      -> link_with                      (bool, default False)
+    LIST                           -> list                           (str, default "")
+    DATA_WRITE_MODEL               -> data_write_model               (CLOSED_LIST: MEMORY/PERSISTENT, default "MEMORY")
+    BASE_FILE_PATH                 -> base_file_path                 (str, default "")
+    MEMORY_HEAP_MAX_SIZE           -> memory_heap_max_size           (str, default "2")
+    KEYS_MANAGEMENT                -> keys_management                (CLOSED_LIST: KEEP_FIRST/KEEP_LAST/KEEP_ALL, default "KEEP_ALL")
+    APPEND                         -> append                         (bool, default True)
+    HASH_KEY_FROM_INPUT_CONNECTOR  -> hash_key_from_input_connector  (bool, hidden show=false, default False)
+    TSTATCATCHER_STATS             -> tstatcatcher_stats             (bool, framework, default False)
+    LABEL                          -> label                          (str, framework, default "")
+"""
 import logging
 from typing import Any, Dict, List
 
@@ -7,24 +24,14 @@ from ..registry import REGISTRY
 
 logger = logging.getLogger(__name__)
 
-# Parameters to skip when copying from node.params to config — these are
-# handled structurally (component id, etc.) and should not leak into config.
-_SKIP_PARAMS = frozenset({"UNIQUE_NAME"})
-
 
 @REGISTRY.register("tHashOutput")
 class HashOutputConverter(ComponentConverter):
-    """Convert a Talend tHashOutput node into a v1 HashOutput component.
+    """Convert a Talend tHashOutput node into a v1 tHashOutput component.
 
-    tHashOutput stores incoming data in an in-memory hash structure so that
-    downstream components (typically tHashInput) can look up rows by key.
-
-    The old complex_converter copies *every* element parameter into config
-    (converting string booleans) because tHashOutput has no mandatory,
-    well-defined parameter set.  This converter follows the same approach:
-    all parameters from ``node.params`` (except ``UNIQUE_NAME``) are
-    forwarded into the v1 config, with string booleans normalised to real
-    ``bool`` values and surrounding quotes stripped from string values.
+    No v1 engine exists for this component. All params are extracted
+    explicitly with correct types and defaults per _java.xml. A single
+    consolidated needs_review entry is emitted per D-84/D-27.
 
     Schema is passthrough: input equals output.
     """
@@ -36,39 +43,50 @@ class HashOutputConverter(ComponentConverter):
         context: Dict[str, Any],
     ) -> ComponentResult:
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
+        # ---- 1. Core parameters ----
         config: Dict[str, Any] = {}
-        for key, value in node.params.items():
-            if key in _SKIP_PARAMS:
-                continue
-            config[key] = self._normalise_value(value)
-
-        schema_cols = self._parse_schema(node)
-
-        component = self._build_component_dict(
-            node=node,
-            type_name="HashOutput",
-            config=config,
-            schema={"input": schema_cols, "output": schema_cols},
+        config["link_with"] = self._get_bool(node, "LINK_WITH", False)
+        config["list"] = self._get_str(node, "LIST", "")
+        config["data_write_model"] = self._get_str(node, "DATA_WRITE_MODEL", "MEMORY")
+        config["base_file_path"] = self._get_str(node, "BASE_FILE_PATH", "")
+        config["memory_heap_max_size"] = self._get_str(node, "MEMORY_HEAP_MAX_SIZE", "2")
+        config["keys_management"] = self._get_str(node, "KEYS_MANAGEMENT", "KEEP_ALL")
+        config["append"] = self._get_bool(node, "APPEND", True)
+        config["hash_key_from_input_connector"] = self._get_bool(
+            node, "HASH_KEY_FROM_INPUT_CONNECTOR", False
         )
 
-        return ComponentResult(component=component, warnings=warnings)
+        # ---- 2. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
 
-    # ------------------------------------------------------------------ #
-    #  Internal helpers
-    # ------------------------------------------------------------------ #
+        # ---- 3. Schema (passthrough: input == output) ----
+        schema_cols = self._parse_schema(node)
+        schema = {"input": schema_cols, "output": schema_cols}
 
-    @staticmethod
-    def _normalise_value(value: Any) -> Any:
-        """Normalise a raw parameter value.
+        # ---- 4. Consolidated needs_review (no engine -- D-84/D-27) ----
+        needs_review.append({
+            "issue": (
+                "No v1 engine implementation exists for tHashOutput -- "
+                "all config keys are unread by the engine"
+            ),
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
 
-        * String booleans (``"true"`` / ``"false"``) become real ``bool``.
-        * Surrounding double-quotes are stripped from plain strings.
-        * Everything else is returned as-is.
-        """
-        if isinstance(value, str):
-            if value.lower() in ("true", "false"):
-                return value.lower() == "true"
-            if value.startswith('"') and value.endswith('"') and len(value) >= 2:
-                return value[1:-1]
-        return value
+        # ---- 5. Build component wrapper ----
+        component = self._build_component_dict(
+            node=node,
+            type_name="tHashOutput",
+            config=config,
+            schema=schema,
+        )
+
+        # ---- 6. Return ----
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )
