@@ -1,17 +1,15 @@
-"""Converter for tFileExist -> FileExistComponent.
+"""Converter for Talend tFileExist component.
 
-tFileExist is a Talend utility component that checks whether a file exists.
-It is a trigger/utility component with no data flow (FLOW MAX_INPUT=0, MAX_OUTPUT=0).
+tFileExist is a utility component that checks whether a file or directory
+exists at a specified path. It has no data flow (FLOW MAX_INPUT=0, MAX_OUTPUT=0)
+and sets EXISTS (boolean) and FILENAME (string) globalMap variables.
 
-Key parameters:
-* ``FILE_NAME`` -- path to the file to check (FILE type, required).
-
-CRITICAL: The v1 engine reads ``self.config.get('file_path')`` or
-``self.config.get('FILE_NAME')`` -- the config key MUST be ``file_path``,
-NOT ``filename``.
+Config mapping (3 params total):
+  FILE_NAME          -> file_name          (str, default "")
+  --- framework ---
+  TSTATCATCHER_STATS -> tstatcatcher_stats (bool, default False)
+  LABEL              -> label              (str, default "")
 """
-from __future__ import annotations
-
 import logging
 from typing import Any, Dict, List
 
@@ -23,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 @REGISTRY.register("tFileExist")
 class FileExistConverter(ComponentConverter):
-    """Converts a Talend tFileExist node into a v1 FileExistComponent."""
+    """Convert Talend tFileExist to v1 engine config."""
 
     def convert(
         self,
@@ -32,43 +30,38 @@ class FileExistConverter(ComponentConverter):
         context: Dict[str, Any],
     ) -> ComponentResult:
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
-        # ------------------------------------------------------------------
-        # Config
-        # ------------------------------------------------------------------
-        file_path = self._get_str(node, "FILE_NAME")
+        # ---- 1. Core parameters ----
+        config: Dict[str, Any] = {}
+        config["file_name"] = self._get_str(node, "FILE_NAME", "")
 
-        config: Dict[str, Any] = {
-            # CRITICAL: key is "file_path" -- engine reads file_path or FILE_NAME
-            "file_path": file_path,
-            # Metadata
-            "tstatcatcher_stats": self._get_bool(node, "TSTATCATCHER_STATS", False),
-            "label": self._get_str(node, "LABEL"),
-        }
+        # ---- 2. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
 
-        # ------------------------------------------------------------------
-        # Warnings
-        # ------------------------------------------------------------------
-        if not file_path:
-            warnings.append(
-                "FILE_NAME is empty; the file-exist check may fail at runtime."
-            )
+        # ---- 3. Schema ----
+        # Utility component -- no data flow schema
+        schema = {"input": [], "output": []}
 
-        # Engine-gap warning: EXISTS globalMap variable not set (ENG-FE-001)
-        warnings.append(
-            f"Engine does not set {node.component_id}_EXISTS globalMap variable "
-            f"-- downstream RunIf conditions checking EXISTS will not work"
-        )
+        # ---- 4. Engine gap needs_review entries ----
+        needs_review.append({
+            "issue": "Converter sends 'file_name' (D-38 snake_case of FILE_NAME) but engine reads 'file_path' -- config key mismatch",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
 
-        # ------------------------------------------------------------------
-        # Build component
-        # ------------------------------------------------------------------
+        # ---- 5. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
             type_name="FileExistComponent",
             config=config,
-            # Utility component -- no data flow schema
-            schema={"input": [], "output": []},
+            schema=schema,
         )
 
-        return ComponentResult(component=component, warnings=warnings)
+        # ---- 6. Return ----
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )
