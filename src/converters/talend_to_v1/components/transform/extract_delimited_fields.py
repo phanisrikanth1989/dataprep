@@ -1,23 +1,29 @@
-"""Converter for Talend tExtractDelimitedFields -> v1 ExtractDelimitedFields.
+"""Converter for Talend tExtractDelimitedFields component.
 
 tExtractDelimitedFields splits a single input field into multiple output columns
-using configurable field and row separators.  It supports advanced separator
-options (thousands / decimal) and optional trimming / empty-row removal.
+using a configurable field separator.  It supports advanced separator options
+(thousands / decimal), optional trimming, and field count / date validation.
 
-Fixes vs. old code (CONV-EDF-001 to EDF-006):
-  - CONV-EDF-001: Self-contained converter — no dual-parser conflict between
-    the dedicated parser (component_parser.py:1973) and the generic
-    _map_component_parameters (component_parser.py:294).
-  - CONV-EDF-002: Correct default for FIELDSEPARATOR (';') and proper quote
-    stripping.
-  - CONV-EDF-003: row_separator, trim_all, remove_empty_row properly extracted
-    (previously missing or defaulted incorrectly).
-  - CONV-EDF-004: advanced_separator is a bool, not a string.
-  - CONV-EDF-005: Schema passthrough (input == output) instead of empty schema.
-  - CONV-EDF-006: die_on_error extracted as bool.
+Config mapping (13 params total):
+  FIELD                -> field (str, PREV_COLUMN_LIST, default "")
+  IGNORE_SOURCE_NULL   -> ignore_source_null (bool, default True)
+  FIELDSEPARATOR       -> fieldseparator (str, default ";")
+  DIE_ON_ERROR         -> die_on_error (bool, default False)
+  ADVANCED_SEPARATOR   -> advanced_separator (bool, default False)
+  THOUSANDS_SEPARATOR  -> thousands_separator (str, default ",")
+  DECIMAL_SEPARATOR    -> decimal_separator (str, default ".")
+  TRIM                 -> trim (bool, default False)
+  CHECK_FIELDS_NUM     -> check_fields_num (bool, default False)
+  CHECK_DATE           -> check_date (bool, default False)
+  SCHEMA_OPT_NUM       -> schema_opt_num (str, hidden, default "100")
+  TSTATCATCHER_STATS   -> tstatcatcher_stats (bool, framework, default False)
+  LABEL                -> label (str, framework, default "")
+
+Phantom params removed (not in _java.xml):
+  - ROWSEPARATOR     - does not exist in tExtractDelimitedFields
+  - REMOVE_EMPTY_ROW - does not exist in tExtractDelimitedFields
+  - TRIMALL          - correct XML name is TRIM (not TRIMALL)
 """
-from __future__ import annotations
-
 import logging
 from typing import Any, Dict, List
 
@@ -38,51 +44,65 @@ class ExtractDelimitedFieldsConverter(ComponentConverter):
         context: Dict[str, Any],
     ) -> ComponentResult:
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
-        # ------------------------------------------------------------------
-        # Extract parameters
-        # ------------------------------------------------------------------
-        field_separator = self._get_str(node, "FIELDSEPARATOR", ";")
-        row_separator = self._get_str(node, "ROWSEPARATOR", "\\n")
-        advanced_separator = self._get_bool(node, "ADVANCED_SEPARATOR", False)
-        thousands_separator = self._get_str(node, "THOUSANDS_SEPARATOR", ",")
-        decimal_separator = self._get_str(node, "DECIMAL_SEPARATOR", ".")
-        trim_all = self._get_bool(node, "TRIMALL", False)
-        remove_empty_row = self._get_bool(node, "REMOVE_EMPTY_ROW", False)
-        die_on_error = self._get_bool(node, "DIE_ON_ERROR", False)
+        # ---- 1. Core parameters ----
+        config: Dict[str, Any] = {}
+        config["field"] = self._get_str(node, "FIELD", "")
+        config["ignore_source_null"] = self._get_bool(node, "IGNORE_SOURCE_NULL", True)
+        config["fieldseparator"] = self._get_str(node, "FIELDSEPARATOR", ";")
+        config["die_on_error"] = self._get_bool(node, "DIE_ON_ERROR", False)
 
-        # ------------------------------------------------------------------
-        # Validation warnings
-        # ------------------------------------------------------------------
-        if not field_separator:
+        # ---- 2. Advanced parameters ----
+        config["advanced_separator"] = self._get_bool(node, "ADVANCED_SEPARATOR", False)
+        config["thousands_separator"] = self._get_str(node, "THOUSANDS_SEPARATOR", ",")
+        config["decimal_separator"] = self._get_str(node, "DECIMAL_SEPARATOR", ".")
+        config["trim"] = self._get_bool(node, "TRIM", False)
+        config["check_fields_num"] = self._get_bool(node, "CHECK_FIELDS_NUM", False)
+        config["check_date"] = self._get_bool(node, "CHECK_DATE", False)
+
+        # ---- 3. Hidden parameter ----
+        config["schema_opt_num"] = self._get_str(node, "SCHEMA_OPT_NUM", "100")
+
+        # ---- 4. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
+
+        # ---- 5. Validation warnings ----
+        if not config["fieldseparator"]:
             warnings.append(
-                "FIELDSEPARATOR is empty — extraction may not split correctly"
+                "FIELDSEPARATOR is empty -- extraction may not split correctly"
             )
 
-        # ------------------------------------------------------------------
-        # Build config
-        # ------------------------------------------------------------------
-        config: Dict[str, Any] = {
-            "field_separator": field_separator,
-            "row_separator": row_separator,
-            "advanced_separator": advanced_separator,
-            "thousands_separator": thousands_separator,
-            "decimal_separator": decimal_separator,
-            "trim_all": trim_all,
-            "remove_empty_row": remove_empty_row,
-            "die_on_error": die_on_error,
-        }
-
-        # ------------------------------------------------------------------
-        # Schema: transform component passes schema through
-        # ------------------------------------------------------------------
+        # ---- 6. Schema: transform passthrough ----
         schema_cols = self._parse_schema(node)
         schema = {"input": schema_cols, "output": schema_cols}
 
+        # ---- 7. Engine gap needs_review entries ----
+        # Engine reads 'field_separator' but converter outputs 'fieldseparator' per D-38
+        needs_review.append({
+            "issue": "Engine reads 'field_separator' but converter outputs 'fieldseparator' per D-38 -- config key mismatch",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        # Engine does not read schema_opt_num
+        needs_review.append({
+            "issue": "Engine does not read 'schema_opt_num' config key -- hidden Talend param not used by engine",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+
+        # ---- 8. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
             type_name="ExtractDelimitedFields",
             config=config,
             schema=schema,
         )
-        return ComponentResult(component=component, warnings=warnings)
+
+        # ---- 9. Return ----
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )
