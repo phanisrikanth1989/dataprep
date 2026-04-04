@@ -1,4 +1,14 @@
-"""Converter for Talend tFileTouch component."""
+"""Converter for Talend tFileTouch component.
+
+Creates empty files or touches existing files to update timestamps.
+
+Config mapping (2 params + framework):
+  FILENAME   -> filename   (str, default "")
+  CREATEDIR  -> createdir  (bool, default False)
+  --- framework ---
+  TSTATCATCHER_STATS -> tstatcatcher_stats (bool, default False)
+  LABEL              -> label              (str, default "")
+"""
 import logging
 from typing import Any, Dict, List
 
@@ -10,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 @REGISTRY.register("tFileTouch")
 class FileTouchConverter(ComponentConverter):
-    """Convert a Talend tFileTouch node into a v1 FileTouch component."""
+    """Convert Talend tFileTouch to v1 engine config."""
 
     def convert(
         self,
@@ -19,23 +29,39 @@ class FileTouchConverter(ComponentConverter):
         context: Dict[str, Any],
     ) -> ComponentResult:
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
-        config = {
-            "filename": self._get_str(node, "FILENAME"),
-            "create_directory": self._get_bool(node, "CREATEDIR", True),
-            # Metadata
-            "tstatcatcher_stats": self._get_bool(node, "TSTATCATCHER_STATS", False),
-            "label": self._get_str(node, "LABEL"),
-        }
+        # ---- 1. Core parameters ----
+        config: Dict[str, Any] = {}
+        config["filename"] = self._get_str(node, "FILENAME", "")
+        config["createdir"] = self._get_bool(node, "CREATEDIR", False)
 
-        if not config["filename"]:
-            warnings.append("FILENAME is empty — this is a required parameter")
+        # ---- 5. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
 
+        # ---- 6. Schema ----
+        # Utility component -- no data flow schema
+        schema = {"input": [], "output": []}
+
+        # ---- 7. Engine gap needs_review entries ----
+        needs_review.append({
+            "issue": "Engine reads 'create_directory' but converter outputs 'createdir' per _java.xml param name CREATEDIR",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+
+        # ---- 8. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
             type_name="FileTouch",
             config=config,
-            # Utility component — no data flow schema
-            schema={"input": [], "output": []},
+            schema=schema,
         )
-        return ComponentResult(component=component, warnings=warnings)
+
+        # ---- 9. Return ----
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )
