@@ -1,12 +1,17 @@
-"""Converter for tRowGenerator -> RowGenerator.
+"""Converter for Talend tRowGenerator component.
 
-tRowGenerator is a source component that produces rows based on configured
-column expressions.  Key parameters:
+Generates rows with user-defined values and expressions.
 
-* ``NB_ROWS`` -- number of rows to generate (int, defaults to ``1``).
-* ``VALUES``  -- TABLE parameter containing interleaved SCHEMA_COLUMN / ARRAY
-  elementValue entries.  Each pair maps a schema column name to the expression
-  used to generate its value.
+Config mapping (2 unique params + framework):
+  NB_ROWS -> nb_rows (str, hidden, default "100")
+  VALUES  -> values  (list, TABLE stride-2 SCHEMA_COLUMN+ARRAY, BASED_ON_SCHEMA=true)
+  --- framework ---
+  TSTATCATCHER_STATS -> tstatcatcher_stats (bool, default False)
+  LABEL              -> label              (str, default "")
+
+MAP param (EXTERNAL type) is a visual editor reference -- not extracted.
+
+Engine reads: nb_rows (as int), values (list), schema.output.
 """
 import logging
 from typing import Any, Dict, List
@@ -16,10 +21,50 @@ from ..registry import REGISTRY
 
 logger = logging.getLogger(__name__)
 
+# ------------------------------------------------------------------
+# TABLE constants (VALUES TABLE -- stride-2, BASED_ON_SCHEMA=true)
+# ------------------------------------------------------------------
+_VALUES_FIELDS = ("SCHEMA_COLUMN", "ARRAY")
+_VALUES_GROUP_SIZE = len(_VALUES_FIELDS)
+
+
+# ------------------------------------------------------------------
+# TABLE parser functions
+# ------------------------------------------------------------------
+def _parse_values(raw: Any) -> List[Dict[str, str]]:
+    """Parse VALUES TABLE into list of {schema_column, array} dicts.
+
+    Each group of 2 consecutive elementRef entries maps to one row:
+      SCHEMA_COLUMN -> schema_column (str)
+      ARRAY         -> array         (str)
+
+    Incomplete trailing groups (< 2 entries) are skipped.
+    """
+    if not raw or not isinstance(raw, list):
+        return []
+    result: List[Dict[str, str]] = []
+    for i in range(0, len(raw), _VALUES_GROUP_SIZE):
+        group = raw[i : i + _VALUES_GROUP_SIZE]
+        if len(group) < _VALUES_GROUP_SIZE:
+            break
+        row: Dict[str, str] = {}
+        for entry in group:
+            if not isinstance(entry, dict):
+                continue
+            ref = entry.get("elementRef", "")
+            val = entry.get("value", "")
+            if ref == "SCHEMA_COLUMN":
+                row["schema_column"] = val.strip('"')
+            elif ref == "ARRAY":
+                row["array"] = val.strip('"')
+        if row:
+            result.append(row)
+    return result
+
 
 @REGISTRY.register("tRowGenerator")
 class RowGeneratorConverter(ComponentConverter):
-    """Convert a Talend tRowGenerator node into a v1 RowGenerator component."""
+    """Convert Talend tRowGenerator to v1 engine config."""
 
     def convert(
         self,
@@ -28,74 +73,59 @@ class RowGeneratorConverter(ComponentConverter):
         context: Dict[str, Any],
     ) -> ComponentResult:
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
-        # ------------------------------------------------------------------
-        # Scalar parameters
-        # ------------------------------------------------------------------
-        nb_rows = self._get_int(node, "NB_ROWS", default=1)
+        config: Dict[str, Any] = {}
 
-        # ------------------------------------------------------------------
-        # Parse VALUES table (interleaved SCHEMA_COLUMN / ARRAY pairs)
-        # ------------------------------------------------------------------
-        values: List[Dict[str, str]] = []
-        raw_values = self._get_param(node, "VALUES", [])
+        # ---- 1. Core parameters ----
+        config["nb_rows"] = self._get_str(node, "NB_ROWS", "100")
 
-        if isinstance(raw_values, list):
-            current_column: str | None = None
-            for entry in raw_values:
-                ref = entry.get("elementRef", "")
-                val = entry.get("value", "").strip('"')
-                if ref == "SCHEMA_COLUMN":
-                    # If we already had a SCHEMA_COLUMN without an ARRAY,
-                    # emit a warning and skip the orphaned column.
-                    if current_column is not None:
-                        warnings.append(
-                            f"SCHEMA_COLUMN '{current_column}' has no matching "
-                            "ARRAY — skipped"
-                        )
-                    current_column = val
-                elif ref == "ARRAY":
-                    if current_column is not None:
-                        values.append({
-                            "schema_column": current_column,
-                            "array": val,
-                        })
-                        current_column = None
-                    else:
-                        warnings.append(
-                            f"ARRAY '{val}' has no preceding "
-                            "SCHEMA_COLUMN — skipped"
-                        )
+        # ---- 2. TABLE parameter ----
+        config["values"] = _parse_values(node.params.get("VALUES", []))
 
-            # Handle trailing SCHEMA_COLUMN with no ARRAY
-            if current_column is not None:
-                warnings.append(
-                    f"SCHEMA_COLUMN '{current_column}' has no matching "
-                    "ARRAY — skipped"
-                )
-        else:
-            warnings.append(
-                "VALUES param is not a list — expected TABLE structure"
-            )
+        # ---- 3. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
 
-        # ------------------------------------------------------------------
-        # Build config
-        # ------------------------------------------------------------------
-        config: Dict[str, Any] = {
-            "nb_rows": nb_rows,
-            "values": values,
-        }
+        # ---- 4. Schema: SOURCE pattern -- no input, output from FLOW ----
+        schema = {"input": [], "output": self._parse_schema(node)}
 
-        # ------------------------------------------------------------------
-        # Schema: source component — no input, output from FLOW metadata
-        # ------------------------------------------------------------------
-        output_schema = self._parse_schema(node)
-        schema = {"input": [], "output": output_schema}
+        # ---- 5. Engine gap needs_review entries ----
+        # Engine default mismatch: engine defaults nb_rows to 1, Talend to 100
+        needs_review.append({
+            "issue": (
+                "Engine default for 'nb_rows' is 1 but Talend default is 100 "
+                "-- when converter emits the Talend default, engine behavior "
+                "matches; but if the config key is stripped, engine falls back "
+                "to wrong default"
+            ),
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
 
+        # Engine reads schema from config['schema'] but _build_component_dict
+        # places schema at top level -- engine path mismatch
+        needs_review.append({
+            "issue": (
+                "Engine reads schema via self.config.get('schema', {}).get('output', []) "
+                "but converter places schema at component['schema'] not inside config "
+                "-- engine will not find output schema through its config path"
+            ),
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+
+        # ---- 6. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
             type_name="RowGenerator",
             config=config,
             schema=schema,
         )
-        return ComponentResult(component=component, warnings=warnings)
+
+        # ---- 7. Return ----
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )
