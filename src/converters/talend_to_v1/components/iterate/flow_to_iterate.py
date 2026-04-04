@@ -1,4 +1,14 @@
-"""Converter for tFlowToIterate -> FlowToIterate."""
+"""Converter for Talend tFlowToIterate component.
+
+Converts input flow rows into iterate loop variables via globalMap.
+
+Config mapping (5 params total):
+  DEFAULT_MAP        -> default_map (bool, default True)
+  MAP                -> map_entries (list[dict], default [])
+  CONNECTION_FORMAT  -> connection_format (str, default "row")  [not in _java.xml]
+  TSTATCATCHER_STATS -> tstatcatcher_stats (bool, default False)
+  LABEL              -> label (str, default "")
+"""
 import logging
 from typing import Any, Dict, List
 
@@ -7,24 +17,50 @@ from ..registry import REGISTRY
 
 logger = logging.getLogger(__name__)
 
+# ------------------------------------------------------------------
+# TABLE constants
+# ------------------------------------------------------------------
+_MAP_FIELDS = ("KEY", "VALUE")
+_MAP_GROUP_SIZE = 2
+
+
+# ------------------------------------------------------------------
+# TABLE parser functions
+# ------------------------------------------------------------------
+def _parse_map_table(raw: Any) -> List[Dict[str, str]]:
+    """Parse MAP TABLE into list of dicts.
+
+    Each group of 2 consecutive elementRef entries maps to one row:
+      KEY    -> key (str, strip quotes)
+      VALUE  -> value (str, strip quotes)
+
+    Incomplete trailing groups (< 2 entries) are skipped.
+    """
+    if not raw or not isinstance(raw, list):
+        return []
+    result: List[Dict[str, str]] = []
+    for i in range(0, len(raw), _MAP_GROUP_SIZE):
+        group = raw[i: i + _MAP_GROUP_SIZE]
+        if len(group) < _MAP_GROUP_SIZE:
+            break
+        row: Dict[str, str] = {}
+        for entry in group:
+            if not isinstance(entry, dict):
+                continue
+            ref = entry.get("elementRef", "")
+            val = entry.get("value", "")
+            if ref == "KEY":
+                row["key"] = val.strip('"')
+            elif ref == "VALUE":
+                row["value"] = val.strip('"')
+        if row:
+            result.append(row)
+    return result
+
 
 @REGISTRY.register("tFlowToIterate")
 class FlowToIterateConverter(ComponentConverter):
-    """Convert a Talend tFlowToIterate node to v1 FlowToIterate.
-
-    Config params
-    -------------
-    DEFAULT_MAP (CHECK -> bool)
-        When True, all input columns are automatically mapped to
-        globalMap variables.  When False, only explicit MAP entries
-        are used.
-    CONNECTION_FORMAT (TEXT -> str)
-        The connection format string (typically ``"row"``).
-    MAP (TABLE -> list of {elementRef, value} dicts)
-        Explicit column-to-variable mappings used when DEFAULT_MAP
-        is False.  Entries arrive as flat interleaved
-        ``SCHEMA_COLUMN`` / ``COLUMN`` pairs.
-    """
+    """Convert Talend tFlowToIterate to v1 engine config."""
 
     def convert(
         self,
@@ -32,93 +68,44 @@ class FlowToIterateConverter(ComponentConverter):
         connections: List[TalendConnection],
         context: Dict[str, Any],
     ) -> ComponentResult:
+        params = node.params
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
-        # DEFAULT_MAP is stored as a bool by the XML parser (CHECK field)
+        # ---- 1. Core parameters ----
+        config: Dict[str, Any] = {}
         default_map = self._get_bool(node, "DEFAULT_MAP", True)
-        connection_format = self._get_str(node, "CONNECTION_FORMAT", "row")
+        config["default_map"] = default_map
+        config["connection_format"] = self._get_str(node, "CONNECTION_FORMAT", "row")
 
-        # Parse explicit MAP table entries (used when default_map is False).
-        # Each mapping is a SCHEMA_COLUMN / COLUMN pair in the flat list.
-        map_entries = self._parse_map_entries(
-            self._get_param(node, "MAP", []), warnings
-        )
+        # ---- 2. TABLE parameters ----
+        if not default_map:
+            config["map_entries"] = _parse_map_table(params.get("MAP", []))
+        else:
+            config["map_entries"] = []
 
-        if not default_map and not map_entries:
-            warnings.append(
-                "DEFAULT_MAP is false but no explicit MAP entries defined "
-                "-- no columns will be mapped to globalMap variables"
-            )
+        # ---- 3. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
 
-        config: Dict[str, Any] = {
-            "default_map": default_map,
-            "connection_format": connection_format,
-            "map_entries": map_entries,
-        }
-
-        schema_cols = self._parse_schema(node)
+        # ---- 4. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
-            type_name="FlowToIterate",
+            type_name="tFlowToIterate",
             config=config,
-            schema={"input": schema_cols, "output": schema_cols},
+            schema={"input": [], "output": []},
         )
 
-        return ComponentResult(component=component, warnings=warnings)
+        # ---- 5. Engine gap needs_review entries ----
+        needs_review.append({
+            "issue": "No concrete engine implementation for tFlowToIterate -- only BaseIterateComponent abstract base exists. All config keys are extracted for future engine support.",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
 
-    # ------------------------------------------------------------------
-    # MAP table helpers
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _parse_map_entries(
-        raw_map: Any, warnings: List[str]
-    ) -> List[Dict[str, str]]:
-        """Parse the MAP TABLE param into a list of mapping dicts.
-
-        The MAP table contains flat interleaved ``SCHEMA_COLUMN`` and
-        ``COLUMN`` elementValue entries.  Each pair produces a dict
-        ``{"schema_column": ..., "column": ...}``.
-        """
-        if not isinstance(raw_map, list):
-            if raw_map is not None and raw_map != []:
-                warnings.append(
-                    "MAP param is not a list -- expected TABLE structure"
-                )
-            return []
-
-        entries: List[Dict[str, str]] = []
-        current_schema_col: str | None = None
-
-        for item in raw_map:
-            ref = item.get("elementRef", "")
-            val = item.get("value", "").strip('"')
-
-            if ref == "SCHEMA_COLUMN":
-                if current_schema_col is not None:
-                    warnings.append(
-                        f"SCHEMA_COLUMN '{current_schema_col}' has no "
-                        f"matching COLUMN -- skipped"
-                    )
-                current_schema_col = val
-            elif ref == "COLUMN":
-                if current_schema_col is not None:
-                    entries.append({
-                        "schema_column": current_schema_col,
-                        "column": val,
-                    })
-                    current_schema_col = None
-                else:
-                    warnings.append(
-                        f"COLUMN '{val}' has no preceding "
-                        f"SCHEMA_COLUMN -- skipped"
-                    )
-
-        # Handle trailing SCHEMA_COLUMN without a COLUMN
-        if current_schema_col is not None:
-            warnings.append(
-                f"SCHEMA_COLUMN '{current_schema_col}' has no "
-                f"matching COLUMN -- skipped"
-            )
-
-        return entries
+        # ---- 6. Return ----
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )
