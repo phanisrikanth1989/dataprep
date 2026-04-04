@@ -1,4 +1,15 @@
-"""Converter for Talend tReplicate component."""
+"""Converter for Talend tReplicate component.
+
+Duplicates incoming rows to multiple output flows.
+
+Config mapping (0 unique params + framework):
+  --- framework ---
+  TSTATCATCHER_STATS -> tstatcatcher_stats (bool, default False)
+  LABEL              -> label              (str, default "")
+
+Engine reads output_count (default 2) and die_on_error (default True)
+which are NOT _java.xml params -- documented as needs_review.
+"""
 import logging
 from typing import Any, Dict, List
 
@@ -10,12 +21,7 @@ logger = logging.getLogger(__name__)
 
 @REGISTRY.register("tReplicate")
 class ReplicateConverter(ComponentConverter):
-    """Convert a Talend tReplicate node into a v1 Replicate component.
-
-    tReplicate is a simple passthrough component that duplicates its input
-    data to multiple outputs.  The only configuration parameter is
-    ``CONNECTION_FORMAT`` which defaults to ``"row"``.
-    """
+    """Convert Talend tReplicate to v1 engine config."""
 
     def convert(
         self,
@@ -23,19 +29,46 @@ class ReplicateConverter(ComponentConverter):
         connections: List[TalendConnection],
         context: Dict[str, Any],
     ) -> ComponentResult:
+        """Convert a TalendNode into a v1 Replicate component dict."""
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
-        config: Dict[str, Any] = {
-            "connection_format": self._get_str(node, "CONNECTION_FORMAT", "row"),
-        }
+        # ---- 1. Config dict (no unique params) ----
+        config: Dict[str, Any] = {}
 
+        # ---- 5. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
+
+        # ---- 6. Schema (passthrough transform: input == output) ----
         schema_cols = self._parse_schema(node)
+        schema = {"input": schema_cols, "output": schema_cols}
 
+        # ---- 7. Engine gap needs_review entries ----
+        needs_review.append({
+            "issue": "Engine reads 'output_count' (default 2) but this is not a _java.xml param. "
+                     "Converter does not output this key.",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        needs_review.append({
+            "issue": "Engine reads 'die_on_error' (default True) but this is not a _java.xml param. "
+                     "Converter does not output this key.",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+
+        # ---- 8. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
             type_name="Replicate",
             config=config,
-            schema={"input": schema_cols, "output": schema_cols},
+            schema=schema,
         )
 
-        return ComponentResult(component=component, warnings=warnings)
+        # ---- 9. Return ----
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )
