@@ -1,19 +1,18 @@
-"""Converter for Talend tDenormalize -> v1 Denormalize component.
+"""Converter for Talend tDenormalize component.
 
-tDenormalize merges multiple rows into a single row by concatenating values
-from specified columns using delimiters.  The DENORMALIZE_COLUMNS table
-parameter contains flat {elementRef, value} entries grouped in triplets:
-INPUT_COLUMN, DELIMITER, MERGE.
+Concatenates multiple rows into single rows using delimiter-based merging.
 
-Fixes vs. old code (CONV-DNR-001 to DNR-004):
-  - CONV-DNR-001: Dedicated converter instead of generic fallback.
-  - CONV-DNR-002: Old code defaulted merge=True; Talend defaults to false.
-  - CONV-DNR-003: Proper schema passthrough (input == output).
-  - CONV-DNR-004: Robust DENORMALIZE_COLUMNS table parsing with warnings
-    for malformed entries.
+Config mapping (1 TABLE param + framework):
+  DENORMALIZE_COLUMNS -> denormalize_columns (list of dicts, stride-3 TABLE)
+    INPUT_COLUMN -> input_column (str)
+    DELIMITER    -> delimiter    (str, default ";")
+    MERGE        -> merge        (bool, default False)
+  --- framework ---
+  TSTATCATCHER_STATS -> tstatcatcher_stats (bool, default False)
+  LABEL              -> label              (str, default "")
+
+Phantom params REMOVED: CONNECTION_FORMAT (not in _java.xml), NULL_AS_EMPTY (not in _java.xml)
 """
-from __future__ import annotations
-
 import logging
 from typing import Any, Dict, List
 
@@ -22,10 +21,56 @@ from ..registry import REGISTRY
 
 logger = logging.getLogger(__name__)
 
+# ------------------------------------------------------------------
+# TABLE constants
+# ------------------------------------------------------------------
+_DENORM_FIELDS = ("INPUT_COLUMN", "DELIMITER", "MERGE")
+_DENORM_GROUP_SIZE = len(_DENORM_FIELDS)
+
+
+# ------------------------------------------------------------------
+# TABLE parser
+# ------------------------------------------------------------------
+def _parse_denormalize_columns(raw: Any) -> List[Dict[str, Any]]:
+    """Parse DENORMALIZE_COLUMNS TABLE into list of dicts.
+
+    Each group of 3 consecutive elementRef entries maps to one row:
+      INPUT_COLUMN -> input_column (str, quotes stripped)
+      DELIMITER    -> delimiter    (str, default ";")
+      MERGE        -> merge        (bool, default False)
+
+    Incomplete trailing groups (< 3 entries) are skipped.
+    """
+    if not raw or not isinstance(raw, list):
+        return []
+    result: List[Dict[str, Any]] = []
+    for i in range(0, len(raw), _DENORM_GROUP_SIZE):
+        group = raw[i: i + _DENORM_GROUP_SIZE]
+        if len(group) < _DENORM_GROUP_SIZE:
+            break
+        row: Dict[str, Any] = {}
+        for entry in group:
+            if not isinstance(entry, dict):
+                continue
+            ref = entry.get("elementRef", "")
+            val = entry.get("value", "")
+            if ref == "INPUT_COLUMN":
+                row["input_column"] = val.strip('"')
+            elif ref == "DELIMITER":
+                row["delimiter"] = val.strip('"')
+            elif ref == "MERGE":
+                row["merge"] = val.strip().lower() == "true"
+        # Apply defaults for missing fields
+        if "input_column" in row:
+            row.setdefault("delimiter", ";")
+            row.setdefault("merge", False)
+            result.append(row)
+    return result
+
 
 @REGISTRY.register("tDenormalize")
 class DenormalizeConverter(ComponentConverter):
-    """Convert a Talend tDenormalize node into a v1 Denormalize component."""
+    """Convert Talend tDenormalize to v1 engine config."""
 
     def convert(
         self,
@@ -34,111 +79,74 @@ class DenormalizeConverter(ComponentConverter):
         context: Dict[str, Any],
     ) -> ComponentResult:
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
-        # ------------------------------------------------------------------
-        # Simple parameters
-        # ------------------------------------------------------------------
-        null_as_empty = self._get_bool(node, "NULL_AS_EMPTY", default=False)
-        connection_format = self._get_str(
-            node, "CONNECTION_FORMAT", default="row",
-        )
+        # ---- 1. Core parameters: DENORMALIZE_COLUMNS TABLE ----
+        config: Dict[str, Any] = {}
+        raw_table = node.params.get("DENORMALIZE_COLUMNS", [])
+        config["denormalize_columns"] = _parse_denormalize_columns(raw_table)
 
-        # ------------------------------------------------------------------
-        # Parse DENORMALIZE_COLUMNS table
-        # ------------------------------------------------------------------
-        denormalize_columns = self._parse_denormalize_columns(node, warnings)
+        # ---- 2. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
 
-        if not denormalize_columns:
-            warnings.append(
-                "No denormalize columns defined — component will have no effect"
-            )
-
-        # ------------------------------------------------------------------
-        # Build config
-        # ------------------------------------------------------------------
-        config: Dict[str, Any] = {
-            "null_as_empty": null_as_empty,
-            "connection_format": connection_format,
-            "denormalize_columns": denormalize_columns,
-        }
-
-        # ------------------------------------------------------------------
-        # Schema: transform component passes schema through
-        # ------------------------------------------------------------------
+        # ---- 3. Schema: transform component passes schema through ----
         schema_cols = self._parse_schema(node)
         schema = {"input": schema_cols, "output": schema_cols}
 
+        # ---- 4. Engine gap needs_review entries ----
+        # Engine delimiter default is "," (line 181) but _java.xml default is ";"
+        needs_review.append({
+            "issue": (
+                "Engine Denormalize uses delimiter default ',' (line 181) "
+                "but _java.xml DEFAULT is ';' -- converter emits explicit "
+                "delimiter per column so engine fallback is not reached for "
+                "converter-produced configs"
+            ),
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+
+        # Engine reads null_as_empty (default False) but this param is not in _java.xml
+        needs_review.append({
+            "issue": (
+                "Engine reads 'null_as_empty' config key (default False) "
+                "but NULL_AS_EMPTY is not a _java.xml parameter -- "
+                "engine-only config key"
+            ),
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+
+        # Conditional: merge flag engine gap (engine does not read merge)
+        merge_cols = [
+            col["input_column"]
+            for col in config["denormalize_columns"]
+            if col.get("merge") is True
+        ]
+        if merge_cols:
+            needs_review.append({
+                "issue": (
+                    f"Column(s) {merge_cols} have merge=True but the v1 "
+                    f"engine Denormalize component does not read the merge "
+                    f"flag -- deduplication before concatenation will not "
+                    f"occur at runtime"
+                ),
+                "component": node.component_id,
+                "severity": "engine_gap",
+            })
+
+        # ---- 5. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
             type_name="Denormalize",
             config=config,
             schema=schema,
         )
-        return ComponentResult(component=component, warnings=warnings)
 
-    # ------------------------------------------------------------------
-    # DENORMALIZE_COLUMNS table parser
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _parse_denormalize_columns(
-        node: TalendNode,
-        warnings: List[str],
-    ) -> List[Dict[str, Any]]:
-        """Parse the DENORMALIZE_COLUMNS table parameter.
-
-        The table is stored as a flat list of {elementRef, value} dicts
-        grouped in triplets: INPUT_COLUMN, DELIMITER, MERGE.
-
-        CONV-DNR-002: merge defaults to False (Talend's actual default),
-        correcting the old code which defaulted to True.
-        """
-        raw = node.params.get("DENORMALIZE_COLUMNS", [])
-        if not isinstance(raw, list):
-            warnings.append(
-                "DENORMALIZE_COLUMNS param is not a list "
-                "— expected TABLE structure"
-            )
-            return []
-
-        result: List[Dict[str, Any]] = []
-
-        # Group entries into triplets
-        for i in range(0, len(raw), 3):
-            triplet = raw[i: i + 3]
-
-            # Build a lookup from the triplet entries
-            row_data: Dict[str, Any] = {}
-            for entry in triplet:
-                ref = entry.get("elementRef", "")
-                val = entry.get("value", "")
-
-                if ref == "INPUT_COLUMN":
-                    row_data["input_column"] = val.strip('"')
-                elif ref == "DELIMITER":
-                    # Strip surrounding quotes (plain or XML-encoded)
-                    if val.startswith("&quot;") and val.endswith("&quot;"):
-                        val = val[6:-6]
-                    elif val.startswith('"') and val.endswith('"') and len(val) >= 2:
-                        val = val[1:-1]
-                    row_data["delimiter"] = val
-                elif ref == "MERGE":
-                    row_data["merge"] = val.lower() == "true"
-
-            # Validate: require input_column at minimum
-            input_col = row_data.get("input_column", "")
-            if not input_col:
-                if triplet:
-                    warnings.append(
-                        f"DENORMALIZE_COLUMNS triplet at index {i} has no "
-                        "INPUT_COLUMN — skipped"
-                    )
-                continue
-
-            result.append({
-                "input_column": input_col,
-                "delimiter": row_data.get("delimiter", ","),
-                "merge": row_data.get("merge", False),  # DNR-002: default False
-            })
-
-        return result
+        # ---- 6. Return ----
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )
