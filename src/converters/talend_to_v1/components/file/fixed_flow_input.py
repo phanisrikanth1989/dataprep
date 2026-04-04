@@ -1,27 +1,96 @@
-"""Converter for tFixedFlowInput -> FixedFlowInputComponent.
+"""Converter for Talend tFixedFlowInput component.
 
-tFixedFlowInput is a Talend source component that generates fixed rows of data.
-It supports three modes:
-  - Single mode (USE_SINGLEMODE): uses a VALUES table mapping column names to values.
-  - Inline content mode (USE_INLINECONTENT): parses inline text using row/field separators.
-  - Inline table mode (USE_INTABLE): uses an INTABLE table parameter.
+tFixedFlowInput generates fixed rows of data. Supports three modes:
+single mode (VALUES table), inline table mode (INTABLE table), and
+inline content mode (delimited text with separators).
 
-The converter replicates Talend's row-generation logic, producing a ``rows`` list
-in the config where each row is a dict mapping column names to their values.
+Config mapping (10 params total, 8 unique + 2 framework):
+  NB_ROWS            -> nb_rows            (int, default 1)
+  USE_SINGLEMODE     -> use_singlemode     (bool/RADIO, default True)
+  VALUES             -> values_config      (TABLE stride-2: SCHEMA_COLUMN, VALUE)
+  USE_INTABLE        -> use_intable        (bool/RADIO, default False)
+  INTABLE            -> intable            (TABLE, raw entries)
+  USE_INLINECONTENT  -> use_inlinecontent  (bool/RADIO, default False)
+  ROWSEPARATOR       -> row_separator      (str, default "\\n")
+  FIELDSEPARATOR     -> field_separator    (str, default ";")
+  INLINECONTENT      -> inline_content     (str, default "")
+  --- framework ---
+  TSTATCATCHER_STATS -> tstatcatcher_stats (bool, default False)
+  LABEL              -> label              (str, default "")
 """
 import logging
 from typing import Any, Dict, List
 
-from ...expression_converter import ExpressionConverter
 from ..base import ComponentConverter, ComponentResult, TalendConnection, TalendNode
 from ..registry import REGISTRY
 
 logger = logging.getLogger(__name__)
 
+# ------------------------------------------------------------------
+# TABLE constants
+# ------------------------------------------------------------------
+_VALUES_FIELDS = ("SCHEMA_COLUMN", "VALUE")
+_VALUES_GROUP_SIZE = len(_VALUES_FIELDS)
+
+
+# ------------------------------------------------------------------
+# TABLE parser functions
+# ------------------------------------------------------------------
+def _parse_values(raw: Any) -> List[Dict[str, Any]]:
+    """Parse VALUES TABLE into list of dicts.
+
+    Each group of 2 consecutive elementRef entries maps to one row:
+      SCHEMA_COLUMN -> schema_column (str)
+      VALUE         -> value (str, quotes stripped)
+
+    Incomplete trailing groups (< 2 entries) are skipped.
+    """
+    if not raw or not isinstance(raw, list):
+        return []
+    result: List[Dict[str, Any]] = []
+    for i in range(0, len(raw), _VALUES_GROUP_SIZE):
+        group = raw[i: i + _VALUES_GROUP_SIZE]
+        if len(group) < _VALUES_GROUP_SIZE:
+            break
+        row: Dict[str, Any] = {}
+        for entry in group:
+            if not isinstance(entry, dict):
+                continue
+            ref = entry.get("elementRef", "")
+            val = entry.get("value", "")
+            if ref == "SCHEMA_COLUMN":
+                row["schema_column"] = val.strip('"')
+            elif ref == "VALUE":
+                row["value"] = val.strip('"')
+        if row:
+            result.append(row)
+    return result
+
+
+def _parse_intable(raw: Any) -> List[Dict[str, Any]]:
+    """Parse INTABLE TABLE into list of dicts.
+
+    INTABLE has a dynamic schema (one elementRef per schema column).
+    Each entry is preserved as {element_ref, value} with quotes stripped.
+    """
+    if not raw or not isinstance(raw, list):
+        return []
+    result: List[Dict[str, Any]] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        ref = entry.get("elementRef", "")
+        val = entry.get("value", "")
+        result.append({
+            "element_ref": ref,
+            "value": val.strip('"'),
+        })
+    return result
+
 
 @REGISTRY.register("tFixedFlowInput")
 class FixedFlowInputConverter(ComponentConverter):
-    """Convert a Talend tFixedFlowInput node to v1 FixedFlowInputComponent."""
+    """Convert Talend tFixedFlowInput to v1 engine config."""
 
     def convert(
         self,
@@ -30,177 +99,67 @@ class FixedFlowInputConverter(ComponentConverter):
         context: Dict[str, Any],
     ) -> ComponentResult:
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
-        # Basic configuration
-        nb_rows = self._get_int(node, "NB_ROWS", 1)
-        connection_format = self._get_str(node, "CONNECTION_FORMAT", "row")
+        # ---- 1. Core parameters ----
+        config: Dict[str, Any] = {}
+        config["nb_rows"] = self._get_int(node, "NB_ROWS", 1)
+        config["use_singlemode"] = self._get_bool(node, "USE_SINGLEMODE", True)
+        config["use_intable"] = self._get_bool(node, "USE_INTABLE", False)
+        config["use_inlinecontent"] = self._get_bool(node, "USE_INLINECONTENT", False)
+        config["row_separator"] = self._get_str(node, "ROWSEPARATOR", "\\n")
+        config["field_separator"] = self._get_str(node, "FIELDSEPARATOR", ";")
+        config["inline_content"] = self._get_str(node, "INLINECONTENT", "")
 
-        # Mode flags
-        use_singlemode = self._get_bool(node, "USE_SINGLEMODE", True)
-        use_intable = self._get_bool(node, "USE_INTABLE", False)
-        use_inlinecontent = self._get_bool(node, "USE_INLINECONTENT", False)
+        # ---- 2. TABLE parameters ----
+        raw_values = node.params.get("VALUES", [])
+        config["values_config"] = _parse_values(raw_values)
 
-        # Inline content parameters — unescape \n, \t etc. from XML-encoded values
-        row_separator = self._get_str(node, "ROWSEPARATOR", "\n").encode().decode("unicode_escape")
-        field_separator = self._get_str(node, "FIELDSEPARATOR", ";").encode().decode("unicode_escape")
-        inline_content = self._get_str(node, "INLINECONTENT", "")
+        raw_intable = node.params.get("INTABLE", [])
+        config["intable"] = _parse_intable(raw_intable)
 
-        # Schema columns from FLOW metadata
-        schema_columns = self._parse_schema(node, "FLOW")
+        # ---- 3. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
 
-        # Parse VALUES table for single mode
-        values_config: Dict[str, Any] = {}
-        if use_singlemode:
-            values_config = self._parse_values_table(node)
+        # ---- 4. Schema ----
+        schema = {"input": [], "output": self._parse_schema(node)}
 
-        if use_intable:
-            warnings.append(
-                "USE_INTABLE mode detected — INTABLE table parsing is not yet "
-                "implemented; null rows will be generated"
-            )
+        # ---- 5. Engine gap needs_review entries ----
+        # Engine reads 'intable_data' but converter produces 'intable' -- key mismatch
+        needs_review.append({
+            "issue": "Engine reads 'intable_data' config key but converter produces 'intable' -- key name mismatch",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
 
-        # Generate rows based on the active mode
-        rows = self._generate_rows(
-            nb_rows=nb_rows,
-            use_singlemode=use_singlemode,
-            use_inlinecontent=use_inlinecontent,
-            use_intable=use_intable,
-            schema_columns=schema_columns,
-            values_config=values_config,
-            inline_content=inline_content,
-            row_separator=row_separator,
-            field_separator=field_separator,
-        )
+        # Engine reads 'die_on_error' but param is not in _java.xml -- engine has hardcoded behavior
+        needs_review.append({
+            "issue": "Engine reads 'die_on_error' config key but DIE_ON_ERROR is not in _java.xml -- "
+                     "engine default (True) applies without converter extraction",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
 
-        config: Dict[str, Any] = {
-            "nb_rows": nb_rows,
-            "connection_format": connection_format,
-            "use_singlemode": use_singlemode,
-            "use_intable": use_intable,
-            "use_inlinecontent": use_inlinecontent,
-            "row_separator": row_separator,
-            "field_separator": field_separator,
-            "inline_content": inline_content,
-            "schema": schema_columns,
-            "values_config": values_config,
-            "rows": rows,
-            # Engine compatibility
-            "die_on_error": self._get_bool(node, "DIE_ON_ERROR", True),
-            # Metadata
-            "tstatcatcher_stats": self._get_bool(node, "TSTATCATCHER_STATS", False),
-            "label": self._get_str(node, "LABEL"),
-        }
+        # Engine reads 'rows' (pre-generated) but converter no longer generates rows at conversion time
+        needs_review.append({
+            "issue": "Engine reads 'rows' config key for pre-generated row data -- converter extracts raw "
+                     "VALUES/INTABLE config instead; engine falls back to values_config for single mode",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
 
-        # Engine-gap warnings
-        if config["use_intable"]:
-            warnings.append(
-                "USE_INTABLE=true: INTABLE table parsing not yet implemented; "
-                "null rows will be generated"
-            )
-        if config["use_inlinecontent"]:
-            warnings.append(
-                "USE_INLINECONTENT=true: engine strips leading/trailing whitespace "
-                "from inline field values; if data contains significant whitespace, "
-                "values may differ from Talend behavior"
-            )
-
-        # Check if NB_ROWS was a dynamic variable (silently defaulted by _get_int)
-        raw_nb_rows = self._get_str(node, "NB_ROWS")
-        if raw_nb_rows and not raw_nb_rows.lstrip("-").isdigit():
-            warnings.append(
-                f"NB_ROWS contains dynamic variable '{raw_nb_rows}': engine does not "
-                f"support context resolution for NB_ROWS and will crash with ValueError"
-            )
-
+        # ---- 6. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
             type_name="FixedFlowInputComponent",
             config=config,
-            schema={"input": [], "output": schema_columns},
+            schema=schema,
         )
 
-        return ComponentResult(component=component, warnings=warnings)
-
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _parse_values_table(node: TalendNode) -> Dict[str, str]:
-        """Parse the VALUES TABLE param into a {column_name: value} mapping.
-
-        The XmlParser stores TABLE params as a list of ``{elementRef, value}``
-        dicts.  For VALUES the entries come in pairs:
-        ``SCHEMA_COLUMN`` followed by ``VALUE``.
-        """
-        values_config: Dict[str, str] = {}
-        raw_values = node.params.get("VALUES", [])
-        if not isinstance(raw_values, list):
-            return values_config
-
-        column_name = None
-        for entry in raw_values:
-            ref = entry.get("elementRef", "")
-            raw_val = entry.get("value", "")
-            val = raw_val.strip('"')
-
-            if ref == "SCHEMA_COLUMN":
-                column_name = val
-            elif ref == "VALUE" and column_name:
-                # Handle context variables and Java expressions
-                if val.startswith("context."):
-                    val = "${" + val + "}"
-                elif val and not raw_val.startswith('"'):
-                    # Only mark as Java expression if the raw value was NOT quoted
-                    # (quoted values are string literals, not expressions)
-                    val = ExpressionConverter.mark_java_expression(val)
-                values_config[column_name] = val
-                column_name = None
-
-        return values_config
-
-    @staticmethod
-    def _generate_rows(
-        *,
-        nb_rows: int,
-        use_singlemode: bool,
-        use_inlinecontent: bool,
-        use_intable: bool,
-        schema_columns: List[Dict[str, Any]],
-        values_config: Dict[str, str],
-        inline_content: str,
-        row_separator: str,
-        field_separator: str,
-    ) -> List[Dict[str, Any]]:
-        """Generate the ``rows`` list that mirrors Talend runtime behaviour."""
-        rows: List[Dict[str, Any]] = []
-
-        for row_idx in range(nb_rows):
-            if use_singlemode:
-                # Single mode: each row copies values from VALUES config
-                row = {}
-                for col in schema_columns:
-                    col_name = col["name"]
-                    row[col_name] = values_config.get(col_name, None)
-                rows.append(row)
-
-            elif use_inlinecontent:
-                # Inline content mode: split content by row/field separators
-                if inline_content:
-                    content_rows = inline_content.split(row_separator)
-                    if row_idx < len(content_rows):
-                        field_values = content_rows[row_idx].split(field_separator)
-                        row = {}
-                        for col_idx, col in enumerate(schema_columns):
-                            if col_idx < len(field_values):
-                                row[col["name"]] = field_values[col_idx]
-                            else:
-                                row[col["name"]] = None
-                        rows.append(row)
-
-            elif use_intable:
-                # Inline table mode: placeholder (INTABLE parsing TBD)
-                row = {col["name"]: None for col in schema_columns}
-                rows.append(row)
-
-        return rows
+        # ---- 7. Return ----
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )
