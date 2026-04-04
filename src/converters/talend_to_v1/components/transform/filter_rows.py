@@ -1,4 +1,22 @@
-"""Converter for tFilterRow / tFilterRows -> FilterRows."""
+"""Converter for Talend tFilterRow component.
+
+Filters rows based on conditions or advanced expressions.
+
+Config mapping (4 params + framework):
+  LOGICAL_OP    -> logical_op    (str, CLOSED_LIST, default "AND")
+  CONDITIONS    -> conditions    (list of dicts, stride-4 TABLE)
+    INPUT_COLUMN -> column   (str)
+    FUNCTION     -> function (str)
+    OPERATOR     -> operator (str)
+    RVALUE       -> value    (str)
+  USE_ADVANCED  -> use_advanced  (bool, CHECK, default False)
+  ADVANCED_COND -> advanced_cond (str, MEMO_JAVA, default "")
+  --- framework ---
+  TSTATCATCHER_STATS -> tstatcatcher_stats (bool, default False)
+  LABEL              -> label              (str, default "")
+
+Phantom params REMOVED: DIE_ON_ERROR (not in _java.xml), PREFILTER (not a _java.xml column in CONDITIONS TABLE)
+"""
 import logging
 from typing import Any, Dict, List
 
@@ -7,55 +25,63 @@ from ..registry import REGISTRY
 
 logger = logging.getLogger(__name__)
 
-# Map Talend XML-escaped logical operators to clean names
-_LOGICAL_OP_MAP = {
-    "&&": "AND",
-    "&amp;&amp;": "AND",
-    "||": "OR",
-}
+# ------------------------------------------------------------------
+# CONDITIONS TABLE constants
+# ------------------------------------------------------------------
+_CONDITION_FIELDS = ("INPUT_COLUMN", "FUNCTION", "OPERATOR", "RVALUE")
+_CONDITION_GROUP_SIZE = len(_CONDITION_FIELDS)
 
 
-def _clean_logical_op(raw: str) -> str:
-    """Normalise a Talend LOGICAL_OP value to AND / OR."""
-    return _LOGICAL_OP_MAP.get(raw, raw)
+# ------------------------------------------------------------------
+# CONDITIONS TABLE parser
+# ------------------------------------------------------------------
+def _parse_conditions(raw: Any) -> List[Dict[str, str]]:
+    """Parse CONDITIONS TABLE into list of dicts.
 
+    Each group of 4 consecutive elementRef entries maps to one condition:
+      INPUT_COLUMN -> column   (str)
+      FUNCTION     -> function (str)
+      OPERATOR     -> operator (str)
+      RVALUE       -> value    (str)
 
-def _parse_conditions(node: TalendNode) -> List[Dict[str, str]]:
-    """Parse the CONDITIONS table parameter into a list of condition dicts.
-
-    Each condition row has 5 fields: INPUT_COLUMN, FUNCTION, OPERATOR, RVALUE, PREFILTER.
+    Incomplete trailing groups (< 4 entries) are skipped.
+    PREFILTER entries are ignored (phantom -- not in _java.xml).
     """
-    raw = node.params.get("CONDITIONS")
     if not raw or not isinstance(raw, list):
         return []
 
-    conditions: List[Dict[str, str]] = []
-    current: Dict[str, str] = {}
-    for entry in raw:
-        if not isinstance(entry, dict):
-            continue
-        ref = entry.get("elementRef", "")
-        val = entry.get("value", "")
-        if ref == "INPUT_COLUMN":
-            if current:
-                conditions.append(current)
-            current = {"column": val, "function": "", "operator": "", "value": "", "prefilter": ""}
-        elif ref == "FUNCTION" and current:
-            current["function"] = val
-        elif ref == "OPERATOR" and current:
-            current["operator"] = val
-        elif ref == "RVALUE" and current:
-            current["value"] = val
-        elif ref == "PREFILTER" and current:
-            current["prefilter"] = val
-    if current:
-        conditions.append(current)
-    return conditions
+    # Filter out any PREFILTER entries (phantom param)
+    filtered = [
+        entry for entry in raw
+        if isinstance(entry, dict) and entry.get("elementRef", "") in _CONDITION_FIELDS
+    ]
+
+    result: List[Dict[str, str]] = []
+    for i in range(0, len(filtered), _CONDITION_GROUP_SIZE):
+        group = filtered[i: i + _CONDITION_GROUP_SIZE]
+        if len(group) < _CONDITION_GROUP_SIZE:
+            break
+        row: Dict[str, str] = {}
+        for entry in group:
+            ref = entry.get("elementRef", "")
+            val = entry.get("value", "")
+            if ref == "INPUT_COLUMN":
+                row["column"] = val.strip('"')
+            elif ref == "FUNCTION":
+                row["function"] = val.strip('"')
+            elif ref == "OPERATOR":
+                row["operator"] = val.strip('"')
+            elif ref == "RVALUE":
+                row["value"] = val.strip('"')
+        if row:
+            result.append(row)
+    return result
 
 
-@REGISTRY.register("tFilterRow", "tFilterRows")
+@REGISTRY.register("tFilterRow")
+@REGISTRY.register("tFilterRows")
 class FilterRowsConverter(ComponentConverter):
-    """Convert a Talend tFilterRow / tFilterRows node to v1 FilterRows."""
+    """Convert Talend tFilterRow / tFilterRows to v1 FilterRows config."""
 
     def convert(
         self,
@@ -64,71 +90,49 @@ class FilterRowsConverter(ComponentConverter):
         context: Dict[str, Any],
     ) -> ComponentResult:
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
-        logical_op_raw = self._get_str(node, "LOGICAL_OP", "AND")
-        logical_operator = _clean_logical_op(logical_op_raw)
+        # ---- 1. Core parameters ----
+        config: Dict[str, Any] = {}
+        config["logical_op"] = self._get_str(node, "LOGICAL_OP", "AND")
+        config["use_advanced"] = self._get_bool(node, "USE_ADVANCED", False)
+        config["advanced_cond"] = self._get_str(node, "ADVANCED_COND", "")
 
-        use_advanced = self._get_bool(node, "USE_ADVANCED", False)
-        advanced_condition = self._get_str(node, "ADVANCED_COND", "")
+        # ---- 2. TABLE parameters ----
+        raw_conditions = node.params.get("CONDITIONS", [])
+        config["conditions"] = _parse_conditions(raw_conditions)
 
-        conditions = _parse_conditions(node)
+        # ---- 3. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
 
-        if not use_advanced and not conditions:
-            warnings.append(
-                "No CONDITIONS defined and USE_ADVANCED is false "
-                "-- filter will have no effect"
-            )
-
-        # Engine-gap warnings
-        if self._get_bool(node, "DIE_ON_ERROR", False):
-            warnings.append(
-                "DIE_ON_ERROR=true: engine FilterRows does not implement "
-                "die_on_error — all errors propagate as exceptions"
-            )
-
-        unsupported_functions = {
-            c.get("function", "")
-            for c in conditions
-            if c.get("function", "") and c.get("function", "") != "EMPTY"
-        }
-        if unsupported_functions:
-            warnings.append(
-                f"CONDITIONS use FUNCTION pre-transforms {unsupported_functions}: "
-                "engine does not support function pre-transforms"
-            )
-
-        string_ops = {"CONTAINS", "NOT_CONTAINS", "STARTS_WITH", "ENDS_WITH", "MATCH_REGEX"}
-        used_string_ops = {
-            c.get("operator", "") for c in conditions if c.get("operator", "") in string_ops
-        }
-        if used_string_ops:
-            warnings.append(
-                f"CONDITIONS use string operators {used_string_ops}: "
-                "engine only supports ==, !=, <, >, <=, >="
-            )
-
-        if any(c.get("prefilter", "").strip() for c in conditions):
-            warnings.append(
-                "CONDITIONS use PREFILTER expressions: "
-                "engine does not support pre-filter evaluation"
-            )
-
-        config: Dict[str, Any] = {
-            "logical_operator": logical_operator,
-            "use_advanced": use_advanced,
-            "advanced_condition": advanced_condition,
-            "conditions": conditions,
-            "die_on_error": self._get_bool(node, "DIE_ON_ERROR", False),
-            "tstatcatcher_stats": self._get_bool(node, "TSTATCATCHER_STATS", False),
-            "label": self._get_str(node, "LABEL"),
-        }
-
+        # ---- 4. Schema (transform passthrough) ----
         schema_cols = self._parse_schema(node)
+        schema = {"input": schema_cols, "output": schema_cols}
+
+        # ---- 5. Engine gap needs_review entries ----
+        _engine_gap_keys = [
+            ("conditions.function", "Engine does not support FUNCTION pre-transforms on conditions"),
+            ("advanced_cond", "Engine uses eval() for advanced conditions -- security risk, limited operator support"),
+        ]
+        for key, detail in _engine_gap_keys:
+            needs_review.append({
+                "issue": f"Engine gap for '{key}' -- {detail}",
+                "component": node.component_id,
+                "severity": "engine_gap",
+            })
+
+        # ---- 6. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
             type_name="FilterRows",
             config=config,
-            schema={"input": schema_cols, "output": schema_cols},
+            schema=schema,
         )
 
-        return ComponentResult(component=component, warnings=warnings)
+        # ---- 7. Return ----
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )
