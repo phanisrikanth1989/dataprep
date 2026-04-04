@@ -1,11 +1,25 @@
-"""Converter for Talend tFileCopy -> v1 FileCopy component.
+"""Converter for Talend tFileCopy component.
 
-Fixes:
-  CONV-FC-001: parse_tfilecopy method did not exist in old converter
-  CONV-FC-002: component crashed at conversion with AttributeError
+Copies files from source to destination with options for renaming,
+directory copy, and move (remove source) semantics.
+
+Config mapping (12 unique params + framework):
+  FILENAME                    -> filename                    (str, default "")
+  ENABLE_COPY_DIRECTORY       -> enable_copy_directory       (bool, default False)
+  SOURCE_DERECTORY            -> source_derectory            (str, default "")  # Talend typo preserved
+  DESTINATION                 -> destination                 (str, default "")
+  RENAME                      -> rename                      (bool, default False)
+  DESTINATION_RENAME          -> destination_rename          (str, default "NewName.temp")
+  REMOVE_FILE                 -> remove_file                 (bool, default False)
+  REPLACE_FILE                -> replace_file                (bool, default True)
+  CREATE_DIRECTORY            -> create_directory            (bool, default True)
+  FAILON                      -> failon                      (bool, default False)
+  FORCE_COPY_DELETE           -> force_copy_delete           (bool, default False)
+  PRESERVE_LAST_MODIFIED_TIME -> preserve_last_modified_time (bool, default False)
+  --- framework ---
+  TSTATCATCHER_STATS          -> tstatcatcher_stats          (bool, default False)
+  LABEL                       -> label                       (str, default "")
 """
-from __future__ import annotations
-
 import logging
 from typing import Any, Dict, List
 
@@ -17,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 @REGISTRY.register("tFileCopy")
 class FileCopyConverter(ComponentConverter):
-    """Convert a Talend tFileCopy node into a v1 FileCopy component."""
+    """Convert Talend tFileCopy to v1 engine config."""
 
     def convert(
         self,
@@ -26,62 +40,92 @@ class FileCopyConverter(ComponentConverter):
         context: Dict[str, Any],
     ) -> ComponentResult:
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
-        # --- Extract config parameters ---
-        source = self._get_str(node, "FILENAME")
-        destination = self._get_str(node, "DESTINATION")
-        rename = self._get_bool(node, "RENAME")
-        new_name = self._get_str(node, "DESTINATION_RENAME")
-        replace_file = self._get_bool(node, "REPLACE_FILE", False)
-        create_directory = self._get_bool(node, "CREATE_DIRECTORY", False)
-        preserve_last_modified = self._get_bool(node, "PRESERVE_LAST_MODIFIED_TIME")
-        remove_source_file = self._get_bool(node, "REMOVE_SOURCE_FILE")
-        copy_directory = self._get_bool(node, "COPY_DIRECTORY")
-        source_directory = self._get_str(node, "SOURCE_DIRECTORY")
+        # ---- 1. Core parameters ----
+        config: Dict[str, Any] = {}
+        config["filename"] = self._get_str(node, "FILENAME", "")
+        config["enable_copy_directory"] = self._get_bool(node, "ENABLE_COPY_DIRECTORY", False)
+        config["source_derectory"] = self._get_str(node, "SOURCE_DERECTORY", "")  # Talend typo preserved
+        config["destination"] = self._get_str(node, "DESTINATION", "")
+        config["rename"] = self._get_bool(node, "RENAME", False)
+        config["destination_rename"] = self._get_str(node, "DESTINATION_RENAME", "NewName.temp")
+        config["remove_file"] = self._get_bool(node, "REMOVE_FILE", False)
+        config["replace_file"] = self._get_bool(node, "REPLACE_FILE", True)
+        config["create_directory"] = self._get_bool(node, "CREATE_DIRECTORY", True)
+        config["failon"] = self._get_bool(node, "FAILON", False)
+        config["force_copy_delete"] = self._get_bool(node, "FORCE_COPY_DELETE", False)
+        config["preserve_last_modified_time"] = self._get_bool(node, "PRESERVE_LAST_MODIFIED_TIME", False)
 
-        # --- Validation warnings ---
-        if not source:
-            warnings.append("FILENAME (source) is empty")
-        if not destination:
-            warnings.append("DESTINATION is empty")
-        if rename and not new_name:
-            warnings.append("RENAME is true but DESTINATION_RENAME is empty")
+        # ---- 5. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
 
-        # --- Engine-gap warnings ---
-        if remove_source_file:
-            warnings.append(
-                "REMOVE_SOURCE_FILE=true: engine uses shutil.copy2 not "
-                "os.rename — not atomic move semantics"
-            )
-        if copy_directory:
-            warnings.append(
-                "COPY_DIRECTORY=true: engine has partial directory copy "
-                "support via shutil.copytree"
-            )
+        # ---- 6. Schema ----
+        # Utility component -- no data flow schema
+        schema = {"input": [], "output": []}
 
-        # --- Build config dict ---
-        config: Dict[str, Any] = {
-            "source": source,
-            "destination": destination,
-            "rename": rename,
-            "new_name": new_name,
-            "replace_file": replace_file,
-            "create_directory": create_directory,
-            "preserve_last_modified": preserve_last_modified,
-            "remove_source_file": remove_source_file,
-            "copy_directory": copy_directory,
-            "source_directory": source_directory,
-            # Metadata
-            "tstatcatcher_stats": self._get_bool(node, "TSTATCATCHER_STATS", False),
-            "label": self._get_str(node, "LABEL"),
-        }
+        # ---- 7. Engine gap needs_review entries ----
+        # Engine reads 'source' but converter outputs 'filename' per _java.xml FILENAME
+        needs_review.append({
+            "issue": "Engine reads 'source' but converter outputs 'filename' per _java.xml param name FILENAME",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        # Engine reads 'new_name' but converter outputs 'destination_rename' per _java.xml DESTINATION_RENAME
+        needs_review.append({
+            "issue": "Engine reads 'new_name' but converter outputs 'destination_rename' per _java.xml param name DESTINATION_RENAME",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        # Engine reads 'preserve_last_modified' but converter outputs 'preserve_last_modified_time' per _java.xml
+        needs_review.append({
+            "issue": "Engine reads 'preserve_last_modified' but converter outputs 'preserve_last_modified_time' per _java.xml param name PRESERVE_LAST_MODIFIED_TIME",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        # Engine does not read 'enable_copy_directory' -- not implemented in engine
+        needs_review.append({
+            "issue": "Engine does not read 'enable_copy_directory' -- not implemented in engine",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        # Engine does not read 'source_derectory' -- not implemented in engine
+        needs_review.append({
+            "issue": "Engine does not read 'source_derectory' -- not implemented in engine",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        # Engine does not read 'remove_file' -- not implemented in engine
+        needs_review.append({
+            "issue": "Engine does not read 'remove_file' -- not implemented in engine",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        # Engine does not read 'failon' -- not implemented in engine
+        needs_review.append({
+            "issue": "Engine does not read 'failon' -- not implemented in engine",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        # Engine does not read 'force_copy_delete' -- not implemented in engine
+        needs_review.append({
+            "issue": "Engine does not read 'force_copy_delete' -- not implemented in engine",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
 
+        # ---- 8. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
             type_name="FileCopy",
             config=config,
-            # Utility component — no data flow schema
-            schema={"input": [], "output": []},
+            schema=schema,
         )
 
-        return ComponentResult(component=component, warnings=warnings)
+        # ---- 9. Return ----
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )
