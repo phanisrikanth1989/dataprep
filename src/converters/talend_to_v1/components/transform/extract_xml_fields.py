@@ -1,14 +1,22 @@
-"""Converter for Talend tExtractXMLField -> v1 ExtractXMLField.
+"""Converter for Talend tExtractXMLField component.
 
 tExtractXMLField extracts structured data from an XML column by applying an
 XPath loop query and mapping individual XPath expressions to output columns.
 
-The MAPPING TABLE parameter is serialised as a flat list of
-``{elementRef, value}`` dicts with three entries per mapping row:
-SCHEMA_COLUMN, QUERY, and NODECHECK.
+Config mapping (12 unique params):
+  XMLFIELD         -> xmlfield (str, PREV_COLUMN_LIST, default "")
+  USE_ITEMS        -> use_items (bool, hidden, default False)
+  LOOP_QUERY_BASE  -> loop_query_base (str, hidden, default "")
+  LOOP_QUERY       -> loop_query (str, default "/bills/bill/line")
+  MAPPING          -> mapping (list, TABLE BASED_ON_SCHEMA=true, QUERY+NODECHECK)
+  LIMIT            -> limit (str, default "")
+  DIE_ON_ERROR     -> die_on_error (bool, default False)
+  USE_XML_FIELD    -> use_xml_field (bool, hidden, default False)
+  XML_TEXT         -> xml_text (str, hidden, default "")
+  XML_PREFIX       -> xml_prefix (str, hidden, default "")
+  SCHEMA_OPT_NUM   -> schema_opt_num (str, hidden, default "100")
+  IGNORE_NS        -> ignore_ns (bool, default False)
 """
-from __future__ import annotations
-
 import logging
 from typing import Any, Dict, List
 
@@ -17,61 +25,54 @@ from ..registry import REGISTRY
 
 logger = logging.getLogger(__name__)
 
-# Fields per mapping row, in Talend serialisation order
-_MAPPING_FIELDS = ("SCHEMA_COLUMN", "QUERY", "NODECHECK")
+# ------------------------------------------------------------------
+# MAPPING TABLE constants (BASED_ON_SCHEMA=true: QUERY + NODECHECK)
+# ------------------------------------------------------------------
+_MAPPING_FIELDS = ("QUERY", "NODECHECK")
 _MAPPING_GROUP_SIZE = len(_MAPPING_FIELDS)
 
 
-def _strip_quotes(value: str) -> str:
-    """Remove surrounding double-quote pairs from *value*."""
-    if value.startswith('"') and value.endswith('"') and len(value) >= 2:
-        return value[1:-1]
-    return value
+# ------------------------------------------------------------------
+# MAPPING TABLE parser (module-level, stride-2)
+# ------------------------------------------------------------------
+def _parse_mapping(raw: Any) -> List[Dict[str, Any]]:
+    """Parse MAPPING TABLE into list of dicts.
 
+    BASED_ON_SCHEMA=true means SCHEMA_COLUMN is auto-populated from schema,
+    so each stride-2 group contains:
+      QUERY      -> query (str, stripped)
+      NODECHECK  -> nodecheck (bool)
 
-def _parse_mapping(raw: Any) -> List[Dict[str, str]]:
-    """Parse the flat MAPPING table into a list of mapping dicts.
-
-    XmlParser stores TABLE params as a flat list of ``{elementRef, value}``
-    dicts.  Each mapping group is 3 consecutive entries:
-    SCHEMA_COLUMN, QUERY, NODECHECK.
+    Incomplete trailing groups (< 2 entries) are skipped.
     """
     if not raw or not isinstance(raw, list):
         return []
-
-    mappings: List[Dict[str, str]] = []
+    result: List[Dict[str, Any]] = []
     for i in range(0, len(raw), _MAPPING_GROUP_SIZE):
         group = raw[i: i + _MAPPING_GROUP_SIZE]
         if len(group) < _MAPPING_GROUP_SIZE:
             break
-
-        row: Dict[str, str] = {}
+        row: Dict[str, Any] = {}
         for entry in group:
             if not isinstance(entry, dict):
                 continue
             ref = entry.get("elementRef", "")
             val = entry.get("value", "")
-
-            if ref == "SCHEMA_COLUMN":
-                row["schema_column"] = _strip_quotes(val)
-            elif ref == "QUERY":
-                row["query"] = _strip_quotes(val)
+            if ref == "QUERY":
+                row["query"] = val.strip('"')
             elif ref == "NODECHECK":
-                row["nodecheck"] = val
-
-        if row.get("schema_column"):
-            mappings.append({
-                "schema_column": row.get("schema_column", ""),
+                row["nodecheck"] = val.lower() in ("true", "1")
+        if row.get("query") is not None:
+            result.append({
                 "query": row.get("query", ""),
-                "nodecheck": row.get("nodecheck", ""),
+                "nodecheck": row.get("nodecheck", False),
             })
-
-    return mappings
+    return result
 
 
 @REGISTRY.register("tExtractXMLField")
 class ExtractXMLFieldConverter(ComponentConverter):
-    """Convert a Talend tExtractXMLField node to v1 ExtractXMLField."""
+    """Convert Talend tExtractXMLField to v1 engine config."""
 
     def convert(
         self,
@@ -80,50 +81,52 @@ class ExtractXMLFieldConverter(ComponentConverter):
         context: Dict[str, Any],
     ) -> ComponentResult:
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
-        # ------------------------------------------------------------------
-        # Extract parameters
-        # ------------------------------------------------------------------
-        xml_field = self._get_str(node, "XMLFIELD", "line")
-        loop_query = self._get_str(node, "LOOP_QUERY", "")
-        limit = self._get_str(node, "LIMIT", "0")
-        die_on_error = self._get_bool(node, "DIE_ON_ERROR", False)
-        ignore_ns = self._get_bool(node, "IGNORE_NS", False)
+        # ---- 1. Core parameters ----
+        config: Dict[str, Any] = {}
+        config["xmlfield"] = self._get_str(node, "XMLFIELD", "")
+        config["use_items"] = self._get_bool(node, "USE_ITEMS", False)
+        config["loop_query_base"] = self._get_str(node, "LOOP_QUERY_BASE", "")
+        config["loop_query"] = self._get_str(node, "LOOP_QUERY", "/bills/bill/line")
+        config["limit"] = self._get_str(node, "LIMIT", "")
+        config["die_on_error"] = self._get_bool(node, "DIE_ON_ERROR", False)
+        config["use_xml_field"] = self._get_bool(node, "USE_XML_FIELD", False)
+        config["xml_text"] = self._get_str(node, "XML_TEXT", "")
+        config["xml_prefix"] = self._get_str(node, "XML_PREFIX", "")
+        config["schema_opt_num"] = self._get_str(node, "SCHEMA_OPT_NUM", "100")
+        config["ignore_ns"] = self._get_bool(node, "IGNORE_NS", False)
 
-        # Parse MAPPING table
-        mapping = _parse_mapping(node.params.get("MAPPING"))
+        # ---- 2. TABLE parameters ----
+        raw_mapping = node.params.get("MAPPING", [])
+        config["mapping"] = _parse_mapping(raw_mapping)
 
-        # ------------------------------------------------------------------
-        # Validation warnings
-        # ------------------------------------------------------------------
-        if not loop_query:
-            warnings.append(
-                "LOOP_QUERY is empty -- XML extraction will have no effect"
-            )
+        # ---- 3. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
 
-        if not mapping:
-            warnings.append(
-                "No MAPPING entries defined -- no columns will be extracted"
-            )
-
-        # ------------------------------------------------------------------
-        # Build config
-        # ------------------------------------------------------------------
-        config: Dict[str, Any] = {
-            "xml_field": xml_field,
-            "loop_query": loop_query,
-            "mapping": mapping,
-            "limit": limit,
-            "die_on_error": die_on_error,
-            "ignore_ns": ignore_ns,
-        }
-
-        # ------------------------------------------------------------------
-        # Schema: transform component passes schema through
-        # ------------------------------------------------------------------
+        # ---- 4. Schema (transform passthrough) ----
         schema_cols = self._parse_schema(node)
         schema: Dict[str, Any] = {"input": schema_cols, "output": schema_cols}
 
+        # ---- 5. Engine gap needs_review entries (per-feature) ----
+        _engine_gap_keys = [
+            ("use_items", "engine does not read 'use_items' config key -- hidden param for item-based XML input mode"),
+            ("loop_query_base", "engine does not read 'loop_query_base' config key -- hidden base path for loop query"),
+            ("use_xml_field", "engine does not read 'use_xml_field' config key -- hidden toggle for XML field source"),
+            ("xml_text", "engine does not read 'xml_text' config key -- hidden inline XML text content"),
+            ("xml_prefix", "engine does not read 'xml_prefix' config key -- hidden namespace prefix override"),
+            ("schema_opt_num", "engine does not read 'schema_opt_num' config key -- hidden schema optimization number"),
+            ("limit", "engine treats limit=0 as 'no limit' but Talend treats 0 as 'read nothing' -- semantic mismatch"),
+        ]
+        for key, detail in _engine_gap_keys:
+            needs_review.append({
+                "issue": f"Engine does not read '{key}' config key -- {detail}" if "engine treats" not in detail else detail,
+                "component": node.component_id,
+                "severity": "engine_gap",
+            })
+
+        # ---- 6. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
             type_name="ExtractXMLField",
@@ -131,4 +134,9 @@ class ExtractXMLFieldConverter(ComponentConverter):
             schema=schema,
         )
 
-        return ComponentResult(component=component, warnings=warnings)
+        # ---- 7. Return ----
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )
