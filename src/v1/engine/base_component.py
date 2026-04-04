@@ -301,7 +301,7 @@ class BaseComponent(ABC):
             for stat_name, stat_value in self.stats.items():
                 self.global_map.put_component_stat(self.id, stat_name, stat_value)  
             # Log the statistics for debugging
-            logger.info(f"Component {self.id}: Updated stats - NB_LINE:{self.stats['NB_LINE']} NB_LINE_OK:{self.stats['NB_LINE_OK']} NB_LINE_REJECT:{self.stats['NB_LINE_REJECT']} {stat_name}: {value}")
+            logger.info(f"Component {self.id}: Updated stats - NB_LINE:{self.stats['NB_LINE']} NB_LINE_OK:{self.stats['NB_LINE_OK']} NB_LINE_REJECT:{self.stats['NB_LINE_REJECT']} ")
     
     def _update_stats(self, rows_read:int=0, rows_ok:int=0, rows_reject:int=0) -> None:
         """Helper to update statistics """

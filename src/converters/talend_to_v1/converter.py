@@ -399,3 +399,18 @@ def convert_job(
         logger.info("Wrote V1 config to %s", out)
 
     return config
+
+
+if __name__ == "__main__":
+    import sys
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+    if len(sys.argv) < 2:
+        print("Usage: python -m src.converters.talend_to_v1.converter <input.item> [output.json]")
+        sys.exit(1)
+
+    result = convert_job(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else None)
+
+    if len(sys.argv) < 3:
+        print(json.dumps(result, indent=2))
