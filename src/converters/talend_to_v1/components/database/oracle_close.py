@@ -1,13 +1,12 @@
-"""Converter for Talend tOracleClose -> v1 OracleClose.
+"""Converter for Talend tOracleClose component.
 
-Closes a named Oracle connection that was previously opened by
-tOracleConnection.  The only meaningful parameter is CONNECTION,
-which identifies the connection to close.
+Closes an existing Oracle database connection.
 
-Reference: complex_converter/component_parser.py lines 2213-2221.
+Config mapping (3 params total):
+  CONNECTION         -> connection (str, default "")
+  TSTATCATCHER_STATS -> tstatcatcher_stats (bool, default False)
+  LABEL              -> label (str, default "")
 """
-from __future__ import annotations
-
 import logging
 from typing import Any, Dict, List
 
@@ -19,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 @REGISTRY.register("tOracleClose")
 class OracleCloseConverter(ComponentConverter):
-    """Convert a Talend tOracleClose node into a v1 OracleClose component."""
+    """Convert Talend tOracleClose to v1 engine config."""
 
     def convert(
         self,
@@ -28,25 +27,37 @@ class OracleCloseConverter(ComponentConverter):
         context: Dict[str, Any],
     ) -> ComponentResult:
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
-        # --- Extract config parameters ---
-        connection = self._get_str(node, "CONNECTION")
+        # ---- 1. Core parameters ----
+        config: Dict[str, Any] = {}
+        config["connection"] = self._get_str(node, "CONNECTION", "")
 
-        # --- Validation warnings ---
-        if not connection:
-            warnings.append("CONNECTION is empty")
+        # ---- 2. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
 
-        # --- Build config dict ---
-        config: Dict[str, Any] = {
-            "connection": connection,
-        }
+        # ---- 3. Engine gap needs_review entries ----
+        needs_review.append({
+            "issue": (
+                "No concrete engine implementation for tOracleClose. "
+                "All config keys are extracted for future engine support."
+            ),
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
 
+        # ---- 4. Build component dict ----
         component = self._build_component_dict(
             node=node,
-            type_name="OracleClose",
+            type_name="tOracleClose",
             config=config,
-            # Utility component -- no data flow schema
             schema={"input": [], "output": []},
         )
 
-        return ComponentResult(component=component, warnings=warnings)
+        # ---- 5. Return ----
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )
