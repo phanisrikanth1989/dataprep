@@ -1,13 +1,13 @@
-"""Converter for Talend tOracleCommit -> v1 OracleCommit.
+"""Converter for Talend tOracleCommit component.
 
-Fixes:
-  CONV-OC-001: alignment with complex_converter/component_parser.py
-    line 2201 — parse_t_oracle_commit extracted CONNECTION and CLOSE
-    parameters.  This converter reproduces the same logic using the
-    base-class helpers for safe type coercion.
+Commits the current transaction on a named Oracle connection.
+
+Config mapping (4 params total):
+  CONNECTION         -> connection (str, default "")
+  CLOSE              -> close (bool, default True)
+  TSTATCATCHER_STATS -> tstatcatcher_stats (bool, default False)
+  LABEL              -> label (str, default "")
 """
-from __future__ import annotations
-
 import logging
 from typing import Any, Dict, List
 
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 @REGISTRY.register("tOracleCommit")
 class OracleCommitConverter(ComponentConverter):
-    """Convert a Talend tOracleCommit node into a v1 OracleCommit component."""
+    """Convert Talend tOracleCommit to v1 engine config."""
 
     def convert(
         self,
@@ -28,27 +28,38 @@ class OracleCommitConverter(ComponentConverter):
         context: Dict[str, Any],
     ) -> ComponentResult:
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
-        # --- Extract config parameters ---
-        connection = self._get_str(node, "CONNECTION")
-        close_connection = self._get_bool(node, "CLOSE", default=True)
+        # ---- 1. Core parameters ----
+        config: Dict[str, Any] = {}
+        config["connection"] = self._get_str(node, "CONNECTION", "")
+        config["close"] = self._get_bool(node, "CLOSE", True)
 
-        # --- Validation warnings ---
-        if not connection:
-            warnings.append("CONNECTION is empty")
+        # ---- 2. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
 
-        # --- Build config dict ---
-        config: Dict[str, Any] = {
-            "connection": connection,
-            "close_connection": close_connection,
-        }
+        # ---- 3. Engine gap needs_review entries ----
+        needs_review.append({
+            "issue": (
+                "No concrete engine implementation for tOracleCommit. "
+                "All config keys are extracted for future engine support."
+            ),
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
 
+        # ---- 4. Build component dict ----
         component = self._build_component_dict(
             node=node,
-            type_name="OracleCommit",
+            type_name="tOracleCommit",
             config=config,
-            # Utility component — no data flow schema
             schema={"input": [], "output": []},
         )
 
-        return ComponentResult(component=component, warnings=warnings)
+        # ---- 5. Return ----
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )
