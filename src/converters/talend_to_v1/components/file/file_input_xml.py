@@ -1,12 +1,32 @@
-"""Converter for tFileInputXML -> FileInputXML.
+"""Converter for Talend tFileInputXML component.
 
-Critical fixes:
-  - Config key `filename` → `filepath` (engine reads `filepath` or `FILENAME`, not `filename`)
-  - MAPPING format changed to engine-expected raw triplet format (SCHEMA_COLUMN/QUERY/NODECHECK)
-  - Encoding default fixed from UTF-8 to ISO-8859-15
+Reads XML files using XPath expressions with loop-based row extraction
+and per-column MAPPING TABLE defining column/xpath/nodecheck triplets.
+
+Config mapping (19 params total):
+  FILENAME             -> filepath             (str, default "")
+  LOOP_QUERY           -> loop_query           (str, default "/bills/bill/line")
+  MAPPING              -> mapping              (TABLE, stride-3: SCHEMA_COLUMN + QUERY + NODECHECK)
+  LIMIT                -> limit                (str, default "")
+  DIE_ON_ERROR         -> die_on_error         (bool, default False)
+  ADVANCED_SEPARATOR   -> advanced_separator   (bool, default False)
+  THOUSANDS_SEPARATOR  -> thousands_separator  (str, default ",")
+  DECIMAL_SEPARATOR    -> decimal_separator    (str, default ".")
+  IGNORE_NS            -> ignore_ns            (bool, default False)
+  IGNORE_DTD           -> ignore_dtd           (bool, default False)
+  USE_SEPARATOR        -> use_separator        (bool, default False)
+  FIELD_SEPARATOR      -> field_separator      (str, default ",")
+  GENERATION_MODE      -> generation_mode      (str/CLOSED_LIST, default "Dom4j")
+  CHECK_DATE           -> check_date           (bool, default False)
+  ENCODING             -> encoding             (str, default "ISO-8859-15")
+  TMP_FILENAME         -> tmp_filename         (str, default "")
+  SCHEMA_OPT_NUM       -> schema_opt_num       (int, default 100)
+  --- framework ---
+  TSTATCATCHER_STATS   -> tstatcatcher_stats   (bool, default False)
+  LABEL                -> label                (str, default "")
 """
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from ..base import ComponentConverter, ComponentResult, TalendConnection, TalendNode
 from ..registry import REGISTRY
@@ -14,69 +34,59 @@ from ..registry import REGISTRY
 logger = logging.getLogger(__name__)
 
 
+# ------------------------------------------------------------------
+# TABLE parser functions
+# ------------------------------------------------------------------
+
+def _parse_mapping(raw: Any) -> List[Dict[str, Any]]:
+    """Parse MAPPING TABLE from flat elementRef/value pairs.
+
+    Uses "push-on-next-SCHEMA_COLUMN" state machine: accumulates all
+    fields (SCHEMA_COLUMN, QUERY, NODECHECK) per row, flushes when the
+    next SCHEMA_COLUMN arrives or at end of loop.
+
+    Input (from XML parser):
+        [{"elementRef": "SCHEMA_COLUMN", "value": '"order_id"'},
+         {"elementRef": "QUERY", "value": '"@id"'},
+         {"elementRef": "NODECHECK", "value": "false"},
+         {"elementRef": "SCHEMA_COLUMN", "value": '"customer"'}, ...]
+
+    Output:
+        [{"column": "order_id", "xpath": "@id", "nodecheck": False},
+         {"column": "customer", "xpath": "...", "nodecheck": ...}, ...]
+    """
+    if not raw or not isinstance(raw, list):
+        return []
+
+    result: List[Dict[str, Any]] = []
+    current: Dict[str, Any] = {}
+
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        ref = entry.get("elementRef", "")
+        val = entry.get("value", "").strip('"')
+
+        if ref == "SCHEMA_COLUMN":
+            # Flush previous row when we hit a new SCHEMA_COLUMN
+            if current and "column" in current:
+                result.append(current)
+            current = {"column": val, "xpath": "", "nodecheck": False}
+        elif ref == "QUERY":
+            current["xpath"] = val
+        elif ref == "NODECHECK":
+            current["nodecheck"] = val.lower() in ("true", "1")
+
+    # Flush the last accumulated row
+    if current and "column" in current:
+        result.append(current)
+
+    return result
+
+
 @REGISTRY.register("tFileInputXML")
 class FileInputXMLConverter(ComponentConverter):
-    """Convert a Talend tFileInputXML node to v1 FileInputXML."""
-
-    @staticmethod
-    def _parse_mapping_for_engine(raw: list) -> list:
-        """Parse MAPPING TABLE and output engine-expected raw triplet format.
-
-        The engine's _parse_xml() (lines 449-461) scans for literal labels:
-            mapping[i].get("column") == "SCHEMA_COLUMN"
-            mapping[i+1].get("column") == "QUERY"
-        and skips by 3 (i += 3) to jump over NODECHECK.
-
-        Input (from XML parser):
-            [{"elementRef": "SCHEMA_COLUMN", "value": "order_id"},
-             {"elementRef": "QUERY", "value": "\"@id\""},
-             {"elementRef": "NODECHECK", "value": "false"},
-             {"elementRef": "SCHEMA_COLUMN", "value": "customer"}, ...]
-
-        Output (engine-compatible triplet format):
-            [{"column": "SCHEMA_COLUMN", "xpath": "order_id"},
-             {"column": "QUERY", "xpath": "@id"},
-             {"column": "NODECHECK", "xpath": "false"},
-             {"column": "SCHEMA_COLUMN", "xpath": "customer"}, ...]
-
-        Uses push-on-next-SCHEMA_COLUMN state machine. NODECHECK defaults
-        to "false" if missing (mandatory for engine's i+=3 skip logic).
-        """
-        if not raw or not isinstance(raw, list):
-            return []
-
-        result: list = []
-        current_col: Optional[str] = None
-        current_query: str = ""
-        current_nodecheck: str = "false"
-
-        for entry in raw:
-            if not isinstance(entry, dict):
-                continue
-            ref = entry.get("elementRef", "")
-            val = entry.get("value", "").strip('"')
-
-            if ref == "SCHEMA_COLUMN":
-                # Flush previous row as 3 entries when we hit a new SCHEMA_COLUMN
-                if current_col is not None:
-                    result.append({"column": "SCHEMA_COLUMN", "xpath": current_col})
-                    result.append({"column": "QUERY", "xpath": current_query})
-                    result.append({"column": "NODECHECK", "xpath": current_nodecheck})
-                current_col = val
-                current_query = ""
-                current_nodecheck = "false"
-            elif ref == "QUERY":
-                current_query = val
-            elif ref == "NODECHECK":
-                current_nodecheck = val if val else "false"
-
-        # Flush the last accumulated row
-        if current_col is not None:
-            result.append({"column": "SCHEMA_COLUMN", "xpath": current_col})
-            result.append({"column": "QUERY", "xpath": current_query})
-            result.append({"column": "NODECHECK", "xpath": current_nodecheck})
-
-        return result
+    """Convert Talend tFileInputXML to v1 FileInputXML config."""
 
     def convert(
         self,
@@ -85,83 +95,75 @@ class FileInputXMLConverter(ComponentConverter):
         context: Dict[str, Any],
     ) -> ComponentResult:
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
-        # Parse MAPPING table into engine-expected triplet format
-        mapping = self._parse_mapping_for_engine(
-            self._get_param(node, "MAPPING", []))
+        # ---- 1. Core parameters ----
+        config: Dict[str, Any] = {}
+        config["filepath"] = self._get_str(node, "FILENAME", "")
+        config["loop_query"] = self._get_str(node, "LOOP_QUERY", "/bills/bill/line")
+        config["limit"] = self._get_str(node, "LIMIT", "")
+        config["die_on_error"] = self._get_bool(node, "DIE_ON_ERROR", False)
+        config["encoding"] = self._get_str(node, "ENCODING", "ISO-8859-15")
+        config["ignore_ns"] = self._get_bool(node, "IGNORE_NS", False)
+        config["ignore_dtd"] = self._get_bool(node, "IGNORE_DTD", False)
 
-        # Limit: int if non-empty, None if empty/missing
-        limit_str = self._get_str(node, "LIMIT")
-        limit = int(limit_str) if limit_str and limit_str.isdigit() else None
+        # ---- 2. CLOSED_LIST parameters ----
+        config["generation_mode"] = self._get_str(node, "GENERATION_MODE", "Dom4j")
 
-        config: Dict[str, Any] = {
-            # Core params — CRITICAL: key is "filepath" not "filename"
-            "filepath": self._get_str(node, "FILENAME"),
-            "loop_query": self._get_str(node, "LOOP_QUERY"),
-            "mapping": mapping,
-            "limit": limit,
-            "die_on_error": self._get_bool(node, "DIE_ON_ERROR", False),
-            "encoding": self._get_str(node, "ENCODING", "ISO-8859-15"),
-            "ignore_ns": self._get_bool(node, "IGNORE_NS", False),
-            # Advanced params
-            "ignore_dtd": self._get_bool(node, "IGNORE_DTD", False),
-            "generation_mode": self._get_str(node, "GENERATION_MODE", "Dom4j"),
-            "advanced_separator": self._get_bool(node, "ADVANCED_SEPARATOR", False),
-            "thousands_separator": self._get_str(node, "THOUSANDS_SEPARATOR", ","),
-            "decimal_separator": self._get_str(node, "DECIMAL_SEPARATOR", "."),
-            "check_date": self._get_bool(node, "CHECK_DATE", False),
-            "use_separator": self._get_bool(node, "USE_SEPARATOR", False),
-            "field_separator": self._get_str(node, "FIELD_SEPARATOR", ","),
-            # Metadata
-            "tstatcatcher_stats": self._get_bool(node, "TSTATCATCHER_STATS", False),
-            "label": self._get_str(node, "LABEL"),
-        }
+        # ---- 3. TABLE parameters ----
+        config["mapping"] = _parse_mapping(node.params.get("MAPPING", []))
 
-        # Warn when filepath is empty — it is mandatory in Talend
+        # ---- 4. Advanced parameters ----
+        config["advanced_separator"] = self._get_bool(node, "ADVANCED_SEPARATOR", False)
+        config["thousands_separator"] = self._get_str(node, "THOUSANDS_SEPARATOR", ",")
+        config["decimal_separator"] = self._get_str(node, "DECIMAL_SEPARATOR", ".")
+        config["check_date"] = self._get_bool(node, "CHECK_DATE", False)
+        config["use_separator"] = self._get_bool(node, "USE_SEPARATOR", False)
+        config["field_separator"] = self._get_str(node, "FIELD_SEPARATOR", ",")
+        config["tmp_filename"] = self._get_str(node, "TMP_FILENAME", "")
+        config["schema_opt_num"] = self._get_int(node, "SCHEMA_OPT_NUM", 100)
+
+        # ---- 5. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
+
+        # ---- 6. Schema ----
+        schema = {"input": [], "output": self._parse_schema(node)}
+
+        # ---- 7. Validation warnings ----
         if not config["filepath"]:
-            warnings.append("FILENAME is empty — this is a required parameter")
-
-        # Warn when loop_query is empty — it is required
+            warnings.append("FILENAME is empty -- this is a required parameter")
         if not config["loop_query"]:
-            warnings.append("LOOP_QUERY is empty — this is a required parameter")
+            warnings.append("LOOP_QUERY is empty -- this is a required parameter")
 
-        # Engine-gap warnings
-        if config["generation_mode"] != "Dom4j":
-            warnings.append(
-                f"GENERATION_MODE={config['generation_mode']}: "
-                f"engine only supports Dom4j-style processing"
-            )
-        if config["advanced_separator"]:
-            warnings.append(
-                "ADVANCED_SEPARATOR=true: engine does not support "
-                "locale-aware number formatting for XML"
-            )
-        if config["check_date"]:
-            warnings.append(
-                "CHECK_DATE=true: engine does not validate "
-                "date fields for XML input"
-            )
-        if config["use_separator"]:
-            warnings.append(
-                "USE_SEPARATOR=true: engine does not support "
-                "field separator concatenation for XML"
-            )
-        if config["ignore_ns"]:
-            warnings.append(
-                "IGNORE_NS=true: engine does not implement namespace "
-                "stripping; namespaces will be auto-qualified in XPath expressions"
-            )
-        if limit is not None:
-            warnings.append(
-                f"LIMIT={limit}: engine does not implement row limits "
-                f"for XML input; the entire document will be processed"
-            )
+        # ---- 8. Engine gap needs_review entries ----
+        _engine_gap_keys = [
+            ("generation_mode", "engine only supports Dom4j-style DOM processing; SAX mode not implemented"),
+            ("advanced_separator", "engine does not support locale-aware number formatting for XML"),
+            ("check_date", "engine does not validate date fields during XML extraction"),
+            ("use_separator", "engine does not support field separator concatenation for XML"),
+            ("field_separator", "engine does not read field_separator config key"),
+            ("tmp_filename", "engine does not read tmp_filename config key"),
+            ("schema_opt_num", "engine does not read schema_opt_num config key"),
+        ]
+        for key, detail in _engine_gap_keys:
+            needs_review.append({
+                "issue": f"Engine does not read '{key}' config key -- {detail}",
+                "component": node.component_id,
+                "severity": "engine_gap",
+            })
 
+        # ---- 9. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
             type_name="FileInputXML",
             config=config,
-            schema={"input": [], "output": self._parse_schema(node)},
+            schema=schema,
         )
 
-        return ComponentResult(component=component, warnings=warnings)
+        # ---- 10. Return ----
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )
