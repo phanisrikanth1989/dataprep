@@ -1,4 +1,41 @@
-"""Converter for tFileOutputExcel -> FileOutputExcel."""
+"""Converter for Talend tFileOutputExcel component.
+
+Writes data to an Excel file with support for multiple sheets, formatting, and streaming.
+
+Config mapping (29 unique + 2 framework = 31 params total):
+  VERSION_2007                  -> version_2007                  (bool, default False)
+  USESTREAM                     -> usestream                     (bool, default False)
+  STREAMNAME                    -> streamname                    (str, default "outputStream")
+  FILENAME                      -> filename                      (str, default "")
+  SHEETNAME                     -> sheetname                     (str, default "Sheet1")
+  INCLUDEHEADER                 -> includeheader                 (bool, default False)
+  APPEND_FILE                   -> append_file                   (bool, default False)
+  APPEND_SHEET                  -> append_sheet                  (bool, default False)
+  FIRST_CELL_Y_ABSOLUTE         -> first_cell_y_absolute         (bool, default False)
+  FIRST_CELL_X                  -> first_cell_x                  (str, default "0")
+  FIRST_CELL_Y                  -> first_cell_y                  (str, default "0")
+  KEEP_CELL_FORMATING           -> keep_cell_formating           (bool, default False)  # Talend spelling
+  FONT                          -> font                          (str, default "NONE")
+  IS_ALL_AUTO_SZIE              -> is_all_auto_szie              (bool, default False)  # Talend typo
+  AUTO_SZIE_SETTING             -> auto_szie_setting             (list, TABLE)          # Talend typo
+  PROTECT_FILE                  -> protect_file                  (bool, default False)
+  PASSWORD                      -> password                      (str, default "")
+  CREATE                        -> create                        (bool, default True)   # advanced
+  FLUSHONROW                    -> flushonrow                    (bool, default False)  # advanced
+  FLUSHONROW_NUM                -> flushonrow_num                (str, default "100")   # advanced
+  ADVANCED_SEPARATOR            -> advanced_separator            (bool, default False)  # advanced
+  THOUSANDS_SEPARATOR           -> thousands_separator           (str, default ",")     # advanced
+  DECIMAL_SEPARATOR             -> decimal_separator             (str, default ".")     # advanced
+  TRUNCATE_EXCEEDING_CHARACTERS -> truncate_exceeding_characters (bool, default False)  # advanced
+  ENCODING                      -> encoding                      (str, default "ISO-8859-15")  # advanced
+  DELETE_EMPTYFILE              -> delete_empty_file             (bool, default False)  # advanced
+  RECALCULATE_FORMULA           -> recalculate_formula           (bool, default False)  # advanced
+  STREAMING_APPEND              -> streaming_append              (bool, default False)  # advanced
+  USE_SHARED_STRINGS_TABLE      -> use_shared_strings_table      (bool, default False)  # advanced
+  --- framework ---
+  TSTATCATCHER_STATS            -> tstatcatcher_stats            (bool, default False)
+  LABEL                         -> label                         (str, default "")
+"""
 import logging
 from typing import Any, Dict, List
 
@@ -8,9 +45,33 @@ from ..registry import REGISTRY
 logger = logging.getLogger(__name__)
 
 
+# ------------------------------------------------------------------
+# TABLE parser functions
+# ------------------------------------------------------------------
+def _parse_auto_szie_setting(raw: Any) -> List[str]:
+    """Parse AUTO_SZIE_SETTING TABLE into list of column name strings.
+
+    Each entry has elementRef=SCHEMA_COLUMN with a quoted column name.
+    Stride-1: one elementRef per row.
+
+    Note: Talend uses the typo 'SZIE' (not 'SIZE') in the param name.
+    """
+    if not raw or not isinstance(raw, list):
+        return []
+    result: List[str] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        ref = entry.get("elementRef", "")
+        val = entry.get("value", "")
+        if ref == "SCHEMA_COLUMN":
+            result.append(val.strip('"'))
+    return result
+
+
 @REGISTRY.register("tFileOutputExcel")
 class FileOutputExcelConverter(ComponentConverter):
-    """Convert a Talend tFileOutputExcel node to v1 FileOutputExcel."""
+    """Convert Talend tFileOutputExcel to v1 engine config."""
 
     def convert(
         self,
@@ -19,121 +80,170 @@ class FileOutputExcelConverter(ComponentConverter):
         context: Dict[str, Any],
     ) -> ComponentResult:
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
-        filename = self._get_str(node, "FILENAME")
-        if not filename:
-            warnings.append("FILENAME is empty — this is a required parameter")
+        # ---- 1. Core parameters ----
+        config: Dict[str, Any] = {}
+        config["version_2007"] = self._get_bool(node, "VERSION_2007", False)
+        config["usestream"] = self._get_bool(node, "USESTREAM", False)
+        config["streamname"] = self._get_str(node, "STREAMNAME", "outputStream")
+        config["filename"] = self._get_str(node, "FILENAME", "")
+        config["sheetname"] = self._get_str(node, "SHEETNAME", "Sheet1")
+        config["includeheader"] = self._get_bool(node, "INCLUDEHEADER", False)
+        config["append_file"] = self._get_bool(node, "APPEND_FILE", False)
+        config["append_sheet"] = self._get_bool(node, "APPEND_SHEET", False)
 
-        config: Dict[str, Any] = {
-            # Core
-            "filename": filename,
-            "sheetname": self._get_str(node, "SHEETNAME", "Sheet1"),
-            "version_2007": self._get_bool(node, "VERSION_2007", False),
-            "includeheader": self._get_bool(node, "INCLUDEHEADER", False),
-            "append_file": self._get_bool(node, "APPEND_FILE", False),
-            "append_sheet": self._get_bool(node, "APPEND_SHEET", False),
-            "create_directory": self._get_bool(node, "CREATE", True),
-            "die_on_error": self._get_bool(node, "DIE_ON_ERROR", False),
-            "encoding": self._get_str(node, "ENCODING", "UTF-8"),
-            "font": self._get_str(node, "FONT", "Arial"),
-            "auto_size_all": self._get_bool(node, "AUTO_SIZE_SETTING", False),
-            # Positioning
-            "first_cell_y_absolute": self._get_bool(node, "FIRST_CELL_Y_ABSOLUTE", False),
-            "first_cell_x": self._get_int(node, "FIRST_CELL_X", 0),
-            "first_cell_y": self._get_int(node, "FIRST_CELL_Y", 0),
-            "keep_cell_formatting": self._get_bool(node, "KEEP_CELL_FORMATING", False),
-            # Advanced
-            "advanced_separator": self._get_bool(node, "ADVANCED_SEPARATOR", False),
-            "thousands_separator": self._get_str(node, "THOUSANDS_SEPARATOR", ","),
-            "decimal_separator": self._get_str(node, "DECIMAL_SEPARATOR", "."),
-            "truncate_exceeding_characters": self._get_bool(
-                node, "TRUNCATE_EXCEEDING_CHARACTERS", False
-            ),
-            "delete_empty_file": self._get_bool(node, "DELETE_EMPTYFILE", False),
-            "recalculate_formula": self._get_bool(node, "RECALCULATE_FORMULA", False),
-            # Version-gated (xlsx only)
-            "protect_file": self._get_bool(node, "PROTECT_FILE", False),
-            "password": self._get_str(node, "PASSWORD"),
-            "custom_flush_buffer": self._get_bool(node, "CUSTOM_FLUSH_BUFFER", False),
-            "flush_on_row": self._get_int(node, "FLUSH_ON_ROW", 1000),
-            "streaming_append": self._get_bool(node, "STREAMING_APPEND", False),
-            "use_shared_strings_table": self._get_bool(
-                node, "USE_SHARED_STRINGS_TABLE", False
-            ),
-            # Metadata
-            "tstatcatcher_stats": self._get_bool(node, "TSTATCATCHER_STATS", False),
-            "label": self._get_str(node, "LABEL"),
-        }
+        # ---- 2. Positioning parameters ----
+        config["first_cell_y_absolute"] = self._get_bool(node, "FIRST_CELL_Y_ABSOLUTE", False)
+        config["first_cell_x"] = self._get_str(node, "FIRST_CELL_X", "0")
+        config["first_cell_y"] = self._get_str(node, "FIRST_CELL_Y", "0")
+        config["keep_cell_formating"] = self._get_bool(node, "KEEP_CELL_FORMATING", False)  # Talend spelling
 
-        # --- Engine-gap warnings ---
-        if not config["version_2007"]:
-            warnings.append(
-                "VERSION_2007=false: engine only writes .xlsx format (openpyxl); "
-                ".xls output not supported"
-            )
-        if config["protect_file"]:
-            warnings.append(
-                "PROTECT_FILE=true: engine does not support workbook password protection"
-            )
-        if config["first_cell_y_absolute"]:
-            warnings.append(
-                "FIRST_CELL_Y_ABSOLUTE=true: engine does not support cell offset positioning"
-            )
-        if config["font"] and config["font"] != "Arial":
-            warnings.append(
-                f"FONT={config['font']}: engine does not support font selection"
-            )
-        if config["auto_size_all"]:
-            warnings.append(
-                "AUTO_SIZE_SETTING=true: engine does not support column auto-sizing"
-            )
-        if config["keep_cell_formatting"]:
-            warnings.append(
-                "KEEP_CELL_FORMATING=true: engine does not preserve existing cell formatting"
-            )
-        if config["advanced_separator"]:
-            warnings.append(
-                "ADVANCED_SEPARATOR=true: engine does not support locale-aware "
-                "number formatting on output"
-            )
-        if config["truncate_exceeding_characters"]:
-            warnings.append(
-                "TRUNCATE_EXCEEDING_CHARACTERS=true: engine does not truncate "
-                "cell content at 32,767 chars"
-            )
-        if config["delete_empty_file"]:
-            warnings.append(
-                "DELETE_EMPTYFILE=true: engine always creates output file even "
-                "when no data rows written"
-            )
-        if config["recalculate_formula"]:
-            warnings.append(
-                "RECALCULATE_FORMULA=true: engine does not force formula recalculation"
-            )
-        if config["streaming_append"]:
-            warnings.append(
-                "STREAMING_APPEND=true: engine does not support SXSSF streaming write mode"
-            )
-        if config["use_shared_strings_table"]:
-            warnings.append(
-                "USE_SHARED_STRINGS_TABLE=true: engine does not support "
-                "shared strings table optimization"
-            )
-        if config["custom_flush_buffer"]:
-            warnings.append(
-                "CUSTOM_FLUSH_BUFFER=true: engine does not support flush buffer control"
-            )
-        # Check for USE_OUTPUT_STREAM (not extracted but warn if present)
-        if self._get_bool(node, "USE_OUTPUT_STREAM", False):
-            warnings.append(
-                "USE_OUTPUT_STREAM detected: engine does not support OutputStream mode"
-            )
+        # ---- 3. CLOSED_LIST parameters ----
+        config["font"] = self._get_str(node, "FONT", "NONE")
 
+        # ---- 4. Auto-size parameters (Talend typos preserved) ----
+        config["is_all_auto_szie"] = self._get_bool(node, "IS_ALL_AUTO_SZIE", False)
+
+        # ---- 5. TABLE parameters ----
+        raw_auto_szie = node.params.get("AUTO_SZIE_SETTING", [])
+        config["auto_szie_setting"] = _parse_auto_szie_setting(raw_auto_szie)
+
+        # ---- 6. Protection parameters ----
+        config["protect_file"] = self._get_bool(node, "PROTECT_FILE", False)
+        config["password"] = self._get_str(node, "PASSWORD", "")
+
+        # ---- 7. Advanced parameters ----
+        config["create"] = self._get_bool(node, "CREATE", True)
+        config["flushonrow"] = self._get_bool(node, "FLUSHONROW", False)
+        config["flushonrow_num"] = self._get_str(node, "FLUSHONROW_NUM", "100")
+        config["advanced_separator"] = self._get_bool(node, "ADVANCED_SEPARATOR", False)
+        config["thousands_separator"] = self._get_str(node, "THOUSANDS_SEPARATOR", ",")
+        config["decimal_separator"] = self._get_str(node, "DECIMAL_SEPARATOR", ".")
+        config["truncate_exceeding_characters"] = self._get_bool(node, "TRUNCATE_EXCEEDING_CHARACTERS", False)
+        config["encoding"] = self._get_str(node, "ENCODING", "ISO-8859-15")
+        config["delete_empty_file"] = self._get_bool(node, "DELETE_EMPTYFILE", False)
+        config["recalculate_formula"] = self._get_bool(node, "RECALCULATE_FORMULA", False)
+        config["streaming_append"] = self._get_bool(node, "STREAMING_APPEND", False)
+        config["use_shared_strings_table"] = self._get_bool(node, "USE_SHARED_STRINGS_TABLE", False)
+
+        # ---- 8. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
+
+        # ---- 9. Schema ----
+        # Sink component: input populated, output empty (D-55)
+        schema = {"input": self._parse_schema(node), "output": []}
+
+        # ---- 10. Engine gap needs_review entries ----
+        # Engine reads 'encoding' with default 'UTF-8' but _java.xml default is 'ISO-8859-15'
+        needs_review.append({
+            "issue": "Engine default encoding is 'UTF-8' but _java.xml default is 'ISO-8859-15' -- charset mismatch on default config",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        # Engine does not read usestream/streamname
+        needs_review.append({
+            "issue": "Engine does not read 'usestream'/'streamname' config keys -- OutputStream mode not supported",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        # Engine does not read font
+        needs_review.append({
+            "issue": "Engine does not read 'font' config key -- font selection not supported in engine",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        # Engine does not read is_all_auto_szie/auto_szie_setting
+        needs_review.append({
+            "issue": "Engine does not read 'is_all_auto_szie'/'auto_szie_setting' config keys -- column auto-sizing not supported",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        # Engine does not read protect_file/password
+        needs_review.append({
+            "issue": "Engine does not read 'protect_file'/'password' config keys -- workbook protection not supported",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        # Engine does not read first_cell_y_absolute/first_cell_x/first_cell_y
+        needs_review.append({
+            "issue": "Engine does not read 'first_cell_y_absolute'/'first_cell_x'/'first_cell_y' -- cell offset positioning not supported",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        # Engine does not read keep_cell_formating
+        needs_review.append({
+            "issue": "Engine does not read 'keep_cell_formating' config key -- existing cell formatting not preserved",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        # Engine does not read advanced_separator/thousands_separator/decimal_separator
+        needs_review.append({
+            "issue": "Engine does not read 'advanced_separator'/'thousands_separator'/'decimal_separator' -- locale number formatting not supported",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        # Engine does not read truncate_exceeding_characters
+        needs_review.append({
+            "issue": "Engine does not read 'truncate_exceeding_characters' config key -- cell content truncation not supported",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        # Engine does not read delete_empty_file
+        needs_review.append({
+            "issue": "Engine does not read 'delete_empty_file' config key -- empty file cleanup not supported",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        # Engine does not read recalculate_formula
+        needs_review.append({
+            "issue": "Engine does not read 'recalculate_formula' config key -- formula recalculation not supported",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        # Engine does not read flushonrow/flushonrow_num
+        needs_review.append({
+            "issue": "Engine does not read 'flushonrow'/'flushonrow_num' config keys -- row flush buffer control not supported",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        # Engine does not read streaming_append
+        needs_review.append({
+            "issue": "Engine does not read 'streaming_append' config key -- SXSSF streaming write mode not supported",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        # Engine does not read use_shared_strings_table
+        needs_review.append({
+            "issue": "Engine does not read 'use_shared_strings_table' config key -- shared strings optimization not supported",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        # Engine does not read version_2007 (always writes xlsx via openpyxl)
+        needs_review.append({
+            "issue": "Engine does not read 'version_2007' config key -- always writes .xlsx format via openpyxl",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        # Engine reads 'die_on_error' (default True) but _java.xml does not have DIE_ON_ERROR param
+        needs_review.append({
+            "issue": "Engine reads 'die_on_error' (default True) but param not in _java.xml -- engine-only config key",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+
+        # ---- 11. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
             type_name="FileOutputExcel",
             config=config,
-            schema={"input": self._parse_schema(node), "output": []},
+            schema=schema,
         )
 
-        return ComponentResult(component=component, warnings=warnings)
+        # ---- 12. Return ----
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )
