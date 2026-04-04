@@ -1,14 +1,16 @@
-"""Converter for Talend tOracleRollback -> v1 OracleRollback.
+"""Converter for Talend tOracleRollback component.
 
-Fixes:
-  CONV-OR-001: complex_converter/component_parser.py line 2223-2235
-    The original parser manually navigated XML with ``node.find()``, requiring
-    raw XML access and lacking default handling for missing attributes.
-    This converter uses the base-class helpers for safe extraction and
-    consistent type coercion.
+Rolls back the current transaction on a named Oracle connection.
+
+Config mapping (4 params total):
+  CONNECTION         -> connection (str, default "")
+  CLOSE              -> close (bool, default True)
+  TSTATCATCHER_STATS -> tstatcatcher_stats (bool, default False)
+  LABEL              -> label (str, default "")
+
+Removed phantom params:
+  CONNECTION_FORMAT  -- not in _java.xml, was extracted by old converter
 """
-from __future__ import annotations
-
 import logging
 from typing import Any, Dict, List
 
@@ -20,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 @REGISTRY.register("tOracleRollback")
 class OracleRollbackConverter(ComponentConverter):
-    """Convert a Talend tOracleRollback node into a v1 OracleRollback component."""
+    """Convert Talend tOracleRollback to v1 engine config."""
 
     def convert(
         self,
@@ -29,29 +31,38 @@ class OracleRollbackConverter(ComponentConverter):
         context: Dict[str, Any],
     ) -> ComponentResult:
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
-        # --- Extract config parameters ---
-        connection = self._get_str(node, "CONNECTION")
-        close = self._get_bool(node, "CLOSE", default=True)
-        connection_format = self._get_str(node, "CONNECTION_FORMAT")
+        # ---- 1. Core parameters ----
+        config: Dict[str, Any] = {}
+        config["connection"] = self._get_str(node, "CONNECTION", "")
+        config["close"] = self._get_bool(node, "CLOSE", True)
 
-        # --- Validation warnings ---
-        if not connection:
-            warnings.append("CONNECTION is empty")
+        # ---- 2. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
 
-        # --- Build config dict ---
-        config: Dict[str, Any] = {
-            "connection": connection,
-            "close": close,
-            "connection_format": connection_format,
-        }
+        # ---- 3. Engine gap needs_review entries ----
+        needs_review.append({
+            "issue": (
+                "No concrete engine implementation for tOracleRollback. "
+                "All config keys are extracted for future engine support."
+            ),
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
 
+        # ---- 4. Build component dict ----
         component = self._build_component_dict(
             node=node,
-            type_name="OracleRollback",
+            type_name="tOracleRollback",
             config=config,
-            # Utility component — no data flow schema
             schema={"input": [], "output": []},
         )
 
-        return ComponentResult(component=component, warnings=warnings)
+        # ---- 5. Return ----
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )
