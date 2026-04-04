@@ -1,14 +1,16 @@
-"""Converter for tFileRowCount -> FileRowCount component.
+"""Converter for Talend tFileRowCount component.
 
-Fixes:
-  CONV-FRC-001: DIE_ON_ERROR was not extracted by the old converter.
-  CONV-FRC-002: Default encoding corrected to "ISO-8859-15" (Talend's actual
-                default, previously incorrect "UTF-8").
-  CONV-FRC-005: Null-safety — old code crashed when XML elements were missing
-                because it called .get() on None. The new code uses safe helpers.
+Counts the number of rows in a file. Utility component -- no data flow schema.
+
+Config mapping (4 unique + framework):
+  FILENAME         -> filename         (str, default "")
+  ROWSEPARATOR     -> row_separator    (str, default "\\n")
+  IGNORE_EMPTY_ROW -> ignore_empty_row (bool, default False)
+  ENCODING         -> encoding         (str, default "ISO-8859-15")
+  --- framework ---
+  TSTATCATCHER_STATS -> tstatcatcher_stats (bool, default False)
+  LABEL              -> label              (str, default "")
 """
-from __future__ import annotations
-
 import logging
 from typing import Any, Dict, List
 
@@ -20,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 @REGISTRY.register("tFileRowCount")
 class FileRowCountConverter(ComponentConverter):
-    """Convert a Talend tFileRowCount node into a v1 FileRowCount component."""
+    """Convert Talend tFileRowCount to v1 engine config."""
 
     def convert(
         self,
@@ -29,43 +31,41 @@ class FileRowCountConverter(ComponentConverter):
         context: Dict[str, Any],
     ) -> ComponentResult:
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
-        filename = self._get_str(node, "FILENAME")
-        row_separator = self._get_str(node, "ROWSEPARATOR", default="\\n")
-        ignore_empty_row = self._get_bool(node, "IGNORE_EMPTY_ROW", default=False)
-        encoding = self._get_str(node, "ENCODING", default="ISO-8859-15")
-        die_on_error = self._get_bool(node, "DIE_ON_ERROR", default=False)
+        # ---- 1. Core parameters ----
+        config: Dict[str, Any] = {}
+        config["filename"] = self._get_str(node, "FILENAME", "")
+        config["row_separator"] = self._get_str(node, "ROWSEPARATOR", "\\n")
+        config["ignore_empty_row"] = self._get_bool(node, "IGNORE_EMPTY_ROW", False)
+        config["encoding"] = self._get_str(node, "ENCODING", "ISO-8859-15")
 
-        if not filename:
-            warnings.append(
-                "FILENAME is empty — this is a required parameter"
-            )
+        # ---- 5. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
 
-        # Engine-gap warning
-        if row_separator != "\\n":
-            warnings.append(
-                f"ROWSEPARATOR={row_separator}: engine row_separator is "
-                "noted as 'not implemented' — non-standard separators may "
-                "produce incorrect counts"
-            )
+        # ---- 6. Schema ----
+        # Utility component -- no data flow schema
+        schema = {"input": [], "output": []}
 
-        config: Dict[str, Any] = {
-            "filename": filename,
-            "row_separator": row_separator,
-            "ignore_empty_row": ignore_empty_row,
-            "encoding": encoding,
-            "die_on_error": die_on_error,
-            # Metadata
-            "tstatcatcher_stats": self._get_bool(node, "TSTATCATCHER_STATS", False),
-            "label": self._get_str(node, "LABEL"),
-        }
+        # ---- 7. Engine gap needs_review entries ----
+        needs_review.append({
+            "issue": "Engine encoding default is 'UTF-8' but _java.xml default is 'ISO-8859-15'",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
 
+        # ---- 8. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
             type_name="FileRowCount",
             config=config,
-            # Utility component — no data flow schema
-            schema={"input": [], "output": []},
+            schema=schema,
         )
 
-        return ComponentResult(component=component, warnings=warnings)
+        # ---- 9. Return ----
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )
