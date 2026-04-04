@@ -1,4 +1,11 @@
-"""Converter for Talend tPrejob component."""
+"""Converter for Talend tPrejob component.
+
+Marks the start of pre-execution logic. Guaranteed to execute before the main job.
+
+Config mapping (2 params total):
+  TSTATCATCHER_STATS -> tstatcatcher_stats (bool, default False)
+  LABEL              -> label (str, default "")
+"""
 import logging
 from typing import Any, Dict, List
 
@@ -10,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 @REGISTRY.register("tPrejob")
 class PrejobConverter(ComponentConverter):
-    """Convert a Talend tPrejob node into a v1 PrejobComponent."""
+    """Convert Talend tPrejob to v1 engine config."""
 
     def convert(
         self,
@@ -19,15 +26,33 @@ class PrejobConverter(ComponentConverter):
         context: Dict[str, Any],
     ) -> ComponentResult:
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
-        # tPrejob has no configuration parameters
+        # ---- 1. Config parameters ----
         config: Dict[str, Any] = {}
 
+        # (No unique parameters -- tPrejob has 0 params in _java.xml)
+
+        # ---- 2. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
+
+        # ---- 3. Engine gap needs_review entries ----
+        needs_review.append({
+            "issue": "No concrete engine implementation for tPrejob. All config keys are extracted for future engine support.",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+
+        # ---- 4. Build component dict and return ----
         component = self._build_component_dict(
             node=node,
-            type_name="PrejobComponent",
+            type_name="tPrejob",
             config=config,
-            # Utility component — no data flow schema
             schema={"input": [], "output": []},
         )
-        return ComponentResult(component=component, warnings=warnings)
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )

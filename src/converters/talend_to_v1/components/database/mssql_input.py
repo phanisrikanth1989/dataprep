@@ -1,19 +1,30 @@
-"""Converter for Talend tMSSqlInput -> v1 MSSqlInput.
+"""Converter for Talend tMSSqlInput component.
 
-Maps the Talend tMSSqlInput component to a v1 MSSqlInput database-read
-component.  Handles encrypted password values by stripping the
-``enc:system.encryption.key.v1:`` prefix.
+Reads data from a Microsoft SQL Server database using SQL queries.
 
-**Bug fix:** The old ``complex_converter`` implementation
-(``component_parser.py`` line 2582) had ``return component`` *inside* the
-``for`` loop, causing only the first ``elementParameter`` to be processed.
-By using the base-class helpers the entire parameter set is extracted
-correctly.
-
-Reference: complex_converter/component_parser.py lines 2544-2582.
+Config mapping (20 params total):
+  USE_EXISTING_CONNECTION    -> use_existing_connection (bool, default False)
+  CONNECTION                 -> connection (str, default "")
+  DRIVER                     -> driver (str, default "MSSQL_PROP")
+  HOST                       -> host (str, default "")
+  PORT                       -> port (str, default "1433")
+  DB_SCHEMA                  -> schema_db (str, default "")
+  DBNAME                     -> dbname (str, default "")
+  USER                       -> user (str, default "")
+  PASS                       -> password (str, default "", encrypted prefix stripped)
+  QUERY                      -> query (str, default "select id, name from employee")
+  SPECIFY_DATASOURCE_ALIAS   -> specify_datasource_alias (bool, default False)
+  DATASOURCE_ALIAS           -> datasource_alias (str, default "")
+  PROPERTIES                 -> properties (str, default "noDatetimeStringSync=true")
+  ACTIVE_DIR_AUTH            -> active_dir_auth (bool, default False)
+  ENCODING                   -> encoding (str, default "ISO-8859-15")
+  TRIM_ALL_COLUMN            -> trim_all_column (bool, default False)
+  TRIM_COLUMN                -> trim_column (list, default [])
+  SET_QUERY_TIMEOUT          -> set_query_timeout (bool, default False)
+  QUERY_TIMEOUT_IN_SECONDS   -> query_timeout_in_seconds (int, default 30)
+  TSTATCATCHER_STATS         -> tstatcatcher_stats (bool, default False)
+  LABEL                      -> label (str, default "")
 """
-from __future__ import annotations
-
 import logging
 from typing import Any, Dict, List
 
@@ -27,7 +38,7 @@ _ENCRYPTED_PREFIX = "enc:system.encryption.key.v1:"
 
 @REGISTRY.register("tMSSqlInput")
 class MSSqlInputConverter(ComponentConverter):
-    """Convert a Talend tMSSqlInput node into a v1 MSSqlInput component."""
+    """Convert Talend tMSSqlInput to v1 engine config."""
 
     def convert(
         self,
@@ -36,47 +47,62 @@ class MSSqlInputConverter(ComponentConverter):
         context: Dict[str, Any],
     ) -> ComponentResult:
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
-        # --- Extract config parameters --------------------------------
-        host = self._get_str(node, "HOST")
-        port = self._get_int(node, "PORT", default=1433)
-        dbname = self._get_str(node, "DBNAME")
-        user = self._get_str(node, "USER")
-        password = self._extract_password(node)
-        query = self._get_str(node, "QUERY")
-        properties = self._get_str(node, "PROPERTIES")
-        query_timeout = self._get_int(node, "QUERY_TIMEOUT_IN_SECONDS", default=30)
-        trim_all_columns = self._get_bool(node, "TRIM_ALL_COLUMN")
+        # ---- 1. Core parameters ----
+        config: Dict[str, Any] = {}
+        config["use_existing_connection"] = self._get_bool(node, "USE_EXISTING_CONNECTION", False)
+        config["connection"] = self._get_str(node, "CONNECTION", "")
+        config["driver"] = self._get_str(node, "DRIVER", "MSSQL_PROP")
+        config["host"] = self._get_str(node, "HOST", "")
+        config["port"] = self._get_str(node, "PORT", "1433")
+        config["schema_db"] = self._get_str(node, "DB_SCHEMA", "")  # XML: DB_SCHEMA -> config: schema_db per D-30
+        config["dbname"] = self._get_str(node, "DBNAME", "")
+        config["user"] = self._get_str(node, "USER", "")
+        config["password"] = self._extract_password(node)
+        config["query"] = self._get_str(node, "QUERY", "select id, name from employee")
 
-        # --- Validation warnings --------------------------------------
-        if not host:
-            warnings.append("HOST is empty")
-        if not dbname:
-            warnings.append("DBNAME is empty")
-        if not query:
-            warnings.append("QUERY is empty")
+        # ---- 2. Datasource alias parameters ----
+        config["specify_datasource_alias"] = self._get_bool(node, "SPECIFY_DATASOURCE_ALIAS", False)
+        config["datasource_alias"] = self._get_str(node, "DATASOURCE_ALIAS", "")
 
-        # --- Build config dict ----------------------------------------
-        config: Dict[str, Any] = {
-            "host": host,
-            "port": port,
-            "dbname": dbname,
-            "user": user,
-            "password": password,
-            "query": query,
-            "properties": properties,
-            "query_timeout": query_timeout,
-            "trim_all_columns": trim_all_columns,
-        }
+        # ---- 3. Advanced parameters ----
+        config["properties"] = self._get_str(node, "PROPERTIES", "noDatetimeStringSync=true")
+        config["active_dir_auth"] = self._get_bool(node, "ACTIVE_DIR_AUTH", False)
+        config["encoding"] = self._get_str(node, "ENCODING", "ISO-8859-15")
+        config["trim_all_column"] = self._get_bool(node, "TRIM_ALL_COLUMN", False)
+        config["trim_column"] = self._parse_trim_column(node.params.get("TRIM_COLUMN"))
+        config["set_query_timeout"] = self._get_bool(node, "SET_QUERY_TIMEOUT", False)
+        config["query_timeout_in_seconds"] = self._get_int(node, "QUERY_TIMEOUT_IN_SECONDS", 30)
 
+        # ---- 4. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
+
+        # ---- 5. Engine gap needs_review entries ----
+        needs_review.append({
+            "issue": (
+                "No concrete engine implementation for tMSSqlInput. "
+                "All config keys are extracted for future engine support."
+            ),
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+
+        # ---- 6. Build standard component dict (source: data flows OUT) ----
         component = self._build_component_dict(
             node=node,
-            type_name="MSSqlInput",
+            type_name="tMSSqlInput",
             config=config,
             schema={"input": [], "output": self._parse_schema(node)},
         )
 
-        return ComponentResult(component=component, warnings=warnings)
+        # ---- 7. Return ----
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )
 
     # ------------------------------------------------------------------
     # Password helper
@@ -85,7 +111,7 @@ class MSSqlInputConverter(ComponentConverter):
     @staticmethod
     def _extract_password(node: TalendNode) -> str:
         """Extract password, stripping the encrypted prefix if present."""
-        raw = node.params.get("PASSWORD")
+        raw = node.params.get("PASS")
         if raw is None:
             return ""
         if isinstance(raw, str) and raw.startswith(_ENCRYPTED_PREFIX):
@@ -96,3 +122,28 @@ class MSSqlInputConverter(ComponentConverter):
                 return raw[1:-1]
             return raw
         return str(raw)
+
+    # ------------------------------------------------------------------
+    # TRIM_COLUMN TABLE parser
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _parse_trim_column(raw: Any) -> List[Dict[str, Any]]:
+        """Parse TRIM_COLUMN TABLE into list of dicts.
+
+        The TRIM_COLUMN TABLE structure may contain per-column trim settings.
+        If raw data is not a list, returns empty list.
+        """
+        if not raw or not isinstance(raw, list):
+            return []
+        result: List[Dict[str, Any]] = []
+        for entry in raw:
+            if isinstance(entry, dict):
+                row: Dict[str, Any] = {}
+                ref = entry.get("elementRef", "")
+                val = entry.get("value", "")
+                if ref:
+                    row[ref.lower()] = val.strip('"') if isinstance(val, str) else val
+                if row:
+                    result.append(row)
+        return result

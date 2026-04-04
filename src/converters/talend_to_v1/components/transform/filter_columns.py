@@ -1,18 +1,15 @@
-"""Converter for Talend tFilterColumns -> v1 FilterColumns component.
+"""Converter for Talend tFilterColumns component.
 
-tFilterColumns selects a subset of columns from the input flow.  The list of
-columns to keep is determined by the output FLOW schema (metadata connector
-"FLOW"), *not* by elementParameter entries.  The old converter extracted column
-names from that same metadata section (see complex_converter lines 786-796).
+Filters columns from the input schema, passing only selected columns through.
 
-Fixes vs. old code:
-  - The _map_component_parameters fallback (lines 199-205) incorrectly tried
-    to read COLUMNS / MODE / KEEP_ROW_ORDER from elementParameters; those
-    params do not exist for tFilterColumns.  The dedicated parser at 786-796
-    correctly reads from the FLOW schema.
+Config mapping (0 unique params + framework):
+  --- framework ---
+  TSTATCATCHER_STATS -> tstatcatcher_stats (bool, default False)
+  LABEL              -> label              (str, default "")
+
+Engine reads 'mode' (default 'include') and 'keep_row_order' (default True)
+which are NOT _java.xml params -- documented as needs_review.
 """
-from __future__ import annotations
-
 import logging
 from typing import Any, Dict, List
 
@@ -24,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 @REGISTRY.register("tFilterColumns")
 class FilterColumnsConverter(ComponentConverter):
-    """Convert a Talend tFilterColumns node into a v1 FilterColumns component."""
+    """Convert Talend tFilterColumns to v1 engine config."""
 
     def convert(
         self,
@@ -32,30 +29,46 @@ class FilterColumnsConverter(ComponentConverter):
         connections: List[TalendConnection],
         context: Dict[str, Any],
     ) -> ComponentResult:
+        """Convert a TalendNode into a v1 FilterColumns component dict."""
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
-        # --- Extract column names from the FLOW schema ---
-        # tFilterColumns defines which columns to keep via its output schema,
-        # not via elementParameter entries.
-        output_schema = self._parse_schema(node, connector="FLOW")
-        columns = [col["name"] for col in output_schema]
+        # ---- 1. Config dict (no unique params) ----
+        config: Dict[str, Any] = {}
 
-        if not columns:
-            warnings.append("No columns found in FLOW schema; output will be empty")
+        # ---- 5. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
 
-        # --- Build config dict ---
-        config: Dict[str, Any] = {
-            "columns": columns,
-        }
+        # ---- 6. Schema (passthrough transform: input == output) ----
+        schema_cols = self._parse_schema(node)
+        schema = {"input": schema_cols, "output": schema_cols}
 
+        # ---- 7. Engine gap needs_review entries ----
+        needs_review.append({
+            "issue": "Engine reads 'mode' (default 'include') but this is not a _java.xml param. "
+                     "Converter does not output this key.",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+        needs_review.append({
+            "issue": "Engine reads 'keep_row_order' (default True) but this is not a _java.xml param. "
+                     "Converter does not output this key.",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+
+        # ---- 8. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
             type_name="FilterColumns",
             config=config,
-            schema={
-                "input": [],
-                "output": output_schema,
-            },
+            schema=schema,
         )
 
-        return ComponentResult(component=component, warnings=warnings)
+        # ---- 9. Return ----
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )

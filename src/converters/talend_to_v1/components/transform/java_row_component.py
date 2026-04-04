@@ -1,14 +1,20 @@
-"""Converter for tJavaRow -> JavaRowComponent.
+"""Converter for Talend tJavaRow component.
 
-tJavaRow is a transform component that executes custom Java code on each row,
-producing an output row.  Key parameters:
+Executes user-defined Java code on each row within the ETL pipeline.
 
-* ``CODE``   -- Java source code to execute per row (XML-entity-encoded).
-* ``IMPORT`` -- Java import statements (XML-entity-encoded).
+Config mapping (3 unique params + converter-generated + framework):
+  CODE    -> java_code      (str, MEMO_JAVA, default "")
+  IMPORT  -> imports         (str, MEMO_IMPORT, default "")
+  SCHEMA  -> output_schema  (list, converter-generated from schema columns for engine)
+  --- framework ---
+  TSTATCATCHER_STATS -> tstatcatcher_stats (bool, default False)
+  LABEL              -> label              (str, default "")
 
-The converter also builds an ``output_schema`` dict that maps each output
-column name to its Java type (e.g. ``{"name": "String", "age": "Integer"}``),
-derived from the FLOW schema metadata.
+Phantom params REMOVED: DIE_ON_ERROR (not in _java.xml)
+
+Engine reads: java_code, output_schema from config.
+Engine does NOT read: imports (engine_gap).
+output_schema is not from _java.xml -- it is converter-generated for engine compatibility.
 """
 import logging
 from typing import Any, Dict, List
@@ -18,44 +24,10 @@ from ..registry import REGISTRY
 
 logger = logging.getLogger(__name__)
 
-# Python type -> Java type mapping (reverse of the Talend type conversion)
-_PYTHON_TYPE_TO_JAVA: Dict[str, str] = {
-    "str": "String",
-    "int": "Integer",
-    "float": "Double",
-    "bool": "Boolean",
-    "date": "Date",
-    "datetime": "Date",
-    "bytes": "byte[]",
-    "Decimal": "BigDecimal",
-    "object": "Object",
-}
-
-
-def _decode_xml_linebreaks(value: str) -> str:
-    """Decode XML line-break entities to real newlines.
-
-    Talend stores CODE and IMPORT values with XML-encoded line breaks:
-    ``&#xD;&#xA;`` (CRLF), ``&#xA;`` (LF), ``&#xD;`` (CR).
-    Order matters: replace the two-char sequence first so partial matches
-    don't leave stray characters.
-    """
-    return (
-        value
-        .replace("&#xD;&#xA;", "\n")
-        .replace("&#xA;", "\n")
-        .replace("&#xD;", "\n")
-    )
-
-
-def _python_type_to_java(python_type: str) -> str:
-    """Convert a Python type name to a Java type name for output_schema."""
-    return _PYTHON_TYPE_TO_JAVA.get(python_type, "String")
-
 
 @REGISTRY.register("tJavaRow")
 class JavaRowComponentConverter(ComponentConverter):
-    """Convert a Talend tJavaRow node to v1 JavaRowComponent."""
+    """Convert Talend tJavaRow to v1 engine config."""
 
     def convert(
         self,
@@ -64,35 +36,50 @@ class JavaRowComponentConverter(ComponentConverter):
         context: Dict[str, Any],
     ) -> ComponentResult:
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
-        # Extract and decode CODE
-        raw_code = self._get_param(node, "CODE", "")
-        java_code = _decode_xml_linebreaks(raw_code) if raw_code else ""
+        # ---- 1. Core MEMO parameters (via _get_param per Pitfall 6) ----
+        config: Dict[str, Any] = {}
+        config["java_code"] = self._get_param(node, "CODE", "")
+        config["imports"] = self._get_param(node, "IMPORT", "")
 
-        # Extract and decode IMPORT
-        raw_imports = self._get_param(node, "IMPORT", "")
-        imports = _decode_xml_linebreaks(raw_imports) if raw_imports else ""
-
-        if not java_code:
-            warnings.append("CODE is empty -- JavaRowComponent will have no logic")
-
-        # Build output_schema from FLOW schema columns
+        # ---- 2. Converter-generated output_schema for engine compatibility ----
         schema_cols = self._parse_schema(node)
-        output_schema: Dict[str, str] = {}
+        output_schema: List[Dict[str, str]] = []
         for col in schema_cols:
-            output_schema[col["name"]] = _python_type_to_java(col["type"])
+            output_schema.append({"name": col["name"], "type": col["type"]})
+        config["output_schema"] = output_schema
 
-        config: Dict[str, Any] = {
-            "java_code": java_code,
-            "imports": imports,
-            "output_schema": output_schema,
-        }
+        # ---- 3. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
 
+        # ---- 4. Schema (passthrough: input == output) ----
+        schema = {"input": schema_cols, "output": schema_cols}
+
+        # ---- 5. Engine gap needs_review entries ----
+        _engine_gap_keys = [
+            ("imports", "engine does not read 'imports' from config"),
+            ("output_schema", "output_schema is converter-generated for engine compatibility, not from _java.xml"),
+        ]
+        for key, detail in _engine_gap_keys:
+            needs_review.append({
+                "issue": f"Engine gap for '{key}' -- {detail}",
+                "component": node.component_id,
+                "severity": "engine_gap",
+            })
+
+        # ---- 6. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
             type_name="JavaRowComponent",
             config=config,
-            schema={"input": schema_cols, "output": schema_cols},
+            schema=schema,
         )
 
-        return ComponentResult(component=component, warnings=warnings)
+        # ---- 7. Return ----
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )

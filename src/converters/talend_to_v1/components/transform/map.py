@@ -1,11 +1,30 @@
-"""Converter for tMap -> Map — the most complex Talend component.
+"""Converter for Talend tMap component.
 
-tMap uses ``nodeData`` XML containing ``MapperData`` to define:
-- Input tables (main + lookups with join keys and join modes)
-- Variable tables (intermediate computed expressions)
-- Output tables (with column mappings, filters, reject logic)
+Multi-flow data mapping with lookup joins, variable definitions, and expression-based column mappings.
+Most complex component in the v1 converter suite.
 
-All Java expressions are prefixed with ``{{java}}`` for engine routing.
+Config mapping (9 flat params + nodeData structure + framework):
+  LINK_STYLE -> link_style (str, CLOSED_LIST, default "AUTO")
+  DIE_ON_ERROR -> die_on_error (bool, hidden, default True)
+  LKUP_PARALLELIZE -> lkup_parallelize (bool, hidden, default False)
+  ENABLE_AUTO_CONVERT_TYPE -> enable_auto_convert_type (bool, hidden, default False)
+  ROWS_BUFFER_SIZE -> rows_buffer_size (str, default "2000000")
+  CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL -> change_hash_and_equals_for_bigdecimal (bool, default True)
+  LEVENSHTEIN -> levenshtein (str, hidden, default "0")
+  JACCARD -> jaccard (str, hidden, default "0")
+  --- nodeData (MapperData XML) ---
+  inputTables -> config["inputs"] (main + lookups with join keys, matching modes)
+  varTables -> config["variables"] (variable definitions)
+  outputTables -> config["outputs"] (output tables with column mappings, reject flags)
+  --- framework ---
+  TSTATCATCHER_STATS -> tstatcatcher_stats (bool, default False)
+  LABEL              -> label              (str, default "")
+
+MAP param (EXTERNAL type) is a visual editor reference -- not extracted.
+
+Engine reads: config['inputs']['main'], config['inputs']['lookups'], config['variables'],
+config['outputs'], config.get('die_on_error', True).
+Per D-74: output shape MUST match engine expectations. Document changes as needs_review 'output_shape_change'.
 """
 import logging
 from typing import Any, Dict, List, Optional
@@ -215,7 +234,7 @@ def _parse_outputs(mapper_data: Element) -> List[Dict[str, Any]]:
 
 @REGISTRY.register("tMap")
 class MapConverter(ComponentConverter):
-    """Convert a Talend tMap node to the v1 Map component."""
+    """Convert Talend tMap to v1 engine config."""
 
     def convert(
         self,
@@ -224,10 +243,11 @@ class MapConverter(ComponentConverter):
         context: Dict[str, Any],
     ) -> ComponentResult:
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
         mapper_data = _find_mapper_data(node.raw_xml)
         if mapper_data is None:
-            warnings.append("No MapperData found in tMap node — config will be empty")
+            warnings.append("No MapperData found in tMap node -- config will be empty")
             component = self._build_component_dict(
                 node=node,
                 type_name="Map",
@@ -236,7 +256,7 @@ class MapConverter(ComponentConverter):
             )
             return ComponentResult(component=component, warnings=warnings)
 
-        # ── Phase 1: Parse input tables ──────────────────────────────
+        # ---- Parse input tables ----
         input_tables_xml = mapper_data.findall(".//inputTables")
 
         if not input_tables_xml:
@@ -255,13 +275,13 @@ class MapConverter(ComponentConverter):
         # Remaining inputs are LOOKUPS
         lookups_config = [_parse_lookup(lt) for lt in input_tables_xml[1:]]
 
-        # ── Phase 2: Parse variables ─────────────────────────────────
+        # ---- Parse variables ----
         variables_config, var_table_name, var_table_size_state = _parse_variables(mapper_data)
 
-        # ── Phase 3: Parse outputs ───────────────────────────────────
+        # ---- Parse outputs ----
         outputs_config = _parse_outputs(mapper_data)
 
-        # ── Build config ─────────────────────────────────────────────
+        # ---- Build config ----
         config: Dict[str, Any] = {
             "inputs": {
                 "main": main_config,
@@ -273,86 +293,50 @@ class MapConverter(ComponentConverter):
             "outputs": outputs_config,
         }
 
-        # ── elementParameter params ───────────────────────────────────
+        # ---- 1. Core parameters ----
+        config["link_style"] = self._get_str(node, "LINK_STYLE", "AUTO")
         config["die_on_error"] = self._get_bool(node, "DIE_ON_ERROR", True)
-        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
-        config["label"] = self._get_str(node, "LABEL")
         config["lkup_parallelize"] = self._get_bool(node, "LKUP_PARALLELIZE", False)
         config["enable_auto_convert_type"] = self._get_bool(node, "ENABLE_AUTO_CONVERT_TYPE", False)
-        config["store_on_disk"] = self._get_bool(node, "STORE_ON_DISK", False)
-        config["temp_data_directory"] = self._get_str(node, "TEMPORARY_DATA_DIRECTORY")
-        config["rows_buffer_size"] = self._get_int(node, "ROWS_BUFFER_SIZE", 2000000)
+        config["rows_buffer_size"] = self._get_str(node, "ROWS_BUFFER_SIZE", "2000000")
         config["change_hash_and_equals_for_bigdecimal"] = self._get_bool(
-            node, "CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL", False
+            node, "CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL", True
         )
-        config["link_style"] = self._get_str(node, "LINK_STYLE")
+        config["levenshtein"] = self._get_str(node, "LEVENSHTEIN", "0")
+        config["jaccard"] = self._get_str(node, "JACCARD", "0")
 
-        # ── Engine-gap warnings ───────────────────────────────────────
-        # Top-level warnings
-        if config["lkup_parallelize"]:
-            warnings.append(
-                "LKUP_PARALLELIZE=true: engine does not support parallel lookup loading"
-            )
-        if config["store_on_disk"]:
-            warnings.append(
-                "STORE_ON_DISK=true: engine does not support disk-based lookup caching"
-            )
-        if config["enable_auto_convert_type"]:
-            warnings.append(
-                "ENABLE_AUTO_CONVERT_TYPE=true: engine does not support automatic type conversion"
-            )
-        if config["change_hash_and_equals_for_bigdecimal"]:
-            warnings.append(
-                "CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL=true: engine does not handle "
-                "BigDecimal trailing zeros in join keys"
-            )
+        # ---- 5. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
 
-        # Per-lookup warnings
-        for lookup in lookups_config:
-            lk_name = lookup["name"]
-            if lookup.get("lookup_mode") == "RELOAD_AT_EACH_ROW":
-                warnings.append(
-                    f"Lookup '{lk_name}' uses RELOAD_AT_EACH_ROW: engine always loads once"
-                )
-            elif lookup.get("lookup_mode") == "RELOAD_AT_EACH_ROW_CACHE":
-                warnings.append(
-                    f"Lookup '{lk_name}' uses RELOAD_AT_EACH_ROW_CACHE: engine always loads once"
-                )
-            if lookup.get("persistent"):
-                warnings.append(
-                    f"Lookup '{lk_name}' has persistent=true: engine does not support "
-                    "disk persistence"
-                )
-            if lookup.get("activate_global_map"):
-                warnings.append(
-                    f"Lookup '{lk_name}' has activateGlobalMap=true: engine does not expose "
-                    "lookup data in globalMap"
-                )
-            if lookup.get("matching_mode") == "ALL_ROWS":
-                warnings.append(
-                    f"Lookup '{lk_name}' uses ALL_ROWS matching: engine does not support "
-                    "keyless cross-join"
-                )
+        # ---- 6. Schema ----
+        schema: Dict[str, Any] = {}  # tMap uses empty schema -- multi-flow config drives routing
 
-        # Per-output warnings
-        for output in outputs_config:
-            out_name = output["name"]
-            if output.get("catch_output_reject"):
-                warnings.append(
-                    f"Output '{out_name}' has Catch Output Reject: engine does not support "
-                    "filter-reject chaining"
-                )
-            if output.get("activate_global_map"):
-                warnings.append(
-                    f"Output '{out_name}' has activateGlobalMap=true: engine does not expose "
-                    "output data in globalMap"
-                )
+        # ---- 7. Engine gap needs_review entries ----
+        _engine_gap_keys = [
+            ("link_style", "Engine does not read 'link_style' -- visual editor setting only"),
+            ("lkup_parallelize", "Engine does not support parallel lookup loading"),
+            ("enable_auto_convert_type", "Engine does not support automatic type conversion"),
+            ("rows_buffer_size", "Engine does not read 'rows_buffer_size' -- no disk buffering support"),
+            ("change_hash_and_equals_for_bigdecimal", "Engine does not handle BigDecimal hash/equals behavior"),
+            ("levenshtein", "Engine does not read 'levenshtein' -- no fuzzy matching support"),
+            ("jaccard", "Engine does not read 'jaccard' -- no fuzzy matching support"),
+            ("var_table_name", "Engine does not read 'var_table_name' -- uses variables list directly"),
+            ("var_table_size_state", "Engine does not read 'var_table_size_state' -- UI layout only"),
+        ]
+        for key, detail in _engine_gap_keys:
+            needs_review.append({
+                "issue": f"Engine does not read '{key}' config key -- {detail}",
+                "component": node.component_id,
+                "severity": "engine_gap",
+            })
 
+        # ---- 8. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
             type_name="Map",
             config=config,
-            schema={},
+            schema=schema,
         )
 
         # Populate component.inputs and component.outputs for engine routing
@@ -362,4 +346,9 @@ class MapConverter(ComponentConverter):
         )
         component["outputs"] = [out["name"] for out in outputs_config]
 
-        return ComponentResult(component=component, warnings=warnings)
+        # ---- 9. Return ----
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )

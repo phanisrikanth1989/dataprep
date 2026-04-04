@@ -1,17 +1,27 @@
-"""Converter for Talend tXMLMap -> v1 XMLMap.
+"""Converter for Talend tXMLMap component.
 
-Fixes CONV-XMP-001: type name corrected from ``TXMLMap`` to ``XMLMap``.
+XML-based data mapping with tree structures, connections, and expression links.
+Second most complex component -- recursive XML tree parsing of nodeData.
 
-tXMLMap is a complex transformation component that maps XML input trees to
-output trees via XPath expressions.  The XML tree structure is embedded in
-``<nodeData>`` inside the raw Talend XML node and is **not** available through
-the flat params dict.  This converter therefore uses ``node.raw_xml`` directly
-to parse:
+Config mapping (2 flat params + nodeData structure + framework):
+  DIE_ON_ERROR              -> die_on_error              (bool, hidden, default True)
+  KEEP_ORDER_FOR_DOCUMENT   -> keep_order_for_document   (bool, default False)
+  --- nodeData (XML tree structures) ---
+  inputTrees   -> parsed into input tree definitions with recursive children
+  outputTrees  -> parsed into output tree definitions
+  connections  -> source-to-target expression links
+  varTables    -> variable table definitions
+  --- framework ---
+  TSTATCATCHER_STATS -> tstatcatcher_stats (bool, default False)
+  LABEL              -> label              (str, default "")
 
-- inputTrees / outputTrees (with recursively nested ``<children>`` elements)
-- connections (source -> target expression links)
-- expression filters and looping elements
-- XPath rewriting based on looping element position
+MAP param (EXTERNAL) is visual editor reference -- not extracted.
+CONNECTION_FORMAT: Verified phantom -- not in _java.xml, removed.
+
+Engine reads ONLY: config.get("output_schema"), config.get("expressions"),
+config.get("looping_element"). Everything else stored for fidelity.
+
+IMPORTANT per D-76: NO lstrip() calls. Use str.removeprefix() for safe prefix removal.
 """
 from __future__ import annotations
 
@@ -56,6 +66,8 @@ def _parse_input_trees(node_data: Element) -> List[Dict[str, Any]]:
             "name": input_tree.get("name", ""),
             "matchingMode": input_tree.get("matchingMode", "ALL_ROWS"),
             "lookupMode": input_tree.get("lookupMode", "LOAD_ONCE"),
+            "lookup": input_tree.get("lookup", "false").lower() == "true",
+            "activateGlobalMap": input_tree.get("activateGlobalMap", "false").lower() == "true",
             "nodes": [],
         }
         for tree_node in input_tree.findall("./nodes"):
@@ -81,6 +93,7 @@ def _parse_output_trees(node_data: Element) -> List[Dict[str, Any]]:
             "activateExpressionFilter": (
                 output_tree.get("activateExpressionFilter", "false").lower() == "true"
             ),
+            "allInOne": output_tree.get("allInOne", "false").lower() == "true",
             "nodes": [],
         }
         for tree_node in output_tree.findall("./nodes"):
@@ -106,6 +119,17 @@ def _parse_connections(node_data: Element) -> List[Dict[str, str]]:
             "sourceExpression": conn.get("sourceExpression", ""),
         })
     return connections
+
+
+def _parse_var_tables(node_data: Element) -> List[Dict[str, Any]]:
+    """Parse ``<varTables>`` from the nodeData element for fidelity."""
+    var_tables: List[Dict[str, Any]] = []
+    for var_table in node_data.findall("./varTables"):
+        var_tables.append({
+            "name": var_table.get("name", ""),
+            "minimized": var_table.get("minimized", "false").lower() == "true",
+        })
+    return var_tables
 
 
 def _build_input_tree_node_map(
@@ -179,10 +203,6 @@ def _build_expressions(
 
         # Build the final XPath string
         if xpath_parts:
-            # Strip document root elements (common roots like 'root')
-            if xpath_parts and xpath_parts[0] in ["CMARGINSCLM", "root"]:
-                xpath_parts = xpath_parts[1:]
-
             if node_types and node_types[-1] == "ATTRIBUT":
                 attribute_name = xpath_parts.pop() if xpath_parts else ""
                 if xpath_parts:
@@ -257,6 +277,8 @@ def _rewrite_expressions_for_loop(
 
     Fields inside the loop become relative paths; fields outside the loop
     use ``ancestor::`` axis notation.
+
+    Per D-76: uses str.removeprefix() instead of lstrip() for safe prefix removal.
     """
     if not looping_element:
         return expressions
@@ -270,8 +292,8 @@ def _rewrite_expressions_for_loop(
             rewritten[out_col] = xpath
             continue
 
-        # Normalize the xpath: strip leading ./ and /
-        field_abs_path = xpath.strip().lstrip("./")
+        # Normalize the xpath: strip leading ./ using removeprefix (D-76 safe)
+        field_abs_path = xpath.strip().removeprefix("./").removeprefix("/")
         field_abs_path = "/".join(
             p.strip("/") for p in field_abs_path.split("/") if p.strip("/")
         )
@@ -349,10 +371,11 @@ class XMLMapConverter(ComponentConverter):
         # Basic parameters from the params dict
         # ------------------------------------------------------------------
         die_on_error = self._get_bool(node, "DIE_ON_ERROR", default=True)
-        keep_order = self._get_bool(node, "KEEP_ORDER_FOR_DOCUMENT", default=False)
-        connection_format = self._get_str(
-            node, "CONNECTION_FORMAT", default="row"
-        )
+        keep_order_for_document = self._get_bool(node, "KEEP_ORDER_FOR_DOCUMENT", default=False)
+
+        # Framework parameters
+        tstatcatcher_stats = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        label = self._get_str(node, "LABEL")
 
         # ------------------------------------------------------------------
         # raw_xml guard
@@ -361,7 +384,7 @@ class XMLMapConverter(ComponentConverter):
         if raw_xml is None:
             warnings.append(
                 "raw_xml is None -- cannot parse nodeData; "
-                "INPUT_TREES, OUTPUT_TREES, CONNECTIONS will be empty"
+                "input_trees, output_trees, connections will be empty"
             )
 
         # ------------------------------------------------------------------
@@ -375,10 +398,12 @@ class XMLMapConverter(ComponentConverter):
             input_trees = _parse_input_trees(node_data)
             output_trees = _parse_output_trees(node_data)
             xml_connections = _parse_connections(node_data)
+            var_tables = _parse_var_tables(node_data)
         else:
             input_trees = []
             output_trees = []
             xml_connections = []
+            var_tables = []
             if raw_xml is not None:
                 warnings.append(
                     "nodeData element not found in raw_xml"
@@ -426,21 +451,64 @@ class XMLMapConverter(ComponentConverter):
         logger.debug("Final expressions: %s", expressions)
 
         # ------------------------------------------------------------------
-        # Build config
+        # Build config (snake_case keys per D-38)
         # ------------------------------------------------------------------
         config: Dict[str, Any] = {
+            # Flat params
             "die_on_error": die_on_error,
-            "keep_order": keep_order,
-            "connection_format": connection_format,
-            "INPUT_TREES": input_trees,
-            "OUTPUT_TREES": output_trees,
-            "CONNECTIONS": xml_connections,
+            "keep_order_for_document": keep_order_for_document,
+            # nodeData tree structures (snake_case per D-38)
+            "input_trees": input_trees,
+            "output_trees": output_trees,
+            "connections": xml_connections,
+            "var_tables": var_tables,
+            # Derived from tree structures -- engine reads these 3
             "output_schema": output_schema,
-            "expression_filter": expression_filter,
-            "activate_expression_filter": activate_expression_filter,
             "expressions": expressions,
             "looping_element": looping_element,
+            # Expression filter from first output tree
+            "expression_filter": expression_filter,
+            "activate_expression_filter": activate_expression_filter,
+            # Framework parameters
+            "tstatcatcher_stats": tstatcatcher_stats,
+            "label": label,
         }
+
+        # ----------------------------------------------------------------
+        # Engine gap needs_review entries (per D-24/D-71)
+        # ----------------------------------------------------------------
+        needs_review: List[Dict[str, Any]] = []
+
+        # Engine only reads: looping_element, output_schema, expressions
+        # Everything else stored in config is an engine gap
+        _engine_gap_keys = [
+            ("die_on_error", "errors are silently swallowed regardless of setting"),
+            ("keep_order_for_document", "document ordering is not enforced by engine"),
+            ("input_trees", "input tree metadata stored but not used by engine"),
+            ("output_trees", "output tree metadata stored but not used by engine"),
+            ("connections", "connection metadata stored but not used by engine"),
+            ("expression_filter", "expression filter is not evaluated by engine"),
+            ("activate_expression_filter", "expression filter activation flag not checked"),
+            ("var_tables", "variable tables not supported by engine"),
+        ]
+        for key, detail in _engine_gap_keys:
+            needs_review.append({
+                "issue": f"Engine does not read '{key}' config key -- {detail}",
+                "component": node.component_id,
+                "severity": "engine_gap",
+            })
+
+        # Output shape change entries per D-74
+        _output_shape_entries = [
+            ("allInOne", "allInOne output mode not supported -- engine outputs flat rows only"),
+            ("lookup", "lookup/join input trees not supported by engine"),
+        ]
+        for key, detail in _output_shape_entries:
+            needs_review.append({
+                "issue": f"Output shape affected: '{key}' -- {detail}",
+                "component": node.component_id,
+                "severity": "output_shape_change",
+            })
 
         # ------------------------------------------------------------------
         # Schema
@@ -458,4 +526,4 @@ class XMLMapConverter(ComponentConverter):
             schema=schema,
         )
 
-        return ComponentResult(component=component, warnings=warnings)
+        return ComponentResult(component=component, warnings=warnings, needs_review=needs_review)

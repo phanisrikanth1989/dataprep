@@ -1,4 +1,19 @@
-"""Converter for tJava -> JavaComponent."""
+"""Converter for Talend tJava component.
+
+Executes user-defined Java code within the ETL pipeline.
+
+Config mapping (2 unique params + framework):
+  CODE    -> java_code  (str, MEMO_JAVA, default "")
+  IMPORT  -> imports    (str, MEMO_IMPORT, default "")
+  --- framework ---
+  TSTATCATCHER_STATS -> tstatcatcher_stats (bool, default False)
+  LABEL              -> label              (str, default "")
+
+Phantom params REMOVED: DIE_ON_ERROR (not in _java.xml)
+
+Engine reads: java_code from config.
+Engine does NOT read: imports (engine_gap).
+"""
 import logging
 from typing import Any, Dict, List
 
@@ -8,25 +23,9 @@ from ..registry import REGISTRY
 logger = logging.getLogger(__name__)
 
 
-def _decode_xml_linebreaks(value: str) -> str:
-    """Decode XML line-break entities to real newlines.
-
-    Talend stores CODE and IMPORT values with XML-encoded line breaks:
-    ``&#xD;&#xA;`` (CRLF), ``&#xA;`` (LF), ``&#xD;`` (CR).
-    Order matters: replace the two-char sequence first so partial matches
-    don't leave stray characters.
-    """
-    return (
-        value
-        .replace("&#xD;&#xA;", "\n")
-        .replace("&#xA;", "\n")
-        .replace("&#xD;", "\n")
-    )
-
-
 @REGISTRY.register("tJava")
 class JavaComponentConverter(ComponentConverter):
-    """Convert a Talend tJava node to v1 JavaComponent."""
+    """Convert Talend tJava to v1 engine config."""
 
     def convert(
         self,
@@ -35,29 +34,39 @@ class JavaComponentConverter(ComponentConverter):
         context: Dict[str, Any],
     ) -> ComponentResult:
         warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
 
-        # Extract and decode CODE
-        raw_code = self._get_param(node, "CODE", "")
-        java_code = _decode_xml_linebreaks(raw_code) if raw_code else ""
+        # ---- 1. Core parameters ----
+        config: Dict[str, Any] = {}
+        config["java_code"] = self._get_param(node, "CODE", "")
+        config["imports"] = self._get_param(node, "IMPORT", "")
 
-        # Extract and decode IMPORT
-        raw_imports = self._get_param(node, "IMPORT", "")
-        imports = _decode_xml_linebreaks(raw_imports) if raw_imports else ""
+        # ---- 2. Framework parameters (ALWAYS LAST) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
 
-        if not java_code:
-            warnings.append("CODE is empty -- JavaComponent will have no logic")
-
-        config: Dict[str, Any] = {
-            "java_code": java_code,
-            "imports": imports,
-        }
-
+        # ---- 3. Schema (passthrough for transform) ----
         schema_cols = self._parse_schema(node)
+        schema = {"input": schema_cols, "output": schema_cols}
+
+        # ---- 4. Engine gap needs_review entries ----
+        needs_review.append({
+            "issue": "Engine does not read 'imports' config key -- JavaComponent only reads 'java_code'",
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+
+        # ---- 5. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
             type_name="JavaComponent",
             config=config,
-            schema={"input": schema_cols, "output": schema_cols},
+            schema=schema,
         )
 
-        return ComponentResult(component=component, warnings=warnings)
+        # ---- 6. Return ----
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )
