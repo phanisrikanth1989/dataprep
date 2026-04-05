@@ -81,15 +81,10 @@ class TestRegistration:
 class TestDefaults:
     """Verify all parameters have correct defaults when no params provided."""
 
-    def test_group_by_default_empty(self):
+    def test_groupbys_default_empty(self):
         node = _make_node()
         result = AggregateRowConverter().convert(node, [], {})
-        assert result.component["config"]["group_by"] == []
-
-    def test_group_by_output_columns_default_empty(self):
-        node = _make_node()
-        result = AggregateRowConverter().convert(node, [], {})
-        assert result.component["config"]["group_by_output_columns"] == []
+        assert result.component["config"]["groupbys"] == []
 
     def test_operations_default_empty(self):
         node = _make_node()
@@ -145,7 +140,7 @@ class TestTableParsingGroupbys:
     """Verify GROUPBYS TABLE parameter parsing."""
 
     def test_groupbys_parsed(self):
-        """OUTPUT_COLUMN + INPUT_COLUMN pairs produce group_by and group_by_output_columns."""
+        """OUTPUT_COLUMN + INPUT_COLUMN pairs produce groupbys list of dicts."""
         groupbys = _make_groupbys_data([
             ("dept_name", "dept_id"),
             ("region_name", "region_code"),
@@ -153,14 +148,15 @@ class TestTableParsingGroupbys:
         node = _make_node(params={"GROUPBYS": groupbys})
         result = AggregateRowConverter().convert(node, [], {})
         cfg = result.component["config"]
-        assert cfg["group_by"] == ["dept_id", "region_code"]
-        assert cfg["group_by_output_columns"] == ["dept_name", "region_name"]
+        assert cfg["groupbys"] == [
+            {"output_column": "dept_name", "input_column": "dept_id"},
+            {"output_column": "region_name", "input_column": "region_code"},
+        ]
 
     def test_groupbys_empty_when_missing(self):
         node = _make_node()
         result = AggregateRowConverter().convert(node, [], {})
-        assert result.component["config"]["group_by"] == []
-        assert result.component["config"]["group_by_output_columns"] == []
+        assert result.component["config"]["groupbys"] == []
 
     def test_groupbys_strip_quotes(self):
         """Quote-wrapped values should be stripped."""
@@ -170,8 +166,9 @@ class TestTableParsingGroupbys:
         ]
         node = _make_node(params={"GROUPBYS": groupbys})
         result = AggregateRowConverter().convert(node, [], {})
-        assert result.component["config"]["group_by"] == ["department"]
-        assert result.component["config"]["group_by_output_columns"] == ["department"]
+        assert result.component["config"]["groupbys"] == [
+            {"output_column": "department", "input_column": "department"},
+        ]
 
 
 class TestTableParsingOperations:
@@ -381,7 +378,7 @@ class TestCompleteness:
         node = _make_node(schema=_make_schema_columns())
         result = AggregateRowConverter().convert(node, [], {})
         expected_keys = {
-            "group_by", "group_by_output_columns", "operations",
+            "groupbys", "operations",
             "list_delimiter", "use_financial_precision",
             "check_type_overflow", "check_ulp",
             "tstatcatcher_stats", "label",

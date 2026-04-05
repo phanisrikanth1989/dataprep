@@ -3,9 +3,8 @@
 Groups input rows by specified columns and applies aggregate functions
 (count, min, max, avg, sum, first, last, list, list_object, distinct, std_dev, union).
 
-Config mapping (9 params total):
-  GROUPBYS               -> group_by (list[str], default [])
-  GROUPBYS               -> group_by_output_columns (list[str], default [])
+Config mapping (8 params total):
+  GROUPBYS               -> groupbys (TABLE stride-2: OUTPUT_COLUMN, INPUT_COLUMN)
   OPERATIONS             -> operations (list[dict], default [])
   LIST_DELIMITER         -> list_delimiter (str, default ",")
   USE_FINANCIAL_PRECISION -> use_financial_precision (bool, default True)
@@ -26,7 +25,7 @@ logger = logging.getLogger(__name__)
 # GROUPBYS TABLE constants
 # ------------------------------------------------------------------
 _GROUPBYS_FIELDS = ("OUTPUT_COLUMN", "INPUT_COLUMN")
-_GROUPBYS_GROUP_SIZE = len(_GROUPBYS_FIELDS)
+_GROUPBYS_STRIDE = len(_GROUPBYS_FIELDS)
 
 # ------------------------------------------------------------------
 # OPERATIONS TABLE constants
@@ -89,55 +88,35 @@ def _normalise_function(raw: str, warnings: Optional[List[str]] = None) -> str:
     return result
 
 
-def _parse_groupbys(raw: Any) -> tuple:
-    """Parse GROUPBYS TABLE into group_by and group_by_output_columns lists.
+def _parse_groupbys(raw: Any) -> List[Dict[str, str]]:
+    """Parse GROUPBYS TABLE into list of dicts.
 
-    Each group of 2 consecutive entries maps to one group-by column:
-      OUTPUT_COLUMN -> group_by_output_columns (str)
-      INPUT_COLUMN  -> group_by (str)
+    Each group of 2 consecutive elementRef entries maps to one row:
+      OUTPUT_COLUMN -> output_column (str)
+      INPUT_COLUMN  -> input_column  (str)
 
-    Uses a pair-based parser: OUTPUT_COLUMN starts a pair, INPUT_COLUMN
-    completes it. Handles missing INPUT_COLUMN (uses OUTPUT_COLUMN value)
-    and legacy INPUT_COLUMN-only format.
-
-    Returns:
-        (group_by, group_by_output_columns) tuple of lists.
+    Incomplete trailing groups (< 2 entries) are skipped.
     """
     if not raw or not isinstance(raw, list):
-        return [], []
-
-    group_by: List[str] = []
-    group_by_output_columns: List[str] = []
-    pending_output_col: Optional[str] = None
-
-    for entry in raw:
-        if not isinstance(entry, dict):
-            continue
-        ref = entry.get("elementRef", "")
-        val = entry.get("value", "").strip('"')
-
-        if ref == "OUTPUT_COLUMN":
-            # Flush any pending pair without INPUT_COLUMN
-            if pending_output_col is not None:
-                group_by_output_columns.append(pending_output_col)
-                group_by.append(pending_output_col)
-            pending_output_col = val
-        elif ref == "INPUT_COLUMN":
-            if pending_output_col is not None:
-                group_by_output_columns.append(pending_output_col)
-                group_by.append(val)
-                pending_output_col = None
-            else:
-                # Legacy format: INPUT_COLUMN without OUTPUT_COLUMN
-                group_by.append(val)
-                group_by_output_columns.append(val)
-
-    # Flush trailing OUTPUT_COLUMN without INPUT_COLUMN
-    if pending_output_col is not None:
-        group_by_output_columns.append(pending_output_col)
-        group_by.append(pending_output_col)
-
-    return group_by, group_by_output_columns
+        return []
+    result: List[Dict[str, str]] = []
+    for i in range(0, len(raw), _GROUPBYS_STRIDE):
+        group = raw[i: i + _GROUPBYS_STRIDE]
+        if len(group) < _GROUPBYS_STRIDE:
+            break
+        row: Dict[str, str] = {}
+        for entry in group:
+            if not isinstance(entry, dict):
+                continue
+            ref = entry.get("elementRef", "")
+            val = entry.get("value", "").strip('"')
+            if ref == "OUTPUT_COLUMN":
+                row["output_column"] = val
+            elif ref == "INPUT_COLUMN":
+                row["input_column"] = val
+        if row:
+            result.append(row)
+    return result
 
 
 def _parse_operations(raw: Any, warnings: List[str]) -> List[Dict[str, Any]]:
@@ -239,10 +218,10 @@ class AggregateRowConverter(ComponentConverter):
         # ---- 1. TABLE parameters ----
         raw_groupbys = self._get_param(node, "GROUPBYS", [])
         if isinstance(raw_groupbys, list):
-            group_by, group_by_output_columns = _parse_groupbys(raw_groupbys)
+            groupbys = _parse_groupbys(raw_groupbys)
         else:
             warnings.append("GROUPBYS param is not a list -- expected TABLE structure")
-            group_by, group_by_output_columns = [], []
+            groupbys = []
 
         raw_operations = self._get_param(node, "OPERATIONS", [])
         if isinstance(raw_operations, list):
@@ -251,9 +230,9 @@ class AggregateRowConverter(ComponentConverter):
             warnings.append("OPERATIONS param is not a list -- expected TABLE structure")
             operations = []
 
-        if not group_by and not operations:
+        if not groupbys and not operations:
             warnings.append(
-                "No group_by or operations defined -- component has no "
+                "No groupbys or operations defined -- component has no "
                 "aggregation logic"
             )
 
@@ -274,8 +253,7 @@ class AggregateRowConverter(ComponentConverter):
 
         # ---- 5. Build config ----
         config: Dict[str, Any] = {
-            "group_by": group_by,
-            "group_by_output_columns": group_by_output_columns,
+            "groupbys": groupbys,
             "operations": operations,
             "list_delimiter": list_delimiter,
             "use_financial_precision": use_financial_precision,
@@ -286,9 +264,9 @@ class AggregateRowConverter(ComponentConverter):
         }
 
         logger.debug(
-            "tAggregateRow %s: group_by=%s, operations=%d",
+            "tAggregateRow %s: groupbys=%s, operations=%d",
             node.component_id,
-            group_by,
+            groupbys,
             len(operations),
         )
 
@@ -297,13 +275,15 @@ class AggregateRowConverter(ComponentConverter):
         schema = {"input": schema_cols, "output": schema_cols}
 
         # ---- 7. Engine gap needs_review entries (per-feature, conditional) ----
-        if group_by_output_columns and group_by_output_columns != group_by:
+        has_renaming = any(
+            gb.get("output_column") != gb.get("input_column")
+            for gb in groupbys
+        )
+        if has_renaming:
             needs_review.append({
                 "issue": (
                     "GROUPBYS OUTPUT_COLUMN differs from INPUT_COLUMN -- "
-                    "engine does not support group-by column renaming. "
-                    f"Output columns: {group_by_output_columns}, "
-                    f"input columns: {group_by}"
+                    "engine does not support group-by column renaming"
                 ),
                 "component": node.component_id,
                 "severity": "engine_gap",
