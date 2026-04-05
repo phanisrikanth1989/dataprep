@@ -119,7 +119,7 @@ class TestParameterExtraction:
     def test_advanced_cond_extracted(self):
         node = _make_node(params={"ADVANCED_COND": '"row.col > 5"'})
         result = FilterRowsConverter().convert(node, [], {})
-        assert result.component["config"]["advanced_cond"] == "row.col > 5"
+        assert result.component["config"]["advanced_cond"] == "{{java}}row.col > 5"
 
     def test_conditions_single(self):
         """4-element group -> {column, function, operator, value}."""
