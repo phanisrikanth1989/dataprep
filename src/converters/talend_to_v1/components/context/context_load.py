@@ -1,15 +1,10 @@
 """Converter for Talend tContextLoad component.
 
-Loads context variables from an incoming flow or implicit context file.
+Loads context variables from an incoming flow (explicit context load).
 
-Config mapping (14 params total):
-  CONTEXTFILE            -> filepath (str, default "")  [implicit context load, not in _java.xml]
-  FORMAT                 -> format (str, default "")  [implicit context load, not in _java.xml]
-  FIELDSEPARATOR         -> delimiter (str, default ";")  [implicit context load, not in _java.xml]
-  CSV_SEPARATOR          -> csv_separator (str, default ";")  [implicit context load, not in _java.xml]
+Config mapping (9 params total):
   PRINT_OPERATIONS       -> print_operations (bool, default False)
   DIEONERROR             -> die_on_error (bool, default False)  [fallback: DIE_ON_ERROR]
-  ERROR_IF_NOT_EXISTS    -> error_if_not_exists (bool, default True)  [implicit context load]
   DISABLE_ERROR          -> disable_error (bool, default False)
   DISABLE_WARNINGS       -> disable_warnings (bool, default True)
   DISABLE_INFO           -> disable_info (bool, default True)
@@ -17,6 +12,10 @@ Config mapping (14 params total):
   NOT_LOAD_OLD_VARIABLE  -> not_load_old_variable (str, default "WARNING")
   TSTATCATCHER_STATS     -> tstatcatcher_stats (bool, default False)
   LABEL                  -> label (str, default "")
+
+Note: Implicit context load params (CONTEXTFILE, FORMAT, FIELDSEPARATOR,
+CSV_SEPARATOR, ERROR_IF_NOT_EXISTS) are job-level settings, not tContextLoad
+component params. They are excluded from this converter.
 """
 from __future__ import annotations
 
@@ -43,11 +42,7 @@ class ContextLoadConverter(ComponentConverter):
         warnings: List[str] = []
         needs_review: List[Dict[str, Any]] = []
 
-        # ---- 1. Core parameters (implicit context load params) ----
-        filepath = self._get_str(node, "CONTEXTFILE")
-        fmt = self._get_str(node, "FORMAT")
-        delimiter = self._get_str(node, "FIELDSEPARATOR", default=";")
-        csv_separator = self._get_str(node, "CSV_SEPARATOR", default=";")
+        # ---- 1. Core parameters ----
 
         # ---- 2. CLOSED_LIST parameters ----
         load_new_variable = self._get_str(node, "LOAD_NEW_VARIABLE", default="WARNING")
@@ -55,7 +50,7 @@ class ContextLoadConverter(ComponentConverter):
 
         # ---- 3. CHECK parameters ----
         print_operations = self._get_bool(node, "PRINT_OPERATIONS")
-        error_if_not_exists = self._get_bool(node, "ERROR_IF_NOT_EXISTS", default=True)
+
         disable_error = self._get_bool(node, "DISABLE_ERROR")
         disable_warnings = self._get_bool(node, "DISABLE_WARNINGS", default=True)
         disable_info = self._get_bool(node, "DISABLE_INFO", default=True)
@@ -66,12 +61,7 @@ class ContextLoadConverter(ComponentConverter):
             die_on_error = self._get_bool(node, "DIE_ON_ERROR")
 
         config: Dict[str, Any] = {
-            "filepath": filepath,
-            "format": fmt,
-            "delimiter": delimiter,
-            "csv_separator": csv_separator,
             "print_operations": print_operations,
-            "error_if_not_exists": error_if_not_exists,
             "die_on_error": die_on_error,
             "disable_error": disable_error,
             "disable_warnings": disable_warnings,
@@ -81,10 +71,6 @@ class ContextLoadConverter(ComponentConverter):
         }
 
         # ---- 4. Warnings ----
-        if not filepath:
-            warnings.append(
-                "CONTEXTFILE is empty -- context load requires a file path"
-            )
 
         # ---- 5. Framework parameters (ALWAYS LAST) ----
         config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS")
