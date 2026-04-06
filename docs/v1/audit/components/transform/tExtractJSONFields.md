@@ -143,15 +143,15 @@ The converter uses `_build_component_dict()` with `type_name="ExtractJSONFields"
 | 7 | `MAPPING` | Yes | `mapping` | TABLE stride-3: QUERY, NODECHECK, ISARRAY |
 | 8 | `MAPPING_4_JSONPATH` | Yes | `mapping_4_jsonpath` | TABLE stride-2: SCHEMA_COLUMN, QUERY |
 | 9 | `DIE_ON_ERROR` | Yes | `die_on_error` | CHECK, default False |
-| 10 | `SCHEMA_OPT_NUM` | Yes | `schema_opt_num` | HIDDEN, default "100" |
+| 10 | `SCHEMA_OPT_NUM` | **REMOVED** | ~~schema_opt_num~~ | Hidden/design-time param -- removed from converter |
 | 11 | `ENCODING` | Yes | `encoding` | ENCODING_TYPE, default "UTF-8" |
 | 12 | `USE_LOOP_AS_ROOT` | Yes | `use_loop_as_root` | CHECK, default True |
-| 13 | `SPLIT_LIST` | Yes | `split_list` | HIDDEN CHECK, default True |
-| 14 | `JDK_VERSION` | Yes | `jdk_version` | CLOSED_LIST, default "JDK_8" |
+| 13 | `SPLIT_LIST` | **REMOVED** | ~~split_list~~ | Hidden/design-time param -- removed from converter |
+| 14 | `JDK_VERSION` | **REMOVED** | ~~jdk_version~~ | Hidden/design-time param -- removed from converter |
 | 15 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Framework, default False |
 | 16 | `LABEL` | Yes | `label` | Framework, default "" |
 
-**Summary**: 16 of 16 extractable parameters extracted (100%). PROPERTY and SCHEMA_REJECT are non-extractable types.
+**Summary**: 13 of 16 extractable parameters extracted. 3 hidden/design-time params removed.
 
 ### 4.2 Schema Extraction
 
@@ -193,9 +193,6 @@ Context variables (`context.var_name`) and Java expressions within parameter val
 | 4 | `json_loop_query` | Engine does not read 'json_loop_query' -- only uses loop_query | engine_gap |
 | 5 | `encoding` | Engine does not read 'encoding' config key | engine_gap |
 | 6 | `use_loop_as_root` | Engine does not read 'use_loop_as_root' config key | engine_gap |
-| 7 | `split_list` | Engine does not read 'split_list' config key | engine_gap |
-| 8 | `schema_opt_num` | Engine does not read 'schema_opt_num' -- hidden Talend param | engine_gap |
-| 9 | `jdk_version` | Engine does not read 'jdk_version' -- hidden Talend param | engine_gap |
 
 ---
 
@@ -461,4 +458,4 @@ Multiple `logger.debug()` statements with detailed intermediate state are presen
 ---
 
 *Report generated: 2026-03-21*
-*Last updated: 2026-04-04 after Phase 12 gold-standard rewrite -- full audit rewrite with Section 11 Risk Assessment, dual-TABLE converter, 45 tests*
+*Last updated: 2026-04-04 after hidden/design-time param removal*

@@ -143,11 +143,11 @@ The converter uses `ExtractDelimitedFieldsConverter` registered via `@REGISTRY.r
 | 8 | `TRIM` | **Yes** | `trim` | `_get_bool()`, default `False` |
 | 9 | `CHECK_FIELDS_NUM` | **Yes** | `check_fields_num` | `_get_bool()`, default `False` |
 | 10 | `CHECK_DATE` | **Yes** | `check_date` | `_get_bool()`, default `False` |
-| 11 | `SCHEMA_OPT_NUM` | **Yes** | `schema_opt_num` | `_get_str()`, default `"100"`. **NEW** -- was missing. |
+| 11 | `SCHEMA_OPT_NUM` | **REMOVED** | ~~schema_opt_num~~ | Hidden/design-time param -- removed from converter |
 | 12 | `TSTATCATCHER_STATS` | **Yes** | `tstatcatcher_stats` | `_get_bool()`, default `False`. Framework param. |
 | 13 | `LABEL` | **Yes** | `label` | `_get_str()`, default `""`. Framework param. |
 
-**Summary**: 13 of 13 _java.xml params extracted (100%). 11 unique + 2 framework. Phantom params removed: ROWSEPARATOR, REMOVE_EMPTY_ROW, TRIMALL.
+**Summary**: 12 of 13 _java.xml params extracted. 10 unique + 2 framework. 1 hidden param removed (SCHEMA_OPT_NUM). Phantom params removed: ROWSEPARATOR, REMOVE_EMPTY_ROW, TRIMALL.
 
 ### 4.2 Schema Extraction
 
@@ -184,7 +184,6 @@ Context variables (`context.var`) and Java expressions are handled by the conver
 | # | Config Key | Reason | Severity |
 |---|-----------|--------|----------|
 | 1 | `fieldseparator` | Engine reads `field_separator` but converter outputs `fieldseparator` per D-38 -- config key mismatch | engine_gap |
-| 2 | `schema_opt_num` | Engine does not read `schema_opt_num` -- hidden Talend param not used by engine | engine_gap |
 
 ---
 
@@ -424,4 +423,4 @@ No significant security concerns. Field name used as column lookup key -- low ri
 ---
 
 *Report generated: 2026-03-21*
-*Last updated: 2026-04-04 after Phase 12 gold-standard rewrite (SCHEMA_OPT_NUM added, fieldseparator per D-38, 42 tests, 2 needs_review)*
+*Last updated: 2026-04-04 after hidden/design-time param removal*

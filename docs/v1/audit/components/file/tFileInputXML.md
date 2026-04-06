@@ -146,11 +146,11 @@ The converter uses `@REGISTRY.register("tFileInputXML")` decorator-based dispatc
 | 14 | `USE_SEPARATOR` | Yes | `use_separator` | Default: False |
 | 15 | `FIELD_SEPARATOR` | Yes | `field_separator` | Default: "," |
 | 16 | `TMP_FILENAME` | Yes | `tmp_filename` | Default: "" (newly added) |
-| 17 | `SCHEMA_OPT_NUM` | Yes | `schema_opt_num` | Default: 100 (newly added) |
+| 17 | `SCHEMA_OPT_NUM` | **REMOVED** | ~~schema_opt_num~~ | Hidden/design-time param -- removed from converter |
 | 18 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Framework param |
 | 19 | `LABEL` | Yes | `label` | Framework param |
 
-**Summary**: 19 of 19 parameters extracted (100%).
+**Summary**: 18 of 19 parameters extracted. 1 hidden param removed (SCHEMA_OPT_NUM).
 
 ### 4.2 Schema Extraction
 
@@ -183,7 +183,6 @@ None. All parameters correctly extracted with proper defaults and types.
 | 4 | `use_separator` | Engine does not support field separator concatenation for XML | engine_gap |
 | 5 | `field_separator` | Engine does not read field_separator config key | engine_gap |
 | 6 | `tmp_filename` | Engine does not read tmp_filename config key | engine_gap |
-| 7 | `schema_opt_num` | Engine does not read schema_opt_num config key | engine_gap |
 
 ---
 
@@ -440,4 +439,4 @@ See Section 11 for XML-specific security assessment (XXE, DTD attacks, namespace
 ---
 
 *Report generated: 2026-04-03*
-*Last updated: 2026-04-03 after v1.1 Phase 9 Plan 11 converter standardization*
+*Last updated: 2026-04-03 after hidden/design-time param removal*

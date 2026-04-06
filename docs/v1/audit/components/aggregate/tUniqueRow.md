@@ -153,13 +153,13 @@ The converter (`UniqueRowConverter`) uses the `@REGISTRY.register("tUniqueRow", 
 | 4 | `ONLY_ONCE_EACH_DUPLICATED_KEY` | Yes | `only_once_each_duplicated_key` | Bool, default false. Also derives `keep` (first/last). |
 | 5 | `IS_VIRTUAL_COMPONENT` | Yes | `is_virtual_component` | Bool, default false |
 | 6 | `BUFFER_SIZE` | Yes | `buffer_size` | Str, default "M" |
-| 7 | `TEMP_DIRECTORY` | Yes | `temp_directory` | Str, default "" |
+| 7 | `TEMP_DIRECTORY` | **REMOVED** | ~~temp_directory~~ | Hidden/design-time param -- removed from converter |
 | 8 | `CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL` | Yes | `change_hash_and_equals_for_bigdecimal` | Bool, default false. needs_review when true. |
-| 9 | `CONNECTION_FORMAT` | Yes | `connection_format` | Str, default "row". Phantom param (not in _java.xml, present in .item exports). |
+| 9 | `CONNECTION_FORMAT` | **REMOVED** | ~~connection_format~~ | Phantom param (not in _java.xml) -- removed from converter |
 | 10 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Framework param, bool, default false |
 | 11 | `LABEL` | Yes | `label` | Framework param, str, default "" |
 
-**Summary**: 11 of 11 parameters extracted (100%). Includes 3 advanced params (IS_VIRTUAL_COMPONENT family) not previously extracted.
+**Summary**: 9 of 11 parameters extracted. 2 hidden/phantom params removed (TEMP_DIRECTORY, CONNECTION_FORMAT).
 
 ### 4.2 Schema Extraction
 
@@ -424,4 +424,4 @@ These issues are shared with all other engine components:
 ---
 
 *Report generated: 2026-04-03*
-*Last updated: 2026-04-03 after full rewrite per D-12 gold standard*
+*Last updated: 2026-04-03 after hidden/design-time param removal*

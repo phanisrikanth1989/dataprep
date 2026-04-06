@@ -132,11 +132,11 @@ The converter (`ForeachConverter`) uses the `ComponentConverter` base class help
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
 |----|----------------------|------------|---------------|-------|
 | 1 | `VALUES` | Yes | `values` | TABLE -> list of strings. Parsed via `_parse_values_table()` with VALUE field name matching _java.xml. Stride-1 grouping. |
-| 2 | `CONNECTION_FORMAT` | Yes | `connection_format` | TEXT -> str, default "row". Phantom param: NOT in _java.xml but present in .item exports. |
+| 2 | `CONNECTION_FORMAT` | **REMOVED** | ~~connection_format~~ | Phantom param (not in _java.xml) -- removed from converter |
 | F1 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | CHECK -> bool, default False. Framework param extracted last per convention. |
 | F2 | `LABEL` | Yes | `label` | TEXT -> str, default "". Framework param extracted last per convention. |
 
-**Summary**: 1 of 1 _java.xml parameters extracted (100%). Plus 1 phantom param (CONNECTION_FORMAT). All framework params extracted.
+**Summary**: 1 of 1 _java.xml parameters extracted (100%). Phantom param CONNECTION_FORMAT removed. All framework params extracted.
 
 ### 4.2 Schema Extraction
 
@@ -411,4 +411,4 @@ No P3 issues identified. Component is simple and well-contained.
 ---
 
 *Report generated: 2026-04-03*
-*Last updated: 2026-04-03 after converter rewrite and adversarial review*
+*Last updated: 2026-04-03 after hidden/design-time param removal*

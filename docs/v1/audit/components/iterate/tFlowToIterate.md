@@ -133,11 +133,11 @@ The converter (`FlowToIterateConverter`) uses the `ComponentConverter` base clas
 |----|----------------------|------------|---------------|-------|
 | 1 | `DEFAULT_MAP` | Yes | `default_map` | CHECK -> bool, default True. Extracted via `_get_bool()`. |
 | 2 | `MAP` | Yes | `map_entries` | TABLE -> list of dicts. Parsed via `_parse_map_table()` with KEY/VALUE field names matching _java.xml. Stride-2 grouping, incomplete trailing groups skipped. |
-| 3 | `CONNECTION_FORMAT` | Yes | `connection_format` | TEXT -> str, default "row". Phantom param: NOT in _java.xml but present in .item exports. |
+| 3 | `CONNECTION_FORMAT` | **REMOVED** | ~~connection_format~~ | Phantom param (not in _java.xml) -- removed from converter |
 | F1 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | CHECK -> bool, default False. Framework param extracted last per convention. |
 | F2 | `LABEL` | Yes | `label` | TEXT -> str, default "". Framework param extracted last per convention. |
 
-**Summary**: 4 of 4 _java.xml parameters extracted (100%). Plus 1 phantom param (CONNECTION_FORMAT). All framework params extracted.
+**Summary**: 4 of 4 _java.xml parameters extracted (100%). Phantom param CONNECTION_FORMAT removed. All framework params extracted.
 
 ### 4.2 Schema Extraction
 
@@ -412,4 +412,4 @@ No P3 issues identified. Component is simple and well-contained.
 ---
 
 *Report generated: 2026-04-03*
-*Last updated: 2026-04-03 after converter rewrite and adversarial review*
+*Last updated: 2026-04-03 after hidden/design-time param removal*

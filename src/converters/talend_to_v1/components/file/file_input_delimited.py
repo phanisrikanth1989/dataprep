@@ -30,10 +30,6 @@ Config mapping (31 params total):
   SPLITRECORD          -> split_record         (bool, default False)
   ENABLE_DECODE        -> enable_decode        (bool, default False)
   DECODE_COLS          -> decode_cols          (TABLE)
-  TEMP_DIR             -> temp_dir             (str, default "")
-  DESTINATION          -> destination          (str, default "")
-  USE_HEADER_AS_IS     -> use_header_as_is     (bool, default False)
-  SCHEMA_OPT_NUM       -> schema_opt_num       (int, default 100)
   --- framework ---
   TSTATCATCHER_STATS   -> tstatcatcher_stats   (bool, default False)
   LABEL                -> label                (str, default "")
@@ -162,10 +158,6 @@ class FileInputDelimitedConverter(ComponentConverter):
         config["encoding"] = self._get_str(node, "ENCODING", "ISO-8859-15")
         config["split_record"] = self._get_bool(node, "SPLITRECORD", False)
         config["enable_decode"] = self._get_bool(node, "ENABLE_DECODE", False)
-        config["temp_dir"] = self._get_str(node, "TEMP_DIR", "")
-        config["destination"] = self._get_str(node, "DESTINATION", "")
-        config["use_header_as_is"] = self._get_bool(node, "USE_HEADER_AS_IS", False)
-        config["schema_opt_num"] = self._get_int(node, "SCHEMA_OPT_NUM", 100)
 
         # ---- 3. TABLE parameters ----
         raw_trim_select = node.params.get("TRIMSELECT", [])
@@ -194,10 +186,6 @@ class FileInputDelimitedConverter(ComponentConverter):
             ("enable_decode", "engine does not support hex/octal number parsing"),
             ("advanced_separator", "engine has partial support -- applies to all string columns, not just numeric"),
             ("uncompress", "engine does not support compressed file reading"),
-            ("temp_dir", "engine does not read temp_dir config key"),
-            ("destination", "engine does not read destination config key"),
-            ("use_header_as_is", "engine does not read use_header_as_is config key"),
-            ("schema_opt_num", "engine does not read schema_opt_num config key"),
         ]
         for key, detail in _engine_gap_keys:
             needs_review.append({

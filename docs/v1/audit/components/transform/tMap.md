@@ -144,12 +144,12 @@ MapConverter parses both elementParameter flat params and nodeData MapperData XM
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
 |---|----------------------|------------|---------------|-------|
 | 1 | `MAP` | No | -- | Visual editor reference, not a config param |
-| 2 | `LINK_STYLE` | Yes | `link_style` | Default "AUTO" |
+| 2 | `LINK_STYLE` | **REMOVED** | ~~link_style~~ | Hidden/design-time param -- removed from converter |
 | 3 | `DIE_ON_ERROR` | Yes | `die_on_error` | Default True |
-| 4 | `LKUP_PARALLELIZE` | Yes | `lkup_parallelize` | Default False |
-| 5 | `LEVENSHTEIN` | Yes | `levenshtein` | Default "0". **NEW** -- was missing |
-| 6 | `JACCARD` | Yes | `jaccard` | Default "0". **NEW** -- was missing |
-| 7 | `ENABLE_AUTO_CONVERT_TYPE` | Yes | `enable_auto_convert_type` | Default False |
+| 4 | `LKUP_PARALLELIZE` | **REMOVED** | ~~lkup_parallelize~~ | Hidden/design-time param -- removed from converter |
+| 5 | `LEVENSHTEIN` | **REMOVED** | ~~levenshtein~~ | Hidden/design-time param -- removed from converter |
+| 6 | `JACCARD` | **REMOVED** | ~~jaccard~~ | Hidden/design-time param -- removed from converter |
+| 7 | `ENABLE_AUTO_CONVERT_TYPE` | **REMOVED** | ~~enable_auto_convert_type~~ | Hidden/design-time param -- removed from converter |
 | 8 | `ROWS_BUFFER_SIZE` | Yes | `rows_buffer_size` | Default "2000000". Extracted as str for expression support. |
 | 9 | `CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL` | Yes | `change_hash_and_equals_for_bigdecimal` | Default True. **FIXED** (was False) |
 | 10 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Framework param, default False |
@@ -164,7 +164,7 @@ MapConverter parses both elementParameter flat params and nodeData MapperData XM
 | `varTables` | Yes | `config.variables[]` | Variable definitions with expressions |
 | `outputTables` | Yes | `config.outputs[]` | Output tables with columns, reject flags, filters |
 
-**Summary**: 9 of 9 unique parameters extracted (100%) + 2 framework params + full nodeData parsing.
+**Summary**: 4 of 9 unique parameters extracted + 2 framework params + full nodeData parsing. 5 hidden/design-time params removed.
 
 ### 4.2 Schema Extraction
 
@@ -189,15 +189,8 @@ All MapperData expressions (join keys, variable definitions, output column mappi
 
 | # | Config Key | Reason | Severity |
 |---|-----------|--------|----------|
-| 1 | `link_style` | Engine does not read -- visual editor setting only | engine_gap |
-| 2 | `lkup_parallelize` | Engine does not support parallel lookup loading | engine_gap |
-| 3 | `enable_auto_convert_type` | Engine does not support automatic type conversion | engine_gap |
-| 4 | `rows_buffer_size` | Engine does not read -- no disk buffering support | engine_gap |
-| 5 | `change_hash_and_equals_for_bigdecimal` | Engine does not handle BigDecimal hash/equals behavior | engine_gap |
-| 6 | `levenshtein` | Engine does not read -- no fuzzy matching support | engine_gap |
-| 7 | `jaccard` | Engine does not read -- no fuzzy matching support | engine_gap |
-| 8 | `var_table_name` | Engine does not read -- uses variables list directly | engine_gap |
-| 9 | `var_table_size_state` | Engine does not read -- UI layout only | engine_gap |
+| 1 | `rows_buffer_size` | Engine does not read -- no disk buffering support | engine_gap |
+| 2 | `change_hash_and_equals_for_bigdecimal` | Engine does not handle BigDecimal hash/equals behavior | engine_gap |
 
 ---
 
@@ -548,4 +541,4 @@ tMap's nodeData uses the MapperData XML format. This is the primary configuratio
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after gold standard rewrite with Section 11 Risk Assessment*
+*Last updated: 2026-04-04 after hidden/design-time param removal*

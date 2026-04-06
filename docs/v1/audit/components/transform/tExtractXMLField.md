@@ -128,21 +128,21 @@ Gold-standard converter using `@REGISTRY.register("tExtractXMLField")` decorator
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
 |----|----------------------|------------|---------------|-------|
 | 1 | `XMLFIELD` | Yes | `xmlfield` | PREV_COLUMN_LIST, default "" |
-| 2 | `USE_ITEMS` | Yes | `use_items` | Hidden bool, default False |
-| 3 | `LOOP_QUERY_BASE` | Yes | `loop_query_base` | Hidden str, default "" |
+| 2 | `USE_ITEMS` | **REMOVED** | ~~use_items~~ | Hidden/design-time param -- removed from converter |
+| 3 | `LOOP_QUERY_BASE` | **REMOVED** | ~~loop_query_base~~ | Hidden/design-time param -- removed from converter |
 | 4 | `LOOP_QUERY` | Yes | `loop_query` | Default "/bills/bill/line" |
 | 5 | `MAPPING` | Yes | `mapping` | TABLE stride-2 (QUERY+NODECHECK), BASED_ON_SCHEMA=true |
 | 6 | `LIMIT` | Yes | `limit` | String for expression support, default "" |
 | 7 | `DIE_ON_ERROR` | Yes | `die_on_error` | Bool, default False |
-| 8 | `USE_XML_FIELD` | Yes | `use_xml_field` | Hidden bool, default False |
-| 9 | `XML_TEXT` | Yes | `xml_text` | Hidden str, default "" |
-| 10 | `XML_PREFIX` | Yes | `xml_prefix` | Hidden str, default "" |
-| 11 | `SCHEMA_OPT_NUM` | Yes | `schema_opt_num` | Hidden str, default "100" |
+| 8 | `USE_XML_FIELD` | **REMOVED** | ~~use_xml_field~~ | Hidden/design-time param -- removed from converter |
+| 9 | `XML_TEXT` | **REMOVED** | ~~xml_text~~ | Hidden/design-time param -- removed from converter |
+| 10 | `XML_PREFIX` | **REMOVED** | ~~xml_prefix~~ | Hidden/design-time param -- removed from converter |
+| 11 | `SCHEMA_OPT_NUM` | **REMOVED** | ~~schema_opt_num~~ | Hidden/design-time param -- removed from converter |
 | 12 | `IGNORE_NS` | Yes | `ignore_ns` | Bool, default False |
 | 13 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Framework param, default False |
 | 14 | `LABEL` | Yes | `label` | Framework param, default "" |
 
-**Summary**: 14 of 14 parameters extracted (100%). 12 unique + 2 framework.
+**Summary**: 8 of 14 parameters extracted. 6 unique + 2 framework. 6 hidden/design-time params removed.
 
 ### 4.2 Schema Extraction
 
@@ -173,17 +173,11 @@ No open converter issues. All parameters extracted correctly.
 
 ### 4.5 Needs Review Entries
 
-7 per-feature needs_review entries for engine gaps:
+1 per-feature needs_review entry for engine gaps:
 
 | # | Config Key | Reason | Severity |
 |---|-----------|--------|----------|
-| 1 | `use_items` | Engine does not read this hidden config key | engine_gap |
-| 2 | `loop_query_base` | Engine does not read this hidden config key | engine_gap |
-| 3 | `use_xml_field` | Engine does not read this hidden config key | engine_gap |
-| 4 | `xml_text` | Engine does not read this hidden config key | engine_gap |
-| 5 | `xml_prefix` | Engine does not read this hidden config key | engine_gap |
-| 6 | `schema_opt_num` | Engine does not read this hidden config key | engine_gap |
-| 7 | `limit` | Engine treats limit=0 as "no limit" but Talend treats 0 as "read nothing" -- semantic mismatch | engine_gap |
+| 1 | `limit` | Engine treats limit=0 as "no limit" but Talend treats 0 as "read nothing" -- semantic mismatch | engine_gap |
 
 ---
 
@@ -444,4 +438,4 @@ See Section 11 Risk Assessment for comprehensive XML security analysis.
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after gold-standard rewrite with Section 11 Risk Assessment*
+*Last updated: 2026-04-04 after hidden/design-time param removal*

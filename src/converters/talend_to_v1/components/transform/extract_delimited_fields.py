@@ -15,7 +15,6 @@ Config mapping (13 params total):
   TRIM                 -> trim (bool, default False)
   CHECK_FIELDS_NUM     -> check_fields_num (bool, default False)
   CHECK_DATE           -> check_date (bool, default False)
-  SCHEMA_OPT_NUM       -> schema_opt_num (str, hidden, default "100")
   TSTATCATCHER_STATS   -> tstatcatcher_stats (bool, framework, default False)
   LABEL                -> label (str, framework, default "")
 
@@ -61,38 +60,28 @@ class ExtractDelimitedFieldsConverter(ComponentConverter):
         config["check_fields_num"] = self._get_bool(node, "CHECK_FIELDS_NUM", False)
         config["check_date"] = self._get_bool(node, "CHECK_DATE", False)
 
-        # ---- 3. Hidden parameter ----
-        config["schema_opt_num"] = self._get_str(node, "SCHEMA_OPT_NUM", "100")
-
-        # ---- 4. Framework parameters (ALWAYS LAST) ----
+        # ---- 3. Framework parameters (ALWAYS LAST) ----
         config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
         config["label"] = self._get_str(node, "LABEL", "")
 
-        # ---- 5. Validation warnings ----
+        # ---- 4. Validation warnings ----
         if not config["fieldseparator"]:
             warnings.append(
                 "FIELDSEPARATOR is empty -- extraction may not split correctly"
             )
 
-        # ---- 6. Schema: transform passthrough ----
+        # ---- 5. Schema: transform passthrough ----
         schema_cols = self._parse_schema(node)
         schema = {"input": schema_cols, "output": schema_cols}
 
-        # ---- 7. Engine gap needs_review entries ----
+        # ---- 6. Engine gap needs_review entries ----
         # Engine reads 'field_separator' but converter outputs 'fieldseparator' per D-38
         needs_review.append({
             "issue": "Engine reads 'field_separator' but converter outputs 'fieldseparator' per D-38 -- config key mismatch",
             "component": node.component_id,
             "severity": "engine_gap",
         })
-        # Engine does not read schema_opt_num
-        needs_review.append({
-            "issue": "Engine does not read 'schema_opt_num' config key -- hidden Talend param not used by engine",
-            "component": node.component_id,
-            "severity": "engine_gap",
-        })
-
-        # ---- 8. Build component wrapper ----
+        # ---- 7. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
             type_name="ExtractDelimitedFields",
@@ -100,7 +89,7 @@ class ExtractDelimitedFieldsConverter(ComponentConverter):
             schema=schema,
         )
 
-        # ---- 9. Return ----
+        # ---- 8. Return ----
         return ComponentResult(
             component=component,
             warnings=warnings,

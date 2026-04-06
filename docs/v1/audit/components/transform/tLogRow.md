@@ -139,11 +139,11 @@ The `LogRowConverter` class uses `@REGISTRY.register("tLogRow")` decorator-based
 | 11 | `USE_FIXED_LENGTH` | Yes | `use_fixed_length` | bool, default False |
 | 12 | `LENGTHS` | Yes | `lengths` | TABLE stride-1, list of int widths |
 | 13 | `PRINT_CONTENT_WITH_LOG4J` | Yes | `print_content_with_log4j` | bool, default True |
-| 14 | `SCHEMA_OPT_NUM` | Yes | `max_rows` | str, hidden, default "100" |
+| 14 | `SCHEMA_OPT_NUM` | **REMOVED** | ~~max_rows~~ | Hidden/design-time param -- removed from converter. Engine reads `max_rows` with fallback to `SCHEMA_OPT_NUM`. |
 | 15 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | bool, default False (framework) |
 | 16 | `LABEL` | Yes | `label` | str, default "" (framework) |
 
-**Summary**: 16 of 16 parameters extracted (100%). 13 unique + 1 hidden + 2 framework.
+**Summary**: 15 of 16 parameters extracted. 12 unique + 2 framework. 1 hidden param removed (SCHEMA_OPT_NUM).
 
 ### 4.2 Schema Extraction
 
@@ -412,4 +412,4 @@ Engine cross-cutting bugs (base_component.py `_update_global_map()` crash, Globa
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after Phase 12 gold standard rewrite*
+*Last updated: 2026-04-04 after hidden/design-time param removal*

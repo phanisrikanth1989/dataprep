@@ -12,11 +12,8 @@ Config mapping (15 params total):
   MAPPING              -> mapping (list, TABLE stride-3 QUERY+NODECHECK+ISARRAY, XPath mode)
   MAPPING_4_JSONPATH   -> mapping_4_jsonpath (list, TABLE stride-2, JSONPath mode)
   DIE_ON_ERROR         -> die_on_error (bool, default False)
-  SCHEMA_OPT_NUM       -> schema_opt_num (str, hidden, default "100")
   ENCODING             -> encoding (str, default "UTF-8")
   USE_LOOP_AS_ROOT     -> use_loop_as_root (bool, default True)
-  SPLIT_LIST           -> split_list (bool, hidden, default True)
-  JDK_VERSION          -> jdk_version (str, CLOSED_LIST, default "JDK_8")
   TSTATCATCHER_STATS   -> tstatcatcher_stats (bool, framework, default False)
   LABEL                -> label (str, framework, default "")
 """
@@ -147,11 +144,8 @@ class ExtractJSONFieldsConverter(ComponentConverter):
 
         # ---- 3. Boolean / other parameters ----
         config["die_on_error"] = self._get_bool(node, "DIE_ON_ERROR", False)
-        config["schema_opt_num"] = self._get_str(node, "SCHEMA_OPT_NUM", "100")
         config["encoding"] = self._get_str(node, "ENCODING", "UTF-8")
         config["use_loop_as_root"] = self._get_bool(node, "USE_LOOP_AS_ROOT", True)
-        config["split_list"] = self._get_bool(node, "SPLIT_LIST", True)
-        config["jdk_version"] = self._get_str(node, "JDK_VERSION", "JDK_8")
 
         # ---- 4. Framework parameters (ALWAYS LAST) ----
         config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
@@ -171,9 +165,6 @@ class ExtractJSONFieldsConverter(ComponentConverter):
             ("json_loop_query", "Engine does not read 'json_loop_query' -- only uses loop_query"),
             ("encoding", "Engine does not read 'encoding' config key"),
             ("use_loop_as_root", "Engine does not read 'use_loop_as_root' config key"),
-            ("split_list", "Engine does not read 'split_list' config key"),
-            ("schema_opt_num", "Engine does not read 'schema_opt_num' -- hidden Talend param"),
-            ("jdk_version", "Engine does not read 'jdk_version' -- hidden Talend param"),
         ]
         for key, detail in _engine_gap_keys:
             needs_review.append({

@@ -4,7 +4,7 @@ tHashOutput stores incoming data in an in-memory hash structure so that
 downstream components (typically tHashInput) can look up rows by key.
 No v1 engine implementation exists -- all config keys are engine_gap.
 
-Config mapping (10 params total -- 8 unique + 2 framework):
+Config mapping (9 params total -- 7 unique + 2 framework):
     LINK_WITH                      -> link_with                      (bool, default False)
     LIST                           -> list                           (str, default "")
     DATA_WRITE_MODEL               -> data_write_model               (CLOSED_LIST: MEMORY/PERSISTENT, default "MEMORY")
@@ -12,7 +12,6 @@ Config mapping (10 params total -- 8 unique + 2 framework):
     MEMORY_HEAP_MAX_SIZE           -> memory_heap_max_size           (str, default "2")
     KEYS_MANAGEMENT                -> keys_management                (CLOSED_LIST: KEEP_FIRST/KEEP_LAST/KEEP_ALL, default "KEEP_ALL")
     APPEND                         -> append                         (bool, default True)
-    HASH_KEY_FROM_INPUT_CONNECTOR  -> hash_key_from_input_connector  (bool, hidden show=false, default False)
     TSTATCATCHER_STATS             -> tstatcatcher_stats             (bool, framework, default False)
     LABEL                          -> label                          (str, framework, default "")
 """
@@ -54,9 +53,6 @@ class HashOutputConverter(ComponentConverter):
         config["memory_heap_max_size"] = self._get_str(node, "MEMORY_HEAP_MAX_SIZE", "2")
         config["keys_management"] = self._get_str(node, "KEYS_MANAGEMENT", "KEEP_ALL")
         config["append"] = self._get_bool(node, "APPEND", True)
-        config["hash_key_from_input_connector"] = self._get_bool(
-            node, "HASH_KEY_FROM_INPUT_CONNECTOR", False
-        )
 
         # ---- 2. Framework parameters (ALWAYS LAST) ----
         config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)

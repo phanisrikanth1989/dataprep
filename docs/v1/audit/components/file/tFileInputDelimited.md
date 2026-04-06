@@ -177,14 +177,14 @@ The converter uses the gold-standard `_build_component_dict` pattern with `type_
 | 24 | `SPLITRECORD` | Yes | `split_record` | `_get_bool`, default `False` |
 | 25 | `ENABLE_DECODE` | Yes | `enable_decode` | `_get_bool`, default `False` |
 | 26 | `DECODE_COLS` | Yes | `decode_cols` | TABLE parser, stride-2 |
-| 27 | `TEMP_DIR` | Yes | `temp_dir` | `_get_str`, default `""` |
-| 28 | `DESTINATION` | Yes | `destination` | `_get_str`, default `""` |
-| 29 | `USE_HEADER_AS_IS` | Yes | `use_header_as_is` | `_get_bool`, default `False` |
-| 30 | `SCHEMA_OPT_NUM` | Yes | `schema_opt_num` | `_get_int`, default `100` |
+| 27 | `TEMP_DIR` | **REMOVED** | ~~temp_dir~~ | Hidden/design-time param -- removed from converter |
+| 28 | `DESTINATION` | **REMOVED** | ~~destination~~ | Hidden/design-time param -- removed from converter |
+| 29 | `USE_HEADER_AS_IS` | **REMOVED** | ~~use_header_as_is~~ | Hidden/design-time param -- removed from converter |
+| 30 | `SCHEMA_OPT_NUM` | **REMOVED** | ~~schema_opt_num~~ | Hidden/design-time param -- removed from converter |
 | 31 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Framework, `_get_bool`, default `False` |
 | 32 | `LABEL` | Yes | `label` | Framework, `_get_str`, default `""` |
 
-**Summary**: 31 of 31 parameters extracted (100%). 29 unique + 2 framework.
+**Summary**: 27 of 31 parameters extracted (87%). 25 unique + 2 framework. 4 hidden/design-time params removed.
 
 ### 4.2 Schema Extraction
 
@@ -209,7 +209,7 @@ None. All parameters extracted correctly with proper defaults.
 
 ### 4.5 Needs Review Entries
 
-14 per-feature needs_review entries for engine gaps:
+10 per-feature needs_review entries for engine gaps:
 
 | # | Config Key | Reason | Severity |
 |---|-----------|--------|----------|
@@ -223,10 +223,6 @@ None. All parameters extracted correctly with proper defaults.
 | 8 | `enable_decode` | Engine does not support hex/octal number parsing | engine_gap |
 | 9 | `advanced_separator` | Engine has partial support -- applies to all string columns, not just numeric | engine_gap |
 | 10 | `uncompress` | Engine does not support compressed file reading | engine_gap |
-| 11 | `temp_dir` | Engine does not read temp_dir config key | engine_gap |
-| 12 | `destination` | Engine does not read destination config key | engine_gap |
-| 13 | `use_header_as_is` | Engine does not read use_header_as_is config key | engine_gap |
-| 14 | `schema_opt_num` | Engine does not read schema_opt_num config key | engine_gap |
 
 ---
 
@@ -542,4 +538,4 @@ This appendix details the relationship between Talend parameters, converter conf
 ---
 
 *Report generated: 2026-04-03*
-*Last updated: 2026-04-03 after v1.1 Phase 9 converter standardization*
+*Last updated: 2026-04-03 after hidden/design-time param removal*

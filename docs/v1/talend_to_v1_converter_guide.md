@@ -405,6 +405,21 @@ schema={"input": [], "output": []}
 > need to set `schema.output` correctly; the pipeline handles
 > `schema.input` automatically.
 
+### Hidden / design-time parameters
+
+Talend components include several parameter categories that are **not**
+extracted by the converter:
+
+| Category | Examples | Reason for exclusion |
+|----------|----------|----------------------|
+| Schema optimization | `SCHEMA_OPT_NUM` | Studio-only hint for schema preview sampling; no runtime effect |
+| Hidden UI controls | `USE_ITEMS`, `LOOP_QUERY_BASE`, `USE_XML_FIELD`, `XML_TEXT`, `XML_PREFIX`, `LINK_STYLE`, `LKUP_PARALLELIZE`, `ENABLE_AUTO_CONVERT_TYPE`, `LEVENSHTEIN`, `JACCARD`, `HASH_KEY_FROM_INPUT_CONNECTOR` | `show="false"` in component XML; never set by users |
+| Phantom parameters | `CONNECTION_FORMAT`, `TEMP_DIR`, `DESTINATION`, `USE_HEADER_AS_IS`, `TEMP_DIRECTORY`, `SPLIT_LIST`, `JDK_VERSION`, `VAR_TABLE_NAME`, `VAR_TABLE_SIZE_STATE` | Present in `.item` XML but absent from `_java.xml` definition or only used at design time |
+
+These parameters were previously extracted and flagged as `engine_gap`
+entries. They have been removed to reduce noise in the converted JSON
+output and eliminate false-positive needs_review entries.
+
 ### TABLE parameter parsing
 
 XmlParser stores TABLE params as flat lists of `{elementRef, value}` dicts:

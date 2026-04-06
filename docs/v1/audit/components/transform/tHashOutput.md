@@ -141,11 +141,11 @@ The converter uses explicit `_get_str()` and `_get_bool()` calls for each of the
 | 5 | `MEMORY_HEAP_MAX_SIZE` | Yes | `memory_heap_max_size` | str (TEXT), default "2" |
 | 6 | `KEYS_MANAGEMENT` | Yes | `keys_management` | CLOSED_LIST: KEEP_FIRST/KEEP_LAST/KEEP_ALL, default "KEEP_ALL" |
 | 7 | `APPEND` | Yes | `append` | bool, default True |
-| 8 | `HASH_KEY_FROM_INPUT_CONNECTOR` | Yes | `hash_key_from_input_connector` | bool, hidden (show=false), default False |
+| 8 | `HASH_KEY_FROM_INPUT_CONNECTOR` | **REMOVED** | ~~hash_key_from_input_connector~~ | Hidden (show=false) -- removed from converter |
 | 9 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Framework param, bool, default False |
 | 10 | `LABEL` | Yes | `label` | Framework param, str, default "" |
 
-**Summary**: 8 of 8 unique parameters extracted (100%). 2 framework params always extracted.
+**Summary**: 7 of 8 unique parameters extracted. 1 hidden param removed (HASH_KEY_FROM_INPUT_CONNECTOR). 2 framework params always extracted.
 
 ### 4.2 Schema Extraction
 
@@ -385,4 +385,4 @@ No cross-cutting issues apply -- there is no engine implementation for base clas
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after v1.1 Phase 13 standardization*
+*Last updated: 2026-04-04 after hidden/design-time param removal*
