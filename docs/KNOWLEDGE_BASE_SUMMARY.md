@@ -9,12 +9,14 @@
 
 ### The Project
 RecDataPrep is a **web-based visual ETL (Extract-Transform-Load) designer** inspired by Talend. It allows users to:
+
 - Design data transformation jobs visually (drag-drop canvas)
 - Connect components with data flows
 - Configure transformations
 - Execute jobs and monitor progress in real-time
 
 ### The Stack
+
 - **Frontend:** React 18 + TypeScript + React Flow + Ant Design
 - **Backend:** FastAPI + Python + Pydantic
 - **Engine:** Custom Python ETL engine with Talend-like features
@@ -100,34 +102,40 @@ Core ETL Engine (Python)
 ## 🔑 Key Concepts
 
 ### 1. **Jobs**
+
 - Definition: Reusable ETL workflow
 - Storage: JSON files in `backend/jobs/`
 - Composition: Nodes (components) + Edges (data flows)
 
 ### 2. **Components**
+
 - Definition: Individual ETL operations (Map, Filter, FileInput, etc.)
 - Base: All extend `BaseComponent`
 - Execution: `execute()` → `_process()` → outputs
 
 ### 3. **Data Flow**
+
 - Components are connected via edges
 - Main output → downstream components
 - Reject/error output → error handlers
 - Multiple inputs supported (lookups, joins)
 
 ### 4. **Execution**
+
 - Triggered from UI via `/api/execution/start`
 - Asynchronous execution in backend
 - Real-time updates via WebSocket
 - Statistics collection during execution
 
 ### 5. **GlobalMap** (Talend concept)
+
 - Shared state store across job
 - Stores component statistics (NB_LINE, NB_LINE_OK, etc.)
 - Accessible in Java expressions
 - Enables trigger conditions based on stats
 
 ### 6. **Triggers**
+
 - OnComponentOk: Fired when component succeeds
 - OnSubjobError: Fired when subjob fails
 - Control workflow activation
@@ -138,6 +146,7 @@ Core ETL Engine (Python)
 ## 🚀 Essential Workflows
 
 ### Design a Job
+
 1. Open frontend (http://localhost:5173)
 2. Click "New Job"
 3. Name the job
@@ -147,6 +156,7 @@ Core ETL Engine (Python)
 7. Save job
 
 ### Execute a Job
+
 1. Select job from list
 2. Click "Execute"
 3. WebSocket connects
@@ -154,9 +164,10 @@ Core ETL Engine (Python)
    - Component progress
    - Row counts
    - Logs & errors
-5. View results when complete
+1. View results when complete
 
 ### Add a Component
+
 1. Define metadata in `backend/app/schemas.py`
 2. Create class in `src/v1/engine/components/`
 3. Extend `BaseComponent`
@@ -169,7 +180,7 @@ Core ETL Engine (Python)
 ## 📊 Built-in Components
 
 | Component | Type | Input/Output | Key Features |
-|-----------|------|--------------|--------------|
+| ----------- | ------ | -------------- | -------------- |
 | **Map** | Transform | 1+/2+ | Joins, lookups, expressions, transformations |
 | **Filter** | Transform | 1/2 | Row filtering with conditions |
 | **FileInput** | Input | 0/1 | CSV, JSON, Parquet, Excel reader |
@@ -238,9 +249,9 @@ Returns all ComponentMetadata objects
 cd backend
 python run.py
 
-# Backend runs on http://localhost:8000
+# Backend runs on <http://localhost:8000>
 # Auto-reloads on file changes
-# API docs at http://localhost:8000/docs
+# API docs at <http://localhost:8000/docs>
 ```
 
 ### Frontend Development
@@ -250,11 +261,12 @@ cd frontend
 npm install       # First time only
 npm run dev
 
-# Frontend runs on http://localhost:5173
+# Frontend runs on <http://localhost:5173>
 # Auto-reloads on file changes
 ```
 
 ### Creating New Features
+
 1. **Backend Route:** Add in `backend/app/routes/`
 2. **Backend Service:** Add in `backend/app/services/`
 3. **Frontend Service:** Add in `frontend/src/services/api.ts`
@@ -273,7 +285,7 @@ logger = logging.getLogger(__name__)
 logger.debug(f"Debug: {value}")
 
 # Check API docs
-http://localhost:8000/docs  # Swagger UI
+<http://localhost:8000/docs>  # Swagger UI
 
 # Check server logs
 # Look at terminal output where python run.py is running
@@ -309,16 +321,19 @@ cat backend/jobs/job_id.json
 ## 📈 Performance Considerations
 
 ### Memory Efficient
+
 - **Streaming mode** for large files
 - **Batch mode** for small data
 - **Hybrid mode** (auto-switch) default
 
 ### Fast Execution
+
 - Pandas for joins (optimized in native code)
 - Java bridge for complex expressions
 - Pre-compiled lookups
 
 ### Scalability
+
 - Async execution (non-blocking)
 - File-based job storage (no DB needed)
 - Optional SQLAlchemy support for future DB
@@ -328,29 +343,34 @@ cat backend/jobs/job_id.json
 ## 🎯 Architecture Decisions
 
 ### Why REST + WebSocket?
+
 - REST for CRUD operations (simple, stateless)
 - WebSocket for real-time streaming (low-latency updates)
 - Hybrid approach for best of both worlds
 
 ### Why Pydantic?
+
 - Automatic data validation
 - Type hints throughout
 - Auto-generated OpenAPI docs
 - JSON serialization support
 
 ### Why React Flow?
+
 - Proven visual graph editor
 - Good performance for large DAGs
 - Active community & support
 - Easy to customize
 
 ### Why File-based Storage?
+
 - No database setup required
 - Easy deployment
 - Human-readable (JSON)
 - Optional SQL support later
 
 ### Why Component Registry?
+
 - Dynamic component discovery
 - Easy extensibility
 - Frontend auto-discovery
@@ -400,7 +420,7 @@ Level 4: Validation
 ## ✅ Implementation Status
 
 | Component | Status | LOC | File |
-|-----------|--------|-----|------|
+| ----------- | -------- | ----- | ------ |
 | **Engine** | ✅ Complete | 2400 | src/v1/engine/ |
 | **tMap Component** | ✅ Complete | 1141 | src/v1/engine/components/transform/map.py |
 | **Backend API** | ✅ Complete | 850 | backend/app/ |
@@ -413,24 +433,28 @@ Level 4: Validation
 ## 🎓 Learning Path
 
 ### Beginner
+
 1. Read START_HERE.md
 2. Run quickstart script
 3. Create & execute simple job
 4. Use UI to explore
 
 ### Intermediate
+
 1. Read ARCHITECTURE.md
 2. Read WORKSPACE_OVERVIEW.md
 3. Look at code in backend/app/
 4. Modify component configuration
 
 ### Advanced
+
 1. Read CODE_REFERENCE.md
 2. Read system/engine code
 3. Create custom component
 4. Modify ETL engine
 
 ### Expert
+
 1. Understand trigger system
 2. Understand execution model
 3. Optimize for performance
@@ -441,21 +465,25 @@ Level 4: Validation
 ## 🔗 Key Files to Know
 
 ### Most Important
+
 1. `WORKSPACE_OVERVIEW.md` - [NEW] Start here
 2. `SYSTEM_DIAGRAMS.md` - [NEW] Visual reference
 3. `CODE_REFERENCE.md` - [NEW] Code patterns
 
 ### Backend Core
+
 1. `backend/app/main.py` - FastAPI setup
 2. `backend/app/schemas.py` - Component registry
 3. `src/v1/engine/engine.py` - Main engine
 
 ### Frontend Core
+
 1. `frontend/src/App.tsx` - App shell
 2. `frontend/src/pages/JobDesigner.tsx` - Designer
 3. `frontend/src/components/Canvas.tsx` - Canvas
 
 ### Configuration
+
 1. `backend/requirements.txt` - Backend dependencies
 2. `frontend/package.json` - Frontend dependencies
 3. `backend/app/models.py` - Data models
@@ -492,26 +520,31 @@ Level 4: Validation
 ## 📞 Quick Help
 
 **Backend won't start?**
+
 - Check Python 3.8+ installed
 - Check port 8000 free
 - Check dependencies installed
 
 **Frontend won't load?**
+
 - Check Node.js installed
 - Check npm dependencies installed
 - Check backend running first
 
 **Component not showing?**
+
 - Verify registered in COMPONENT_REGISTRY
 - Verify metadata in schemas.py
 - Clear browser cache & reload
 
 **WebSocket not working?**
+
 - Check backend running
 - Check WebSocket URL correct
 - Check browser Network tab for connection
 
 **Job execution fails?**
+
 - Check component configuration
 - Check data types match expectations
 - Look at backend terminal for error details
@@ -521,7 +554,7 @@ Level 4: Validation
 ## 📊 Statistics
 
 | Metric | Value |
-|--------|-------|
+| -------- | ------- |
 | Total Files | 50+ |
 | Total Lines of Code | ~5000 |
 | Backend Files | 13 |
@@ -540,6 +573,7 @@ Level 4: Validation
 **RecDataPrep is a complete, production-ready ETL visual designer system.**
 
 It combines:
+
 - **Modern Frontend:** React + TypeScript + React Flow
 - **Robust Backend:** FastAPI + Python + Pydantic
 - **Powerful Engine:** Custom ETL orchestrator with Talend-like features
@@ -547,6 +581,7 @@ It combines:
 - **Comprehensive Documentation:** Multiple guides for different audiences
 
 The system is ready for:
+
 - ✅ Local development
 - ✅ Feature additions
 - ✅ Production deployment

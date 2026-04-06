@@ -19,6 +19,7 @@ Comprehensive standards for logging, error handling, naming conventions, and cod
 ## Overview
 
 The v1 engine is designed for Talend job compatibility, supporting:
+
 - Java routine execution via Py4J bridge
 - Talend-style global variables and triggers
 - Component statistics tracking (NB_LINE, NB_LINE_OK, etc.)
@@ -92,7 +93,7 @@ src/v1/
 ### File Naming Rules
 
 | Category | Pattern | Example |
-|----------|---------|---------|
+| ---------- | --------- | --------- |
 | Component files | `snake_case.py` | `file_input_delimited.py` |
 | Manager files | `*_manager.py` | `context_manager.py`, `trigger_manager.py` |
 | Base classes | `base_*.py` | `base_component.py` |
@@ -101,7 +102,7 @@ src/v1/
 ### Class to File Mapping
 
 | Talend Component | File Name | Class Name |
-|------------------|-----------|------------|
+| ------------------ | ----------- | ------------ |
 | tFileInputDelimited | `file_input_delimited.py` | `FileInputDelimited` |
 | tMap | `map.py` | `Map` |
 | tFilterRows | `filter_rows.py` | `FilterRows` |
@@ -117,7 +118,7 @@ src/v1/
 ### Variables
 
 | Category | Convention | Examples |
-|----------|------------|----------|
+| ---------- | ------------ | ---------- |
 | Local variables | `snake_case` | `input_data`, `row_count`, `output_schema` |
 | Instance attributes | `snake_case` | `self.config`, `self.global_map` |
 | Private methods | `_snake_case` | `_process()`, `_update_stats()` |
@@ -188,7 +189,7 @@ f"{component_id}_NB_LINE_OK"
 ### Prefixes and Suffixes
 
 | Prefix/Suffix | Usage | Example |
-|---------------|-------|---------|
+| --------------- | ------- | --------- |
 | `_` prefix | Private method/attribute | `_process()`, `_validate_config()` |
 | `__` prefix | Name mangling (avoid) | Not recommended |
 | `_df` suffix | DataFrame variable | `result_df`, `joined_df` |
@@ -214,7 +215,7 @@ logger = logging.getLogger(__name__)
 ### Log Levels
 
 | Level | Use Case | Example |
-|-------|----------|---------|
+| ------- | ---------- | --------- |
 | `DEBUG` | Detailed flow, variable values | Expression evaluation, join details |
 | `INFO` | Key milestones, statistics | Component start/end, rows processed |
 | `WARNING` | Recoverable issues | Missing optional column, empty lookup |
@@ -693,6 +694,7 @@ class ComponentName(BaseComponent):
         result = component.execute(input_df)
 
     Notes:
+
         - Special behavior note 1
         - Special behavior note 2
     """
@@ -713,6 +715,7 @@ def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
 
     Returns:
         Dictionary containing:
+
             - 'main': Processed DataFrame with columns [a, b, c]
             - 'reject': Rejected rows (if reject_output enabled)
             - 'stats': Execution statistics
@@ -810,7 +813,7 @@ src/converters/complex_converter/
 **Responsibilities:**
 
 | File | Responsibility |
-|------|---------------|
+| ------ | --------------- |
 | `converter.py` | XML parsing, flow/trigger extraction, subjob detection, orchestration |
 | `component_parser.py` | Component-specific config parsing, parameter mapping, schema extraction |
 | `expression_converter.py` | Java→Python expression conversion, type mapping, Java detection |
@@ -822,7 +825,7 @@ src/converters/complex_converter/
 **CRITICAL**: Use consistent `snake_case` for all Python config keys. Never use `camelCase` or `UPPER_CASE` for output JSON.
 
 | Talend XML Parameter | Python Config Key | Notes |
-|----------------------|-------------------|-------|
+| ---------------------- | ------------------- | ------- |
 | `FILENAME` | `filepath` | File path for input/output |
 | `FIELDSEPARATOR` | `delimiter` | Field delimiter |
 | `ROWSEPARATOR` | `row_separator` | Row separator |
@@ -848,7 +851,7 @@ src/converters/complex_converter/
 **Standard type mapping** - use `ExpressionConverter.convert_type()`:
 
 | Talend Type | Python Type | JSON Output |
-|-------------|-------------|-------------|
+| ------------- | ------------- | ------------- |
 | `id_String` | `str` | `"str"` |
 | `id_Integer` | `int` | `"int"` |
 | `id_Long` | `int` | `"int"` |
@@ -885,7 +888,7 @@ The v1 engine maps these types internally (e.g., `id_String` → `object`, `id_I
 **Standard mapping** - defined in `ComponentParser.component_mapping`:
 
 | Talend Component | Python Class Name | Notes |
-|------------------|-------------------|-------|
+| ------------------ | ------------------- | ------- |
 | `tFileInputDelimited` | `FileInputDelimited` | Remove `t` prefix, PascalCase |
 | `tFileOutputDelimited` | `FileOutputDelimited` | |
 | `tMap` | `Map` | |
@@ -931,6 +934,7 @@ Every component in the output JSON must have this structure:
 ```
 
 **Required fields:**
+
 - `id` - Unique component identifier (from `UNIQUE_NAME` parameter)
 - `type` - Mapped Python class name
 - `original_type` - Original Talend component name (for debugging)
@@ -951,6 +955,7 @@ Every component in the output JSON must have this structure:
 ```
 
 **Flow types** (lowercase):
+
 - `flow` - Standard data flow
 - `main` - Main output flow
 - `reject` - Reject output flow
@@ -971,7 +976,7 @@ Every component in the output JSON must have this structure:
 **Trigger type mapping:**
 
 | Talend Trigger | JSON Type |
-|----------------|-----------|
+| ---------------- | ----------- |
 | `SUBJOB_OK` | `OnSubjobOk` |
 | `SUBJOB_ERROR` | `OnSubjobError` |
 | `COMPONENT_OK` | `OnComponentOk` |
@@ -987,7 +992,7 @@ Use `ExpressionConverter.detect_java_expression()` to identify expressions requi
 **Patterns that trigger Java execution:**
 
 | Pattern | Example | Why Java |
-|---------|---------|----------|
+| --------- | --------- | ---------- |
 | Routine calls | `routines.StringUtils.clean(x)` | Java routine |
 | Static method calls | `ValidationUtils.validate(x)` | Java class |
 | Method calls | `value.substring(0, 5)` | Java method |
@@ -1000,10 +1005,10 @@ Use `ExpressionConverter.detect_java_expression()` to identify expressions requi
 **Patterns that DON'T trigger Java (handled by Python/ContextManager):**
 
 | Pattern | Example | Why Not Java |
-|---------|---------|--------------|
+| --------- | --------- | -------------- |
 | Context reference | `${context.var}` | ContextManager handles |
 | File paths | `/data/input.csv` | Literal path |
-| URLs | `https://example.com` | Literal URL |
+| URLs | `<https://example.com`> | Literal URL |
 | Encodings | `UTF-8`, `ISO-8859-1` | Literal identifier |
 | Negative numbers | `-5`, `-3.14` | Literal number |
 
@@ -1024,7 +1029,7 @@ marked = ExpressionConverter.mark_java_expression(expression)
 **Where to apply marking:**
 
 | Location | Apply Marking | Example |
-|----------|---------------|---------|
+| ---------- | --------------- | --------- |
 | tMap column expressions | YES | `{{java}}row1.name` |
 | tMap filter expressions | YES | `{{java}}row1.amount > 100` |
 | tMap variable expressions | YES | `{{java}}row1.value * 2` |
@@ -1035,6 +1040,7 @@ marked = ExpressionConverter.mark_java_expression(expression)
 ### Adding New Component Parsers
 
 **CRITICAL**: Every component MUST have its own dedicated `parse_*` method. Do NOT use generic parameter mapping for "simple" components. This ensures:
+
 - Consistent debugging experience across all 70-90 components
 - Clear single place to look when a component has issues
 - Easy to add component-specific logic later

@@ -60,8 +60,8 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
-            "http://localhost:3000",
-            "http://localhost:5173",
+            "<http://localhost:3000",>
+            "<http://localhost:5173",>
             ...
         ],
         allow_credentials=True,
@@ -78,6 +78,7 @@ def create_app() -> FastAPI:
 ```
 
 **Key Concepts:**
+
 - CORS enabled for frontend (localhost:5173)
 - Routes organized into separate modules
 - Health check endpoint for monitoring
@@ -214,6 +215,7 @@ async def get_component_metadata(component_type: str):
 ```
 
 **How to Add a New Component:**
+
 1. Define ComponentMetadata in COMPONENT_REGISTRY
 2. Create corresponding component class in `src/v1/engine/components/`
 3. Register in engine's COMPONENT_REGISTRY
@@ -274,6 +276,7 @@ class JobService:
 ```
 
 **Key Methods:**
+
 - `create_job()` - Persist new job
 - `get_job()` - Load job by ID
 - `list_jobs()` - Get all jobs
@@ -368,6 +371,7 @@ execution_manager = ExecutionManager()
 ```
 
 **Execution Flow:**
+
 1. Frontend calls `/api/execution/start`
 2. `ExecutionManager.create_execution()` creates task
 3. `ETLEngine.execute()` runs asynchronously
@@ -648,7 +652,7 @@ export interface ExecutionStatus {
 import axios, { AxiosInstance } from 'axios'
 import { JobSchema, ExecutionStatus } from '../types'
 
-const API_BASE = 'http://localhost:8000/api'
+const API_BASE = '<http://localhost:8000/api'>
 
 const axiosInstance: AxiosInstance = axios.create({
   baseURL: API_BASE,
@@ -701,7 +705,7 @@ export class ExecutionWebSocket {
     return new Promise((resolve, reject) => {
       try {
         this.taskId = taskId
-        this.socket = io('http://localhost:8000', {
+        this.socket = io('<http://localhost:8000',> {
           path: `/ws/execution/${taskId}`,
           transports: ['websocket', 'polling'],
         })
@@ -1050,6 +1054,7 @@ class GlobalMap:
 ```
 
 **Common Statistics:**
+
 - `NB_LINE`: Total rows processed
 - `NB_LINE_OK`: Successful rows
 - `NB_LINE_REJECT`: Rejected/failed rows
@@ -1115,7 +1120,7 @@ class TriggerManager:
 ### Jobs Endpoints
 
 | Method | Endpoint | Request | Response | Purpose |
-|--------|----------|---------|----------|---------|
+| -------- | ---------- | --------- | ---------- | --------- |
 | GET | `/api/jobs` | - | `JobSchema[]` | List all jobs |
 | GET | `/api/jobs/{id}` | - | `JobSchema` | Get job details |
 | POST | `/api/jobs` | `JobSchema` | `JobSchema` | Create job |
@@ -1126,14 +1131,14 @@ class TriggerManager:
 ### Components Endpoints
 
 | Method | Endpoint | Response | Purpose |
-|--------|----------|----------|---------|
+| -------- | ---------- | ---------- | --------- |
 | GET | `/api/components` | `ComponentMetadata[]` | List all components |
 | GET | `/api/components/{type}` | `ComponentMetadata` | Get component metadata |
 
 ### Execution Endpoints
 
 | Method | Endpoint | Request | Response | Purpose |
-|--------|----------|---------|----------|---------|
+| -------- | ---------- | --------- | ---------- | --------- |
 | POST | `/api/execution/start` | `{job_id}` | `{task_id}` | Start execution |
 | GET | `/api/execution/{task_id}` | - | `ExecutionStatus` | Get status |
 | POST | `/api/execution/{task_id}/stop` | - | `{message}` | Stop execution |
@@ -1381,7 +1386,7 @@ cd frontend
 npm run dev    # Auto-reloads on file change
 
 # Open browser
-http://localhost:5173
+<http://localhost:5173>
 ```
 
 ### Adding a Feature

@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tSplitRow` |
 | **V1 Engine Class** | None -- no engine implementation exists |
 | **Engine File** | None |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/converters/talend_to_v1/components/transform/split_row.py` | Converter class `SplitRowConverter` (121 lines) |
 | `tests/converters/talend_to_v1/components/test_split_row.py` | Converter tests (24 tests across 10 classes) |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()`, `_build_component_dict()` |
@@ -39,7 +39,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 1 of 1 unique config key extracted (100%); COL_MAPPING stride-2 TABLE (source_column, target_column); 1 phantom param (CONNECTION_FORMAT) removed; single consolidated needs_review; module docstring follows CONVERTER_PATTERN.md |
 | Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No engine implementation exists at all; component cannot execute |
 | Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code quality is good (follows CONVERTER_PATTERN.md), but no engine code exists -- component is incomplete. Converter alone cannot deliver functionality. |
@@ -49,6 +49,7 @@ How production-ready is this component at a glance?
 **Overall: RED -- No engine implementation. Converter correctly extracts all params for future engine support, but component cannot execute in production. Engine must be implemented before this component is usable.**
 
 **Top Actions**:
+
 1. Implement concrete SplitRow engine class (P0 -- blocks production use)
 2. All converter and test issues resolved in v1.1 rewrite
 
@@ -72,7 +73,7 @@ This component is used in ETL jobs where a single data source needs to feed diff
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Column Mapping | `COL_MAPPING` | TABLE (stride-2) | Empty | Maps source columns to target columns. Each entry has SOURCE_COLUMN and TARGET_COLUMN. Uses COLUMNS_BASED_ON_SCHEMA="true" in _java.xml but .item exports contain explicit elementRef entries. |
 | -- | *Framework* | | | | |
 | 2 | Stat Catcher | `TSTATCATCHER_STATS` | BOOLEAN | `false` | Enable statistics collection via tStatCatcher |
@@ -87,7 +88,7 @@ No advanced settings defined in _java.xml for tSplitRow.
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Main input data flow |
 | `FLOW` (Output) | Output | Row > Main | One or more output flows, each receiving mapped columns |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires after successful completion |
@@ -96,7 +97,7 @@ No advanced settings defined in _java.xml for tSplitRow.
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Number of input rows processed |
 
 ### 3.5 Behavioral Notes
@@ -116,7 +117,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 The converter uses `SplitRowConverter` with `@REGISTRY.register("tSplitRow")`. It extracts the COL_MAPPING TABLE using a module-level `_parse_col_mapping()` stride-2 parser and framework params via base class helpers. Uses `_build_component_dict()` with `type_name="tSplitRow"` (no engine implementation exists).
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `COL_MAPPING` | Yes | `col_mapping` | Stride-2 TABLE: SOURCE_COLUMN -> source_column, TARGET_COLUMN -> target_column. Returns list of dicts. |
 | 2 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Framework param, default False |
 | 3 | `LABEL` | Yes | `label` | Framework param, default "" |
@@ -127,7 +128,7 @@ The converter uses `SplitRowConverter` with `@REGISTRY.register("tSplitRow")`. I
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` from base class |
 | `type` | Yes | Via `convert_type()` -- Talend types to Python types |
 | `nullable` | Yes | Boolean flag |
@@ -150,7 +151,7 @@ None -- converter follows gold standard CONVERTER_PATTERN.md with correct TABLE 
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | (entire component) | No v1 engine implementation for tSplitRow -- entire component is unimplemented; converter output cannot be executed at runtime | engine_gap |
 
 ---
@@ -162,20 +163,20 @@ How faithfully does the v1 engine implement Talend behavior?
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Column mapping split | **No** | N/A | N/A | No engine class exists |
 | 2 | Multi-output routing | **No** | N/A | N/A | No engine class exists |
 
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-SPR-001 | **P0** | **OPEN** -- No engine implementation. tSplitRow converter output cannot be executed. Jobs containing tSplitRow will fail at runtime. |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | No | N/A | No engine implementation |
 
 ---
@@ -191,12 +192,13 @@ No engine code exists. Converter code has no bugs identified.
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No issues. Converter uses correct snake_case config keys per CONVERTER_PATTERN.md. |
 
 ### 6.3 Standards Compliance
 
 Converter follows CONVERTER_PATTERN.md:
+
 - Module docstring with config mapping table
 - Module-level TABLE constants and parser function
 - `_build_component_dict()` wrapper
@@ -214,7 +216,7 @@ No security concerns -- component performs column-level data routing with no ext
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Module-level `logger = logging.getLogger(__name__)` -- correct |
 | Level usage | N/A -- no engine code; converter has no log calls (appropriate for simple converter) |
 | Sensitive data | No risk -- column names only |
@@ -222,7 +224,7 @@ No security concerns -- component performs column-level data routing with no ext
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | N/A -- no engine code |
 | Exception chaining | N/A -- no engine code |
 | die_on_error handling | N/A -- component has no DIE_ON_ERROR param |
@@ -230,7 +232,7 @@ No security concerns -- component performs column-level data routing with no ext
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Fully typed (`convert()`, `_parse_col_mapping()`) |
 | Parameter types | All parameters typed with `Dict[str, Any]`, `List[Dict[str, str]]`, etc. |
 
@@ -245,7 +247,7 @@ No engine implementation exists. Performance cannot be assessed.
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- no engine implementation |
 | Memory threshold | N/A |
 | Large data handling | N/A |
@@ -259,7 +261,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 24 | `tests/converters/talend_to_v1/components/test_split_row.py` |
 | Engine unit tests | 0 | None -- no engine implementation |
 | Integration tests | 0 | None -- no engine implementation |
@@ -267,12 +269,13 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-SPR-001 | **P0** | **OPEN** -- No engine tests (engine unimplemented). Component is untestable end-to-end. |
 
 ### 8.3 Recommended Test Cases
 
 When engine is implemented:
+
 - Happy path: single input row split to multiple outputs by column mapping
 - Multiple mappings: verify each output receives correct columns
 - Empty input: 0-row DataFrame with schema preserved
@@ -289,7 +292,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 3 | **ENG-SPR-001**, **TEST-SPR-001**, **CQ-SPR-001** |
 | P1 | 0 | -- |
 | P2 | 0 | -- |
@@ -299,7 +302,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
 | Engine (ENG) | 1 | ENG-SPR-001 |
 | Code Quality (CQ) | 1 | CQ-SPR-001 (no engine code) |
@@ -337,8 +340,8 @@ No items -- component is simple enough that optimization is unlikely to be neede
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://github.com/Talaxie/tdi-studio-se/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tSplitRow/tSplitRow_java.xml` | Parameter definitions, TABLE structure, defaults |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://github.com/Talaxie/tdi-studio-se/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tSplitRow/tSplitRow_java.xml`> | Parameter definitions, TABLE structure, defaults |
 | Converter source | `src/converters/talend_to_v1/components/transform/split_row.py` | Converter audit |
 | Test source | `tests/converters/talend_to_v1/components/test_split_row.py` | Test coverage analysis |
 | Base class | `src/converters/talend_to_v1/components/base.py` | Helper method reference |
@@ -346,7 +349,7 @@ No items -- component is simple enough that optimization is unlikely to be neede
 ## Appendix B: Converter Config Key Mapping
 
 | Talend XML Parameter | Config Key | Type | Default | Extraction Method |
-|----------------------|------------|------|---------|-------------------|
+| ---------------------- | ------------ | ------ | --------- | ------------------- |
 | `COL_MAPPING` | `col_mapping` | list of dicts | `[]` | `_parse_col_mapping()` stride-2 parser |
 | `COL_MAPPING.SOURCE_COLUMN` | `source_column` | str | -- | elementRef in TABLE entry |
 | `COL_MAPPING.TARGET_COLUMN` | `target_column` | str | -- | elementRef in TABLE entry |

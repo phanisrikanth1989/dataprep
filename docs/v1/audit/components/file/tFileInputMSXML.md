@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tFileInputMSXML` |
 | **V1 Engine Class** | None -- no concrete engine implementation exists |
 | **Engine File** | None -- no engine file |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/converters/talend_to_v1/components/file/file_input_msxml.py` | Converter class `FileInputMSXMLConverter` (132 lines) |
 | `tests/converters/talend_to_v1/components/test_file_input_msxml.py` | Converter tests (44 tests, 10 classes) |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()`, `_build_component_dict()` |
@@ -39,7 +39,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 10 of 10 _java.xml params extracted (100%); SCHEMAS TABLE stride-3 parser; 1 consolidated needs_review for missing engine; module docstring follows CONVERTER_PATTERN.md |
 | Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No concrete engine implementation exists; component cannot execute |
 | Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code follows gold standard, but no engine code exists -- component is incomplete |
@@ -49,6 +49,7 @@ How production-ready is this component at a glance?
 **Overall: RED -- No engine implementation. Converter correctly extracts all 10 params for future engine support, but component cannot execute in production. Engine must be implemented before this component is usable.**
 
 **Top Actions**:
+
 1. Implement concrete FileInputMSXML engine class (P0 -- blocks production use)
 2. All converter and test issues resolved in v1.1 rewrite
 
@@ -74,7 +75,7 @@ Unlike tFileInputXML which uses a more complex XPath engine, tFileInputMSXML tar
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Filename | `FILENAME` | FILE | (dir default) | Path to the XML input file |
 | 2 | Root Loop Query | `ROOT_LOOP_QUERY` | TEXT | `/mailbox/emails/email` | XPath expression defining the repeating element to iterate over |
 | 3 | Ignore Order | `IGNORE_ORDER` | CHECK | `false` | When true, ignores element order when matching XPath queries |
@@ -93,7 +94,7 @@ No advanced settings defined in _java.xml for tFileInputMSXML beyond the basic s
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Output | Row > Main | Output data flow. One row per iteration of the root loop query. |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires after all XML elements processed successfully |
 | `COMPONENT_OK` | Output (Trigger) | Trigger | Fires after component completes |
@@ -103,7 +104,7 @@ No advanced settings defined in _java.xml for tFileInputMSXML beyond the basic s
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Number of rows successfully read from the XML file |
 
 ### 3.5 Behavioral Notes
@@ -126,7 +127,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 The `FileInputMSXMLConverter` class follows the gold standard CONVERTER_PATTERN.md with module-level TABLE constants and parser function, section-delimited parameter extraction, and `_build_component_dict()` wrapper.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `FILENAME` | Yes | `filename` | `_get_str()`, default `""` |
 | 2 | `ROOT_LOOP_QUERY` | Yes | `root_loop_query` | `_get_str()`, default `"/mailbox/emails/email"` |
 | 3 | `IGNORE_ORDER` | Yes | `ignore_order` | `_get_bool()`, default `False` |
@@ -145,7 +146,7 @@ The `FileInputMSXMLConverter` class follows the gold standard CONVERTER_PATTERN.
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` base class method |
 | `type` | Yes | Converted via `convert_type()` from Talend types |
 | `nullable` | Yes | Boolean from schema column |
@@ -164,7 +165,7 @@ Context variables (`context.var`) and Java expressions (`{{java}}`) are passed t
 No open issues. Converter follows gold standard CONVERTER_PATTERN.md.
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No converter issues found |
 
 ### 4.5 Needs Review Entries
@@ -172,7 +173,7 @@ No open issues. Converter follows gold standard CONVERTER_PATTERN.md.
 Single consolidated needs_review entry per D-37 (no engine component):
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | (all) | No concrete engine implementation for tFileInputMSXML -- all config keys extracted for future engine support | engine_gap |
 
 ---
@@ -184,7 +185,7 @@ How faithfully does the v1 engine implement Talend behavior?
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | XML file reading | **No** | N/A | -- | No engine implementation |
 | 2 | XPath loop query | **No** | N/A | -- | No engine implementation |
 | 3 | SCHEMAS mapping | **No** | N/A | -- | No engine implementation |
@@ -197,13 +198,13 @@ How faithfully does the v1 engine implement Talend behavior?
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-MSXML-001 | **P0** | No engine implementation exists. Component cannot execute. All XML parsing, XPath mapping, and output generation features are completely absent. |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | No | -- | No engine implementation |
 
 ---
@@ -215,7 +216,7 @@ How well-written is the engine code?
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-MSXML-001 | **P0** | -- | No engine code exists. Cannot assess bugs in non-existent code. The converter code quality is good (follows CONVERTER_PATTERN.md). |
 
 ### 6.2 Naming Consistency
@@ -237,7 +238,7 @@ No concerns in converter code. When engine is implemented, should validate FILEN
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Module-level `logger = logging.getLogger(__name__)` present |
 | Level usage | N/A -- no log statements needed in converter |
 | Sensitive data | No sensitive data logged |
@@ -245,7 +246,7 @@ No concerns in converter code. When engine is implemented, should validate FILEN
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Not applicable -- converters return ComponentResult, never raise |
 | Exception chaining | Not applicable |
 | die_on_error handling | Extracted as config key for future engine use |
@@ -253,7 +254,7 @@ No concerns in converter code. When engine is implemented, should validate FILEN
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Fully typed (convert method, _parse_schemas function) |
 | Parameter types | All params typed with Dict, List, Any, str, bool |
 
@@ -264,13 +265,13 @@ No concerns in converter code. When engine is implemented, should validate FILEN
 Will it scale?
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No engine implementation to assess. Performance characteristics will depend on DOM4J vs SAX mode selection when engine is built. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- no engine. When implemented, SAX mode should enable streaming for large XML files |
 | Memory threshold | N/A -- no engine. DOM4J mode will load entire document into memory |
 | Large data handling | N/A -- no engine |
@@ -284,7 +285,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 44 | `tests/converters/talend_to_v1/components/test_file_input_msxml.py` |
 | Engine unit tests | 0 | None -- no engine implementation |
 | Integration tests | 0 | None -- no engine implementation |
@@ -292,12 +293,13 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-MSXML-001 | **P0** | No engine tests -- engine does not exist |
 
 ### 8.3 Recommended Test Cases
 
 When engine is implemented:
+
 - Happy path: read simple XML, verify output rows match expected
 - Empty XML file (0 elements matching root loop query)
 - Large XML file with SAX mode
@@ -319,7 +321,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 3 | **ENG-MSXML-001**, **BUG-MSXML-001**, **TEST-MSXML-001** |
 | P1 | 0 | -- |
 | P2 | 0 | -- |
@@ -329,7 +331,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
 | Engine (ENG) | 1 | ENG-MSXML-001 |
 | Bug (BUG) | 1 | BUG-MSXML-001 |
@@ -349,13 +351,16 @@ No cross-cutting issues applicable -- no engine implementation exists to inherit
 What should be fixed, in what order?
 
 ### Immediate (Before Production)
+
 1. **ENG-MSXML-001 (P0):** Implement concrete FileInputMSXML engine class with DOM4J/SAX XML parsing, XPath loop query, SCHEMAS mapping, trim, date validation, and DTD handling
 2. **TEST-MSXML-001 (P0):** Add engine unit tests after engine implementation
 
 ### Short-term (Hardening)
+
 - None -- converter is fully complete
 
 ### Long-term (Optimization)
+
 - Consider SAX streaming mode for memory-efficient processing of large XML files
 - Add REJECT flow support for rows with parsing errors
 
@@ -364,8 +369,8 @@ What should be fixed, in what order?
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://github.com/Talaxie/tdi-studio-se` (tFileInputMSXML_java.xml) | Parameter definitions, defaults, field types |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://github.com/Talaxie/tdi-studio-se`> (tFileInputMSXML_java.xml) | Parameter definitions, defaults, field types |
 | Converter source | `src/converters/talend_to_v1/components/file/file_input_msxml.py` | Converter audit |
 | Converter tests | `tests/converters/talend_to_v1/components/test_file_input_msxml.py` | Test coverage analysis |
 | Gold standard templates | `docs/v1/standards/CONVERTER_PATTERN.md`, `TEST_PATTERN.md`, `AUDIT_REPORT_TEMPLATE.md` | Pattern compliance verification |
@@ -375,7 +380,7 @@ What should be fixed, in what order?
 No cross-cutting issues applicable -- no engine implementation exists.
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | -- | -- | No engine code inherits base class bugs |
 
 ---

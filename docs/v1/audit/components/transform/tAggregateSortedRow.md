@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tAggregateSortedRow` |
 | **V1 Engine Class** | `AggregateSortedRow` |
 | **Engine File** | `src/v1/engine/components/transform/aggregate_sorted_row.py` (413 lines) |
@@ -25,7 +25,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/transform/aggregate_sorted_row.py` | Engine implementation (413 lines) |
 | `src/converters/talend_to_v1/components/transform/aggregate_sorted_row.py` | Converter class (232 lines) |
 | `tests/converters/talend_to_v1/components/test_aggregate_sorted_row.py` | Converter tests (31 tests) |
@@ -37,7 +37,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 3 unique + 2 framework params (100%); GROUPBYS stride-2, OPERATIONS stride-4 state-machine parser; function mapping (distinct->count_distinct, list_object->list); 1 static + 2 conditional needs_review |
 | Engine Feature Parity | **Y** | 0 | 3 | 3 | 1 | No sorted-input streaming optimization; IGNORE_NULL not supported; group-by column renaming not supported; function mapping gaps (list_object, distinct handled at converter level) |
 | Code Quality | **G** | 0 | 0 | 1 | 1 | Well-structured state-machine parser; comprehensive docstring; clean separation of TABLE parsing at module level; minor: 95% duplication with AggregateRow engine |
@@ -47,6 +47,7 @@
 **Overall: Y (Yellow) -- Converter is Gold standard. Engine has feature gaps (no sorted-stream optimization, no IGNORE_NULL) but core aggregation logic works correctly.**
 
 **Top Actions**:
+
 1. Add engine IGNORE_NULL support (per-operation null handling)
 2. Optimize engine for sorted-input streaming (O(1) memory)
 3. Add engine unit tests for aggregation edge cases
@@ -71,7 +72,7 @@ Typical use cases include aggregating large sorted datasets where memory efficie
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Schema | `SCHEMA` | SCHEMA | -- | Input/output schema definition (handled by framework) |
 | 2 | Group-by columns | `GROUPBYS` | TABLE (stride-2) | [] | Columns to group by. Each row has OUTPUT_COLUMN (output name) and INPUT_COLUMN (source column name) |
 | 3 | Operations | `OPERATIONS` | TABLE (stride-4) | [] | Aggregation operations. Each row has OUTPUT_COLUMN, INPUT_COLUMN, FUNCTION, and optional IGNORE_NULL |
@@ -86,7 +87,7 @@ None documented in _java.xml.
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Pre-sorted input data |
 | `FLOW` (Main) | Output | Row > Main | Aggregated output rows |
 | `REJECT` | Output | Row > Reject | Rejected rows (not implemented in engine) |
@@ -96,7 +97,7 @@ None documented in _java.xml.
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total rows processed |
 | `{id}_NB_LINE_OK` | Integer | After execution | Rows successfully aggregated |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Rows rejected (always 0 in v1) |
@@ -118,7 +119,7 @@ None documented in _java.xml.
 The converter uses `@REGISTRY.register("tAggregateSortedRow")` for dispatch. GROUPBYS TABLE is parsed with stride-2 into list of `{output_column, input_column}` dicts. OPERATIONS TABLE uses a state-machine parser (flush-on-OUTPUT_COLUMN) for robustness with optional IGNORE_NULL. Function names are mapped via `_FUNCTION_MAP`. ROW_COUNT extracted as str (TEXT type). Phantom params DIE_ON_ERROR and CONNECTION_FORMAT excluded.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `GROUPBYS` | Yes | `groupbys` | TABLE stride-2 -> list of {output_column, input_column} dicts |
 | 2 | `OPERATIONS` | Yes | `operations` | TABLE stride-4 state-machine -> list of {output_column, input_column, function, ignore_null} dicts |
 | 3 | `ROW_COUNT` | Yes | `row_count` | TEXT type, _get_str, default "" |
@@ -130,7 +131,7 @@ The converter uses `@REGISTRY.register("tAggregateSortedRow")` for dispatch. GRO
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` |
 | `type` | Yes | Converted via `convert_type()` |
 | `nullable` | Yes | Direct extraction |
@@ -149,7 +150,7 @@ ROW_COUNT is extracted as a string to preserve expression references (e.g., `con
 All converter issues have been resolved in the gold-standard rewrite:
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | CONV-ASR-001 | ~~P1~~ | **FIXED** -- Phantom DIE_ON_ERROR and CONNECTION_FORMAT removed |
 | CONV-ASR-002 | ~~P1~~ | **FIXED** -- Function mapping: distinct->count_distinct, list_object->list |
 | CONV-ASR-003 | ~~P2~~ | **FIXED** -- GROUPBYS parsed as stride-2 list of dicts (not flat list) |
@@ -159,7 +160,7 @@ All converter issues have been resolved in the gold-standard rewrite:
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `row_count` | Engine does not read row_count config key -- processes all rows regardless | engine_gap |
 | 2 | GROUPBYS renaming | Engine does not support group-by column renaming (conditional: only emitted when OUTPUT_COLUMN differs from INPUT_COLUMN) | engine_gap |
 | 3 | `ignore_null` | Engine ignores per-operation ignore_null flag -- always uses pandas skipna=True (conditional: only emitted when ignore_null present in operations) | engine_gap |
@@ -171,7 +172,7 @@ All converter issues have been resolved in the gold-standard rewrite:
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Group-by aggregation | **Yes** | High | `_aggregate_grouped()` line 219 | Core groupby logic via pandas |
 | 2 | Ungrouped aggregation | **Yes** | High | `_aggregate_all()` line 197 | Aggregates entire dataset when no group_bys |
 | 3 | sum function | **Yes** | High | `_apply_agg_function()` line 383 | With Decimal precision support |
@@ -192,7 +193,7 @@ All converter issues have been resolved in the gold-standard rewrite:
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-ASR-001 | **P1** | Engine does not support IGNORE_NULL flag -- always skips nulls via pandas default skipna=True. When ignore_null=false, Talend includes nulls in aggregation; engine incorrectly skips them. |
 | ENG-ASR-002 | **P1** | No sorted-input streaming optimization. Talend processes sorted data in O(1) memory per group; engine loads entire dataset into memory (O(N)). |
 | ENG-ASR-003 | **P1** | Engine does not support group-by column renaming -- reads group_bys as flat list of column names. OUTPUT_COLUMN different from INPUT_COLUMN silently ignored. |
@@ -204,7 +205,7 @@ All converter issues have been resolved in the gold-standard rewrite:
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_stats()` line 111 | Total input rows |
 | `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats()` line 176 | Output rows |
 | `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats()` line 176 | Always 0 (no reject flow) |
@@ -216,13 +217,13 @@ All converter issues have been resolved in the gold-standard rewrite:
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-ASR-001 | **P2** | `aggregate_sorted_row.py:129` | If group_bys list is empty (not None), engine raises ValueError("GROUPBYS configuration is required") even though Talend allows empty group_bys for whole-dataset aggregation |
 
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-ASR-001 | **P3** | Engine reads `group_bys` and `GROUPBYS` (dual key support), creating config key ambiguity |
 
 ### 6.3 Standards Compliance
@@ -240,7 +241,7 @@ No concerns identified. Component processes in-memory data without external I/O.
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- module-level `logger = logging.getLogger(__name__)` |
 | Level usage | Good -- info for start/complete, warning for edge cases, error for failures |
 | Sensitive data | No concerns -- logs column names and counts only |
@@ -248,7 +249,7 @@ No concerns identified. Component processes in-memory data without external I/O.
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | None -- uses ValueError |
 | Exception chaining | Not used |
 | die_on_error handling | Good -- raises on error when True, returns raw input when False |
@@ -256,7 +257,7 @@ No concerns identified. Component processes in-memory data without external I/O.
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- all methods typed |
 | Parameter types | Good -- Dict, List, Optional used correctly |
 
@@ -265,14 +266,14 @@ No concerns identified. Component processes in-memory data without external I/O.
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-ASR-001 | **P1** | No streaming aggregation: Talend tAggregateSortedRow processes sorted input in O(1) memory per group (streaming window); engine loads entire dataset into memory via pandas groupby. For large sorted datasets this defeats the purpose of using tAggregateSortedRow over tAggregateRow. |
 | PERF-ASR-002 | **P2** | Multiple groupby passes: custom aggregations (list, concat, decimal_sum) each perform a separate groupby + merge operation. For N custom aggregations, this is O(N) groupby passes. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Not implemented -- engine does full-dataset pandas groupby |
 | Memory threshold | No limit -- entire input held in memory |
 | Large data handling | Potential OOM for large sorted datasets that Talend handles in O(1) memory |
@@ -284,7 +285,7 @@ No concerns identified. Component processes in-memory data without external I/O.
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 31 | `tests/converters/talend_to_v1/components/test_aggregate_sorted_row.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | 0 | None (covered by regression guard) |
@@ -292,7 +293,7 @@ No concerns identified. Component processes in-memory data without external I/O.
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-ASR-001 | **P2** | No engine unit tests for aggregation logic, edge cases (empty input, single-row groups, all-null columns, unsorted input) |
 
 ### 8.3 Recommended Test Cases
@@ -314,7 +315,7 @@ No concerns identified. Component processes in-memory data without external I/O.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 0 | -- |
 | P1 | 3 | **ENG-ASR-001**, **ENG-ASR-002**, **ENG-ASR-003**, **PERF-ASR-001** |
 | P2 | 5 | **ENG-ASR-004**, **ENG-ASR-005**, **ENG-ASR-006**, **BUG-ASR-001**, **PERF-ASR-002**, **TEST-ASR-001** |
@@ -324,7 +325,7 @@ No concerns identified. Component processes in-memory data without external I/O.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | All FIXED (5 resolved) |
 | Engine (ENG) | 7 | ENG-ASR-001 through ENG-ASR-007 |
 | Bug (BUG) | 1 | BUG-ASR-001 |
@@ -336,7 +337,7 @@ No concerns identified. Component processes in-memory data without external I/O.
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set |
 | XCUT-002 | `base_component.py` | HYBRID streaming mode not supported (component is stateful) |
 
@@ -369,7 +370,7 @@ No P0 issues. Component is usable for typical aggregation workloads.
 ### Risk Matrix
 
 | Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
+| ------ | ----------- | -------- | ------------ |
 | **Incorrect results on unsorted input** | Medium | High | Engine does not validate input sort order. If upstream sort is missing or incorrect, groups will be split, producing multiple partial aggregations per logical group. Add sort-order validation or warning. |
 | **Memory exhaustion on large sorted datasets** | Medium | High | Engine loads entire dataset into memory via pandas groupby, defeating the O(1) memory advantage of sorted-input aggregation. For datasets that exceed memory, use tAggregateRow or add streaming implementation. |
 | **Silent data loss with IGNORE_NULL=false** | Low | High | When IGNORE_NULL=false, Talend includes null values in aggregation (e.g., sum includes null as 0). Engine always skips nulls (pandas skipna=True), silently producing different results. Affects financial calculations where null represents zero. |
@@ -399,8 +400,8 @@ No P0 issues. Component is usable for typical aggregation workloads.
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://github.com/nicco/talaxie/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tAggregateSortedRow/tAggregateSortedRow_java.xml` | Parameter definitions, defaults, TABLE structures |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://github.com/nicco/talaxie/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tAggregateSortedRow/tAggregateSortedRow_java.xml`> | Parameter definitions, defaults, TABLE structures |
 | Engine source | `src/v1/engine/components/transform/aggregate_sorted_row.py` (413 lines) | Feature parity analysis, code quality review |
 | Converter source | `src/converters/talend_to_v1/components/transform/aggregate_sorted_row.py` (232 lines) | Converter audit |
 | Converter tests | `tests/converters/talend_to_v1/components/test_aggregate_sorted_row.py` (31 tests) | Test coverage analysis |
@@ -409,7 +410,7 @@ No P0 issues. Component is usable for typical aggregation workloads.
 ## Appendix B: Engine Config Key Mapping
 
 | Converter Config Key | Engine Reads | Match? | Notes |
-|---------------------|-------------|--------|-------|
+| --------------------- | ------------- | -------- | ------- |
 | `groupbys` (list of dicts) | `group_bys` (list of strings) | No | Converter outputs structured dicts with output_column/input_column; engine expects flat list of column name strings |
 | `operations` (list of dicts) | `operations` (list of dicts) | Partial | Converter includes ignore_null; engine ignores it. Converter maps functions; engine reads function names directly. |
 | `row_count` | Not read | No | Engine processes all rows regardless |

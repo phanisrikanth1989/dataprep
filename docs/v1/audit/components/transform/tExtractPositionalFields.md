@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tExtractPositionalFields` |
 | **V1 Engine Class** | `ExtractPositionalFields` |
 | **Engine File** | `src/v1/engine/components/transform/extract_positional_fields.py` (239 lines) |
@@ -24,7 +24,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/transform/extract_positional_fields.py` | Engine implementation (239 lines) |
 | `src/converters/talend_to_v1/components/transform/extract_positional_fields.py` | Converter class (141 lines) |
 | `tests/converters/talend_to_v1/components/test_extract_positional_fields.py` | Converter tests (49 tests) |
@@ -36,7 +36,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 13/13 params extracted (11 unique + 2 framework); FORMATS TABLE stride-4; 6 needs_review (1 pattern default + 5 engine-unread) |
 | Engine Feature Parity | **Y** | 0 | 5 | 3 | 1 | No source field selection; no REJECT flow; no null handling; no per-column formatting; no CHECK_FIELDS_NUM |
 | Code Quality | **Y** | 2 | 5 | 4 | 1 | Cross-cutting base class bugs; NaN/None handling gaps; iterrows() anti-pattern; phantom rows from continue |
@@ -46,6 +46,7 @@
 **Overall: YELLOW -- Converter is Green; engine has P1 feature gaps and P0 cross-cutting bugs**
 
 **Top Actions**:
+
 1. Fix cross-cutting base class bugs (P0 -- affects all components)
 2. Implement source FIELD column selection (P1)
 3. Add REJECT flow support (P1)
@@ -70,7 +71,7 @@ It is commonly placed downstream of `tFileInputFullRow` or `tFileInputDelimited`
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Field | `FIELD` | PREV_COLUMN_LIST | "" | Source column containing positional data |
 | 2 | Ignore Source Null | `IGNORE_SOURCE_NULL` | CHECK | true | Skip null source values |
 | 3 | Advanced Option | `ADVANCED_OPTION` | CHECK | false | Enable per-column formatting via FORMATS TABLE |
@@ -80,7 +81,7 @@ It is commonly placed downstream of `tFileInputFullRow` or `tFileInputDelimited`
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 6 | Die On Error | `DIE_ON_ERROR` | CHECK | false | Stop job on processing error |
 | 7 | Advanced Separator | `ADVANCED_SEPARATOR` | CHECK | false | Enable custom numeric separators |
 | 8 | Thousands Separator | `THOUSANDS_SEPARATOR` | TEXT | "," | Character for thousands grouping |
@@ -91,7 +92,7 @@ It is commonly placed downstream of `tFileInputFullRow` or `tFileInputDelimited`
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Incoming data with positional string column |
 | `FLOW` (Main) | Output | Row > Main | Extracted fields as separate columns |
 | `REJECT` | Output | Row > Reject | Rows that failed extraction (errorCode/errorMessage columns) |
@@ -101,7 +102,7 @@ It is commonly placed downstream of `tFileInputFullRow` or `tFileInputDelimited`
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total rows processed |
 | `{id}_NB_LINE_OK` | Integer | After execution | Rows successfully extracted |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Rows that failed extraction |
@@ -123,7 +124,7 @@ It is commonly placed downstream of `tFileInputFullRow` or `tFileInputDelimited`
 The converter uses `@REGISTRY.register("tExtractPositionalFields")` for dispatch and `_build_component_dict` with `type_name="ExtractPositionalFields"` for output. All 11 unique _java.xml parameters plus 2 framework parameters are extracted. The FORMATS TABLE is parsed via the module-level `_parse_formats()` function using stride-4 grouping.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `FIELD` | Yes | `field` | str, default "" |
 | 2 | `IGNORE_SOURCE_NULL` | Yes | `ignore_source_null` | bool, default True |
 | 3 | `ADVANCED_OPTION` | Yes | `advanced_option` | bool, default False |
@@ -143,7 +144,7 @@ The converter uses `@REGISTRY.register("tExtractPositionalFields")` for dispatch
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` |
 | `type` | Yes | Mapped via `convert_type()` |
 | `nullable` | Yes | Direct mapping |
@@ -162,7 +163,7 @@ Context variables and Java expressions in string parameters (FIELD, PATTERN, THO
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | CONV-EPF-001 | ~~P1~~ | **FIXED** -- All 11 unique params now extracted with correct defaults |
 | CONV-EPF-002 | ~~P1~~ | **FIXED** -- FORMATS TABLE stride-4 parser implemented |
 | CONV-EPF-003 | ~~P1~~ | **FIXED** -- PATTERN default corrected to "5,4,5" |
@@ -173,7 +174,7 @@ Context variables and Java expressions in string parameters (FIELD, PATTERN, THO
 The converter emits 6 needs_review entries for engine gaps.
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `pattern` | Engine default is '' but Talend default is '5,4,5' -- semantic mismatch | engine_gap |
 | 2 | `field` | Engine does not read 'field' from config | engine_gap |
 | 3 | `ignore_source_null` | Engine does not read 'ignore_source_null' from config | engine_gap |
@@ -188,7 +189,7 @@ The converter emits 6 needs_review entries for engine gaps.
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Pattern-based extraction | **Yes** | Medium | `_process()` line 159 | Splits by field widths; no CHECK_FIELDS_NUM validation |
 | 2 | FIELD column selection | **No** | N/A | -- | Always uses first column; ignores FIELD param |
 | 3 | IGNORE_SOURCE_NULL | **No** | N/A | -- | Not implemented; null rows processed and may cause errors |
@@ -205,7 +206,7 @@ The converter emits 6 needs_review entries for engine gaps.
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-EPF-001 | **P1** | No source FIELD column selection -- always extracts from first column instead of the specified field |
 | ENG-EPF-002 | **P1** | No REJECT flow -- failed rows returned as bulk reject without errorCode/errorMessage |
 | ENG-EPF-003 | **P1** | No IGNORE_SOURCE_NULL handling -- null source values not skipped |
@@ -219,7 +220,7 @@ The converter emits 6 needs_review entries for engine gaps.
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_stats()` | Rows processed |
 | `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats()` | Rows successfully extracted |
 | `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats()` | Rows that failed |
@@ -231,7 +232,7 @@ The converter emits 6 needs_review entries for engine gaps.
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-EPF-001 | **P0** | `base_component.py:304` | CROSS-CUTTING: `_update_global_map()` crashes all components when globalMap is set |
 | BUG-EPF-002 | **P0** | `base_component.py:validate_schema` | CROSS-CUTTING: Inverted nullable logic -- `nullable=True` triggers `fillna(0)` |
 | BUG-EPF-003 | **P1** | `extract_positional_fields.py:164-168` | First column detection uses `'line' in input_data.columns` heuristic -- fragile |
@@ -243,14 +244,14 @@ The converter emits 6 needs_review entries for engine gaps.
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-EPF-001 | **P2** | Output columns named `field_N` when no schema -- Talend uses schema column names always |
 | NAME-EPF-002 | **P2** | `_update_stats()` parameter naming inconsistent with Talend NB_LINE convention |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-EPF-001 | **P2** | "Use logging not print" | Excessive f-string logging in execute() wrapper |
 | STD-EPF-002 | **P2** | "Avoid debug artifacts" | Verbose DEBUG-level logging in production code |
 
@@ -265,7 +266,7 @@ No concerns identified. The component processes in-memory data and does not perf
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- module-level `logging.getLogger(__name__)` |
 | Level usage | Excessive -- DEBUG-level per-row logging in _process() |
 | Sensitive data | Low risk -- logs field values which could contain PII |
@@ -273,7 +274,7 @@ No concerns identified. The component processes in-memory data and does not perf
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Good -- uses ConfigurationError, ComponentExecutionError, DataValidationError |
 | Exception chaining | Good -- uses `from e` for chained exceptions |
 | die_on_error handling | Correct -- raises on error when True, returns empty when False |
@@ -281,7 +282,7 @@ No concerns identified. The component processes in-memory data and does not perf
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- all methods typed |
 | Parameter types | Good -- Dict[str, Any], Optional[pd.DataFrame] used correctly |
 
@@ -290,14 +291,14 @@ No concerns identified. The component processes in-memory data and does not perf
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-EPF-001 | **P1** | `iterrows()` is O(n) Python loop -- 100-1000x slower than vectorized pandas on large datasets |
 | PERF-EPF-002 | **P2** | No streaming support for large positional files |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Not supported -- entire input buffered in memory |
 | Memory threshold | No limit -- large files may exhaust memory |
 | Large data handling | iterrows() creates per-row overhead; extracted_data list accumulates all rows |
@@ -309,7 +310,7 @@ No concerns identified. The component processes in-memory data and does not perf
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 49 | `tests/converters/talend_to_v1/components/test_extract_positional_fields.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | 0 | None (converter tested via regression guard) |
@@ -317,7 +318,7 @@ No concerns identified. The component processes in-memory data and does not perf
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-EPF-001 | **P2** | No engine unit tests for ExtractPositionalFields |
 
 ### 8.3 Recommended Test Cases
@@ -337,7 +338,7 @@ No concerns identified. The component processes in-memory data and does not perf
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 2 | BUG-EPF-001, BUG-EPF-002 |
 | P1 | 11 | ENG-EPF-001, ENG-EPF-002, ENG-EPF-003, ENG-EPF-004, ENG-EPF-005, BUG-EPF-003, BUG-EPF-004, BUG-EPF-005, BUG-EPF-006, BUG-EPF-007, PERF-EPF-001 |
 | P2 | 9 | ENG-EPF-006, ENG-EPF-007, ENG-EPF-008, NAME-EPF-001, NAME-EPF-002, STD-EPF-001, STD-EPF-002, TEST-EPF-001, PERF-EPF-002 |
@@ -347,7 +348,7 @@ No concerns identified. The component processes in-memory data and does not perf
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | All FIXED (CONV-EPF-001 through 004) |
 | Engine (ENG) | 9 | ENG-EPF-001 through 009 |
 | Bug (BUG) | 7 | BUG-EPF-001 through 007 |
@@ -359,7 +360,7 @@ No concerns identified. The component processes in-memory data and does not perf
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set |
 | XCUT-002 | `base_component.py:validate_schema` | Inverted nullable logic corrupts data |
 | XCUT-003 | Multiple components | `iterrows()` anti-pattern causes performance degradation |
@@ -369,10 +370,12 @@ No concerns identified. The component processes in-memory data and does not perf
 ## 10. Recommendations
 
 ### Immediate (Before Production)
+
 - Fix XCUT-001: `_update_global_map()` crash (P0 -- affects all components)
 - Fix XCUT-002: Inverted nullable logic in validate_schema (P0 -- affects all components)
 
 ### Short-term (Hardening)
+
 - Implement FIELD column selection (ENG-EPF-001)
 - Add REJECT flow with per-row error tracking (ENG-EPF-002)
 - Implement IGNORE_SOURCE_NULL handling (ENG-EPF-003)
@@ -382,6 +385,7 @@ No concerns identified. The component processes in-memory data and does not perf
 - Add engine unit tests (TEST-EPF-001)
 
 ### Long-term (Optimization)
+
 - Add streaming support for large positional files (PERF-EPF-002)
 - Align engine pattern default with Talend '5,4,5' (ENG-EPF-009)
 
@@ -390,8 +394,8 @@ No concerns identified. The component processes in-memory data and does not perf
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | https://github.com/nicholasgasior/talaxie/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tExtractPositionalFields/ | Parameter definitions, defaults |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | <https://github.com/nicholasgasior/talaxie/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tExtractPositionalFields/> | Parameter definitions, defaults |
 | Engine source | `src/v1/engine/components/transform/extract_positional_fields.py` | Feature parity analysis (239 lines) |
 | Converter source | `src/converters/talend_to_v1/components/transform/extract_positional_fields.py` | Converter audit (141 lines) |
 | Converter tests | `tests/converters/talend_to_v1/components/test_extract_positional_fields.py` | Test coverage analysis (49 tests) |
@@ -399,7 +403,7 @@ No concerns identified. The component processes in-memory data and does not perf
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap is set |
 | XCUT-002 | `base_component.py:validate_schema` | Inverted nullable logic -- `nullable=True` triggers `fillna(0)` |
 | XCUT-003 | `extract_positional_fields.py:164` | `iterrows()` anti-pattern -- 100-1000x slower than vectorized |

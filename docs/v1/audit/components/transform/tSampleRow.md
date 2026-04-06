@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tSampleRow` |
 | **V1 Engine Class** | None -- no concrete engine implementation exists |
 | **Engine File** | No dedicated engine file |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/converters/talend_to_v1/components/transform/sample_row.py` | Converter class `SampleRowConverter` (74 lines) |
 | `tests/converters/talend_to_v1/components/test_sample_row.py` | Converter tests (19 tests, 9 classes) |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()`, `_build_component_dict()` |
@@ -39,7 +39,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 1 of 1 _java.xml unique param extracted (100%); RANGE default "1,5,10..20" correct; phantom CONNECTION_FORMAT removed; module docstring follows CONVERTER_PATTERN.md |
 | Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No concrete engine implementation exists; component cannot execute |
 | Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code quality is good (follows CONVERTER_PATTERN.md), but no engine code exists -- component is incomplete |
@@ -49,6 +49,7 @@ How production-ready is this component at a glance?
 **Overall: RED -- No engine implementation. Converter correctly extracts the RANGE param with correct default for future engine support, but component cannot execute in production. Engine must be implemented before this component is usable.**
 
 **Top Actions**:
+
 1. Implement concrete SampleRow engine class (P0 -- blocks production use)
 2. All converter and test issues resolved in v1.1 rewrite
 
@@ -72,7 +73,7 @@ This component is commonly used for data sampling, debugging (inspecting a subse
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Range | `RANGE` | MEMO_JAVA | `"1,5,10..20"` | Row range specification. Supports comma-separated values and double-dot ranges. |
 | 2 | Range Info | `INFO_RANGE` | LABEL | (informational) | Display-only label showing range syntax help. Not a configuration parameter -- not extracted. |
 
@@ -83,14 +84,14 @@ No advanced settings defined in _java.xml.
 ### 3.3 Framework Parameters
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 3 | Stat Catcher | `TSTATCATCHER_STATS` | CHECK | `false` | Enable statistics collection for tStatCatcher |
 | 4 | Label | `LABEL` | TEXT | `""` | User-defined label for the component instance |
 
 ### 3.4 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Incoming data rows to sample from |
 | `FLOW` (Main) | Output | Row > Main | Rows matching the range specification |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires after component completes successfully |
@@ -101,7 +102,7 @@ No advanced settings defined in _java.xml.
 ### 3.5 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Number of rows output by the component |
 
 ### 3.6 Behavioral Notes
@@ -123,7 +124,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 The `SampleRowConverter` class uses `_build_component_dict()` (per CONVERTER_PATTERN.md) with `type_name="tSampleRow"` (per D-43, no-engine). Single consolidated `needs_review` entry per D-27 for the absent engine.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `RANGE` | Yes | `range` | `_get_str(node, "RANGE", "1,5,10..20")` -- correct default per _java.xml |
 | 2 | `INFO_RANGE` | No (correct) | -- | LABEL param (informational text), not a configuration value |
 | 3 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Framework param, default `False` |
@@ -136,7 +137,7 @@ The `SampleRowConverter` class uses `_build_component_dict()` (per CONVERTER_PAT
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` |
 | `type` | Yes | Via `convert_type()` mapping |
 | `nullable` | Yes | Direct from SchemaColumn |
@@ -157,7 +158,7 @@ RANGE is a MEMO_JAVA field, meaning it can contain Java expressions or context v
 No open issues. Converter follows CONVERTER_PATTERN.md gold standard.
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No issues found |
 
 ### 4.5 Needs Review Entries
@@ -165,7 +166,7 @@ No open issues. Converter follows CONVERTER_PATTERN.md gold standard.
 Single consolidated needs_review entry per D-27 (no engine implementation):
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | (component-level) | No v1 engine implementation exists for tSampleRow. Converter output is syntactically valid but cannot execute at runtime. | engine_gap |
 
 ---
@@ -179,7 +180,7 @@ How faithfully does the v1 engine implement Talend behavior?
 No engine implementation exists. All features are unimplemented.
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Row sampling by range | **No** | N/A | -- | No engine class exists |
 | 2 | Range syntax parsing | **No** | N/A | -- | No engine class exists |
 | 3 | Schema passthrough | **No** | N/A | -- | No engine class exists |
@@ -187,13 +188,13 @@ No engine implementation exists. All features are unimplemented.
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-SR-001 | **P0** | No engine implementation exists. Component cannot execute at runtime. |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | No | -- | No engine to set globalMap variables |
 
 ---
@@ -207,7 +208,7 @@ How well-written is the engine code?
 No engine code exists. Converter code has no bugs.
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-SR-001 | **P0** | -- | No engine code exists. Cannot assess engine code quality. |
 
 ### 6.2 Naming Consistency
@@ -215,7 +216,7 @@ No engine code exists. Converter code has no bugs.
 No issues found. Converter follows naming conventions (snake_case config keys, PascalCase class name).
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No issues found |
 
 ### 6.3 Standards Compliance
@@ -223,7 +224,7 @@ No issues found. Converter follows naming conventions (snake_case config keys, P
 Converter fully compliant with CONVERTER_PATTERN.md and TEST_PATTERN.md.
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | -- | -- | -- | No violations found |
 
 ### 6.4 Debug Artifacts
@@ -237,7 +238,7 @@ No concerns identified. The RANGE parameter is a string value that would need va
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- `logger = logging.getLogger(__name__)` at module level |
 | Level usage | N/A -- no logging calls needed in simple converter |
 | Sensitive data | No sensitive data logged |
@@ -245,7 +246,7 @@ No concerns identified. The RANGE parameter is a string value that would need va
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | N/A -- converter returns ComponentResult, does not raise |
 | Exception chaining | N/A |
 | die_on_error handling | N/A -- no engine implementation |
@@ -253,7 +254,7 @@ No concerns identified. The RANGE parameter is a string value that would need va
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Complete -- all parameters and return types annotated |
 | Parameter types | Correct -- matches base class signatures |
 
@@ -266,13 +267,13 @@ Will it scale?
 No engine implementation exists -- performance cannot be assessed.
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No engine code to assess |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- no engine implementation |
 | Memory threshold | N/A |
 | Large data handling | N/A |
@@ -286,7 +287,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 19 | `tests/converters/talend_to_v1/components/test_sample_row.py` |
 | Engine unit tests | 0 | None -- no engine implementation |
 | Integration tests | 0 | None -- no engine implementation |
@@ -294,13 +295,13 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-SR-001 | **P0** | No engine tests exist because no engine implementation exists |
 
 ### 8.3 Test Classes (Converter)
 
 | Class | Tests | What's Verified |
-|-------|-------|-----------------|
+| ------- | ------- | ----------------- |
 | TestRegistration | 1 | REGISTRY.get("tSampleRow") is SampleRowConverter |
 | TestDefaults | 3 | RANGE default "1,5,10..20", tstatcatcher_stats=False, label="" |
 | TestParameterExtraction | 2 | RANGE custom value, single value |
@@ -314,6 +315,7 @@ What's verified?
 ### 8.4 Recommended Test Cases
 
 When an engine is implemented, add:
+
 1. Happy path: sample rows from a 100-row DataFrame with range "1,5,10..20"
 2. Single row selection: range "1"
 3. Range spanning beyond data: range "50..200" on 100-row DataFrame
@@ -330,7 +332,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 3 | **ENG-SR-001**, **BUG-SR-001**, **TEST-SR-001** |
 | P1 | 0 | -- |
 | P2 | 0 | -- |
@@ -340,7 +342,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
 | Engine (ENG) | 1 | ENG-SR-001 |
 | Bug (BUG) | 1 | BUG-SR-001 |
@@ -376,8 +378,8 @@ No long-term issues identified.
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://github.com/Talaxie/tdi-studio-se/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tSampleRow/tSampleRow_java.xml` | Parameter definitions, defaults, types |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://github.com/Talaxie/tdi-studio-se/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tSampleRow/tSampleRow_java.xml`> | Parameter definitions, defaults, types |
 | Converter source | `src/converters/talend_to_v1/components/transform/sample_row.py` | Converter audit |
 | Test source | `tests/converters/talend_to_v1/components/test_sample_row.py` | Test coverage analysis |
 | Gold standard templates | `docs/v1/standards/CONVERTER_PATTERN.md`, `TEST_PATTERN.md`, `AUDIT_REPORT_TEMPLATE.md` | Standards compliance verification |
@@ -385,7 +387,7 @@ No long-term issues identified.
 ## Appendix B: Converter Config Key Mapping
 
 | _java.xml Param | Config Key | Type | Default | Extracted | Notes |
-|-----------------|-----------|------|---------|-----------|-------|
+| ----------------- | ----------- | ------ | --------- | ----------- | ------- |
 | `RANGE` | `range` | str | `"1,5,10..20"` | Yes | MEMO_JAVA type, core parameter |
 | `INFO_RANGE` | -- | -- | -- | No | LABEL param (display only) |
 | `TSTATCATCHER_STATS` | `tstatcatcher_stats` | bool | `False` | Yes | Framework param |

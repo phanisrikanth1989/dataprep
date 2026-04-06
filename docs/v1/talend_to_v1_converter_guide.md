@@ -411,7 +411,7 @@ Talend components include several parameter categories that are **not**
 extracted by the converter:
 
 | Category | Examples | Reason for exclusion |
-|----------|----------|----------------------|
+| ---------- | ---------- | ---------------------- |
 | Schema optimization | `SCHEMA_OPT_NUM` | Studio-only hint for schema preview sampling; no runtime effect |
 | Hidden UI controls | `USE_ITEMS`, `LOOP_QUERY_BASE`, `USE_XML_FIELD`, `XML_TEXT`, `XML_PREFIX`, `LINK_STYLE`, `LKUP_PARALLELIZE`, `ENABLE_AUTO_CONVERT_TYPE`, `LEVENSHTEIN`, `JACCARD`, `HASH_KEY_FROM_INPUT_CONNECTOR` | `show="false"` in component XML; never set by users |
 | Phantom parameters | `CONNECTION_FORMAT`, `TEMP_DIR`, `DESTINATION`, `USE_HEADER_AS_IS`, `TEMP_DIRECTORY`, `SPLIT_LIST`, `JDK_VERSION`, `VAR_TABLE_NAME`, `VAR_TABLE_SIZE_STATE` | Present in `.item` XML but absent from `_java.xml` definition or only used at design time |
@@ -469,21 +469,24 @@ src/converters/talend_to_v1/
 ### Conversion Pipeline
 
 ```text
+
  1. XmlParser.parse(filepath)     → TalendJob (nodes, connections, context)
  2. Convert context variables     → type mapping applied
  3. For each node:
     ├─ REGISTRY.get(type)         → find converter class
     ├─ converter.convert(node)    → ComponentResult (or _unsupported placeholder)
     └─ collect warnings
- 4. Parse flows from connections  → centrally, not per-component
- 5. Update component inputs/outputs from flows
- 6. Propagate input schemas       → set each target's schema.input from
+
+ 1. Parse flows from connections  → centrally, not per-component
+ 2. Update component inputs/outputs from flows
+ 3. Propagate input schemas       → set each target's schema.input from
                                     its upstream component's schema.output
- 7. Parse triggers               → PascalCase naming (OnSubjobOk, etc.)
- 8. Detect subjobs               → DFS on flow connectivity
- 9. Detect Java requirement       → scan for Java component types + {{java}} markers
-10. Validate                     → 4-layer validation
-11. Return assembled config dict
+
+ 1. Parse triggers               → PascalCase naming (OnSubjobOk, etc.)
+ 2. Detect subjobs               → DFS on flow connectivity
+ 3. Detect Java requirement       → scan for Java component types + {{java}} markers
+4. Validate                     → 4-layer validation
+5. Return assembled config dict
 ```
 
 > **Step 6 detail:** After all components are parsed and connections are

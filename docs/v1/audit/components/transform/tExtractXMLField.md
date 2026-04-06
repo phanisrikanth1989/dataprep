@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tExtractXMLField` |
 | **V1 Engine Class** | `ExtractXMLField` |
 | **Engine File** | `src/v1/engine/components/transform/extract_xml_fields.py` (307 lines) |
@@ -24,7 +24,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/transform/extract_xml_fields.py` | Engine implementation (307 lines) |
 | `src/converters/talend_to_v1/components/transform/extract_xml_fields.py` | Converter class (142 lines) |
 | `tests/converters/talend_to_v1/components/test_extract_xml_fields.py` | Converter tests (50 tests) |
@@ -36,7 +36,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 14 of 14 params extracted (100%); 6 hidden params added; MAPPING stride-2 parser; 7 needs_review entries |
 | Engine Feature Parity | **Y** | 1 | 3 | 4 | 1 | limit=0 semantic mismatch; no Get Nodes; namespace stripping incomplete; deprecated getiterator() |
 | Code Quality | **Y** | 2 | 3 | 5 | 3 | Cross-cutting _update_global_map() crash; getiterator() removed in lxml 5.0; empty string / NaN edge cases |
@@ -46,6 +46,7 @@
 **Overall: YELLOW -- Converter fully standardized (Green). Engine has P0/P1 issues blocking full production readiness.**
 
 **Top Actions**:
+
 1. Fix limit=0 semantic mismatch (P0 -- data correctness)
 2. Fix _update_global_map() crash (P0 -- cross-cutting)
 3. Replace deprecated getiterator() with iter() (P1 -- lxml 5.0 compatibility)
@@ -69,7 +70,7 @@ The component is typically placed downstream of a file input or database input c
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | XML Field | `XMLFIELD` | PREV_COLUMN_LIST | `""` | Name of the input column containing XML data to be processed. Selected from incoming schema. |
 | 2 | Use Items | `USE_ITEMS` | CHECK (hidden) | `false` | Hidden parameter controlling item-based XML input mode. |
 | 3 | Loop Query Base | `LOOP_QUERY_BASE` | TEXT (hidden) | `""` | Hidden base path prepended to loop query for XPath resolution. |
@@ -81,7 +82,7 @@ The component is typically placed downstream of a file input or database input c
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 8 | Use XML Field | `USE_XML_FIELD` | CHECK (hidden) | `false` | Hidden toggle controlling whether to use XML field column or inline XML text. |
 | 9 | XML Text | `XML_TEXT` | TEXT (hidden) | `""` | Hidden inline XML text content for direct parsing without column reference. |
 | 10 | XML Prefix | `XML_PREFIX` | TEXT (hidden) | `""` | Hidden namespace prefix override for XPath queries. |
@@ -91,7 +92,7 @@ The component is typically placed downstream of a file input or database input c
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Incoming data flow containing at least one column with XML content. |
 | `FLOW` (Main) | Output | Row > Main | Successfully extracted rows matching the output schema. |
 | `REJECT` | Output | Row > Reject | Rows that failed XML parsing. Contains errorCode and errorMessage columns. |
@@ -103,7 +104,7 @@ The component is typically placed downstream of a file input or database input c
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total rows processed |
 | `{id}_NB_LINE_OK` | Integer | After execution | Rows successfully extracted |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Rows that failed processing |
@@ -114,7 +115,7 @@ The component is typically placed downstream of a file input or database input c
 2. **LOOP_QUERY default is "/bills/bill/line"**: Not empty string -- this is the _java.xml default for the XPath loop expression.
 3. **LIMIT as string**: Supports context variable expressions; empty string means unlimited.
 4. **Talend limit=0 means "read nothing"**: Unlike the engine which treats 0 as "no limit".
-5. **6 hidden params**: USE_ITEMS, LOOP_QUERY_BASE, USE_XML_FIELD, XML_TEXT, XML_PREFIX, SCHEMA_OPT_NUM are present in _java.xml but not visible in standard Talend UI.
+5. **6 hidden params:** USE_ITEMS, LOOP_QUERY_BASE, USE_XML_FIELD, XML_TEXT, XML_PREFIX, SCHEMA_OPT_NUM are present in `_java.xml` but not visible in standard Talend UI.
 6. **Namespace stripping**: When IGNORE_NS is true, Talend generates code to create a namespace-free copy of the XML.
 
 ---
@@ -126,7 +127,7 @@ The component is typically placed downstream of a file input or database input c
 Gold-standard converter using `@REGISTRY.register("tExtractXMLField")` decorator, `_build_component_dict` wrapper with `type_name="ExtractXMLField"`, and per-feature needs_review entries.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `XMLFIELD` | Yes | `xmlfield` | PREV_COLUMN_LIST, default "" |
 | 2 | `USE_ITEMS` | **REMOVED** | ~~use_items~~ | Hidden/design-time param -- removed from converter |
 | 3 | `LOOP_QUERY_BASE` | **REMOVED** | ~~loop_query_base~~ | Hidden/design-time param -- removed from converter |
@@ -147,7 +148,7 @@ Gold-standard converter using `@REGISTRY.register("tExtractXMLField")` decorator
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` |
 | `type` | Yes | Converted via `convert_type()` |
 | `nullable` | Yes | |
@@ -168,7 +169,7 @@ Context variable expressions (e.g., `context.limit`) are preserved as-is in stri
 No open converter issues. All parameters extracted correctly.
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No open issues |
 
 ### 4.5 Needs Review Entries
@@ -176,7 +177,7 @@ No open converter issues. All parameters extracted correctly.
 1 per-feature needs_review entry for engine gaps:
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `limit` | Engine treats limit=0 as "no limit" but Talend treats 0 as "read nothing" -- semantic mismatch | engine_gap |
 
 ---
@@ -186,7 +187,7 @@ No open converter issues. All parameters extracted correctly.
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | XML field column extraction | **Yes** | High | `_process()` line 183 | Reads from configured column |
 | 2 | Loop XPath query | **Yes** | High | `_process()` line 214 | xpath() on parsed root |
 | 3 | Per-column XPath mapping | **Yes** | High | `_process()` lines 222-246 | Iterates mapping entries |
@@ -204,7 +205,7 @@ No open converter issues. All parameters extracted correctly.
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-EXF-001 | **P0** | `limit=0` treated as "no limit" (unlimited rows) but Talend treats 0 as "read nothing" (zero rows). Data correctness issue. |
 | ENG-EXF-002 | **P1** | Get Nodes feature (GET_NODES per-column checkbox) not implemented. Document-typed columns cannot retrieve full XML content. |
 | ENG-EXF-003 | **P1** | Uses deprecated `getiterator()` (removed in lxml 5.0+). Will crash on newer lxml versions. |
@@ -217,7 +218,7 @@ No open converter issues. All parameters extracted correctly.
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_stats()` | Total rows processed |
 | `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats()` | Successful extractions |
 | `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats()` | Failed rows |
@@ -229,7 +230,7 @@ No open converter issues. All parameters extracted correctly.
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-EXF-001 | **P0** | `base_component.py:304` | CROSS-CUTTING: `_update_global_map()` crashes when globalMap is set. Affects all components. |
 | BUG-EXF-002 | **P0** | `extract_xml_fields.py:209` | `getiterator()` deprecated in lxml 4.0, REMOVED in lxml 5.0. Will raise AttributeError on modern lxml. |
 | BUG-EXF-003 | **P1** | `extract_xml_fields.py:200` | `row.get(xml_field, None)` returns None for NaN values (pandas). NaN XML content silently routed to reject instead of being detected. |
@@ -241,14 +242,14 @@ No open converter issues. All parameters extracted correctly.
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-EXF-001 | **P2** | Engine reads `xml_field` but converter emits `xmlfield` (no underscore). Engine gap documented as needs_review. |
 | NAME-EXF-002 | **P2** | Engine reads `mapping` with `schema_column` key but converter MAPPING is stride-2 (QUERY+NODECHECK only). Structure mismatch. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-EXF-001 | **P2** | "Use logging not print" | No violations found. |
 
 ### 6.4 Debug Artifacts
@@ -262,7 +263,7 @@ See Section 11 Risk Assessment for comprehensive XML security analysis.
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- module-level `logging.getLogger(__name__)` |
 | Level usage | Good -- info for start/complete, error for failures, warning for empty input |
 | Sensitive data | No XML content logged (good) |
@@ -270,7 +271,7 @@ See Section 11 Risk Assessment for comprehensive XML security analysis.
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Good -- uses `ComponentExecutionError` and `ConfigurationError` |
 | Exception chaining | Good -- `ComponentExecutionError(self.id, msg, e)` preserves cause |
 | die_on_error handling | Good -- conditionally raises based on config |
@@ -278,7 +279,7 @@ See Section 11 Risk Assessment for comprehensive XML security analysis.
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- full type hints on all public methods |
 | Parameter types | Good -- `Optional[pd.DataFrame]`, `Dict[str, Any]`, `List[str]` |
 
@@ -287,7 +288,7 @@ See Section 11 Risk Assessment for comprehensive XML security analysis.
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-EXF-001 | **P1** | XMLParser created per-row (line 206). Should be created once and reused. |
 | PERF-EXF-002 | **P2** | `iterrows()` (line 199) causes 100-1000x slowdown vs vectorized operations. CROSS-CUTTING anti-pattern. |
 | PERF-EXF-003 | **P2** | Namespace tree walk per-row (lines 209-213). Should strip namespaces once if input XML is consistent. |
@@ -298,7 +299,7 @@ See Section 11 Risk Assessment for comprehensive XML security analysis.
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Not supported. Entire input DataFrame processed at once. |
 | Memory threshold | No limit. Large XML documents could exhaust memory. |
 | Large data handling | Per-row XML parsing is memory-safe per row, but no overall limit on output size. |
@@ -310,7 +311,7 @@ See Section 11 Risk Assessment for comprehensive XML security analysis.
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 50 | `tests/converters/talend_to_v1/components/test_extract_xml_fields.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | 0 | None (component-specific) |
@@ -318,7 +319,7 @@ See Section 11 Risk Assessment for comprehensive XML security analysis.
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-EXF-001 | **P1** | No engine unit tests for ExtractXMLField._process() |
 
 ### 8.3 Recommended Test Cases
@@ -339,7 +340,7 @@ See Section 11 Risk Assessment for comprehensive XML security analysis.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 3 | **BUG-EXF-001**, **BUG-EXF-002**, **ENG-EXF-001** |
 | P1 | 6 | **BUG-EXF-003**, **BUG-EXF-004**, **BUG-EXF-005**, **ENG-EXF-002**, **ENG-EXF-003**, **ENG-EXF-004**, **PERF-EXF-001**, **TEST-EXF-001** |
 | P2 | 7 | **BUG-EXF-006**, **BUG-EXF-007**, **ENG-EXF-005**, **ENG-EXF-006**, **ENG-EXF-007**, **NAME-EXF-001**, **NAME-EXF-002**, **PERF-EXF-002**, **PERF-EXF-003**, **PERF-EXF-004** |
@@ -349,7 +350,7 @@ See Section 11 Risk Assessment for comprehensive XML security analysis.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
 | Engine (ENG) | 8 | ENG-EXF-001 through ENG-EXF-008 |
 | Bug (BUG) | 7 | BUG-EXF-001 through BUG-EXF-007 |
@@ -361,7 +362,7 @@ See Section 11 Risk Assessment for comprehensive XML security analysis.
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set |
 | XCUT-002 | `extract_xml_fields.py:199` | `iterrows()` anti-pattern (shared with multiple components) |
 
@@ -377,15 +378,15 @@ See Section 11 Risk Assessment for comprehensive XML security analysis.
 
 ### Short-term (Hardening)
 
-4. **ENG-EXF-002 (P1)**: Implement Get Nodes feature for Document-typed columns
-5. **BUG-EXF-003/004 (P1)**: Add NaN detection and type checking for xml_field column
-6. **PERF-EXF-001 (P1)**: Create XMLParser once, reuse across rows
-7. **TEST-EXF-001 (P1)**: Add engine unit tests
+1. **ENG-EXF-002 (P1)**: Implement Get Nodes feature for Document-typed columns
+2. **BUG-EXF-003/004 (P1)**: Add NaN detection and type checking for xml_field column
+3. **PERF-EXF-001 (P1)**: Create XMLParser once, reuse across rows
+4. **TEST-EXF-001 (P1)**: Add engine unit tests
 
 ### Long-term (Optimization)
 
-8. **PERF-EXF-002 (P2)**: Replace iterrows() with vectorized XML processing
-9. **ENG-EXF-008 (P3)**: Consider XPath 2.0 support if needed
+1. **PERF-EXF-002 (P2)**: Replace iterrows() with vectorized XML processing
+2. **ENG-EXF-008 (P3)**: Consider XPath 2.0 support if needed
 
 ---
 
@@ -394,7 +395,7 @@ See Section 11 Risk Assessment for comprehensive XML security analysis.
 ### Risk Matrix
 
 | Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
+| ------ | ----------- | -------- | ------------ |
 | XXE (XML External Entity) injection | Medium | High | Engine uses `recover=True` but no explicit XXE protection. Malicious XML in data columns could access local files or trigger SSRF. Mitigation: use `etree.XMLParser(resolve_entities=False, no_network=True)`. |
 | DTD processing risks | Medium | Medium | No DTD processing controls. DTD bomb (billion laughs attack) could cause memory exhaustion. Mitigation: disable DTD loading with `load_dtd=False`. |
 | XPath injection via loop_query | Low | High | User-controlled `loop_query` expressions could be crafted to extract unintended data or cause excessive processing. Mitigation: validate XPath expressions before execution. |
@@ -421,7 +422,7 @@ See Section 11 Risk Assessment for comprehensive XML security analysis.
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
+| -------- | ---------- | ---------- |
 | Official Talend docs | [tExtractXMLField Standard Properties (8.0)](https://help.qlik.com/talend/en-US/components/8.0/processing/textractxmlfield-standard-properties) | Parameter definitions, defaults |
 | Talaxie GitHub _java.xml | [nicholasalx/talend_components](https://github.com/nicholasalx/talend_components) | Component definition XML, hidden params |
 | Engine source | `src/v1/engine/components/transform/extract_xml_fields.py` | Feature parity analysis |
@@ -431,7 +432,7 @@ See Section 11 Risk Assessment for comprehensive XML security analysis.
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set |
 | XCUT-002 | Multiple engine components | `iterrows()` anti-pattern causes 100-1000x performance degradation |
 

@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tFileRowCount` |
 | **V1 Engine Class** | `FileRowCount` |
 | **Engine File** | `src/v1/engine/components/file/file_row_count.py` (229 lines) |
@@ -25,7 +25,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/file/file_row_count.py` | Engine implementation (229 lines) |
 | `src/converters/talend_to_v1/components/file/file_row_count.py` | Converter class (71 lines) |
 | `tests/converters/talend_to_v1/components/test_file_row_count.py` | Converter tests (26 tests) |
@@ -37,7 +37,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 4 unique params + 2 framework params extracted; `_build_component_dict` pattern; phantom DIE_ON_ERROR removed; 1 per-feature needs_review for encoding default mismatch |
 | Engine Feature Parity | **Y** | 0 | 3 | 1 | 1 | No row_separator support; no die_on_error handling; no ERROR_MESSAGE globalMap; encoding default mismatch (UTF-8 vs ISO-8859-15) |
 | Code Quality | **Y** | 1 | 3 | 4 | 2 | Cross-cutting `_update_global_map()` crash (P0); `_validate_config()` dead code (P1); return format dict not DataFrame (P1); synthetic UnicodeDecodeError (P2) |
@@ -47,6 +47,7 @@
 **Overall: Yellow -- Converter fully standardized (Green); engine has config key and default mismatches documented via needs_review; cross-cutting base class bugs and missing engine tests keep overall at Yellow**
 
 **Top Actions:**
+
 1. Fix `_update_global_map()` crash in base class (P0, cross-cutting)
 2. Implement `row_separator` support in engine (P1, engine gap)
 3. Add `die_on_error` handling in engine (P1, engine gap)
@@ -71,7 +72,7 @@ The primary use case is pre-validation: checking whether a file has expected row
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | File Name | `FILENAME` | TEXT (Expression) | `""` | Absolute file path. Supports context variables and Java expressions. |
 | 2 | Row Separator | `ROWSEPARATOR` | TEXT | `"\n"` | Character(s) identifying end of a row. Supports `\r\n`, `\r`, or custom separators. |
 | 3 | Ignore Empty Rows | `IGNORE_EMPTY_ROW` | CHECK (Boolean) | `false` | When checked, blank/whitespace-only rows are excluded from the count. |
@@ -80,7 +81,7 @@ The primary use case is pre-validation: checking whether a file has expected row
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 5 | tStatCatcher Statistics | `TSTATCATCHER_STATS` | CHECK (Boolean) | `false` | Capture processing metadata for tStatCatcher. Framework param. |
 | 6 | Label | `LABEL` | TEXT | `""` | Designer canvas label. No runtime impact. Framework param. |
 
@@ -89,7 +90,7 @@ The primary use case is pre-validation: checking whether a file has expected row
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires when subjob completes successfully. Primary connection for chaining. |
 | `SUBJOB_ERROR` | Output (Trigger) | Trigger | Fires when subjob fails with an error. |
 | `COMPONENT_OK` | Output (Trigger) | Trigger | Fires when this component completes successfully. |
@@ -101,7 +102,7 @@ The primary use case is pre-validation: checking whether a file has expected row
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_COUNT` | Integer | During execution | Primary output. Total rows counted in the file. |
 | `{id}_NB_LINE` | Integer | After execution | Total rows read from file. Standard Talend stat variable. |
 | `{id}_NB_LINE_OK` | Integer | After execution | Rows successfully counted. |
@@ -126,7 +127,7 @@ The primary use case is pre-validation: checking whether a file has expected row
 The converter uses `@REGISTRY.register("tFileRowCount")` with the `FileRowCountConverter` class. All parameters are extracted using `_get_str()` and `_get_bool()` helpers from the base class. Output is wrapped via `_build_component_dict()` with `type_name="FileRowCount"`.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `FILENAME` | Yes | `filename` | str, default `""` |
 | 2 | `ROWSEPARATOR` | Yes | `row_separator` | str, default `"\n"` |
 | 3 | `IGNORE_EMPTY_ROW` | Yes | `ignore_empty_row` | bool, default `false` |
@@ -149,7 +150,7 @@ Utility component -- no data flow schema. Schema is `{"input": [], "output": []}
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | CONV-FRC-005 | ~~P0~~ | **FIXED** -- `talend_to_v1` parser uses safe `_get_str()`/`_get_bool()` helpers |
 | CONV-FRC-001 | ~~P1~~ | **SUPERSEDED** -- `DIE_ON_ERROR` is phantom param (not in _java.xml); removed from converter |
 | CONV-FRC-002 | ~~P2~~ | **FIXED** -- `ENCODING` default corrected to `ISO-8859-15` per _java.xml |
@@ -159,7 +160,7 @@ Utility component -- no data flow schema. Schema is `{"input": [], "output": []}
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `encoding` | Engine default is `UTF-8` but _java.xml default is `ISO-8859-15` | engine_gap |
 
 ---
@@ -169,7 +170,7 @@ Utility component -- no data flow schema. Schema is `{"input": [], "output": []}
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Count rows in file | **Yes** | High | `_process()` lines 176-188 | Line-by-line reading with `open()` |
 | 2 | Ignore empty rows | **Yes** | High | `_process()` line 185 | `if ignore_empty_row and not line.strip()` |
 | 3 | Encoding support | **Yes** | Medium | `_process()` line 181 | Default mismatch: engine UTF-8, Talend ISO-8859-15 |
@@ -182,7 +183,7 @@ Utility component -- no data flow schema. Schema is `{"input": [], "output": []}
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-FRC-001 | **P1** | `row_separator` extracted but never used. Engine reads lines via Python's universal newline mode. Custom separators produce incorrect counts. |
 | ENG-FRC-002 | **P1** | No `die_on_error` handling. All errors raise unconditionally. Talend with `DIE_ON_ERROR=false` should capture errors and continue. |
 | ENG-FRC-003 | **P1** | `{id}_ERROR_MESSAGE` not set in globalMap. Downstream error handling components get None. |
@@ -192,7 +193,7 @@ Utility component -- no data flow schema. Schema is `{"input": [], "output": []}
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_COUNT` | Yes | **Yes** | `_process()` line 216 | Primary output |
 | `{id}_NB_LINE` | Yes | **Yes** | `_process()` line 215 | Standard stat variable |
 | `{id}_NB_LINE_OK` | Yes | **Yes** | `_process()` line 219 | |
@@ -206,7 +207,7 @@ Utility component -- no data flow schema. Schema is `{"input": [], "output": []}
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-FRC-001 | **P0** | `base_component.py:304` | **CROSS-CUTTING**: `_update_global_map()` references undefined variable `value` (should be `stat_value`). Affects ALL components. |
 | BUG-FRC-003 | **P1** | `file_row_count.py:226` | Return format is dict not DataFrame. `_process()` returns `{'main': {'row_count': int}}`. Breaks streaming mode. |
 | BUG-FRC-004 | **P1** | `file_row_count.py:88-136` | `_validate_config()` is never called. 49 lines of dead validation code. |
@@ -221,14 +222,14 @@ Utility component -- no data flow schema. Schema is `{"input": [], "output": []}
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-FRC-001 | **P2** | Dual key format support (`filename` or `FILENAME`) uses `or` pattern with subtle falsy-string bug. |
 | NAME-FRC-002 | **P2** | Same dual-key issue for all config parameters. Inconsistent across params. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-FRC-001 | **P1** | "`_validate_config()` returns `List[str]`" | Returns `bool` instead. |
 | STD-FRC-002 | **P1** | "`_validate_config()` must be called" | Never called by any code path. |
 | STD-FRC-003 | **P2** | "`_process()` returns `Dict` with `'main': DataFrame`" | Returns `{'main': dict}`. |
@@ -244,7 +245,7 @@ SEC-FRC-001 (P3): No path traversal protection on `filename`. Not a concern for 
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- module-level + instance-level logger |
 | Level usage | Good -- info for start/complete, error for failures, debug for verification |
 | Sensitive data | No concerns -- only file paths logged |
@@ -252,7 +253,7 @@ SEC-FRC-001 (P3): No path traversal protection on `filename`. Not a concern for 
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Uses standard Python exceptions (FileNotFoundError, PermissionError, IOError) |
 | Exception chaining | Partial -- `raise ... from e` used but UnicodeDecodeError reconstructed with dummy args |
 | die_on_error handling | Not implemented -- all errors raise unconditionally |
@@ -260,7 +261,7 @@ SEC-FRC-001 (P3): No path traversal protection on `filename`. Not a concern for 
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- return types annotated |
 | Parameter types | Good -- standard typing used |
 
@@ -269,13 +270,13 @@ SEC-FRC-001 (P3): No path traversal protection on `filename`. Not a concern for 
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-FRC-001 | **P3** | Buffered counting (without line storage) could marginally improve performance for very large files. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Not applicable -- utility component, no data flow |
 | Memory threshold | N/A -- line-by-line reading, constant memory |
 | Large data handling | Good -- reads line by line regardless of file size |
@@ -287,7 +288,7 @@ SEC-FRC-001 (P3): No path traversal protection on `filename`. Not a concern for 
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 26 | `tests/converters/talend_to_v1/components/test_file_row_count.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | Covered | `tests/converters/talend_to_v1/test_integration.py` |
@@ -295,7 +296,7 @@ SEC-FRC-001 (P3): No path traversal protection on `filename`. Not a concern for 
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-FRC-001 | **P2** | No engine unit tests for FileRowCount. Prevents Testing dimension from reaching Green per D-52. |
 
 ### 8.3 Recommended Test Cases
@@ -313,7 +314,7 @@ SEC-FRC-001 (P3): No path traversal protection on `filename`. Not a concern for 
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 1 | **BUG-FRC-001** |
 | P1 | 6 | **ENG-FRC-001**, **ENG-FRC-002**, **ENG-FRC-003**, **BUG-FRC-003**, **BUG-FRC-004**, **BUG-FRC-006** |
 | P2 | 8 | **ENG-FRC-005**, **BUG-FRC-007**, **BUG-FRC-010**, **BUG-FRC-011**, **BUG-FRC-002**, **NAME-FRC-001**, **NAME-FRC-002**, **TEST-FRC-001** |
@@ -323,7 +324,7 @@ SEC-FRC-001 (P3): No path traversal protection on `filename`. Not a concern for 
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | All resolved |
 | Engine (ENG) | 5 | ENG-FRC-001, ENG-FRC-002, ENG-FRC-003, ENG-FRC-005, ENG-FRC-006 |
 | Bug (BUG) | 8 | BUG-FRC-001 through BUG-FRC-011 |
@@ -337,7 +338,7 @@ SEC-FRC-001 (P3): No path traversal protection on `filename`. Not a concern for 
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | BUG-FRC-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set |
 | BUG-FRC-002 | `global_map.py:28` | `GlobalMap.get()` undefined `default` parameter |
 
@@ -346,9 +347,11 @@ SEC-FRC-001 (P3): No path traversal protection on `filename`. Not a concern for 
 ## 10. Recommendations
 
 ### Immediate (Before Production)
+
 - Fix `_update_global_map()` crash in base class (BUG-FRC-001, P0, cross-cutting)
 
 ### Short-term (Hardening)
+
 - Implement `row_separator` support in engine (ENG-FRC-001, P1)
 - Add `die_on_error` handling (ENG-FRC-002, P1)
 - Implement `{id}_ERROR_MESSAGE` globalMap variable (ENG-FRC-003, P1)
@@ -356,6 +359,7 @@ SEC-FRC-001 (P3): No path traversal protection on `filename`. Not a concern for 
 - Add engine unit tests (TEST-FRC-001, P2)
 
 ### Long-term (Optimization)
+
 - Align encoding defaults between engine and converter (ENG-FRC-005, P2)
 - Separate empty filename from missing file errors (BUG-FRC-010, P2)
 - Remove debug verification read (DBG-FRC-001, P3)
@@ -365,9 +369,9 @@ SEC-FRC-001 (P3): No path traversal protection on `filename`. Not a concern for 
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talend 8.0 docs | https://help.qlik.com/talend/en-US/components/8.0/tfilerowcount/tfilerowcount-standard-properties | Parameter definitions, defaults |
-| Talaxie GitHub _java.xml | https://github.com/Talend/tdi-studio-se | Component definition XML (confirmed 4 unique params, no DIE_ON_ERROR) |
+| -------- | ---------- | ---------- |
+| Talend 8.0 docs | <https://help.qlik.com/talend/en-US/components/8.0/tfilerowcount/tfilerowcount-standard-properties> | Parameter definitions, defaults |
+| Talaxie GitHub _java.xml | <https://github.com/Talend/tdi-studio-se> | Component definition XML (confirmed 4 unique params, no DIE_ON_ERROR) |
 | Engine source | `src/v1/engine/components/file/file_row_count.py` | Feature parity analysis (229 lines) |
 | Converter source | `src/converters/talend_to_v1/components/file/file_row_count.py` | Converter audit (71 lines) |
 | Test source | `tests/converters/talend_to_v1/components/test_file_row_count.py` | Test coverage (26 tests) |
@@ -375,7 +379,7 @@ SEC-FRC-001 (P3): No path traversal protection on `filename`. Not a concern for 
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` broken signature |
 

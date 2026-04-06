@@ -34,6 +34,7 @@
 ## Key Features
 
 ### **LEFT SIDEBAR - Configuration Panel (340px)**
+
 - **Purpose:** Configure selected components
 - **Content:** Dynamic form fields based on component type
 - **State:** Empty when no component selected → Shows message "Select a component on the canvas to configure"
@@ -41,6 +42,7 @@
 - **Close Button:** ✕ button to deselect component
 
 ### **MIDDLE - Canvas Area (Flexible Width)**
+
 - **Purpose:** Main ETL job design workspace
 - **Content:** Visual representation of job with components and connections
 - **Header:** Shows component count and connection count
@@ -52,6 +54,7 @@
   - Right-click for context menu (if implemented)
 
 ### **RIGHT SIDEBAR - Component Palette (300px)**
+
 - **Purpose:** Available components to add to job
 - **Content:** Scrollable list of all components
 - **Organization:** By category (File, Transform, Output, etc.)
@@ -72,7 +75,7 @@
 ## Layout Dimensions
 
 | Area | Width | Height | Resizable |
-|------|-------|--------|-----------|
+| ------ | ------- | -------- | ----------- |
 | Header | 100% | 64px | No |
 | Left Sidebar | 340px | Calc(100vh - 64px) | No* |
 | Canvas | Flexible | Calc(100vh - 64px) | Yes** |
@@ -84,21 +87,25 @@
 ## Benefits of This Layout
 
 ✅ **Better Workflow:**
+
 - Left: Configure (what you're working on)
 - Center: Build (where you're working)
 - Right: Select (what's available)
 
 ✅ **Improved Focus:**
+
 - Canvas takes primary focus in the center
 - Configuration panel isolated on left for easy access
 - Component palette on right doesn't interfere with building
 
 ✅ **Professional UX:**
+
 - Similar to Talend Studio layout
 - Logical flow for ETL job design
 - Clear separation of concerns
 
 ✅ **Better Component Discovery:**
+
 - All components visible on right side
 - Can scroll through components while designing
 - No modal/popup needed to find components
@@ -147,7 +154,7 @@
 ✅ **Complete** - Layout reorganized and deployed
 ✅ **Compiled** - No TypeScript errors
 ✅ **Running** - Dev server on localhost:4200
-✅ **Ready** - Available for testing at http://localhost:4200/designer/:jobId
+✅ **Ready** - Available for testing at <http://localhost:4200/designer/:jobId>
 
 ## Next Steps
 

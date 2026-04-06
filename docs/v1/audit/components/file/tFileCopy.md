@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tFileCopy` |
 | **V1 Engine Class** | `FileCopy` |
 | **Engine File** | `src/v1/engine/components/file/file_copy.py` (133 lines) |
@@ -25,7 +25,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/file/file_copy.py` | Engine implementation (133 lines) |
 | `src/converters/talend_to_v1/components/file/file_copy.py` | Converter class (116 lines) |
 | `tests/converters/talend_to_v1/components/test_file_copy.py` | Converter tests (44 tests) |
@@ -37,7 +37,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 12 unique params + 2 framework params extracted; `_build_component_dict` pattern; 8 per-feature needs_review entries for engine gaps |
 | Engine Feature Parity | **Y** | 0 | 3 | 2 | 0 | 3 config key mismatches (filename/source, destination_rename/new_name, preserve_last_modified_time/preserve_last_modified); 5 params not implemented in engine (enable_copy_directory, source_derectory, remove_file, failon, force_copy_delete) |
 | Code Quality | **Y** | 1 | 1 | 2 | 1 | Cross-cutting `_update_global_map()` crash (P0); no `_validate_config()` (P1); f-string in logger (P2); bare except (P2); unused import typing (P3) |
@@ -47,6 +47,7 @@
 **Overall: Yellow -- Converter fully standardized (Green); engine has config key mismatches and 5 unimplemented params documented via 8 needs_review entries; engine/code quality gaps keep overall at Yellow**
 
 **Top Actions:**
+
 1. Fix `_update_global_map()` crash in base class (P0, cross-cutting)
 2. Align engine config keys with converter output (P1, 3 key mismatches)
 3. Implement missing engine features: enable_copy_directory, source_derectory, remove_file, failon, force_copy_delete (P1)
@@ -71,7 +72,7 @@ The component has 12 unique parameters controlling file/directory paths, rename 
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | File Name | `FILENAME` | FILE | `""` | Source file path. Supports context variables and Java expressions. |
 | 2 | Enable Copy Directory | `ENABLE_COPY_DIRECTORY` | CHECK | `false` | When checked, switches to directory copy mode using SOURCE_DERECTORY instead of FILENAME. |
 | 3 | Source Directory | `SOURCE_DERECTORY` | DIRECTORY | `""` | Source directory path when ENABLE_COPY_DIRECTORY is enabled. Note: Talend typo "DERECTORY" preserved. |
@@ -85,7 +86,7 @@ The component has 12 unique parameters controlling file/directory paths, rename 
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 10 | Fail On Error | `FAILON` | CHECK | `false` | When checked, throws exception on copy failure instead of continuing. |
 | 11 | Force Copy Delete | `FORCE_COPY_DELETE` | CHECK | `false` | When checked, forces delete of source after copy even if copy was partial. Used with REMOVE_FILE for robust move semantics. |
 | 12 | Preserve Last Modified Time | `PRESERVE_LAST_MODIFIED_TIME` | CHECK | `false` | When checked, preserves the source file's last modified timestamp on the destination copy. |
@@ -95,7 +96,7 @@ The component has 12 unique parameters controlling file/directory paths, rename 
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `ITERATE` | Input | Iterate | Enables iterative execution when connected from tFileList or tFlowToIterate. |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires when the subjob completes successfully. |
 | `SUBJOB_ERROR` | Output (Trigger) | Trigger | Fires when the subjob fails with an error. |
@@ -106,7 +107,7 @@ The component has 12 unique parameters controlling file/directory paths, rename 
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Number of copy operations attempted (always 1). |
 | `{id}_NB_LINE_OK` | Integer | After execution | Number of successful copy operations. |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Number of failed copy operations. |
@@ -132,7 +133,7 @@ The component has 12 unique parameters controlling file/directory paths, rename 
 The `talend_to_v1` converter uses a dedicated `FileCopyConverter` class registered via `@REGISTRY.register("tFileCopy")`. It extracts all 12 unique parameters plus 2 framework parameters using safe `_get_str()` / `_get_bool()` helpers. The converter follows the gold standard pattern with `_build_component_dict()` wrapper.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `FILENAME` | Yes | `filename` | `_get_str()`, default `""` |
 | 2 | `ENABLE_COPY_DIRECTORY` | Yes | `enable_copy_directory` | `_get_bool()`, default `False` |
 | 3 | `SOURCE_DERECTORY` | Yes | `source_derectory` | `_get_str()`, default `""` -- Talend typo preserved |
@@ -161,7 +162,7 @@ FILENAME, SOURCE_DERECTORY, DESTINATION, and DESTINATION_RENAME support context 
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | CONV-FC-001 | ~~P1~~ | **FIXED** -- Old converter used wrong param name `REMOVE_SOURCE_FILE` instead of `REMOVE_FILE` per _java.xml |
 | CONV-FC-002 | ~~P1~~ | **FIXED** -- Old converter used wrong param name `COPY_DIRECTORY` instead of `ENABLE_COPY_DIRECTORY` per _java.xml |
 | CONV-FC-003 | ~~P1~~ | **FIXED** -- Old converter used wrong param name `SOURCE_DIRECTORY` instead of `SOURCE_DERECTORY` (Talend typo) |
@@ -175,7 +176,7 @@ FILENAME, SOURCE_DERECTORY, DESTINATION, and DESTINATION_RENAME support context 
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `filename` | Engine reads `source` but converter outputs `filename` per _java.xml param name FILENAME | engine_gap |
 | 2 | `destination_rename` | Engine reads `new_name` but converter outputs `destination_rename` per _java.xml param name DESTINATION_RENAME | engine_gap |
 | 3 | `preserve_last_modified_time` | Engine reads `preserve_last_modified` but converter outputs `preserve_last_modified_time` per _java.xml param name PRESERVE_LAST_MODIFIED_TIME | engine_gap |
@@ -192,7 +193,7 @@ FILENAME, SOURCE_DERECTORY, DESTINATION, and DESTINATION_RENAME support context 
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | File copy | **Yes** | High | `_process()` line 114 | Uses `shutil.copy2()` for single file copy |
 | 2 | Directory copy | **Partial** | Medium | `_process()` line 111 | Uses `shutil.copytree()` with `dirs_exist_ok` but no ENABLE_COPY_DIRECTORY toggle |
 | 3 | Rename during copy | **Yes** | High | `_process()` line 99 | Joins destination + new_name |
@@ -209,7 +210,7 @@ FILENAME, SOURCE_DERECTORY, DESTINATION, and DESTINATION_RENAME support context 
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-FC-001 | **P1** | Engine reads `source` config key but converter outputs `filename` per _java.xml. Config key mismatch means engine receives empty string when user sets FILENAME in Talend. |
 | ENG-FC-002 | **P1** | Engine reads `new_name` config key but converter outputs `destination_rename` per _java.xml. Rename feature broken due to key mismatch. |
 | ENG-FC-003 | **P1** | Engine reads `preserve_last_modified` config key but converter outputs `preserve_last_modified_time` per _java.xml. Timestamp preservation broken due to key mismatch. |
@@ -219,7 +220,7 @@ FILENAME, SOURCE_DERECTORY, DESTINATION, and DESTINATION_RENAME support context 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_stats()` via base class | Always 1 |
 | `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats()` | 1 on success, 0 on failure |
 | `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats()` | 0 on success, 1 on failure |
@@ -232,13 +233,13 @@ FILENAME, SOURCE_DERECTORY, DESTINATION, and DESTINATION_RENAME support context 
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-FC-001 | **P0** | `base_component.py:304` | CROSS-CUTTING: `_update_global_map()` references undefined `value` variable. Crashes all components when globalMap is set. |
 
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-FC-001 | **P1** | Engine uses `source` config key; converter uses `filename` per _java.xml. Needs alignment. |
 | NAME-FC-002 | **P1** | Engine uses `new_name` config key; converter uses `destination_rename` per _java.xml. Needs alignment. |
 | NAME-FC-003 | **P2** | Engine uses `preserve_last_modified` config key; converter uses `preserve_last_modified_time` per _java.xml. Needs alignment. |
@@ -246,7 +247,7 @@ FILENAME, SOURCE_DERECTORY, DESTINATION, and DESTINATION_RENAME support context 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-FC-001 | **P2** | "Use %-formatting in logger calls" | Uses f-strings: `logger.info(f"[{self.id}] Copy operation started: {source} -> {destination}")` |
 
 ### 6.4 Debug Artifacts
@@ -260,7 +261,7 @@ No concerns identified for standard file copy use. File paths come from configur
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- module-level `logging.getLogger(__name__)` |
 | Level usage | Adequate -- info for start/complete, debug for operations, error for failures |
 | Sensitive data | OK -- file paths logged but not sensitive in ETL context |
@@ -268,7 +269,7 @@ No concerns identified for standard file copy use. File paths come from configur
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Uses ValueError/FileNotFoundError/FileExistsError directly, no custom exception hierarchy |
 | Exception chaining | Not used |
 | die_on_error handling | Not implemented -- broad except catches all errors |
@@ -276,7 +277,7 @@ No concerns identified for standard file copy use. File paths come from configur
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- `_process()` has return type `Dict[str, Any]` |
 | Parameter types | Good -- `input_data: Optional[Dict[str, Any]]` |
 
@@ -285,13 +286,13 @@ No concerns identified for standard file copy use. File paths come from configur
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-FC-001 | **P3** | Return value wraps result in dict -- minor overhead but consistent with base class pattern |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- utility component, no data flow |
 | Memory threshold | N/A -- single file/directory operation |
 | Large data handling | shutil.copytree for directory copy handles large directory trees efficiently using OS-level copy |
@@ -303,7 +304,7 @@ No concerns identified for standard file copy use. File paths come from configur
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 44 | `tests/converters/talend_to_v1/components/test_file_copy.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | Shared | `tests/converters/talend_to_v1/test_integration.py` |
@@ -311,7 +312,7 @@ No concerns identified for standard file copy use. File paths come from configur
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-FC-001 | **P2** | No engine unit tests for FileCopy. Engine implementation not tested independently. |
 
 ### 8.3 Recommended Test Cases
@@ -332,7 +333,7 @@ No concerns identified for standard file copy use. File paths come from configur
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 1 | **BUG-FC-001** (cross-cutting) |
 | P1 | 5 | **ENG-FC-001**, **ENG-FC-002**, **ENG-FC-003**, **NAME-FC-001**, **NAME-FC-002** |
 | P2 | 5 | **ENG-FC-004**, **ENG-FC-005**, **NAME-FC-003**, **STD-FC-001**, **TEST-FC-001** |
@@ -342,7 +343,7 @@ No concerns identified for standard file copy use. File paths come from configur
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Engine (ENG) | 5 | ENG-FC-001, ENG-FC-002, ENG-FC-003, ENG-FC-004, ENG-FC-005 |
 | Bug (BUG) | 1 | BUG-FC-001 |
 | Naming (NAME) | 3 | NAME-FC-001, NAME-FC-002, NAME-FC-003 |
@@ -353,7 +354,7 @@ No concerns identified for standard file copy use. File paths come from configur
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set -- statistics lost |
 
 ---
@@ -361,28 +362,31 @@ No concerns identified for standard file copy use. File paths come from configur
 ## 10. Recommendations
 
 ### Immediate (Before Production)
+
 1. **BUG-FC-001** (P0): Fix `_update_global_map()` crash in base class -- affects all components
 
 ### Short-term (Hardening)
-2. **ENG-FC-001/002/003** (P1): Align engine config keys with converter output (source->filename, new_name->destination_rename, preserve_last_modified->preserve_last_modified_time)
-3. **NAME-FC-001/002** (P1): Part of engine key alignment
-4. Implement REMOVE_FILE support for move semantics (P2)
-5. Implement FAILON error behavior (P2)
+
+1. **ENG-FC-001/002/003** (P1): Align engine config keys with converter output (source->filename, new_name->destination_rename, preserve_last_modified->preserve_last_modified_time)
+2. **NAME-FC-001/002** (P1): Part of engine key alignment
+3. Implement REMOVE_FILE support for move semantics (P2)
+4. Implement FAILON error behavior (P2)
 
 ### Long-term (Optimization)
-6. **TEST-FC-001** (P2): Add engine unit tests for FileCopy
-7. **STD-FC-001** (P2): Replace f-strings in logger calls with % formatting
-8. Implement ENABLE_COPY_DIRECTORY, SOURCE_DERECTORY, FORCE_COPY_DELETE engine features
-9. **PERF-FC-001** (P3): Minor -- no action needed
+
+1. **TEST-FC-001** (P2): Add engine unit tests for FileCopy
+2. **STD-FC-001** (P2): Replace f-strings in logger calls with % formatting
+3. Implement ENABLE_COPY_DIRECTORY, SOURCE_DERECTORY, FORCE_COPY_DELETE engine features
+4. **PERF-FC-001** (P3): Minor -- no action needed
 
 ---
 
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talend 7.3 docs | https://help.qlik.com/talend/en-US/components/7.3/tfilecopy/tfilecopy-standard-properties | Parameter definitions, defaults |
-| Talaxie GitHub _java.xml | https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tFileCopy/tFileCopy_java.xml | Component definition XML, correct param names and defaults |
+| -------- | ---------- | ---------- |
+| Talend 7.3 docs | <https://help.qlik.com/talend/en-US/components/7.3/tfilecopy/tfilecopy-standard-properties> | Parameter definitions, defaults |
+| Talaxie GitHub _java.xml | <https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tFileCopy/tFileCopy_java.xml> | Component definition XML, correct param names and defaults |
 | Engine source | `src/v1/engine/components/file/file_copy.py` | Feature parity analysis (133 lines) |
 | Converter source | `src/converters/talend_to_v1/components/file/file_copy.py` | Converter audit (116 lines) |
 | Converter tests | `tests/converters/talend_to_v1/components/test_file_copy.py` | Test coverage (44 tests) |
@@ -390,7 +394,7 @@ No concerns identified for standard file copy use. File paths come from configur
 ## Appendix B: Engine Config Key Mapping
 
 | _java.xml Parameter | Converter Config Key | Engine Config Key | Match? | Notes |
-|---------------------|---------------------|-------------------|--------|-------|
+| --------------------- | --------------------- | ------------------- | -------- | ------- |
 | `FILENAME` | `filename` | `source` | **No** | Engine gap -- engine reads `source`, converter outputs `filename` |
 | `ENABLE_COPY_DIRECTORY` | `enable_copy_directory` | N/A | **No** | Engine does not implement -- auto-detects via `os.path.isdir()` |
 | `SOURCE_DERECTORY` | `source_derectory` | N/A | **No** | Engine does not implement |

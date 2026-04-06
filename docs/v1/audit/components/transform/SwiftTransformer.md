@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Custom Name** | `SwiftTransformer` / `TSwiftDataTransformer` |
 | **V1 Engine Class** | `SwiftTransformer` |
 | **Engine File** | `src/v1/engine/components/transform/swift_transformer.py` (878 lines -- largest engine component) |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/transform/swift_transformer.py` | Engine implementation (878 lines) |
 | `src/v1/engine/base_component.py` | Base class: `_update_stats()`, `_update_global_map()`, `validate_schema()`, `execute()` |
 | `src/v1/engine/global_map.py` | GlobalMap storage for `{id}_NB_LINE` etc. |
@@ -40,7 +40,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **N/A** | -- | -- | -- | -- | Engine-native component; no Talend XML converter applicable |
 | Engine Feature Parity | **Y** | 1 | 5 | 7 | 2 | Duplicate method definition; `eval()` with `__import__`; dead config sections; no input validation; regex/date parsing gaps |
 | Code Quality | **Y** | 2 | 2 | 6 | 3 | Cross-cutting base class bugs; pad direction inverted; wildcard escaping; dead code; no custom exceptions |
@@ -50,6 +50,7 @@ How production-ready is this component at a glance?
 **Overall: YELLOW -- Functional for SWIFT MT940 transformation but has security, code quality, and performance concerns**
 
 **Top Actions**:
+
 1. Remove `__import__` from `eval()` context (SEC-ST-001)
 2. Fix cross-cutting `_update_global_map()` and `GlobalMap.get()` crashes (BUG-ST-001, BUG-ST-002)
 3. Remove duplicate `_load_lookup_files()` definition (ENG-ST-001)
@@ -83,13 +84,13 @@ What is this component and what does it do? Since SwiftTransformer is an engine-
    - `python_expression` -- arbitrary Python expressions evaluated via `eval()` with access to input and computed fields
    - `placeholder` -- stub returning default value for future implementation
 
-3. **Lookup table support**: Loads external CSV/pipe-delimited lookup files. Supports normal (exact) and regex/wildcard matching. Two-tier lookup dependency system (`depends_on_lookup` flag) for cascading lookups.
+1. **Lookup table support**: Loads external CSV/pipe-delimited lookup files. Supports normal (exact) and regex/wildcard matching. Two-tier lookup dependency system (`depends_on_lookup` flag) for cascading lookups.
 
-4. **Post-processing**: Truncation, padding, and string replacement on individual field values.
+2. **Post-processing**: Truncation, padding, and string replacement on individual field values.
 
-5. **Multi-pass computation**: Fields are computed in declaration order (allowing later fields to reference earlier computed fields). Three-pass execution: (1) compute all fields, (2) apply first-tier lookups and recompute dependent fields, (3) apply second-tier lookups and recompute dependent fields again.
+3. **Multi-pass computation**: Fields are computed in declaration order (allowing later fields to reference earlier computed fields). Three-pass execution: (1) compute all fields, (2) apply first-tier lookups and recompute dependent fields, (3) apply second-tier lookups and recompute dependent fields again.
 
-6. **Output file writing**: Optionally writes the transformed DataFrame to a file (CSV/pipe-delimited) in addition to returning it.
+4. **Output file writing**: Optionally writes the transformed DataFrame to a file (CSV/pipe-delimited) in addition to returning it.
 
 **Source**: Custom component -- no external Talend documentation. Design derived from engine source analysis.
 **Component family**: Transform / Custom (SWIFT Financial Messaging)
@@ -101,7 +102,7 @@ What is this component and what does it do? Since SwiftTransformer is an engine-
 The component accepts configuration in three ways (in priority order):
 
 | Priority | Source | Config Key | Description |
-|----------|--------|-----------|-------------|
+| ---------- | -------- | ----------- | ------------- |
 | 1 | External file | `config_file` | Path to YAML/JSON file. Supports `${context.var}` resolution. Loaded at execution time via `_ensure_config_loaded()`. |
 | 2 | Inline config | `transform_config` | Embedded config dict in the component's config block |
 | 3 | Default config | (hardcoded) | `_get_default_transform_config()` -- SWIFT MT940-specific defaults |
@@ -109,7 +110,7 @@ The component accepts configuration in three ways (in priority order):
 **Config Sections**:
 
 | Section | Type | Description |
-|---------|------|-------------|
+| --------- | ------ | ------------- |
 | `input_fields` | List[str] | Names of expected input columns (informational only -- not enforced) |
 | `output_fields` | List[Dict] | Output field definitions with name, type, source, default, transform_config, etc. |
 | `output_layout` | List[str] | Ordered list of field names for the output DataFrame columns. Fields in `output_fields` but not in `output_layout` are intermediate (computed but not output). |
@@ -122,7 +123,7 @@ The component accepts configuration in three ways (in priority order):
 Each entry in `output_fields` supports these attributes:
 
 | Attribute | Type | Required | Description |
-|-----------|------|----------|-------------|
+| ----------- | ------ | ---------- | ------------- |
 | `name` | str | Yes | Output field name |
 | `type` | str | No (default: `direct`) | Mapping type: `constant`, `direct`, `parsed`, `calculated`, `transformation`, `python_expression`, `placeholder` |
 | `source` | str | No | Input column name to read from |
@@ -140,7 +141,7 @@ Each entry in `output_fields` supports these attributes:
 Each entry in `lookups` supports:
 
 | Attribute | Type | Required | Description |
-|-----------|------|----------|-------------|
+| ----------- | ------ | ---------- | ------------- |
 | `name` | str | Yes | Lookup identifier |
 | `file` | str | Yes | Path to lookup file. Supports `${context.var}`. |
 | `main_key` | str | Yes | Output field name to match against |
@@ -153,9 +154,9 @@ Each entry in `lookups` supports:
 ### 3.4 Additional Engine Config Keys
 
 | Config Key | Type | Default | Description |
-|------------|------|---------|-------------|
+| ------------ | ------ | --------- | ------------- |
 | `output_file` | str | None | Optional output file path for writing transformed data |
-| `delimiter` | str | `'\|'` | Delimiter for output file writing |
+| `delimiter` | str | `'\ | '` | Delimiter for output file writing |
 | `output_encoding` | str | `'utf-8'` | Encoding for output file |
 | `include_header` | bool | `True` | Whether to include column headers in output file |
 | `die_on_error` | bool | `True` | Whether to raise exception on processing failure |
@@ -164,7 +165,7 @@ Each entry in `lookups` supports:
 ### 3.5 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Input DataFrame from upstream component (e.g., SwiftBlockFormatter) |
 | `FLOW` (Main) | Output | Row > Main | Transformed DataFrame with business fields per `output_layout` |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Via base class -- fires on successful completion |
@@ -173,7 +174,7 @@ Each entry in `lookups` supports:
 ### 3.6 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total input rows processed |
 | `{id}_NB_LINE_OK` | Integer | After execution | Successfully transformed rows |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Always 0 (no reject mechanism) |
@@ -202,7 +203,7 @@ How faithfully does the v1 engine implement its design contract?
 ### 5.1 Feature Implementation Status
 
 | # | Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|---------|-------------|----------|-----------------|-------|
+| ---- | --------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | External config loading (YAML/JSON) | **Yes** | High | `_load_external_config()` L258 | Context variable resolution in path. Supports `.yaml`, `.yml`, `.json`. |
 | 2 | Inline config | **Yes** | High | `_init_transformer_config()` L52 | Fallback when no external config file |
 | 3 | Default config | **Yes** | Medium | `_get_default_transform_config()` L280 | Hardcoded MT940 defaults. Only useful for specific SWIFT message type. |
@@ -231,7 +232,7 @@ How faithfully does the v1 engine implement its design contract?
 ### 5.2 Behavioral Differences from Design Contract
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-ST-001 | **P0** | **Duplicate `_load_lookup_files()` method definition**: The method is defined TWICE -- lines 125-133 (incomplete stub that does nothing useful after `continue`) and lines 135-170 (full implementation). Python silently overrides the first with the second. Dead first definition from incomplete editing. |
 | ENG-ST-002 | **P1** | **`eval()` with `__import__` exposed**: `_evaluate_python_expression()` (line 661) sets `'__import__': __import__` in `__builtins__`, allowing arbitrary module imports via YAML/JSON config. A malicious config file can execute `__import__('os').system('rm -rf /')`. |
 | ENG-ST-003 | **P1** | **`output_fields_map` relies on dict insertion order**: `self.output_fields_map = {field['name']: field for field in self.output_fields}` creates a dict iterated in `_transform_rows()` for field computation. Correctness depends on Python 3.7+ insertion-order guarantee. Should iterate original list instead. |
@@ -249,7 +250,7 @@ How faithfully does the v1 engine implement its design contract?
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Set? | How Set | Notes |
-|----------|------|---------|-------|
+| ---------- | ------ | --------- | ------- |
 | `{id}_NB_LINE` | **Yes** | `_update_stats()` via base class | Set correctly (subject to cross-cutting BUG-ST-001) |
 | `{id}_NB_LINE_OK` | **Yes** | `_update_stats()` via base class | Always equals `NB_LINE` since no reject mechanism |
 | `{id}_NB_LINE_REJECT` | **Partial** | `_update_stats()` via base class | Always 0. Even when `skip_error_rows=true`, reject count is not updated for skipped rows. |
@@ -264,7 +265,7 @@ How well-written is the engine code?
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-ST-001 | **P0** | `base_component.py:304` | **`_update_global_map()` references undefined variable `value`** (should be `stat_value`). Crashes ALL components when `global_map` is set. **CROSS-CUTTING**. |
 | BUG-ST-002 | **P0** | `global_map.py:28` | **`GlobalMap.get()` references undefined `default` parameter**. Crashes on any `global_map.get()` call. **CROSS-CUTTING**. |
 | BUG-ST-003 | **P2** | `swift_transformer.py:838-839` | **Post-processing pad direction is inverted**: `side == 'left'` calls `ljust` (pads right side), `side == 'right'` calls `rjust` (pads left side). Semantics are backwards. |
@@ -279,14 +280,14 @@ How well-written is the engine code?
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-ST-001 | **P3** | **Class docstring says "TSwiftDataTransformer"** (line 2) but class is named `SwiftTransformer` (line 22). Docstring references a different name. |
 | NAME-ST-002 | **P3** | **`field_mappings` and `transformations` config keys are misleading**: Extracted from config but never used. Actual mapping logic uses `output_fields` and `output_fields_map`. Dead config keys create confusion. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-ST-001 | **P2** | "No dead code" | Duplicate `_load_lookup_files()` (lines 125-133). Dead `field_mappings` and `transformations` config. |
 | STD-ST-002 | **P2** | "Use custom exceptions" | Uses `RuntimeError` and `ValueError` instead of `ConfigurationError` and `DataValidationError` from the custom exception hierarchy. |
 
@@ -297,14 +298,14 @@ None found. No `print()` statements, no hardcoded paths, no TODO comments.
 ### 6.5 Security
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | SEC-ST-001 | **P1** | **`eval()` with `__import__` in `__builtins__`**: `_evaluate_python_expression()` (line 661) exposes `__import__` in the eval context, allowing arbitrary code execution via config-supplied expressions: `__import__('os').system('cat /etc/passwd')`. YAML/JSON config file becomes a code injection vector. The `re` module is also exposed, enabling `re.sub()` with callable replacement for additional attack surface. |
 | SEC-ST-002 | **P2** | **No path traversal protection on config_file or lookup paths**: `_load_external_config()` and `_load_lookup_files()` accept paths from config that could traverse directories (e.g., `../../etc/shadow`). Combined with `eval()` exposure, a malicious config has both path traversal and code execution. |
 
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Module-level `logger = logging.getLogger(__name__)` -- correct |
 | Level usage | INFO for milestones, WARNING for recoverable issues, ERROR for failures -- correct |
 | Sensitive data | Financial data (amounts, BICs) may appear in error messages at WARNING level. Low risk but worth noting for compliance. |
@@ -312,7 +313,7 @@ None found. No `print()` statements, no hardcoded paths, no TODO comments.
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Uses `RuntimeError` and `ValueError`. Does NOT use custom exception hierarchy (`ConfigurationError`, `DataValidationError`). |
 | Exception chaining | Does NOT use `raise ... from e` pattern. `raise ValueError(f"Failed to load transformation config: {str(e)}")` on line 278 loses traceback. |
 | die_on_error handling | Single try/except in `_process()` handles this correctly. |
@@ -322,7 +323,7 @@ None found. No `print()` statements, no hardcoded paths, no TODO comments.
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | All public/private methods have parameter type hints -- correct |
 | Return types | `_process()` returns `Dict[str, Any]`. `_get_field_value()` returns `str`. All typed. |
 | Missing hint | `_load_lookup_files()` has no return type hint (returns None implicitly). Minor. |
@@ -334,7 +335,7 @@ None found. No `print()` statements, no hardcoded paths, no TODO comments.
 Will it scale?
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-ST-001 | **P1** | **Row-by-row `iterrows()` processing**: `_transform_rows()` (line 407) uses `for index, row in input_df.iterrows()` which is the slowest pandas iteration method. For 100K+ rows with 50+ output fields, this creates massive overhead -- 3M+ Python function calls minimum. Should vectorize simple mapping types (`constant`, `direct`). |
 | PERF-ST-002 | **P2** | **Regex lookup is O(N*M) per row**: For `match_type='regex'` lookups, `_apply_lookups()` iterates ALL lookup rows for EACH input row (line 209). 100K input rows with 1K regex lookup = 100M comparisons. Should pre-compile regex patterns and cache match results. |
 | PERF-ST-003 | **P2** | **Third-pass computation always runs unconditionally**: Even when no second-tier lookups exist, the third pass (lines 444-448) still iterates all `depends_on_lookup` fields. Should skip when unnecessary. |
@@ -343,7 +344,7 @@ Will it scale?
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Supported via `BaseComponent._execute_streaming()`. SwiftTransformer's `_process()` receives chunks. Correct for DataFrame output but **output_file writing is broken** in streaming mode -- each chunk overwrites the file (line 871: `to_csv()` default mode `'w'`). |
 | Lookup tables in memory | All lookup files loaded into memory as DataFrames. Large lookup files (100K+ rows) could consume significant memory. No lazy loading or size limits. |
 | Working row accumulation | Each row creates a `working_row` dict with ALL output fields. Garbage collected per row. Acceptable. |
@@ -366,7 +367,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 3 | **BUG-ST-001**, **BUG-ST-002**, **ENG-ST-001** |
 | P1 | 8 | **BUG-ST-006**, **ENG-ST-002**, **ENG-ST-003**, **ENG-ST-004**, **ENG-ST-005**, **SEC-ST-001**, **PERF-ST-001** |
 | P2 | 15 | **BUG-ST-003**, **BUG-ST-004**, **BUG-ST-005**, **BUG-ST-007**, **BUG-ST-008**, **BUG-ST-009**, **ENG-ST-006**, **ENG-ST-007**, **ENG-ST-008**, **ENG-ST-009**, **ENG-ST-010**, **ENG-ST-011**, **SEC-ST-002**, **STD-ST-001**, **STD-ST-002**, **PERF-ST-002**, **PERF-ST-003** |
@@ -386,7 +387,7 @@ Note: P2 has 17 entries and P3 has 6 entries. Let me recount.
 **P3 (6):** BUG-ST-010, ENG-ST-012, ENG-ST-013, NAME-ST-001, NAME-ST-002, PERF-ST-004
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 3 | BUG-ST-001, BUG-ST-002, ENG-ST-001 |
 | P1 | 7 | BUG-ST-006, ENG-ST-002, ENG-ST-003, ENG-ST-004, ENG-ST-005, SEC-ST-001, PERF-ST-001 |
 | P2 | 17 | BUG-ST-003, BUG-ST-004, BUG-ST-005, BUG-ST-007, BUG-ST-008, BUG-ST-009, ENG-ST-006, ENG-ST-007, ENG-ST-008, ENG-ST-009, ENG-ST-010, ENG-ST-011, SEC-ST-002, STD-ST-001, STD-ST-002, PERF-ST-002, PERF-ST-003 |
@@ -396,7 +397,7 @@ Note: P2 has 17 entries and P3 has 6 entries. Let me recount.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Bug (BUG) | 10 | BUG-ST-001, BUG-ST-002, BUG-ST-003, BUG-ST-004, BUG-ST-005, BUG-ST-006, BUG-ST-007, BUG-ST-008, BUG-ST-009, BUG-ST-010 |
 | Engine (ENG) | 13 | ENG-ST-001 through ENG-ST-013 |
 | Security (SEC) | 2 | SEC-ST-001, SEC-ST-002 |
@@ -407,7 +408,7 @@ Note: P2 has 17 entries and P3 has 6 entries. Let me recount.
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash -- stats never written to globalMap (BUG-ST-001) |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` crash -- any direct `.get()` call fails (BUG-ST-002) |
 
@@ -425,25 +426,25 @@ What should be fixed, in what order?
 
 ### Short-term (Hardening)
 
-4. **Remove `__import__` from eval context** (SEC-ST-001): In `_evaluate_python_expression()` line 661, remove `'__import__': __import__` from `__builtins__` dict. Closes arbitrary code execution vector.
-5. **Fix pad direction** (BUG-ST-003): Swap `ljust`/`rjust` in `_post_process_value()` lines 838-839.
-6. **Fix wildcard-to-regex escaping** (BUG-ST-006): Use `re.escape(pattern)` before replacing `\\*` with `.*` and `\\?` with `.`.
-7. **Remove dead config sections** (ENG-ST-004): Remove `self.field_mappings` and `self.transformations` or implement them. Log warning if users provide these.
-8. **Add input field validation** (ENG-ST-005): Check source columns exist in `input_df.columns` at start of `_transform_rows()`. Log WARNING for missing columns.
-9. **Fix SWIFT date format priority** (ENG-ST-009): Move `%y%m%d` before `%d%m%y` in format list.
-10. **Use `output_fields` list for iteration** (ENG-ST-003): Replace `output_fields_map.items()` iteration with `output_fields` list in `_transform_rows()`.
-11. **Use custom exceptions** (STD-ST-002): Replace `RuntimeError` with `ComponentExecutionError`, `ValueError` with `ConfigurationError`. Use `raise ... from e`.
-12. **Add path traversal protection** (SEC-ST-002): Validate config_file and lookup paths against allowed base directories.
-13. **Fix movement_parse RC/RD handling** (ENG-ST-006): Update regex to handle `[REC]?[DC]` debit/credit marks.
+1. **Remove `__import__` from eval context** (SEC-ST-001): In `_evaluate_python_expression()` line 661, remove `'__import__': __import__` from `__builtins__` dict. Closes arbitrary code execution vector.
+2. **Fix pad direction** (BUG-ST-003): Swap `ljust`/`rjust` in `_post_process_value()` lines 838-839.
+3. **Fix wildcard-to-regex escaping** (BUG-ST-006): Use `re.escape(pattern)` before replacing `\\*` with `.*` and `\\?` with `.`.
+4. **Remove dead config sections** (ENG-ST-004): Remove `self.field_mappings` and `self.transformations` or implement them. Log warning if users provide these.
+5. **Add input field validation** (ENG-ST-005): Check source columns exist in `input_df.columns` at start of `_transform_rows()`. Log WARNING for missing columns.
+6. **Fix SWIFT date format priority** (ENG-ST-009): Move `%y%m%d` before `%d%m%y` in format list.
+7. **Use `output_fields` list for iteration** (ENG-ST-003): Replace `output_fields_map.items()` iteration with `output_fields` list in `_transform_rows()`.
+8. **Use custom exceptions** (STD-ST-002): Replace `RuntimeError` with `ComponentExecutionError`, `ValueError` with `ConfigurationError`. Use `raise ... from e`.
+9. **Add path traversal protection** (SEC-ST-002): Validate config_file and lookup paths against allowed base directories.
+10. **Fix movement_parse RC/RD handling** (ENG-ST-006): Update regex to handle `[REC]?[DC]` debit/credit marks.
 
 ### Long-term (Optimization)
 
-14. **Vectorize simple mappings** (PERF-ST-001): Apply `constant` and `direct` mappings at DataFrame level instead of row-by-row.
-15. **Pre-compile regex patterns** (PERF-ST-002): Pre-compile patterns for regex-match lookups. Cache compiled patterns.
-16. **Implement REJECT flow** (ENG-ST-013): Return `{'main': good_df, 'reject': reject_df}` with error details.
-17. **Fix streaming output file writing**: Use append mode for subsequent chunks after the first.
-18. **Fix balance parsing for European format** (ENG-ST-007): Handle period as thousands separator.
-19. **Fix docstring** (NAME-ST-001): Change class docstring from "TSwiftDataTransformer" to "SwiftTransformer".
+1. **Vectorize simple mappings** (PERF-ST-001): Apply `constant` and `direct` mappings at DataFrame level instead of row-by-row.
+2. **Pre-compile regex patterns** (PERF-ST-002): Pre-compile patterns for regex-match lookups. Cache compiled patterns.
+3. **Implement REJECT flow** (ENG-ST-013): Return `{'main': good_df, 'reject': reject_df}` with error details.
+4. **Fix streaming output file writing**: Use append mode for subsequent chunks after the first.
+5. **Fix balance parsing for European format** (ENG-ST-007): Handle period as thousands separator.
+6. **Fix docstring** (NAME-ST-001): Change class docstring from "TSwiftDataTransformer" to "SwiftTransformer".
 
 ---
 
@@ -454,7 +455,7 @@ SwiftTransformer is the largest engine component (878 lines) and processes finan
 ### Risk Matrix
 
 | Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
+| ------ | ----------- | -------- | ------------ |
 | **Arbitrary code execution via `eval()`** | Medium | **Critical** | `_evaluate_python_expression()` exposes `__import__` in eval context. A malicious or corrupted YAML config can execute `__import__('os').system(...)`. Even "trusted" internal configs could be tampered with via supply chain attack. Remove `__import__` from `__builtins__`; consider replacing `eval()` with `ast.literal_eval()` or a restricted expression parser. |
 | **YAML deserialization injection** | Low | **High** | `yaml.safe_load()` is used (line 269), which mitigates the most dangerous YAML deserialization attacks (`!!python/object`). However, `safe_load()` still parses complex nested structures that could cause unexpected behavior if config keys overlap with internal state. Low risk since `safe_load()` is used correctly. |
 | **Path traversal via config_file** | Medium | **High** | `_load_external_config()` accepts config_file paths from job JSON without any path validation or sandboxing. `../../etc/passwd` or absolute paths like `/etc/shadow` would be opened. Combined with `eval()`, a path-traversed config containing `python_expression` fields achieves full system compromise. Mitigate: validate paths against allowed base directories before opening. |
@@ -488,7 +489,7 @@ SwiftTransformer is the largest engine component (878 lines) and processes finan
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
+| -------- | ---------- | ---------- |
 | Engine source | `src/v1/engine/components/transform/swift_transformer.py` | Full feature analysis (878 lines) |
 | Base component | `src/v1/engine/base_component.py` | Cross-cutting bug analysis, streaming mode |
 | Global map | `src/v1/engine/global_map.py` | GlobalMap.get() bug analysis |
@@ -500,11 +501,11 @@ SwiftTransformer is the largest engine component (878 lines) and processes finan
 Complete mapping of job JSON config keys to engine behavior:
 
 | Config Key | Type | Default | Engine Method | Description |
-|------------|------|---------|---------------|-------------|
+| ------------ | ------ | --------- | --------------- | ------------- |
 | `config_file` | str | None | `_init_transformer_config()`, `_ensure_config_loaded()` | Path to external YAML/JSON config. Resolved via `context_manager.resolve_string()`. |
 | `transform_config` | Dict | `{}` | `_init_transformer_config()`, `_ensure_config_loaded()` | Inline transformation config (fallback) |
 | `output_file` | str | None | `_process()`, `_write_output_file()` | Optional output file path |
-| `delimiter` | str | `'\|'` | `_write_output_file()` | Output file delimiter |
+| `delimiter` | str | `'\ | '` | `_write_output_file()` | Output file delimiter |
 | `output_encoding` | str | `'utf-8'` | `_write_output_file()` | Output file encoding |
 | `include_header` | bool | `True` | `_write_output_file()` | Include column headers in output file |
 | `die_on_error` | bool | `True` | `_process()` | Raise exception on failure |

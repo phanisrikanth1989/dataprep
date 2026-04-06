@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | N/A (engine-native; analogous to `tPythonRow` / `tJavaRow`) |
 | **V1 Engine Class** | `PythonRowComponent` |
 | **Engine File** | `src/v1/engine/components/transform/python_row_component.py` (201 lines) |
@@ -24,7 +24,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/transform/python_row_component.py` | Engine implementation (201 lines) |
 | `src/v1/engine/base_component.py` | Base class: `execute()`, `_update_stats()`, `_update_global_map()`, `validate_schema()`, `get_python_routines()` |
 | `src/v1/engine/global_map.py` | GlobalMap storage for `{id}_NB_LINE` etc. |
@@ -37,7 +37,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **N/A** | -- | -- | -- | -- | Engine-native component; no Talend XML converter per D-82 |
 | Engine Feature Parity | **Y** | 1 | 3 | 4 | 1 | `exec()` security; no `die_on_error`; no auto-passthrough; NaN handling; no IMPORT support |
 | Code Quality | **Y** | 2 | 3 | 5 | 1 | Cross-cutting base class bugs; `exec()` without `__builtins__` restriction; shared mutable context_dict; incomplete type mapping |
@@ -47,6 +47,7 @@
 **Overall: YELLOW -- Usable for trusted converted jobs with known limitations; exec() security and iterrows() performance are primary concerns**
 
 ### Score Key
+
 - **R** (Red): Critical gaps blocking production use
 - **Y** (Yellow): Significant gaps; usable for subset of jobs with known limitations
 - **G** (Green): Production-ready with minor improvements recommended
@@ -71,14 +72,14 @@ The behavioral baseline is derived from the analogous `tJavaRow` Talend componen
 ### 3.1 Engine Configuration Parameters
 
 | # | Parameter | Config Key | Type | Default | Description |
-|---|-----------|-----------|------|---------|-------------|
+| --- | ----------- | ----------- | ------ | --------- | ------------- |
 | 1 | Python Code | `python_code` | Multi-line string | `''` | **Mandatory**. Python code executed per row. Access to `input_row`, `output_row`, `context`, `globalMap`, `routines`. |
 | 2 | Output Schema | `output_schema` | Dict[str, str] | `{}` | Optional column-name-to-type mapping for output validation. When provided, `_validate_output_row()` enforces type conversion. |
 
 ### 3.2 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Input rows from upstream. Each row presented as `input_row` dict. |
 | `FLOW` (Main) | Output | Row > Main | Successfully transformed rows via `output_row`. |
 | `REJECT` | Output | Row > Reject | Rows where Python code raised an exception. Appends `errorCode` and `errorMessage`. |
@@ -86,7 +87,7 @@ The behavioral baseline is derived from the analogous `tJavaRow` Talend componen
 ### 3.3 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total number of input rows processed |
 | `{id}_NB_LINE_OK` | Integer | After execution | Number of rows successfully output via FLOW |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Number of rows sent to REJECT |
@@ -136,14 +137,14 @@ Since PythonRowComponent is engine-native, there is no Talend XML configuration 
 ### Engine Config Keys
 
 | # | Config Key | Read By | Default | Usage |
-|---|-----------|---------|---------|-------|
+| --- | ----------- | --------- | --------- | ------- |
 | 1 | `python_code` | `_process()` line 51 | `''` | Mandatory. Raises `ValueError` if empty. |
 | 2 | `output_schema` | `_process()` line 52 | `{}` | Optional. When non-empty, triggers `_validate_output_row()` per row. |
 
 ### Comparison with tJavaRow Engine
 
 | Aspect | tJavaRow (v1) | PythonRowComponent (v1) | Gap |
-|--------|---------------|-------------------------|-----|
+| -------- | --------------- | ------------------------- | ----- |
 | Row-by-row code execution | Yes (via Java bridge) | Yes (via `exec()`) | -- |
 | `input_row` / `output_row` | Yes (Java bridge vars) | Yes (Python namespace dicts) | -- |
 | `die_on_error` support | Via Java bridge error handling | **No** -- all errors collected | P1 |
@@ -161,6 +162,7 @@ Since PythonRowComponent is engine-native, there is no Talend XML configuration 
 ### 8.1 Security: `exec()` Without Sandboxing
 
 **SEC-PRC-001 (P0)**: The `exec(python_code, namespace)` call on line 94 passes a namespace that does NOT restrict `__builtins__`. User code has access to `open()`, `__import__()`, `eval()`, `compile()`, and every built-in function. User code can:
+
 - Read/write arbitrary files via `open()`
 - Import arbitrary modules via `__import__()`
 - Execute shell commands via `__import__('subprocess').run(...)`
@@ -212,7 +214,7 @@ While acceptable for trusted converted Talend jobs, this is a critical risk if c
 ### 9.1 Engine Issues
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | SEC-PRC-001 | **P0** | `exec()` with unrestricted `__builtins__` -- arbitrary code execution |
 | ENG-PRC-002 | **P1** | No `die_on_error` support -- all errors silently collected |
 | ENG-PRC-003 | **P1** | No auto-passthrough of input columns -- silent data loss |
@@ -226,7 +228,7 @@ While acceptable for trusted converted Talend jobs, this is a critical risk if c
 ### 9.2 Code Quality Issues
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | BUG-PRC-001 | **P0** | `_update_global_map()` references undefined variable `value` (CROSS-CUTTING, base_component.py:304) |
 | BUG-PRC-002 | **P0** | `GlobalMap.get()` references undefined `default` parameter (CROSS-CUTTING, global_map.py:28) |
 | BUG-PRC-003 | **P1** | `iterrows()` returns numpy types, not Python native types -- `isinstance(val, int)` fails |
@@ -242,7 +244,7 @@ While acceptable for trusted converted Talend jobs, this is a critical risk if c
 ### 9.3 Performance Issues
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | PERF-PRC-001 | **P1** | `iterrows()` anti-pattern -- approximately 10x slower than `itertuples()` |
 | PERF-PRC-002 | **P2** | `exec()` re-parses code every row -- should use `compile()` |
 | PERF-PRC-003 | **P2** | `row.to_dict()` creates new dict per row -- memory churn for wide DataFrames |
@@ -250,7 +252,7 @@ While acceptable for trusted converted Talend jobs, this is a critical risk if c
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 3 | SEC-PRC-001, BUG-PRC-001, BUG-PRC-002 |
 | P1 | 7 | ENG-PRC-002, ENG-PRC-003, ENG-PRC-004, BUG-PRC-003, BUG-PRC-004, BUG-PRC-009, PERF-PRC-001 |
 | P2 | 11 | ENG-PRC-005, ENG-PRC-006, ENG-PRC-007, ENG-PRC-008, BUG-PRC-005, BUG-PRC-006, BUG-PRC-007, BUG-PRC-010, BUG-PRC-011, PERF-PRC-002, PERF-PRC-003 |
@@ -260,7 +262,7 @@ While acceptable for trusted converted Talend jobs, this is a critical risk if c
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Engine (ENG) | 8 | ENG-PRC-002 through ENG-PRC-009 |
 | Security (SEC) | 1 | SEC-PRC-001 |
 | Bug (BUG) | 9 | BUG-PRC-001 through BUG-PRC-011 |
@@ -273,7 +275,7 @@ While acceptable for trusted converted Talend jobs, this is a critical risk if c
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | BUG-PRC-001 | `base_component.py:304` | `_update_global_map()` crash -- results lost after processing |
 | BUG-PRC-002 | `global_map.py:28` | `GlobalMap.get()` crash -- user Python code calling `globalMap.get()` fails |
 
@@ -291,36 +293,36 @@ While acceptable for trusted converted Talend jobs, this is a critical risk if c
 
 ### Short-Term (Hardening)
 
-4. **Add `die_on_error` support** (ENG-PRC-002): Read `die_on_error` from config (default `True`). When `True`, re-raise first per-row exception. When `False`, use current reject-collection behavior.
+1. **Add `die_on_error` support** (ENG-PRC-002): Read `die_on_error` from config (default `True`). When `True`, re-raise first per-row exception. When `False`, use current reject-collection behavior.
 
-5. **Implement auto-passthrough** (ENG-PRC-003): Pre-populate `output_row` with `input_row.copy()` before executing user code. Make conditional on `auto_passthrough` config flag (default `True`).
+2. **Implement auto-passthrough** (ENG-PRC-003): Pre-populate `output_row` with `input_row.copy()` before executing user code. Make conditional on `auto_passthrough` config flag (default `True`).
 
-6. **Pre-compile Python code** (BUG-PRC-007, PERF-PRC-002): Before the row loop, call `compiled_code = compile(python_code, '<python_row>', 'exec')`. Inside the loop, use `exec(compiled_code, namespace)`.
+3. **Pre-compile Python code** (BUG-PRC-007, PERF-PRC-002): Before the row loop, call `compiled_code = compile(python_code, '<python_row>', 'exec')`. Inside the loop, use `exec(compiled_code, namespace)`.
 
-7. **Replace `iterrows()` with `itertuples()`** (PERF-PRC-001): Approximately 10x faster iteration. Requires adapting `input_row` construction from namedtuple to dict.
+4. **Replace `iterrows()` with `itertuples()`** (PERF-PRC-001): Approximately 10x faster iteration. Requires adapting `input_row` construction from namedtuple to dict.
 
-8. **Handle NaN/None in `input_row`** (ENG-PRC-004): After `row.to_dict()`, replace `NaN`/`NaT` with `None`: `input_row = {k: (None if pd.isna(v) else v) for k, v in row.to_dict().items()}`.
+5. **Handle NaN/None in `input_row`** (ENG-PRC-004): After `row.to_dict()`, replace `NaN`/`NaT` with `None`: `input_row = {k: (None if pd.isna(v) else v) for k, v in row.to_dict().items()}`.
 
-9. **Add IMPORT / setup code support** (ENG-PRC-006): Accept `imports` config key. Execute once before row loop via `exec(imports, namespace)`.
+6. **Add IMPORT / setup code support** (ENG-PRC-006): Accept `imports` config key. Execute once before row loop via `exec(imports, namespace)`.
 
-10. **Fix shared mutable `context_dict`** (BUG-PRC-009): Create a fresh copy of context_dict per row, or document that mutations persist across rows.
+7. **Fix shared mutable `context_dict`** (BUG-PRC-009): Create a fresh copy of context_dict per row, or document that mutations persist across rows.
 
 ### Long-Term (Optimization)
 
-11. **Complete type mapping** (BUG-PRC-006): Add Date, Long, BigDecimal, Short, Byte to `_validate_output_row()` type mapping.
+1. **Complete type mapping** (BUG-PRC-006): Add Date, Long, BigDecimal, Short, Byte to `_validate_output_row()` type mapping.
 
-12. **Set `{id}_ERROR_MESSAGE` in globalMap** (ENG-PRC-008): Store last error message in globalMap after processing.
+2. **Set `{id}_ERROR_MESSAGE` in globalMap** (ENG-PRC-008): Store last error message in globalMap after processing.
 
-13. **Optimize `row.to_dict()`** (PERF-PRC-003): For wide DataFrames, consider direct column access from Series rather than creating dict copies.
+3. **Optimize `row.to_dict()`** (PERF-PRC-003): For wide DataFrames, consider direct column access from Series rather than creating dict copies.
 
-14. **Fix streaming mode reject loss**: Modify `_execute_streaming()` in `base_component.py` to collect reject DataFrames from each chunk.
+4. **Fix streaming mode reject loss**: Modify `_execute_streaming()` in `base_component.py` to collect reject DataFrames from each chunk.
 
 ---
 
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
+| -------- | ---------- | ---------- |
 | Engine source | `src/v1/engine/components/transform/python_row_component.py` | Engine feature analysis (201 lines) |
 | Base component | `src/v1/engine/base_component.py` | Cross-cutting bug analysis |
 | GlobalMap | `src/v1/engine/global_map.py` | GlobalMap bug analysis |
@@ -330,7 +332,7 @@ While acceptable for trusted converted Talend jobs, this is a critical risk if c
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash -- undefined `value` variable. ALL processing results lost when globalMap is set. |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` crash -- undefined `default` parameter. User Python code calling `globalMap.get()` fails with NameError. |
 | XCUT-003 | `base_component.py:267-278` | `_execute_streaming()` drops reject DataFrames -- only `main` collected in streaming mode. |

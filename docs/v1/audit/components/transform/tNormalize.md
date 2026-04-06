@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tNormalize` |
 | **V1 Engine Class** | `Normalize` |
 | **Engine File** | `src/v1/engine/components/transform/normalize.py` (221 lines) |
@@ -24,7 +24,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/transform/normalize.py` | Engine implementation (221 lines) |
 | `src/converters/talend_to_v1/components/transform/normalize.py` | Converter class (95 lines) |
 | `tests/converters/talend_to_v1/components/test_normalize.py` | Converter tests (30 tests) |
@@ -36,7 +36,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 9/9 _java.xml params extracted (100%). Phantom DIE_ON_ERROR removed. 3 per-feature needs_review. _build_component_dict wrapper. |
 | Engine Feature Parity | **Y** | 0 | 3 | 2 | 1 | Engine does not read escape_char, text_enclosure, discard_trailing_empty_str. Engine uses item_separator key (converter emits itemseparator). |
 | Code Quality | **G** | 0 | 0 | 1 | 0 | Clean gold standard converter, well-documented, per-feature needs_review |
@@ -46,6 +46,7 @@
 **Overall: YELLOW -- Engine performance and feature gaps prevent Green; converter is gold standard**
 
 **Top Actions**:
+
 1. Replace iterrows() with vectorized pandas split (P0)
 2. Add engine support for escape_char/text_enclosure CSV params (P1)
 3. Fix engine key mismatch: item_separator vs itemseparator (P1)
@@ -70,7 +71,7 @@ A typical use case is transforming a comma-separated tags column: a row with `ta
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Schema | `SCHEMA` | Schema editor | -- | Column definitions with types, lengths, patterns, nullable, key attributes. Input and output schemas are identical (passthrough). |
 | 2 | Column to Normalize | `NORMALIZE_COLUMN` | PREV_COLUMN_LIST | -- | **Mandatory**. Selects which column contains the delimited values to split. Dropdown populated from schema columns. |
 | 3 | Item Separator | `ITEMSEPARATOR` | TEXT | `","` | Delimiter character(s) separating individual values within the normalized column. Can be literal string or regex. |
@@ -78,7 +79,7 @@ A typical use case is transforming a comma-separated tags column: a row with `ta
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 4 | Get Rid of Duplicated Rows | `DEDUPLICATE` | CHECK | `false` | Remove duplicate values from the split output. Applied AFTER splitting and AFTER trim/discard operations. |
 | 5 | Use CSV Parameters | `CSV_OPTION` | CHECK | `false` | Enables CSV-specific escape mode and enclosure character for parsing values containing the separator inside quoted fields. |
 | 6 | Escape Char | `ESCAPE_CHAR` | CLOSED_LIST | `ESCAPE_MODE_DOUBLED` | **Conditional on CSV_OPTION=true.** Values: `ESCAPE_MODE_DOUBLED`, `ESCAPE_MODE_BACKSLASH`. Controls how escape characters are interpreted in CSV mode. |
@@ -89,20 +90,20 @@ A typical use case is transforming a comma-separated tags column: a row with `ta
 ### 3.3 Framework Parameters
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | F1 | tStatCatcher Statistics | `TSTATCATCHER_STATS` | CHECK | `false` | Capture processing metadata for tStatCatcher. |
 | F2 | Label | `LABEL` | TEXT | `""` | User label for the component. |
 
 ### 3.4 Phantom Parameters (NOT in _java.xml)
 
 | Parameter | Source | Status |
-|-----------|--------|--------|
+| ----------- | -------- | -------- |
 | `DIE_ON_ERROR` | Engine code only | **REMOVED from converter** -- not present in _java.xml |
 
 ### 3.5 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Primary input data with column to normalize |
 | `FLOW` (Main) | Output | Row > Main | Normalized output with one row per split value |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires after successful component execution |
@@ -111,7 +112,7 @@ A typical use case is transforming a comma-separated tags column: a row with `ta
 ### 3.6 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total rows processed |
 | `{id}_NB_LINE_OK` | Integer | After execution | Rows successfully normalized |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Rows rejected (always 0) |
@@ -133,7 +134,7 @@ A typical use case is transforming a comma-separated tags column: a row with `ta
 The converter uses `_build_component_dict` wrapper with `type_name="Normalize"` per gold standard. All 9 _java.xml parameters are extracted with correct defaults. Phantom DIE_ON_ERROR is excluded.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `NORMALIZE_COLUMN` | Yes | `normalize_column` | str, default "" |
 | 2 | `ITEMSEPARATOR` | Yes | `itemseparator` | str, default "," |
 | 3 | `DEDUPLICATE` | Yes | `deduplicate` | bool, default False |
@@ -151,7 +152,7 @@ The converter uses `_build_component_dict` wrapper with `type_name="Normalize"` 
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` |
 | `type` | Yes | Converted from Talend types via `convert_type()` |
 | `nullable` | Yes | |
@@ -174,7 +175,7 @@ None -- converter is gold standard.
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `escape_char` | Engine does not read CSV escape mode | engine_gap |
 | 2 | `text_enclosure` | Engine does not read CSV text enclosure character | engine_gap |
 | 3 | `discard_trailing_empty_str` | Engine filters ALL empty strings, not just trailing | engine_gap |
@@ -186,7 +187,7 @@ None -- converter is gold standard.
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Column splitting | **Yes** | High | `_process()` line 161 | Uses `str.split()` |
 | 2 | Item separator | **Yes** | Medium | `_process()` line 133 | Reads `item_separator` key (converter emits `itemseparator`) |
 | 3 | Deduplicate | **Yes** | High | `_process()` lines 173-179 | Order-preserving dedup |
@@ -200,7 +201,7 @@ None -- converter is gold standard.
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-NRM-001 | **P1** | Engine reads `item_separator` config key but converter emits `itemseparator` -- key name mismatch |
 | ENG-NRM-002 | **P1** | Engine does not implement CSV escape/enclosure logic when `csv_option=true` |
 | ENG-NRM-003 | **P1** | Engine `discard_trailing_empty_str` filters ALL empty strings, not just trailing ones |
@@ -211,7 +212,7 @@ None -- converter is gold standard.
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_stats()` | V1 counts output rows; Talend counts input rows |
 | `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats()` | |
 | `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats()` | Always 0 |
@@ -223,14 +224,14 @@ None -- converter is gold standard.
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-NRM-001 | **P0** | `normalize.py:161` | `str.split("")` raises ValueError if item_separator is empty string -- no empty-separator guard |
 | BUG-NRM-002 | **P2** | `normalize.py:151-199` | `iterrows()` + `row.copy()` causes type demotion: Decimal->float64, datetime64->object. CROSS-CUTTING. |
 
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-NRM-001 | **P2** | Engine reads `item_separator` but _java.xml name is `ITEMSEPARATOR` -- converter correctly emits `itemseparator` per D-38 |
 
 ### 6.3 Standards Compliance
@@ -248,7 +249,7 @@ No concerns identified. Component operates on in-memory data only.
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Proper module-level `logging.getLogger(__name__)` |
 | Level usage | info for start/complete, warning for empty input, error for failures |
 | Sensitive data | No sensitive data logged |
@@ -256,7 +257,7 @@ No concerns identified. Component operates on in-memory data only.
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Uses `ConfigurationError` and `ComponentExecutionError` |
 | Exception chaining | Proper `raise ... from e` pattern |
 | die_on_error handling | Correctly checks config flag before raising |
@@ -264,7 +265,7 @@ No concerns identified. Component operates on in-memory data only.
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Fully typed |
 | Parameter types | Properly annotated with Optional, Union |
 
@@ -273,14 +274,14 @@ No concerns identified. Component operates on in-memory data only.
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-NRM-001 | **P0** | `iterrows()` + `row.copy()` + list-of-Series pattern is O(n*m) and creates massive intermediate memory. No vectorized alternative implemented. CROSS-CUTTING anti-pattern. |
 | PERF-NRM-002 | **P1** | Each input row creates N copies (one per split value) via `row.copy()`. For 1M rows with average 5 values each, this creates 5M Series objects. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Not implemented for normalize -- processes entire DataFrame at once |
 | Memory threshold | No memory guard -- will OOM on large datasets with high fan-out |
 | Large data handling | iterrows() anti-pattern makes this 100-1000x slower than vectorized approach |
@@ -292,7 +293,7 @@ No concerns identified. Component operates on in-memory data only.
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 30 | `tests/converters/talend_to_v1/components/test_normalize.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | 0 | None (component-specific) |
@@ -300,7 +301,7 @@ No concerns identified. Component operates on in-memory data only.
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-NRM-001 | **P2** | No engine unit tests for Normalize class (per D-89, Testing=Yellow) |
 
 ### 8.3 Recommended Test Cases
@@ -318,7 +319,7 @@ No concerns identified. Component operates on in-memory data only.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 1 | **BUG-NRM-001**, PERF-NRM-001 |
 | P1 | 4 | **ENG-NRM-001**, **ENG-NRM-002**, **ENG-NRM-003**, **PERF-NRM-002** |
 | P2 | 4 | **ENG-NRM-004**, **ENG-NRM-005**, **BUG-NRM-002**, **TEST-NRM-001** |
@@ -328,7 +329,7 @@ No concerns identified. Component operates on in-memory data only.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Engine (ENG) | 6 | ENG-NRM-001 through ENG-NRM-006 |
 | Bug (BUG) | 2 | BUG-NRM-001, BUG-NRM-002 |
 | Performance (PERF) | 2 | PERF-NRM-001, PERF-NRM-002 |
@@ -337,7 +338,7 @@ No concerns identified. Component operates on in-memory data only.
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set |
 | XCUT-002 | `normalize.py:151` | `iterrows()` anti-pattern (shared with tDenormalize, tSchemaComplianceCheck, etc.) |
 | XCUT-003 | `normalize.py:183` | `row.copy()` type demotion through Series reconstruction |
@@ -353,23 +354,23 @@ No concerns identified. Component operates on in-memory data only.
 
 ### Short-term (Hardening)
 
-3. **ENG-NRM-001 (P1)**: Align engine config key to `itemseparator` (or add converter alias)
-4. **ENG-NRM-002 (P1)**: Implement CSV escape/enclosure logic when `csv_option=true`
-5. **ENG-NRM-003 (P1)**: Fix discard logic to filter only TRAILING empty strings
-6. **TEST-NRM-001 (P2)**: Add engine unit tests
+1. **ENG-NRM-001 (P1)**: Align engine config key to `itemseparator` (or add converter alias)
+2. **ENG-NRM-002 (P1)**: Implement CSV escape/enclosure logic when `csv_option=true`
+3. **ENG-NRM-003 (P1)**: Fix discard logic to filter only TRAILING empty strings
+4. **TEST-NRM-001 (P2)**: Add engine unit tests
 
 ### Long-term (Optimization)
 
-7. **ENG-NRM-006 (P3)**: Verify processing order matches Talend exactly
+1. **ENG-NRM-006 (P3)**: Verify processing order matches Talend exactly
 
 ---
 
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tNormalize/tNormalize_java.xml` | Parameter definitions, defaults, field types |
-| Talend 8.0 docs | `https://help.qlik.com/talend/en-US/components/8.0/processing/tnormalize-standard-properties` | Feature descriptions, behavioral notes |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tNormalize/tNormalize_java.xml`> | Parameter definitions, defaults, field types |
+| Talend 8.0 docs | `<https://help.qlik.com/talend/en-US/components/8.0/processing/tnormalize-standard-properties`> | Feature descriptions, behavioral notes |
 | Engine source | `src/v1/engine/components/transform/normalize.py` | Feature parity analysis (221 lines) |
 | Converter source | `src/converters/talend_to_v1/components/transform/normalize.py` | Converter audit (95 lines) |
 | Converter tests | `tests/converters/talend_to_v1/components/test_normalize.py` | Test coverage (30 tests) |
@@ -377,7 +378,7 @@ No concerns identified. Component operates on in-memory data only.
 ## Appendix B: Engine Config Key Mapping
 
 | Converter Config Key | Engine Config Key | Match? | Notes |
-|---------------------|-------------------|--------|-------|
+| --------------------- | ------------------- | -------- | ------- |
 | `normalize_column` | `normalize_column` | Yes | Both use same key |
 | `itemseparator` | `item_separator` | **No** | Engine uses underscore variant |
 | `deduplicate` | `deduplicate` | Yes | |

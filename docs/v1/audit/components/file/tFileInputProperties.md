@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tFileInputProperties` |
 | **V1 Engine Class** | None -- no engine implementation exists |
 | **Engine File** | None |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/converters/talend_to_v1/components/file/file_input_properties.py` | Converter class `FileInputPropertiesConverter` (72 lines) |
 | `tests/converters/talend_to_v1/components/test_file_input_properties.py` | Converter tests (35 tests across 9 classes) |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()`, `_build_component_dict()` |
@@ -39,7 +39,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 5 of 5 unique config keys extracted (100%); FILE_FORMAT, RETRIVE_MODE, SECTION_NAME, FILENAME, ENCODING; 1 phantom param (DIE_ON_ERROR) removed; needs_review entry for engine gap; module docstring follows CONVERTER_PATTERN.md |
 | Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No engine implementation exists at all; component cannot execute |
 | Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code quality is good (follows CONVERTER_PATTERN.md), but no engine code exists -- component is incomplete. Converter alone cannot deliver functionality. |
@@ -49,6 +49,7 @@ How production-ready is this component at a glance?
 **Overall: RED -- No engine implementation. Converter correctly extracts all params for future engine support, but component cannot execute in production. Engine must be implemented before this component is usable.**
 
 **Top Actions**:
+
 1. Implement concrete FileInputProperties engine class (P0 -- blocks production use)
 2. All converter and test issues resolved in v1.1 rewrite
 
@@ -74,7 +75,7 @@ This is a source component with no input flow -- it reads directly from a file a
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Schema | `SCHEMA` | SCHEMA_TYPE | -- | Defines output columns. Typically `key` (String) and `value` (String). |
 | 2 | File Format | `FILE_FORMAT` | CLOSED_LIST | `"PROPERTIES_FORMAT"` | File format to parse. Options: `PROPERTIES_FORMAT` (standard .properties), `XML_FORMAT` (XML properties). Determines how the file is parsed. |
 | 3 | Retrieve Mode | `RETRIVE_MODE` | CLOSED_LIST | `"RETRIVE_BY_SECTION"` | How to retrieve values. Options: `RETRIVE_BY_SECTION` (read specific section), `RETRIVE_BY_KEY` (read by key name). Note: Talend uses `RETRIVE` spelling (not `RETRIEVE`). |
@@ -89,7 +90,7 @@ No advanced settings defined in _java.xml for tFileInputProperties.
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Output | Row > Main | Output data flow containing key/value pairs from the properties file |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires after component completes successfully |
 | `COMPONENT_OK` | Output (Trigger) | Trigger | Fires after component completes |
@@ -99,7 +100,7 @@ No advanced settings defined in _java.xml for tFileInputProperties.
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total number of key/value pairs read from the file |
 
 ### 3.5 Behavioral Notes
@@ -113,7 +114,7 @@ No advanced settings defined in _java.xml for tFileInputProperties.
 ### 3.6 Framework Parameters
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | F1 | tStatCatcher Stats | `TSTATCATCHER_STATS` | CHECK | `false` | Enable statistics collection for tStatCatcher |
 | F2 | Label | `LABEL` | TEXT | `""` | User-defined label for the component instance |
 
@@ -128,7 +129,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 The converter (`FileInputPropertiesConverter`) uses the `ComponentConverter` base class helpers (`_get_str`, `_get_bool`) to extract parameters from the TalendNode params dict. All 5 unique parameters plus 2 framework parameters are extracted. The phantom `DIE_ON_ERROR` parameter has been removed.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `FILE_FORMAT` | Yes | `file_format` | CLOSED_LIST -> str, default "PROPERTIES_FORMAT". Extracted via `_get_str()`. |
 | 2 | `RETRIVE_MODE` | Yes | `retrive_mode` | CLOSED_LIST -> str, default "RETRIVE_BY_SECTION". Extracted via `_get_str()`. |
 | 3 | `SECTION_NAME` | Yes | `section_name` | TEXT -> str, default "section". Extracted via `_get_str()`. |
@@ -144,7 +145,7 @@ The converter (`FileInputPropertiesConverter`) uses the `ComponentConverter` bas
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` base class method |
 | `type` | Yes | Converted from Talend types via `convert_type()` |
 | `nullable` | Yes | Boolean |
@@ -163,7 +164,7 @@ No expression handling is needed for tFileInputProperties. The `_get_str()` help
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | CONV-FIP-001 | ~~P1~~ | **FIXED** -- FILE_FORMAT parameter now extracted (was missing) |
 | CONV-FIP-002 | ~~P1~~ | **FIXED** -- RETRIVE_MODE parameter now extracted (was missing) |
 | CONV-FIP-003 | ~~P1~~ | **FIXED** -- SECTION_NAME parameter now extracted (was missing) |
@@ -180,7 +181,7 @@ No expression handling is needed for tFileInputProperties. The `_get_str()` help
 The converter emits a single component-level needs_review entry (not per-key, since the entire engine is absent):
 
 | # | Scope | Reason | Severity |
-|---|-------|--------|----------|
+| --- | ------- | -------- | ---------- |
 | 1 | Component-level | No v1 engine implementation exists for tFileInputProperties. All config keys are extracted for future engine support. | engine_gap |
 
 ---
@@ -194,7 +195,7 @@ How faithfully does the v1 engine implement Talend behavior?
 No engine implementation exists for tFileInputProperties.
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Read .properties files | **No** | N/A | -- | No engine class |
 | 2 | Read .ini files by section | **No** | N/A | -- | No engine class |
 | 3 | Read XML properties files | **No** | N/A | -- | No engine class |
@@ -205,13 +206,13 @@ No engine implementation exists for tFileInputProperties.
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-FIP-001 | **P0** | **OPEN** -- No FileInputProperties engine class exists. Jobs using tFileInputProperties cannot execute in the v1 engine. |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | No | -- | No engine implementation |
 
 ---
@@ -223,19 +224,19 @@ How well-written is the converter code?
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | -- | -- | -- | No bugs found in the converter code. Logic is correct for what it implements. |
 
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No naming issues. All config keys follow snake_case convention per D-38. `retrive_mode` preserves the Talend `RETRIVE` spelling (intentional). |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | -- | -- | -- | No violations. Converter follows CONVERTER_PATTERN.md in full: module docstring, parameter order, framework params last, _build_component_dict, needs_review format. |
 
 ### 6.4 Debug Artifacts
@@ -249,7 +250,7 @@ No concerns identified. The converter only reads XML parameter data and produces
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- `logger = logging.getLogger(__name__)` at module level |
 | Level usage | N/A -- logger not used in the converter (appropriate for simple component) |
 | Sensitive data | No concerns |
@@ -257,7 +258,7 @@ No concerns identified. The converter only reads XML parameter data and produces
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Good -- no exceptions raised per convention (converters never raise) |
 | Exception chaining | N/A |
 | die_on_error handling | N/A -- tFileInputProperties has no die_on_error parameter in _java.xml |
@@ -265,7 +266,7 @@ No concerns identified. The converter only reads XML parameter data and produces
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- `convert()` fully typed with return type `ComponentResult` |
 | Parameter types | Good -- all parameters typed in method signature |
 
@@ -276,13 +277,13 @@ No concerns identified. The converter only reads XML parameter data and produces
 Will it scale?
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No performance or memory concerns. The converter is lightweight with simple parameter extraction. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- no engine implementation to assess |
 | Memory threshold | N/A |
 | Large data handling | N/A -- converter only extracts config params |
@@ -296,7 +297,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 35 | `tests/converters/talend_to_v1/components/test_file_input_properties.py` |
 | Engine unit tests | 0 | None -- no engine implementation |
 | Integration tests | 0 | None (covered by regression guard) |
@@ -304,12 +305,13 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-FIP-001 | **P0** | **OPEN** -- No engine unit tests (no engine exists). Blocks end-to-end verification. |
 
 ### 8.3 Recommended Test Cases
 
 All recommended converter test cases are implemented:
+
 - **TestRegistration**: Registry lookup verified
 - **TestDefaults**: All 5 unique + 2 framework params tested for defaults
 - **TestParameterExtraction**: All params tested with non-default values
@@ -321,6 +323,7 @@ All recommended converter test cases are implemented:
 - **TestComponentStructure**: type, original_type, id, position, top-level keys, inputs/outputs
 
 Engine test cases needed after engine implementation:
+
 1. Read standard .properties file (key=value format)
 2. Read .ini file by section ([section] headers)
 3. Read XML properties file
@@ -339,7 +342,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 2 (open) | **ENG-FIP-001**, **TEST-FIP-001** |
 | P1 | 0 (4 fixed) | ~~CONV-FIP-001~~, ~~CONV-FIP-002~~, ~~CONV-FIP-003~~, ~~CONV-FIP-004~~ |
 | P2 | 0 (6 fixed) | ~~CONV-FIP-005~~, ~~CONV-FIP-006~~, ~~CONV-FIP-007~~, ~~CONV-FIP-008~~, ~~CONV-FIP-009~~, ~~CONV-FIP-010~~ |
@@ -349,7 +352,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count (open/fixed) | IDs |
-|----------|-------------------|-----|
+| ---------- | ------------------- | ----- |
 | Converter (CONV) | 0/10 | ~~CONV-FIP-001~~ through ~~CONV-FIP-010~~ |
 | Engine (ENG) | 1/0 | **ENG-FIP-001** |
 | Bug (BUG) | 0/0 | |
@@ -386,8 +389,8 @@ No P3 issues identified. Component is simple and well-contained.
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://github.com/Talaxie/tdi-studio-se` (tFileInputProperties_java.xml) | Parameter definitions, defaults, types, connectors |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://github.com/Talaxie/tdi-studio-se`> (tFileInputProperties_java.xml) | Parameter definitions, defaults, types, connectors |
 | Converter source | `src/converters/talend_to_v1/components/file/file_input_properties.py` | Converter audit (72 lines) |
 | Converter base class | `src/converters/talend_to_v1/components/base.py` | Helper methods, dataclass definitions |
 | Test source | `tests/converters/talend_to_v1/components/test_file_input_properties.py` | Testing audit (35 tests) |
@@ -401,7 +404,7 @@ No P3 issues identified. Component is simple and well-contained.
 No cross-cutting issues apply because there is no engine implementation. The following would apply once an engine is implemented:
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set -- would affect FileInputProperties if engine existed |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` crash -- would affect globalMap variable retrieval |
 | XCUT-003 | `base_component.py:351` | `validate_schema` inverted nullable logic -- would affect schema enforcement |
@@ -409,7 +412,7 @@ No cross-cutting issues apply because there is no engine implementation. The fol
 ### Edge-Case Checklist Results
 
 | Check | Result | Notes |
-|-------|--------|-------|
+| ------- | -------- | ------- |
 | NaN handling | N/A | Converter does not process data values |
 | Empty strings in config keys | Safe | `_get_str()` returns default for None, handles empty strings |
 | Empty DataFrame input | N/A | No engine implementation |

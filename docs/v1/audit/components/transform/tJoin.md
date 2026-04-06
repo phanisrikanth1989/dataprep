@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tJoin` |
 | **V1 Engine Class** | `Join` |
 | **Engine File** | `src/v1/engine/components/transform/join.py` (390 lines) |
@@ -24,7 +24,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/transform/join.py` | Engine implementation (390 lines) |
 | `src/converters/talend_to_v1/components/transform/join.py` | Converter class (155 lines) |
 | `tests/converters/talend_to_v1/components/test_join.py` | Converter tests (26 tests) |
@@ -36,7 +36,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 4 unique + 2 framework params (100%); _build_component_dict; phantom CASE_SENSITIVE/DIE_ON_ERROR removed; USE_LOOKUP_COLS/LOOKUP_COLS TABLE added; JOIN_KEY INPUT_COLUMN/LOOKUP_COLUMN elementRefs fixed; 4 per-feature needs_review; 26 converter tests |
 | Engine Feature Parity | **Y** | 1 | 3 | 2 | 1 | Schema filtering dead code; reject schema never populated; no INCLUDE_LOOKUP toggle; no ERROR_MESSAGE globalMap |
 | Code Quality | **Y** | 2 | 4 | 3 | 1 | Cross-cutting base class bugs; schema attribute mismatch; double reject computation; dead validate_config; left outer join incorrect reject output |
@@ -63,7 +63,7 @@
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Schema | `SCHEMA` | Schema editor | -- | Column definitions for the output flow |
 | 2 | Inner join | `USE_INNER_JOIN` | CHECK | `false` | When checked, inner join; unmatched main rows to REJECT. When unchecked, left outer join. |
 | 3 | Join key | `JOIN_KEY` | TABLE (stride-2: `INPUT_COLUMN`, `LOOKUP_COLUMN`) | -- | Key column pairs for join matching. Multiple pairs are ANDed. |
@@ -78,7 +78,7 @@ None documented in _java.xml. Note: `CASE_SENSITIVE` and `DIE_ON_ERROR` appear i
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Primary data stream (left side of join) |
 | `FLOW`/`FILTER` (Lookup) | Input | Row > Lookup | Reference data stream (right side of join) |
 | `FLOW` (Main) | Output | Row > Main | Joined output rows |
@@ -90,7 +90,7 @@ None documented in _java.xml. Note: `CASE_SENSITIVE` and `DIE_ON_ERROR` appear i
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total main input rows processed |
 | `{id}_NB_LINE_OK` | Integer | After execution | Successfully joined output rows |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Main rows with no lookup match |
@@ -119,7 +119,7 @@ None documented in _java.xml. Note: `CASE_SENSITIVE` and `DIE_ON_ERROR` appear i
 The `talend_to_v1` converter uses `@REGISTRY.register("tJoin")` decorator-based dispatch with `_build_component_dict` wrapper. Two module-level TABLE parsers handle stride-2 JOIN_KEY and LOOKUP_COLS tables.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `USE_INNER_JOIN` | Yes | `use_inner_join` | bool, default False |
 | 2 | `JOIN_KEY` (TABLE: `INPUT_COLUMN`+`LOOKUP_COLUMN`) | Yes | `join_key` | list of {input_column, lookup_column} dicts; LEFT_COLUMN/RIGHT_COLUMN fallback |
 | 3 | `USE_LOOKUP_COLS` | Yes | `use_lookup_cols` | bool, default False |
@@ -134,7 +134,7 @@ The `talend_to_v1` converter uses `@REGISTRY.register("tJoin")` decorator-based 
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` base class |
 | `type` | Yes | Converted from Talend types via `convert_type()` |
 | `nullable` | Yes | Boolean |
@@ -153,14 +153,14 @@ Context variable references in TABLE values are passed through as-is (not resolv
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | CONV-JN-001 | ~~P0~~ | **FIXED** -- `talend_to_v1` converter rewritten. Phantom params removed, TABLE parsers added. |
 | CONV-JN-002 | ~~P1~~ | **FIXED** -- USE_LOOKUP_COLS and LOOKUP_COLS now extracted. |
 
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `use_inner_join` | Engine reads `USE_INNER_JOIN` (UPPERCASE) not `use_inner_join` | engine_gap |
 | 2 | `join_key` | Engine reads `JOIN_KEY` (UPPERCASE); also expects `{main, lookup}` dict keys | engine_gap |
 | 3 | `use_lookup_cols` | Engine does not read `use_lookup_cols` -- no INCLUDE_LOOKUP toggle implemented | engine_gap |
@@ -173,7 +173,7 @@ Context variable references in TABLE values are passed through as-is (not resolv
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Inner join | **Yes** | High | `_process()` line 255-256 | `how='inner'` via `pd.merge()` |
 | 2 | Left outer join | **Yes** | High | `_process()` line 255-256 | `how='left'` via `pd.merge()` |
 | 3 | Multi-key join | **Yes** | High | `_process()` line 227-228 | Multiple left_on/right_on columns |
@@ -192,7 +192,7 @@ Context variable references in TABLE values are passed through as-is (not resolv
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-JN-001 | **P0** | **Schema filtering dead code**: `self.schema` never set by engine. 42 lines of unreachable schema filtering/reject error column logic. |
 | ENG-JN-002 | **P1** | **No INCLUDE_LOOKUP_COLUMNS_IN_OUTPUT support**: Always includes all columns from both sides. |
 | ENG-JN-003 | **P1** | **Case-insensitive join destroys original key values**: Output contains lowercase key values instead of original case. |
@@ -204,7 +204,7 @@ Context variable references in TABLE values are passed through as-is (not resolv
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | **Yes** | `_update_stats()` | Counts main input rows |
 | `{id}_NB_LINE_OK` | Yes | **Yes** | `_update_stats()` | Counts joined output rows |
 | `{id}_NB_LINE_REJECT` | Yes | **Yes** | `_update_stats()` | Counts reject rows |
@@ -217,7 +217,7 @@ Context variable references in TABLE values are passed through as-is (not resolv
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-JN-001 | **P0** | `base_component.py:304` | **CROSS-CUTTING**: `_update_global_map()` references undefined variable `value` (should be `stat_value`). Crashes ALL components when globalMap set. |
 | BUG-JN-002 | **P0** | `global_map.py:28` | **CROSS-CUTTING**: `GlobalMap.get()` references undefined `default` parameter. |
 | BUG-JN-003 | ~~P0~~ | `join.py:288-330` | Schema filtering references `self.schema` never set. 42 lines dead code. |
@@ -232,13 +232,13 @@ Context variable references in TABLE values are passed through as-is (not resolv
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-JN-001 | **P2** | Engine config keys use UPPER_CASE (`JOIN_KEY`, `USE_INNER_JOIN`) inconsistent with other components using snake_case. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-JN-001 | **P1** | "`_validate_config()` returns `List[str]`" | Method exists but is never called. 80 lines dead validation. |
 | STD-JN-002 | **P2** | "Components must use `self.output_schema`" | Join uses `self.schema['output']` which is never set. |
 | STD-JN-003 | **P2** | "`ConfigurationError` should be raised for config issues" | Imported but never raised. |
@@ -254,7 +254,7 @@ No concerns identified. No path traversal, exec/eval, or injection risks.
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Module-level `logger = logging.getLogger(__name__)` -- correct |
 | Level usage | INFO for milestones, DEBUG for details, WARNING for edge cases, ERROR for failures -- correct |
 | Sensitive data | No sensitive data logged |
@@ -262,7 +262,7 @@ No concerns identified. No path traversal, exec/eval, or injection risks.
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | `ComponentExecutionError` used correctly |
 | Exception chaining | `raise ... from e` pattern -- correct |
 | die_on_error handling | Single try/except in `_process()` -- correct |
@@ -270,7 +270,7 @@ No concerns identified. No path traversal, exec/eval, or injection risks.
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | All methods have return type hints |
 | Parameter types | `Optional[Dict[str, pd.DataFrame]]` input -- correct |
 
@@ -279,7 +279,7 @@ No concerns identified. No path traversal, exec/eval, or injection risks.
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-JN-001 | **P1** | **Double `pd.merge()` for reject computation**: Two separate merge operations double join time and memory. Should use single merge with `indicator=True`. |
 | PERF-JN-002 | **P2** | **Full DataFrame copy for case-insensitive joins**: `.copy()` on both DataFrames doubles memory. Should use temporary lowercase columns instead. |
 | PERF-JN-003 | **P2** | **Reject computed for left outer join**: Guaranteed empty but still computed. |
@@ -288,7 +288,7 @@ No concerns identified. No path traversal, exec/eval, or injection risks.
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Not applicable -- Join requires both inputs simultaneously |
 | Memory threshold | No limit on input size |
 | Large data handling | Peak ~4-5x main DataFrame size (case-insensitive + reject computation) |
@@ -300,7 +300,7 @@ No concerns identified. No path traversal, exec/eval, or injection risks.
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 26 | `tests/converters/talend_to_v1/components/test_join.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | 0 | None (component-specific) |
@@ -308,12 +308,13 @@ No concerns identified. No path traversal, exec/eval, or injection risks.
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-JN-001 | **P1** | No v1 engine unit tests for Join component. 390 lines of engine code unverified. |
 
 ### 8.3 Recommended Test Cases
 
 **P0 (must-have engine tests):**
+
 1. Basic inner join with matched/unmatched rows
 2. Basic left outer join with NULLs for unmatched lookup columns
 3. Multi-key join (all keys must match)
@@ -322,10 +323,11 @@ No concerns identified. No path traversal, exec/eval, or injection risks.
 6. Statistics tracking (NB_LINE, NB_LINE_OK, NB_LINE_REJECT)
 
 **P1 (hardening):**
-7. Case-insensitive join (document lowercase output difference)
-8. Lookup deduplication (first match only)
-9. Die on error = true/false
-10. Input mapping with non-standard names
+
+1. Case-insensitive join (document lowercase output difference)
+2. Lookup deduplication (first match only)
+3. Die on error = true/false
+4. Input mapping with non-standard names
 
 ---
 
@@ -334,7 +336,7 @@ No concerns identified. No path traversal, exec/eval, or injection risks.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 2 | **BUG-JN-001** (cross-cutting), **BUG-JN-002** (cross-cutting) |
 | P1 | 9 | **BUG-JN-004**, **BUG-JN-005**, **BUG-JN-006**, **BUG-JN-010**, **ENG-JN-002**, **ENG-JN-003**, **ENG-JN-004**, **STD-JN-001**, **PERF-JN-001**, **TEST-JN-001** |
 | P2 | 8 | **BUG-JN-007**, **BUG-JN-008**, **BUG-JN-009**, **ENG-JN-005**, **ENG-JN-006**, **STD-JN-002**, **STD-JN-003**, **NAME-JN-001**, **PERF-JN-002**, **PERF-JN-003** |
@@ -344,7 +346,7 @@ No concerns identified. No path traversal, exec/eval, or injection risks.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Bug (BUG) | 10 | BUG-JN-001 through BUG-JN-010 |
 | Engine (ENG) | 7 | ENG-JN-001 through ENG-JN-007 |
 | Standards (STD) | 3 | STD-JN-001 through STD-JN-003 |
@@ -355,7 +357,7 @@ No concerns identified. No path traversal, exec/eval, or injection risks.
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | BUG-JN-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set |
 | BUG-JN-002 | `global_map.py:28` | `GlobalMap.get()` broken signature |
 
@@ -371,15 +373,15 @@ No concerns identified. No path traversal, exec/eval, or injection risks.
 
 ### Short-term (Hardening)
 
-4. **Fix case-insensitive join output** (BUG-JN-004/ENG-JN-003): Use temporary lowercase columns for merge, preserve original values.
-5. **Fix left outer join reject** (BUG-JN-010): Skip reject computation when `use_inner_join=False`.
-6. **Consolidate double merge** (PERF-JN-001): Single merge with `indicator=True`.
-7. **Add engine unit tests** (TEST-JN-001): Minimum 8 P0 test cases.
+1. **Fix case-insensitive join output** (BUG-JN-004/ENG-JN-003): Use temporary lowercase columns for merge, preserve original values.
+2. **Fix left outer join reject** (BUG-JN-010): Skip reject computation when `use_inner_join=False`.
+3. **Consolidate double merge** (PERF-JN-001): Single merge with `indicator=True`.
+4. **Add engine unit tests** (TEST-JN-001): Minimum 8 P0 test cases.
 
 ### Long-term (Optimization)
 
-8. **Add INCLUDE_LOOKUP toggle** (ENG-JN-002): Implement USE_LOOKUP_COLS/LOOKUP_COLS support.
-9. **Remove deprecated `copy=False`** (BUG-JN-008): Forward compatibility with pandas 2.x.
+1. **Add INCLUDE_LOOKUP toggle** (ENG-JN-002): Implement USE_LOOKUP_COLS/LOOKUP_COLS support.
+2. **Remove deprecated `copy=False`** (BUG-JN-008): Forward compatibility with pandas 2.x.
 
 ---
 
@@ -388,7 +390,7 @@ No concerns identified. No path traversal, exec/eval, or injection risks.
 ### Risk Matrix
 
 | Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
+| ------ | ----------- | -------- | ------------ |
 | Lookup memory explosion | Medium | High | Large lookup dataset held entirely in memory for hash join. Use database-level joins for large lookups. Monitor memory usage. |
 | Key column type mismatch | Medium | Medium | Main and lookup key columns with different types (string vs int) cause join failure. Validate types before merge. |
 | Inner join data loss | Medium | High | Inner join silently drops unmatched main rows. Ensure REJECT output is connected and monitored when using inner join mode. |
@@ -415,17 +417,17 @@ No concerns identified. No path traversal, exec/eval, or injection risks.
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talend 7.3 docs | https://help.qlik.com/talend/en-US/components/7.3/processing/tjoin-standard-properties | Parameter definitions |
-| Talend 8.0 docs | https://help.qlik.com/talend/en-US/components/8.0/processing/tjoin-standard-properties | Parameter defaults |
-| Talaxie GitHub | https://github.com/Talaxie/tcommon-studio-se | _java.xml component definition |
+| -------- | ---------- | ---------- |
+| Talend 7.3 docs | <https://help.qlik.com/talend/en-US/components/7.3/processing/tjoin-standard-properties> | Parameter definitions |
+| Talend 8.0 docs | <https://help.qlik.com/talend/en-US/components/8.0/processing/tjoin-standard-properties> | Parameter defaults |
+| Talaxie GitHub | <https://github.com/Talaxie/tcommon-studio-se> | _java.xml component definition |
 | Engine source | `src/v1/engine/components/transform/join.py` | Feature parity analysis |
 | Converter source | `src/converters/talend_to_v1/components/transform/join.py` | Converter audit |
 
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` broken signature |
 

@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tOracleInput` |
 | **V1 Engine Class** | None -- no concrete engine implementation exists |
 | **Engine File** | None -- no engine file for this component |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/converters/talend_to_v1/components/database/oracle_input.py` | Converter class `OracleInputConverter` |
 | `tests/converters/talend_to_v1/components/test_oracle_input.py` | Converter tests |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()` |
@@ -39,7 +39,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 28 of 28 params extracted (100%); USE_EXISTING_CONNECTION, CONNECTION, CONNECTION_TYPE, DB_VERSION, RAC_URL, HOST, PORT, DBNAME, LOCAL_SERVICE_NAME, SCHEMA_DB, USER, PASS->password, JDBC_URL, TABLE, QUERY, SPECIFY_DATASOURCE_ALIAS, DATASOURCE_ALIAS, PROPERTIES, IS_CONVERT_XMLTYPE, CONVERT_XMLTYPE table, ENCODING, USE_CURSOR, CURSOR_SIZE, TRIM_ALL_COLUMN, TRIM_COLUMN table, NO_NULL_VALUES, SUPPORT_NLS + framework params; single consolidated needs_review for engine gap |
 | Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No concrete engine implementation exists; component cannot execute |
 | Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code quality is good (follows CONVERTER_PATTERN.md), but no engine code exists at all -- component is incomplete |
@@ -49,6 +49,7 @@ How production-ready is this component at a glance?
 **Overall: Red (RED) -- No engine implementation. Converter correctly extracts all 28 params (26 unique + 2 framework, including PASS->password fix, CONVERT_XMLTYPE table, TRIM_COLUMN table, cursor params, NLS support) for future engine support, but component cannot execute in production. Engine must be implemented before this component is usable.**
 
 **Top Actions**:
+
 1. Implement concrete OracleInput engine class (P0 -- blocks production use)
 2. All converter and test issues resolved in v1.1 rewrite
 3. Wire CONVERT_XMLTYPE XMLType column mapping logic in engine once implemented
@@ -77,7 +78,7 @@ A critical note about the password parameter: the _java.xml definition uses `PAS
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Use Existing Connection | `USE_EXISTING_CONNECTION` | CHECK | `false` | When true, uses a connection opened by a tOracleConnection component instead of standalone connection params |
 | 2 | Connection | `CONNECTION` | COMPONENT_LIST | `""` | References the tOracleConnection component to use. Only shown when USE_EXISTING_CONNECTION is true. Filtered to show only tOracleConnection instances. |
 | 3 | Connection Type | `CONNECTION_TYPE` | CLOSED_LIST | `"ORACLE_SID"` | Oracle connection type: ORACLE_SID, ORACLE_SERVICE_NAME, ORACLE_RAC, ORACLE_OCI, ORACLE_WALLET |
@@ -99,7 +100,7 @@ A critical note about the password parameter: the _java.xml definition uses `PAS
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | A1 | Additional JDBC Properties | `PROPERTIES` | TEXT | `""` | Additional JDBC connection properties string |
 | A2 | Convert XMLType | `IS_CONVERT_XMLTYPE` | CHECK | `false` | When true, enables XMLType column conversion mapping |
 | A3 | XMLType Columns | `CONVERT_XMLTYPE` | TABLE | `[]` | Table of XMLType column mappings. Each row maps a schema column to its XMLType source. Shown when IS_CONVERT_XMLTYPE is true. |
@@ -114,7 +115,7 @@ A critical note about the password parameter: the _java.xml definition uses `PAS
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Output | Row > Main | Rows from query result set |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires after component completes successfully |
 | `SUBJOB_ERROR` | Output (Trigger) | Trigger | Fires when component encounters an error |
@@ -122,7 +123,7 @@ A critical note about the password parameter: the _java.xml definition uses `PAS
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Number of rows read from the query result |
 | `{id}_QUERY` | String | After execution | The SQL query that was executed |
 
@@ -147,7 +148,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 The converter uses the no-engine flat config dict pattern. All 26 unique parameters plus 2 framework parameters are extracted using `_get_str()`, `_get_bool()`, and `_get_int()` base class helpers. TABLE parameters (CONVERT_XMLTYPE, TRIM_COLUMN) use static parser methods. The converter sets `component_type` and `component_id` in the flat config dict, followed by all params in logical sections, framework params last.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `USE_EXISTING_CONNECTION` | Yes | `use_existing_connection` | bool, default False |
 | 2 | `CONNECTION` | Yes | `connection` | str, default "" |
 | 3 | `CONNECTION_TYPE` | Yes | `connection_type` | str, default "ORACLE_SID" |
@@ -183,7 +184,7 @@ The converter uses the no-engine flat config dict pattern. All 26 unique paramet
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` |
 | `type` | Yes | Converted from Talend types via `convert_type()` |
 | `nullable` | Yes | Boolean |
@@ -200,7 +201,7 @@ Context variable expressions (e.g., `context.hostname`) are preserved as-is in s
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | CONV-OIN-001 | ~~P0~~ | **FIXED** -- Prior code used `PASSWORD` for extraction but _java.xml uses `PASS`. Fixed in v1.1 rewrite. |
 | CONV-OIN-002 | ~~P1~~ | **FIXED** -- Prior code only extracted 6 of 26 params. Now extracts all 28 (26 unique + 2 framework). |
 | CONV-OIN-003 | ~~P1~~ | **FIXED** -- Prior code used `_build_component_dict()`. Now uses flat config dict pattern per D-27. |
@@ -208,7 +209,7 @@ Context variable expressions (e.g., `context.hostname`) are preserved as-is in s
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | (all keys) | No concrete engine implementation for tOracleInput. All config keys are extracted for future engine support. | engine_gap |
 
 Single consolidated needs_review entry per D-27 (entire engine absent).
@@ -222,7 +223,7 @@ How faithfully does the v1 engine implement Talend behavior?
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Oracle SQL query execution | **No** | N/A | N/A | No engine implementation |
 | 2 | USE_EXISTING_CONNECTION | **No** | N/A | N/A | No engine implementation |
 | 3 | Multiple connection types (SID/Service/RAC/OCI/Wallet) | **No** | N/A | N/A | No engine implementation |
@@ -234,13 +235,13 @@ How faithfully does the v1 engine implement Talend behavior?
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-OIN-001 | **P0** | No engine implementation exists. tOracleInput cannot execute at all. All 28 config keys are extracted by the converter for future engine support. |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | No | N/A | No engine implementation |
 | `{id}_QUERY` | Yes | No | N/A | No engine implementation |
 
@@ -253,19 +254,19 @@ How well-written is the engine code?
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-OIN-001 | ~~P0~~ | `oracle_input.py` (prior) | **FIXED** -- `_get_str(node, "PASSWORD")` extracted wrong param name. _java.xml uses `PASS`. |
 
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No naming issues. All config keys use snake_case per convention. PASS maps to `password` config key per D-30. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | -- | -- | -- | No standards violations. Converter follows CONVERTER_PATTERN.md. |
 
 ### 6.4 Debug Artifacts
@@ -279,7 +280,7 @@ Password is extracted as a plain string via `_get_str()`. No encryption handling
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Module-level `logger = logging.getLogger(__name__)` present |
 | Level usage | N/A -- converter does not log during normal operation |
 | Sensitive data | Password not logged |
@@ -287,7 +288,7 @@ Password is extracted as a plain string via `_get_str()`. No encryption handling
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | N/A -- converters never raise, return ComponentResult |
 | Exception chaining | N/A |
 | die_on_error handling | N/A -- no engine implementation |
@@ -295,7 +296,7 @@ Password is extracted as a plain string via `_get_str()`. No encryption handling
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Full type hints on `convert()` method |
 | Parameter types | All helper methods (`_get_str`, `_get_bool`, etc.) fully typed |
 
@@ -306,13 +307,13 @@ Password is extracted as a plain string via `_get_str()`. No encryption handling
 Will it scale?
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No engine implementation to assess performance. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- no engine implementation |
 | Memory threshold | N/A -- no engine implementation |
 | Large data handling | N/A -- USE_CURSOR/CURSOR_SIZE params extracted for future cursor-based fetching |
@@ -326,7 +327,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 30+ | `tests/converters/talend_to_v1/components/test_oracle_input.py` |
 | Engine unit tests | 0 | None -- no engine implementation |
 | Integration tests | 0 | None -- no engine implementation |
@@ -334,12 +335,13 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-OIN-001 | **P0** | No engine tests -- engine is unimplemented |
 
 ### 8.3 Recommended Test Cases
 
 Once engine is implemented:
+
 - Query execution with various SQL types (SELECT, PL/SQL blocks)
 - USE_EXISTING_CONNECTION shared connection lifecycle
 - Cursor-based fetching with various CURSOR_SIZE values
@@ -359,7 +361,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 1 | **ENG-OIN-001** |
 | P1 | 0 | |
 | P2 | 0 | |
@@ -371,7 +373,7 @@ Note: Prior converter issues (CONV-OIN-001, CONV-OIN-002, CONV-OIN-003, BUG-OIN-
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 (3 fixed) | ~~CONV-OIN-001~~, ~~CONV-OIN-002~~, ~~CONV-OIN-003~~ |
 | Engine (ENG) | 1 | **ENG-OIN-001** |
 | Bug (BUG) | 0 (1 fixed) | ~~BUG-OIN-001~~ |
@@ -391,14 +393,17 @@ No cross-cutting issues apply -- no engine implementation exists.
 What should be fixed, in what order?
 
 ### Immediate (Before Production)
+
 1. **ENG-OIN-001 (P0)**: Implement concrete OracleInput engine class supporting query execution, connection modes, cursor fetching, XMLType conversion, trimming, and NLS support.
 
 ### Short-term (Hardening)
+
 1. Add comprehensive engine tests once implementation exists (TEST-OIN-001).
 2. Wire CONVERT_XMLTYPE table parsing into engine XMLType handling.
 3. Wire TRIM_COLUMN per-column trim logic into engine.
 
 ### Long-term (Optimization)
+
 1. Connection pooling for Oracle connections.
 2. Streaming mode for large result sets using cursor-based fetching.
 
@@ -407,7 +412,7 @@ What should be fixed, in what order?
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
+| -------- | ---------- | ---------- |
 | Talaxie GitHub tOracleInput_java.xml | `tdi-studio-se/main/components/tOracleInput/tOracleInput_java.xml` | Parameter definitions, defaults, types |
 | Converter source | `src/converters/talend_to_v1/components/database/oracle_input.py` | Converter audit |
 | Converter tests | `tests/converters/talend_to_v1/components/test_oracle_input.py` | Test coverage assessment |

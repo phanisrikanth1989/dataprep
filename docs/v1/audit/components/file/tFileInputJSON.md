@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tFileInputJSON` |
 | **V1 Engine Class** | `FileInputJSON` |
 | **Engine File** | `src/v1/engine/components/file/file_input_json.py` (334 lines) |
@@ -25,7 +25,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/file/file_input_json.py` | Engine implementation (334 lines) |
 | `src/converters/talend_to_v1/components/file/file_input_json.py` | Converter class |
 | `tests/converters/talend_to_v1/components/test_file_input_json.py` | Converter tests (61 tests) |
@@ -37,7 +37,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 17 of 17 config keys extracted (15 unique + 2 framework); 3 MAPPING TABLE variants (JSONPATH, XPATH, JSONPATH_WITHOUTPUT_LOOP); state-machine parser; `_build_component_dict` with type_name="FileInputJSON"; 3 per-feature needs_review entries; 61 converter tests across 10 test classes |
 | Engine Feature Parity | **Y** | 0 | 4 | 3 | 1 | Has JSONPath extraction, URL reading, reject flow, schema type coercion, advanced separators, date checking. Missing: XPath mode, JSONPATH_WITHOUTPUT_LOOP mode; json_path_version read but unused; use_loop_as_root default mismatch; die_on_error default mismatch |
 | Code Quality | **Y** | 2 | 3 | 4 | 2 | Cross-cutting base class bugs; dead validate_config(); NaN handling gaps; unused json_path_version variable; die_on_error per-row bypass; schema date key mismatch (pattern vs date_pattern) |
@@ -47,6 +47,7 @@
 **Overall: Yellow -- Converter fully standardized (Green); engine has comprehensive JSONPath support but known gaps in XPath/no-loop modes; engine/code quality gaps keep overall at Yellow**
 
 **Top Actions:**
+
 1. Fix `_update_global_map()` crash in base class (P0, cross-cutting)
 2. Add XPath read mode support to engine (P1, engine gap)
 3. Add JSONPATH_WITHOUTPUT_LOOP mode to engine (P1, engine gap)
@@ -71,7 +72,7 @@ The component supports three read modes controlled by the READ_BY parameter: JSO
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Schema | `SCHEMA` | SCHEMA_TYPE | -- | Output schema definition. Each column maps to a JSONPath/XPath query in the Mapping table. |
 | 2 | Read By | `READ_BY` | CLOSED_LIST | `JSONPATH` | Read mode: JSONPATH (JSONPath with loop), XPATH (XPath queries), JSONPATH_WITHOUTPUT_LOOP (direct JSONPath). |
 | 3 | JSON Path Version | `JSON_PATH_VERSION` | CLOSED_LIST | `2_1_0` | JSONPath API version selection. Options: 2_1_0, 1_1_0. |
@@ -88,7 +89,7 @@ The component supports three read modes controlled by the READ_BY parameter: JSO
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 13 | Advanced Separator | `ADVANCED_SEPARATOR` | CHECK | `false` | Enable custom number formatting separators. |
 | 14 | Thousands Separator | `THOUSANDS_SEPARATOR` | TEXT | `","` | Thousands grouping separator. SHOW_IF ADVANCED_SEPARATOR. |
 | 15 | Decimal Separator | `DECIMAL_SEPARATOR` | TEXT | `"."` | Decimal point separator. SHOW_IF ADVANCED_SEPARATOR. |
@@ -101,7 +102,7 @@ The component supports three read modes controlled by the READ_BY parameter: JSO
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Output | Row > Main | Successfully extracted JSON records |
 | `REJECT` | Output | Row > Reject | Rejected records with errorCode/errorMessage columns |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires on successful completion |
@@ -113,7 +114,7 @@ The component supports three read modes controlled by the READ_BY parameter: JSO
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total number of JSON elements processed |
 | `{id}_NB_LINE_OK` | Integer | After execution | Number of successfully processed elements |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Number of rejected elements |
@@ -137,7 +138,7 @@ The component supports three read modes controlled by the READ_BY parameter: JSO
 The converter uses `@REGISTRY.register("tFileInputJSON")` decorator-based dispatch. All parameters are extracted using typed helpers (`_get_str`, `_get_bool`) from the `ComponentConverter` base class. The MAPPING TABLE is parsed by a module-level `_parse_mapping()` function using a state-machine approach that supports all three TABLE variants. The converter uses `_build_component_dict()` per D-40 with `type_name="FileInputJSON"` per D-43.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `READ_BY` | Yes | `read_by` | CLOSED_LIST, default "JSONPATH" |
 | 2 | `JSON_PATH_VERSION` | Yes | `json_path_version` | CLOSED_LIST, default "2_1_0" |
 | 3 | `USEURL` | Yes | `useurl` | CHECK, default False |
@@ -163,7 +164,7 @@ The converter uses `@REGISTRY.register("tFileInputJSON")` decorator-based dispat
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Direct from SchemaColumn.name |
 | `type` | Yes | Converted via `convert_type()` (Talend id_* to Python types) |
 | `nullable` | Yes | Direct boolean |
@@ -184,7 +185,7 @@ No converter issues. All parameters extracted correctly with proper defaults.
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `loop_query` | Engine only supports JSONPATH mode via json_loop_query; XPath loop_query is ignored | engine_gap |
 | 2 | `json_path_version` | Engine reads this key but never uses it in processing logic | engine_gap |
 | 3 | `use_loop_as_root` | Engine default is False but Talend default is True -- behavioral mismatch | engine_gap |
@@ -196,7 +197,7 @@ No converter issues. All parameters extracted correctly with proper defaults.
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | JSONPath extraction | **Yes** | High | `_process()` line 184 | Uses jsonpath_ng.ext library |
 | 2 | URL reading | **Yes** | Medium | `_process()` line 169 | Basic urlopen -- no timeout, headers, auth |
 | 3 | File reading | **Yes** | High | `_process()` line 176 | Standard file open with encoding |
@@ -215,7 +216,7 @@ No converter issues. All parameters extracted correctly with proper defaults.
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-FIJ-001 | **P1** | Engine does not support XPATH read mode -- only JSONPATH mode via jsonpath_ng |
 | ENG-FIJ-002 | **P1** | Engine does not support JSONPATH_WITHOUTPUT_LOOP mode -- always requires loop query |
 | ENG-FIJ-003 | **P1** | `use_loop_as_root` defaults to False in engine but True in Talend -- mapping queries may resolve differently |
@@ -228,7 +229,7 @@ No converter issues. All parameters extracted correctly with proper defaults.
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_stats()` line 259 | Via base class |
 | `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats()` line 259 | Via base class |
 | `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats()` line 259 | Via base class |
@@ -241,7 +242,7 @@ No converter issues. All parameters extracted correctly with proper defaults.
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-FIJ-001 | **P0** | `base_component.py:304` | CROSS-CUTTING: `_update_global_map()` crash when globalMap is set -- `UnboundLocalError` on undefined variable |
 | BUG-FIJ-002 | **P0** | `global_map.py:28` | CROSS-CUTTING: `GlobalMap.get()` broken signature causes crash when called with expected arguments |
 | BUG-FIJ-003 | **P1** | `file_input_json.py:233` | Date validation uses `pattern` key but converter/schema sends `date_pattern` -- date checking always skipped |
@@ -251,14 +252,14 @@ No converter issues. All parameters extracted correctly with proper defaults.
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-FIJ-001 | **P2** | Duplicate logger: `self.logger` and module-level `logger` both used throughout |
 | NAME-FIJ-002 | **P2** | `_normalize_mapping` uses `'column'` and `'jsonpath'` as keys to detect Talend format, confusing with actual output keys |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-FIJ-001 | **P2** | "No dead code" | `validate_config()` defined but never called by base class `execute()` |
 | STD-FIJ-002 | **P3** | "Unused imports" | `os`, `re`, `codecs` imported but never used |
 
@@ -273,7 +274,7 @@ JSON injection via crafted JSONPath expressions is theoretically possible but mi
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Two loggers (module-level `logger` and `self.logger`) -- should use one |
 | Level usage | Appropriate: INFO for operations, DEBUG for details, ERROR for failures |
 | Sensitive data | URL paths logged at INFO level -- may expose internal API endpoints |
@@ -281,7 +282,7 @@ JSON injection via crafted JSONPath expressions is theoretically possible but mi
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | No custom exceptions; uses base class ComponentExecutionError |
 | Exception chaining | Outer try/except catches all; inner per-row catches route to reject |
 | die_on_error handling | Re-raises exception when True; returns empty DataFrames when False |
@@ -289,7 +290,7 @@ JSON injection via crafted JSONPath expressions is theoretically possible but mi
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Present on all methods -- `_process`, `validate_config`, `_normalize_mapping` |
 | Parameter types | `Dict`, `Any`, `List` properly typed; return types specified |
 
@@ -298,7 +299,7 @@ JSON injection via crafted JSONPath expressions is theoretically possible but mi
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-FIJ-001 | **P2** | Row-by-row JSONPath parsing -- each mapping entry calls `parse(jsonpath).find(element)` per row, recompiling the expression each time |
 | PERF-FIJ-002 | **P2** | `json.dumps()` serialization pass on all output columns -- iterates every cell to check for list/dict types |
 | PERF-FIJ-003 | **P3** | Entire JSON file loaded into memory -- no streaming/chunked processing for large files (100MB+) |
@@ -306,7 +307,7 @@ JSON injection via crafted JSONPath expressions is theoretically possible but mi
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Not supported -- entire JSON loaded into memory via `json.load()` |
 | Memory threshold | No limit -- large files can cause OOM |
 | Large data handling | Output DataFrame holds all rows + reject DataFrame if errors; two full copies of extracted data |
@@ -318,7 +319,7 @@ JSON injection via crafted JSONPath expressions is theoretically possible but mi
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 61 | `tests/converters/talend_to_v1/components/test_file_input_json.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | Passing | `tests/converters/talend_to_v1/test_integration.py` (regression guard) |
@@ -326,7 +327,7 @@ JSON injection via crafted JSONPath expressions is theoretically possible but mi
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-FIJ-001 | **P2** | Zero engine unit tests -- no coverage for JSONPath extraction, URL reading, reject flow, type coercion |
 | TEST-FIJ-002 | **P2** | No engine integration tests with real JSON files |
 
@@ -348,7 +349,7 @@ JSON injection via crafted JSONPath expressions is theoretically possible but mi
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 2 | **BUG-FIJ-001**, **BUG-FIJ-002** |
 | P1 | 7 | **ENG-FIJ-001**, **ENG-FIJ-002**, **ENG-FIJ-003**, **ENG-FIJ-004**, **BUG-FIJ-003**, **BUG-FIJ-004**, **BUG-FIJ-005** |
 | P2 | 9 | **ENG-FIJ-005**, **ENG-FIJ-006**, **ENG-FIJ-007**, **NAME-FIJ-001**, **NAME-FIJ-002**, **STD-FIJ-001**, **PERF-FIJ-001**, **PERF-FIJ-002**, **TEST-FIJ-001**, **TEST-FIJ-002** |
@@ -358,7 +359,7 @@ JSON injection via crafted JSONPath expressions is theoretically possible but mi
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
 | Engine (ENG) | 8 | ENG-FIJ-001 through ENG-FIJ-008 |
 | Bug (BUG) | 5 | BUG-FIJ-001 through BUG-FIJ-005 |
@@ -370,7 +371,7 @@ JSON injection via crafted JSONPath expressions is theoretically possible but mi
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap is set -- NB_LINE stats lost |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` broken signature -- any globalMap interaction crashes |
 | XCUT-004 | `base_component.py:202` | `self.config` mutation via `resolve_dict()` -- if tFileInputJSON runs inside iterate loop, config modified on first pass |
@@ -386,21 +387,21 @@ JSON injection via crafted JSONPath expressions is theoretically possible but mi
 
 ### Short-term (Hardening)
 
-3. Add XPath read mode support (P1, ENG-FIJ-001)
-4. Add JSONPATH_WITHOUTPUT_LOOP mode (P1, ENG-FIJ-002)
-5. Fix `use_loop_as_root` default to True (P1, ENG-FIJ-003)
-6. Fix `die_on_error` default to False (P1, ENG-FIJ-004)
-7. Fix date pattern key mismatch: `pattern` vs `date_pattern` (P1, BUG-FIJ-003)
-8. Fix mapping normalization detection (P1, BUG-FIJ-004)
-9. Fix list/single value detection (P1, BUG-FIJ-005)
-10. Add engine unit tests (P2, TEST-FIJ-001, TEST-FIJ-002)
-11. Pre-compile JSONPath expressions (P2, PERF-FIJ-001)
+1. Add XPath read mode support (P1, ENG-FIJ-001)
+2. Add JSONPATH_WITHOUTPUT_LOOP mode (P1, ENG-FIJ-002)
+3. Fix `use_loop_as_root` default to True (P1, ENG-FIJ-003)
+4. Fix `die_on_error` default to False (P1, ENG-FIJ-004)
+5. Fix date pattern key mismatch: `pattern` vs `date_pattern` (P1, BUG-FIJ-003)
+6. Fix mapping normalization detection (P1, BUG-FIJ-004)
+7. Fix list/single value detection (P1, BUG-FIJ-005)
+8. Add engine unit tests (P2, TEST-FIJ-001, TEST-FIJ-002)
+9. Pre-compile JSONPath expressions (P2, PERF-FIJ-001)
 
 ### Long-term (Optimization)
 
-12. Add URL reading improvements (P3, ENG-FIJ-008)
-13. Remove unused imports (P3, STD-FIJ-002)
-14. Add streaming mode for large files (P3, PERF-FIJ-003)
+1. Add URL reading improvements (P3, ENG-FIJ-008)
+2. Remove unused imports (P3, STD-FIJ-002)
+3. Add streaming mode for large files (P3, PERF-FIJ-003)
 
 ---
 
@@ -411,7 +412,7 @@ This section is included because tFileInputJSON handles URL-based data fetching,
 ### Risk Matrix
 
 | Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
+| ------ | ----------- | -------- | ------------ |
 | SSRF via USEURL | Medium | High -- attacker-controlled URL can probe internal services | Validate URL against allowlist; reject private/internal IP ranges; add timeout |
 | JSONPath injection | Low | Medium -- crafted JSONPath could cause excessive computation or unexpected data access | jsonpath_ng library handles parsing safely; complex expressions may cause performance issues |
 | Large file OOM | Medium | High -- entire JSON loaded into memory; 500MB file uses 1GB+ RAM | Implement streaming JSON parser; add configurable file size limit |
@@ -441,9 +442,9 @@ This section is included because tFileInputJSON handles URL-based data fetching,
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tFileInputJSON/tFileInputJSON_java.xml` | Complete parameter definitions, CLOSED_LIST values, defaults, TABLE structures |
-| Official Talend docs | `https://help.qlik.com/talend/en-US/components/8.0/json/tfileinputjson-standard-properties` | Component description, behavioral notes |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tFileInputJSON/tFileInputJSON_java.xml`> | Complete parameter definitions, CLOSED_LIST values, defaults, TABLE structures |
+| Official Talend docs | `<https://help.qlik.com/talend/en-US/components/8.0/json/tfileinputjson-standard-properties`> | Component description, behavioral notes |
 | Engine source | `src/v1/engine/components/file/file_input_json.py` (334 lines) | Feature parity analysis, bug identification |
 | Converter source | `src/converters/talend_to_v1/components/file/file_input_json.py` | Converter audit |
 | Converter tests | `tests/converters/talend_to_v1/components/test_file_input_json.py` (61 tests) | Test coverage analysis |
@@ -452,7 +453,7 @@ This section is included because tFileInputJSON handles URL-based data fetching,
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set -- NB_LINE/NB_LINE_OK/NB_LINE_REJECT stats lost |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` broken signature -- any globalMap interaction crashes |
 | XCUT-004 | `base_component.py:202` | `self.config` mutation via `resolve_dict()` -- if tFileInputJSON runs in iterate loop, config modified on first pass |

@@ -58,6 +58,7 @@
 ## 🎯 FEATURES IMPLEMENTED
 
 ### Visual Job Designer
+
 - ✅ React Flow canvas with drag-drop
 - ✅ Component palette with 6 pre-built components
 - ✅ Dynamic configuration forms (auto-generated)
@@ -66,6 +67,7 @@
 - ✅ Canvas with zoom, pan, minimap
 
 ### Job Management
+
 - ✅ Create new jobs with modal dialog
 - ✅ List all jobs in table view
 - ✅ Edit existing jobs
@@ -74,6 +76,7 @@
 - ✅ Job persistence (file-based)
 
 ### Component Library (6 Ready)
+
 - ✅ tFileInput - Read files (CSV/JSON/Parquet)
 - ✅ tMap - Transform with expressions
 - ✅ tFilter - Filter rows by condition
@@ -83,6 +86,7 @@
 - ✅ Extensible - Easy to add more
 
 ### Execution & Monitoring
+
 - ✅ Real-time progress bar (0-100%)
 - ✅ Component statistics (NB_LINE, NB_LINE_OK, NB_LINE_REJECT)
 - ✅ Live logs viewer (scrollable)
@@ -92,6 +96,7 @@
 - ✅ Error display with context
 
 ### Backend API
+
 - ✅ 6 Job endpoints (CRUD + export)
 - ✅ 2 Component endpoints (list + get metadata)
 - ✅ 6 Execution endpoints (start/status/stop + WebSocket)
@@ -100,6 +105,7 @@
 - ✅ CORS enabled for localhost
 
 ### Type Safety
+
 - ✅ Full TypeScript frontend
 - ✅ Pydantic models on backend
 - ✅ Shared interfaces for all data
@@ -107,6 +113,7 @@
 - ✅ IDE autocomplete throughout
 
 ### Integration
+
 - ✅ Seamless UI ↔ Backend API
 - ✅ Job export format matches ETL engine
 - ✅ Execution calls existing engine (no modifications)
@@ -194,9 +201,10 @@ chmod +x quickstart.sh
 See [SETUP_DEPLOYMENT.md](SETUP_DEPLOYMENT.md) for step-by-step
 
 ### Then:
-1. Backend auto-starts on http://localhost:8000
-2. Frontend auto-starts on http://localhost:5173
-3. Open browser to http://localhost:5173
+
+1. Backend auto-starts on <http://localhost:8000>
+2. Frontend auto-starts on <http://localhost:5173>
+3. Open browser to <http://localhost:5173>
 4. Start designing your first ETL job!
 
 ---
@@ -253,6 +261,7 @@ See [SETUP_DEPLOYMENT.md](SETUP_DEPLOYMENT.md) for step-by-step
 ### 14 Total Endpoints
 
 **Jobs (6):**
+
 - GET /api/jobs - List all
 - GET /api/jobs/{id} - Get one
 - POST /api/jobs - Create
@@ -261,23 +270,25 @@ See [SETUP_DEPLOYMENT.md](SETUP_DEPLOYMENT.md) for step-by-step
 - GET /api/jobs/{id}/export - Export config
 
 **Components (2):**
+
 - GET /api/components - List all
 - GET /api/components/{type} - Get metadata
 
 **Execution (6):**
+
 - POST /api/execution/start - Start job
 - GET /api/execution/{task_id} - Get status
 - POST /api/execution/{task_id}/stop - Stop job
 - WS /api/execution/ws/{task_id} - Real-time updates
 
-**Auto-generated API Docs:** http://localhost:8000/docs (Swagger UI)
+**Auto-generated API Docs:** <http://localhost:8000/docs> (Swagger UI)
 
 ---
 
 ## 📚 DOCUMENTATION MAP
 
 | Document | Best For |
-|----------|----------|
+| ---------- | ---------- |
 | **[START_HERE.md](START_HERE.md)** | 👈 **NEW USERS** - Start here! |
 | [QUICK_REFERENCE.md](QUICK_REFERENCE.md) | Cheat sheet & quick lookup |
 | [UI_README.md](UI_README.md) | Learning all features |
@@ -293,6 +304,7 @@ See [SETUP_DEPLOYMENT.md](SETUP_DEPLOYMENT.md) for step-by-step
 ### Technology Stack
 
 **Backend:**
+
 - FastAPI 0.104 - Modern async web framework
 - Pydantic 2.5 - Data validation
 - Uvicorn 0.24 - ASGI server
@@ -300,6 +312,7 @@ See [SETUP_DEPLOYMENT.md](SETUP_DEPLOYMENT.md) for step-by-step
 - Python 3.8+ - Language
 
 **Frontend:**
+
 - React 18.2 - UI framework
 - TypeScript 5.2 - Type safety
 - React Flow 11.10 - Visual editor
@@ -309,6 +322,7 @@ See [SETUP_DEPLOYMENT.md](SETUP_DEPLOYMENT.md) for step-by-step
 - Socket.io-client 4.5 - WebSocket client
 
 **Integration:**
+
 - Wraps existing ETL engine (no modifications)
 - File-based job storage
 - RESTful API + WebSocket
@@ -319,7 +333,7 @@ See [SETUP_DEPLOYMENT.md](SETUP_DEPLOYMENT.md) for step-by-step
 ## 📈 QUALITY METRICS
 
 | Metric | Value |
-|--------|-------|
+| -------- | ------- |
 | Files Created | 50+ |
 | Lines of Code | ~5000 |
 | Test Procedures | 20+ |
@@ -339,12 +353,14 @@ See [SETUP_DEPLOYMENT.md](SETUP_DEPLOYMENT.md) for step-by-step
 ## 🎯 QUICK START PATHS
 
 ### Path 1: I Just Want to Run It (5 min)
+
 1. Run `quickstart.bat` or `quickstart.sh`
-2. Open http://localhost:5173
+2. Open <http://localhost:5173>
 3. Click "+ New Job"
 4. Done!
 
 ### Path 2: I Want to Understand It (30 min)
+
 1. Read [START_HERE.md](START_HERE.md)
 2. Read [UI_README.md](UI_README.md) Features section
 3. Run quickstart script
@@ -352,12 +368,14 @@ See [SETUP_DEPLOYMENT.md](SETUP_DEPLOYMENT.md) for step-by-step
 5. Read [SETUP_DEPLOYMENT.md](SETUP_DEPLOYMENT.md)
 
 ### Path 3: I Want to Deploy It (1 hour)
+
 1. Read [SETUP_DEPLOYMENT.md](SETUP_DEPLOYMENT.md)
 2. Read Production Deployment section
 3. Follow Docker examples
 4. Deploy to your environment
 
 ### Path 4: I Want to Extend It (2+ hours)
+
 1. Read [UI_README.md](UI_README.md) - Adding Custom Components
 2. Read [FILE_INVENTORY.md](FILE_INVENTORY.md)
 3. Add new component to `backend/app/schemas.py`
@@ -384,6 +402,7 @@ See [SETUP_DEPLOYMENT.md](SETUP_DEPLOYMENT.md) for step-by-step
 ## 🎉 YOU NOW HAVE
 
 A complete, professional-grade ETL visual job designer that:
+
 - ✅ Lets users design jobs visually (drag-drop)
 - ✅ Provides real-time execution monitoring
 - ✅ Persists jobs for later reuse
@@ -398,23 +417,27 @@ A complete, professional-grade ETL visual job designer that:
 ## 🚀 NEXT STEPS
 
 ### Immediate (Now)
+
 1. Run `quickstart.bat` or `quickstart.sh`
-2. Open http://localhost:5173
+2. Open <http://localhost:5173>
 3. Create your first job!
 
 ### Short Term (Today)
+
 1. Try creating and executing a simple job
 2. Test each component
 3. Verify WebSocket real-time updates work
 4. Read [TESTING_GUIDE.md](TESTING_GUIDE.md) for validation
 
 ### Medium Term (This Week)
+
 1. Add any custom components you need
 2. Integrate with your data sources
 3. Test with real ETL workflows
 4. Share with team members
 
 ### Long Term (Production)
+
 1. Follow production deployment guide
 2. Add authentication if needed
 3. Set up monitoring and logging
@@ -425,6 +448,7 @@ A complete, professional-grade ETL visual job designer that:
 ## 📞 SUPPORT & RESOURCES
 
 **Documentation:**
+
 - [START_HERE.md](START_HERE.md) - Overview
 - [UI_README.md](UI_README.md) - Features
 - [SETUP_DEPLOYMENT.md](SETUP_DEPLOYMENT.md) - Setup
@@ -432,16 +456,18 @@ A complete, professional-grade ETL visual job designer that:
 - [QUICK_REFERENCE.md](QUICK_REFERENCE.md) - Cheat sheet
 
 **Online Resources:**
-- FastAPI: https://fastapi.tiangolo.com/
-- React Flow: https://reactflow.dev/
-- Ant Design: https://ant.design/
-- TypeScript: https://www.typescriptlang.org/
+
+- FastAPI: <https://fastapi.tiangolo.com/>
+- React Flow: <https://reactflow.dev/>
+- Ant Design: <https://ant.design/>
+- TypeScript: <https://www.typescriptlang.org/>
 
 ---
 
 ## 🏆 ACCOMPLISHMENT
 
 You now have a **production-ready, professional-grade ETL visual job designer** that:
+
 - Works like Talend's job designer
 - Integrates with your existing Python engine
 - Is fully documented

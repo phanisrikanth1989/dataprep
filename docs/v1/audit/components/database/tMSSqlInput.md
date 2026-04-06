@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tMSSqlInput` |
 | **V1 Engine Class** | None -- no concrete engine implementation exists |
 | **Engine File** | None -- no engine file for this component |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/converters/talend_to_v1/components/database/mssql_input.py` | Converter class `MSSqlInputConverter` |
 | `tests/converters/talend_to_v1/components/test_mssql_input.py` | Converter tests |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()` |
@@ -39,7 +39,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 20 of 20 params extracted (100%); USE_EXISTING_CONNECTION, CONNECTION, DRIVER, HOST, PORT, DB_SCHEMA->schema_db, DBNAME, USER, PASS, QUERY, SPECIFY_DATASOURCE_ALIAS, DATASOURCE_ALIAS, PROPERTIES (non-empty default), ACTIVE_DIR_AUTH, ENCODING, TRIM_ALL_COLUMN, TRIM_COLUMN, SET_QUERY_TIMEOUT, QUERY_TIMEOUT_IN_SECONDS + framework params; single consolidated needs_review for engine gap |
 | Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No concrete engine implementation exists; component cannot execute |
 | Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code quality is good (follows CONVERTER_PATTERN.md), but no engine code exists at all -- component is incomplete |
@@ -49,6 +49,7 @@ How production-ready is this component at a glance?
 **Overall: Red (RED) -- No engine implementation. Converter correctly extracts all 20 params (including DB_SCHEMA->schema_db mapping, PROPERTIES non-empty default "noDatetimeStringSync=true", encrypted password handling) for future engine support, but component cannot execute in production. Engine must be implemented before this component is usable.**
 
 **Top Actions**:
+
 1. Implement concrete MSSqlInput engine class (P0 -- blocks production use)
 2. All converter and test issues resolved in v1.1 rewrite
 3. Wire TRIM_COLUMN per-column trim logic in engine once implemented
@@ -75,7 +76,7 @@ A notable feature is the PROPERTIES parameter which defaults to "noDatetimeStrin
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Use Existing Connection | `USE_EXISTING_CONNECTION` | CHECK | `false` | When true, uses a connection opened by a tMSSqlConnection component instead of standalone connection params |
 | 2 | Connection | `CONNECTION` | COMPONENT_LIST | `""` | References the tMSSqlConnection component to use. Only shown when USE_EXISTING_CONNECTION is true. Filtered to show only tMSSqlConnection instances. |
 | 3 | Driver | `DRIVER` | CLOSED_LIST | `"MSSQL_PROP"` | JDBC driver selection. Options include MSSQL_PROP (Microsoft JDBC), JTDS_PROP (jTDS). |
@@ -92,7 +93,7 @@ A notable feature is the PROPERTIES parameter which defaults to "noDatetimeStrin
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | A1 | Additional JDBC Properties | `PROPERTIES` | TEXT | `"noDatetimeStringSync=true"` | Additional JDBC connection properties. Non-empty default disables datetime string synchronization for MSSQL compatibility. |
 | A2 | Active Directory Authentication | `ACTIVE_DIR_AUTH` | CHECK | `false` | Use Active Directory authentication instead of SQL Server authentication |
 | A3 | Encoding | `ENCODING` | ENCODING_TYPE | `"ISO-8859-15"` | Character encoding for string data. Note: default is ISO-8859-15, not UTF-8. |
@@ -104,7 +105,7 @@ A notable feature is the PROPERTIES parameter which defaults to "noDatetimeStrin
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Output | Row > Main | Query result rows emitted to downstream components |
 | `REJECT` | Output | Row > Reject | Rows that fail processing (if reject link connected) |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires after successful query execution |
@@ -113,7 +114,7 @@ A notable feature is the PROPERTIES parameter which defaults to "noDatetimeStrin
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Number of rows read from the query result |
 | `{id}_QUERY` | String | After execution | The SQL query that was executed |
 
@@ -139,7 +140,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 The converter uses the flat config dict pattern (no `_build_component_dict()`). All 20 parameters are extracted using `_get_str()`, `_get_bool()`, and `_get_int()` helpers from the base class. Password extraction uses a custom `_extract_password()` static method that handles the encrypted prefix.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `USE_EXISTING_CONNECTION` | Yes | `use_existing_connection` | bool, default False |
 | 2 | `CONNECTION` | Yes | `connection` | str, default "" |
 | 3 | `DRIVER` | Yes | `driver` | str, default "MSSQL_PROP" |
@@ -167,7 +168,7 @@ The converter uses the flat config dict pattern (no `_build_component_dict()`). 
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` |
 | `type` | Yes | Via `_parse_schema()` with `convert_type()` for Talend-to-Python type mapping |
 | `nullable` | Yes | Via `_parse_schema()` |
@@ -188,7 +189,7 @@ No open issues. Converter follows gold-standard pattern.
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | (all keys) | No concrete engine implementation for tMSSqlInput. All config keys are extracted for future engine support. | engine_gap |
 
 Single consolidated needs_review entry per D-27 (entire engine absent).
@@ -202,7 +203,7 @@ How faithfully does the v1 engine implement Talend behavior?
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | SQL query execution | **No** | N/A | None | No engine implementation exists |
 | 2 | MSSQL connection | **No** | N/A | None | No engine implementation exists |
 | 3 | Encrypted password | **No** | N/A | None | Converter strips prefix; engine would need to handle at runtime |
@@ -213,13 +214,13 @@ How faithfully does the v1 engine implement Talend behavior?
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-MSI-001 | **P0** | No concrete engine implementation for tMSSqlInput. Component cannot execute. All functionality is missing. |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | No | N/A | No engine implementation |
 | `{id}_QUERY` | Yes | No | N/A | No engine implementation |
 
@@ -236,13 +237,13 @@ No engine code exists to audit.
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No issues -- converter follows gold-standard naming with snake_case config keys |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | -- | -- | -- | No violations -- converter follows CONVERTER_PATTERN.md |
 
 ### 6.4 Debug Artifacts
@@ -256,7 +257,7 @@ Password values are extracted by the converter. The encrypted prefix (`enc:syste
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- `logger = logging.getLogger(__name__)` at module level |
 | Level usage | N/A -- converter does not log (appropriate for simple extraction) |
 | Sensitive data | Password is extracted to config JSON (standard pattern) |
@@ -264,7 +265,7 @@ Password values are extracted by the converter. The encrypted prefix (`enc:syste
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | N/A -- converters never raise exceptions (by convention) |
 | Exception chaining | N/A |
 | die_on_error handling | N/A -- no engine implementation |
@@ -272,7 +273,7 @@ Password values are extracted by the converter. The encrypted prefix (`enc:syste
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- full type hints on `convert()` and `_extract_password()` |
 | Parameter types | Good -- `Dict[str, Any]`, `List[str]`, typed returns |
 
@@ -283,13 +284,13 @@ Password values are extracted by the converter. The encrypted prefix (`enc:syste
 Will it scale?
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No engine implementation to assess |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- no engine implementation |
 | Memory threshold | N/A -- no engine implementation |
 | Large data handling | N/A -- no engine implementation |
@@ -303,7 +304,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | ~25 | `tests/converters/talend_to_v1/components/test_mssql_input.py` |
 | Engine unit tests | 0 | None -- no engine implementation |
 | Integration tests | 0 | None |
@@ -311,12 +312,13 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-MSI-001 | **P0** | No engine tests -- engine is unimplemented |
 
 ### 8.3 Recommended Test Cases
 
 Once engine is implemented:
+
 - Happy path: Execute simple SELECT query, verify row count and data
 - Connection modes: Standalone vs USE_EXISTING_CONNECTION
 - Query timeout: Verify timeout fires after SET_QUERY_TIMEOUT + QUERY_TIMEOUT_IN_SECONDS
@@ -334,7 +336,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 1 | **ENG-MSI-001** |
 | P1 | 0 | -- |
 | P2 | 0 | -- |
@@ -344,7 +346,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
 | Engine (ENG) | 1 | **ENG-MSI-001** |
 | Bug (BUG) | 0 | -- |
@@ -380,8 +382,8 @@ No P2/P3 issues -- converter is at gold standard.
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub tMSSqlInput_java.xml | `https://github.com/Talaxie/tdi-studio-se/` | Component definition XML -- 20 parameters |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub tMSSqlInput_java.xml | `<https://github.com/Talaxie/tdi-studio-se/`> | Component definition XML -- 20 parameters |
 | Converter source | `src/converters/talend_to_v1/components/database/mssql_input.py` | Converter audit |
 | Test source | `tests/converters/talend_to_v1/components/test_mssql_input.py` | Test coverage audit |
 | tMSSqlConnection converter | `src/converters/talend_to_v1/components/database/mssql_connection.py` | MSSQL family naming reference |
@@ -394,7 +396,7 @@ No P2/P3 issues -- converter is at gold standard.
 No cross-cutting issues applicable -- no engine implementation exists.
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | -- | -- | No engine code to share issues with |
 
 ---

@@ -3,6 +3,7 @@
 ## Executive Summary
 
 You're building a **Python-based ETL engine inspired by Talend's architecture**. This is a sophisticated distributed data transformation platform with:
+
 - **Component-based architecture** (like Talend components)
 - **Trigger-based workflow control** (OnSubjobOk, OnComponentOk, OnSubjobError)
 - **Hybrid execution** (Python + Java via Py4J bridge)
@@ -49,16 +50,19 @@ You're building a **Python-based ETL engine inspired by Talend's architecture**.
 ### 1.2 Key Components
 
 **Core Engine Files:**
+
 - `engine.py` - Main orchestrator, job execution, component lifecycle
 - `base_component.py` - Abstract base for all ETL components
 - `components/transform/map.py` - tMap (most complex, ~1140 lines)
 
 **State & Context Management:**
+
 - `global_map.py` - Talend-like global state store
 - `context_manager.py` - Job context variables with type conversion
 - `trigger_manager.py` - Trigger execution and workflow control
 
 **Java Integration:**
+
 - `java_bridge_manager.py` - Lifecycle management for Java bridge
 - `java_bridge/bridge.py` - Py4J wrapper for Python-Java communication
 - Uses **Apache Arrow** for efficient DataFrame serialization
@@ -70,6 +74,7 @@ You're building a **Python-based ETL engine inspired by Talend's architecture**.
 ### 2.1 Job Execution Lifecycle
 
 ```
+
 1. Initialize Engine
    ├─ Load job configuration (JSON)
    ├─ Initialize Java bridge (if enabled)
@@ -78,12 +83,12 @@ You're building a **Python-based ETL engine inspired by Talend's architecture**.
    ├─ Initialize all components from config
    └─ Register triggers
 
-2. Identify Execution Topology
+1. Identify Execution Topology
    ├─ Auto-detect subjobs (groups of connected components)
    ├─ Identify initial components (no inputs)
    └─ Register source components per subjob
 
-3. Main Execution Loop (with Triggers)
+1. Main Execution Loop (with Triggers)
    ├─ For each unexecuted component:
    │  ├─ Check if inputs are ready
    │  ├─ Check if component's subjob is active
@@ -102,7 +107,7 @@ You're building a **Python-based ETL engine inspired by Talend's architecture**.
    │
    └─ Repeat until all components executed
 
-4. Cleanup
+1. Cleanup
    ├─ Stop Java bridge
    ├─ Return execution statistics
    └─ Clean up resources
@@ -153,6 +158,7 @@ value = globalMap.get_component_stat("tMap_1", "NB_LINE_OK")
 ```
 
 **Statistics Tracked Per Component:**
+
 - `NB_LINE` - Total rows processed
 - `NB_LINE_OK` - Successfully processed
 - `NB_LINE_REJECT` - Rejected/error rows
@@ -175,6 +181,7 @@ value = globalMap.get_component_stat("tMap_1", "NB_LINE_OK")
 ```
 
 **Variable Resolution:**
+
 - `${context.input_dir}` → `/data/input`
 - `context.max_rows` → `10000` (auto-converted to int)
 - Supports concatenation: `${context.dir} + "/file.csv"`
@@ -182,6 +189,7 @@ value = globalMap.get_component_stat("tMap_1", "NB_LINE_OK")
 ### 3.3 Trigger Manager (Workflow Control)
 
 **Trigger Types:**
+
 - `OnComponentOK` - Fire when specific component succeeds
 - `OnComponentError` - Fire when specific component fails
 - `OnSubjobOk` - Fire when entire subjob completes successfully
@@ -190,6 +198,7 @@ value = globalMap.get_component_stat("tMap_1", "NB_LINE_OK")
 
 **Example Trigger Sequence:**
 ```
+
 1. Component A executes → Success
 2. Trigger: OnComponentOK (A → B)
 3. Subjob containing B is activated
@@ -207,6 +216,7 @@ value = globalMap.get_component_stat("tMap_1", "NB_LINE_OK")
 **tMap = Data Transformation + Lookup/Join Engine**
 
 It's your most powerful component - capable of:
+
 - **Data transformation** with complex expressions
 - **Multiple inputs** (1 main + N lookups)
 - **Multiple outputs** with filtering
@@ -241,27 +251,30 @@ Input Data (main + lookups)
 
 **Expression Evaluation Strategy (Optimized Hybrid):**
 ```
+
 1. Identify SIMPLE expressions: table.column
    └─ Extract directly from pandas (no Java)
 
-2. Batch COMPLEX expressions: table.col > 100 && context.flag
+1. Batch COMPLEX expressions: table.col > 100 && context.flag
    └─ Send to Java in ONE batch call (not per-row)
 
-3. Use PANDAS for fast joins
+1. Use PANDAS for fast joins
    └─ Matching modes: FIRST_MATCH, LAST_MATCH, ALL_MATCHES
 
-4. Compile TMAP ONCE, execute in CHUNKS
+1. Compile TMAP ONCE, execute in CHUNKS
    └─ Generates optimized Java script
    └─ Parallel execution per chunk
    └─ ~189k rows/sec throughput
 ```
 
 **Matching Modes (for lookups):**
+
 - `UNIQUE_MATCH` / `FIRST_MATCH` - Keep first occurrence
 - `LAST_MATCH` - Keep last occurrence  
 - `ALL_MATCHES` - Keep all matches (default)
 
 **Join Modes:**
+
 - `LEFT_OUTER_JOIN` - Keep unmatched main rows
 - `INNER_JOIN` - Only matched rows (unmatched → reject output)
 
@@ -394,6 +407,7 @@ results = java_bridge.execute_compiled_tmap_chunked(
 ### 5.3 Data Flow Safety
 
 **Why Apache Arrow?**
+
 - Preserves exact data types (pandas dtypes → Arrow → Java types)
 - Prevents automatic type inference corruption
 - Example: `["1", "2", "3"]` (strings) stays as strings, not auto-converted to int64
@@ -418,17 +432,20 @@ arrow_table = pa.Table.from_pandas(df, schema=explicit_schema)
 ## 6. Execution Modes
 
 ### 6.1 Batch Mode
+
 - Entire DataFrame loaded into memory
 - Execute component once on full dataset
 - **Use case:** Small to medium datasets
 
 ### 6.2 Streaming Mode
+
 - DataFrame chunked into smaller pieces
 - Each chunk processed independently
 - Results concatenated
 - **Use case:** Large datasets (>3GB memory threshold)
 
 ### 6.3 Hybrid Mode (Auto-Select)
+
 - Automatically switch based on input size
 - Memory usage > 3072 MB → Switch to Streaming
 - Default for optimal performance
@@ -519,6 +536,7 @@ arrow_table = pa.Table.from_pandas(df, schema=explicit_schema)
 ## 8. Subjobs & Iterate Components
 
 ### 8.1 Subjobs
+
 - **Logical grouping** of related components
 - **Execute in sequence** or triggered by previous subjob
 - **Can share state** via globalMap
@@ -538,6 +556,7 @@ Subjob_2 (triggered after Subjob_1)
 ```
 
 ### 8.2 Iterate Components
+
 - Loop N times
 - Each iteration executes downstream subjob
 - Example: `tFileInput` with `iterate` flow
@@ -588,16 +607,16 @@ Result: N iterations of Subjob_2
    - References `self._map` instead of `self._storage`
    - `get()` method missing `default` parameter
 
-2. **ContextManager.py has indentation issues:**
+1. **ContextManager.py has indentation issues:**
    - `load_context()` and `load_from_file()` methods defined inside `__init__`
 
-3. **Python Routine Manager:**
+1. **Python Routine Manager:**
    - File exists but is empty - needs implementation
 
-4. **Type conversion:**
+1. **Type conversion:**
    - Limited type support, missing BigDecimal, custom types
 
-5. **Error handling:**
+1. **Error handling:**
    - die_on_error config mostly stubbed, not fully tested
    - Limited error context in exceptions
 
@@ -608,7 +627,7 @@ Result: N iterations of Subjob_2
 ### 10.1 tMap Throughput
 
 | Scenario | Rows/Sec | Notes |
-|----------|----------|-------|
+| ---------- | ---------- | ------- |
 | Simple column mapping | 500k+ | Direct pandas ops |
 | Filter + Single join | 200k | Batch expression eval + merge |
 | Multiple joins | 100k | Cartesian products scale poorly |
@@ -617,6 +636,7 @@ Result: N iterations of Subjob_2
 ### 10.2 Memory Usage
 
 **3GB Threshold (Hybrid Mode):**
+
 - Below 3GB → Batch processing
 - Above 3GB → Streaming chunks (50k rows default)
 
@@ -647,16 +667,19 @@ component = comp_class(comp_id, config)
 ```
 
 ### 11.2 Context Manager Pattern
+
 - Singleton-like behavior per job
 - Lazy initialization of Java bridge
 - Graceful fallback if Java unavailable
 
 ### 11.3 Hybrid Execution Strategy
+
 - Auto-detect based on data size
 - Fallback options (e.g., Java disabled → Python-only)
 - Chunk processing for memory management
 
 ### 11.4 Batch Expression Evaluation
+
 - Collect all expressions
 - Execute in ONE Java call (not N calls)
 - Return results as maps/arrays
@@ -732,6 +755,7 @@ public class StringUtils {
 ## 13. Deployment Considerations
 
 ### 13.1 Requirements
+
 - Python 3.8+
 - Pandas >= 1.2.0
 - Py4J >= 0.10.0
@@ -739,11 +763,13 @@ public class StringUtils {
 - Java 11+ (for Java bridge)
 
 ### 13.2 Configuration
+
 - JSON job files should be versioned with the pipeline
 - Context values can be overridden at runtime via CLI
 - Java classpath must include all required libraries
 
 ### 13.3 Scaling
+
 - **Single machine:** Process up to 100M rows in streaming mode
 - **Distributed:** No built-in clustering (would require RDD/Spark integration)
 - **Parallelization:** Opportunities in compiled tMap execution
@@ -753,22 +779,25 @@ public class StringUtils {
 ## 14. Recommendations
 
 ### High Priority
+
 1. **Fix GlobalMap bugs** - Data corruption risk
 2. **Fix ContextManager indentation** - Won't work as-is
 3. **Implement Python Routine Manager** - Required for Python expressions
 4. **Add component types** - tFileInput, tFileOutput minimum
 
 ### Medium Priority
-5. **Improve error handling** - Better error context and recovery
-6. **Add schema validation** - Prevent type mismatches
-7. **Unit tests** - Currently appears to have none
-8. **Documentation** - Add docstrings and examples
+
+1. **Improve error handling** - Better error context and recovery
+2. **Add schema validation** - Prevent type mismatches
+3. **Unit tests** - Currently appears to have none
+4. **Documentation** - Add docstrings and examples
 
 ### Future Enhancements
-9. **Parallel component execution** - Within subjobs where possible
-10. **Distributed execution** - Spark backend
-11. **Real-time monitoring** - Web dashboard
-12. **More component types** - Database, API, message queue connectors
+
+1. **Parallel component execution** - Within subjobs where possible
+2. **Distributed execution** - Spark backend
+3. **Real-time monitoring** - Web dashboard
+4. **More component types** - Database, API, message queue connectors
 
 ---
 

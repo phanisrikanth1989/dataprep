@@ -15,7 +15,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tExtractDelimitedFields` |
 | **V1 Engine Class** | `ExtractDelimitedFields` |
 | **Engine File** | `src/v1/engine/components/transform/extract_delimited_fields.py` (271 lines) |
@@ -27,7 +27,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/transform/extract_delimited_fields.py` | Engine implementation (271 lines) |
 | `src/converters/talend_to_v1/components/transform/extract_delimited_fields.py` | Converter class (108 lines) |
 | `tests/converters/talend_to_v1/components/test_extract_delimited_fields.py` | Converter tests (42 tests) |
@@ -39,16 +39,17 @@ What is this component and where does everything live?
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 13 config keys (11 unique + 2 framework) extracted; SCHEMA_OPT_NUM added; fieldseparator per D-38; 2 per-feature needs_review; phantom params removed |
 | Engine Feature Parity | **Y** | 1 | 5 | 3 | 1 | Row-by-row iterrows(); fragile column-index extraction; no REJECT with errorCode/errorMessage; check_date stub; field_separator default mismatch |
 | Code Quality | **R** | 3 | 4 | 4 | 2 | Cross-cutting base class bugs; NaN bypass; brittle name-matching; col_lookup rebuilt per column per row |
 | Performance & Memory | **R** | 1 | 1 | 2 | 1 | iterrows() defeats vectorization; O(n*m) col_lookup; no streaming support |
 | Testing | **Y** | 0 | 0 | 1 | 0 | 42 converter tests (Green); zero engine unit tests |
 
-**Overall: YELLOW -- Converter fully standardized with 42 tests; engine has P0 bugs and architectural issues preventing Green**
+Overall: YELLOW -- Converter fully standardized with 42 tests; engine has P0 bugs and architectural issues preventing Green
 
 **Top Actions**:
+
 1. Fix NaN bypass in null check (P0 BUG-EDF-008)
 2. Replace name-based column matching with position-based (P1 ENG-EDF-002)
 3. Add REJECT flow with errorCode/errorMessage (P1 ENG-EDF-003)
@@ -73,7 +74,7 @@ The component takes an existing row with N columns and produces a new row with M
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Schema | `SCHEMA` | Schema editor | -- | Output column definitions. Defines both passthrough and extracted columns. |
 | 2 | Field to Split | `FIELD` | Dropdown (PREV_COLUMN_LIST) | -- | Mandatory. Selects which incoming column contains the delimited string. |
 | 3 | Field Separator | `FIELDSEPARATOR` | String | `";"` | Character(s) or regex to separate fields. Talend default is semicolon, not comma. |
@@ -83,7 +84,7 @@ The component takes an existing row with N columns and produces a new row with M
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 6 | Advanced Separator (for number) | `ADVANCED_SEPARATOR` | Boolean (CHECK) | `false` | Enable locale-aware number parsing with custom thousands/decimal separators. |
 | 7 | Thousands Separator | `THOUSANDS_SEPARATOR` | Character | `","` | Thousands grouping separator. Only visible when ADVANCED_SEPARATOR=true. |
 | 8 | Decimal Separator | `DECIMAL_SEPARATOR` | Character | `"."` | Decimal point separator. Only visible when ADVANCED_SEPARATOR=true. |
@@ -97,7 +98,7 @@ The component takes an existing row with N columns and produces a new row with M
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Required. Incoming data flow containing the column to split. |
 | `FLOW` (Main) | Output | Row > Main | Successfully extracted rows with all schema columns populated. |
 | `REJECT` | Output | Row > Reject | Failed rows with errorCode/errorMessage columns. Active when DIE_ON_ERROR=false. |
@@ -107,7 +108,7 @@ The component takes an existing row with N columns and produces a new row with M
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total rows processed. |
 | `{id}_NB_LINE_OK` | Integer | After execution | Rows successfully output via FLOW. |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Rows sent to REJECT flow. |
@@ -132,7 +133,7 @@ The component takes an existing row with N columns and produces a new row with M
 The converter uses `ExtractDelimitedFieldsConverter` registered via `@REGISTRY.register("tExtractDelimitedFields")`. Extracts scalar params via `_get_str()`, `_get_bool()` helpers. Returns `ComponentResult` with config dict, warnings, and 2 needs_review entries.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `FIELD` | **Yes** | `field` | `_get_str()`, default `""` |
 | 2 | `IGNORE_SOURCE_NULL` | **Yes** | `ignore_source_null` | `_get_bool()`, default `True` per _java.xml |
 | 3 | `FIELDSEPARATOR` | **Yes** | `fieldseparator` | `_get_str()`, default `";"`. Config key per D-38. |
@@ -154,7 +155,7 @@ The converter uses `ExtractDelimitedFieldsConverter` registered via `@REGISTRY.r
 Schema extracted via base class `_parse_schema()`. Transform passthrough: input == output.
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Column name |
 | `type` | Yes | Converted via type mapping |
 | `nullable` | Yes | Boolean |
@@ -171,7 +172,7 @@ Context variables (`context.var`) and Java expressions are handled by the conver
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | CONV-EDF-001 | ~~P1~~ | **SUPERSEDED** (2026-04-02) -- Dual-parser conflict eliminated by talend_to_v1 rewrite. |
 | CONV-EDF-002 | ~~P1~~ | **SUPERSEDED** (2026-04-02) -- Old complex_converter replaced. |
 | CONV-EDF-003 | ~~P2~~ | **SUPERSEDED** (2026-04-02) -- trim vs trim_all key name fixed. |
@@ -182,7 +183,7 @@ Context variables (`context.var`) and Java expressions are handled by the conver
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `fieldseparator` | Engine reads `field_separator` but converter outputs `fieldseparator` per D-38 -- config key mismatch | engine_gap |
 
 ---
@@ -192,7 +193,7 @@ Context variables (`context.var`) and Java expressions are handled by the conver
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Split field by delimiter | **Yes** | Medium | `_process()` line 178 | `str.split()` -- not regex |
 | 2 | Field to split selection | **Yes** | High | `_process()` line 137, 168-170 | Case-insensitive lookup |
 | 3 | Field separator | **Yes** | Medium | `_process()` line 138, 154-155 | No regex support |
@@ -212,7 +213,7 @@ Context variables (`context.var`) and Java expressions are handled by the conver
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-EDF-001 | **P0** | **Row-by-row `iterrows()` loop**: Entire `_process()` uses `iterrows()` (line 165). 100-1000x slower than vectorized `str.split(expand=True)`. |
 | ENG-EDF-002 | **P1** | **Name-based column matching, not position-based**: Engine uses fragile three-tier name-matching instead of Talend's index-based mapping. |
 | ENG-EDF-003 | **P1** | **No REJECT flow with errorCode/errorMessage**: Rejected rows lack error columns. |
@@ -227,7 +228,7 @@ Context variables (`context.var`) and Java expressions are handled by the conver
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | **Yes** | `_update_stats()` | Crashes at runtime due to cross-cutting BUG-EDF-001. |
 | `{id}_NB_LINE_OK` | Yes | **Yes** | Same mechanism | May not reflect null-skipped rows. |
 | `{id}_NB_LINE_REJECT` | Yes | **Yes** | Same mechanism | Counts `except` block rows only. |
@@ -240,7 +241,7 @@ Context variables (`context.var`) and Java expressions are handled by the conver
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-EDF-001 | **P0** | `base_component.py:304` | **CROSS-CUTTING**: `_update_global_map()` references undefined `value` variable. Crashes all components. |
 | BUG-EDF-002 | **P0** | `global_map.py:28` | **CROSS-CUTTING**: `GlobalMap.get()` references undefined `default` parameter. |
 | BUG-EDF-008 | **P0** | `extract_delimited_fields.py:171` | **NaN bypass**: `if value is None` does not catch pandas NaN. `str(NaN)` produces `'nan'` which gets split, producing garbage data. |
@@ -256,13 +257,13 @@ Context variables (`context.var`) and Java expressions are handled by the conver
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-EDF-001 | ~~P2~~ | **FIXED** (2026-04-04) -- Converter now uses `fieldseparator` config key per D-38. Engine reads `field_separator` -- documented as engine_gap needs_review. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-EDF-001 | **P2** | "`_validate_config()` returns `List[str]`" | Method exists but never called. Dead code. |
 
 ### 6.4 Debug Artifacts
@@ -276,7 +277,7 @@ No significant security concerns. Field name used as column lookup key -- low ri
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Correct -- module-level `logging.getLogger(__name__)` |
 | Level usage | DEBUG in hot path causes performance overhead |
 | Sensitive data | No sensitive data logged |
@@ -284,7 +285,7 @@ No significant security concerns. Field name used as column lookup key -- low ri
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | None used -- generic `ValueError` |
 | Exception chaining | Not used |
 | die_on_error handling | Re-raises from except block -- correct |
@@ -292,7 +293,7 @@ No significant security concerns. Field name used as column lookup key -- low ri
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- `Optional[pd.DataFrame]`, `Dict[str, Any]` |
 | Parameter types | Adequate |
 
@@ -301,7 +302,7 @@ No significant security concerns. Field name used as column lookup key -- low ri
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-EDF-001 | **P0** | **iterrows() loop**: Entire processing is row-by-row. 100-1000x slower than vectorized pandas. |
 | PERF-EDF-002 | **P1** | **O(n*m) col_lookup rebuilds**: Dict rebuilt per column per row. |
 | PERF-EDF-003 | **P2** | **Schema column list rebuilt per row**: `[col['name'] for col in schema]` inside loop. |
@@ -311,7 +312,7 @@ No significant security concerns. Field name used as column lookup key -- low ri
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Not supported -- full DataFrame in memory |
 | Memory threshold | No protection against large datasets |
 | Large data handling | O(n*m) per-row, per-column processing |
@@ -323,7 +324,7 @@ No significant security concerns. Field name used as column lookup key -- low ri
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 42 | `tests/converters/talend_to_v1/components/test_extract_delimited_fields.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | 0 | None (component-specific) |
@@ -331,7 +332,7 @@ No significant security concerns. Field name used as column lookup key -- low ri
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-EDF-001 | **P2** | No engine unit tests for ExtractDelimitedFields class |
 
 ### 8.3 Recommended Test Cases
@@ -351,7 +352,7 @@ No significant security concerns. Field name used as column lookup key -- low ri
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 4 | **BUG-EDF-001**, **BUG-EDF-002**, **BUG-EDF-008**, **PERF-EDF-001** |
 | P1 | 8 | **ENG-EDF-002**, **ENG-EDF-003**, **ENG-EDF-004**, **ENG-EDF-005**, **BUG-EDF-003**, **BUG-EDF-005**, **BUG-EDF-009**, **BUG-EDF-010**, **PERF-EDF-002** |
 | P2 | 9 | **ENG-EDF-006**, **ENG-EDF-007**, **ENG-EDF-008**, **BUG-EDF-006**, **BUG-EDF-007**, **BUG-EDF-011**, **BUG-EDF-004**, **STD-EDF-001**, **PERF-EDF-003**, **PERF-EDF-004**, **TEST-EDF-001** |
@@ -361,7 +362,7 @@ No significant security concerns. Field name used as column lookup key -- low ri
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Engine (ENG) | 9 | ENG-EDF-001 through ENG-EDF-009 |
 | Bug (BUG) | 9 | BUG-EDF-001 through BUG-EDF-011 (excluding superseded) |
 | Performance (PERF) | 5 | PERF-EDF-001 through PERF-EDF-005 |
@@ -372,7 +373,7 @@ No significant security concerns. Field name used as column lookup key -- low ri
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash -- globalMap stats lost |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` crash -- downstream variable access fails |
 
@@ -388,24 +389,24 @@ No significant security concerns. Field name used as column lookup key -- low ri
 
 ### Short-term (Hardening)
 
-4. Replace name-based column matching with position-based (ENG-EDF-002)
-5. Add REJECT flow with errorCode/errorMessage (ENG-EDF-003)
-6. Fix ignore_source_null=false behavior (ENG-EDF-004)
-7. Add regex field separator support (ENG-EDF-005)
-8. Fix engine default field_separator to semicolon (BUG-EDF-009)
+1. Replace name-based column matching with position-based (ENG-EDF-002)
+2. Add REJECT flow with errorCode/errorMessage (ENG-EDF-003)
+3. Fix ignore_source_null=false behavior (ENG-EDF-004)
+4. Add regex field separator support (ENG-EDF-005)
+5. Fix engine default field_separator to semicolon (BUG-EDF-009)
 
 ### Long-term (Optimization)
 
-9. Implement check_date validation (ENG-EDF-007)
-10. Add engine unit tests (TEST-EDF-001)
-11. Add streaming/chunked processing (PERF-EDF-005)
+1. Implement check_date validation (ENG-EDF-007)
+2. Add engine unit tests (TEST-EDF-001)
+3. Add streaming/chunked processing (PERF-EDF-005)
 
 ---
 
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
+| -------- | ---------- | ---------- |
 | Official Talend docs | [tExtractDelimitedFields (Talend 8.0)](https://help.qlik.com/talend/en-US/components/8.0/processing/textractdelimitedfields-standard-properties) | Parameter definitions, defaults |
 | Talaxie GitHub _java.xml | [tExtractDelimitedFields_java.xml](https://github.com/nicoan/talend_components) | Component definition XML, SCHEMA_OPT_NUM |
 | Engine source | `src/v1/engine/components/transform/extract_delimited_fields.py` | Feature parity analysis (271 lines) |
@@ -415,7 +416,7 @@ No significant security concerns. Field name used as column lookup key -- low ri
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` broken signature |
 | XCUT-003 | `base_component.py:351` | `validate_schema` inverted nullable logic |

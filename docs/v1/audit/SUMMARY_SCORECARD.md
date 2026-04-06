@@ -15,7 +15,7 @@ The raw count of 928 includes **cross-cutting issues that are counted in every c
 **Cross-cutting duplicates (~200-250 entries from ~15-20 unique bugs):**
 
 | Cross-cutting Bug | Appears In | Unique Fix |
-|---|---|---|
+| --- | --- | --- |
 | `_update_global_map()` crash (base_component.py:304) | All with-engine reports | 1 line fix |
 | `GlobalMap.get()` broken signature (global_map.py:28) | All with-engine reports | 1 line fix |
 | Zero unit tests | All with-engine reports | 1 systemic gap |
@@ -35,7 +35,7 @@ The raw count of 928 includes **cross-cutting issues that are counted in every c
 Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partially, gaps exist), **G** = Green (production-ready), **N/A** = Not applicable.
 
 | # | Component | Overall | Converter | Engine | Code Quality | Performance | Testing | P0 | P1 | P2 | P3 | Total |
-|---|-----------|---------|-----------|--------|-------------|-------------|---------|----|----|----|----|-------|
+| --- | ----------- | --------- | ----------- | -------- | ------------- | ------------- | --------- | ---- | ---- | ---- | ---- | ------- |
 | 1 | tFileInputDelimited | Y | G | Y | Y | G | Y | 2 | 7 | 10 | 2 | 21 |
 | 2 | tFileOutputDelimited | Y | G | Y | Y | G | Y | 1 | 4 | 8 | 1 | 14 |
 | 3 | tFileInputExcel | G | G | Y | Y | G | Y | 2 | 5 | 5 | 3 | 15 |
@@ -130,7 +130,7 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 ### Overall Component Ratings
 
 | Rating | Count | Percentage |
-|--------|-------|------------|
+| -------- | ------- | ------------ |
 | **R** (Red -- blocks production) | 33 | 38.4% |
 | **Y** (Yellow -- partial, gaps exist) | 50 | 58.1% |
 | **G** (Green -- production-ready) | 3 | 3.5% |
@@ -138,7 +138,7 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 ### Per-Dimension Rating Distribution
 
 | Dimension | Red | Yellow | Green | N/A |
-|-----------|-----|--------|-------|-----|
+| ----------- | ----- | -------- | ------- | ----- |
 | Converter | 0 | 0 | 81 | 5 |
 | Engine | 34 | 49 | 3 | 0 |
 | Code Quality | 34 | 36 | 16 | 0 |
@@ -154,7 +154,7 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 ## Priority Distribution
 
 | Priority | Total Issues | Percentage | Description |
-|----------|-------------|------------|-------------|
+| ---------- | ------------- | ------------ | ------------- |
 | **P0** (Critical) | 146 | 15.7% | Blocks production use or causes data corruption/silent failures |
 | **P1** (Major) | 282 | 30.4% | Significant functional gap or behavioral divergence from Talend |
 | **P2** (Moderate) | 382 | 41.2% | Missing feature, code quality concern, or non-standard practice |
@@ -166,7 +166,7 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 ## Most Critical Components (Ranked by P0 Count)
 
 | Rank | Component | P0 | P1 | P2 | P3 | Total | Overall |
-|------|-----------|----|----|----|----|-------|---------|
+| ------ | ----------- | ---- | ---- | ---- | ---- | ------- | --------- |
 | 1 | tExtractDelimitedFields | 4 | 8 | 9 | 2 | 23 | Y |
 | 2 | tPivotToColumnsDelimited | 4 | 5 | 9 | 2 | 20 | Y |
 | 3 | SwiftBlockFormatter | 3 | 10 | 16 | 9 | 38 | Y |
@@ -209,7 +209,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 ### File I/O Components (25)
 
 | # | Component | Overall | P0 | P1 | P2 | P3 | Total |
-|---|-----------|---------|----|----|----|----|-------|
+| --- | ----------- | --------- | ---- | ---- | ---- | ---- | ------- |
 | 1 | tFileInputDelimited | Y | 2 | 7 | 10 | 2 | 21 |
 | 2 | tFileOutputDelimited | Y | 1 | 4 | 8 | 1 | 14 |
 | 3 | tFileInputExcel | G | 2 | 5 | 5 | 3 | 15 |
@@ -256,7 +256,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 ### Transform Components (36)
 
 | # | Component | Overall | P0 | P1 | P2 | P3 | Total |
-|---|-----------|---------|----|----|----|----|-------|
+| --- | ----------- | --------- | ---- | ---- | ---- | ---- | ------- |
 | 1 | tFilterRow | Y | 1 | 4 | 6 | 2 | 13 |
 | 2 | tFilterColumns | Y | 0 | 0 | 10 | 1 | 11 |
 | 3 | tSortRow | Y | 0 | 6 | 8 | 1 | 15 |
@@ -330,7 +330,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 ### Aggregate Components (2)
 
 | # | Component | Overall | P0 | P1 | P2 | P3 | Total |
-|---|-----------|---------|----|----|----|----|-------|
+| --- | ----------- | --------- | ---- | ---- | ---- | ---- | ------- |
 | 1 | tAggregateRow | Y | 3 | 5 | 8 | 2 | 18 |
 | 2 | tUniqueRow | Y | 1 | 4 | 7 | 4 | 16 |
 
@@ -340,7 +340,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 ### Control Components (9)
 
 | # | Component | Overall | P0 | P1 | P2 | P3 | Total |
-|---|-----------|---------|----|----|----|----|-------|
+| --- | ----------- | --------- | ---- | ---- | ---- | ---- | ------- |
 | 1 | tDie | Y | 1 | 4 | 5 | 3 | 13 |
 | 2 | tWarn | Y | 2 | 2 | 3 | 2 | 9 |
 | 3 | tSleep | G | 2 | 2 | 4 | 1 | 9 |
@@ -364,7 +364,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 ### Database Components (11)
 
 | # | Component | Overall | P0 | P1 | P2 | P3 | Total |
-|---|-----------|---------|----|----|----|----|-------|
+| --- | ----------- | --------- | ---- | ---- | ---- | ---- | ------- |
 | 1 | tMSSqlConnection | R | 3 | 0 | 0 | 0 | 3 |
 | 2 | tMSSqlInput | R | 1 | 0 | 0 | 0 | 1 |
 | 3 | tOracleBulkExec | R | 1 | 0 | 0 | 0 | 1 |
@@ -394,7 +394,7 @@ All database components are RED because no engine implementation exists. Convert
 ### Context Components (1)
 
 | # | Component | Overall | P0 | P1 | P2 | P3 | Total |
-|---|-----------|---------|----|----|----|----|-------|
+| --- | ----------- | --------- | ---- | ---- | ---- | ---- | ------- |
 | 1 | tContextLoad | Y | 1 | 6 | 5 | 1 | 13 |
 
 **Category summary:** 0 Red, 1 Yellow, 0 Green. Total issues: 13.
@@ -403,7 +403,7 @@ All database components are RED because no engine implementation exists. Convert
 ### Iterate Components (2)
 
 | # | Component | Overall | P0 | P1 | P2 | P3 | Total |
-|---|-----------|---------|----|----|----|----|-------|
+| --- | ----------- | --------- | ---- | ---- | ---- | ---- | ------- |
 | 1 | tFlowToIterate | R | 1 | 0 | 0 | 0 | 1 |
 | 2 | tForeach | Y | 1 | 0 | 0 | 0 | 1 |
 
@@ -466,18 +466,22 @@ The v1 engine cannot be deployed to production in its current state. The assessm
 The following represents the absolute minimum set of fixes required before production deployment could be considered:
 
 **Phase 1 -- Infrastructure (blocks everything else):**
+
 - Fix `_update_global_map()` undefined variable crash in `BaseComponent`
 - Fix `GlobalMap.get()` parameter signature
 - Wire `_validate_config()` into `BaseComponent.execute()` lifecycle
 - Establish unit test framework and add base class tests
 
 **Phase 2 -- P0 Fixes (86 components, ~146 issues):**
+
 - All P0 issues must be resolved. P0 issues include engine-missing (33 components), crashes, data corruption, and silent failures.
 
 **Phase 3 -- P1 Fixes for Core Components (~282 issues across all components):**
+
 - At minimum, the 20 most-used components must have their P1 issues resolved. P1 issues include missing Talend features and behavioral divergences that cause incorrect results.
 
 **Phase 4 -- Engine Test Coverage:**
+
 - Every with-engine component must have at minimum: (a) unit tests for the happy path, (b) unit tests for error paths, (c) integration tests with the converter output format.
 
 **Estimated effort**: The minimum fix list represents approximately 10-16 weeks of focused engineering effort for a team of 3-4 developers, assuming familiarity with both the Talend baseline and the v1 codebase. The 33 engine-missing components require new implementations.

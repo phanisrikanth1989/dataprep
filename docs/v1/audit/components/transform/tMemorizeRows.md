@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tMemorizeRows` |
 | **V1 Engine Class** | None -- no concrete engine implementation exists |
 | **Engine File** | No dedicated engine file |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/converters/talend_to_v1/components/transform/memorize_rows.py` | Converter class `MemorizeRowsConverter` (113 lines) |
 | `tests/converters/talend_to_v1/components/test_memorize_rows.py` | Converter tests (34 tests, 10 classes) |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()`, `_build_component_dict()` |
@@ -39,7 +39,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 2 of 2 _java.xml unique params extracted (100%); ROW_COUNT as str per TEXT type; SPECIFY_COLS TABLE parsed; phantom RESET_ON_CONDITION and CONDITION removed; module docstring follows CONVERTER_PATTERN.md |
 | Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No concrete engine implementation exists; component cannot execute |
 | Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code quality is good (follows CONVERTER_PATTERN.md), but no engine code exists -- component is incomplete |
@@ -49,6 +49,7 @@ How production-ready is this component at a glance?
 **Overall: RED -- No engine implementation. Converter correctly extracts ROW_COUNT (as str), SPECIFY_COLS TABLE, and framework params for future engine support, but component cannot execute in production. Engine must be implemented before this component is usable.**
 
 **Top Actions**:
+
 1. Implement concrete MemorizeRows engine class (P0 -- blocks production use)
 2. All converter and test issues resolved in v1.1 rewrite
 
@@ -74,7 +75,7 @@ An optional SPECIFY_COLS TABLE allows selective memorization of specific columns
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Schema | `SCHEMA` | SCHEMA_TYPE | -- | Component schema definition |
 | 2 | Number of Rows | `ROW_COUNT` | TEXT | `1` | Number of previous rows to memorize. TEXT type allows expression values (e.g., `context.rowCount`). |
 | 3 | Specify Columns | `SPECIFY_COLS` | TABLE (BASED_ON_SCHEMA, stride-1) | empty | Per-column MEMORIZE_IT boolean indicating whether to memorize each schema column. BASED_ON_SCHEMA=true means one entry per schema column. |
@@ -86,14 +87,14 @@ No advanced settings defined in _java.xml.
 ### 3.3 Framework Parameters
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 4 | Stat Catcher | `TSTATCATCHER_STATS` | CHECK | `false` | Enable statistics collection for tStatCatcher |
 | 5 | Label | `LABEL` | TEXT | `""` | User-defined label for the component instance |
 
 ### 3.4 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Incoming data rows to memorize |
 | `FLOW` (Main) | Output | Row > Main | All rows passed through unchanged |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires after component completes successfully |
@@ -104,7 +105,7 @@ No advanced settings defined in _java.xml.
 ### 3.5 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Number of rows processed by the component |
 | `{id}_{column}_{offset}` | Any | Per row | Value of `column` from `offset` rows ago (0-indexed) |
 
@@ -127,7 +128,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 The converter follows the gold-standard CONVERTER_PATTERN.md with `_build_component_dict()` wrapper, `type_name="tMemorizeRows"` per D-43 (no-engine), and single consolidated `needs_review` per D-27.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `SCHEMA` | Yes | (schema) | Via `_parse_schema()` -- passthrough (input == output) |
 | 2 | `ROW_COUNT` | Yes | `row_count` | `_get_str()` with default `"1"` -- str for expression support |
 | 3 | `SPECIFY_COLS` | Yes | `specify_cols` | `_parse_specify_cols()` -- stride-1 TABLE with MEMORIZE_IT boolean |
@@ -141,7 +142,7 @@ The converter follows the gold-standard CONVERTER_PATTERN.md with `_build_compon
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` |
 | `type` | Yes | Via `convert_type()` -- Talend types mapped to Python types |
 | `nullable` | Yes | Boolean flag |
@@ -162,7 +163,7 @@ None -- converter follows gold-standard pattern with no open issues.
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | (all) | No v1 engine implementation exists for tMemorizeRows. Converter output is syntactically valid but cannot execute at runtime. | engine_gap |
 
 ---
@@ -174,7 +175,7 @@ How faithfully does the v1 engine implement Talend behavior?
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Row memorization | **No** | N/A | No file | No engine class exists |
 | 2 | SPECIFY_COLS column filtering | **No** | N/A | No file | No engine class exists |
 | 3 | GlobalMap row access | **No** | N/A | No file | No engine class exists |
@@ -182,13 +183,13 @@ How faithfully does the v1 engine implement Talend behavior?
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-MEM-001 | **P0** | No engine implementation -- component cannot execute at runtime. All Talend features unimplemented. |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | No | N/A | No engine exists |
 | `{id}_{column}_{offset}` | Yes | No | N/A | No engine exists |
 
@@ -201,7 +202,7 @@ How well-written is the engine code?
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-MEM-001 | **P0** | N/A | No engine code exists -- entire component is unimplemented |
 
 ### 6.2 Naming Consistency
@@ -223,7 +224,7 @@ No concerns identified -- converter only extracts parameters, no execution.
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Correct -- `logger = logging.getLogger(__name__)` |
 | Level usage | N/A -- no log statements needed for simple extraction |
 | Sensitive data | No sensitive data handled |
@@ -231,7 +232,7 @@ No concerns identified -- converter only extracts parameters, no execution.
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | N/A -- converters use ComponentResult with warnings |
 | Exception chaining | N/A |
 | die_on_error handling | N/A -- no engine code |
@@ -239,7 +240,7 @@ No concerns identified -- converter only extracts parameters, no execution.
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Full type hints on `convert()` method |
 | Parameter types | All parameters typed via base class helpers |
 
@@ -250,13 +251,13 @@ No concerns identified -- converter only extracts parameters, no execution.
 Will it scale?
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No engine implementation to assess |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- no engine |
 | Memory threshold | N/A -- no engine |
 | Large data handling | N/A -- no engine |
@@ -270,7 +271,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 34 | `tests/converters/talend_to_v1/components/test_memorize_rows.py` |
 | Engine unit tests | 0 | None -- no engine implementation |
 | Integration tests | 0 | None -- no engine implementation |
@@ -278,7 +279,7 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-MEM-001 | **P0** | No engine unit tests -- entire engine is unimplemented |
 
 ### 8.3 Recommended Test Cases
@@ -302,7 +303,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 3 | **ENG-MEM-001**, **BUG-MEM-001**, **TEST-MEM-001** |
 | P1 | 0 | -- |
 | P2 | 0 | -- |
@@ -312,7 +313,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
 | Engine (ENG) | 1 | ENG-MEM-001 |
 | Bug (BUG) | 1 | BUG-MEM-001 |
@@ -350,8 +351,8 @@ No P3 issues identified.
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://github.com/Talaxie/tdi-studio-se/` (tMemorizeRows_java.xml) | Parameter definitions, types, defaults |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://github.com/Talaxie/tdi-studio-se/`> (tMemorizeRows_java.xml) | Parameter definitions, types, defaults |
 | Converter source | `src/converters/talend_to_v1/components/transform/memorize_rows.py` | Converter audit |
 | Test source | `tests/converters/talend_to_v1/components/test_memorize_rows.py` | Test coverage audit |
 | Base class | `src/converters/talend_to_v1/components/base.py` | Helper methods, schema parsing |
@@ -364,7 +365,7 @@ No cross-cutting issues apply -- there is no engine implementation to be affecte
 When an engine implementation is created, the standard cross-cutting bugs from `base_component.py` will apply:
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | Will affect `_update_global_map()` for row memory variables |
 | XCUT-002 | `global_map.py:28` | Will affect globalMap variable access for memorized rows |
 

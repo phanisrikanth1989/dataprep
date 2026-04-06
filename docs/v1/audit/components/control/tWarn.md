@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tWarn` |
 | **V1 Engine Class** | `Warn` |
 | **Engine File** | `src/v1/engine/components/control/warn.py` (214 lines) |
@@ -24,7 +24,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/control/warn.py` | Engine implementation (214 lines) |
 | `src/converters/talend_to_v1/components/control/warn.py` | Converter class |
 | `tests/converters/talend_to_v1/components/test_warn.py` | Converter tests |
@@ -36,7 +36,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 3/3 unique params extracted (100%) plus 2 framework params. Per-feature needs_review for engine default mismatches (message, code). |
 | Engine Feature Parity | **Y** | 0 | 2 | 2 | 1 | Core warn-and-continue works; engine defaults differ for message and code; missing Talend-standard globalMap variable names (WARN_MESSAGES, etc.); narrow globalMap regex pattern |
 | Code Quality | **Y** | 2 | 1 | 1 | 1 | Cross-cutting `_update_global_map()` and `GlobalMap.get()` bugs; `_validate_config()` dead code; narrow globalMap regex pattern |
@@ -46,6 +46,7 @@
 **Overall: GREEN -- Converter production-ready. Engine has cross-cutting issues documented elsewhere.**
 
 **Top Actions**:
+
 1. Fix cross-cutting `_update_global_map()` crash (BUG-WRN-001, affects all components)
 2. Fix cross-cutting `GlobalMap.get()` crash (BUG-WRN-002, affects all components)
 3. Add Talend-standard globalMap variable names WARN_MESSAGES, WARN_CODE, WARN_PRIORITY (ENG-WRN-001)
@@ -71,7 +72,7 @@ tWarn is a pass-through component: if it receives input data, it forwards the da
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Message | `MESSAGE` | TEXT | `"this is a warning"` | Warning message text. Supports context variables (`context.var`) and globalMap references. |
 | 2 | Code | `CODE` | TEXT | `42` | Warning code number. Used for programmatic identification of warning types. |
 | 3 | Priority | `PRIORITY` | CLOSED_LIST | `4` (WARNING) | Priority level for the warning. Items: TRACE(1), DEBUG(2), INFO(3), WARNING(4), ERROR(5), FATAL(6). |
@@ -79,14 +80,14 @@ tWarn is a pass-through component: if it receives input data, it forwards the da
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 4 | tStatCatcher Statistics | `TSTATCATCHER_STATS` | CHECK | `false` | Framework param. Capture processing metadata for tStatCatcher component. |
 | 5 | Label | `LABEL` | TEXT | `""` | Framework param. User-defined label for the component instance. |
 
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input / Output | Row > Main | Data flows through tWarn unchanged. Pass-through component. |
 | `ITERATE` | Input / Output | Iterate | Enables iterative processing. |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires when the subjob containing this component completes successfully. |
@@ -100,7 +101,7 @@ tWarn is a pass-through component: if it receives input data, it forwards the da
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `WARN_MESSAGES` | String | After execution | Warning message text (Talend-standard name). |
 | `WARN_CODE` | Integer | After execution | Warning code (Talend-standard name). |
 | `WARN_PRIORITY` | Integer | After execution | Warning priority (Talend-standard name). |
@@ -124,7 +125,7 @@ tWarn is a pass-through component: if it receives input data, it forwards the da
 The converter uses a dedicated `WarnConverter` class registered via `@REGISTRY.register("tWarn")` in `src/converters/talend_to_v1/components/control/warn.py`. It extracts all 3 unique parameters plus 2 framework parameters.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `MESSAGE` | Yes | `message` | Default: `"this is a warning"` (matches _java.xml). Quotes stripped by `_get_str()`. |
 | 2 | `CODE` | Yes | `code` | Default: `"42"` (matches _java.xml). Extracted as string to preserve expressions. |
 | 3 | `PRIORITY` | Yes | `priority` | Default: `"4"` (matches _java.xml WARNING level). Extracted as string. |
@@ -136,7 +137,7 @@ The converter uses a dedicated `WarnConverter` class registered via `@REGISTRY.r
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | Schema | Yes | `_parse_schema(node)` called. tWarn is a utility/pass-through component so schema is typically empty. |
 
 ### 4.3 Expression Handling
@@ -148,7 +149,7 @@ The converter preserves expression strings as-is (e.g., `context.msg`, `globalMa
 No open converter issues.
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No converter issues identified. All 3 unique params + 2 framework params extracted with correct _java.xml defaults. |
 
 ### 4.5 Needs Review Entries
@@ -156,7 +157,7 @@ No open converter issues.
 The converter emits per-feature needs_review entries for engine default mismatches:
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `message` | Engine default `"Warning"` differs from Talend default `"this is a warning"` | engine_gap |
 | 2 | `code` | Engine default `0` differs from Talend default `42` | engine_gap |
 
@@ -167,7 +168,7 @@ The converter emits per-feature needs_review entries for engine default mismatch
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Warning message logging | **Yes** | High | `_log_warning_message()` line 188 | Maps priority to Python logging levels. Correct mapping. |
 | 2 | Priority levels (1-6) | **Yes** | High | `PRIORITY_NAMES` line 57, `_log_warning_message()` line 188 | All 6 levels supported with correct names. |
 | 3 | Context variable resolution | **Yes** | Medium | `_resolve_message_variables()` line 164 | Resolves `${context.var}` via context_manager. |
@@ -180,7 +181,7 @@ The converter emits per-feature needs_review entries for engine default mismatch
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-WRN-001 | **P1** | **Missing Talend-standard globalMap variables.** Engine stores `{id}_MESSAGE`, `{id}_CODE`, `{id}_PRIORITY` but does NOT store Talend-standard `WARN_MESSAGES`, `WARN_CODE`, `WARN_PRIORITY`. Jobs that read these standard names via `globalMap.get("WARN_MESSAGES")` will get null/empty. |
 | ENG-WRN-002 | **P1** | **Narrow globalMap regex pattern.** `_resolve_message_variables()` only matches `((Integer)globalMap.get("key"))` pattern (line 178). Misses `(String)globalMap.get("key")`, `(Long)globalMap.get("key")`, and bare `globalMap.get("key")` patterns used in Talend expressions. |
 | ENG-WRN-003 | **P2** | **Engine default for message differs from Talend.** Engine defaults `message` to `"Warning"` (line 116) but Talend _java.xml default is `"this is a warning"`. When converter emits the Talend default, behavior matches. If config key is stripped, engine falls back to wrong default. |
@@ -189,7 +190,7 @@ The converter emits per-feature needs_review entries for engine default mismatch
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_MESSAGE` | No (engine-specific) | Yes | `_store_warning_in_globalmap()` line 211 | Engine-specific naming convention |
 | `{id}_CODE` | No (engine-specific) | Yes | `_store_warning_in_globalmap()` line 212 | Engine-specific naming convention |
 | `{id}_PRIORITY` | No (engine-specific) | Yes | `_store_warning_in_globalmap()` line 213 | Engine-specific naming convention |
@@ -205,20 +206,20 @@ The converter emits per-feature needs_review entries for engine default mismatch
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-WRN-001 | **P0** | `base_component.py:_update_global_map()` | **CROSS-CUTTING**: `_update_global_map()` crashes when `globalMap` is set because it tries to call methods on `NB_LINE` etc. that may not exist. Affects ALL components that track stats. |
 | BUG-WRN-002 | **P0** | `global_map.py:GlobalMap.get()` | **CROSS-CUTTING**: `GlobalMap.get()` crash when key not found and no default provided. Affects ALL components that read globalMap values. |
 
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-WRN-001 | **P2** | Engine class is `Warn` but `_process()` method documentation refers to it as a "monitoring/logging component". Naming is acceptable but the docstring could be more precise. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-WRN-001 | **P2** | "_validate_config() should be called or removed" | `_validate_config()` is defined (lines 59-96) but never called by the base class `execute()` method. Dead code that may mislead developers. |
 
 ### 6.4 Debug Artifacts
@@ -232,7 +233,7 @@ No concerns identified. tWarn only logs messages and passes through data. No fil
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- `logger = logging.getLogger(__name__)` at module level |
 | Level usage | Good -- uses appropriate levels (debug/info/warning/error/critical) based on priority |
 | Sensitive data | No concern -- logs user-configured message text, which is expected behavior |
@@ -240,7 +241,7 @@ No concerns identified. tWarn only logs messages and passes through data. No fil
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Good -- raises `ComponentExecutionError` on failure (line 162) |
 | Exception chaining | Good -- uses `from e` for exception chaining (line 162) |
 | die_on_error handling | N/A -- tWarn does not have a die_on_error parameter |
@@ -248,7 +249,7 @@ No concerns identified. tWarn only logs messages and passes through data. No fil
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- all methods have type hints |
 | Parameter types | Good -- uses `Optional[pd.DataFrame]`, `Dict[str, Any]`, `List[str]` |
 
@@ -257,13 +258,13 @@ No concerns identified. tWarn only logs messages and passes through data. No fil
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-WRN-001 | **P3** | **Regex recompilation on every call.** `_resolve_message_variables()` compiles the globalMap regex pattern `r'\(\(Integer\)globalMap\.get\("(\w+)"\)\)'` on every invocation (line 178) instead of pre-compiling as a class or module constant. Negligible impact for tWarn since it executes once, but a minor optimization opportunity. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- tWarn is a pass-through component with no data transformation. Streaming mode would cause redundant warning logging per chunk but no data issues. |
 | Memory threshold | N/A -- no data buffering |
 | Large data handling | Good -- input data is passed through by reference (no copy), no memory amplification |
@@ -275,7 +276,7 @@ No concerns identified. tWarn only logs messages and passes through data. No fil
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 25+ | `tests/converters/talend_to_v1/components/test_warn.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | 0 | None |
@@ -283,12 +284,13 @@ No concerns identified. tWarn only logs messages and passes through data. No fil
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-WRN-001 | **P3** | No engine unit tests for `Warn._process()`, context variable resolution, or globalMap storage. Converter tests are comprehensive. Engine tests out of scope for converter standardization. |
 
 ### 8.3 Recommended Test Cases
 
 Engine test cases (out of scope for converter standardization, documented for future):
+
 - Happy path: message + code + priority logged correctly
 - Context variable resolution in message
 - GlobalMap variable resolution in message (Integer cast pattern)
@@ -304,7 +306,7 @@ Engine test cases (out of scope for converter standardization, documented for fu
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 2 | **BUG-WRN-001**, **BUG-WRN-002** |
 | P1 | 2 | **ENG-WRN-001**, **ENG-WRN-002** |
 | P2 | 3 | **ENG-WRN-003**, **ENG-WRN-004**, **STD-WRN-001** |
@@ -314,7 +316,7 @@ Engine test cases (out of scope for converter standardization, documented for fu
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Engine (ENG) | 4 | ENG-WRN-001, ENG-WRN-002, ENG-WRN-003, ENG-WRN-004 |
 | Bug (BUG) | 2 | BUG-WRN-001, BUG-WRN-002 |
 | Standards (STD) | 1 | STD-WRN-001 |
@@ -324,7 +326,7 @@ Engine test cases (out of scope for converter standardization, documented for fu
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | BUG-WRN-001 | `base_component.py:_update_global_map()` | `_update_global_map()` crash when globalMap is set. Affects statistics tracking in `_process()`. |
 | BUG-WRN-002 | `global_map.py:GlobalMap.get()` | `GlobalMap.get()` crash on missing key. Affects `_resolve_message_variables()` globalMap lookups. |
 
@@ -339,23 +341,23 @@ Engine test cases (out of scope for converter standardization, documented for fu
 
 ### Short-term (Hardening)
 
-3. **ENG-WRN-001** (P1): Add Talend-standard globalMap variable names (`WARN_MESSAGES`, `WARN_CODE`, `WARN_PRIORITY`) alongside existing `{id}_*` variables.
-4. **ENG-WRN-002** (P1): Broaden globalMap regex in `_resolve_message_variables()` to handle `(String)`, `(Long)`, and bare `globalMap.get()` patterns.
-5. **ENG-WRN-003** (P2): Update engine message default from `"Warning"` to `"this is a warning"` to match _java.xml.
-6. **ENG-WRN-004** (P2): Update engine code default from `0` to `42` to match _java.xml.
-7. **STD-WRN-001** (P2): Remove or call `_validate_config()` dead code.
+1. **ENG-WRN-001** (P1): Add Talend-standard globalMap variable names (`WARN_MESSAGES`, `WARN_CODE`, `WARN_PRIORITY`) alongside existing `{id}_*` variables.
+2. **ENG-WRN-002** (P1): Broaden globalMap regex in `_resolve_message_variables()` to handle `(String)`, `(Long)`, and bare `globalMap.get()` patterns.
+3. **ENG-WRN-003** (P2): Update engine message default from `"Warning"` to `"this is a warning"` to match _java.xml.
+4. **ENG-WRN-004** (P2): Update engine code default from `0` to `42` to match _java.xml.
+5. **STD-WRN-001** (P2): Remove or call `_validate_config()` dead code.
 
 ### Long-term (Optimization)
 
-8. **PERF-WRN-001** (P3): Pre-compile globalMap regex as module or class constant.
-9. **TEST-WRN-001** (P3): Add engine unit tests for `Warn._process()`.
+1. **PERF-WRN-001** (P3): Pre-compile globalMap regex as module or class constant.
+2. **TEST-WRN-001** (P3): Add engine unit tests for `Warn._process()`.
 
 ---
 
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
+| -------- | ---------- | ---------- |
 | Official Talend docs | [tWarn Standard Properties](https://help.qlik.com/talend/en-US/components/7.3/logs-errors/twarn-standard-properties) | Parameter definitions, behavioral notes |
 | Talaxie GitHub _java.xml | [tWarn_java.xml](https://github.com/Talaxie/tdi-studio-se/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tWarn/tWarn_java.xml) | Component definition XML, parameter defaults |
 | Engine source | `src/v1/engine/components/control/warn.py` (214 lines) | Feature parity analysis |
@@ -367,7 +369,7 @@ Engine test cases (out of scope for converter standardization, documented for fu
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | BUG-WRN-001 | `base_component.py:_update_global_map()` | `_update_global_map()` crash when globalMap is set. Affects statistics tracking. Shared with all v1 components. |
 | BUG-WRN-002 | `global_map.py:GlobalMap.get()` | `GlobalMap.get()` crash on missing key. Affects globalMap lookups in message resolution. Shared with all v1 components. |
 

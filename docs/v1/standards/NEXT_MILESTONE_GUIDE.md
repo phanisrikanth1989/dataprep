@@ -42,6 +42,7 @@ When asked "What do you want to build?", use this description (copy-paste this):
 
 ### Step 5: During questioning
 Key points to convey:
+
 - Gold standard templates already exist in `docs/v1/standards/` — agents MUST reference them
 - Methodology framework exists in `docs/v1/standards/METHODOLOGY.md` — agents should follow the two-pass review process and edge-case checklist
 - .item file is source of truth over _java.xml
@@ -51,6 +52,7 @@ Key points to convey:
 - needs_review entries for all engine gaps
 
 ### Step 6: Workflow preferences
+
 - Mode: YOLO
 - Granularity: Standard (the 54 components will naturally group into 7-8 phases)
 - Parallel: Yes
@@ -61,10 +63,12 @@ Key points to convey:
 - AI Models: Quality (opus everywhere)
 
 ### Step 7: Research decision
+
 - Always "Research first" — this milestone is ABOUT re-verification
 
 ### Step 8: Requirements
 When defining requirements, suggest these categories:
+
 - **Audit reports** (54 components): One requirement per phase batch
 - **Converter code** (49 components): One requirement per phase batch
 - **Tests** (49 components): One requirement per phase batch
@@ -75,7 +79,7 @@ When defining requirements, suggest these categories:
 Suggested phase structure:
 
 | Phase | Components | Scope |
-|-------|-----------|-------|
+| ------- | ----------- | ------- |
 | 1 | Gold standard validation | Validate templates against 2-3 existing best reports, refine if needed |
 | 2 | Simple converters (tSleep, tDie, tWarn, tSetGlobalVar, tFileTouch, tFileDelete, etc.) | ~10 components, simplest fixes |
 | 3 | File I/O family (tFileInput*, tFileOutput*, tFileArchive, etc.) | ~15 components |
@@ -107,9 +111,9 @@ For each phase after Phase 1:
    - Read converter source for audit
    - Run METHODOLOGY.md edge-case checklist
 
-2. **Planner**: Create tasks that reference gold standard templates explicitly
+1. **Planner**: Create tasks that reference gold standard templates explicitly
 
-3. **Executor**: 
+2. **Executor**:
    - Read gold standard templates FIRST (AUDIT_REPORT_TEMPLATE.md, CONVERTER_PATTERN.md, TEST_PATTERN.md)
    - Re-verify converter against research
    - Standardize converter code to match CONVERTER_PATTERN.md
@@ -119,13 +123,13 @@ For each phase after Phase 1:
    - Section 9 counts must match individual sections
    - Full D-11 sweep — all sections mandatory
 
-4. **Code reviewer** (Pass 2 — Adversarial Review per METHODOLOGY.md):
+1. **Code reviewer** (Pass 2 — Adversarial Review per METHODOLOGY.md):
    - Read report AND source code
    - Mindset: "Find at least 3-5 issues the report missed"
    - Focus on edge cases, cross-class interactions, behavioral subtleties
    - Findings incorporated back into report
 
-5. **Verifier**: Check all 3 artifacts match their templates
+1. **Verifier**: Check all 3 artifacts match their templates
 
 ---
 
@@ -135,6 +139,7 @@ When the GSD questioning/discuss phases ask for context, reference:
 
 ```
 Gold standard templates:
+
 - docs/v1/standards/AUDIT_REPORT_TEMPLATE.md
 - docs/v1/standards/CONVERTER_PATTERN.md
 - docs/v1/standards/TEST_PATTERN.md

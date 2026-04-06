@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tFileArchive` |
 | **V1 Engine Class** | `FileArchiveComponent` |
 | **Engine File** | `src/v1/engine/components/file/file_archive.py` (193 lines) |
@@ -25,7 +25,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/file/file_archive.py` | Engine implementation (193 lines) |
 | `src/converters/talend_to_v1/components/file/file_archive.py` | Converter class (173 lines) |
 | `tests/converters/talend_to_v1/components/test_file_archive.py` | Converter tests (55 tests) |
@@ -37,7 +37,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 17 unique params + 2 framework params extracted; MASK TABLE parser; `_build_component_dict` pattern; 8 per-feature needs_review entries for engine gaps |
 | Engine Feature Parity | **Y** | 0 | 3 | 2 | 1 | Only ZIP format supported; no encryption; no file mask filtering; config key mismatches (sub_directroy vs include_subdirectories, level vs compression_level) |
 | Code Quality | **Y** | 1 | 2 | 3 | 1 | Cross-cutting `_update_global_map()` crash (P0); `_validate_config()` called but strict; no custom exception usage; f-string logger |
@@ -47,6 +47,7 @@
 **Overall: Yellow -- Converter fully standardized (Green); engine has config key mismatches and missing features documented via needs_review; engine/code quality gaps keep overall at Yellow**
 
 **Top Actions:**
+
 1. Fix `_update_global_map()` crash in base class (P0, cross-cutting)
 2. Align engine config keys with converter output (P1, engine gaps: sub_directroy, level, mkdir)
 3. Add encryption support in engine (P1, engine feature gap)
@@ -73,7 +74,7 @@ The component supports 17 unique parameters covering source/target paths, archiv
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Source directory | `SOURCE` | DIRECTORY | `""` | Source directory to archive. Required for directory-based archiving. |
 | 2 | Source file | `SOURCE_FILE` | FILE | `""` | Source file for GZIP single-file archiving. Used when ARCHIVE_FORMAT is GZIP. |
 | 3 | Include subdirectories | `SUB_DIRECTROY` | CHECK | `true` | Include files from subdirectories in the archive. Note: Talend typo in param name (missing "I"). Default is `true` per _java.xml. |
@@ -94,13 +95,13 @@ The component supports 17 unique parameters covering source/target paths, archiv
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 17 | Use sync flush | `USE_SYNC_FLUSH` | CHECK | `false` | Enable sync flush for gzip/tar.gz streaming output. |
 
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `ITERATE` | Input | Iterate | Enables iterative execution when connected from tFileList or tFlowToIterate. |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires when the subjob completes successfully. |
 | `SUBJOB_ERROR` | Output (Trigger) | Trigger | Fires when the subjob fails with an error. |
@@ -111,7 +112,7 @@ The component supports 17 unique parameters covering source/target paths, archiv
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Number of files archived. |
 | `{id}_NB_LINE_OK` | Integer | After execution | 1 if archive operation successful, 0 on failure. |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | 0 on success, 1 on failure. |
@@ -139,7 +140,7 @@ The component supports 17 unique parameters covering source/target paths, archiv
 The `talend_to_v1` converter uses a dedicated `FileArchiveConverter` class registered via `@REGISTRY.register("tFileArchive")`. It extracts all 17 unique parameters plus 2 framework parameters using safe `_get_str()` / `_get_bool()` helpers. MASK TABLE parsing uses a module-level `_parse_mask()` function. The converter follows the gold standard pattern with `_build_component_dict()` wrapper.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `SOURCE` | Yes | `source` | `_get_str()`, default `""` |
 | 2 | `SOURCE_FILE` | Yes | `source_file` | `_get_str()`, default `""` |
 | 3 | `SUB_DIRECTROY` | Yes | `sub_directroy` | `_get_bool()`, default `True` per _java.xml. Talend typo preserved. |
@@ -177,7 +178,7 @@ None -- converter fully standardized per gold standard.
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `sub_directroy` | Engine reads `include_subdirectories` but converter outputs `sub_directroy` per _java.xml param name SUB_DIRECTROY | engine_gap |
 | 2 | `level` | Engine reads `compression_level` (int) but converter outputs `level` (str) per _java.xml param name LEVEL | engine_gap |
 | 3 | `encoding` | Engine does not read `encoding` config key -- archive charset not configurable in engine | engine_gap |
@@ -194,7 +195,7 @@ None -- converter fully standardized per gold standard.
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | ZIP archive creation | **Yes** | High | `_process()` line 158 | `zipfile.ZipFile()` with ZIP_DEFLATED/ZIP_STORED compression |
 | 2 | Directory archiving | **Yes** | High | `_process()` line 159 | `os.walk()` with subdirectory control via `include_subdirectories` |
 | 3 | Single file archiving | **Yes** | High | `_process()` line 172 | Single file mode when source is a file |
@@ -212,7 +213,7 @@ None -- converter fully standardized per gold standard.
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-FA-001 | **P1** | Engine reads `include_subdirectories` config key but converter outputs `sub_directroy` per _java.xml. Config key mismatch may cause engine to use default `True` ignoring user setting. |
 | ENG-FA-002 | **P1** | Engine reads `compression_level` as int but converter outputs `level` as str. Engine may fail to parse or use default. |
 | ENG-FA-003 | **P1** | Engine does not support GZIP, TAR, or TAR_GZ archive formats. Only ZIP is implemented. |
@@ -222,7 +223,7 @@ None -- converter fully standardized per gold standard.
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_stats()` via base class | Always 1 (one archive operation) |
 | `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats()` | 1 on success, 0 on failure |
 | `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats()` | 0 on success, 1 on failure |
@@ -237,21 +238,21 @@ None -- converter fully standardized per gold standard.
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-FA-001 | **P0** | `base_component.py:304` | CROSS-CUTTING: `_update_global_map()` references undefined `value` variable. Crashes all components when globalMap is set. |
 | BUG-FA-002 | **P1** | `file_archive.py:116-117` | `source` and `target` can be `None` from `config.get()` -- calling `os.path.exists(None)` raises TypeError. Engine should validate required config first. |
 
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-FA-001 | **P2** | Engine uses `include_subdirectories` config key; converter outputs `sub_directroy` per _java.xml. Key mismatch. |
 | NAME-FA-002 | **P2** | Engine uses `compression_level` (int); converter outputs `level` (str) per _java.xml. Type and name mismatch. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-FA-001 | **P2** | "Use %-formatting in logger calls" | Uses f-strings: `logger.info(f"[{self.id}] Archive processing started")` |
 
 ### 6.4 Debug Artifacts
@@ -265,7 +266,7 @@ No concerns identified for a file utility component. File paths come from config
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- module-level `logging.getLogger(__name__)` |
 | Level usage | Good -- info for start/complete, debug for per-file operations, error for failures |
 | Sensitive data | OK -- file paths logged but not sensitive in ETL context |
@@ -273,7 +274,7 @@ No concerns identified for a file utility component. File paths come from config
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | P1 -- Uses FileNotFoundError/FileExistsError/NotImplementedError, no custom exception hierarchy |
 | Exception chaining | Not used |
 | die_on_error handling | Implemented -- broad except catches all, re-raises if die_on_error=True |
@@ -281,7 +282,7 @@ No concerns identified for a file utility component. File paths come from config
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- `_process()` has return type `Dict[str, Any]` |
 | Parameter types | Good -- `input_data: Optional[pd.DataFrame]` |
 
@@ -290,13 +291,13 @@ No concerns identified for a file utility component. File paths come from config
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-FA-001 | **P3** | `os.walk()` builds full file tree in memory for large directories. Not a concern for typical ETL archive sizes. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- utility component, no data flow |
 | Memory threshold | `zipfile.write()` uses 8192-byte chunks (constant memory per file) |
 | Large data handling | Archive of large directories uses constant memory per file; `os.walk()` yields lazily. File tree built incrementally. |
@@ -308,7 +309,7 @@ No concerns identified for a file utility component. File paths come from config
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 55 | `tests/converters/talend_to_v1/components/test_file_archive.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | Shared | `tests/converters/talend_to_v1/test_integration.py` |
@@ -316,7 +317,7 @@ No concerns identified for a file utility component. File paths come from config
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-FA-001 | **P2** | No engine unit tests for FileArchiveComponent. Engine implementation not tested independently. |
 
 ### 8.3 Recommended Test Cases
@@ -337,7 +338,7 @@ No concerns identified for a file utility component. File paths come from config
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 1 | **BUG-FA-001** (cross-cutting) |
 | P1 | 4 | **BUG-FA-002**, **ENG-FA-001**, **ENG-FA-002**, **ENG-FA-003** |
 | P2 | 6 | **ENG-FA-004**, **ENG-FA-005**, **NAME-FA-001**, **NAME-FA-002**, **STD-FA-001**, **TEST-FA-001** |
@@ -347,7 +348,7 @@ No concerns identified for a file utility component. File paths come from config
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Engine (ENG) | 5 | ENG-FA-001, ENG-FA-002, ENG-FA-003, ENG-FA-004, ENG-FA-005 |
 | Bug (BUG) | 2 | BUG-FA-001, BUG-FA-002 |
 | Naming (NAME) | 2 | NAME-FA-001, NAME-FA-002 |
@@ -358,7 +359,7 @@ No concerns identified for a file utility component. File paths come from config
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set -- statistics lost |
 
 ---
@@ -366,28 +367,31 @@ No concerns identified for a file utility component. File paths come from config
 ## 10. Recommendations
 
 ### Immediate (Before Production)
+
 1. **BUG-FA-001** (P0): Fix `_update_global_map()` crash in base class -- affects all components
 2. **BUG-FA-002** (P1): Add null check for source/target config in engine before `os.path.exists()`
 
 ### Short-term (Hardening)
-3. **ENG-FA-001** (P1): Align engine config key `include_subdirectories` with converter `sub_directroy` or vice versa
-4. **ENG-FA-002** (P1): Align engine config key `compression_level` (int) with converter `level` (str)
-5. **ENG-FA-003** (P1): Add GZIP/TAR format support in engine
+
+1. **ENG-FA-001** (P1): Align engine config key `include_subdirectories` with converter `sub_directroy` or vice versa
+2. **ENG-FA-002** (P1): Align engine config key `compression_level` (int) with converter `level` (str)
+3. **ENG-FA-003** (P1): Add GZIP/TAR format support in engine
 
 ### Long-term (Optimization)
-6. **TEST-FA-001** (P2): Add engine unit tests for FileArchiveComponent
-7. **ENG-FA-004** (P2): Respect MKDIR config instead of unconditional directory creation
-8. **ENG-FA-005** (P2): Add file mask filtering support
-9. **PERF-FA-001** (P3): Minor -- no action needed
+
+1. **TEST-FA-001** (P2): Add engine unit tests for FileArchiveComponent
+2. **ENG-FA-004** (P2): Respect MKDIR config instead of unconditional directory creation
+3. **ENG-FA-005** (P2): Add file mask filtering support
+4. **PERF-FA-001** (P3): Minor -- no action needed
 
 ---
 
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talend 7.3 docs | https://help.qlik.com/talend/en-US/components/7.3/tfilearchive/tfilearchive-standard-properties | Parameter definitions, defaults |
-| Talaxie GitHub _java.xml | https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tFileArchive/tFileArchive_java.xml | Component definition XML, all 17 params + defaults |
+| -------- | ---------- | ---------- |
+| Talend 7.3 docs | <https://help.qlik.com/talend/en-US/components/7.3/tfilearchive/tfilearchive-standard-properties> | Parameter definitions, defaults |
+| Talaxie GitHub _java.xml | <https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tFileArchive/tFileArchive_java.xml> | Component definition XML, all 17 params + defaults |
 | Engine source | `src/v1/engine/components/file/file_archive.py` | Feature parity analysis (193 lines) |
 | Converter source | `src/converters/talend_to_v1/components/file/file_archive.py` | Converter audit (173 lines) |
 | Converter tests | `tests/converters/talend_to_v1/components/test_file_archive.py` | Test coverage (55 tests) |
@@ -395,7 +399,7 @@ No concerns identified for a file utility component. File paths come from config
 ## Appendix B: Engine Config Key Mapping
 
 | _java.xml Parameter | Converter Config Key | Engine Config Key | Match? | Notes |
-|---------------------|---------------------|-------------------|--------|-------|
+| --------------------- | --------------------- | ------------------- | -------- | ------- |
 | `SOURCE` | `source` | `source` | Yes | Both use same key |
 | `SOURCE_FILE` | `source_file` | N/A | **No** | Engine does not read this |
 | `SUB_DIRECTROY` | `sub_directroy` | `include_subdirectories` | **No** | Name mismatch (engine_gap) |

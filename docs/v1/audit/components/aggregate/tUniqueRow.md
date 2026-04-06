@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tUniqRow` (aliases: `tUniqueRow`, `tUnqRow`) |
 | **V1 Engine Class** | `UniqueRow` |
 | **Engine File** | `src/v1/engine/components/aggregate/unique_row.py` (289 lines) |
@@ -24,7 +24,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/aggregate/unique_row.py` | Engine implementation (289 lines) |
 | `src/converters/talend_to_v1/components/aggregate/unique_row.py` | Converter class |
 | `tests/converters/talend_to_v1/components/test_unique_row.py` | Converter tests |
@@ -36,16 +36,17 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 11 of 11 params extracted. UNIQUE_KEY TABLE parsed with stride-3. Per-column case sensitivity converted to global bool. 4 conditional needs_review entries for engine gaps. |
 | Engine Feature Parity | **Y** | 0 | 3 | 2 | 1 | No per-column case sensitivity; no IS_VIRTUAL_COMPONENT disk mode; no BigDecimal hash normalization; UNIQUE/DUPLICATE flow routing via outputs list not named connectors |
 | Code Quality | **Y** | 1 | 0 | 3 | 2 | `_update_global_map()` crash (cross-cutting P0); temp column collision risk; dead `_validate_config()`; naming inconsistencies |
 | Performance & Memory | **Y** | 0 | 1 | 1 | 0 | Full DataFrame copy on every execution; no disk-based fallback for large datasets |
 | Testing | **G** | 0 | 0 | 1 | 1 | 42 converter tests across 9 test classes per gold standard. No engine unit tests (P2). No integration tests (P3). |
 
-**Overall: YELLOW — Converter is Green (gold standard); Engine has significant feature gaps**
+Overall: YELLOW — Converter is Green (gold standard); Engine has significant feature gaps
 
 **Top Actions:**
+
 1. Fix `_update_global_map()` crash (cross-cutting P0)
 2. Implement per-column case sensitivity in engine (P1)
 3. Add IS_VIRTUAL_COMPONENT disk-based processing mode (P1)
@@ -72,7 +73,7 @@ Advanced features include `ONLY_ONCE_EACH_DUPLICATED_KEY` (send each duplicate k
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Schema | `SCHEMA` | SCHEMA_TYPE | -- | Main schema definition. Shared between UNIQUE and DUPLICATE outputs. |
 | 1b | Unique Schema | `SCHEMA_UNIQUE` | SCHEMA_TYPE | -- | Schema context for UNIQUE output connector. Mirrors main schema. |
 | 1c | Duplicate Schema | `SCHEMA_DUPLICATE` | SCHEMA_TYPE | -- | Schema context for DUPLICATE output connector. Mirrors main schema. |
@@ -83,7 +84,7 @@ Advanced features include `ONLY_ONCE_EACH_DUPLICATED_KEY` (send each duplicate k
 The `UNIQUE_KEY` parameter is a table stored as groups of three `elementValue` entries in the Talend .item XML export:
 
 | elementRef | Type | Description |
-|------------|------|-------------|
+| ------------ | ------ | ------------- |
 | `SCHEMA_COLUMN` | String | Column name from schema (quoted, e.g., `"firstName"`) |
 | `KEY_ATTRIBUTE` | CHECK (`"true"`/`"false"`) | Whether this column participates in deduplication |
 | `CASE_SENSITIVE` | CHECK (`"true"`/`"false"`) | Whether comparison is case-sensitive for this column |
@@ -93,7 +94,7 @@ The `UNIQUE_KEY` parameter is a table stored as groups of three `elementValue` e
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Show If | Description |
-|---|-----------|-----------------|------|---------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | --------- | ------------- |
 | A1 | Only Once Each Duplicated Key | `ONLY_ONCE_EACH_DUPLICATED_KEY` | CHECK | `false` | -- | When true, sends only the first duplicate for each key to DUPLICATE output (keeps "last" behavior). When false, sends all duplicates (keeps "first" behavior). |
 | A2 | Is Virtual Component | `IS_VIRTUAL_COMPONENT` | CHECK | `false` | -- | Enables disk-based processing for large datasets. When true, intermediate data is written to disk instead of held in memory. |
 | A3 | Buffer Size | `BUFFER_SIZE` | OPENED_LIST | `M` | `IS_VIRTUAL_COMPONENT == true` | Memory buffer size for disk-based mode. Items: `S` (Small), `M` (Medium), `B` (Big). |
@@ -105,7 +106,7 @@ The `UNIQUE_KEY` parameter is a table stored as groups of three `elementValue` e
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Single input flow (max 1). All rows to be deduplicated. |
 | `UNIQUE` | Output | Row > Main (green) | Unique rows (first occurrence per key group). Named connector, NOT `FLOW`. |
 | `DUPLICATE` | Output | Row > Main (orange dashed) | Duplicate rows (subsequent occurrences per key group). Named connector, NOT `REJECT`. |
@@ -119,7 +120,7 @@ The `UNIQUE_KEY` parameter is a table stored as groups of three `elementValue` e
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_UNIQUES` | Integer | After execution | Number of unique rows output |
 | `{id}_NB_DUPLICATES` | Integer | After execution | Number of duplicate rows output |
 
@@ -131,7 +132,7 @@ The `UNIQUE_KEY` parameter is a table stored as groups of three `elementValue` e
 
 3. **ONLY_ONCE_EACH_DUPLICATED_KEY semantics.** When `true`, only the first duplicate for each key is sent to the DUPLICATE output. Subsequent duplicates with the same key are silently discarded. This effectively means "keep last" uniqueness behavior.
 
-4. **CONNECTION_FORMAT phantom param.** This parameter appears in .item file exports but is NOT defined in the _java.xml component definition. It is a framework-level parameter related to connection data format. Present in .item exports, absent from _java.xml.
+4. **CONNECTION_FORMAT phantom param.** This parameter appears in .item file exports but is NOT defined in the \_java.xml component definition. It is a framework-level parameter related to connection data format. Present in .item exports, absent from \_java.xml.
 
 5. **IS_VIRTUAL_COMPONENT disk mode.** When enabled, the component uses disk-based storage for intermediate data, allowing processing of datasets larger than available memory. BUFFER_SIZE and TEMP_DIRECTORY are only relevant when this is enabled.
 
@@ -146,7 +147,7 @@ The `UNIQUE_KEY` parameter is a table stored as groups of three `elementValue` e
 The converter (`UniqueRowConverter`) uses the `@REGISTRY.register("tUniqueRow", "tUniqRow", "tUnqRow")` decorator for dispatch. It extracts parameters using `_get_str()`, `_get_bool()`, and `_get_int()` helpers from the base class. The UNIQUE_KEY TABLE is parsed with a module-level `_parse_unique_key()` function using stride-3.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `SCHEMA` | Yes | (schema) | Via `_parse_schema()` |
 | 2 | `UNIQUE_KEY` | Yes | `key_columns` | TABLE parsed with stride-3 (SCHEMA_COLUMN, KEY_ATTRIBUTE, CASE_SENSITIVE). Per-column case sensitivity collected. |
 | 3 | `UNIQUE_KEY.CASE_SENSITIVE` | Yes | `case_sensitive` | Per-column values converted to global bool. Mixed values trigger needs_review. |
@@ -164,7 +165,7 @@ The converter (`UniqueRowConverter`) uses the `@REGISTRY.register("tUniqueRow", 
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` |
 | `type` | Yes | Converted via `convert_type()` |
 | `nullable` | Yes | Direct extraction |
@@ -187,7 +188,7 @@ None. All parameters correctly extracted per gold standard.
 The converter emits per-feature needs_review entries for specific engine gaps:
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `case_sensitive` | Engine uses global `case_sensitive` flag only; Talend supports per-column CASE_SENSITIVE. Mixed per-column values cannot be faithfully represented. | engine_gap |
 | 2 | `change_hash_and_equals_for_bigdecimal` | Engine does not implement BigDecimal trailing zero normalization. Conditional: only emitted when enabled. | engine_gap |
 | 3 | `is_virtual_component` | Engine does not implement disk-based processing mode (IS_VIRTUAL_COMPONENT). Always uses in-memory processing. | engine_gap |
@@ -200,7 +201,7 @@ The converter emits per-feature needs_review entries for specific engine gaps:
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Deduplication by key columns | **Yes** | High | `_remove_duplicates()` line 190 | Uses `pd.DataFrame.duplicated()`. Falls back to all columns if key_columns empty. |
 | 2 | Keep first/last | **Yes** | High | `_remove_duplicates()` line 249 | Uses pandas `keep` param ('first', 'last', False) |
 | 3 | Global case sensitivity | **Yes** | Medium | `_remove_duplicates()` line 233 | Creates temp lowercase columns for string key columns. Only global flag, not per-column. |
@@ -220,7 +221,7 @@ The converter emits per-feature needs_review entries for specific engine gaps:
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-UNQ-001 | **P1** | **Per-column case sensitivity missing.** Engine uses a single global `case_sensitive` bool. Talend allows each key column to have independent CASE_SENSITIVE settings. Jobs with mixed per-column case sensitivity will produce incorrect deduplication results. |
 | ENG-UNQ-002 | **P1** | **IS_VIRTUAL_COMPONENT disk mode not implemented.** Engine always loads full DataFrame into memory. Jobs with datasets exceeding available memory will fail with OOM errors where Talend would succeed using disk-based processing. |
 | ENG-UNQ-003 | **P1** | **CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL not implemented.** Engine uses Python's native Decimal comparison, where `Decimal('1.0') != Decimal('1.00')`. Talend normalizes trailing zeros when this is enabled. |
@@ -231,7 +232,7 @@ The converter emits per-feature needs_review entries for specific engine gaps:
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_UNIQUES` | Yes | Yes | `global_map.put()` in `_process()` line 162 | Correct |
 | `{id}_NB_DUPLICATES` | Yes | Yes | `global_map.put()` in `_process()` line 163 | Correct |
 | `{id}_NB_LINE` | Yes | Yes | Via `_update_stats()` base class | Cross-cutting: crashes due to `_update_global_map()` bug |
@@ -245,21 +246,21 @@ The converter emits per-feature needs_review entries for specific engine gaps:
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-UNQ-001 | **P0** | `base_component.py:304` | **CROSS-CUTTING:** `_update_global_map()` uses undefined `value` variable. Crashes ALL components when globalMap is set. Results lost, status stuck at RUNNING. |
 | BUG-UNQ-002 | **P2** | `unique_row.py:238` | **Temp column collision risk.** Temporary columns use pattern `_temp_{col}`. If input data already has a column named `_temp_id`, it will be overwritten and dropped during cleanup. |
 
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-UNQ-001 | **P2** | Engine uses `main`/`reject` output names instead of `unique`/`duplicate` to match Talend's connector names. |
 | NAME-UNQ-002 | **P3** | Engine config keys `output_duplicates` and `is_reject_duplicate` do not correspond to any Talend parameter. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-UNQ-001 | **P2** | "`_validate_config()` called or dead code" | `_validate_config()` defined (lines 74-105) but never called by the engine. Dead code. |
 
 ### 6.4 Debug Artifacts
@@ -273,7 +274,7 @@ No concerns identified. No `eval()`, `exec()`, or injection risks.
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Correct: `logger = logging.getLogger(__name__)` at module level |
 | Level usage | Appropriate: `info` for start/complete, `warning` for empty input, `error` for failures |
 | Sensitive data | No sensitive data in log messages |
@@ -281,7 +282,7 @@ No concerns identified. No `eval()`, `exec()`, or injection risks.
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Uses `ComponentExecutionError` from engine exceptions module |
 | Exception chaining | Yes: `raise ... from e` pattern used correctly |
 | die_on_error handling | Not implemented (relies on engine-level error handling) |
@@ -289,7 +290,7 @@ No concerns identified. No `eval()`, `exec()`, or injection risks.
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good: All public methods have return type annotations |
 | Parameter types | Good: `Optional[pd.DataFrame]`, `List[str]`, `Dict[str, Any]` used consistently |
 
@@ -298,7 +299,7 @@ No concerns identified. No `eval()`, `exec()`, or injection risks.
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-UNQ-001 | **P1** | **Full DataFrame copy.** `_remove_duplicates()` calls `input_data.copy()` on every invocation (line 229). For large DataFrames this doubles memory usage. |
 | PERF-UNQ-002 | **P2** | **Double copy of output DataFrames.** Both `unique_df` and `duplicate_df` are created with `.copy()` from the already-copied DataFrame (lines 252-253). Three copies total. |
 | PERF-UNQ-003 | **P3** | **No disk-based fallback.** IS_VIRTUAL_COMPONENT not implemented. Large datasets that exceed memory will OOM. |
@@ -306,7 +307,7 @@ No concerns identified. No `eval()`, `exec()`, or injection risks.
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Not tested for HYBRID streaming. Stateless deduplication may work per-chunk but would produce incorrect results (duplicates across chunks missed). |
 | Memory threshold | No memory threshold. Full DataFrame always loaded. |
 | Large data handling | No disk-based fallback. Memory-bound by DataFrame size x3 (original + copy + output copies). |
@@ -318,7 +319,7 @@ No concerns identified. No `eval()`, `exec()`, or injection risks.
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 42 | `tests/converters/talend_to_v1/components/test_unique_row.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | 0 | None |
@@ -326,7 +327,7 @@ No concerns identified. No `eval()`, `exec()`, or injection risks.
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-UNQ-001 | **P2** | No engine unit tests. `_remove_duplicates()` with various key column configs, case sensitivity, and empty inputs not tested. |
 | TEST-UNQ-002 | **P3** | No integration tests verifying UNIQUE/DUPLICATE flow routing in a multi-component job. |
 
@@ -347,7 +348,7 @@ No concerns identified. No `eval()`, `exec()`, or injection risks.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 1 | **BUG-UNQ-001** (cross-cutting) |
 | P1 | 4 | **ENG-UNQ-001**, **ENG-UNQ-002**, **ENG-UNQ-003**, **PERF-UNQ-001** |
 | P2 | 7 | **ENG-UNQ-004**, **ENG-UNQ-005**, **BUG-UNQ-002**, **NAME-UNQ-001**, **STD-UNQ-001**, **PERF-UNQ-002**, **TEST-UNQ-001** |
@@ -357,7 +358,7 @@ No concerns identified. No `eval()`, `exec()`, or injection risks.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Engine (ENG) | 6 | ENG-UNQ-001 through ENG-UNQ-006 |
 | Bug (BUG) | 2 | BUG-UNQ-001 (cross-cutting), BUG-UNQ-002 |
 | Naming (NAME) | 2 | NAME-UNQ-001, NAME-UNQ-002 |
@@ -371,7 +372,7 @@ No concerns identified. No `eval()`, `exec()`, or injection risks.
 These issues are shared with all other engine components:
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | BUG-UNQ-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap is set — NB_UNIQUES/NB_DUPLICATES custom stats may be lost |
 
 ---
@@ -384,30 +385,30 @@ These issues are shared with all other engine components:
 
 ### Short-term (Hardening)
 
-2. **Implement per-column case sensitivity (ENG-UNQ-001, P1)** — Engine needs to support independent CASE_SENSITIVE per key column, not just global flag.
-3. **Add IS_VIRTUAL_COMPONENT disk mode (ENG-UNQ-002, P1)** — Memory-bound processing limits dataset sizes.
-4. **Add BigDecimal hash normalization (ENG-UNQ-003, P1)** — Needed for correct Decimal deduplication.
-5. **Reduce DataFrame copies (PERF-UNQ-001, P1)** — Use views or in-place operations where possible.
-6. **Fix UNIQUE/DUPLICATE connector naming (ENG-UNQ-004, NAME-UNQ-001, P2)** — Use named connectors matching Talend's UNIQUE/DUPLICATE.
-7. **Add engine unit tests (TEST-UNQ-001, P2)** — Test deduplication logic directly.
-8. **Avoid temp column collision (BUG-UNQ-002, P2)** — Use UUID-based temp column names.
+1. **Implement per-column case sensitivity (ENG-UNQ-001, P1)** — Engine needs to support independent CASE_SENSITIVE per key column, not just global flag.
+2. **Add IS_VIRTUAL_COMPONENT disk mode (ENG-UNQ-002, P1)** — Memory-bound processing limits dataset sizes.
+3. **Add BigDecimal hash normalization (ENG-UNQ-003, P1)** — Needed for correct Decimal deduplication.
+4. **Reduce DataFrame copies (PERF-UNQ-001, P1)** — Use views or in-place operations where possible.
+5. **Fix UNIQUE/DUPLICATE connector naming (ENG-UNQ-004, NAME-UNQ-001, P2)** — Use named connectors matching Talend's UNIQUE/DUPLICATE.
+6. **Add engine unit tests (TEST-UNQ-001, P2)** — Test deduplication logic directly.
+7. **Avoid temp column collision (BUG-UNQ-002, P2)** — Use UUID-based temp column names.
 
 ### Long-term (Optimization)
 
-9. **Add disk-based fallback (PERF-UNQ-003, P3)** — For datasets exceeding memory.
-10. **Add integration tests (TEST-UNQ-002, P3)** — Multi-component flow routing.
-11. **Remove engine-specific config keys (ENG-UNQ-006, NAME-UNQ-002, P3)** — Or document as engine extensions.
+1. **Add disk-based fallback (PERF-UNQ-003, P3)** — For datasets exceeding memory.
+2. **Add integration tests (TEST-UNQ-002, P3)** — Multi-component flow routing.
+3. **Remove engine-specific config keys (ENG-UNQ-006, NAME-UNQ-002, P3)** — Or document as engine extensions.
 
 ---
 
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Official Talend docs (7.3) | https://help.talend.com/en-US/data-matching/7.3/tuniqrow-standard-properties | Parameter definitions, defaults, behavioral docs |
-| Official Talend docs (8.0) | https://help.qlik.com/talend/en-US/data-matching/8.0/tuniqrow-standard-properties | Updated parameter definitions |
-| Talaxie GitHub _java.xml | https://github.com/Talaxie/tdi-studio-se (tUniqRow) | Component definition XML: params, types, defaults |
-| Job Script Reference | https://help.talend.com/en-US/job-script-reference-guide/7.3/component-specific-settings-for-tuniqrow | UNIQUE_KEY table structure, usage examples |
+| -------- | ---------- | ---------- |
+| Official Talend docs (7.3) | <https://help.talend.com/en-US/data-matching/7.3/tuniqrow-standard-properties> | Parameter definitions, defaults, behavioral docs |
+| Official Talend docs (8.0) | <https://help.qlik.com/talend/en-US/data-matching/8.0/tuniqrow-standard-properties> | Updated parameter definitions |
+| Talaxie GitHub _java.xml | <https://github.com/Talaxie/tdi-studio-se> (tUniqRow) | Component definition XML: params, types, defaults |
+| Job Script Reference | <https://help.talend.com/en-US/job-script-reference-guide/7.3/component-specific-settings-for-tuniqrow> | UNIQUE_KEY table structure, usage examples |
 | Engine source | `src/v1/engine/components/aggregate/unique_row.py` | Feature parity analysis (289 lines) |
 | Converter source | `src/converters/talend_to_v1/components/aggregate/unique_row.py` | Converter audit |
 | Base component | `src/v1/engine/base_component.py` | Cross-cutting bug analysis |
@@ -415,7 +416,7 @@ These issues are shared with all other engine components:
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set — affects NB_UNIQUES/NB_DUPLICATES stats |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` undefined default — affects stat retrieval |
 | XCUT-003 | `base_component.py:351` | `validate_schema` inverted nullable — nullable columns get `fillna(0)` |

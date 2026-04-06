@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tFileInputDelimited` |
 | **V1 Engine Class** | `FileInputDelimited` |
 | **Engine File** | `src/v1/engine/components/file/file_input_delimited.py` (574 lines) |
@@ -25,7 +25,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/file/file_input_delimited.py` | Engine implementation (574 lines) |
 | `src/converters/talend_to_v1/components/file/file_input_delimited.py` | Converter class |
 | `tests/converters/talend_to_v1/components/test_file_input_delimited.py` | Converter tests (74 tests) |
@@ -37,16 +37,17 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 31 of 31 params extracted (29 unique + 2 framework); `_build_component_dict` pattern; REMOVE_EMPTY_ROW=True default fixed; 14 per-feature needs_review entries; 2 TABLE parsers (TRIMSELECT, DECODE_COLS) |
 | Engine Feature Parity | **Y** | 1 | 5 | 3 | 1 | No REJECT flow; missing globalMap vars; no compressed/RFC4180; no CHECK_FIELDS_NUM/CHECK_DATE; engine reads "delimiter" not "fieldseparator"; encoding default mismatch (UTF-8 vs ISO-8859-15) |
 | Code Quality | **Y** | 2 | 2 | 5 | 2 | Cross-cutting base class bugs; dead `_validate_config()`; single-string DF creation bug; config mutation via resolve_dict |
 | Performance & Memory | **G** | 0 | 0 | 2 | 1 | Streaming mode works for large files; minor optimization opportunities in post-processing and engine selection |
 | Testing | **Y** | 0 | 0 | 2 | 0 | 74 converter unit tests across 11 test classes per gold standard; integration + regression guard passing; engine unit tests missing (P2) -- no engine test coverage prevents Green |
 
-**Overall: Yellow -- Converter fully standardized (Green); engine has known gaps documented via 14 needs_review entries; engine/code quality gaps keep overall at Yellow**
+Overall: Yellow -- Converter fully standardized (Green); engine has known gaps documented via 14 needs_review entries; engine/code quality gaps keep overall at Yellow
 
 **Top Actions:**
+
 1. Fix `_update_global_map()` crash in base class (P0, cross-cutting)
 2. Fix single-string DataFrame creation bug (`pd.DataFrame({column_name: file_content})` creates per-char rows) (P0)
 3. Add REJECT flow support (P1, engine gap)
@@ -71,7 +72,7 @@ The component supports extensive configuration: field and row separators (includ
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Schema | `SCHEMA` | SCHEMA_TYPE | -- | Column definitions with types, lengths, patterns, nullable, key attributes. Defines the output structure. |
 | 2 | File Name / Stream | `FILENAME` | FILE | `""` | **Mandatory**. Absolute file path or data stream variable. Supports context variables. |
 | 3 | Row Separator | `ROWSEPARATOR` | TEXT | `"\n"` | Character(s) identifying end of a row. Supports `\r\n`, `\n`, `\r`. |
@@ -91,7 +92,7 @@ The component supports extensive configuration: field and row separators (includ
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 16 | Split Record | `SPLITRECORD` | CHECK | `false` | Allow multi-line fields (records split across multiple lines). |
 | 17 | Check Fields Number | `CHECK_FIELDS_NUM` | CHECK | `false` | Validate that each row has the expected number of fields per schema. |
 | 18 | Check Date | `CHECK_DATE` | CHECK | `false` | Strictly validate date fields against schema patterns. |
@@ -114,7 +115,7 @@ The component supports extensive configuration: field and row separators (includ
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Output | Row > Main | Primary data output with parsed fields per schema |
 | `REJECT` | Output | Row > Reject | Rejected rows with errorCode/errorMessage columns |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires after successful completion |
@@ -123,7 +124,7 @@ The component supports extensive configuration: field and row separators (includ
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total rows read from file |
 | `{id}_NB_LINE_OK` | Integer | After execution | Successfully processed rows |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Rejected rows (validation failures) |
@@ -150,7 +151,7 @@ The component supports extensive configuration: field and row separators (includ
 The converter uses the gold-standard `_build_component_dict` pattern with `type_name="FileInputDelimited"` per D-40/D-43. Module-level `_parse_trim_select()` and `_parse_decode_cols()` TABLE parsers handle the stride-2 TABLE parameters.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `FILENAME` | Yes | `filepath` | `_get_str`, default `""` |
 | 2 | `CSV_OPTION` | Yes | `csv_option` | `_get_bool`, default `False` |
 | 3 | `ROWSEPARATOR` | Yes | `row_separator` | `_get_str`, default `"\\n"` |
@@ -189,7 +190,7 @@ The converter uses the gold-standard `_build_component_dict` pattern with `type_
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Direct from SchemaColumn |
 | `type` | Yes | Converted via `convert_type()` |
 | `nullable` | Yes | Direct from SchemaColumn |
@@ -212,7 +213,7 @@ None. All parameters extracted correctly with proper defaults.
 10 per-feature needs_review entries for engine gaps:
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `fieldseparator` | Engine reads `delimiter` config key, not `fieldseparator` | engine_gap |
 | 2 | `csv_option` | Engine has no explicit RFC4180 CSV toggle | engine_gap |
 | 3 | `csv_row_separator` | Engine uses only row_separator, ignores csv_row_separator | engine_gap |
@@ -231,7 +232,7 @@ None. All parameters extracted correctly with proper defaults.
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | File reading (filepath) | **Yes** | High | `_process()` line 213 | Reads filepath from config |
 | 2 | Delimiter parsing | **Yes** | High | `_read_batch()` line 351 | Via pandas `sep` parameter |
 | 3 | Row separator | **Partial** | Medium | `_process()` line 215 | Used for special single-string detection, not passed to pandas |
@@ -259,7 +260,7 @@ None. All parameters extracted correctly with proper defaults.
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-FID-001 | **P0** | `_update_global_map()` crash: base class bug affects all components when globalMap is configured |
 | ENG-FID-002 | **P0** | `pd.DataFrame({column_name: file_content})` in single-string mode creates one row per character instead of one row with the full content -- should be `pd.DataFrame({column_name: [file_content]})` |
 | ENG-FID-003 | **P1** | No REJECT flow -- rows that fail parsing are silently dropped instead of routing to reject output |
@@ -275,7 +276,7 @@ None. All parameters extracted correctly with proper defaults.
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_stats()` | Total rows read |
 | `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats()` | Same as NB_LINE (no reject) |
 | `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats()` | Always 0 (no reject flow) |
@@ -289,7 +290,7 @@ None. All parameters extracted correctly with proper defaults.
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-FID-001 | **P0** | `base_component.py:304` | CROSS-CUTTING: `_update_global_map()` crashes when globalMap is configured -- affects all components |
 | BUG-FID-002 | **P0** | `file_input_delimited.py:323` | Single-string mode: `pd.DataFrame({column_name: file_content})` creates one row per character. Should be `pd.DataFrame({column_name: [file_content]})` |
 | BUG-FID-003 | **P1** | `file_input_delimited.py:266` | Empty delimiter/row_separator detection uses hardcoded `'  '` (two spaces) in the comparison list -- fragile and non-obvious |
@@ -298,14 +299,14 @@ None. All parameters extracted correctly with proper defaults.
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-FID-001 | **P2** | `remove_empty_rows` (plural) in engine vs `remove_empty_row` (singular) in _java.xml and converter -- inconsistent |
 | NAME-FID-002 | **P2** | Engine class defaults `DEFAULT_DELIMITER = ','` but Talend default is `';'` -- confusing |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-FID-001 | **P2** | Module-level logger | Compliant -- `logger = logging.getLogger(__name__)` |
 | STD-FID-002 | **P2** | Docstring format | Comprehensive class docstring with all parameters -- compliant |
 | STD-FID-003 | **P2** | Type hints | Complete method signatures with return types -- compliant |
@@ -317,14 +318,14 @@ None found. Logging uses appropriate levels.
 ### 6.5 Security
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | SEC-FID-001 | **P2** | No path traversal protection on `filepath` -- arbitrary file paths accepted without validation |
 | SEC-FID-002 | **P2** | No file size check before batch read -- memory exhaustion possible with large files (mitigated by streaming mode threshold) |
 
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Compliant -- module-level logger |
 | Level usage | Good -- INFO for lifecycle, DEBUG for details, WARNING for issues |
 | Sensitive data | Low risk -- file paths logged at INFO level (acceptable for file input) |
@@ -332,7 +333,7 @@ None found. Logging uses appropriate levels.
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Good -- `ConfigurationError`, `FileOperationError` |
 | Exception chaining | Good -- `from e` pattern used consistently |
 | die_on_error handling | Good -- controls raise vs empty DataFrame return |
@@ -340,7 +341,7 @@ None found. Logging uses appropriate levels.
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Complete with return types |
 | Parameter types | Fully typed including Optional and Dict |
 
@@ -349,7 +350,7 @@ None found. Logging uses appropriate levels.
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-FID-001 | **P2** | `_post_process_dataframe()` iterates all string columns twice (trim + fillna) -- could combine |
 | PERF-FID-002 | **P2** | BigDecimal conversion uses row-wise `apply()` with lambda -- slow for large datasets |
 | PERF-FID-003 | **P3** | `_build_dtype_dict()` called in both batch and streaming paths -- could cache |
@@ -357,7 +358,7 @@ None found. Logging uses appropriate levels.
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Good -- auto-activates for files > 3GB (MEMORY_THRESHOLD_MB) |
 | Memory threshold | 3GB default from base class -- reasonable |
 | Large data handling | Batch mode loads entire file; streaming chunks for large files |
@@ -370,7 +371,7 @@ None found. Logging uses appropriate levels.
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 74 | `tests/converters/talend_to_v1/components/test_file_input_delimited.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | Covered | `tests/converters/talend_to_v1/test_integration.py` (shared) |
@@ -379,13 +380,14 @@ None found. Logging uses appropriate levels.
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-FID-001 | **P2** | No engine unit tests -- FileInputDelimited engine class has zero dedicated tests |
 | TEST-FID-002 | **P2** | No engine integration tests with real CSV files |
 
 ### 8.3 Recommended Test Cases
 
 **Engine tests needed:**
+
 1. Happy path: CSV with headers, various delimiters, encoding
 2. Edge cases: empty file, single-column file, unicode characters
 3. Large file streaming mode activation
@@ -404,7 +406,7 @@ None found. Logging uses appropriate levels.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 2 | **BUG-FID-001**, **BUG-FID-002** |
 | P1 | 7 | **ENG-FID-003**, **ENG-FID-004**, **ENG-FID-005**, **ENG-FID-006**, **ENG-FID-007**, **BUG-FID-003**, **BUG-FID-004** |
 | P2 | 10 | ENG-FID-008, ENG-FID-009, ENG-FID-010, NAME-FID-001, NAME-FID-002, SEC-FID-001, SEC-FID-002, PERF-FID-001, PERF-FID-002, TEST-FID-001, TEST-FID-002 |
@@ -414,7 +416,7 @@ None found. Logging uses appropriate levels.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
 | Engine (ENG) | 9 | ENG-FID-001 through ENG-FID-011 (minus ENG-FID-002) |
 | Bug (BUG) | 4 | BUG-FID-001 through BUG-FID-004 |
@@ -427,7 +429,7 @@ None found. Logging uses appropriate levels.
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash -- stats lost for file input component |
 | XCUT-004 | `base_component.py:202` | `self.config` mutation via `resolve_dict()` -- if tFileInputDelimited runs inside iterate loop, config modified on first pass |
 
@@ -442,17 +444,17 @@ None found. Logging uses appropriate levels.
 
 ### Short-term (Hardening)
 
-3. **ENG-FID-003 (P1):** Implement REJECT flow for failed row parsing
-4. **ENG-FID-006 (P1):** Align config key: engine should read `fieldseparator` or converter should emit `delimiter`
-5. **ENG-FID-005 (P1):** Change engine encoding default from UTF-8 to ISO-8859-15
-6. **ENG-FID-004 (P1):** Implement `{id}_FILENAME` and `{id}_ENCODING` globalMap variables
-7. **BUG-FID-004 (P1):** Fix config key mismatch between converter output and engine input
+1. **ENG-FID-003 (P1):** Implement REJECT flow for failed row parsing
+2. **ENG-FID-006 (P1):** Align config key: engine should read `fieldseparator` or converter should emit `delimiter`
+3. **ENG-FID-005 (P1):** Change engine encoding default from UTF-8 to ISO-8859-15
+4. **ENG-FID-004 (P1):** Implement `{id}_FILENAME` and `{id}_ENCODING` globalMap variables
+5. **BUG-FID-004 (P1):** Fix config key mismatch between converter output and engine input
 
 ### Long-term (Optimization)
 
-8. **PERF-FID-001 (P2):** Combine string column post-processing passes
-9. **TEST-FID-001 (P2):** Add engine unit tests for FileInputDelimited
-10. **ENG-FID-011 (P3):** Add UNCOMPRESS support for compressed files
+1. **PERF-FID-001 (P2):** Combine string column post-processing passes
+2. **TEST-FID-001 (P2):** Add engine unit tests for FileInputDelimited
+3. **ENG-FID-011 (P3):** Add UNCOMPRESS support for compressed files
 
 ---
 
@@ -463,7 +465,7 @@ This section is included because tFileInputDelimited is the most commonly used i
 ### Risk Matrix
 
 | Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
+| ------ | ----------- | -------- | ------------ |
 | CSV injection via crafted delimiters | Medium | High -- malicious delimiters could cause field boundary confusion, data misalignment, or injection into downstream components | Validate FIELDSEPARATOR is a known delimiter pattern; sanitize regex delimiters |
 | Escape character handling bypass | Low | High -- crafted escape sequences could break out of quoted fields, corrupting data or enabling injection | Ensure CSV mode properly handles double-quote vs backslash escape modes |
 | Delimiter confusion attacks | Medium | Medium -- files with mixed delimiter patterns (semicolon in data, comma as delimiter) cause silent data corruption | Log field count mismatches per row; enable CHECK_FIELDS_NUM in production |
@@ -494,9 +496,9 @@ This section is included because tFileInputDelimited is the most commonly used i
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tFileInputDelimited/tFileInputDelimited_java.xml` | Complete parameter definitions, defaults, TABLE structures |
-| Official Talend docs | `https://help.qlik.com/talend/en-US/components/8.0/delimited/tfileinputdelimited-standard-properties` | Component description, behavioral notes |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tFileInputDelimited/tFileInputDelimited_java.xml`> | Complete parameter definitions, defaults, TABLE structures |
+| Official Talend docs | `<https://help.qlik.com/talend/en-US/components/8.0/delimited/tfileinputdelimited-standard-properties`> | Component description, behavioral notes |
 | Engine source | `src/v1/engine/components/file/file_input_delimited.py` (574 lines) | Feature parity analysis, bug identification, security assessment |
 | Converter source | `src/converters/talend_to_v1/components/file/file_input_delimited.py` | Converter audit |
 | Converter tests | `tests/converters/talend_to_v1/components/test_file_input_delimited.py` (74 tests) | Test coverage analysis |
@@ -505,14 +507,14 @@ This section is included because tFileInputDelimited is the most commonly used i
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash -- stats lost for file input component |
 | XCUT-004 | `base_component.py:202` | `self.config` mutation via `resolve_dict()` -- file paths, delimiters modified on first pass in iterate loops |
 
 ### Edge-Case Checklist Results
 
 | Check | Result | Notes |
-|-------|--------|-------|
+| ------- | -------- | ------- |
 | NaN handling | Risk | `dropna(how='all')` for remove_empty_rows; `fillna("")` for strings -- reasonable |
 | Empty strings in config | Risk | Empty delimiter triggers single-string mode; empty filepath returns empty DF |
 | Empty DataFrame input | N/A | Source component -- no input data |
@@ -527,7 +529,7 @@ This section is included because tFileInputDelimited is the most commonly used i
 This appendix details the relationship between Talend parameters, converter config keys, and engine config keys for the various delimiter/separator parameters -- the most common source of configuration confusion.
 
 | Talend XML Name | Converter Config Key | Engine Config Key | Engine Default | Talend Default | Match? |
-|-----------------|---------------------|-------------------|----------------|----------------|--------|
+| ----------------- | --------------------- | ------------------- | ---------------- | ---------------- | -------- |
 | `FIELDSEPARATOR` | `fieldseparator` | `delimiter` | `','` | `";"` | No -- key and default both differ |
 | `ROWSEPARATOR` | `row_separator` | `row_separator` | `None` | `"\n"` | Partial -- key matches, default differs |
 | `CSVROWSEPARATOR` | `csv_row_separator` | -- (not read) | -- | `"\n"` | No -- not read by engine |

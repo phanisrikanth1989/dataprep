@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tFileUnarchive` |
 | **V1 Engine Class** | `FileUnarchiveComponent` |
 | **Engine File** | `src/v1/engine/components/file/file_unarchive.py` (180 lines) |
@@ -25,7 +25,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/file/file_unarchive.py` | Engine implementation (180 lines) |
 | `src/converters/talend_to_v1/components/file/file_unarchive.py` | Converter class (94 lines) |
 | `tests/converters/talend_to_v1/components/test_file_unarchive.py` | Converter tests (41 tests) |
@@ -37,7 +37,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 12 unique + 2 framework params extracted; correct defaults (EXTRACTPATH=True); correct param names (CHECKPASSWORD, DECRYPT_METHOD); 3 advanced params added (PRINTOUT, USE_ENCODING, ENCORDING); `_build_component_dict` with type_name=FileUnarchiveComponent; 2 engine_gap needs_review |
 | Engine Feature Parity | **Y** | 0 | 3 | 2 | 1 | ZIP-only (no tar/gz/tgz); config key mismatches (extract_path vs extractpath, check_password vs checkpassword); missing features (rootname, integrity, printout, use_encoding, encording, decrypt_method not consumed) |
 | Code Quality | **Y** | 1 | 2 | 3 | 1 | Cross-cutting `_update_global_map()` crash (P0); dead `_validate_config()` (P1); zip slip vulnerability (P1); TOCTOU race in makedirs (P2); directory entries inflate file count (P2); no boolean conversion for extract_path (P2); unused typing import (P3) |
@@ -47,6 +47,7 @@
 **Overall: Yellow -- Converter fully standardized (Green); engine has config key mismatches and missing features documented via needs_review; engine/code quality gaps keep overall at Yellow**
 
 **Top Actions:**
+
 1. Fix `_update_global_map()` crash in base class (P0, cross-cutting)
 2. Align engine config keys `extract_path`/`check_password` with converter `extractpath`/`checkpassword` (P1, engine gap)
 3. Fix zip slip vulnerability in extraction path (P1, security)
@@ -71,7 +72,7 @@ The component is a utility component in the File/Archive-Unarchive family. It do
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Archive file | `ZIPFILE` | FILE | `""` | **Mandatory**. Absolute file path to the archive to be extracted. Supports context variables, globalMap references, Java expressions. |
 | 2 | Extraction directory | `DIRECTORY` | DIRECTORY | `""` | **Mandatory**. Absolute folder path where the extracted file(s) will be placed. |
 | 3 | Use archive name as root dir | `ROOTNAME` | CHECK | `false` | When checked, creates a folder named after the archive file (without extension) under the extraction directory. |
@@ -85,7 +86,7 @@ The component is a utility component in the File/Archive-Unarchive family. It do
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 10 | Print out operations | `PRINTOUT` | CHECK | `false` | When checked, prints extraction operations to stdout. Useful for debugging. |
 | 11 | Use custom encoding | `USE_ENCODING` | CHECK | `false` | When checked, enables custom character encoding for file names in the archive. |
 | 12 | Encoding | `ENCORDING` | ENCODING_TYPE | `UTF-8` | Character encoding for file names. **Note**: The XML param name is `ENCORDING` -- this is Talend's typo (missing 'e' in "encoding"), preserved faithfully. Only visible when USE_ENCODING is checked. |
@@ -95,7 +96,7 @@ The component is a utility component in the File/Archive-Unarchive family. It do
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `ITERATE` | Output | Row > Iterate | Enables iterative processing of extracted files. Each extracted file triggers one iteration. |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires when the subjob completes successfully. |
 | `SUBJOB_ERROR` | Output (Trigger) | Trigger | Fires when the subjob fails with an error. |
@@ -105,7 +106,7 @@ The component is a utility component in the File/Archive-Unarchive family. It do
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Number of files extracted from the archive. |
 | `{id}_NB_LINE_OK` | Integer | After execution | Number of files successfully extracted. |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Number of files that failed extraction. |
@@ -132,7 +133,7 @@ The component is a utility component in the File/Archive-Unarchive family. It do
 The converter uses `@REGISTRY.register("tFileUnarchive")` decorator-based dispatch. All parameters are extracted via `_get_str()`, `_get_bool()` helpers from the base class. Config dict is wrapped using `_build_component_dict()` with `type_name="FileUnarchiveComponent"`.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `ZIPFILE` | Yes | `zipfile` | str, default `""` |
 | 2 | `DIRECTORY` | Yes | `directory` | str, default `""` |
 | 3 | `ROOTNAME` | Yes | `rootname` | bool, default `False` |
@@ -153,7 +154,7 @@ The converter uses `@REGISTRY.register("tFileUnarchive")` decorator-based dispat
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | N/A | N/A | Utility component -- no data flow schema. Schema is `{"input": [], "output": []}`. |
 
 ### 4.3 Expression Handling
@@ -163,7 +164,7 @@ String parameters (ZIPFILE, DIRECTORY, PASSWORD) pass through context variable a
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | CONV-FUA-001 | ~~P1~~ | **FIXED** -- EXTRACTPATH default was `false`, corrected to `true` per _java.xml |
 | CONV-FUA-002 | ~~P1~~ | **FIXED** -- Config key `need_password` renamed to `checkpassword` per _java.xml CHECKPASSWORD param |
 | CONV-FUA-003 | ~~P1~~ | **FIXED** -- Config key `decrypt_type` renamed to `decrypt_method` per _java.xml DECRYPT_METHOD param |
@@ -173,7 +174,7 @@ String parameters (ZIPFILE, DIRECTORY, PASSWORD) pass through context variable a
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `extractpath` | Engine reads `extract_path` but converter outputs `extractpath` per _java.xml param name EXTRACTPATH | engine_gap |
 | 2 | `checkpassword` | Engine reads `check_password` but converter outputs `checkpassword` per _java.xml param name CHECKPASSWORD | engine_gap |
 
@@ -184,7 +185,7 @@ String parameters (ZIPFILE, DIRECTORY, PASSWORD) pass through context variable a
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | ZIP extraction | **Yes** | High | `_process()` line 146 | Using Python `zipfile` module |
 | 2 | tar/gz/tgz extraction | **No** | N/A | -- | Only ZIP supported; Talend supports tar, gz, tgz, tar.gz |
 | 3 | Extract with paths (EXTRACTPATH) | **Yes** | High | `_process()` lines 153-162 | `extractall()` vs per-file `extract()` |
@@ -199,7 +200,7 @@ String parameters (ZIPFILE, DIRECTORY, PASSWORD) pass through context variable a
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-FUA-001 | **P1** | ZIP-only: engine does not support tar, gz, tgz, tar.gz formats |
 | ENG-FUA-002 | **P1** | Config key mismatch: engine reads `extract_path`, converter outputs `extractpath` |
 | ENG-FUA-003 | **P1** | Config key mismatch: engine reads `check_password`, converter outputs `checkpassword` |
@@ -210,7 +211,7 @@ String parameters (ZIPFILE, DIRECTORY, PASSWORD) pass through context variable a
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_stats()` | Always 1 (represents one extraction op) |
 | `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats()` | 1 if successful |
 | `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats()` | 0 |
@@ -225,7 +226,7 @@ String parameters (ZIPFILE, DIRECTORY, PASSWORD) pass through context variable a
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-FUA-001 | **P0** | `base_component.py:304` | **CROSS-CUTTING**: `_update_global_map()` crash when globalMap is set -- affects ALL components |
 | BUG-FUA-002 | **P1** | `file_unarchive.py:153-162` | Zip slip vulnerability: no path traversal check when extracting files with `extract_path=True` |
 | BUG-FUA-003 | **P2** | `file_unarchive.py:139-140` | TOCTOU race: `os.path.exists()` check followed by `os.makedirs()` can race with concurrent processes |
@@ -234,13 +235,13 @@ String parameters (ZIPFILE, DIRECTORY, PASSWORD) pass through context variable a
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-FUA-001 | **P2** | Engine uses `check_password` but _java.xml param is `CHECKPASSWORD` (no underscore in compound) -- converter correctly outputs `checkpassword` |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-FUA-001 | **P2** | "Logger should use % formatting" | Engine uses f-strings in logger calls (lines 115, 129, 130, etc.) |
 
 ### 6.4 Debug Artifacts
@@ -254,7 +255,7 @@ Zip slip vulnerability (BUG-FUA-002): When `extract_path=True`, the engine calls
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- `logging.getLogger(__name__)` at module level |
 | Level usage | Good -- info for start/complete, debug for operations, error for failures |
 | Sensitive data | **Warning** -- password appears in debug log if CHECKPASSWORD enabled (line 149: "Setting password for protected archive") |
@@ -262,7 +263,7 @@ Zip slip vulnerability (BUG-FUA-002): When `extract_path=True`, the engine calls
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Uses `FileNotFoundError` and generic `Exception` |
 | Exception chaining | No -- bare `raise` without `from` |
 | die_on_error handling | Correct -- re-raises or returns empty based on config |
@@ -270,7 +271,7 @@ Zip slip vulnerability (BUG-FUA-002): When `extract_path=True`, the engine calls
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- all methods have return type hints |
 | Parameter types | Good -- all parameters typed |
 
@@ -279,13 +280,13 @@ Zip slip vulnerability (BUG-FUA-002): When `extract_path=True`, the engine calls
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-FUA-001 | **P2** | Large archive extraction blocks the event loop -- no async support or progress reporting |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- file system operation, not data processing |
 | Memory threshold | Good -- `zipfile.ZipFile` extracts file-by-file, no full-archive-in-memory |
 | Large data handling | Acceptable -- disk I/O bound, not memory bound |
@@ -297,7 +298,7 @@ Zip slip vulnerability (BUG-FUA-002): When `extract_path=True`, the engine calls
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 41 | `tests/converters/talend_to_v1/components/test_file_unarchive.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | Included | `tests/converters/talend_to_v1/test_integration.py` (regression guard) |
@@ -305,7 +306,7 @@ Zip slip vulnerability (BUG-FUA-002): When `extract_path=True`, the engine calls
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-FUA-001 | **P2** | No engine unit tests for FileUnarchiveComponent -- prevents Testing=Green per D-52 |
 
 ### 8.3 Recommended Test Cases
@@ -325,7 +326,7 @@ Zip slip vulnerability (BUG-FUA-002): When `extract_path=True`, the engine calls
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 1 | **BUG-FUA-001** |
 | P1 | 2 | **ENG-FUA-001**, **BUG-FUA-002** |
 | P2 | 7 | **ENG-FUA-004**, **ENG-FUA-005**, **BUG-FUA-003**, **BUG-FUA-004**, **NAME-FUA-001**, **STD-FUA-001**, **TEST-FUA-001** |
@@ -335,7 +336,7 @@ Zip slip vulnerability (BUG-FUA-002): When `extract_path=True`, the engine calls
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | All FIXED (CONV-FUA-001 through CONV-FUA-005) |
 | Engine (ENG) | 4 | ENG-FUA-001, ENG-FUA-004, ENG-FUA-005, ENG-FUA-006 |
 | Bug (BUG) | 3 | BUG-FUA-001, BUG-FUA-002, BUG-FUA-003, BUG-FUA-004 |
@@ -347,7 +348,7 @@ Zip slip vulnerability (BUG-FUA-002): When `extract_path=True`, the engine calls
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap is set |
 
 ---
@@ -362,26 +363,26 @@ Zip slip vulnerability (BUG-FUA-002): When `extract_path=True`, the engine calls
 
 ### Short-term (Hardening)
 
-4. Add tar/gz/tgz archive format support (ENG-FUA-001, P1)
-5. Implement ROOTNAME (archive-named subdirectory) support (ENG-FUA-004, P2)
-6. Implement INTEGRITY (pre-extraction validation) support (ENG-FUA-005, P2)
-7. Add engine unit tests for FileUnarchiveComponent (TEST-FUA-001, P2)
-8. Fix TOCTOU race in makedirs (BUG-FUA-003, P2)
-9. Fix directory entry count inflation (BUG-FUA-004, P2)
+1. Add tar/gz/tgz archive format support (ENG-FUA-001, P1)
+2. Implement ROOTNAME (archive-named subdirectory) support (ENG-FUA-004, P2)
+3. Implement INTEGRITY (pre-extraction validation) support (ENG-FUA-005, P2)
+4. Add engine unit tests for FileUnarchiveComponent (TEST-FUA-001, P2)
+5. Fix TOCTOU race in makedirs (BUG-FUA-003, P2)
+6. Fix directory entry count inflation (BUG-FUA-004, P2)
 
 ### Long-term (Optimization)
 
-10. Add PRINTOUT, USE_ENCODING, ENCORDING support (ENG-FUA-006, P3)
+1. Add PRINTOUT, USE_ENCODING, ENCORDING support (ENG-FUA-006, P3)
 
 ---
 
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Official Talend docs (7.3) | https://help.qlik.com/talend/r/en-US/7.3/archive-unarchive/tfileunarchive-standard-properties | Parameter definitions, defaults |
-| Official Talend docs (8.0) | https://help.qlik.com/talend/en-US/components/8.0/archive-unarchive/tfileunarchive-standard-properties | Updated parameter definitions |
-| Talaxie GitHub _java.xml | https://github.com/Talaxie/tdi-studio-se/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tFileUnarchive/tFileUnarchive_java.xml | Component definition XML -- source of truth |
+| -------- | ---------- | ---------- |
+| Official Talend docs (7.3) | <https://help.qlik.com/talend/r/en-US/7.3/archive-unarchive/tfileunarchive-standard-properties> | Parameter definitions, defaults |
+| Official Talend docs (8.0) | <https://help.qlik.com/talend/en-US/components/8.0/archive-unarchive/tfileunarchive-standard-properties> | Updated parameter definitions |
+| Talaxie GitHub _java.xml | <https://github.com/Talaxie/tdi-studio-se/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tFileUnarchive/tFileUnarchive_java.xml> | Component definition XML -- source of truth |
 | Engine source | `src/v1/engine/components/file/file_unarchive.py` | Feature parity analysis |
 | Converter source | `src/converters/talend_to_v1/components/file/file_unarchive.py` | Converter audit |
 | Test suite | `tests/converters/talend_to_v1/components/test_file_unarchive.py` | Test coverage analysis |
@@ -389,7 +390,7 @@ Zip slip vulnerability (BUG-FUA-002): When `extract_path=True`, the engine calls
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set -- affects stats reporting |
 
 ---

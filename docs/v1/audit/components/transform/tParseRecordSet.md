@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tParseRecordSet` |
 | **V1 Engine Class** | None -- no engine implementation exists |
 | **Engine File** | None -- component is unimplemented in v1 engine |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/converters/talend_to_v1/components/transform/parse_record_set.py` | Converter class `ParseRecordSetConverter` (102 lines) |
 | `tests/converters/talend_to_v1/components/test_parse_record_set.py` | Converter tests (30 tests, 10 test classes) |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()`, `_build_component_dict()` |
@@ -39,7 +39,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 2 of 2 unique params extracted (100%); RECORDSET_FIELD, ATTRIBUTE_TABLE (stride-1 VALUE); phantom CONNECTION_FORMAT removed; framework params (tstatcatcher_stats, label) extracted; 1 consolidated needs_review |
 | Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No engine implementation exists; component cannot execute |
 | Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code quality is good (follows CONVERTER_PATTERN.md), but no engine code exists -- component is incomplete |
@@ -49,6 +49,7 @@ How production-ready is this component at a glance?
 **Overall: RED -- No engine implementation. Converter correctly extracts all params per _java.xml, but component cannot execute in production. Engine must be implemented before this component is usable.**
 
 **Top Actions**:
+
 1. Implement tParseRecordSet engine class (P0 -- blocks production use)
 2. All converter issues resolved in v1.1 rewrite (phantom CONNECTION_FORMAT removed, framework params added)
 
@@ -74,7 +75,7 @@ This is a transform component: it takes an input row containing a ResultSet colu
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Recordset Field | `RECORDSET_FIELD` | PREV_COLUMN_LIST | (none) | The input column containing the JDBC ResultSet to parse |
 | 2 | Attribute Table | `ATTRIBUTE_TABLE` | TABLE (stride-1, VALUE from schema) | (empty) | Maps ResultSet columns to output schema. Each entry has a single VALUE field referencing a schema column name. BASED_ON_SCHEMA=true. |
 | 3 | Schema | `SCHEMA` | SCHEMA_TYPE | -- | Component schema definition (handled structurally) |
@@ -86,7 +87,7 @@ No advanced settings defined in _java.xml for tParseRecordSet.
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Input data containing a ResultSet column |
 | `FLOW` (Main) | Output | Row > Main | Output rows with individual columns extracted from ResultSet |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires after all rows processed successfully |
@@ -96,7 +97,7 @@ No advanced settings defined in _java.xml for tParseRecordSet.
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total number of output rows produced |
 
 ### 3.5 Behavioral Notes
@@ -109,7 +110,7 @@ No advanced settings defined in _java.xml for tParseRecordSet.
 ### 3.6 Framework Parameters
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | F1 | tStatCatcher Stats | `TSTATCATCHER_STATS` | CHECK | `false` | Enable statistics collection for tStatCatcher |
 | F2 | Label | `LABEL` | TEXT | `""` | User-defined label for the component instance |
 
@@ -124,7 +125,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 The converter follows gold standard CONVERTER_PATTERN.md. It uses `_get_str()` for scalar parameters, a module-level `_parse_attribute_table()` for the TABLE parameter, and `_build_component_dict()` with `type_name="tParseRecordSet"` per D-43 (no-engine convention).
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `RECORDSET_FIELD` | Yes | `recordset_field` | str, via `_get_str()`, default "" |
 | 2 | `ATTRIBUTE_TABLE` | Yes | `attribute_table` | list of str, stride-1 VALUE parser, quotes stripped |
 | 3 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | bool, via `_get_bool()`, default False |
@@ -133,7 +134,7 @@ The converter follows gold standard CONVERTER_PATTERN.md. It uses `_get_str()` f
 **Phantom Parameters REMOVED:**
 
 | Parameter | Why Removed |
-|-----------|-------------|
+| ----------- | ------------- |
 | `CONNECTION_FORMAT` | Not in _java.xml definition. Phantom parameter from .item framework exports. |
 
 **Summary**: 2 of 2 unique parameters extracted (100%). 2 framework parameters extracted. 1 phantom parameter removed.
@@ -141,7 +142,7 @@ The converter follows gold standard CONVERTER_PATTERN.md. It uses `_get_str()` f
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` from base class |
 | `type` | Yes | Converted via `convert_type()` |
 | `nullable` | Yes | Boolean |
@@ -162,7 +163,7 @@ No converter issues. All parameters correctly extracted per _java.xml.
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | (all) | No v1 engine implementation for tParseRecordSet -- entire component is unimplemented; converter output cannot be executed at runtime | engine_gap |
 
 ---
@@ -174,7 +175,7 @@ How faithfully does the v1 engine implement Talend behavior?
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | ResultSet parsing | **No** | N/A | None | No engine class exists |
 | 2 | ATTRIBUTE_TABLE mapping | **No** | N/A | None | No engine class exists |
 | 3 | GlobalMap NB_LINE | **No** | N/A | None | No engine class exists |
@@ -182,13 +183,13 @@ How faithfully does the v1 engine implement Talend behavior?
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-PRS-001 | **P0** | No engine implementation -- entire component is missing. Cannot parse ResultSet columns. |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | No | N/A | Engine not implemented |
 
 ---
@@ -204,13 +205,13 @@ No engine code to audit.
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-PRS-001 | ~~P2~~ | **FIXED** -- Converter now follows CONVERTER_PATTERN.md naming conventions (snake_case config keys, module-level TABLE parser) |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-PRS-001 | ~~P2~~ | **FIXED** -- "CONVERTER_PATTERN.md" | Converter now follows gold standard: `_build_component_dict()`, `type_name="tParseRecordSet"`, framework params extracted |
 
 ### 6.4 Debug Artifacts
@@ -224,7 +225,7 @@ No concerns identified. No engine code to audit.
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- `logger = logging.getLogger(__name__)` at module level |
 | Level usage | N/A -- no log calls needed (simple parameter extraction) |
 | Sensitive data | N/A |
@@ -232,7 +233,7 @@ No concerns identified. No engine code to audit.
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | N/A -- converter follows no-exception pattern, returns ComponentResult |
 | Exception chaining | N/A |
 | die_on_error handling | N/A -- no engine implementation |
@@ -240,7 +241,7 @@ No concerns identified. No engine code to audit.
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- full type hints on `convert()` and `_parse_attribute_table()` |
 | Parameter types | Good -- `Dict[str, Any]`, `List[str]`, standard patterns |
 
@@ -255,7 +256,7 @@ No engine implementation to assess.
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- no engine |
 | Memory threshold | N/A -- no engine |
 | Large data handling | N/A -- no engine |
@@ -269,7 +270,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 30 | `tests/converters/talend_to_v1/components/test_parse_record_set.py` |
 | Engine unit tests | 0 | None -- no engine implementation |
 | Integration tests | 0 | None -- no engine implementation |
@@ -277,7 +278,7 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-PRS-001 | **P0** | No engine unit tests (engine not implemented) |
 | TEST-PRS-002 | **P0** | No integration tests (engine not implemented) |
 | TEST-PRS-003 | **P0** | No end-to-end ResultSet parsing test (engine not implemented) |
@@ -285,6 +286,7 @@ What's verified?
 ### 8.3 Recommended Test Cases
 
 When engine is implemented:
+
 - Happy path: Parse a ResultSet with 3 columns into individual output columns
 - Edge case: Empty ResultSet (0 rows)
 - Edge case: ResultSet column is null
@@ -301,7 +303,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 3 | **ENG-PRS-001**, **TEST-PRS-001**, **TEST-PRS-002**, **TEST-PRS-003** |
 | P1 | 0 | |
 | P2 | 0 | ~~NAME-PRS-001~~, ~~STD-PRS-001~~ |
@@ -311,7 +313,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | |
 | Engine (ENG) | 1 | **ENG-PRS-001** |
 | Bug (BUG) | 0 | |
@@ -331,6 +333,7 @@ No cross-cutting issues apply -- no engine implementation exists to be affected 
 What should be fixed, in what order?
 
 ### Immediate (Before Production)
+
 1. **ENG-PRS-001 (P0)**: Implement tParseRecordSet engine class that parses JDBC ResultSet columns
 2. **TEST-PRS-001/002/003 (P0)**: Add engine unit tests and integration tests once engine is implemented
 
@@ -345,8 +348,8 @@ None identified.
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tParseRecordSet/tParseRecordSet_java.xml` | Component definition, parameter list, defaults |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tParseRecordSet/tParseRecordSet_java.xml`> | Component definition, parameter list, defaults |
 | Converter source | `src/converters/talend_to_v1/components/transform/parse_record_set.py` | Converter audit |
 | Test source | `tests/converters/talend_to_v1/components/test_parse_record_set.py` | Test coverage audit |
 | Base class | `src/converters/talend_to_v1/components/base.py` | Helper methods, _build_component_dict |
@@ -356,7 +359,7 @@ None identified.
 No cross-cutting issues apply -- no engine implementation exists.
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | N/A | N/A | No engine code to be affected |
 
 ---

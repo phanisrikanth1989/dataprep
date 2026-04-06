@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tXMLMap` |
 | **V1 Engine Class** | `XMLMap` |
 | **Engine File** | `src/v1/engine/components/transform/xml_map.py` (738 lines) |
@@ -25,7 +25,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/transform/xml_map.py` | Engine implementation (738 lines) |
 | `src/converters/talend_to_v1/components/transform/xml_map.py` | Converter class (~310 lines) |
 | `tests/converters/talend_to_v1/components/test_xml_map.py` | Converter tests (24 tests in 9 classes) |
@@ -37,7 +37,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 2 flat + nodeData (inputTrees/outputTrees/connections/varTables) + 2 framework params; _build_component_dict with type_name="XMLMap"; CONNECTION_FORMAT phantom removed; snake_case config keys; removeprefix() per D-76; 10 needs_review (8 engine_gap + 2 output_shape_change); 24 tests in 9 classes with TestMultiFlow |
 | Engine Feature Parity | **R** | 2 | 7 | 6 | 1 | Only first row processed; no lookup/join; no reject flow; no expression filter; no Document output; die_on_error ignored; globalMap not published; no context var resolution; child namespaces invisible; descendant:: misrouted to root |
 | Code Quality | **Y** | 1 | 4 | 7 | 5 | Converter clean with proper logging. Engine: 46 print() statements, NaN handling absent, expression cleaning corrupts valid XPath, split_steps destroys predicate XPaths. Cross-cutting base class bugs remain. |
@@ -74,7 +74,7 @@ tXMLMap is one of the most complex Talend components, combining XML parsing, tre
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Input Trees | `inputTrees` (nodeData) | XML Tree Structure | -- | One or more XML input trees defining the source data structure. First tree is main; additional trees are lookups. |
 | 2 | Output Trees | `outputTrees` (nodeData) | XML Tree Structure | -- | One or more XML output trees defining the target structure. Can produce flat rows or XML Document output. |
 | 3 | Looping Element | `loop="true"` (node attribute) | Node flag | -- | **Critical**. The XML element on which the component iterates. Each occurrence produces one output row. |
@@ -85,7 +85,7 @@ tXMLMap is one of the most complex Talend components, combining XML parsing, tre
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 7 | Keep Order for Document | `KEEP_ORDER_FOR_DOCUMENT` | Boolean (CHECK) | `false` | Preserve element order in XML Document output. |
 | 8 | Expression Filter | `expressionFilter` (outputTree attr) | Java Expression | -- | Java expression to filter rows before output. Uses `row.fieldName` syntax. |
 | 9 | Activate Expression Filter | `activateExpressionFilter` (outputTree attr) | Boolean | `false` | Enable/disable the expression filter on an output tree. |
@@ -98,14 +98,14 @@ tXMLMap is one of the most complex Talend components, combining XML parsing, tre
 ### 3.3 Phantom Parameters
 
 | Parameter | Source | Status |
-|-----------|--------|--------|
+| ----------- | -------- | -------- |
 | `CONNECTION_FORMAT` | .item file only | **PHANTOM** -- not in _java.xml. Removed from converter output. |
 | `MAP` | Talend Studio | **EXTERNAL** -- visual editor reference, not extracted. |
 
 ### 3.4 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Primary XML data flow (Document type or flat schema) |
 | `LOOKUP` | Input | Row > Lookup | Additional input flows for join/lookup operations |
 | `FLOW` (Output) | Output | Row > Main | Transformed rows matching the output schema |
@@ -116,7 +116,7 @@ tXMLMap is one of the most complex Talend components, combining XML parsing, tre
 ### 3.5 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total number of output rows generated |
 | `{id}_NB_LINE_OK` | Integer | After execution | Number of rows successfully output |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Number of rows sent to REJECT |
@@ -129,7 +129,7 @@ tXMLMap is one of the most complex Talend components, combining XML parsing, tre
 ### 4.1 Parameter Extraction
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Extraction Method | Default | Notes |
-|----|----------------------|------------|---------------|-------------------|---------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------------------- | --------- | ------- |
 | 1 | `DIE_ON_ERROR` | **Yes** | `die_on_error` | `_get_bool()` | `True` | Hidden param per _java.xml |
 | 2 | `KEEP_ORDER_FOR_DOCUMENT` | **Yes** | `keep_order_for_document` | `_get_bool()` | `False` | snake_case per D-38 |
 | 3 | `inputTrees` (nodeData) | **Yes** | `input_trees` | `_parse_input_trees()` | `[]` | Recursive: name, matchingMode, lookupMode, lookup, activateGlobalMap, nodes/children |
@@ -154,7 +154,7 @@ Schema uses `{"input": schema_cols, "output": output_schema}` where output_schem
 The converter emits 10 `needs_review` entries (8 engine_gap + 2 output_shape_change per D-74):
 
 | Config Key | Severity | Detail |
-|------------|----------|--------|
+| ------------ | ---------- | -------- |
 | `die_on_error` | engine_gap | Errors silently swallowed regardless of setting |
 | `keep_order_for_document` | engine_gap | Document ordering not enforced by engine |
 | `input_trees` | engine_gap | Input tree metadata stored but not used by engine |
@@ -172,7 +172,7 @@ The converter emits 10 `needs_review` entries (8 engine_gap + 2 output_shape_cha
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | CONV-XMP-001 | ~~P0~~ | **SUPERSEDED** -- lstrip crash resolved. Converter uses removeprefix() per D-76. |
 | CONV-XMP-002 | ~~P1~~ | **SUPERSEDED** -- Registry alias mismatch resolved. `@REGISTRY.register("tXMLMap")` outputs `XMLMap`. |
 | CONV-XMP-003 | ~~P1~~ | **SUPERSEDED** -- Only first output tree expression building. Design decision; engine only processes one output. |
@@ -189,7 +189,7 @@ The converter emits 10 `needs_review` entries (8 engine_gap + 2 output_shape_cha
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Notes |
-|----|----------------|-------------|----------|-------|
+| ---- | ---------------- | ------------- | ---------- | ------- |
 | 1 | Parse XML from Document field | **Yes** | Medium | Reads `iloc[0,0]` only -- single row, single column |
 | 2 | Looping element iteration | **Yes** | Medium | Uses `.//{element}` XPath; cleaned via `_clean_looping_element()` |
 | 3 | XPath expression evaluation | **Yes** | Medium | Supports relative, absolute, descendant, ancestor via lxml |
@@ -209,7 +209,7 @@ The converter emits 10 `needs_review` entries (8 engine_gap + 2 output_shape_cha
 ### 5.2 Engine Behavioral Issues
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-XMP-001 | **P0** | **No lookup/join support**: Only single input processed. Jobs with lookup connections silently lose data. |
 | ENG-XMP-002 | **P0** | **Only first row processed**: `iloc[0,0]` discards all rows after first. Data loss bug. |
 | ENG-XMP-003 | **P1** | **No reject flow**: NB_LINE_REJECT always 0. Error rows produce empty strings. |
@@ -225,7 +225,7 @@ The converter emits 10 `needs_review` entries (8 engine_gap + 2 output_shape_cha
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-XMP-003 | **P0** | `xml_map.py` line 506 | Only first row processed via `iloc[0,0]`. Data loss for multi-row Document input. |
 | BUG-XMP-012 | **P0** (cross-cutting) | `base_component.py` line 304 | `_update_global_map()` references undefined variable `value`. Crashes ALL components. |
 | BUG-XMP-013 | **P0** (cross-cutting) | `global_map.py` line 28 | `GlobalMap.get()` references undefined `default` parameter. |
@@ -236,14 +236,14 @@ The converter emits 10 `needs_review` entries (8 engine_gap + 2 output_shape_cha
 ### 6.2 Standards
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | STD-XMP-001 | **P1** | Engine: 46 `print()` statements bypass logging framework. |
 | NAME-XMP-003 | **P3** | `DEFAULT_LOOPING_ELEMENT = ""` constant defined but never used. Dead code. |
 
 ### 6.3 Security
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | SEC-XMP-001 | **P2** | No XML bomb protection -- lxml default parser allows entity expansion. |
 | SEC-XMP-002 | **P3** | XPath injection risk from untrusted config (low risk -- config from Talend export). |
 
@@ -252,7 +252,7 @@ The converter emits 10 `needs_review` entries (8 engine_gap + 2 output_shape_cha
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-XMP-001 | **P1** | O(N*M*K) flush=True `print()` calls dominate processing time. |
 | PERF-XMP-002 | **P2** | Full ancestor chain iteration per loop node for debug output. |
 | PERF-XMP-003 | **P2** | No streaming mode support. All loop nodes processed in single pass. |
@@ -265,7 +265,7 @@ The converter emits 10 `needs_review` entries (8 engine_gap + 2 output_shape_cha
 ### 8.1 Current Coverage
 
 | Test Type | Exists? | File | Notes |
-|-----------|---------|------|-------|
+| ----------- | --------- | ------ | ------- |
 | Converter unit tests | **Yes** | `tests/converters/talend_to_v1/components/test_xml_map.py` | 24 tests in 9 classes (gold standard rewrite) |
 | V1 engine unit tests | **No** | -- | Zero test files for XMLMap engine |
 | V1 engine integration tests | **No** | -- | No v1 engine integration tests |
@@ -273,7 +273,7 @@ The converter emits 10 `needs_review` entries (8 engine_gap + 2 output_shape_cha
 ### 8.2 Converter Test Coverage
 
 | Test Class | Tests | Description |
-|-----------|-------|-------------|
+| ----------- | ------- | ------------- |
 | TestRegistration | 1 | Registry dispatch verification |
 | TestDefaults | 4 | die_on_error, keep_order_for_document, tstatcatcher_stats, label defaults |
 | TestParameterExtraction | 2 | Explicit param values extracted correctly |
@@ -291,7 +291,7 @@ The converter emits 10 `needs_review` entries (8 engine_gap + 2 output_shape_cha
 ### P0 -- Critical
 
 | ID | Category | Summary |
-|----|----------|---------|
+| ---- | ---------- | --------- |
 | BUG-XMP-003 | Engine Bug | Only first row processed via `iloc[0,0]` -- data loss for multi-row input |
 | BUG-XMP-012 | Bug (Cross-Cutting) | `_update_global_map()` references undefined variable |
 | BUG-XMP-013 | Bug (Cross-Cutting) | `GlobalMap.get()` references undefined `default` parameter |
@@ -299,7 +299,7 @@ The converter emits 10 `needs_review` entries (8 engine_gap + 2 output_shape_cha
 ### P1 -- Major
 
 | ID | Category | Summary |
-|----|----------|---------|
+| ---- | ---------- | --------- |
 | ENG-XMP-001 | Feature Gap | No lookup/join support |
 | ENG-XMP-002 | Feature Gap | Only first row processed (same as BUG-XMP-003) |
 | ENG-XMP-003 | Feature Gap | No reject flow |
@@ -316,7 +316,7 @@ The converter emits 10 `needs_review` entries (8 engine_gap + 2 output_shape_cha
 ### P2 -- Moderate
 
 | ID | Category | Summary |
-|----|----------|---------|
+| ---- | ---------- | --------- |
 | SEC-XMP-001 | Security | No XML bomb protection |
 | PERF-XMP-002 | Performance | Ancestor chain iteration per loop node |
 | PERF-XMP-003 | Performance | No streaming mode |
@@ -324,7 +324,7 @@ The converter emits 10 `needs_review` entries (8 engine_gap + 2 output_shape_cha
 ### P3 -- Low
 
 | ID | Category | Summary |
-|----|----------|---------|
+| ---- | ---------- | --------- |
 | NAME-XMP-003 | Naming | Dead constant `DEFAULT_LOOPING_ELEMENT` |
 | SEC-XMP-002 | Security | XPath injection (low risk) |
 | PERF-XMP-004 | Performance | No XML caching (latent) |
@@ -420,7 +420,8 @@ The converter's previous version had `xpath.strip().lstrip("./")` which would co
 ## Appendix A: Source Reference
 
 **_java.xml**: tXMLMap definition from Talaxie GitHub:
-- `https://github.com/Talaxie/tcommon-studio-se/` (navigate to tXMLMap component)
+
+- `<https://github.com/Talaxie/tcommon-studio-se/`> (navigate to tXMLMap component)
 - nodeData structure defined in .item XML exports (not _java.xml -- nodeData is Talend Studio internal format)
 - Flat params (DIE_ON_ERROR, KEEP_ORDER_FOR_DOCUMENT) from _java.xml
 - CONNECTION_FORMAT: .item only -- not in _java.xml, classified as phantom
@@ -430,7 +431,7 @@ The converter's previous version had `xpath.strip().lstrip("./")` which would co
 ## Appendix B: Engine Config Key Mapping
 
 | Converter Config Key | Engine Reads? | Engine Access Pattern | Notes |
-|---------------------|--------------|----------------------|-------|
+| --------------------- | -------------- | ---------------------- | ------- |
 | `output_schema` | **Yes** | `config.get("output_schema", [])` or `config.get("schema", {}).get("output", [])` | Column definitions for output |
 | `expressions` | **Yes** | `config.get("expressions", {})` | XPath expression mapping per column |
 | `looping_element` | **Yes** | `config.get("looping_element", "")` or `config.get("config", {}).get("looping_element", "")` | Element that drives row iteration |
@@ -491,7 +492,7 @@ The tXMLMap nodeData is an embedded XML structure within the Talend .item file t
 ### Key Attributes
 
 | Element | Attribute | Description |
-|---------|-----------|-------------|
+| --------- | ----------- | ------------- |
 | `inputTrees` | `name` | Tree identifier (connection name) |
 | `inputTrees` | `lookup` | Whether this is a lookup input (boolean) |
 | `inputTrees` | `matchingMode` | Lookup matching: ALL_ROWS, FIRST_MATCH, LAST_MATCH, ALL_MATCHES |

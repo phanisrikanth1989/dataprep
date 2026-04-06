@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tFileInputPositional` |
 | **V1 Engine Class** | `FileInputPositional` |
 | **Engine File** | `src/v1/engine/components/file/file_input_positional.py` (359 lines) |
@@ -25,7 +25,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/file/file_input_positional.py` | Engine implementation (359 lines) |
 | `src/converters/talend_to_v1/components/file/file_input_positional.py` | Converter class |
 | `tests/converters/talend_to_v1/components/test_file_input_positional.py` | Converter tests (68 tests) |
@@ -37,7 +37,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 20 unique params + 2 framework params extracted; FORMATS and TRIMSELECT TABLE parsers; `_build_component_dict` pattern; filepath key matches engine; 7 per-feature needs_review entries for engine gaps; USE_BYTE phantom param excluded |
 | Engine Feature Parity | **Y** | 0 | 5 | 3 | 2 | Engine reads 13 of 20 unique params; ignores process_long_row, uncompress, advanced_separator, check_date, trim_select, formats, encoding mismatch (UTF-8 vs ISO-8859-15); no REJECT flow |
 | Code Quality | **Y** | 1 | 3 | 3 | 1 | Cross-cutting base class bugs; dead `_validate_config()`; `id_Boolean` mapped to `object`; advanced separator applied to ALL object columns; encoding default mismatch |
@@ -47,6 +47,7 @@
 **Overall: Yellow -- Converter fully standardized (Green); engine has known gaps documented via needs_review; engine/code quality gaps keep overall at Yellow**
 
 **Top Actions:**
+
 1. Fix `_update_global_map()` crash in base class (P0, cross-cutting)
 2. Implement per-column trim support in engine to match TRIMSELECT TABLE (P1)
 3. Add compressed file reading support (P1, engine gap)
@@ -71,7 +72,7 @@ The component supports two modes: a simple pattern-based mode where all columns 
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Schema | `SCHEMA` | SCHEMA_TYPE | -- | Column definitions with types, lengths, patterns, nullable, key. Defines output structure. |
 | 2 | File Name | `FILENAME` | FILE | `""` | Absolute file path or data stream variable. Supports context variables, globalMap references, Java expressions. Required. |
 | 3 | Row Separator | `ROWSEPARATOR` | TEXT | `"\n"` | Character(s) identifying end of row. Supports `\r\n`, `\n`, `\r`. |
@@ -86,7 +87,7 @@ The component supports two modes: a simple pattern-based mode where all columns 
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Header | `HEADER` | COUNT | `0` | Number of header rows to skip before reading data. |
 | 2 | Footer | `FOOTER` | COUNT | `0` | Number of footer rows to skip at end of file. |
 | 3 | Limit | `LIMIT` | TEXT | `""` | Maximum number of data rows to read. Empty = no limit. Supports expressions. |
@@ -102,7 +103,7 @@ The component supports two modes: a simple pattern-based mode where all columns 
 #### FORMATS TABLE (when ADVANCED_OPTION=true)
 
 | Field | elementRef | Type | Description |
-|-------|-----------|------|-------------|
+| ------- | ----------- | ------ | ------------- |
 | Schema Column | `SCHEMA_COLUMN` | str | Column name from schema |
 | Size | `SIZE` | str | Character width for this column |
 | Padding Char | `PADDING_CHAR` | str | Padding character (default space) |
@@ -111,14 +112,14 @@ The component supports two modes: a simple pattern-based mode where all columns 
 #### TRIMSELECT TABLE (when ADVANCED_OPTION=true)
 
 | Field | elementRef | Type | Description |
-|-------|-----------|------|-------------|
+| ------- | ----------- | ------ | ------------- |
 | Schema Column | `SCHEMA_COLUMN` | str | Column name from schema |
 | Trim | `TRIM` | bool | Whether to trim this specific column |
 
 ### 3.4 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Output | Row > Main | Parsed positional data rows |
 | `REJECT` | Output | Row > Reject | Malformed rows with errorCode/errorMessage columns |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires after successful execution |
@@ -127,7 +128,7 @@ The component supports two modes: a simple pattern-based mode where all columns 
 ### 3.5 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total rows processed |
 | `{id}_NB_LINE_OK` | Integer | After execution | Rows successfully processed |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Rows rejected |
@@ -156,7 +157,7 @@ The converter maps `FILENAME` to config key `filepath` (not `filename`). This is
 The converter uses `@REGISTRY.register("tFileInputPositional")` with the `_build_component_dict` pattern (D-40). Parameters are extracted via `_get_str()`, `_get_bool()`, and `_get_int()` base class helpers. Two module-level TABLE parsers handle FORMATS and TRIMSELECT.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `FILENAME` | Yes | `filepath` | str, default "". Config key intentionally matches engine (D-38 deviation) |
 | 2 | `ROWSEPARATOR` | Yes | `row_separator` | str, default "\\n" |
 | 3 | `PATTERN` | Yes | `pattern` | str, default "5,4,5" |
@@ -181,6 +182,7 @@ The converter uses `@REGISTRY.register("tFileInputPositional")` with the `_build
 | 22 | `LABEL` | Yes | `label` | Framework param, str, default "" |
 
 **Excluded phantom params:**
+
 - `USE_BYTE` -- superseded by PATTERN_UNITS; engine reads pattern_units instead
 
 **Summary**: 20 of 20 unique parameters extracted (100%). 2 framework params extracted. 1 phantom param excluded.
@@ -188,7 +190,7 @@ The converter uses `@REGISTRY.register("tFileInputPositional")` with the `_build
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Direct from SchemaColumn |
 | `type` | Yes | Converted via `convert_type()` (Talend id_* -> Python types) |
 | `nullable` | Yes | Direct from SchemaColumn |
@@ -209,7 +211,7 @@ None. All parameters correctly extracted with proper defaults and types.
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `process_long_row` | Engine does not implement long-row buffering | engine_gap |
 | 2 | `uncompress` | Engine does not support reading from ZIP archives | engine_gap |
 | 3 | `advanced_separator` | Engine does not support locale-aware number formatting | engine_gap |
@@ -225,7 +227,7 @@ None. All parameters correctly extracted with proper defaults and types.
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | File reading (filepath) | **Yes** | High | `_process()` line 198 | Uses `pd.read_fwf()` |
 | 2 | Pattern-based column widths | **Yes** | High | `_process()` line 245 | Parses comma-separated widths |
 | 3 | Row separator | **Partial** | Medium | `_process()` line 199 | Config read but pandas handles line endings |
@@ -250,7 +252,7 @@ None. All parameters correctly extracted with proper defaults and types.
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-FIP-001 | **P1** | REJECT flow not implemented -- malformed rows are silently processed or skipped rather than routed to reject output with errorCode/errorMessage |
 | ENG-FIP-002 | **P1** | Compressed file reading (UNCOMPRESS=true) not implemented -- raises error on compressed input |
 | ENG-FIP-003 | **P1** | FORMATS TABLE per-column customization not implemented -- only pattern-based widths supported |
@@ -265,7 +267,7 @@ None. All parameters correctly extracted with proper defaults and types.
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_stats()` | Total rows processed |
 | `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats()` | Rows successfully processed |
 | `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats()` | Always 0 (no reject flow) |
@@ -278,7 +280,7 @@ None. All parameters correctly extracted with proper defaults and types.
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-FIP-001 | **P0** | `base_component.py:304` | CROSS-CUTTING: `_update_global_map()` crashes with AttributeError when globalMap is set. Affects stats recording. |
 | BUG-FIP-002 | **P1** | `file_input_positional.py:303-307` | Advanced separator replacement applied to ALL object (string) columns, not just numeric columns. Corrupts string data containing commas or dots. |
 | BUG-FIP-003 | **P1** | `file_input_positional.py:310-316` | Check date conversion uses `pd.to_datetime(errors='coerce')` which silently converts invalid dates to NaT, ignoring schema date patterns. |
@@ -287,14 +289,14 @@ None. All parameters correctly extracted with proper defaults and types.
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-FIP-001 | **P2** | Engine class constants use `DEFAULT_REMOVE_EMPTY_ROWS` (plural) but config key is `remove_empty_row` (singular) |
 | NAME-FIP-002 | **P2** | Engine default `DEFAULT_ENCODING = 'UTF-8'` does not match Talend default `ISO-8859-15` |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-FIP-001 | **P2** | "Use logging, not print" | No print statements found -- compliant |
 | STD-FIP-002 | **P3** | "Custom exceptions for all error types" | Uses appropriate custom exceptions (ConfigurationError, FileOperationError, ComponentExecutionError) -- compliant |
 
@@ -305,14 +307,14 @@ None found.
 ### 6.5 Security
 
 | Concern | Assessment |
-|---------|------------|
+| --------- | ------------ |
 | Path traversal | No input validation on filepath -- user-controlled paths could read arbitrary files |
 | File permissions | No permission check before read -- relies on OS-level permissions |
 
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Module-level `logger = logging.getLogger(__name__)` -- correct |
 | Level usage | Appropriate: info for start/complete, debug for details, error for failures |
 | Sensitive data | File path logged at INFO level -- acceptable |
@@ -320,7 +322,7 @@ None found.
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Uses ConfigurationError, FileOperationError, ComponentExecutionError -- correct hierarchy |
 | Exception chaining | `ComponentExecutionError(self.id, error_msg, e)` preserves original exception |
 | die_on_error handling | Properly returns empty DataFrame when die_on_error=False, raises when True |
@@ -328,7 +330,7 @@ None found.
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | `_process()` has proper type hints for params and return |
 | Parameter types | `_validate_config()` returns `List[str]` -- correct |
 
@@ -337,14 +339,14 @@ None found.
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-FIP-001 | **P2** | No streaming mode -- entire file loaded into memory. Large positional files (>1GB) may cause OOM |
 | PERF-FIP-002 | **P3** | BigDecimal conversion uses slow `apply(lambda)` per cell -- could use vectorized conversion |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Not supported -- batch only via pd.read_fwf() |
 | Memory threshold | No memory limit check before loading file |
 | Large data handling | Limited by available memory; no chunked reading |
@@ -356,7 +358,7 @@ None found.
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 68 | `tests/converters/talend_to_v1/components/test_file_input_positional.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | Covered | `tests/converters/talend_to_v1/test_integration.py` + `test_converter_output_structure.py` |
@@ -364,7 +366,7 @@ None found.
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-FIP-001 | **P2** | No engine unit tests -- FileInputPositional._process() untested directly |
 | TEST-FIP-002 | **P2** | No tests for advanced_separator string corruption edge case |
 
@@ -383,7 +385,7 @@ None found.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 1 | **BUG-FIP-001** |
 | P1 | 8 | **ENG-FIP-001**, **ENG-FIP-002**, **ENG-FIP-003**, **ENG-FIP-004**, **ENG-FIP-005**, **BUG-FIP-002**, **BUG-FIP-003**, **BUG-FIP-004** |
 | P2 | 8 | **ENG-FIP-006**, **ENG-FIP-007**, **ENG-FIP-008**, **NAME-FIP-001**, **NAME-FIP-002**, **PERF-FIP-001**, **TEST-FIP-001**, **TEST-FIP-002** |
@@ -393,7 +395,7 @@ None found.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
 | Engine (ENG) | 10 | ENG-FIP-001 through ENG-FIP-010 |
 | Bug (BUG) | 4 | BUG-FIP-001 through BUG-FIP-004 |
@@ -405,7 +407,7 @@ None found.
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set -- stats lost |
 | XCUT-002 | `base_component.py:202` | `self.config` mutation via `resolve_dict()` -- non-reentrant in iterate loops |
 
@@ -419,21 +421,21 @@ None found.
 
 ### Short-term (Hardening)
 
-2. Implement REJECT flow for malformed rows (ENG-FIP-001)
-3. Add compressed file reading support (ENG-FIP-002)
-4. Implement FORMATS TABLE per-column customization (ENG-FIP-003)
-5. Implement TRIMSELECT per-column trim (ENG-FIP-004)
-6. Implement process long row buffering (ENG-FIP-005)
-7. Fix advanced separator to only apply to numeric-typed columns (BUG-FIP-002)
-8. Fix check_date to use schema date patterns (BUG-FIP-003)
-9. Fix empty row detection for blank strings (BUG-FIP-004)
+1. Implement REJECT flow for malformed rows (ENG-FIP-001)
+2. Add compressed file reading support (ENG-FIP-002)
+3. Implement FORMATS TABLE per-column customization (ENG-FIP-003)
+4. Implement TRIMSELECT per-column trim (ENG-FIP-004)
+5. Implement process long row buffering (ENG-FIP-005)
+6. Fix advanced separator to only apply to numeric-typed columns (BUG-FIP-002)
+7. Fix check_date to use schema date patterns (BUG-FIP-003)
+8. Fix empty row detection for blank strings (BUG-FIP-004)
 
 ### Long-term (Optimization)
 
-10. Implement BYTES pattern units mode (ENG-FIP-009)
-11. Set `{id}_ERROR_MESSAGE` globalMap on errors (ENG-FIP-010)
-12. Add vectorized BigDecimal conversion (PERF-FIP-002)
-13. Add engine unit tests (TEST-FIP-001, TEST-FIP-002)
+1. Implement BYTES pattern units mode (ENG-FIP-009)
+2. Set `{id}_ERROR_MESSAGE` globalMap on errors (ENG-FIP-010)
+3. Add vectorized BigDecimal conversion (PERF-FIP-002)
+4. Add engine unit tests (TEST-FIP-001, TEST-FIP-002)
 
 ---
 
@@ -444,7 +446,7 @@ This section is included because tFileInputPositional handles fixed-width file p
 ### Risk Matrix
 
 | Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
+| ------ | ----------- | -------- | ------------ |
 | Position offset error corrupts all columns | Medium | High -- silent data corruption: all fields shifted, no error raised | Validate that sum of pattern widths matches actual row length; add REJECT flow for mismatched rows |
 | Encoding mismatch silently garbles data | High | Medium -- Latin-9 characters (Euro sign, accented chars) become garbage when engine defaults to UTF-8 | Always pass encoding explicitly from converter config; fix engine default to ISO-8859-15 |
 | Large file OOM crash | Medium | High -- no streaming; 1GB+ files loaded entirely into memory | Add chunked reading via pd.read_fwf(chunksize=); implement streaming mode |
@@ -473,10 +475,10 @@ This section is included because tFileInputPositional handles fixed-width file p
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tFileInputPositional/tFileInputPositional_java.xml` | Complete parameter definitions, CLOSED_LIST values, defaults, TABLE structures |
-| Official Talend docs (8.0) | `https://help.qlik.com/talend/en-US/components/8.0/positional/tfileinputpositional-standard-properties` | Component description, behavioral notes |
-| Official Talend docs (7.3) | `https://help.qlik.com/talend/en-US/components/7.3/positional/tfileinputpositional-standard-properties` | Cross-version parameter validation |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tFileInputPositional/tFileInputPositional_java.xml`> | Complete parameter definitions, CLOSED_LIST values, defaults, TABLE structures |
+| Official Talend docs (8.0) | `<https://help.qlik.com/talend/en-US/components/8.0/positional/tfileinputpositional-standard-properties`> | Component description, behavioral notes |
+| Official Talend docs (7.3) | `<https://help.qlik.com/talend/en-US/components/7.3/positional/tfileinputpositional-standard-properties`> | Cross-version parameter validation |
 | Engine source | `src/v1/engine/components/file/file_input_positional.py` (359 lines) | Feature parity analysis, bug identification |
 | Converter source | `src/converters/talend_to_v1/components/file/file_input_positional.py` | Converter audit |
 | Converter tests | `tests/converters/talend_to_v1/components/test_file_input_positional.py` (68 tests) | Test coverage analysis |
@@ -485,7 +487,7 @@ This section is included because tFileInputPositional handles fixed-width file p
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set -- stats recording fails |
 | XCUT-002 | `base_component.py:202` | `self.config` mutation via `resolve_dict()` -- if component runs in iterate loop, config modified on first pass |
 | XCUT-003 | `base_component.py:174` | `replace_in_config` literal `[i]` -- affects globalMap key interpolation |
@@ -493,7 +495,7 @@ This section is included because tFileInputPositional handles fixed-width file p
 ### Edge-Case Checklist Results
 
 | Check | Result | Notes |
-|-------|--------|-------|
+| ------- | -------- | ------- |
 | NaN handling | Risk | `dropna(how='all')` correct for NaN but misses empty strings |
 | Empty strings in config | Safe | Empty filepath triggers warning in converter; engine raises ConfigurationError |
 | Empty DataFrame input | N/A | Source component -- no input data |

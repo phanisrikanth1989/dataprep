@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tUnpivotRow` |
 | **V1 Engine Class** | `UnpivotRow` |
 | **Engine File** | `src/v1/engine/components/transform/unpivot_row.py` (234 lines) |
@@ -24,7 +24,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/transform/unpivot_row.py` | Engine implementation (234 lines) |
 | `src/converters/talend_to_v1/components/transform/unpivot_row.py` | Converter class (89 lines) |
 | `tests/converters/talend_to_v1/components/test_unpivot_row.py` | Converter tests (28 tests) |
@@ -36,7 +36,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 6/6 params extracted (100%). ROW_KEYS TABLE stride-1, INCLUDE_EMPTY_VALUES, pivot_key/pivot_value derived. 0 needs_review (engine reads all). Phantom params removed. |
 | Engine Feature Parity | **Y** | 1 | 4 | 3 | 1 | Output schema pollution; no String coercion; no die_on_error; no reject flow; extra columns in output |
 | Code Quality | **G** | 0 | 0 | 1 | 0 | Gold standard converter with _build_component_dict, passthrough schema, clean TABLE parsing |
@@ -46,6 +46,7 @@
 **Overall: YELLOW -- Engine performance and feature gaps prevent Green; converter is gold standard**
 
 **Top Actions**:
+
 1. Fix output schema pollution -- extra columns from input appear in unpivoted output (P0)
 2. Add String type coercion for pivot_value column (P1)
 3. Add die_on_error parameter support (P1)
@@ -72,7 +73,7 @@ This is a community component from the michimau/talend_components repository. Th
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Schema | `SCHEMA` | Schema editor | -- | Column definitions. Output schema has fixed columns `pivot_key` and `pivot_value` defined by the SCHEMA, plus the ROW_KEYS identifier columns. |
 | 2 | Row Keys | `ROW_KEYS` | TABLE (stride-1, COLUMN) | `[]` | List of column names to preserve as identifier columns. TABLE entries use elementRef `COLUMN`. All other columns will be unpivoted. |
 | 3 | Include Empty Values | `INCLUDE_EMPTY_VALUES` | CHECK | `true` | Whether to include output rows for cells with null/empty values. When false, null values are dropped from the unpivoted result. |
@@ -80,21 +81,21 @@ This is a community component from the michimau/talend_components repository. Th
 ### 3.2 Derived Parameters
 
 | # | Parameter | Config Key | Default | Description |
-|---|-----------|-----------|---------|-------------|
+| --- | ----------- | ----------- | --------- | ------------- |
 | 1 | Pivot Key Column Name | `pivot_key` | `"pivot_key"` | Name of the output column containing original column names. Fixed by the component's SCHEMA definition, not a user-editable parameter. |
 | 2 | Pivot Value Column Name | `pivot_value` | `"pivot_value"` | Name of the output column containing cell values. Fixed by the component's SCHEMA definition, not a user-editable parameter. |
 
 ### 3.3 Framework Parameters
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | F1 | tStatCatcher Statistics | `TSTATCATCHER_STATS` | CHECK | `false` | Capture processing metadata for tStatCatcher. |
 | F2 | Label | `LABEL` | TEXT | `""` | User label for the component. |
 
 ### 3.4 Phantom Parameters (NOT in _java.xml / community source)
 
 | Parameter | Source | Status |
-|-----------|--------|--------|
+| ----------- | -------- | -------- |
 | `PIVOT_COLUMN` | Old converter only | **REMOVED** -- not a real component parameter; column names are derived from schema |
 | `VALUE_COLUMN` | Old converter only | **REMOVED** -- not a real component parameter |
 | `GROUP_BY_COLUMNS` | Old converter only | **REMOVED** -- ROW_KEYS is the correct parameter name |
@@ -103,7 +104,7 @@ This is a community component from the michimau/talend_components repository. Th
 ### 3.5 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Input data to unpivot |
 | `FLOW` (Main) | Output | Row > Main | Unpivoted rows with pivot_key, pivot_value, and row_key columns |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires on successful completion |
@@ -112,7 +113,7 @@ This is a community component from the michimau/talend_components repository. Th
 ### 3.6 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total input rows processed |
 | `{id}_NB_LINE_OK` | Integer | After execution | Total output rows produced |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Always 0 (no reject flow) |
@@ -134,7 +135,7 @@ This is a community component from the michimau/talend_components repository. Th
 The converter uses `@REGISTRY.register("tUnpivotRow")` decorator-based dispatch and the `_build_component_dict` wrapper pattern. ROW_KEYS TABLE is parsed inline with stride-1 (COLUMN elementRef). The converter produces 0 needs_review entries because the engine reads all config params.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `ROW_KEYS` | Yes | `row_keys` | TABLE stride-1, COLUMN elementRef. Quote-stripped. Default `[]` |
 | 2 | `INCLUDE_EMPTY_VALUES` | Yes | `include_empty_values` | CHECK. Default `True` |
 | 3 | (derived) | Yes | `pivot_key` | Fixed `"pivot_key"` matching engine default |
@@ -149,7 +150,7 @@ The converter uses `@REGISTRY.register("tUnpivotRow")` decorator-based dispatch 
 Transform passthrough pattern: input == output. Both populated from FLOW connector schema via `_parse_schema(node)`.
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | From SchemaColumn.name |
 | `type` | Yes | Converted via `convert_type()` |
 | `nullable` | Yes | Boolean |
@@ -166,7 +167,7 @@ No special expression handling required. ROW_KEYS TABLE values are column names 
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | ~~CONV-UPR-001~~ | ~~P1~~ | **SUPERSEDED** -- Old `parse_unpivot_row()` replaced by `talend_to_v1` converter |
 | ~~CONV-UPR-002~~ | ~~P1~~ | **SUPERSEDED** -- Hardcoded business column names removed |
 | ~~CONV-UPR-003~~ | ~~P0~~ | **SUPERSEDED** -- Missing INCLUDE_EMPTY_VALUES now extracted |
@@ -183,7 +184,7 @@ None. The engine reads all 4 unique config params (`row_keys`, `pivot_key`, `piv
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Unpivot (melt) operation | **Yes** | High | `_process()` line 152-164 | Uses pandas `melt()` -- correct behavior |
 | 2 | ROW_KEYS identifier columns | **Yes** | High | `_process()` line 124 | `id_vars=row_keys` in melt |
 | 3 | Include empty values filter | **Yes** | High | `_process()` line 196-200 | `dropna()` when `include_empty_values=False` |
@@ -197,7 +198,7 @@ None. The engine reads all 4 unique config params (`row_keys`, `pivot_key`, `piv
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-UPR-001 | **P0** | **Output schema pollution**: Engine adds all original columns to output with None values (lines 190-193). Talend output contains only row_keys + pivot_key + pivot_value |
 | ENG-UPR-002 | **P1** | **No String coercion**: Talend converts all pivot_value to String. Engine preserves original types (int, float, etc.) |
 | ENG-UPR-003 | **P1** | **Missing die_on_error**: Engine always raises ValueError on invalid input. Should fall back to empty output when die_on_error=False |
@@ -211,7 +212,7 @@ None. The engine reads all 4 unique config params (`row_keys`, `pivot_key`, `piv
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_stats()` line 204 | Input row count |
 | `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats()` line 204 | Output row count |
 | `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats()` line 204 | Always 0 |
@@ -223,7 +224,7 @@ None. The engine reads all 4 unique config params (`row_keys`, `pivot_key`, `piv
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-UPR-001 | **P2** | `unpivot_row.py:175` | **Redundant filter** -- `isin(columns_to_unpivot)` after melt is always true. No-op that wastes cycles. |
 
 ### 6.2 Naming Consistency
@@ -233,7 +234,7 @@ No naming issues found in the converter. Engine uses consistent naming.
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-UPR-001 | **P2** | "Use ConfigurationError not ValueError" | Engine raises `ValueError` instead of `ConfigurationError` for missing row_keys |
 
 ### 6.4 Debug Artifacts
@@ -247,7 +248,7 @@ No concerns identified. Component operates on in-memory DataFrames only.
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- `logging.getLogger(__name__)` |
 | Level usage | Good -- info for start/end, debug for config details, error for failures |
 | Sensitive data | No sensitive data logged |
@@ -255,7 +256,7 @@ No concerns identified. Component operates on in-memory DataFrames only.
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Uses ValueError -- should use ConfigurationError |
 | Exception chaining | Good -- raises original exception |
 | die_on_error handling | Missing -- always raises |
@@ -263,7 +264,7 @@ No concerns identified. Component operates on in-memory DataFrames only.
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- typed parameters and return types |
 | Parameter types | Good -- Dict, List, Optional typed |
 
@@ -272,7 +273,7 @@ No concerns identified. Component operates on in-memory DataFrames only.
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-UPR-001 | **P1** | **Full copy of input**: `input_data.copy()` at line 158 duplicates entire DataFrame before melt. Could melt directly. |
 | PERF-UPR-002 | **P2** | **Redundant sort**: Lines 167-168 sort by `_original_order` + `pivot_key_column`. Melt preserves row order -- sort is unnecessary overhead. |
 | PERF-UPR-003 | **P2** | **Chained DataFrame copies**: Multiple filter/reorder operations create intermediate DataFrames. Could pipeline operations. |
@@ -282,7 +283,7 @@ No concerns identified. Component operates on in-memory DataFrames only.
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Not streaming-safe -- HYBRID mode would break due to stateful unpivot across chunks |
 | Memory threshold | 2x input memory due to full copy + melt output |
 | Large data handling | Adequate for medium datasets; large datasets may hit memory limits |
@@ -294,7 +295,7 @@ No concerns identified. Component operates on in-memory DataFrames only.
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 28 | `tests/converters/talend_to_v1/components/test_unpivot_row.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | 0 | None (covered by regression guard) |
@@ -302,7 +303,7 @@ No concerns identified. Component operates on in-memory DataFrames only.
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-UPR-001 | **P2** | No engine unit tests -- engine behavior, empty input, error paths untested. Converter tests are Green per D-89 but engine tests missing. |
 
 ### 8.3 Recommended Test Cases
@@ -321,7 +322,7 @@ No concerns identified. Component operates on in-memory DataFrames only.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 1 | **ENG-UPR-001** |
 | P1 | 5 | **ENG-UPR-002**, **ENG-UPR-003**, **ENG-UPR-004**, **ENG-UPR-005**, **PERF-UPR-001** |
 | P2 | 6 | **ENG-UPR-006**, **ENG-UPR-007**, **ENG-UPR-008**, **BUG-UPR-001**, **STD-UPR-001**, **PERF-UPR-002**, **PERF-UPR-003**, **PERF-UPR-004** |
@@ -331,7 +332,7 @@ No concerns identified. Component operates on in-memory DataFrames only.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | All superseded |
 | Engine (ENG) | 9 | ENG-UPR-001 through ENG-UPR-009 |
 | Bug (BUG) | 1 | BUG-UPR-001 |
@@ -342,7 +343,7 @@ No concerns identified. Component operates on in-memory DataFrames only.
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set |
 | XCUT-002 | `base_component.py:351` | `validate_schema` inverted nullable logic |
 
@@ -356,26 +357,26 @@ No concerns identified. Component operates on in-memory DataFrames only.
 
 ### Short-term (Hardening)
 
-2. **ENG-UPR-002 (P1)**: Add String type coercion for pivot_value column
-3. **ENG-UPR-003 (P1)**: Add die_on_error support -- fall back to empty output on error
-4. **ENG-UPR-004 (P1)**: Add reject flow output
-5. **ENG-UPR-005 (P1)**: Preserve Talend schema column order in output
-6. **PERF-UPR-001 (P1)**: Remove unnecessary `input_data.copy()` -- melt directly
+1. **ENG-UPR-002 (P1)**: Add String type coercion for pivot_value column
+2. **ENG-UPR-003 (P1)**: Add die_on_error support -- fall back to empty output on error
+3. **ENG-UPR-004 (P1)**: Add reject flow output
+4. **ENG-UPR-005 (P1)**: Preserve Talend schema column order in output
+5. **PERF-UPR-001 (P1)**: Remove unnecessary `input_data.copy()` -- melt directly
 
 ### Long-term (Optimization)
 
-7. **PERF-UPR-002 (P2)**: Remove redundant sort operation
-8. **STD-UPR-001 (P2)**: Use ConfigurationError instead of ValueError
-9. **TEST-UPR-001 (P2)**: Add engine unit tests
-10. **ENG-UPR-009 (P3)**: Align row sort order with Talend schema column order
+1. **PERF-UPR-002 (P2)**: Remove redundant sort operation
+2. **STD-UPR-001 (P2)**: Use ConfigurationError instead of ValueError
+3. **TEST-UPR-001 (P2)**: Add engine unit tests
+4. **ENG-UPR-009 (P3)**: Align row sort order with Talend schema column order
 
 ---
 
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| michimau/talend_components | `https://github.com/michimau/talend_components` | Community component source code |
+| -------- | ---------- | ---------- |
+| michimau/talend_components | `<https://github.com/michimau/talend_components`> | Community component source code |
 | .item file exports | Local Talend Studio exports | ROW_KEYS TABLE structure, parameter names |
 | Engine source | `src/v1/engine/components/transform/unpivot_row.py` | Feature parity analysis |
 | Converter source | `src/converters/talend_to_v1/components/transform/unpivot_row.py` | Converter audit |
@@ -384,7 +385,7 @@ No concerns identified. Component operates on in-memory DataFrames only.
 ## Appendix B: Engine Config Key Mapping
 
 | Config Key | Engine Reads? | Engine Location | Notes |
-|------------|--------------|-----------------|-------|
+| ------------ | -------------- | ----------------- | ------- |
 | `row_keys` | Yes | `_process()` line 124 | Used as `id_vars` in melt |
 | `pivot_key` | Yes | `_process()` line 125 | Used as `var_name` in melt |
 | `pivot_value` | Yes | `_process()` line 126 | Used as `value_name` in melt |

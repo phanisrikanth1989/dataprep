@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tPrejob` |
 | **V1 Engine Class** | None -- no concrete engine implementation exists |
 | **Engine File** | None -- no dedicated engine file |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/converters/talend_to_v1/components/control/prejob.py` | Converter class `PrejobConverter` |
 | `tests/converters/talend_to_v1/components/test_prejob.py` | Converter tests |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()`, `_build_component_dict()` |
@@ -39,7 +39,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 2 of 2 config keys extracted (100%); tstatcatcher_stats, label (framework only); needs_review entry for engine gap; module docstring follows CONVERTER_PATTERN.md |
 | Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No engine implementation exists; component cannot execute |
 | Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code quality is good (follows CONVERTER_PATTERN.md), but no engine code exists at all -- component is incomplete |
@@ -49,6 +49,7 @@ How production-ready is this component at a glance?
 **Overall: RED -- No engine implementation. Converter correctly extracts all params for future engine support, but component cannot execute in production. Engine must be implemented before this component is usable.**
 
 **Top Actions**:
+
 1. Implement concrete Prejob engine class (P0 -- blocks production use)
 2. All converter and test issues resolved in v1.1 rewrite
 
@@ -80,7 +81,7 @@ No advanced settings defined in _java.xml for tPrejob.
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires after pre-job subjob completes successfully |
 | `SUBJOB_ERROR` | Output (Trigger) | Trigger | Fires if pre-job subjob encounters an error |
 | `COMPONENT_OK` | Output (Trigger) | Trigger | Fires after component completes |
@@ -102,7 +103,7 @@ No GlobalMap variables are set by tPrejob. It is a pure orchestration marker wit
 ### 3.6 Framework Parameters
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | F1 | tStatCatcher Stats | `TSTATCATCHER_STATS` | CHECK | `false` | Enable statistics collection for tStatCatcher |
 | F2 | Label | `LABEL` | TEXT | `""` | User-defined label for the component instance |
 
@@ -117,7 +118,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 The converter (`PrejobConverter`) uses the `ComponentConverter` base class helpers (`_get_bool`, `_get_str`) to extract the two framework parameters. There are no unique parameters to extract.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | F1 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | CHECK -> bool, default False. Framework param extracted last per convention. |
 | F2 | `LABEL` | Yes | `label` | TEXT -> str, default "". Framework param extracted last per convention. |
 
@@ -126,7 +127,7 @@ The converter (`PrejobConverter`) uses the `ComponentConverter` base class helpe
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` base class method |
 | `type` | Yes | Converted from Talend types via `convert_type()` |
 | `nullable` | Yes | Boolean |
@@ -145,7 +146,7 @@ No expression handling is needed for tPrejob. The component has no parameters th
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No converter issues. All framework params extracted, module docstring follows CONVERTER_PATTERN.md. |
 
 ### 4.5 Needs Review Entries
@@ -153,7 +154,7 @@ No expression handling is needed for tPrejob. The component has no parameters th
 The converter emits a single component-level needs_review entry (consolidated per D-23, since the entire engine is absent):
 
 | # | Scope | Reason | Severity |
-|---|-------|--------|----------|
+| --- | ------- | -------- | ---------- |
 | 1 | Component-level | No concrete engine implementation for tPrejob. All config keys are extracted for future engine support. | engine_gap |
 
 ---
@@ -167,14 +168,14 @@ How faithfully does the v1 engine implement Talend behavior?
 No engine implementation exists for tPrejob. The component cannot execute in the v1 engine.
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Pre-execution guarantee | **No** | N/A | -- | No engine class exists to enforce pre-execution ordering |
 | 2 | Trigger-based connections | **No** | N/A | -- | No engine class exists to fire triggers |
 
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-PJ-001 | **P0** | **OPEN** -- No concrete Prejob engine class exists. Jobs using tPrejob cannot execute pre-job logic in the v1 engine. |
 
 ### 5.3 GlobalMap Variable Coverage
@@ -190,19 +191,19 @@ How well-written is the converter code?
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | -- | -- | -- | No bugs found in the converter code. |
 
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No naming issues. Config keys follow snake_case convention. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | -- | -- | -- | No standards violations. Converter follows CONVERTER_PATTERN.md. |
 
 ### 6.4 Debug Artifacts
@@ -216,7 +217,7 @@ No concerns identified. The converter only reads XML parameter data and produces
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- `logger = logging.getLogger(__name__)` at module level |
 | Level usage | N/A -- logger not used in the converter (appropriate for zero-param component) |
 | Sensitive data | No concerns |
@@ -224,7 +225,7 @@ No concerns identified. The converter only reads XML parameter data and produces
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Good -- no exceptions raised per convention (converters never raise) |
 | Exception chaining | N/A |
 | die_on_error handling | N/A -- tPrejob has no die_on_error parameter |
@@ -232,7 +233,7 @@ No concerns identified. The converter only reads XML parameter data and produces
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- `convert()` fully typed with return type `ComponentResult` |
 | Parameter types | Good -- all standard types used correctly |
 
@@ -243,13 +244,13 @@ No concerns identified. The converter only reads XML parameter data and produces
 Will it scale?
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No performance or memory concerns. The converter is minimal with zero processing overhead. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- no engine implementation to assess |
 | Memory threshold | N/A |
 | Large data handling | N/A -- component processes no data |
@@ -263,7 +264,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | All pass | `tests/converters/talend_to_v1/components/test_prejob.py` |
 | Engine unit tests | 0 | None -- no engine implementation |
 | Integration tests | 0 | None |
@@ -271,7 +272,7 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | -- | -- | No converter test gaps. All 9 test classes per TEST_PATTERN.md are present. |
 
 ### 8.3 Recommended Test Cases
@@ -293,7 +294,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 1 (open) | **ENG-PJ-001** |
 | P1 | 0 | |
 | P2 | 0 | |
@@ -303,7 +304,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count (open/fixed) | IDs |
-|----------|-------------------|-----|
+| ---------- | ------------------- | ----- |
 | Converter (CONV) | 0/0 | |
 | Engine (ENG) | 1/0 | **ENG-PJ-001** |
 | Bug (BUG) | 0/0 | |
@@ -315,7 +316,7 @@ All issues grouped by priority for sprint planning.
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash -- would affect tPrejob execution if engine existed |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` crash -- would affect any globalMap variable retrieval |
 
@@ -342,8 +343,8 @@ No P3 issues identified. Component is the simplest possible orchestration marker
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://github.com/Talaxie/tdi-studio-se` (tPrejob_java.xml) | Parameter definitions (confirmed empty PARAMETERS section) |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://github.com/Talaxie/tdi-studio-se`> (tPrejob_java.xml) | Parameter definitions (confirmed empty PARAMETERS section) |
 | Official Talend docs | Talend online documentation | Behavioral description (pre-execution guarantee) |
 | Converter source | `src/converters/talend_to_v1/components/control/prejob.py` | Converter audit |
 | Converter base class | `src/converters/talend_to_v1/components/base.py` | Helper methods, dataclass definitions |
@@ -357,7 +358,7 @@ No P3 issues identified. Component is the simplest possible orchestration marker
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` undefined `value` variable crashes all components when globalMap is set. Would affect tPrejob execution if engine existed. |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` undefined `default` parameter. Would affect any globalMap variable retrieval. |
 | XCUT-003 | `base_component.py:351` | `validate_schema` inverted nullable logic. Not directly relevant to tPrejob (no schema enforcement at engine level). |
@@ -367,7 +368,7 @@ No P3 issues identified. Component is the simplest possible orchestration marker
 ### Edge-Case Checklist Results
 
 | Check | Result | Notes |
-|-------|--------|-------|
+| ------- | -------- | ------- |
 | NaN handling | N/A | Converter does not process data values |
 | Empty strings in config keys | Safe | `_get_str()` returns default for None, handles empty strings |
 | Empty DataFrame input | N/A | No engine implementation; no data flow |

@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | N/A -- engine-native custom component, no Talend equivalent |
 | **V1 Engine Class** | `SwiftBlockFormatter` |
 | **Engine File** | `src/v1/engine/components/transform/swift_block_formatter.py` (707 lines) |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/transform/swift_block_formatter.py` | Engine implementation (707 lines) |
 | `src/v1/engine/engine.py` | Import and registry alias registration |
 | `src/v1/engine/components/transform/__init__.py` | Package export |
@@ -40,7 +40,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **N/A** | -- | -- | -- | -- | Engine-native custom component; no Talend XML conversion. Config hand-authored in job JSON. |
 | Engine Feature Parity | **Y** | 1 | 4 | 5 | 2 | Core SWIFT parsing works; edge cases around regex, block pairing, NaN, empty input, streaming |
 | Code Quality | **Y** | 2 | 5 | 5 | 3 | Cross-cutting base class bugs; forced DEBUG logging; dict-in-data defensive code; regex truncation |
@@ -50,6 +50,7 @@ How production-ready is this component at a glance?
 **Overall: YELLOW -- Not production-ready without P0/P1 fixes. Second-largest engine component (707 lines).**
 
 **Top Actions**:
+
 1. Fix cross-cutting `_update_global_map()` and `GlobalMap.get()` crashes (P0)
 2. Remove forced `logger.setLevel(logging.DEBUG)` in `_process()` (P1)
 3. Fix Block 4 regex for optional trailing hyphen (P1)
@@ -82,7 +83,7 @@ The component's primary purpose is to normalize multi-occurrence field 61 (State
 ### 3.1 Configuration Parameters
 
 | # | Parameter | Config Key | Type | Required | Default | Description |
-|---|-----------|------------|------|----------|---------|-------------|
+| --- | ----------- | ------------ | ------ | ---------- | --------- | ------------- |
 | 1 | Layout File | `layout_file` | String (path) | Yes* | -- | Path to YAML file defining Block 4 field types. Must contain `swift_layout.block4_layout` key. Supports context variables via `context_manager.resolve_string()`. |
 | 2 | Inline Layout | `layout` | Dict | Yes* | `{}` | Alternative to `layout_file`: inline dict mapping field keys (e.g., `block4_20`) to types (`S`=single, `M`=multiple). |
 | 3 | Pipe Fields | `pipe_fields` | List | Yes | -- | Output column definitions. Each element is either a string (field name = source) or a dict with `name`, `source`, `default` keys. |
@@ -91,7 +92,7 @@ The component's primary purpose is to normalize multi-occurrence field 61 (State
 | 6 | Output File | `output_file` | String (path) | No | -- | If set, writes the result DataFrame to this path as pipe-delimited CSV. |
 | 7 | Encoding | `encoding` | String | No | `"UTF-8"` | Character encoding for reading input SWIFT file. |
 | 8 | Output Encoding | `output_encoding` | String | No | `"UTF-8"` | Character encoding for writing output file. |
-| 9 | Delimiter | `delimiter` | String | No | `"\|"` | Delimiter for output file writing (default pipe). |
+| 9 | Delimiter | `delimiter` | String | No | `"\ | "` | Delimiter for output file writing (default pipe). |
 | 10 | Include Header | `include_header` | Boolean | No | `true` | Whether to include column headers in output file. |
 | 11 | Die On Error | `die_on_error` | Boolean | No | `true` | Raise exception on error vs. return empty DataFrame. |
 | 12 | Processing | `processing` | Dict | No | `{}` | Processing options (stored but never used -- dead configuration). |
@@ -120,7 +121,7 @@ swift_layout:
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `main` (input) | Input | DataFrame | DataFrame with SWIFT message content in a column |
 | `main` (output) | Output | DataFrame | Flat DataFrame with one row per 61/86 pair |
 | N/A | N/A | REJECT | **No reject flow implemented** |
@@ -128,7 +129,7 @@ swift_layout:
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total number of SWIFT messages parsed (NOT output rows) |
 | `{id}_NB_LINE_OK` | Integer | After execution | Number of output rows produced (can exceed NB_LINE due to 61/86 normalization) |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Always 0 -- no reject mechanism |
@@ -187,7 +188,7 @@ How faithfully does the v1 engine implement SWIFT message parsing?
 ### 5.1 Feature Implementation Status
 
 | # | Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|---------|-------------|----------|-----------------|-------|
+| ---- | --------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Parse Block 1 (Basic Header) | **Yes** | Medium | `_parse_block1()` line 289 | Fixed-position parsing of app_id, service_id, BIC, session, sequence |
 | 2 | Parse Block 2 (Application Header) | **Yes** | Medium | `_parse_block2()` line 308 | Handles both Input (I) and Output (O) directions |
 | 3 | Parse Block 3 (User Header) | **Yes** | Low | `_parse_block3()` line 331 | Stores raw content only -- no sub-tag parsing. Regex truncates nested content. |
@@ -213,7 +214,7 @@ How faithfully does the v1 engine implement SWIFT message parsing?
 ### 5.2 Behavioral Differences
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-SBF-001 | **P1** | **No REJECT flow**: Unparseable SWIFT messages are silently dropped (returning `None` from `_parse_single_message()` line 287). No error details captured. No reject DataFrame produced. For financial message processing, silent data loss is unacceptable. |
 | ENG-SBF-002 | **P1** | **Block 2 Output message BIC extraction wrong**: In `_parse_block2()` line 327, for Output ('O') messages, `block2bic` extracted from positions `[14:26]` overlaps with `block2_mir` at `[10:22]`. The SWIFT standard Block 2 Output format has different offsets. |
 | ENG-SBF-003 | **P1** | **Standalone block 86 entries lost after first block 61**: Condition `elif field_tag == '86' and not block61_list` (line 452) means once ANY `:61:` has been seen, ALL subsequent standalone `:86:` entries not immediately following a `:61:` are silently skipped. |
@@ -229,7 +230,7 @@ How faithfully does the v1 engine implement SWIFT message parsing?
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Expected? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-----------|----------|-----------------|-------|
+| ---------- | ----------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | **Yes** | `_update_stats()` -> `_update_global_map()` | Set to message count, not row count |
 | `{id}_NB_LINE_OK` | Yes | **Yes** | Same mechanism | Set to output row count (can exceed NB_LINE) |
 | `{id}_NB_LINE_REJECT` | Yes | **Partial** | Same mechanism | Always 0 -- no reject mechanism |
@@ -245,13 +246,13 @@ How well-written is the engine code?
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-SBF-001 | **P0** | `base_component.py:304` | **CROSS-CUTTING: `_update_global_map()` references undefined variable `value`**: The log statement uses `{stat_name}: {value}` but the loop variable is `stat_value`. Causes `NameError` whenever `global_map` is not None. Affects ALL components. |
 | BUG-SBF-002 | **P0** | `global_map.py:28` | **CROSS-CUTTING: `GlobalMap.get()` references undefined `default` parameter**: Method signature has no `default` param but body calls `self._map.get(key, default)`. Crashes on every `.get()` call. Affects ALL components. |
 | BUG-SBF-003 | **P1** | `swift_block_formatter.py:368` | **Field tag regex limited to 2-digit tags**: Pattern `r':(\d{2}[A-Z]?):(.*)'` requires exactly 2 digits. Correctly matches `:20:`, `:61:`, `:60F:` but silently drops any 3-digit tags (rare but possible in certain MT types). |
 | BUG-SBF-004 | **P1** | `swift_block_formatter.py:149` | **Logger level forced to DEBUG in production**: `logger.setLevel(logging.DEBUG)` called unconditionally in `_process()`, overriding application log configuration. Floods production logs and leaks sensitive financial data. |
 | BUG-SBF-005 | **P1** | `swift_block_formatter.py:349` | **Block 4 regex requires trailing hyphen**: Pattern `r'\{4:(.*?)-\}'` fails for SWIFT messages without `-}` terminator (some generators omit hyphen), losing ALL Block 4 content silently. |
-| BUG-SBF-006 | **P2** | `swift_block_formatter.py:251` | **Message split regex edge case**: Pattern `r'(\{1:[^}]*\}.*?)(?=\{1:|$)'` could false-split if `{1:` appears inside Block 4 body. Extremely rare but unprotected. |
+| BUG-SBF-006 | **P2** | `swift_block_formatter.py:251` | **Message split regex edge case**: Pattern `r'(\{1:[^}]*\}.*?)(?=\{1: | $)'` could false-split if `{1:` appears inside Block 4 body. Extremely rare but unprotected. |
 | BUG-SBF-007 | **P2** | `swift_block_formatter.py:377-379` | **Field 61 continuation uses hardcoded `sfield9=`**: Not configurable. Could corrupt data if content contains this literal string. |
 | BUG-SBF-008 | **P2** | `swift_block_formatter.py:483-491` | **Single-item list vs. scalar inconsistency**: Block 61/86 data stored as scalar when single entry, list when multiple. `_normalize_message_data()` must re-wrap, creating fragile code. |
 | BUG-SBF-009 | **P2** | `swift_block_formatter.py:201` | **NaN in content column causes heuristic to skip valid columns**: `str(NaN)` produces `"nan"` which lacks `{` and `:`, so heuristic skips columns with NaN first row even if they contain SWIFT data. |
@@ -263,21 +264,21 @@ How well-written is the engine code?
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-SBF-001 | **P3** | **`messagetype` lacks underscore**: Block 1/2/3/5 fields use `block{N}_fieldname` convention but `messagetype` (line 274) breaks it. Should be `block2_msg_type`. |
 | NAME-SBF-002 | **P3** | **`pipe_fields` / `pipe_fields_mapping` dual structures**: Always used together but maintained separately. Could be a single OrderedDict. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-SBF-001 | **P2** | "Every component SHOULD have `_validate_config()`" | No `_validate_config()` method. Validation scattered across `__init__` and `_ensure_layout_loaded()`. |
 | STD-SBF-002 | **P2** | "No forced log level changes" | Line 149 `logger.setLevel(logging.DEBUG)` overrides application-level logging configuration. |
 
 ### 6.4 Debug Artifacts
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | DBG-SBF-001 | **P1** | `logger.setLevel(logging.DEBUG)` on line 149: Forces DEBUG level for every invocation. Development artifact never removed. |
 | DBG-SBF-002 | **P3** | Commented-out debug log lines on lines 542, 554. Should be removed or converted to conditional debug logging. |
 | DBG-SBF-003 | **P3** | 70+ lines of defensive dict-checking code (lines 496-592) work around a real bug rather than fixing the root cause. |
@@ -285,14 +286,14 @@ How well-written is the engine code?
 ### 6.5 Security
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | SEC-SBF-001 | **P2** | **YAML loaded with `yaml.safe_load()` -- correct**: Uses `safe_load` not `load`, preventing arbitrary code execution. Positive finding. |
 | SEC-SBF-002 | **P3** | **No path traversal protection**: File paths from config used directly with `os.path.exists()` and `open()`. Low risk for trusted job configs. |
 
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Module-level `logger = logging.getLogger(__name__)` -- correct |
 | Level usage | **BROKEN** -- `logger.setLevel(logging.DEBUG)` forced on line 149 overrides all configuration. Many `logger.error()` calls for dict-in-data situations should be `logger.warning()`. |
 | Sensitive data | SWIFT message content (account numbers, BICs, amounts) logged at DEBUG level. With forced DEBUG, this is a data leakage concern. |
@@ -300,7 +301,7 @@ How well-written is the engine code?
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Not used. Raises generic `ValueError` and `RuntimeError`. |
 | Exception chaining | Does NOT use `raise ... from e`. Line 138 loses original exception. |
 | die_on_error handling | Single try/except in `_process()`. Correctly raises or returns empty DF. |
@@ -309,7 +310,7 @@ How well-written is the engine code?
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | All public methods have return type hints -- correct |
 | Parameter types | All methods have parameter type hints -- correct |
 | Complex types | Uses `Dict[str, Any]`, `Optional[pd.DataFrame]`, `List[Dict[str, Any]]`, `List[List[str]]` -- correct |
@@ -321,7 +322,7 @@ How well-written is the engine code?
 Will it scale?
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-SBF-001 | **P1** | **Entire SWIFT file read into memory**: `_parse_swift_file()` line 227 calls `file.read()` loading the complete file. For batch reconciliation files (multi-GB, millions of MT940 messages), this causes memory exhaustion. |
 | PERF-SBF-002 | **P2** | **Quadruple iteration over row data**: `_convert_to_dataframe()` iterates all rows 4 times: dict checking (lines 545-551), item checking (562-570), validation/stringify (574-592), DataFrame construction. Single pass should combine all. |
 | PERF-SBF-003 | **P2** | **Regex patterns not compiled/cached**: All `re.search()`/`re.match()` calls use string patterns recompiled per invocation. For thousands of messages, should use class-level `re.compile()`. |
@@ -330,7 +331,7 @@ Will it scale?
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | NOT implemented for SWIFT file reading. `file.read()` loads entire file. BaseComponent HYBRID mode only chunks DataFrame processing, not file I/O. |
 | Memory threshold | 3072 MB (3GB) inherited from BaseComponent. Irrelevant since file is fully loaded before mode selection. |
 | Chunked processing | Not available. Each message parsed independently so chunking is architecturally feasible but not implemented. |
@@ -345,7 +346,7 @@ Will it scale?
 **N/A per D-88** -- Engine-native custom component with no converter tests applicable.
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | N/A | No converter exists |
 | Engine unit tests | 0 | None |
 | Integration tests | 0 | None |
@@ -361,7 +362,7 @@ No tests exist. All 707 lines of engine code are completely unverified.
 Recommended engine tests (for future implementation, not part of D-82 scope):
 
 | # | Test Case | Priority | Description |
-|----|-----------|----------|-------------|
+| ---- | ----------- | ---------- | ------------- |
 | 1 | Basic MT940 parse | P0 | Parse single MT940 with blocks 1-5, verify all fields extracted |
 | 2 | 61/86 single pair | P0 | One `:61:`/`:86:` pair, verify one output row |
 | 3 | 61/86 multiple pairs | P0 | Three pairs, verify three rows with header field repetition |
@@ -382,7 +383,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 3 | **BUG-SBF-001**, **BUG-SBF-002**, **TEST-SBF-001** |
 | P1 | 10 | **ENG-SBF-001**, **ENG-SBF-002**, **ENG-SBF-003**, **ENG-SBF-004**, **BUG-SBF-003**, **BUG-SBF-004**, **BUG-SBF-005**, **BUG-SBF-012**, **BUG-SBF-013**, **PERF-SBF-001** |
 | P2 | 16 | **ENG-SBF-005** thru **ENG-SBF-009**, **BUG-SBF-006** thru **BUG-SBF-009**, **BUG-SBF-014**, **STD-SBF-001**, **STD-SBF-002**, **SEC-SBF-001**, **PERF-SBF-002**, **PERF-SBF-003** |
@@ -392,7 +393,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Engine (ENG) | 11 | ENG-SBF-001 thru ENG-SBF-011 |
 | Bug (BUG) | 14 | BUG-SBF-001 thru BUG-SBF-014 (no BUG-SBF-011) |
 | Standards (STD) | 2 | STD-SBF-001, STD-SBF-002 |
@@ -405,7 +406,7 @@ All issues grouped by priority for sprint planning.
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | BUG-SBF-001 | `base_component.py:304` | `_update_global_map()` crash -- all stats lost |
 | BUG-SBF-002 | `global_map.py:28` | `GlobalMap.get()` crash -- any direct `.get()` fails |
 
@@ -426,20 +427,20 @@ What should be fixed, in what order?
 
 ### Short-term (Hardening)
 
-7. **Implement REJECT flow** (ENG-SBF-001): Return `{'main': good_df, 'reject': reject_df}` from `_process()`.
-8. **Fix Block 2 Output BIC extraction** (ENG-SBF-002, BUG-SBF-013): Correct position offsets per SWIFT standard.
-9. **Fix standalone block 86 handling** (ENG-SBF-003): Track pairing state explicitly instead of using `not block61_list`.
-10. **Fix empty DataFrame columns** (ENG-SBF-008): Return `pd.DataFrame(columns=self.pipe_fields)`.
-11. **Add streaming file reading** (PERF-SBF-001): Process messages in batches to control memory.
-12. **Compile regex patterns** (PERF-SBF-003): Move to class-level `re.compile()`.
+1. **Implement REJECT flow** (ENG-SBF-001): Return `{'main': good_df, 'reject': reject_df}` from `_process()`.
+2. **Fix Block 2 Output BIC extraction** (ENG-SBF-002, BUG-SBF-013): Correct position offsets per SWIFT standard.
+3. **Fix standalone block 86 handling** (ENG-SBF-003): Track pairing state explicitly instead of using `not block61_list`.
+4. **Fix empty DataFrame columns** (ENG-SBF-008): Return `pd.DataFrame(columns=self.pipe_fields)`.
+5. **Add streaming file reading** (PERF-SBF-001): Process messages in batches to control memory.
+6. **Compile regex patterns** (PERF-SBF-003): Move to class-level `re.compile()`.
 
 ### Long-term (Optimization)
 
-13. **Eliminate dict-in-data defensive code** (DBG-SBF-003): Fix root cause, remove 70+ lines of isinstance checks.
-14. **Fix NB_LINE/NB_LINE_OK semantics** (ENG-SBF-009): Align with Talend convention.
-15. **Add `_validate_config()` method** (STD-SBF-001): Centralize all config validation.
-16. **Make field 61 continuation separator configurable** (BUG-SBF-007): Add `field61_continuation_separator` config.
-17. **Consolidate single/list storage** (BUG-SBF-008): Always store multi-occurrence fields as lists.
+1. **Eliminate dict-in-data defensive code** (DBG-SBF-003): Fix root cause, remove 70+ lines of isinstance checks.
+2. **Fix NB_LINE/NB_LINE_OK semantics** (ENG-SBF-009): Align with Talend convention.
+3. **Add `_validate_config()` method** (STD-SBF-001): Centralize all config validation.
+4. **Make field 61 continuation separator configurable** (BUG-SBF-007): Add `field61_continuation_separator` config.
+5. **Consolidate single/list storage** (BUG-SBF-008): Always store multi-occurrence fields as lists.
 
 ---
 
@@ -450,7 +451,7 @@ This section is **required per D-79** -- SwiftBlockFormatter has 707 lines of en
 ### Risk Matrix
 
 | Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
+| ------ | ----------- | -------- | ------------ |
 | **YAML layout file path traversal** | Low | High | `layout_file` config path used directly with `open()`. If config from untrusted source, arbitrary file read possible. Currently uses `yaml.safe_load()` (no code exec) but file content still exposed. Mitigate: validate path against allowed directories. |
 | **YAML deserialization of untrusted layout** | Low | Medium | `yaml.safe_load()` prevents code execution but malformed YAML can cause parsing errors that crash the component. Mitigate: validate YAML structure before use. |
 | **ValueError on missing pipe_fields crashes entire job** | Medium | High | `__init__()` raises `ValueError` when `pipe_fields` is empty or all entries invalid. This crashes the entire ETL job during component initialization with no graceful recovery. Mitigate: validate config before component construction, return informative error. |
@@ -485,7 +486,7 @@ This section is **required per D-79** -- SwiftBlockFormatter has 707 lines of en
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
+| -------- | ---------- | ---------- |
 | Engine source | `src/v1/engine/components/transform/swift_block_formatter.py` | Complete engine analysis (707 lines) |
 | Base component | `src/v1/engine/base_component.py` | Cross-cutting bugs, streaming mode, stats |
 | GlobalMap | `src/v1/engine/global_map.py` | GlobalMap.get() bug analysis |

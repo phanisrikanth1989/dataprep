@@ -5,6 +5,7 @@ This document provides validation steps and testing procedures for the RecDataPr
 ## ✅ Implementation Checklist
 
 ### Backend Implementation (13 files)
+
 - [x] **app/main.py** - FastAPI application factory
   - [x] CORS enabled for localhost
   - [x] Routes registered (jobs, components, execution)
@@ -77,6 +78,7 @@ This document provides validation steps and testing procedures for the RecDataPr
 ### Frontend Implementation (30+ files)
 
 #### Configuration Files
+
 - [x] **package.json** - npm dependencies
   - [x] React 18.2
   - [x] React Flow 11.10
@@ -101,6 +103,7 @@ This document provides validation steps and testing procedures for the RecDataPr
   - [x] Script for main.tsx
 
 #### Type & Service Layer (5 files)
+
 - [x] **src/types/index.ts** - TypeScript interfaces
   - [x] JobNode, JobEdge types
   - [x] ComponentMetadata type
@@ -118,6 +121,7 @@ This document provides validation steps and testing procedures for the RecDataPr
   - [x] Error handling
 
 #### Components (6 files)
+
 - [x] **src/components/Canvas.tsx** - React Flow canvas
   - [x] Drag-drop support
   - [x] Node/edge management
@@ -155,6 +159,7 @@ This document provides validation steps and testing procedures for the RecDataPr
   - [x] Execute button
 
 #### Pages (3 files)
+
 - [x] **src/pages/JobDesigner.tsx** - Main designer
   - [x] Canvas area
   - [x] Component palette
@@ -170,12 +175,14 @@ This document provides validation steps and testing procedures for the RecDataPr
   - [x] Header
 
 #### Assets
+
 - [x] **src/main.tsx** - React entry point
 - [x] **src/index.css** - Global styles
 - [x] **frontend/.env.example** - Environment template
 - [x] **.gitignore** - Git ignore patterns
 
 ### Documentation (3 files)
+
 - [x] **SETUP_DEPLOYMENT.md** - Setup and deployment guide
 - [x] **UI_README.md** - Comprehensive UI documentation
 - [x] **TESTING_GUIDE.md** - This file
@@ -198,15 +205,16 @@ python run.py
 
 **Expected Output:**
 ```
-INFO:     Uvicorn running on http://0.0.0.0:8000
+INFO:     Uvicorn running on <http://0.0.0.0:8000>
 INFO:     Application startup complete
 ```
 
 **Validation Points:**
+
 - [ ] No errors during startup
 - [ ] Server listening on port 8000
-- [ ] Can access http://localhost:8000/health
-- [ ] Can access http://localhost:8000/docs (Swagger UI)
+- [ ] Can access <http://localhost:8000/health>
+- [ ] Can access <http://localhost:8000/docs> (Swagger UI)
 
 ---
 
@@ -224,13 +232,14 @@ npm run dev
 ```
   VITE v5.0.0  ready in 500 ms
 
-  ➜  Local:   http://localhost:5173/
+  ➜  Local:   <http://localhost:5173/>
 ```
 
 **Validation Points:**
+
 - [ ] No npm install errors
 - [ ] Dev server starts without warnings
-- [ ] Can access http://localhost:5173
+- [ ] Can access <http://localhost:5173>
 - [ ] Browser loads without errors
 
 ---
@@ -244,17 +253,17 @@ npm run dev
 #### Test 3.1: Component Endpoints
 ```bash
 # List components
-curl http://localhost:8000/api/components
+curl <http://localhost:8000/api/components>
 
 # Get single component
-curl http://localhost:8000/api/components/Map
+curl <http://localhost:8000/api/components/Map>
 ```
 
 **Expected:** Returns JSON with component metadata
 
 #### Test 3.2: Job Creation
 ```bash
-curl -X POST http://localhost:8000/api/jobs \
+curl -X POST <http://localhost:8000/api/jobs> \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Test Job",
@@ -269,15 +278,15 @@ curl -X POST http://localhost:8000/api/jobs \
 
 #### Test 3.3: Job Retrieval
 ```bash
-curl http://localhost:8000/api/jobs
-curl http://localhost:8000/api/jobs/{job_id}
+curl <http://localhost:8000/api/jobs>
+curl <http://localhost:8000/api/jobs/{job_id}>
 ```
 
 **Expected:** Returns job list and individual job
 
 #### Test 3.4: Job Update
 ```bash
-curl -X PUT http://localhost:8000/api/jobs/{job_id} \
+curl -X PUT <http://localhost:8000/api/jobs/{job_id}> \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Updated Name",
@@ -292,7 +301,7 @@ curl -X PUT http://localhost:8000/api/jobs/{job_id} \
 
 #### Test 3.5: Job Export
 ```bash
-curl http://localhost:8000/api/jobs/{job_id}/export
+curl <http://localhost:8000/api/jobs/{job_id}/export>
 ```
 
 **Expected:** Returns job in ETLEngine config format
@@ -304,11 +313,13 @@ curl http://localhost:8000/api/jobs/{job_id}/export
 **Test:** Verify React components render correctly
 
 **Procedure:**
-1. Open http://localhost:5173 in browser
+
+1. Open <http://localhost:5173> in browser
 2. Verify page loads without console errors
 3. Check browser DevTools console for errors
 
 **Validation Points:**
+
 - [ ] No React errors in console
 - [ ] Job list displays (even if empty)
 - [ ] Can see "+ New Job" button
@@ -321,6 +332,7 @@ curl http://localhost:8000/api/jobs/{job_id}/export
 **Test:** Full workflow - create, design, save job
 
 **Procedure:**
+
 1. Click "+ New Job" button
 2. Enter job name: "Integration Test Job"
 3. Enter description: "Test job for integration"
@@ -331,6 +343,7 @@ curl http://localhost:8000/api/jobs/{job_id}/export
 8. Verify job saved (check backend files in `backend/jobs/` directory)
 
 **Validation Points:**
+
 - [ ] Modal appears for new job
 - [ ] Job designer page loads
 - [ ] Can drag component to canvas
@@ -344,6 +357,7 @@ curl http://localhost:8000/api/jobs/{job_id}/export
 **Test:** Configure a component with different field types
 
 **Procedure:**
+
 1. With job open in designer
 2. Drag "Map" component to canvas
 3. Click the Map component to select it
@@ -353,6 +367,7 @@ curl http://localhost:8000/api/jobs/{job_id}/export
 7. Verify configuration persisted
 
 **Validation Points:**
+
 - [ ] Config panel appears on selection
 - [ ] Can edit different field types
 - [ ] Save applies changes
@@ -365,6 +380,7 @@ curl http://localhost:8000/api/jobs/{job_id}/export
 **Test:** Export job to ETLEngine config format
 
 **Procedure:**
+
 1. With job in designer
 2. Add at least 2 components
 3. Connect them with edges
@@ -372,6 +388,7 @@ curl http://localhost:8000/api/jobs/{job_id}/export
 5. Verify JSON file downloads
 
 **Validation Points:**
+
 - [ ] Export button works
 - [ ] JSON file contains proper structure
 - [ ] Nodes converted to components
@@ -384,10 +401,12 @@ curl http://localhost:8000/api/jobs/{job_id}/export
 **Test:** Execute job and monitor progress
 
 **Prerequisites:**
+
 - Job with complete configuration ready
 - Both backend and frontend running
 
 **Procedure:**
+
 1. With job in designer, click "Execute"
 2. Observe redirect to execution monitor
 3. Watch progress bar update
@@ -395,6 +414,7 @@ curl http://localhost:8000/api/jobs/{job_id}/export
 5. Observe logs streaming in
 
 **Validation Points:**
+
 - [ ] Execution starts without errors
 - [ ] WebSocket connection established
 - [ ] Progress updates in real-time
@@ -408,6 +428,7 @@ curl http://localhost:8000/api/jobs/{job_id}/export
 **Test:** Manage jobs from job list page
 
 **Procedure:**
+
 1. Navigate to Jobs page
 2. Verify list shows created jobs
 3. Click on job to edit
@@ -418,6 +439,7 @@ curl http://localhost:8000/api/jobs/{job_id}/export
 8. Verify job removed from list
 
 **Validation Points:**
+
 - [ ] List displays all jobs
 - [ ] Can open job for editing
 - [ ] Delete works with confirmation
@@ -430,6 +452,7 @@ curl http://localhost:8000/api/jobs/{job_id}/export
 **Test:** Verify canvas performance with multiple components
 
 **Procedure:**
+
 1. Create new job
 2. Drag 20+ components to canvas
 3. Zoom in/out
@@ -437,6 +460,7 @@ curl http://localhost:8000/api/jobs/{job_id}/export
 5. Observe responsiveness
 
 **Validation Points:**
+
 - [ ] Canvas remains responsive
 - [ ] No lag during zoom/pan
 - [ ] No console errors
@@ -449,12 +473,14 @@ curl http://localhost:8000/api/jobs/{job_id}/export
 **Test:** Monitor performance with long-running job
 
 **Procedure:**
+
 1. Create job with large input
 2. Execute job
 3. Monitor WebSocket message rate
 4. Check for memory leaks in DevTools
 
 **Validation Points:**
+
 - [ ] WebSocket stays connected
 - [ ] No memory growth over time
 - [ ] Updates arrive regularly (1/sec)
@@ -475,7 +501,7 @@ curl http://localhost:8000/api/jobs/{job_id}/export
 **Test individual routes:**
 ```bash
 # Test with curl or Postman
-curl -v http://localhost:8000/api/jobs
+curl -v <http://localhost:8000/api/jobs>
 ```
 
 **Enable debug logging:**
@@ -495,10 +521,12 @@ cat backend/jobs/job_abc123.json
 ### Frontend Debugging
 
 **Check browser console:**
+
 - Right-click → Inspect → Console tab
 - Look for React errors or API errors
 
 **Check network requests:**
+
 - DevTools → Network tab
 - Verify all API calls return 200 OK
 - Check WebSocket connection status (WS)
@@ -527,6 +555,7 @@ api.interceptors.response.use(response => {
 **Environment:** Windows / Mac / Linux
 
 ### Passed Tests ✅
+
 - [ ] Backend Startup
 - [ ] Frontend Startup
 - [ ] API Endpoints
@@ -544,7 +573,7 @@ api.interceptors.response.use(response => {
 1. _____________________
    Error: _____________________
    
-2. _____________________
+1. _____________________
    Error: _____________________
 
 ### Notes
@@ -555,6 +584,7 @@ _____________________________________________________________
 ## 🚀 Next Steps After Testing
 
 If all tests pass:
+
 1. ✅ Build for production: `npm run build` (frontend)
 2. ✅ Deploy backend with Gunicorn
 3. ✅ Serve frontend with nginx or similar
@@ -563,6 +593,7 @@ If all tests pass:
 6. ✅ Set up CI/CD pipeline
 
 If issues found:
+
 1. Review the troubleshooting section in UI_README.md
 2. Check specific file implementations
 3. Verify environment variables and configurations

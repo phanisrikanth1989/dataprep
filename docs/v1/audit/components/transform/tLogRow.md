@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tLogRow` |
 | **V1 Engine Class** | `LogRow` |
 | **Engine File** | `src/v1/engine/components/transform/log_row.py` (231 lines) |
@@ -24,7 +24,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/transform/log_row.py` | Engine implementation (231 lines) |
 | `src/converters/talend_to_v1/components/transform/log_row.py` | Converter class (155 lines) |
 | `tests/converters/talend_to_v1/components/test_log_row.py` | Converter tests (33 tests) |
@@ -36,16 +36,17 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 15 _java.xml params extracted including LENGTHS TABLE; _build_component_dict wrapper; 12 per-feature needs_review |
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 15 \_java.xml params extracted including LENGTHS TABLE; \_build\_component\_dict wrapper; 12 per-feature needs\_review |
 | Engine Feature Parity | **Y** | 0 | 3 | 3 | 1 | 3 display modes implemented; output via print() not logger; no Log4J; engine default mismatches for table_print and print_header |
 | Code Quality | **G** | 0 | 0 | 0 | 0 | Gold standard converter with LENGTHS TABLE parser; clean structured sections |
 | Performance & Memory | **G** | 0 | 0 | 1 | 1 | iterrows() used for all formats; table width scan over entire DataFrame |
 | Testing | **Y** | 0 | 0 | 1 | 0 | 33 converter tests across 8 test classes; no engine unit tests (D-73) |
 
-**Overall: YELLOW -- Converter gold standard; engine has feature gaps and default mismatches**
+Overall: YELLOW -- Converter gold standard; engine has feature gaps and default mismatches
 
 **Top Actions**:
+
 1. Add engine unit tests for LogRow component
 2. Fix engine default mismatches (table_print True->False, print_header True->False)
 3. Add engine support for vertical mode params, fixed-width formatting, Log4J routing
@@ -68,7 +69,7 @@ tLogRow supports three display modes selected via a radio group: **Basic** (deli
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Mode: Basic | `BASIC_MODE` | RADIO (GROUP=MODE) | **true** (selected) | Displays output as delimited fields on a single line per row |
 | 2 | Mode: Table | `TABLE_PRINT` | RADIO (GROUP=MODE) | false | Displays output in bordered table format with column alignment |
 | 3 | Mode: Vertical | `VERTICAL` | RADIO (GROUP=MODE) | false | Displays each row as vertical key-value pairs |
@@ -86,7 +87,7 @@ tLogRow supports three display modes selected via a radio group: **Basic** (deli
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 14 | Max Rows | `SCHEMA_OPT_NUM` | HIDDEN | "100" | Maximum number of rows to display |
 | 15 | tStatCatcher Statistics | `TSTATCATCHER_STATS` | CHECK | false | Enable statistics capture for tStatCatcher |
 | 16 | Label | `LABEL` | TEXT | "" | Component label on designer canvas |
@@ -94,7 +95,7 @@ tLogRow supports three display modes selected via a radio group: **Basic** (deli
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input/Output | Row > Main | Pass-through: all input rows forwarded unchanged |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires when component completes successfully |
 | `SUBJOB_ERROR` | Output (Trigger) | Trigger | Fires when component encounters an error |
@@ -102,7 +103,7 @@ tLogRow supports three display modes selected via a radio group: **Basic** (deli
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total rows processed |
 | `{id}_NB_LINE_OK` | Integer | After execution | Rows successfully logged |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Always 0 (no rejection logic) |
@@ -125,14 +126,14 @@ tLogRow supports three display modes selected via a radio group: **Basic** (deli
 The `LogRowConverter` class uses `@REGISTRY.register("tLogRow")` decorator-based dispatch. It extracts all parameters using typed helpers (`_get_bool`, `_get_str`) and the module-level `_parse_lengths()` function for the LENGTHS TABLE. Output is wrapped via `_build_component_dict(type_name="LogRow")`.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `BASIC_MODE` | Yes | `basic_mode` | bool, default True (RADIO GROUP=MODE) |
 | 2 | `TABLE_PRINT` | Yes | `table_print` | bool, default False (RADIO GROUP=MODE) |
 | 3 | `VERTICAL` | Yes | `vertical` | bool, default False (RADIO GROUP=MODE) |
 | 4 | `PRINT_UNIQUE` | Yes | `print_unique` | bool, default True (RADIO GROUP=TITLE_PRINT) |
 | 5 | `PRINT_LABEL` | Yes | `print_label` | bool, default False (RADIO GROUP=TITLE_PRINT) |
 | 6 | `PRINT_UNIQUE_LABEL` | Yes | `print_unique_label` | bool, default False (RADIO GROUP=TITLE_PRINT) |
-| 7 | `FIELDSEPARATOR` | Yes | `fieldseparator` | str, default "\|" |
+| 7 | `FIELDSEPARATOR` | Yes | `fieldseparator` | str, default `"\|"` |
 | 8 | `PRINT_HEADER` | Yes | `print_header` | bool, default False |
 | 9 | `PRINT_UNIQUE_NAME` | Yes | `print_unique_name` | bool, default False |
 | 10 | `PRINT_COLNAMES` | Yes | `print_colnames` | bool, default False |
@@ -148,7 +149,7 @@ The `LogRowConverter` class uses `@REGISTRY.register("tLogRow")` decorator-based
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` |
 | `type` | Yes | Talend types converted via `convert_type()` |
 | `nullable` | Yes | Boolean from schema definition |
@@ -167,7 +168,7 @@ String parameters (`fieldseparator`, `max_rows`, `label`) are extracted as raw s
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No open converter issues. All parameters extracted per gold standard. |
 
 ### 4.5 Needs Review Entries
@@ -175,7 +176,7 @@ String parameters (`fieldseparator`, `max_rows`, `label`) are extracted as raw s
 The converter emits 12 per-feature needs_review entries (9 engine-unread + 3 default mismatches):
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `vertical` | Engine only checks basic_mode and table_print for display mode | engine_gap |
 | 2 | `print_unique` | Engine does not implement vertical title group selection | engine_gap |
 | 3 | `print_label` | Engine does not implement vertical title group selection | engine_gap |
@@ -196,7 +197,7 @@ The converter emits 12 per-feature needs_review entries (9 engine-unread + 3 def
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Basic mode (delimited) | **Yes** | Medium | `_print_basic_format()` line 206 | Works but uses `print()` not logger |
 | 2 | Table mode (bordered) | **Yes** | Medium | `_print_table_format()` line 145 | Custom table formatting with borders |
 | 3 | Vertical mode | **Yes** | Low | `_print_vertical_format()` line 214 | Simplified implementation |
@@ -214,7 +215,7 @@ The converter emits 12 per-feature needs_review entries (9 engine-unread + 3 def
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-LR-001 | **P1** | Engine defaults for `table_print` (True) and `print_header` (True) differ from Talend (both False). When config key is absent, engine shows table format with headers instead of Talend's basic mode without headers. |
 | ENG-LR-002 | **P1** | Engine reads `field_separator` config key but converter emits `fieldseparator`. Engine falls back to FIELDSEPARATOR uppercase as secondary lookup. |
 | ENG-LR-003 | **P1** | Engine `basic_mode` default is False (engine prefers table mode) but Talend default is True (basic mode). |
@@ -226,7 +227,7 @@ The converter emits 12 per-feature needs_review entries (9 engine-unread + 3 def
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_stats()` | Total rows processed |
 | `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats()` | V1 counts displayed rows, not input rows |
 | `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats()` | Always 0 |
@@ -238,19 +239,19 @@ The converter emits 12 per-feature needs_review entries (9 engine-unread + 3 def
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | -- | -- | -- | No converter bugs. Engine cross-cutting bugs documented in CROSS_CUTTING_ISSUES.md. |
 
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | Converter uses gold standard naming: snake_case config keys, `_build_component_dict`, proper type_name. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | -- | -- | -- | Converter follows all gold standard patterns. |
 
 ### 6.4 Debug Artifacts
@@ -264,7 +265,7 @@ No concerns identified. tLogRow is a display-only component with no file I/O or 
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Module-level `logger = logging.getLogger(__name__)` in both converter and engine |
 | Level usage | Engine uses `logger.info()` for start/complete, `logger.warning()` for empty input, `logger.error()` for exceptions |
 | Sensitive data | No sensitive data exposure -- displays data that is already in the pipeline |
@@ -272,7 +273,7 @@ No concerns identified. tLogRow is a display-only component with no file I/O or 
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | None needed -- display component |
 | Exception chaining | Engine catches Exception in try/except, logs error, continues |
 | die_on_error handling | Not applicable -- tLogRow has no die_on_error parameter |
@@ -280,7 +281,7 @@ No concerns identified. tLogRow is a display-only component with no file I/O or 
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Full type hints in converter (ComponentResult return type) |
 | Parameter types | All parameters typed via _get_bool/_get_str helpers |
 
@@ -289,14 +290,14 @@ No concerns identified. tLogRow is a display-only component with no file I/O or 
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-LR-001 | **P2** | Engine uses `iterrows()` for all display formats. For large DataFrames, vectorized string conversion would be faster. |
 | PERF-LR-002 | **P3** | Table mode scans entire DataFrame to calculate column widths before printing. For large data with max_rows limit, only scanned portion widths are needed. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Engine supports pass-through in HYBRID mode since it does not modify data |
 | Memory threshold | Bounded by max_rows parameter (default 100) for display portion |
 | Large data handling | Pass-through is O(1) for data forwarding; display is O(max_rows) |
@@ -308,7 +309,7 @@ No concerns identified. tLogRow is a display-only component with no file I/O or 
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 33 | `tests/converters/talend_to_v1/components/test_log_row.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | 0 | None (covered by regression guard) |
@@ -316,7 +317,7 @@ No concerns identified. tLogRow is a display-only component with no file I/O or 
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-LR-001 | **P2** | No engine unit tests for LogRow component. Engine behavior (display modes, formatting, max_rows limiting) is untested. |
 
 ### 8.3 Recommended Test Cases
@@ -335,7 +336,7 @@ No concerns identified. tLogRow is a display-only component with no file I/O or 
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 0 | -- |
 | P1 | 3 | ENG-LR-001, ENG-LR-002, ENG-LR-003 |
 | P2 | 4 | ENG-LR-004, ENG-LR-005, ENG-LR-006, PERF-LR-001 |
@@ -345,7 +346,7 @@ No concerns identified. tLogRow is a display-only component with no file I/O or 
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
 | Engine (ENG) | 7 | ENG-LR-001 through ENG-LR-007 |
 | Bug (BUG) | 0 | -- |
@@ -383,9 +384,9 @@ Engine cross-cutting bugs (base_component.py `_update_global_map()` crash, Globa
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tLogRow/tLogRow_java.xml | Parameter definitions, defaults, RADIO groups, TABLE structure |
-| Official Talend docs | https://help.qlik.com/talend/en-US/components/8.0/logs-and-errors/tlogrow-standard-properties | Feature descriptions, behavioral notes |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | <https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tLogRow/tLogRow_java.xml> | Parameter definitions, defaults, RADIO groups, TABLE structure |
+| Official Talend docs | <https://help.qlik.com/talend/en-US/components/8.0/logs-and-errors/tlogrow-standard-properties> | Feature descriptions, behavioral notes |
 | Engine source | `src/v1/engine/components/transform/log_row.py` | Feature parity analysis |
 | Converter source | `src/converters/talend_to_v1/components/transform/log_row.py` | Converter audit |
 | Test source | `tests/converters/talend_to_v1/components/test_log_row.py` | Test coverage assessment |
@@ -393,7 +394,7 @@ Engine cross-cutting bugs (base_component.py `_update_global_map()` crash, Globa
 ## Appendix B: Engine Config Key Mapping
 
 | Converter Config Key | Engine Reads | Engine Config Key | Match? | Notes |
-|---------------------|-------------|-------------------|--------|-------|
+| --------------------- | ------------- | ------------------- | -------- | ------- |
 | `basic_mode` | Yes | `basic_mode` / `BASIC_MODE` | Yes | Engine checks both cases |
 | `table_print` | Yes | `table_print` / `TABLE_PRINT` | Yes | Engine checks both cases |
 | `vertical` | Yes | `vertical` / `VERTICAL` | Yes | Engine checks both cases |
