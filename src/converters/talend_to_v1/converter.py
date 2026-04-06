@@ -115,6 +115,9 @@ class TalendToV1Converter:
         for flow in flows:
             self._update_component_connections(components_map, flow)
 
+        # Step 6b: Propagate input schemas from upstream output schemas
+        self._propagate_input_schemas(components_map, flows)
+
         # Step 7-8: Parse triggers (trigger_mapper filters skipped components)
         component_ids: Set[str] = set(components_map.keys())
         trigger_result: TriggerResult = map_triggers(job.connections, component_ids)
@@ -255,6 +258,58 @@ class TalendToV1Converter:
         if to_comp in components_map:
             if flow_name not in components_map[to_comp]["inputs"]:
                 components_map[to_comp]["inputs"].append(flow_name)
+
+    # ------------------------------------------------------------------
+    # Step 6b: Schema propagation
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _propagate_input_schemas(
+        components_map: Dict[str, Dict[str, Any]],
+        flows: List[Dict[str, Any]],
+    ) -> None:
+        """Set each target component's schema.input from its upstream
+        component's schema.output, using the flow connection graph.
+
+        For components with multiple incoming flows, the input schema is
+        set from the first FLOW-type connection (primary data path).
+        Source components (no incoming flows) are left unchanged.
+        """
+        for flow in flows:
+            from_id = flow["from"]
+            to_id = flow["to"]
+
+            from_comp = components_map.get(from_id)
+            to_comp = components_map.get(to_id)
+
+            if not from_comp or not to_comp:
+                continue
+
+            from_schema = from_comp.get("schema")
+            to_schema = to_comp.get("schema")
+
+            # Skip if either component has no schema dict
+            if not isinstance(from_schema, dict) or not isinstance(to_schema, dict):
+                continue
+
+            upstream_output = from_schema.get("output")
+            if upstream_output is None:
+                continue
+
+            # Skip source components (empty input is intentional)
+            # and components that don't have an "input" key at all
+            if "input" not in to_schema:
+                continue
+
+            # Only overwrite if the target has incoming data (non-source)
+            # Sources have input=[] by design and no incoming flows,
+            # so they won't appear as a flow target anyway.
+            to_schema["input"] = list(upstream_output)
+
+            logger.debug(
+                "Schema propagation: %s.output -> %s.input (%d columns)",
+                from_id, to_id, len(upstream_output),
+            )
 
     # ------------------------------------------------------------------
     # Step 9: Subjob detection
