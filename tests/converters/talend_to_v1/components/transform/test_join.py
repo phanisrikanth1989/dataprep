@@ -38,6 +38,28 @@ def _make_schema_columns():
     }
 
 
+def _make_schema_with_reject():
+    """Return FLOW + REJECT schemas for testing."""
+    return {
+        "FLOW": [
+            SchemaColumn(name="emp_id", type="id_Integer", nullable=False, key=False),
+            SchemaColumn(name="name", type="id_String", nullable=False, length=100),
+            SchemaColumn(name="dept_id", type="id_String", nullable=False, length=10),
+            SchemaColumn(name="salary", type="id_Integer", nullable=False),
+            SchemaColumn(name="dept_name", type="id_String", nullable=False, length=50),
+            SchemaColumn(name="location", type="id_String", nullable=False, length=50),
+        ],
+        "REJECT": [
+            SchemaColumn(name="emp_id", type="id_Integer", nullable=False, key=False),
+            SchemaColumn(name="name", type="id_String", nullable=False, length=100),
+            SchemaColumn(name="dept_id", type="id_String", nullable=False, length=10),
+            SchemaColumn(name="salary", type="id_Integer", nullable=False),
+            SchemaColumn(name="dept_name", type="id_String", nullable=False, length=50),
+            SchemaColumn(name="location", type="id_String", nullable=False, length=50),
+        ],
+    }
+
+
 def _make_join_key_data(rows):
     """Generate JOIN_KEY TABLE data with stride-2 per row.
 
@@ -186,6 +208,29 @@ class TestSchema:
         assert len(schema["input"]) == 2
         assert schema["input"][0]["name"] == "id"
         assert schema["input"][1]["name"] == "name"
+
+    def test_no_reject_schema_when_absent(self):
+        """When REJECT metadata is absent, schema has no 'reject' key."""
+        node = _make_node(schema=_make_schema_columns())
+        result = JoinConverter().convert(node, [], {})
+        assert "reject" not in result.component["schema"]
+
+    def test_reject_schema_parsed(self):
+        """When REJECT metadata exists, schema includes 'reject' key."""
+        node = _make_node(schema=_make_schema_with_reject())
+        result = JoinConverter().convert(node, [], {})
+        schema = result.component["schema"]
+        assert "reject" in schema
+        assert len(schema["reject"]) == 6
+        reject_names = [c["name"] for c in schema["reject"]]
+        assert reject_names == ["emp_id", "name", "dept_id", "salary", "dept_name", "location"]
+
+    def test_reject_schema_columns_match_flow(self):
+        """REJECT schema columns typically mirror FLOW schema."""
+        node = _make_node(schema=_make_schema_with_reject())
+        result = JoinConverter().convert(node, [], {})
+        schema = result.component["schema"]
+        assert schema["output"] == schema["reject"]
 
 
 class TestNeedsReview:
