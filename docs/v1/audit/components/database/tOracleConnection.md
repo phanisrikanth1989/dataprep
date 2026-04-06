@@ -178,17 +178,17 @@ The converter uses the flat config dict pattern (no `_build_component_dict()`). 
 | 19 | `DATASOURCE_ALIAS` | Yes | `datasource_alias` | str, default "" |
 | 20 | `USE_SSL` | Yes | `use_ssl` | bool, default False |
 | 21 | `SSL_TRUSTSERVER_TRUSTSTORE` | Yes | `ssl_trustserver_truststore` | str, default "" |
-| 22 | `SSL_TRUSTSERVER_PASSWORD` | Yes | `ssl_trustserver_password` | str, default "" |
+| 22 | `SSL_TRUSTSERVER_PASSWORD` | **REMOVED** | -- | Removed for security -- password not carried into JSON |
 | 23 | `NEED_CLIENT_AUTH` | Yes | `need_client_auth` | bool, default False |
 | 24 | `SSL_KEYSTORE` | Yes | `ssl_keystore` | str, default "" |
-| 25 | `SSL_KEYSTORE_PASSWORD` | Yes | `ssl_keystore_password` | str, default "" |
+| 25 | `SSL_KEYSTORE_PASSWORD` | **REMOVED** | -- | Removed for security -- password not carried into JSON |
 | 26 | `DISABLE_CBC_PROTECTION` | Yes | `disable_cbc_protection` | bool, default True. NOTE: default TRUE |
 | 27 | `AUTO_COMMIT` | Yes | `auto_commit` | bool, default False |
 | 28 | `SUPPORT_NLS` | Yes | `support_nls` | bool, default False |
 | F1 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | bool, default False (framework) |
 | F2 | `LABEL` | Yes | `label` | str, default "" (framework) |
 
-**Summary**: 28 of 28 unique parameters extracted (100%), plus 2 framework params. Total: 30 config keys.
+**Summary**: 26 of 28 unique parameters extracted (2 SSL password params removed for security), plus 2 framework params. Total: 28 config keys.
 
 ### 4.2 Schema Extraction
 
@@ -278,7 +278,7 @@ None found.
 
 ### 6.5 Security
 
-Password parameters (`PASS`, `SSL_TRUSTSERVER_PASSWORD`, `SSL_KEYSTORE_PASSWORD`) are extracted as plain strings. In a production engine implementation, these should be handled securely (masked in logs, encrypted at rest).
+`SSL_TRUSTSERVER_PASSWORD` and `SSL_KEYSTORE_PASSWORD` parameters have been **REMOVED** from the converter to avoid carrying password values into JSON output. The main `PASS` parameter (database password) is still extracted as `password` -- in a production engine implementation, this should be handled securely (masked in logs, encrypted at rest).
 
 ### 6.6 Logging Quality
 

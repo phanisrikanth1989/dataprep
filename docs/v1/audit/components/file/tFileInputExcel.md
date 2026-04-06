@@ -45,7 +45,7 @@
 | Performance & Memory | **G** | 0 | 1 | 1 | 1 | Streaming mode works; batch/streaming auto-detection; large spreadsheet memory pressure |
 | Testing | **Y** | 0 | 1 | 0 | 0 | 83 converter tests (Green); zero engine unit tests (Yellow per scoring rules) |
 
-**Overall: GREEN -- Converter production-ready; engine has known gaps documented via needs_review**
+Overall: GREEN -- Converter production-ready; engine has known gaps documented via needs_review
 
 **Top Actions**: Engine tests needed for Yellow->Green testing; password decryption; REJECT flow; remove dead code
 
@@ -150,7 +150,7 @@ The `FileInputExcelConverter` in `src/converters/talend_to_v1/components/file/fi
 | ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `VERSION_2007` | Yes | `version_2007` | bool, default False |
 | 2 | `FILENAME` | Yes | `filepath` | str, default "" |
-| 3 | `PASSWORD` | Yes | `password` | str, default "" |
+| 3 | `PASSWORD` | Yes | `password` | str, always empty -- cleared for security |
 | 4 | `ALL_SHEETS` | Yes | `all_sheets` | bool, default False |
 | 5 | `SHEETLIST` | Yes | `sheetlist` | TABLE, module-level `_parse_sheetlist()` |
 | 6 | `HEADER` | Yes | `header` | int, default 0 |

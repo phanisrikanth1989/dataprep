@@ -255,9 +255,10 @@ class TestParameterExtraction:
         assert result.component["config"]["version_2007"] is True
 
     def test_password_extracted(self):
+        """PASSWORD is always cleared to empty string for security."""
         node = _make_node(params={"PASSWORD": '"secret"'})
         result = FileInputExcelConverter().convert(node, [], {})
-        assert result.component["config"]["password"] == "secret"
+        assert result.component["config"]["password"] == ""
 
     def test_all_sheets_true(self):
         node = _make_node(params={"ALL_SHEETS": "true"})

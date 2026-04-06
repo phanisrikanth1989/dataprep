@@ -44,7 +44,7 @@
 | Performance & Memory | **G** | 0 | 0 | 0 | 1 | `zipfile.write()` uses constant memory; `os.walk()` builds full file tree in memory for large directories |
 | Testing | **Y** | 0 | 0 | 1 | 0 | 55 converter unit tests across 10 test classes per gold standard; integration + regression guard passing; engine unit tests missing (P2) |
 
-**Overall: Yellow -- Converter fully standardized (Green); engine has config key mismatches and missing features documented via needs_review; engine/code quality gaps keep overall at Yellow**
+Overall: Yellow -- Converter fully standardized (Green); engine has config key mismatches and missing features documented via needs_review; engine/code quality gaps keep overall at Yellow
 
 **Top Actions:**
 
@@ -155,7 +155,7 @@ The `talend_to_v1` converter uses a dedicated `FileArchiveConverter` class regis
 | 12 | `ENCRYPT_FILES` | Yes | `encrypt_files` | `_get_bool()`, default `False` |
 | 13 | `ENCRYPT_METHOD` | Yes | `encrypt_method` | `_get_str()`, default `"ZIP4J_STANDARD"` |
 | 14 | `AES_KEY_STRENGTH` | Yes | `aes_key_strength` | `_get_str()`, default `"AES256"` |
-| 15 | `PASSWORD` | Yes | `password` | `_get_str()`, default `""` |
+| 15 | `PASSWORD` | Yes | `password` | `_get_str()` → always empty -- cleared for security |
 | 16 | `ZIP64_MODE` | Yes | `zip64_mode` | `_get_str()`, default `"ASNEEDED"` |
 | 17 | `USE_SYNC_FLUSH` | Yes | `use_sync_flush` | `_get_bool()`, default `False` (advanced) |
 | F1 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Framework param, default `False` |

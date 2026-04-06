@@ -17,7 +17,7 @@ Config mapping (17 params + framework):
   ENCRYPT_FILES    -> encrypt_files    (bool, default False)
   ENCRYPT_METHOD   -> encrypt_method   (str, default "ZIP4J_STANDARD")
   AES_KEY_STRENGTH -> aes_key_strength (str, default "AES256")
-  PASSWORD         -> password         (str, default "")
+  PASSWORD         -> password         (str, always empty -- cleared for security)
   ZIP64_MODE       -> zip64_mode       (str, default "ASNEEDED")
   USE_SYNC_FLUSH   -> use_sync_flush   (bool, default False)  # advanced
   --- framework ---
@@ -95,7 +95,7 @@ class FileArchiveConverter(ComponentConverter):
         config["encrypt_files"] = self._get_bool(node, "ENCRYPT_FILES", False)
         config["encrypt_method"] = self._get_str(node, "ENCRYPT_METHOD", "ZIP4J_STANDARD")
         config["aes_key_strength"] = self._get_str(node, "AES_KEY_STRENGTH", "AES256")
-        config["password"] = self._get_str(node, "PASSWORD", "")
+        config["password"] = ""  # Always empty -- never carry passwords into JSON
         config["zip64_mode"] = self._get_str(node, "ZIP64_MODE", "ASNEEDED")
 
         # ---- 7. Advanced parameters ----
