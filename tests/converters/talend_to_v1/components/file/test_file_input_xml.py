@@ -159,18 +159,6 @@ class TestDefaults:
         result = FileInputXMLConverter().convert(node, [], {})
         assert result.component["config"]["encoding"] == "ISO-8859-15"
 
-    def test_tmp_filename_default(self):
-        """Default tmp_filename is empty string."""
-        node = _make_node()
-        result = FileInputXMLConverter().convert(node, [], {})
-        assert result.component["config"]["tmp_filename"] == ""
-
-    def test_schema_opt_num_default(self):
-        """Default schema_opt_num is 100."""
-        node = _make_node()
-        result = FileInputXMLConverter().convert(node, [], {})
-        assert result.component["config"]["schema_opt_num"] == 100
-
 
 class TestParameterExtraction:
     """Verify each parameter is correctly extracted from XML params."""
@@ -258,18 +246,6 @@ class TestParameterExtraction:
         node = _make_node(params={"FIELD_SEPARATOR": '"|"'})
         result = FileInputXMLConverter().convert(node, [], {})
         assert result.component["config"]["field_separator"] == "|"
-
-    def test_tmp_filename_extracted(self):
-        """TMP_FILENAME is extracted."""
-        node = _make_node(params={"TMP_FILENAME": '"/tmp/temp.xml"'})
-        result = FileInputXMLConverter().convert(node, [], {})
-        assert result.component["config"]["tmp_filename"] == "/tmp/temp.xml"
-
-    def test_schema_opt_num_extracted(self):
-        """SCHEMA_OPT_NUM is extracted as int."""
-        node = _make_node(params={"SCHEMA_OPT_NUM": '"200"'})
-        result = FileInputXMLConverter().convert(node, [], {})
-        assert result.component["config"]["schema_opt_num"] == 200
 
 
 class TestMappingTable:
@@ -401,8 +377,8 @@ class TestNeedsReview:
         node = _make_node()
         result = FileInputXMLConverter().convert(node, [], {})
         # generation_mode, advanced_separator, check_date, use_separator,
-        # field_separator, tmp_filename, schema_opt_num = 7 entries
-        assert len(result.needs_review) == 7
+        # field_separator = 5 entries
+        assert len(result.needs_review) == 5
 
     def test_needs_review_severity(self):
         """All needs_review entries have severity engine_gap."""
@@ -441,26 +417,12 @@ class TestNeedsReview:
         issues = [e["issue"] for e in result.needs_review]
         assert any("generation_mode" in i for i in issues)
 
-    def test_tmp_filename_in_needs_review(self):
-        """tmp_filename engine gap is documented."""
-        node = _make_node()
-        result = FileInputXMLConverter().convert(node, [], {})
-        issues = [e["issue"] for e in result.needs_review]
-        assert any("tmp_filename" in i for i in issues)
-
-    def test_schema_opt_num_in_needs_review(self):
-        """schema_opt_num engine gap is documented."""
-        node = _make_node()
-        result = FileInputXMLConverter().convert(node, [], {})
-        issues = [e["issue"] for e in result.needs_review]
-        assert any("schema_opt_num" in i for i in issues)
-
 
 class TestCompleteness:
     """Verify all expected config keys are present."""
 
     def test_all_config_keys_present(self):
-        """All 19 config keys (15 unique + 2 framework + 2 new) are present."""
+        """All 17 config keys (15 unique + 2 framework) are present."""
         node = _make_node(schema=_make_schema_columns())
         result = FileInputXMLConverter().convert(node, [], {})
         expected_keys = {
@@ -468,7 +430,6 @@ class TestCompleteness:
             "encoding", "ignore_ns", "ignore_dtd", "generation_mode",
             "advanced_separator", "thousands_separator", "decimal_separator",
             "check_date", "use_separator", "field_separator",
-            "tmp_filename", "schema_opt_num",
             "tstatcatcher_stats", "label",
         }
         actual_keys = set(result.component["config"].keys())
@@ -484,7 +445,6 @@ class TestCompleteness:
             "encoding", "ignore_ns", "ignore_dtd", "generation_mode",
             "advanced_separator", "thousands_separator", "decimal_separator",
             "check_date", "use_separator", "field_separator",
-            "tmp_filename", "schema_opt_num",
             "tstatcatcher_stats", "label",
         }
         actual_keys = set(result.component["config"].keys())

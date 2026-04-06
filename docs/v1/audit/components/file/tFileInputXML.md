@@ -37,7 +37,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
-| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 19 config keys extracted (17 unique + 2 framework). MAPPING triplet parser. 7 per-feature needs_review. TMP_FILENAME and SCHEMA_OPT_NUM added. |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 18 config keys extracted (16 unique + 2 framework). MAPPING triplet parser. 6 per-feature needs_review. TMP_FILENAME and SCHEMA_OPT_NUM removed. |
 | Engine Feature Parity | **Y** | 1 | 4 | 3 | 2 | No REJECT flow; no SAX/streaming; no date validation; namespace detection only root NS; bare `@attr` XPath broken |
 | Code Quality | **Y** | 1 | 3 | 4 | 2 | Cross-cutting `_update_global_map()` crash; `_validate_config()` dead code; parent traversal O(n^2); `zip()` drops columns silently |
 | Performance & Memory | **Y** | 0 | 1 | 2 | 1 | Full DOM parse via ElementTree; no SAX streaming option; O(n) parent scan per `../` per column per row |
@@ -146,12 +146,12 @@ The converter uses `@REGISTRY.register("tFileInputXML")` decorator-based dispatc
 | 13 | `CHECK_DATE` | Yes | `check_date` | Default: False |
 | 14 | `USE_SEPARATOR` | Yes | `use_separator` | Default: False |
 | 15 | `FIELD_SEPARATOR` | Yes | `field_separator` | Default: "," |
-| 16 | `TMP_FILENAME` | Yes | `tmp_filename` | Default: "" (newly added) |
+| 16 | `TMP_FILENAME` | **REMOVED** | ~~tmp_filename~~ | Hidden/design-time param -- removed from converter |
 | 17 | `SCHEMA_OPT_NUM` | **REMOVED** | ~~schema_opt_num~~ | Hidden/design-time param -- removed from converter |
 | 18 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Framework param |
 | 19 | `LABEL` | Yes | `label` | Framework param |
 
-**Summary**: 18 of 19 parameters extracted. 1 hidden param removed (SCHEMA_OPT_NUM).
+**Summary**: 17 of 19 parameters extracted. 2 hidden params removed (SCHEMA_OPT_NUM, TMP_FILENAME).
 
 ### 4.2 Schema Extraction
 
@@ -183,7 +183,6 @@ None. All parameters correctly extracted with proper defaults and types.
 | 3 | `check_date` | Engine does not validate date fields during XML extraction | engine_gap |
 | 4 | `use_separator` | Engine does not support field separator concatenation for XML | engine_gap |
 | 5 | `field_separator` | Engine does not read field_separator config key | engine_gap |
-| 6 | `tmp_filename` | Engine does not read tmp_filename config key | engine_gap |
 
 ---
 
