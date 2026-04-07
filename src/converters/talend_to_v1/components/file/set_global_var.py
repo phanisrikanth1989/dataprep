@@ -14,6 +14,7 @@ from typing import Any, Dict, List
 
 from ..base import ComponentConverter, ComponentResult, TalendConnection, TalendNode
 from ..registry import REGISTRY
+from ...expression_converter import ExpressionConverter
 
 logger = logging.getLogger(__name__)
 
@@ -73,21 +74,27 @@ class SetGlobalVarConverter(ComponentConverter):
 
         # ---- 1. TABLE parameters ----
         raw_variables = node.params.get("VARIABLES", [])
+        variables = _parse_variables(raw_variables)
+
+        # Mark VALUE expressions with {{java}} when they contain Java code
+        for var in variables:
+            if "value" in var:
+                var["value"] = ExpressionConverter.mark_java_expression(var["value"])
+
         config: Dict[str, Any] = {}
-        config["variables"] = _parse_variables(raw_variables)
+        config["variables"] = variables
+        config["requires_java_bridge"] = True
 
         # ---- 2. Framework parameters (ALWAYS LAST) ----
         config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
         config["label"] = self._get_str(node, "LABEL", "")
 
         # ---- 3. Engine gap needs_review entries ----
-        # Engine reads VARIABLES (uppercase) but converter outputs 'variables' (lowercase)
-        # Engine expects {name, value} dicts but converter outputs {key, value}
         needs_review.append({
             "issue": (
-                "Engine reads config key 'VARIABLES' (uppercase) with {name, value} dicts "
-                "but converter outputs 'variables' (lowercase) with {key, value} dicts -- "
-                "variables may not be found at runtime until engine is aligned"
+                "tSetGlobalVar VALUE expressions are Java code that must be "
+                "executed via Java Bridge at runtime. Values containing Java "
+                "expressions are marked with {{java}} prefix."
             ),
             "component": node.component_id,
             "severity": "engine_gap",

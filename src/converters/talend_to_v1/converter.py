@@ -33,6 +33,7 @@ _FLOW_CONNECTOR_TYPES = frozenset({
 _JAVA_COMPONENT_TYPES = frozenset({
     "tJavaRow", "tJava", "JavaRowComponent",
     "JavaComponent", "JavaRow", "Java",
+    "SetGlobalVar",
 })
 
 
