@@ -10,6 +10,7 @@ Config mapping (9 params total):
   ONLY_ONCE_EACH_DUPLICATED_KEY           -> only_once_each_duplicated_key (bool, default False)
   IS_VIRTUAL_COMPONENT                    -> is_virtual_component (bool, default False)
   BUFFER_SIZE                             -> buffer_size (str, default "M")
+  TEMP_DIRECTORY                           -> temp_directory (str, default "")
   CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL   -> change_hash_and_equals_for_bigdecimal (bool, default False)
   TSTATCATCHER_STATS                      -> tstatcatcher_stats (bool, default False)
   LABEL                                   -> label (str, default ""
@@ -126,6 +127,7 @@ class UniqueRowConverter(ComponentConverter):
         # ---- 3. Advanced parameters ----
         is_virtual = self._get_bool(node, "IS_VIRTUAL_COMPONENT", default=False)
         buffer_size = self._get_str(node, "BUFFER_SIZE", default="M")
+        temp_directory = self._get_str(node, "TEMP_DIRECTORY", default="")
         change_hash = self._get_bool(node, "CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL", default=False)
 
         # ---- 4. Framework parameters (ALWAYS LAST) ----
@@ -140,6 +142,7 @@ class UniqueRowConverter(ComponentConverter):
             "only_once_each_duplicated_key": only_once,
             "is_virtual_component": is_virtual,
             "buffer_size": buffer_size,
+            "temp_directory": temp_directory,
             "change_hash_and_equals_for_bigdecimal": change_hash,
             "tstatcatcher_stats": tstatcatcher_stats,
             "label": label,

@@ -37,7 +37,7 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
-| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 11 of 11 params extracted. UNIQUE_KEY TABLE parsed with stride-3. Per-column case sensitivity converted to global bool. 4 conditional needs_review entries for engine gaps. |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 10 of 11 params extracted (1 phantom param excluded). UNIQUE_KEY TABLE parsed with stride-3. Per-column case sensitivity converted to global bool. 4 conditional needs_review entries for engine gaps. |
 | Engine Feature Parity | **Y** | 0 | 3 | 2 | 1 | No per-column case sensitivity; no IS_VIRTUAL_COMPONENT disk mode; no BigDecimal hash normalization; UNIQUE/DUPLICATE flow routing via outputs list not named connectors |
 | Code Quality | **Y** | 1 | 0 | 3 | 2 | `_update_global_map()` crash (cross-cutting P0); temp column collision risk; dead `_validate_config()`; naming inconsistencies |
 | Performance & Memory | **Y** | 0 | 1 | 1 | 0 | Full DataFrame copy on every execution; no disk-based fallback for large datasets |
@@ -154,13 +154,13 @@ The converter (`UniqueRowConverter`) uses the `@REGISTRY.register("tUniqueRow", 
 | 4 | `ONLY_ONCE_EACH_DUPLICATED_KEY` | Yes | `only_once_each_duplicated_key` | Bool, default false. Also derives `keep` (first/last). |
 | 5 | `IS_VIRTUAL_COMPONENT` | Yes | `is_virtual_component` | Bool, default false |
 | 6 | `BUFFER_SIZE` | Yes | `buffer_size` | Str, default "M" |
-| 7 | `TEMP_DIRECTORY` | **REMOVED** | ~~temp_directory~~ | Hidden/design-time param -- removed from converter |
+| 7 | `TEMP_DIRECTORY` | Yes | `temp_directory` | Str, default "". Directory for temporary files in disk-based mode. |
 | 8 | `CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL` | Yes | `change_hash_and_equals_for_bigdecimal` | Bool, default false. needs_review when true. |
 | 9 | `CONNECTION_FORMAT` | **REMOVED** | ~~connection_format~~ | Phantom param (not in _java.xml) -- removed from converter |
 | 10 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Framework param, bool, default false |
 | 11 | `LABEL` | Yes | `label` | Framework param, str, default "" |
 
-**Summary**: 9 of 11 parameters extracted. 2 hidden/phantom params removed (TEMP_DIRECTORY, CONNECTION_FORMAT).
+**Summary**: 10 of 11 parameters extracted. 1 phantom param removed (CONNECTION_FORMAT).
 
 ### 4.2 Schema Extraction
 
