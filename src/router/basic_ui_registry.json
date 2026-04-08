@@ -3,32 +3,6 @@
     "label": "File Input Delimited",
     "icon": "file-text",
     "category": "File / Input",
-    "connectors": {
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -353,32 +327,6 @@
     "label": "File Input Excel",
     "icon": "file-spreadsheet",
     "category": "File / Input",
-    "connectors": {
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -720,32 +668,6 @@
     "label": "File Input JSON",
     "icon": "file-json",
     "category": "File / Input",
-    "connectors": {
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -978,32 +900,6 @@
     "label": "File Input XML",
     "icon": "file-code",
     "category": "File / Input",
-    "connectors": {
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -1211,32 +1107,6 @@
     "label": "File Input Positional",
     "icon": "file-text",
     "category": "File / Input",
-    "connectors": {
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -1491,32 +1361,6 @@
     "label": "File Input Raw",
     "icon": "file",
     "category": "File / Input",
-    "connectors": {
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -1619,32 +1463,6 @@
     "label": "File Input Properties",
     "icon": "file-cog",
     "category": "File / Input",
-    "connectors": {
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -1767,32 +1585,6 @@
     "label": "File Input MS XML",
     "icon": "file-code",
     "category": "File / Input",
-    "connectors": {
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -1953,32 +1745,6 @@
     "label": "File Input Full Row",
     "icon": "file-text",
     "category": "File / Input",
-    "connectors": {
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -2108,34 +1874,6 @@
     "label": "File Output Delimited",
     "icon": "file-output",
     "category": "File / Output",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -2415,34 +2153,6 @@
     "label": "File Output Excel",
     "icon": "file-spreadsheet",
     "category": "File / Output",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -2760,34 +2470,6 @@
     "label": "Advanced File Output XML",
     "icon": "file-code",
     "category": "File / Output",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -3180,34 +2862,6 @@
     "label": "File Output Positional",
     "icon": "file-text",
     "category": "File / Output",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -3455,34 +3109,6 @@
     "label": "File Output EBCDIC",
     "icon": "file-binary",
     "category": "File / Output",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -3577,26 +3203,6 @@
     "label": "File Copy",
     "icon": "copy",
     "category": "File / Utility",
-    "connectors": {
-      "inputs": [],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -3722,26 +3328,6 @@
     "label": "File Delete",
     "icon": "trash",
     "category": "File / Utility",
-    "connectors": {
-      "inputs": [],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -3817,26 +3403,6 @@
     "label": "File Exist",
     "icon": "file-search",
     "category": "File / Utility",
-    "connectors": {
-      "inputs": [],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -3876,32 +3442,6 @@
     "label": "File List",
     "icon": "folder-open",
     "category": "File / Utility",
-    "connectors": {
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "iterate",
-          "type": "iterate",
-          "label": "Iterate"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -4081,26 +3621,6 @@
     "label": "File Archive",
     "icon": "archive",
     "category": "File / Utility",
-    "connectors": {
-      "inputs": [],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -4300,26 +3820,6 @@
     "label": "File Unarchive",
     "icon": "archive",
     "category": "File / Utility",
-    "connectors": {
-      "inputs": [],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -4449,26 +3949,6 @@
     "label": "File Touch",
     "icon": "file-plus",
     "category": "File / Utility",
-    "connectors": {
-      "inputs": [],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -4515,26 +3995,6 @@
     "label": "File Properties",
     "icon": "file-info",
     "category": "File / Utility",
-    "connectors": {
-      "inputs": [],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -4581,26 +4041,6 @@
     "label": "File Row Count",
     "icon": "hash",
     "category": "File / Utility",
-    "connectors": {
-      "inputs": [],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -4688,32 +4128,6 @@
     "label": "Fixed Flow Input",
     "icon": "table",
     "category": "File / Input",
-    "connectors": {
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -4850,26 +4264,6 @@
     "label": "Set Global Variable",
     "icon": "variable",
     "category": "File / Utility",
-    "connectors": {
-      "inputs": [],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -4921,26 +4315,6 @@
     "label": "Oracle Connection",
     "icon": "database",
     "category": "Database / Oracle",
-    "connectors": {
-      "inputs": [],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -5238,32 +4612,6 @@
     "label": "Oracle Input",
     "icon": "database",
     "category": "Database / Oracle",
-    "connectors": {
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -5577,34 +4925,6 @@
     "label": "Oracle Output",
     "icon": "database",
     "category": "Database / Oracle",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -5888,40 +5208,6 @@
     "label": "Oracle Row",
     "icon": "database",
     "category": "Database / Oracle",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": false,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -6228,26 +5514,6 @@
     "label": "Oracle Commit",
     "icon": "database",
     "category": "Database / Oracle",
-    "connectors": {
-      "inputs": [],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -6294,26 +5560,6 @@
     "label": "Oracle Close",
     "icon": "database",
     "category": "Database / Oracle",
-    "connectors": {
-      "inputs": [],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -6353,26 +5599,6 @@
     "label": "Oracle Rollback",
     "icon": "database",
     "category": "Database / Oracle",
-    "connectors": {
-      "inputs": [],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -6419,32 +5645,6 @@
     "label": "Oracle Stored Procedure",
     "icon": "database",
     "category": "Database / Oracle",
-    "connectors": {
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -6735,34 +5935,6 @@
     "label": "Oracle Bulk Exec",
     "icon": "database",
     "category": "Database / Oracle",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -7182,26 +6354,6 @@
     "label": "MS SQL Connection",
     "icon": "database",
     "category": "Database / MSSQL",
-    "connectors": {
-      "inputs": [],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -7391,32 +6543,6 @@
     "label": "MS SQL Input",
     "icon": "database",
     "category": "Database / MSSQL",
-    "connectors": {
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -7645,34 +6771,6 @@
     "label": "Context Load",
     "icon": "layers",
     "category": "Context",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": false,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -7753,40 +6851,6 @@
     "label": "Aggregate Row",
     "icon": "bar-chart",
     "category": "Aggregate",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -7895,45 +6959,6 @@
     "label": "Unique Row",
     "icon": "filter",
     "category": "Aggregate",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Unique"
-        },
-        {
-          "name": "duplicate",
-          "type": "row",
-          "label": "Duplicate"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -8018,32 +7043,6 @@
     "label": "For Each",
     "icon": "repeat",
     "category": "Iterate",
-    "connectors": {
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "iterate",
-          "type": "iterate",
-          "label": "Iterate"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -8090,40 +7089,6 @@
     "label": "Flow to Iterate",
     "icon": "repeat",
     "category": "Iterate",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "iterate",
-          "type": "iterate",
-          "label": "Iterate"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -8185,16 +7150,6 @@
     "label": "PreJob",
     "icon": "play",
     "category": "Control",
-    "connectors": {
-      "inputs": [],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk"
-        ],
-        "incoming": []
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -8226,16 +7181,6 @@
     "label": "PostJob",
     "icon": "square",
     "category": "Control",
-    "connectors": {
-      "inputs": [],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk"
-        ],
-        "incoming": []
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -8267,26 +7212,6 @@
     "label": "Die",
     "icon": "alert-circle",
     "category": "Control",
-    "connectors": {
-      "inputs": [],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -8347,26 +7272,6 @@
     "label": "Warn",
     "icon": "alert-triangle",
     "category": "Control",
-    "connectors": {
-      "inputs": [],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -8420,26 +7325,6 @@
     "label": "Sleep",
     "icon": "clock",
     "category": "Control",
-    "connectors": {
-      "inputs": [],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -8479,32 +7364,6 @@
     "label": "Loop",
     "icon": "refresh-cw",
     "category": "Control",
-    "connectors": {
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "iterate",
-          "type": "iterate",
-          "label": "Iterate"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -8629,26 +7488,6 @@
     "label": "Parallelize",
     "icon": "git-branch",
     "category": "Control",
-    "connectors": {
-      "inputs": [],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -8711,26 +7550,6 @@
     "label": "Run Job",
     "icon": "external-link",
     "category": "Control",
-    "connectors": {
-      "inputs": [],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -8931,26 +7750,6 @@
     "label": "Send Mail",
     "icon": "mail",
     "category": "Control",
-    "connectors": {
-      "inputs": [],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -9246,52 +8045,6 @@
     "label": "Map",
     "icon": "shuffle",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        },
-        {
-          "name": "lookup",
-          "type": "row",
-          "label": "Lookup",
-          "required": false,
-          "maxConnections": -1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        },
-        {
-          "name": "reject",
-          "type": "row",
-          "label": "Reject"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -9344,45 +8097,6 @@
     "label": "Filter Rows",
     "icon": "filter",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        },
-        {
-          "name": "reject",
-          "type": "row",
-          "label": "Reject"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -9478,40 +8192,6 @@
     "label": "Filter Columns",
     "icon": "columns",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -9543,52 +8223,6 @@
     "label": "Join",
     "icon": "git-merge",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        },
-        {
-          "name": "lookup",
-          "type": "row",
-          "label": "Lookup",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        },
-        {
-          "name": "reject",
-          "type": "row",
-          "label": "Reject"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -9676,40 +8310,6 @@
     "label": "Sort Row",
     "icon": "arrow-up-down",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -9830,40 +8430,6 @@
     "label": "Unite",
     "icon": "git-merge",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": -1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -9895,41 +8461,6 @@
     "label": "Replicate",
     "icon": "copy",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "maxConnections": -1
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -9961,40 +8492,6 @@
     "label": "Sample Row",
     "icon": "scissors",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -10034,40 +8531,6 @@
     "label": "Split Row",
     "icon": "split",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -10118,40 +8581,6 @@
     "label": "Pivot to Columns Delimited",
     "icon": "table",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -10376,40 +8805,6 @@
     "label": "Log Row",
     "icon": "terminal",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -10546,40 +8941,6 @@
     "label": "Normalize",
     "icon": "unfold-vertical",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -10686,40 +9047,6 @@
     "label": "Denormalize",
     "icon": "fold-vertical",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -10777,40 +9104,6 @@
     "label": "Convert Type",
     "icon": "type",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -10882,34 +9175,6 @@
     "label": "Hash Output",
     "icon": "hash",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -11022,40 +9287,6 @@
     "label": "Memorize Rows",
     "icon": "layers",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -11108,26 +9339,6 @@
     "label": "Change File Encoding",
     "icon": "file-text",
     "category": "Transform",
-    "connectors": {
-      "inputs": [],
-      "outputs": [],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -11268,45 +9479,6 @@
     "label": "Extract Delimited Fields",
     "icon": "split",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        },
-        {
-          "name": "reject",
-          "type": "row",
-          "label": "Reject"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -11417,45 +9589,6 @@
     "label": "Extract Positional Fields",
     "icon": "split",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        },
-        {
-          "name": "reject",
-          "type": "row",
-          "label": "Reject"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -11595,45 +9728,6 @@
     "label": "Extract XML Fields",
     "icon": "file-code",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        },
-        {
-          "name": "reject",
-          "type": "row",
-          "label": "Reject"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -11720,45 +9814,6 @@
     "label": "Extract JSON Fields",
     "icon": "file-json",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        },
-        {
-          "name": "reject",
-          "type": "row",
-          "label": "Reject"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -11958,45 +10013,6 @@
     "label": "Extract Regex Fields",
     "icon": "regex",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        },
-        {
-          "name": "reject",
-          "type": "row",
-          "label": "Reject"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -12058,40 +10074,6 @@
     "label": "Parse Record Set",
     "icon": "table",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -12145,32 +10127,6 @@
     "label": "Row Generator",
     "icon": "zap",
     "category": "Transform",
-    "connectors": {
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -12228,40 +10184,6 @@
     "label": "Unpivot Row",
     "icon": "unfold-vertical",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -12314,40 +10236,6 @@
     "label": "Replace",
     "icon": "find-replace",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -12484,52 +10372,6 @@
     "label": "XML Map",
     "icon": "file-code",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        },
-        {
-          "name": "lookup",
-          "type": "row",
-          "label": "Lookup",
-          "required": false,
-          "maxConnections": -1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        },
-        {
-          "name": "reject",
-          "type": "row",
-          "label": "Reject"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -12593,40 +10435,6 @@
     "label": "Aggregate Sorted Row",
     "icon": "bar-chart",
     "category": "Transform",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -12714,40 +10522,6 @@
     "label": "Java",
     "icon": "code",
     "category": "Transform / Code",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": false,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -12794,45 +10568,6 @@
     "label": "Java Row",
     "icon": "code",
     "category": "Transform / Code",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        },
-        {
-          "name": "reject",
-          "type": "row",
-          "label": "Reject"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -12879,40 +10614,6 @@
     "label": "Python",
     "icon": "code",
     "category": "Transform / Code",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": false,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -12952,45 +10653,6 @@
     "label": "Python Row",
     "icon": "code",
     "category": "Transform / Code",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        },
-        {
-          "name": "reject",
-          "type": "row",
-          "label": "Reject"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -13030,40 +10692,6 @@
     "label": "Python DataFrame",
     "icon": "code",
     "category": "Transform / Code",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
@@ -13103,40 +10731,6 @@
     "label": "Swift Transformer",
     "icon": "zap",
     "category": "Transform / Code",
-    "connectors": {
-      "inputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main",
-          "required": true,
-          "maxConnections": 1
-        }
-      ],
-      "outputs": [
-        {
-          "name": "main",
-          "type": "row",
-          "label": "Main"
-        }
-      ],
-      "triggers": {
-        "outgoing": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ],
-        "incoming": [
-          "OnComponentOk",
-          "OnComponentError",
-          "OnSubjobOk",
-          "OnSubjobError",
-          "RunIf"
-        ]
-      }
-    },
     "groups": [
       {
         "id": "basic",
