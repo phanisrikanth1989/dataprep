@@ -339,13 +339,6 @@
             "default": false
           }
         ]
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -706,13 +699,6 @@
           "key": "configure_inflation_ratio",
           "eq": true
         }
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -964,13 +950,6 @@
         "type": "checkbox",
         "default": true,
         "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -1194,13 +1173,6 @@
       {
         "key": "check_date",
         "label": "Check Date",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
         "type": "checkbox",
         "default": false,
         "group": "advanced"
@@ -1477,13 +1449,6 @@
         "type": "checkbox",
         "default": false,
         "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -1605,13 +1570,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -1753,13 +1711,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -1939,13 +1890,6 @@
             "label": "SAX"
           }
         ]
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -2094,13 +2038,6 @@
           "key": "random",
           "eq": true
         }
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -2398,13 +2335,6 @@
       {
         "key": "file_exist_exception",
         "label": "File Exist Exception",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
         "type": "checkbox",
         "default": false,
         "group": "advanced"
@@ -2743,13 +2673,6 @@
       {
         "key": "use_shared_strings_table",
         "label": "Use Shared Strings Table",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
         "type": "checkbox",
         "default": false,
         "group": "advanced"
@@ -3166,13 +3089,6 @@
         "type": "checkbox",
         "default": false,
         "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -3441,13 +3357,6 @@
         "type": "checkbox",
         "default": false,
         "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -3563,13 +3472,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -3708,13 +3610,6 @@
         "type": "checkbox",
         "default": false,
         "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -3803,13 +3698,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -3862,13 +3750,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -4064,13 +3945,6 @@
       {
         "key": "format_filepath_to_slash",
         "label": "Format Path to /",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
         "type": "checkbox",
         "default": false,
         "group": "advanced"
@@ -4286,13 +4160,6 @@
           }
         ],
         "allowCustom": true
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -4435,13 +4302,6 @@
           "key": "use_encoding",
           "eq": true
         }
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -4501,13 +4361,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -4567,13 +4420,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -4674,13 +4520,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -4836,13 +4675,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -4907,13 +4739,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -5221,13 +5046,6 @@
       {
         "key": "support_nls",
         "label": "Support NLS",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
         "type": "checkbox",
         "default": false,
         "group": "advanced"
@@ -5563,13 +5381,6 @@
         "type": "checkbox",
         "default": false,
         "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -5871,13 +5682,6 @@
       {
         "key": "support_nls",
         "label": "Support NLS",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
         "type": "checkbox",
         "default": false,
         "group": "advanced"
@@ -6214,13 +6018,6 @@
         "type": "checkbox",
         "default": false,
         "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -6280,13 +6077,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -6339,13 +6129,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -6405,13 +6188,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -6718,13 +6494,6 @@
       {
         "key": "support_nls",
         "label": "Support NLS",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
         "type": "checkbox",
         "default": false,
         "group": "advanced"
@@ -7168,13 +6937,6 @@
         "type": "checkbox",
         "default": false,
         "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -7374,13 +7136,6 @@
       {
         "key": "share_identity_setting",
         "label": "Share Identity Setting",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
         "type": "checkbox",
         "default": false,
         "group": "advanced"
@@ -7631,13 +7386,6 @@
           "key": "set_query_timeout",
           "eq": true
         }
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -7738,13 +7486,6 @@
         "label": "Not Load Old Variable",
         "type": "text",
         "default": "WARNING",
-        "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
         "group": "advanced"
       }
     ]
@@ -7881,13 +7622,6 @@
         "type": "checkbox",
         "default": false,
         "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -8004,13 +7738,6 @@
         "type": "checkbox",
         "default": false,
         "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -8076,13 +7803,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -8171,13 +7891,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -8212,13 +7925,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -8253,13 +7959,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -8333,13 +8032,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -8406,13 +8098,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -8465,13 +8150,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -8615,13 +8293,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -8697,13 +8368,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -8914,13 +8578,6 @@
       {
         "key": "load_context_from_file",
         "label": "Load Context from File",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
         "type": "checkbox",
         "default": false,
         "group": "advanced"
@@ -9232,13 +8889,6 @@
             "type": "text"
           }
         ]
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -9329,13 +8979,6 @@
         "label": "Change Hash for BigDecimal",
         "type": "checkbox",
         "default": true,
-        "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
         "group": "advanced"
       }
     ]
@@ -9464,13 +9107,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -9529,13 +9165,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -9662,13 +9291,6 @@
             "type": "text"
           }
         ]
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -9816,13 +9438,6 @@
           "key": "external",
           "eq": true
         }
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -9881,13 +9496,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -9947,13 +9555,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -10020,13 +9621,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -10104,13 +9698,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -10362,13 +9949,6 @@
         "type": "checkbox",
         "default": false,
         "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -10532,13 +10112,6 @@
         "type": "checkbox",
         "default": true,
         "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -10672,13 +10245,6 @@
         "type": "checkbox",
         "default": false,
         "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -10763,13 +10329,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -10865,13 +10424,6 @@
       {
         "key": "dieonerror",
         "label": "Die on Error",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
         "type": "checkbox",
         "default": false,
         "group": "advanced"
@@ -11008,13 +10560,6 @@
         "type": "checkbox",
         "default": true,
         "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -11094,13 +10639,6 @@
             "type": "text"
           }
         ]
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -11254,13 +10792,6 @@
         "type": "checkbox",
         "default": true,
         "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -11400,13 +10931,6 @@
       {
         "key": "check_date",
         "label": "Check Date",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
         "type": "checkbox",
         "default": false,
         "group": "advanced"
@@ -11581,13 +11105,6 @@
         "type": "checkbox",
         "default": false,
         "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -11703,13 +11220,6 @@
       {
         "key": "ignore_ns",
         "label": "Ignore Namespaces",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
         "type": "checkbox",
         "default": false,
         "group": "advanced"
@@ -11944,13 +11454,6 @@
         "type": "checkbox",
         "default": true,
         "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -12044,13 +11547,6 @@
         "type": "checkbox",
         "default": false,
         "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -12131,13 +11627,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -12214,13 +11703,6 @@
         "type": "text",
         "default": "",
         "group": "basic"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -12299,13 +11781,6 @@
         "label": "Include Empty Values",
         "type": "checkbox",
         "default": true,
-        "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
         "group": "advanced"
       }
     ]
@@ -12470,13 +11945,6 @@
         "type": "checkbox",
         "default": true,
         "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -12579,13 +12047,6 @@
           "key": "activate_expression_filter",
           "eq": true
         }
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -12700,13 +12161,6 @@
         "type": "text",
         "default": "",
         "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
-        "group": "advanced"
       }
     ]
   },
@@ -12779,13 +12233,6 @@
         "label": "Imports",
         "type": "code",
         "default": "",
-        "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
         "group": "advanced"
       }
     ]
@@ -12864,13 +12311,6 @@
         "label": "Imports",
         "type": "code",
         "default": "",
-        "group": "advanced"
-      },
-      {
-        "key": "tstatcatcher_stats",
-        "label": "tStatCatcher Statistics",
-        "type": "checkbox",
-        "default": false,
         "group": "advanced"
       }
     ]
