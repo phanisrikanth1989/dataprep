@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tFileInputXML` |
 | **V1 Engine Class** | `FileInputXML` |
 | **Engine File** | `src/v1/engine/components/file/file_input_xml.py` (555 lines) |
@@ -24,7 +24,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/file/file_input_xml.py` | Engine implementation (555 lines): 6 module-level helpers + 1 class with 4 methods |
 | `src/converters/talend_to_v1/components/file/file_input_xml.py` | Converter class (169 lines) |
 | `tests/converters/talend_to_v1/components/test_file_input_xml.py` | Converter tests (63 tests, 10 classes) |
@@ -36,16 +36,17 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
-| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 19 config keys extracted (17 unique + 2 framework). MAPPING triplet parser. 7 per-feature needs_review. TMP_FILENAME and SCHEMA_OPT_NUM added. |
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 18 config keys extracted (16 unique + 2 framework). MAPPING triplet parser. 6 per-feature needs_review. TMP_FILENAME and SCHEMA_OPT_NUM removed. |
 | Engine Feature Parity | **Y** | 1 | 4 | 3 | 2 | No REJECT flow; no SAX/streaming; no date validation; namespace detection only root NS; bare `@attr` XPath broken |
 | Code Quality | **Y** | 1 | 3 | 4 | 2 | Cross-cutting `_update_global_map()` crash; `_validate_config()` dead code; parent traversal O(n^2); `zip()` drops columns silently |
 | Performance & Memory | **Y** | 0 | 1 | 2 | 1 | Full DOM parse via ElementTree; no SAX streaming option; O(n) parent scan per `../` per column per row |
 | Testing | **Y** | 0 | 1 | 1 | 0 | 63 converter tests across 10 classes; zero engine unit tests |
 
-**Overall: YELLOW -- Converter production-ready; engine has P0 cross-cutting crash and functional gaps**
+Overall: YELLOW -- Converter production-ready; engine has P0 cross-cutting crash and functional gaps
 
 **Top Actions**:
+
 1. Fix cross-cutting `_update_global_map()` crash (P0, affects all components)
 2. Implement REJECT flow support for XML parsing errors
 3. Add SAX/streaming mode for large XML files
@@ -69,7 +70,7 @@ The component supports Dom4j and SAX parsing modes (via GENERATION_MODE), namesp
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Schema | `SCHEMA` | SCHEMA_TYPE | -- | Output schema defining column names and types |
 | 2 | File Name | `FILENAME` | FILE | (dir default) | Path to the XML file to read |
 | 3 | Loop XPath Query | `LOOP_QUERY` | TEXT | `"/bills/bill/line"` | XPath expression selecting repeating elements for row extraction |
@@ -81,7 +82,7 @@ The component supports Dom4j and SAX parsing modes (via GENERATION_MODE), namesp
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 8 | Generation Mode | `GENERATION_MODE` | CLOSED_LIST | `"Dom4j"` | XML parser mode: Dom4j (DOM tree) or SAX (streaming) |
 | 9 | Ignore Namespaces | `IGNORE_NS` | CHECK | false | Strip namespace prefixes from XPath evaluation |
 | 10 | Ignore DTD | `IGNORE_DTD` | CHECK | false | Skip DTD validation during parsing |
@@ -97,7 +98,7 @@ The component supports Dom4j and SAX parsing modes (via GENERATION_MODE), namesp
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Output | Row > Main | Extracted XML data as tabular rows |
 | `REJECT` | Output | Row > Reject | Rows that failed XPath extraction (with errorCode/errorMessage) |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires after successful completion |
@@ -106,7 +107,7 @@ The component supports Dom4j and SAX parsing modes (via GENERATION_MODE), namesp
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total rows extracted |
 
 ### 3.5 Behavioral Notes
@@ -129,7 +130,7 @@ The component supports Dom4j and SAX parsing modes (via GENERATION_MODE), namesp
 The converter uses `@REGISTRY.register("tFileInputXML")` decorator-based dispatch. The `FileInputXMLConverter.convert()` method extracts all 19 config keys (17 unique + 2 framework) using base class helpers. A module-level `_parse_mapping()` function handles the stride-3 MAPPING TABLE with push-on-next-SCHEMA_COLUMN state machine.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `FILENAME` | Yes | `filepath` | Engine reads `filepath` or `FILENAME` |
 | 2 | `LOOP_QUERY` | Yes | `loop_query` | Default: `"/bills/bill/line"` |
 | 3 | `MAPPING` | Yes | `mapping` | Triplet TABLE: column/xpath/nodecheck dicts |
@@ -145,17 +146,17 @@ The converter uses `@REGISTRY.register("tFileInputXML")` decorator-based dispatc
 | 13 | `CHECK_DATE` | Yes | `check_date` | Default: False |
 | 14 | `USE_SEPARATOR` | Yes | `use_separator` | Default: False |
 | 15 | `FIELD_SEPARATOR` | Yes | `field_separator` | Default: "," |
-| 16 | `TMP_FILENAME` | Yes | `tmp_filename` | Default: "" (newly added) |
-| 17 | `SCHEMA_OPT_NUM` | Yes | `schema_opt_num` | Default: 100 (newly added) |
+| 16 | `TMP_FILENAME` | **REMOVED** | ~~tmp_filename~~ | Hidden/design-time param -- removed from converter |
+| 17 | `SCHEMA_OPT_NUM` | **REMOVED** | ~~schema_opt_num~~ | Hidden/design-time param -- removed from converter |
 | 18 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Framework param |
 | 19 | `LABEL` | Yes | `label` | Framework param |
 
-**Summary**: 19 of 19 parameters extracted (100%).
+**Summary**: 17 of 19 parameters extracted. 2 hidden params removed (SCHEMA_OPT_NUM, TMP_FILENAME).
 
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Direct from SchemaColumn |
 | `type` | Yes | Converted via `convert_type()` (Talend -> Python) |
 | `nullable` | Yes | Boolean flag |
@@ -176,14 +177,12 @@ None. All parameters correctly extracted with proper defaults and types.
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `generation_mode` | Engine only supports Dom4j-style DOM processing; SAX mode not implemented | engine_gap |
 | 2 | `advanced_separator` | Engine does not support locale-aware number formatting for XML | engine_gap |
 | 3 | `check_date` | Engine does not validate date fields during XML extraction | engine_gap |
 | 4 | `use_separator` | Engine does not support field separator concatenation for XML | engine_gap |
 | 5 | `field_separator` | Engine does not read field_separator config key | engine_gap |
-| 6 | `tmp_filename` | Engine does not read tmp_filename config key | engine_gap |
-| 7 | `schema_opt_num` | Engine does not read schema_opt_num config key | engine_gap |
 
 ---
 
@@ -192,7 +191,7 @@ None. All parameters correctly extracted with proper defaults and types.
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | XML file reading | **Yes** | High | `_process()` line 296 | ElementTree parsing |
 | 2 | Loop XPath query | **Yes** | Medium | `_parse_xml()` line 377 | Namespace auto-qualification |
 | 3 | MAPPING extraction | **Yes** | High | `_parse_xml()` line 449 | Stride-3 triplet scan |
@@ -214,7 +213,7 @@ None. All parameters correctly extracted with proper defaults and types.
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-FIX-001 | **P0** | Cross-cutting: `_update_global_map()` crashes when globalMap is set (base_component.py) |
 | ENG-FIX-002 | **P1** | No REJECT flow support -- XML parsing errors either crash or return empty, never route to reject |
 | ENG-FIX-003 | **P1** | No SAX streaming mode -- all XML files loaded into memory as DOM tree regardless of GENERATION_MODE |
@@ -229,7 +228,7 @@ None. All parameters correctly extracted with proper defaults and types.
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_stats()` | Row count |
 | `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats()` | Success count |
 | `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats()` | Always 0 (no REJECT flow) |
@@ -241,7 +240,7 @@ None. All parameters correctly extracted with proper defaults and types.
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-FIX-001 | **P0** | `base_component.py:304` | CROSS-CUTTING: `_update_global_map()` crash when globalMap is set |
 | BUG-FIX-002 | **P1** | `file_input_xml.py:478` | `zip(schema_order, schema_xpaths)` silently drops columns when counts differ |
 | BUG-FIX-003 | **P2** | `file_input_xml.py:24-51` | `extract_value()` returns attribute string concat instead of text for multi-attribute nodes |
@@ -250,13 +249,13 @@ None. All parameters correctly extracted with proper defaults and types.
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-FIX-001 | **P2** | Method `_parse_xml_passthrough` is very long single method (40 lines); should decompose |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-FIX-001 | **P2** | "Use custom exceptions" | Uses bare `RuntimeError` and `ValueError` instead of custom exception classes |
 
 ### 6.4 Debug Artifacts
@@ -270,7 +269,7 @@ See Section 11 for XML-specific security assessment (XXE, DTD attacks, namespace
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- module-level `logging.getLogger(__name__)` |
 | Level usage | Good -- debug for XPath details, info for status, error for failures |
 | Sensitive data | OK -- file paths logged at info level (may contain sensitive paths) |
@@ -278,7 +277,7 @@ See Section 11 for XML-specific security assessment (XXE, DTD attacks, namespace
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Missing -- uses RuntimeError/ValueError/FileNotFoundError |
 | Exception chaining | Good -- uses `raise ... from e` pattern |
 | die_on_error handling | Good -- respects config flag, returns empty DataFrame on False |
@@ -286,7 +285,7 @@ See Section 11 for XML-specific security assessment (XXE, DTD attacks, namespace
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- all methods typed |
 | Parameter types | Good -- uses Dict, List, Optional, Any |
 
@@ -295,15 +294,15 @@ See Section 11 for XML-specific security assessment (XXE, DTD attacks, namespace
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-FIX-001 | **P1** | Full DOM parse loads entire XML into memory -- 100MB+ files will cause OOM |
-| PERF-FIX-002 | **P2** | `find_parent_element()` does O(n) tree traversal per call; called per `../` per column per row = O(rows * cols * nodes) |
+| PERF-FIX-002 | **P2** | `find_parent_element()` does O(n) tree traversal per call; called per `../` per column per row = O(rows \* cols \* nodes) |
 | PERF-FIX-003 | **P3** | No limit enforcement in tabular mode -- processes all matching elements even when LIMIT configured |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Not available -- ElementTree DOM parse only; SAX mode not implemented |
 | Memory threshold | No threshold -- entire XML file loaded into memory |
 | Large data handling | Risk of OOM for files >100MB; no chunked processing |
@@ -315,7 +314,7 @@ See Section 11 for XML-specific security assessment (XXE, DTD attacks, namespace
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 63 | `tests/converters/talend_to_v1/components/test_file_input_xml.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | 0 | None (covered by regression guard) |
@@ -323,7 +322,7 @@ See Section 11 for XML-specific security assessment (XXE, DTD attacks, namespace
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-FIX-001 | **P1** | Zero engine unit tests -- no test coverage for `_parse_xml()`, `_parse_xml_passthrough()`, namespace handling, parent navigation |
 | TEST-FIX-002 | **P2** | No integration test with real XML files testing converter+engine round-trip |
 
@@ -344,7 +343,7 @@ See Section 11 for XML-specific security assessment (XXE, DTD attacks, namespace
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 1 | **BUG-FIX-001** |
 | P1 | 5 | **ENG-FIX-002**, **ENG-FIX-003**, **ENG-FIX-004**, **ENG-FIX-005**, **PERF-FIX-001**, **TEST-FIX-001** |
 | P2 | 7 | **ENG-FIX-006**, **ENG-FIX-007**, **ENG-FIX-008**, **BUG-FIX-003**, **BUG-FIX-004**, **NAME-FIX-001**, **STD-FIX-001**, **PERF-FIX-002**, **TEST-FIX-002** |
@@ -354,7 +353,7 @@ See Section 11 for XML-specific security assessment (XXE, DTD attacks, namespace
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Engine (ENG) | 9 | ENG-FIX-001 through ENG-FIX-010 |
 | Bug (BUG) | 4 | BUG-FIX-001 through BUG-FIX-004 |
 | Naming (NAME) | 1 | NAME-FIX-001 |
@@ -365,7 +364,7 @@ See Section 11 for XML-specific security assessment (XXE, DTD attacks, namespace
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set -- affects NB_LINE stat writing |
 
 ---
@@ -373,19 +372,22 @@ See Section 11 for XML-specific security assessment (XXE, DTD attacks, namespace
 ## 10. Recommendations
 
 ### Immediate (Before Production)
+
 1. Fix cross-cutting `_update_global_map()` crash (BUG-FIX-001) -- affects all 54 components
 2. Implement REJECT flow for XML parsing errors (ENG-FIX-002)
 
 ### Short-term (Hardening)
-3. Add SAX streaming mode for large XML files (ENG-FIX-003)
-4. Fix multi-namespace detection (ENG-FIX-004)
-5. Guard `zip()` against mismatched schema/xpath counts (ENG-FIX-005)
-6. Add engine unit tests (TEST-FIX-001)
+
+1. Add SAX streaming mode for large XML files (ENG-FIX-003)
+2. Fix multi-namespace detection (ENG-FIX-004)
+3. Guard `zip()` against mismatched schema/xpath counts (ENG-FIX-005)
+4. Add engine unit tests (TEST-FIX-001)
 
 ### Long-term (Optimization)
-7. Implement GET_NODES mode (ENG-FIX-010)
-8. Optimize parent navigation with parent-map cache (PERF-FIX-002)
-9. Enforce LIMIT in tabular mode (PERF-FIX-003)
+
+1. Implement GET_NODES mode (ENG-FIX-010)
+2. Optimize parent navigation with parent-map cache (PERF-FIX-002)
+3. Enforce LIMIT in tabular mode (PERF-FIX-003)
 
 ---
 
@@ -394,7 +396,7 @@ See Section 11 for XML-specific security assessment (XXE, DTD attacks, namespace
 ### Risk Matrix
 
 | Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
+| ------ | ----------- | -------- | ------------ |
 | XXE (XML External Entity) injection | Medium | High | ElementTree blocks XXE by default (no external entity resolution); however, if DTD processing enabled (IGNORE_DTD=false), custom entity definitions could expand large payloads causing memory exhaustion (billion laughs attack) |
 | DTD processing attacks | Medium | High | When IGNORE_DTD=false, external DTD references could cause network requests or file reads from the server; mitigation: set IGNORE_DTD=true for untrusted XML |
 | Namespace abuse / confusion | Low | Medium | Attackers could craft XML with conflicting namespace declarations; engine only detects root namespace, so child namespace declarations would be invisible, potentially extracting wrong data |
@@ -421,7 +423,7 @@ See Section 11 for XML-specific security assessment (XXE, DTD attacks, namespace
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
+| -------- | ---------- | ---------- |
 | Talaxie GitHub _java.xml | `tFileInputXML_java.xml` from Talaxie repository | Parameter definitions, defaults, types |
 | Engine source | `src/v1/engine/components/file/file_input_xml.py` | Feature parity analysis (555 lines) |
 | Converter source | `src/converters/talend_to_v1/components/file/file_input_xml.py` | Converter audit (169 lines) |
@@ -432,7 +434,7 @@ See Section 11 for XML-specific security assessment (XXE, DTD attacks, namespace
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set -- affects `_update_stats()` call at end of `_process()` |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` broken signature -- may affect stat retrieval |
 | XCUT-003 | `base_component.py:174` | `replace_in_config` literal `[i]` bug -- affects config resolution of context vars |
@@ -440,4 +442,4 @@ See Section 11 for XML-specific security assessment (XXE, DTD attacks, namespace
 ---
 
 *Report generated: 2026-04-03*
-*Last updated: 2026-04-03 after v1.1 Phase 9 Plan 11 converter standardization*
+*Last updated: 2026-04-03 after hidden/design-time param removal*

@@ -30,11 +30,7 @@ class SwiftTransformerConverter(ComponentConverter):
         warnings: List[str] = []
 
         # ---- config --------------------------------------------------------
-        connection_format = self._get_str(node, "CONNECTION_FORMAT", "row")
-
-        config: Dict[str, Any] = {
-            "connection_format": connection_format,
-        }
+        config: Dict[str, Any] = {}
 
         # Forward any extra known params when present
         config_file = self._get_str(node, "CONFIG_FILE", "")

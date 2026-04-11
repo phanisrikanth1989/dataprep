@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tOracleConnection` |
 | **V1 Engine Class** | None -- no concrete engine implementation exists |
 | **Engine File** | None -- no engine file for this component |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/converters/talend_to_v1/components/database/oracle_connection.py` | Converter class `OracleConnectionConverter` |
 | `tests/converters/talend_to_v1/components/test_oracle_connection.py` | Converter tests |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()` |
@@ -39,7 +39,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 28 of 28 unique config keys extracted (100%); dual registration preserved (tOracleConnection + tDBConnection); all SSL, TNS, RAC, shared connection, encoding, and advanced params extracted; single consolidated needs_review for engine gap |
 | Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No concrete engine implementation exists; component cannot execute |
 | Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code quality is good (follows CONVERTER_PATTERN.md), but no engine code exists at all -- component is incomplete |
@@ -49,6 +49,7 @@ How production-ready is this component at a glance?
 **Overall: RED -- No engine implementation. Converter correctly extracts all 28 params for future engine support, but component cannot execute in production. Engine must be implemented before this component is usable.**
 
 **Top Actions**:
+
 1. Implement concrete OracleConnection engine class (P0 -- blocks production use)
 2. All converter and test issues resolved in v1.1 rewrite
 3. Verify SSL parameter handling in engine once implemented
@@ -77,7 +78,7 @@ This is also registered as `tDBConnection` for backward compatibility, making it
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Connection Type | `CONNECTION_TYPE` | CLOSED_LIST | `"ORACLE_SID"` | Connection method: ORACLE_SID, ORACLE_SERVICE_NAME, ORACLE_OCI, ORACLE_CUSTOM, ORACLE_RAC, ORACLE_WALLET |
 | 2 | DB Version | `DB_VERSION` | CLOSED_LIST | `"ORACLE_18"` | Database version: ORACLE_12, ORACLE_18, etc. Controls available features (SSL, NLS) |
 | 3 | RAC URL | `RAC_URL` | TEXT | `""` | RAC connection URL. Shown only when CONNECTION_TYPE is ORACLE_RAC |
@@ -108,14 +109,14 @@ This is also registered as `tDBConnection` for backward compatibility, making it
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | A1 | Auto Commit | `AUTO_COMMIT` | CHECK | `false` | Enable auto-commit mode for the connection |
 | A2 | Support NLS | `SUPPORT_NLS` | CHECK | `false` | Enable Oracle NLS (National Language Support). Only available for ORACLE_18 DB version |
 
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires when connection is established successfully |
 | `SUBJOB_ERROR` | Output (Trigger) | Trigger | Fires when connection fails |
 | `COMPONENT_OK` | Output (Trigger) | Trigger | Component-level success |
@@ -126,7 +127,7 @@ No data flow -- this is a connection-only component with no input or output rows
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_CONNECTION` | Connection | After connect | The JDBC Connection object |
 | `{id}_URL` | String | After connect | The constructed JDBC URL |
 | `{id}_DRIVER` | String | After connect | The JDBC driver class name |
@@ -155,7 +156,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 The converter uses the flat config dict pattern (no `_build_component_dict()`). All parameters are extracted using base class helpers (`_get_str`, `_get_bool`). The XML name `PASS` maps to config key `password` per D-30.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `CONNECTION_TYPE` | Yes | `connection_type` | str, default "ORACLE_SID" |
 | 2 | `DB_VERSION` | Yes | `db_version` | str, default "ORACLE_18" |
 | 3 | `RAC_URL` | Yes | `rac_url` | str, default "" |
@@ -177,22 +178,22 @@ The converter uses the flat config dict pattern (no `_build_component_dict()`). 
 | 19 | `DATASOURCE_ALIAS` | Yes | `datasource_alias` | str, default "" |
 | 20 | `USE_SSL` | Yes | `use_ssl` | bool, default False |
 | 21 | `SSL_TRUSTSERVER_TRUSTSTORE` | Yes | `ssl_trustserver_truststore` | str, default "" |
-| 22 | `SSL_TRUSTSERVER_PASSWORD` | Yes | `ssl_trustserver_password` | str, default "" |
+| 22 | `SSL_TRUSTSERVER_PASSWORD` | **REMOVED** | -- | Removed for security -- password not carried into JSON |
 | 23 | `NEED_CLIENT_AUTH` | Yes | `need_client_auth` | bool, default False |
 | 24 | `SSL_KEYSTORE` | Yes | `ssl_keystore` | str, default "" |
-| 25 | `SSL_KEYSTORE_PASSWORD` | Yes | `ssl_keystore_password` | str, default "" |
+| 25 | `SSL_KEYSTORE_PASSWORD` | **REMOVED** | -- | Removed for security -- password not carried into JSON |
 | 26 | `DISABLE_CBC_PROTECTION` | Yes | `disable_cbc_protection` | bool, default True. NOTE: default TRUE |
 | 27 | `AUTO_COMMIT` | Yes | `auto_commit` | bool, default False |
 | 28 | `SUPPORT_NLS` | Yes | `support_nls` | bool, default False |
 | F1 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | bool, default False (framework) |
 | F2 | `LABEL` | Yes | `label` | str, default "" (framework) |
 
-**Summary**: 28 of 28 unique parameters extracted (100%), plus 2 framework params. Total: 30 config keys.
+**Summary**: 26 of 28 unique parameters extracted (2 SSL password params removed for security), plus 2 framework params. Total: 28 config keys.
 
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | Full schema | Yes | Via `_parse_schema(node)`. Connection components typically have no schema. |
 
 ### 4.3 Expression Handling
@@ -206,7 +207,7 @@ No open converter issues. All 28 params extracted, dual registration preserved, 
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | (all keys) | No concrete engine implementation for tOracleConnection. All config keys are extracted for future engine support. | engine_gap |
 
 Single consolidated needs_review entry per D-27 (entire engine absent).
@@ -220,7 +221,7 @@ How faithfully does the v1 engine implement Talend behavior?
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | SID connection | **No** | N/A | None | No engine implementation |
 | 2 | Service Name connection | **No** | N/A | None | No engine implementation |
 | 3 | OCI connection | **No** | N/A | None | No engine implementation |
@@ -236,13 +237,13 @@ How faithfully does the v1 engine implement Talend behavior?
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-OC-001 | **P0** | **OPEN** -- No engine implementation exists for tOracleConnection. The component cannot execute at all. Converter extracts all params but engine must be implemented. |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_CONNECTION` | Yes | No | N/A | No engine implementation |
 | `{id}_URL` | Yes | No | N/A | No engine implementation |
 | `{id}_DRIVER` | Yes | No | N/A | No engine implementation |
@@ -262,13 +263,13 @@ No engine code exists to assess.
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No issues -- converter follows snake_case naming convention consistently |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | -- | -- | -- | No violations -- converter follows CONVERTER_PATTERN.md |
 
 ### 6.4 Debug Artifacts
@@ -277,12 +278,12 @@ None found.
 
 ### 6.5 Security
 
-Password parameters (`PASS`, `SSL_TRUSTSERVER_PASSWORD`, `SSL_KEYSTORE_PASSWORD`) are extracted as plain strings. In a production engine implementation, these should be handled securely (masked in logs, encrypted at rest).
+`SSL_TRUSTSERVER_PASSWORD` and `SSL_KEYSTORE_PASSWORD` parameters have been **REMOVED** from the converter to avoid carrying password values into JSON output. The main `PASS` parameter (database password) is still extracted as `password` -- in a production engine implementation, this should be handled securely (masked in logs, encrypted at rest).
 
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- module-level `logger = logging.getLogger(__name__)` |
 | Level usage | N/A -- converter does not emit log messages (correct for simple converters) |
 | Sensitive data | Passwords extracted as strings -- engine must mask in logs |
@@ -290,7 +291,7 @@ Password parameters (`PASS`, `SSL_TRUSTSERVER_PASSWORD`, `SSL_KEYSTORE_PASSWORD`
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | N/A -- converter returns ComponentResult, no exceptions |
 | Exception chaining | N/A |
 | die_on_error handling | N/A -- connection component does not have die_on_error |
@@ -298,7 +299,7 @@ Password parameters (`PASS`, `SSL_TRUSTSERVER_PASSWORD`, `SSL_KEYSTORE_PASSWORD`
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- fully typed `convert()` method |
 | Parameter types | Good -- uses `Dict[str, Any]`, `List[str]`, etc. |
 
@@ -309,13 +310,13 @@ Password parameters (`PASS`, `SSL_TRUSTSERVER_PASSWORD`, `SSL_KEYSTORE_PASSWORD`
 Will it scale?
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No engine implementation to assess |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- no engine implementation |
 | Memory threshold | N/A |
 | Large data handling | N/A -- connection component, no data flow |
@@ -329,7 +330,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | ~40 | `tests/converters/talend_to_v1/components/test_oracle_connection.py` |
 | Engine unit tests | 0 | None -- no engine implementation |
 | Integration tests | 0 | None |
@@ -337,12 +338,13 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-OC-001 | **P0** | **OPEN** -- No engine tests (engine not implemented) |
 
 ### 8.3 Recommended Test Cases
 
 Converter tests should cover:
+
 - Registration for both tOracleConnection and tDBConnection
 - All 28 parameter defaults
 - All 28 parameters extracted with non-default values
@@ -364,7 +366,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 2 | **ENG-OC-001**, **TEST-OC-001** |
 | P1 | 0 | -- |
 | P2 | 0 | -- |
@@ -374,7 +376,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Engine (ENG) | 1 | **ENG-OC-001** |
 | Testing (TEST) | 1 | **TEST-OC-001** |
 
@@ -389,15 +391,18 @@ No cross-cutting issues apply -- no engine code exists.
 What should be fixed, in what order?
 
 ### Immediate (Before Production)
+
 1. **ENG-OC-001**: Implement OracleConnection engine class with support for all 6 connection types, SSL, TNS, shared connections, and auto-commit
 2. **TEST-OC-001**: Add engine tests once implementation exists
 
 ### Short-term (Hardening)
+
 - Verify password masking in engine logs
 - Test SSL mutual authentication flow
 - Test RAC failover behavior
 
 ### Long-term (Optimization)
+
 - Connection pooling optimization
 - Connection timeout configuration
 - Oracle Wallet auto-login support
@@ -407,7 +412,7 @@ What should be fixed, in what order?
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
+| -------- | ---------- | ---------- |
 | Talaxie GitHub _java.xml | `tdi-studio-se/main/components/tOracleConnection_java.xml` | Parameter definitions, defaults, types |
 | Converter source | `src/converters/talend_to_v1/components/database/oracle_connection.py` | Converter audit |
 | Test source | `tests/converters/talend_to_v1/components/test_oracle_connection.py` | Test coverage audit |

@@ -18,6 +18,7 @@ from typing import Any, Dict, List
 
 from ..base import ComponentConverter, ComponentResult, TalendConnection, TalendNode
 from ..registry import REGISTRY
+from ...expression_converter import ExpressionConverter
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,15 @@ class RowGeneratorConverter(ComponentConverter):
         config["nb_rows"] = self._get_str(node, "NB_ROWS", "100")
 
         # ---- 2. TABLE parameter ----
-        config["values"] = _parse_values(node.params.get("VALUES", []))
+        values = _parse_values(node.params.get("VALUES", []))
+
+        # Mark ARRAY expressions with {{java}} when they contain Java code
+        for val in values:
+            if "array" in val:
+                val["array"] = ExpressionConverter.mark_java_expression(val["array"])
+
+        config["values"] = values
+        config["requires_java_bridge"] = True
 
         # ---- 3. Framework parameters (ALWAYS LAST) ----
         config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
@@ -91,6 +100,16 @@ class RowGeneratorConverter(ComponentConverter):
         schema = {"input": [], "output": self._parse_schema(node)}
 
         # ---- 5. Engine gap needs_review entries ----
+        needs_review.append({
+            "issue": (
+                "tRowGenerator ARRAY expressions are Java code that must be "
+                "executed via Java Bridge at runtime. Values containing Java "
+                "expressions are marked with {{java}} prefix."
+            ),
+            "component": node.component_id,
+            "severity": "engine_gap",
+        })
+
         # Engine default mismatch: engine defaults nb_rows to 1, Talend to 100
         needs_review.append({
             "issue": (

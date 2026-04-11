@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tRunJob` |
 | **V1 Engine Class** | None -- no concrete engine implementation exists |
 | **Engine File** | None -- no engine file for tRunJob |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/converters/talend_to_v1/components/control/run_job.py` | Converter class `RunJobConverter` |
 | `tests/converters/talend_to_v1/components/test_run_job.py` | Converter tests |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()`, `_build_component_dict()` |
@@ -39,7 +39,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 20 of 20 unique params extracted (100%); 2 TABLE params (CONTEXTPARAMS stride-2, JVM_ARGUMENTS stride-1); 2 framework params; single consolidated needs_review for no-engine |
 | Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No engine implementation exists. Jobs using tRunJob cannot execute in the v1 engine. |
 | Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code follows CONVERTER_PATTERN.md but no engine code exists -- component is incomplete |
@@ -49,6 +49,7 @@ How production-ready is this component at a glance?
 **Overall: RED -- No engine implementation. Converter correctly extracts all 20 unique params (including 2 TABLE params) for future engine support, but component cannot execute in production.**
 
 **Top Actions**:
+
 1. Implement concrete RunJob engine class (P0 -- blocks production use)
 2. All converter and test issues resolved in v1.1 rewrite
 
@@ -74,7 +75,7 @@ Advanced settings control JVM configuration for independent process execution, e
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Schema | `SCHEMA` | SCHEMA_TYPE | -- | Output schema definition. Can be copied from child job when PROPAGATE_CHILD_RESULT is true. |
 | 2 | Use Dynamic Job | `USE_DYNAMIC_JOB` | CHECK | `false` | When true, the child job is selected dynamically at runtime via a context variable instead of a static PROCESS reference. |
 | 3 | Context Job | `CONTEXT_JOB` | TEXT | `""` | The context variable or expression that resolves to the child job name at runtime. Only visible when USE_DYNAMIC_JOB is true. |
@@ -88,7 +89,7 @@ Advanced settings control JVM configuration for independent process execution, e
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | SHOW_IF | Description |
-|---|-----------|-----------------|------|---------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | --------- | ------------- |
 | 10 | Propagate Child Result | `PROPAGATE_CHILD_RESULT` | CHECK | `false` | !USE_DYNAMIC_JOB AND !USE_INDEPENDENT_PROCESS | Forward child job output to parent output flow via buffer. |
 | 11 | Print Parameter | `PRINT_PARAMETER` | CHECK | `false` | -- | Print parameters to console during execution. |
 | 12 | Transmit Original Context | `TRANSMIT_ORIGINAL_CONTEXT` | CHECK | `true` | SHOW=false (hidden) | Transmit original context to child job. Hidden parameter, always true by default. |
@@ -104,7 +105,7 @@ Advanced settings control JVM configuration for independent process execution, e
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Optional input data flow |
 | `FLOW` (Main) | Output | Row > Main | Output data flow when PROPAGATE_CHILD_RESULT is enabled |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires after child job completes successfully |
@@ -118,7 +119,7 @@ Advanced settings control JVM configuration for independent process execution, e
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_CHILD_RETURN_CODE` | Integer | After | Exit code from child job execution |
 | `{id}_CHILD_EXCEPTION_STACKTRACE` | String | After | Exception stacktrace if child job failed |
 | `{id}_ERROR_MESSAGE` | String | After | Error message from child job execution |
@@ -136,7 +137,7 @@ Advanced settings control JVM configuration for independent process execution, e
 ### 3.6 Framework Parameters
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | F1 | tStatCatcher Stats | `TSTATCATCHER_STATS` | CHECK | `false` | Enable statistics collection for tStatCatcher |
 | F2 | Label | `LABEL` | TEXT | `""` | User-defined label for the component instance |
 
@@ -151,7 +152,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 The converter (`RunJobConverter`) uses the `ComponentConverter` base class helpers (`_get_bool`, `_get_str`, `_get_int`) to extract scalar parameters. TABLE parameters (CONTEXTPARAMS, JVM_ARGUMENTS) are parsed via module-level parser functions using stride-based grouping of elementRef entries per CONVERTER_PATTERN.md. The converter uses the flat config dict pattern (no `_build_component_dict`) consistent with no-engine components.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `SCHEMA` | Yes | `schema` | Via `_parse_schema()` base class method |
 | 2 | `USE_DYNAMIC_JOB` | Yes | `use_dynamic_job` | CHECK -> bool, default False |
 | 3 | `CONTEXT_JOB` | Yes | `context_job` | TEXT -> str, default "" |
@@ -180,7 +181,7 @@ The converter (`RunJobConverter`) uses the `ComponentConverter` base class helpe
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` base class method |
 | `type` | Yes | Converted from Talend types via `convert_type()` |
 | `nullable` | Yes | Boolean |
@@ -197,7 +198,7 @@ No expression handling is needed for tRunJob scalar parameters. The CONTEXT_JOB 
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | CONV-RJ-001 | ~~P1~~ | **FIXED** -- All 15 missing params now extracted (was 5 of 20, now 20 of 20) |
 | CONV-RJ-002 | ~~P1~~ | **FIXED** -- TRANSMIT_WHOLE_CONTEXT now extracted (widely used in real jobs) |
 | CONV-RJ-003 | ~~P1~~ | **FIXED** -- USE_DYNAMIC_JOB now extracted (controls dynamic job selection) |
@@ -212,7 +213,7 @@ No expression handling is needed for tRunJob scalar parameters. The CONTEXT_JOB 
 The converter emits a single component-level needs_review entry (not per-key, since the entire engine is absent):
 
 | # | Scope | Reason | Severity |
-|---|-------|--------|----------|
+| --- | ------- | -------- | ---------- |
 | 1 | Component-level | No concrete engine implementation for tRunJob. All config keys are extracted for future engine support. | engine_gap |
 
 ---
@@ -226,7 +227,7 @@ How faithfully does the v1 engine implement Talend behavior?
 No concrete engine implementation exists for tRunJob.
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Static child job execution | **No** | N/A | -- | No engine class |
 | 2 | Dynamic job selection | **No** | N/A | -- | No engine class |
 | 3 | Context variable passing | **No** | N/A | -- | No engine class |
@@ -239,13 +240,13 @@ No concrete engine implementation exists for tRunJob.
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-RJ-001 | **P0** | **OPEN** -- No concrete RunJob engine class exists. Jobs using tRunJob cannot execute in the v1 engine. This blocks any multi-job orchestration workflow. |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_CHILD_RETURN_CODE` | Yes | No | -- | No engine implementation |
 | `{id}_CHILD_EXCEPTION_STACKTRACE` | Yes | No | -- | No engine implementation |
 | `{id}_ERROR_MESSAGE` | Yes | No | -- | No engine implementation |
@@ -259,19 +260,19 @@ How well-written is the converter code?
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | -- | -- | -- | No bugs found in the converter code. Logic is correct for what it implements. |
 
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | All config keys follow snake_case convention matching XML parameter names. No naming issues. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-RJ-001 | ~~P2~~ | "Module docstring lists ALL config keys" (CONVERTER_PATTERN.md Rule 1) | **FIXED** -- Module docstring now has `Config mapping (22 params total):` block |
 | STD-RJ-002 | ~~P2~~ | "Framework params ALWAYS extracted, ALWAYS last" (CONVERTER_PATTERN.md Rule 7) | **FIXED** -- tstatcatcher_stats and label now extracted as last params |
 | STD-RJ-003 | ~~P2~~ | "Section markers per CONVERTER_PATTERN.md" | **FIXED** -- Section markers added for all parameter groups |
@@ -287,7 +288,7 @@ No concerns identified. The converter only reads XML parameter data and produces
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- `logger = logging.getLogger(__name__)` at module level |
 | Level usage | N/A -- logger not used in the converter (appropriate for this component) |
 | Sensitive data | No concerns |
@@ -295,7 +296,7 @@ No concerns identified. The converter only reads XML parameter data and produces
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Good -- no exceptions raised per convention (converters never raise) |
 | Exception chaining | N/A |
 | die_on_error handling | N/A -- tRunJob uses DIE_ON_CHILD_ERROR, not die_on_error |
@@ -303,7 +304,7 @@ No concerns identified. The converter only reads XML parameter data and produces
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- `convert()` fully typed with return type `ComponentResult` |
 | Parameter types | Good -- TABLE parser functions use `Any` for raw input, typed returns |
 
@@ -314,13 +315,13 @@ No concerns identified. The converter only reads XML parameter data and produces
 Will it scale?
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No performance or memory concerns. The converter is lightweight with O(n) TABLE parsing. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- no engine implementation to assess |
 | Memory threshold | N/A |
 | Large data handling | Converter handles TABLE parameters of any size with O(n) linear scan |
@@ -334,7 +335,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 9 classes | `tests/converters/talend_to_v1/components/test_run_job.py` |
 | Engine unit tests | 0 | None -- no engine implementation |
 | Integration tests | 0 | None |
@@ -342,7 +343,7 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-RJ-001 | ~~P1~~ | **FIXED** -- All 9 test classes per TEST_PATTERN.md now present |
 | TEST-RJ-002 | ~~P1~~ | **FIXED** -- TestDefaults covers all 20 param defaults |
 | TEST-RJ-003 | ~~P1~~ | **FIXED** -- TestTableParsing covers both CONTEXTPARAMS and JVM_ARGUMENTS tables |
@@ -352,6 +353,7 @@ What's verified?
 ### 8.3 Recommended Test Cases
 
 All recommended test cases have been implemented:
+
 - **TestRegistration**: Verify `REGISTRY.get("tRunJob")` returns `RunJobConverter`
 - **TestDefaults**: One test per config key default (20 unique + 2 framework = 22 defaults)
 - **TestParameterExtraction**: Non-default values for all major params
@@ -371,7 +373,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 1 (open) | **ENG-RJ-001** |
 | P1 | 0 (6 fixed) | ~~CONV-RJ-001~~, ~~CONV-RJ-002~~, ~~CONV-RJ-003~~, ~~TEST-RJ-001~~, ~~TEST-RJ-002~~, ~~TEST-RJ-003~~ |
 | P2 | 0 (10 fixed) | ~~CONV-RJ-004~~, ~~CONV-RJ-005~~, ~~CONV-RJ-006~~, ~~CONV-RJ-007~~, ~~CONV-RJ-008~~, ~~STD-RJ-001~~, ~~STD-RJ-002~~, ~~STD-RJ-003~~, ~~TEST-RJ-004~~, ~~TEST-RJ-005~~ |
@@ -381,7 +383,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count (open/fixed) | IDs |
-|----------|-------------------|-----|
+| ---------- | ------------------- | ----- |
 | Converter (CONV) | 0/8 | ~~CONV-RJ-001~~ through ~~CONV-RJ-008~~ |
 | Engine (ENG) | 1/0 | **ENG-RJ-001** |
 | Bug (BUG) | 0/0 | |
@@ -417,9 +419,9 @@ No P3 issues identified.
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://github.com/Talaxie/tdi-studio-se` (tRunJob_java.xml) | Parameter definitions, defaults, types, connectors, SHOW_IF conditions |
-| Official Talend docs | `https://help.qlik.com/talend` (tRunJob standard properties) | Behavioral documentation, use cases |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://github.com/Talaxie/tdi-studio-se`> (tRunJob_java.xml) | Parameter definitions, defaults, types, connectors, SHOW_IF conditions |
+| Official Talend docs | `<https://help.qlik.com/talend`> (tRunJob standard properties) | Behavioral documentation, use cases |
 | Converter source | `src/converters/talend_to_v1/components/control/run_job.py` | Converter audit |
 | Converter base class | `src/converters/talend_to_v1/components/base.py` | Helper methods, dataclass definitions |
 | Test source | `tests/converters/talend_to_v1/components/test_run_job.py` | Testing audit |
@@ -431,14 +433,14 @@ No P3 issues identified.
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash -- would affect RunJob engine if implemented |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` crash -- would affect context variable retrieval |
 
 ### Edge-Case Checklist Results
 
 | Check | Result | Notes |
-|-------|--------|-------|
+| ------- | -------- | ------- |
 | NaN handling | N/A | Converter does not process data values |
 | Empty strings in config keys | Safe | `_get_str()` returns default for None, handles empty strings |
 | Empty DataFrame input | N/A | No engine implementation |

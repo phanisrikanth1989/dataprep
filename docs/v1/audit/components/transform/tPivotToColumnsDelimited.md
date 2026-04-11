@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tPivotToColumnsDelimited` |
 | **V1 Engine Class** | `PivotToColumnsDelimited` |
 | **Engine File** | `src/v1/engine/components/transform/pivot_to_columns_delimited.py` (301 lines) |
@@ -24,7 +24,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/transform/pivot_to_columns_delimited.py` | Engine implementation (301 lines) |
 | `src/converters/talend_to_v1/components/transform/pivot_to_columns_delimited.py` | Converter class (148 lines) |
 | `tests/converters/talend_to_v1/components/test_pivot_to_columns_delimited.py` | Converter tests (51 tests) |
@@ -36,7 +36,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 18/18 params extracted (16 _java.xml + 2 framework); D-38 config keys; GROUPBYS TABLE stride-1; 7 needs_review (all engine_gap) |
 | Engine Feature Parity | **Y** | 1 | 5 | 4 | 2 | No NB_LINE_OUT globalMap; no include-header control; no append mode; no quoting; no die_on_error |
 | Code Quality | **R** | 4 | 5 | 6 | 2 | line_terminator removed in pandas 3.x (guaranteed crash); double float-to-int crash; unicode_escape order bug |
@@ -46,6 +46,7 @@
 **Overall: YELLOW -- Converter production-ready (Green); engine has P0 crash bugs and significant feature gaps**
 
 **Top Actions**:
+
 1. Fix `line_terminator` -> `lineterminator` (P0 crash on pandas 3.x)
 2. Fix double float-to-int conversion crash on empty strings (P0)
 3. Fix cross-cutting `_update_global_map()` crash (P0)
@@ -70,7 +71,7 @@ It requires at least three columns in the input schema: the pivot column, the ag
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Schema | `SCHEMA` | Schema editor | -- | Column definitions. Defines input structure for pivot, aggregation, and group-by selection. |
 | 2 | Pivot Column | `PIVOT_COLUMN` | Column selector | -- | **Required**. Column whose distinct values become new column headers. |
 | 3 | Aggregation Column | `AGGREGATION_COLUMN` | Column selector | -- | **Required**. Column containing data to aggregate. |
@@ -83,7 +84,7 @@ It requires at least three columns in the input schema: the pivot column, the ag
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 9 | Create | `CREATE` | BOOLEAN (CHECK) | `true` | Create output file including parent directories. |
 | 10 | Encoding | `ENCODING` | CLOSED_LIST | `"ISO-8859-15"` | Character encoding for output. _java.xml default is ISO-8859-15, not UTF-8. |
 | 11 | Advanced Separator | `ADVANCED_SEPARATOR` | BOOLEAN (CHECK) | `false` | Enable locale-aware number formatting. |
@@ -100,7 +101,7 @@ It requires at least three columns in the input schema: the pivot column, the ag
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | **Required**. Input data with pivot, aggregation, and group-by columns. |
 | `FLOW` (Main) | Output | Row > Main | Pivoted data: group-by columns plus one column per distinct pivot value. |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires on subjob success. |
@@ -113,7 +114,7 @@ It requires at least three columns in the input schema: the pivot column, the ag
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total input rows read. |
 | `{id}_NB_LINE_OUT` | Integer | After execution | Rows written to output file after pivoting. |
 | `{id}_ERROR_MESSAGE` | String | On error | Error message when component fails. |
@@ -137,6 +138,7 @@ It requires at least three columns in the input schema: the pivot column, the ag
 **Converter**: `PivotToColumnsDelimitedConverter` registered via `@REGISTRY.register("tPivotToColumnsDelimited")` decorator. Uses `_build_component_dict()` with `type_name="PivotToColumnsDelimited"`.
 
 **Converter flow**:
+
 1. Registry dispatches to `PivotToColumnsDelimitedConverter.convert()`
 2. Extracts all 16 _java.xml params using `_get_str()`, `_get_bool()` helpers
 3. GROUPBYS TABLE parsed via module-level `_parse_group_bys()` function (stride-1)
@@ -144,7 +146,7 @@ It requires at least three columns in the input schema: the pivot column, the ag
 5. Returns `ComponentResult` with component dict, warnings, and 7 needs_review entries
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Default | Notes |
-|----|----------------------|------------|---------------|---------|-------|
+| ---- | ---------------------- | ------------ | --------------- | --------- | ------- |
 | 1 | `PIVOT_COLUMN` | Yes | `pivot_column` | `""` | Via `_get_str()` |
 | 2 | `AGGREGATION_COLUMN` | Yes | `aggregation_column` | `""` | Via `_get_str()` |
 | 3 | `AGGREGATION_FUNCTION` | Yes | `aggregation_function` | `"sum"` | CLOSED_LIST default matches Talend |
@@ -170,7 +172,7 @@ It requires at least three columns in the input schema: the pivot column, the ag
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` base class |
 | `type` | Yes | Converted from Talend types via `convert_type()` |
 | `nullable` | Yes | |
@@ -187,7 +189,7 @@ Context variables (`context.var`) and Java expressions are handled at the orches
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | ~~CONV-PCD-001~~ | ~~P1~~ | **SUPERSEDED** -- Old complex_converter issues replaced by talend_to_v1 rewrite |
 
 **No open converter issues.** The talend_to_v1 converter extracts all 16 _java.xml params with correct defaults.
@@ -195,7 +197,7 @@ Context variables (`context.var`) and Java expressions are handled at the orches
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `advanced_separator` | Engine does not read from config | engine_gap |
 | 2 | `thousands_separator` | Engine does not read from config | engine_gap |
 | 3 | `decimal_separator` | Engine does not read from config | engine_gap |
@@ -211,7 +213,7 @@ Context variables (`context.var`) and Java expressions are handled at the orches
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Pivot operation | **Yes** | High | `_process()` line 201 | Uses `pd.pivot_table()` |
 | 2 | Aggregation functions (sum/count/min/max) | **Yes** | High | line 205 | Directly supported by pandas |
 | 3 | Aggregation (first/last) | **Yes** | Medium | line 205 | NaN handling may differ from Talend |
@@ -236,7 +238,7 @@ Context variables (`context.var`) and Java expressions are handled at the orches
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-PCD-001 | **P0** | **No `{id}_NB_LINE_OUT` globalMap**: Sets `NB_LINE_OK` instead. Downstream components referencing NB_LINE_OUT get null. |
 | ENG-PCD-002 | **P1** | **No Include Header control**: Always writes headers. Jobs suppressing headers produce incorrect output. |
 | ENG-PCD-003 | **P1** | **No Append mode**: Always overwrites. Iterative jobs lose all data except last iteration. |
@@ -253,7 +255,7 @@ Context variables (`context.var`) and Java expressions are handled at the orches
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | **Yes** | `_update_stats()` | Input row count. Correct. |
 | `{id}_NB_LINE_OUT` | Yes | **No** | -- | Engine sets NB_LINE_OK (wrong key). |
 | `{id}_NB_LINE_OK` | N/A | **Yes** | `_update_stats()` | Wrong key for file-output components. |
@@ -267,7 +269,7 @@ Context variables (`context.var`) and Java expressions are handled at the orches
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-PCD-001 | **P0** | `pivot_to_columns_delimited.py:213-215` | **Float-to-int conversion creates mixed-type columns**: Row-by-row lambda produces int/float/NaN mix, changing dtype to object. Combined with subsequent fillna('') and second conversion loop, crashes on empty strings. |
 | BUG-PCD-002 | **P0** | `pivot_to_columns_delimited.py:223-227` | **`float(x)` on empty string after fillna**: After NaN replaced with '', numeric dtype check may still pass, causing `ValueError: could not convert string to float: ''`. Data-dependent crash. |
 | BUG-PCD-003 | **P0** | `pivot_to_columns_delimited.py:260` | **`line_terminator` removed in pandas 3.x**: `to_csv(line_terminator=...)` raises `TypeError` on pandas 3.0+. Must use `lineterminator`. Every file-writing execution crashes unconditionally. |
@@ -281,7 +283,7 @@ Context variables (`context.var`) and Java expressions are handled at the orches
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-PCD-001 | **P2** | **Engine config key `group_by_columns`**: Converter now uses `groupbys` (D-38). Engine reads `group_by_columns`. Key mismatch documented as engine_gap via needs_review. |
 | NAME-PCD-002 | **P2** | **Engine config key `row_separator`/`field_separator`**: Converter uses `rowseparator`/`fieldseparator` (D-38). Engine reads `row_separator`/`field_separator`. Key mismatch. |
 | NAME-PCD-003 | **P2** | **NB_LINE_OK vs NB_LINE_OUT**: Engine sets wrong globalMap key for file-output component. |
@@ -289,7 +291,7 @@ Context variables (`context.var`) and Java expressions are handled at the orches
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-PCD-001 | **P2** | "`_validate_config()` called or dead code" | Method exists but never called. Dead code. |
 | STD-PCD-002 | **P2** | "Use custom exception types" | Raises generic `ValueError`. Should use `ConfigurationError`/`FileOperationError`. |
 | STD-PCD-003 | **P2** | "Consistent validation path" | Config validated in two places that can diverge. |
@@ -297,7 +299,7 @@ Context variables (`context.var`) and Java expressions are handled at the orches
 ### 6.4 Debug Artifacts
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | DBG-PCD-001 | **P2** | `logger.info()` on line 183 logs field separator at INFO level. Should be `logger.debug()`. |
 | DBG-PCD-002 | **P3** | Multiple verbose debug messages for micro-steps (lines 198, 199, 208, 209, 212, 217, 222). |
 
@@ -308,7 +310,7 @@ No critical security concerns. Path traversal is not a concern for Talend-conver
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Module-level `logger = logging.getLogger(__name__)` -- correct |
 | Level usage | Mostly correct. One INFO-level message should be DEBUG (line 183). |
 | Sensitive data | No sensitive data logged. |
@@ -316,7 +318,7 @@ No critical security concerns. Path traversal is not a concern for Talend-conver
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | **Not used**. All errors raise generic `ValueError`. |
 | Exception chaining | **Not used**. `raise ValueError(f"...{e}")` loses traceback. |
 | die_on_error handling | **Not implemented**. Always raises. |
@@ -324,7 +326,7 @@ No critical security concerns. Path traversal is not a concern for Talend-conver
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | All methods have return type hints. |
 | Parameter types | `_process()` uses `Optional[pd.DataFrame]` -- correct. |
 
@@ -333,7 +335,7 @@ No critical security concerns. Path traversal is not a concern for Talend-conver
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-PCD-001 | **P1** | **Row-by-row lambda O(rows*cols)**: Lines 213-215 and 223-227 use per-cell Python lambdas. For 1000 pivot columns x 100K rows = 200M calls. Should use vectorized operations. |
 | PERF-PCD-002 | **P2** | **Redundant double float-to-int conversion**: Second loop is no-op after fillna changes dtype to object. |
 | PERF-PCD-003 | **P2** | **`fillna('')` creates DataFrame copy**: Doubles memory for large pivot results. |
@@ -342,7 +344,7 @@ No critical security concerns. Path traversal is not a concern for Talend-conver
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | **Incompatible**. Pivot requires all data. Streaming produces silently wrong results. Not overridden to prevent. |
 | Memory threshold | At 3GB auto-threshold, switches to streaming (incorrect). |
 | Large data handling | Memory scales with distinct pivot values * group-by groups. 10K+ pivot values risk OOM. |
@@ -354,7 +356,7 @@ No critical security concerns. Path traversal is not a concern for Talend-conver
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 51 | `tests/converters/talend_to_v1/components/test_pivot_to_columns_delimited.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | 0 | None (converter covered by regression guard) |
@@ -362,12 +364,13 @@ No critical security concerns. Path traversal is not a concern for Talend-conver
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-PCD-001 | **P2** | No engine unit tests for PivotToColumnsDelimited (301 lines untested) |
 
 ### 8.3 Recommended Test Cases
 
 **P0 -- Must Have Before Production**:
+
 1. Basic pivot with sum aggregation
 2. Multiple group-by columns
 3. All aggregation functions (sum, count, min, max, first, last)
@@ -376,10 +379,11 @@ No critical security concerns. Path traversal is not a concern for Talend-conver
 6. Missing configuration validation
 
 **P1 -- Important**:
-7. NaN handling in sparse pivots
-8. Custom field and row separators (including tab)
-9. Non-UTF8 encoding with special characters
-10. create=False skips file write
+
+1. NaN handling in sparse pivots
+2. Custom field and row separators (including tab)
+3. Non-UTF8 encoding with special characters
+4. create=False skips file write
 
 ---
 
@@ -388,7 +392,7 @@ No critical security concerns. Path traversal is not a concern for Talend-conver
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 4 | **BUG-PCD-001**, **BUG-PCD-002**, **BUG-PCD-003**, **BUG-PCD-004** |
 | P1 | 5 | **BUG-PCD-005**, **BUG-PCD-006**, **BUG-PCD-007**, **BUG-PCD-008**, **BUG-PCD-009** |
 | P2 | 9 | **NAME-PCD-001**, **NAME-PCD-002**, **NAME-PCD-003**, **STD-PCD-001**, **STD-PCD-002**, **STD-PCD-003**, **DBG-PCD-001**, **PERF-PCD-002**, **PERF-PCD-003** |
@@ -398,7 +402,7 @@ No critical security concerns. Path traversal is not a concern for Talend-conver
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Bug (BUG) | 9 | BUG-PCD-001 through BUG-PCD-009 |
 | Engine (ENG) | 12 | ENG-PCD-001 through ENG-PCD-012 |
 | Naming (NAME) | 3 | NAME-PCD-001 through NAME-PCD-003 |
@@ -410,7 +414,7 @@ No critical security concerns. Path traversal is not a concern for Talend-conver
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` undefined `default` parameter |
 
@@ -419,12 +423,14 @@ No critical security concerns. Path traversal is not a concern for Talend-conver
 ## 10. Recommendations
 
 ### Immediate (Before Production)
+
 - Fix `line_terminator` -> `lineterminator` for pandas 3.x compatibility (BUG-PCD-003)
 - Fix double float-to-int conversion crash (BUG-PCD-001, BUG-PCD-002)
 - Fix cross-cutting `_update_global_map()` crash (BUG-PCD-004)
 - Add `NB_LINE_OUT` globalMap variable (ENG-PCD-001)
 
 ### Short-term (Hardening)
+
 - Fix unicode_escape ordering and tab separator handling (BUG-PCD-005/006/007)
 - Add include-header and append mode support (ENG-PCD-002/003)
 - Add text enclosure / quoting support (ENG-PCD-004)
@@ -432,6 +438,7 @@ No critical security concerns. Path traversal is not a concern for Talend-conver
 - Add engine unit tests (TEST-PCD-001)
 
 ### Long-term (Optimization)
+
 - Vectorize float-to-int conversion (PERF-PCD-001)
 - Override `_auto_select_mode()` to prevent streaming (PERF-PCD-004)
 - Add aggregation function validation (ENG-PCD-011)
@@ -443,7 +450,7 @@ No critical security concerns. Path traversal is not a concern for Talend-conver
 ### Risk Matrix
 
 | Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
+| ------ | ----------- | -------- | ------------ |
 | Streaming mode data loss | **High** | **High** | Pivot requires all data; chunked execution produces silently wrong aggregations. Override `_auto_select_mode()` to always return BATCH. |
 | Pivot column cardinality explosion | **Medium** | **High** | Unbounded pivot values create extremely wide DataFrames (10K+ columns). Causes OOM for large datasets. Add cardinality check with configurable limit. |
 | File output race conditions | **Medium** | **Medium** | Concurrent jobs writing to same file path produce corrupted output. No file locking. Add advisory file locking or unique temp file + atomic rename. |
@@ -470,9 +477,9 @@ No critical security concerns. Path traversal is not a concern for Talend-conver
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talend 8.0 docs | https://help.talend.com/en-US/components/8.0/delimited/tpivottocolumnsdelimited-standard-properties | Parameter definitions, defaults |
-| Talaxie GitHub _java.xml | https://github.com/Talaxie/tdi-studio-se/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tPivotToColumnsDelimited/tPivotToColumnsDelimited_java.xml | Component definition XML |
+| -------- | ---------- | ---------- |
+| Talend 8.0 docs | <https://help.talend.com/en-US/components/8.0/delimited/tpivottocolumnsdelimited-standard-properties> | Parameter definitions, defaults |
+| Talaxie GitHub _java.xml | <https://github.com/Talaxie/tdi-studio-se/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tPivotToColumnsDelimited/tPivotToColumnsDelimited_java.xml> | Component definition XML |
 | Engine source | `src/v1/engine/components/transform/pivot_to_columns_delimited.py` | Feature parity analysis |
 | Converter source | `src/converters/talend_to_v1/components/transform/pivot_to_columns_delimited.py` | Converter audit |
 | Converter tests | `tests/converters/talend_to_v1/components/test_pivot_to_columns_delimited.py` | Test coverage assessment |
@@ -480,7 +487,7 @@ No critical security concerns. Path traversal is not a concern for Talend-conver
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` undefined `default` parameter |
 | XCUT-003 | `base_component.py:174` | `replace_in_config` literal `[i]` bug |

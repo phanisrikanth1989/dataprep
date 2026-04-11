@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tReplicate` |
 | **V1 Engine Class** | `Replicate` |
 | **Engine File** | `src/v1/engine/components/transform/replicate.py` (113 lines) |
@@ -24,7 +24,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/transform/replicate.py` | Engine implementation (113 lines) |
 | `src/converters/talend_to_v1/components/transform/replicate.py` | Converter class (70 lines) |
 | `tests/converters/talend_to_v1/components/test_replicate.py` | Converter tests (23 tests) |
@@ -36,7 +36,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 0 unique + 2 framework params extracted (100%); _build_component_dict; passthrough schema; 2 per-feature needs_review for engine-only keys |
 | Code Quality | **G** | 0 | 0 | 0 | 0 | Gold standard converter pattern; clean, minimal, well-documented module docstring with config mapping |
 | Testing | **Y** | 0 | 0 | 1 | 0 | 23 converter tests across 7 test classes; no engine unit tests (TEST-RPL-001) |
@@ -64,7 +64,7 @@ The component is commonly used when the same dataset must be written to multiple
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Schema | `SCHEMA` | Schema editor | -- | Propagated from upstream via "Sync Columns". tReplicate does not define its own schema -- it passes through the input schema identically to all outputs. |
 | 2 | Label | `LABEL` | String (TEXT) | `""` | Text label for the component in Talend Studio. No runtime impact. Framework param. |
 | 3 | tStatCatcher Statistics | `TSTATCATCHER_STATS` | Boolean (CHECK) | `false` | Capture processing metadata for tStatCatcher. Framework param. |
@@ -78,7 +78,7 @@ None. tReplicate has no advanced settings tab.
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `Row (Main)` | Input | Row > Main | Single input data flow |
 | `Row (Main)` | Output | Row > Main | Multiple output flows. Each receives identical copy of every input row. |
 | `COMPONENT_OK` | Output (Trigger) | Trigger | Fires on successful completion |
@@ -87,7 +87,7 @@ None. tReplicate has no advanced settings tab.
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total rows processed |
 | `{id}_NB_LINE_OK` | Integer | After execution | Rows successfully replicated |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Rows rejected (always 0 for replicate) |
@@ -108,7 +108,7 @@ None. tReplicate has no advanced settings tab.
 The converter uses `_build_component_dict` with `type_name="Replicate"` and passthrough schema pattern. No unique parameters to extract beyond framework params.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `SCHEMA` | Yes | schema (passthrough) | `_parse_schema(node)` with input == output |
 | 2 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | `_get_bool(node, ..., False)` -- framework param |
 | 3 | `LABEL` | Yes | `label` | `_get_str(node, ..., "")` -- framework param |
@@ -118,7 +118,7 @@ The converter uses `_build_component_dict` with `type_name="Replicate"` and pass
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` |
 | `type` | Yes | Converted from Talend types via `convert_type()` |
 | `nullable` | Yes | Boolean |
@@ -141,7 +141,7 @@ None. Converter is gold standard.
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `output_count` | Engine reads this key (default 2) but it is not a _java.xml param. Converter does not output this key. | engine_gap |
 | 2 | `die_on_error` | Engine reads this key (default True) but it is not a _java.xml param. Converter does not output this key. | engine_gap |
 
@@ -152,7 +152,7 @@ None. Converter is gold standard.
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Row replication | **Yes** | High | `_process()` line 59-101 | Copies input DataFrame to main + output_N keys |
 | 2 | Schema passthrough | **Partial** | Medium | N/A | Engine does not validate schema propagation |
 | 3 | Error handling | **Yes** | Medium | `_process()` line 104-113 | die_on_error controls RuntimeError vs empty return |
@@ -161,7 +161,7 @@ None. Converter is gold standard.
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-RPL-001 | **P2** | Engine generates redundant `output_N` keys alongside `main`. In Talend, flow routing is handled by the job engine, not the component itself. |
 | ENG-RPL-002 | **P2** | Engine reads `output_count` (default 2) which has no _java.xml equivalent. Artificial parameter. |
 | ENG-RPL-003 | **P2** | Engine reads `die_on_error` (default True) which has no _java.xml equivalent. Artificial parameter. |
@@ -170,7 +170,7 @@ None. Converter is gold standard.
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_stats()` | Total rows processed |
 | `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats()` | Same as NB_LINE for replicate |
 | `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats()` | Always 0 |
@@ -182,7 +182,7 @@ None. Converter is gold standard.
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-RPL-001 | **P2** | `replicate.py:54` | `output_count > 10` validation in `_validate_config()` is never called -- dead code |
 
 ### 6.2 Naming Consistency
@@ -192,7 +192,7 @@ No naming issues found in converter or engine.
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-RPL-001 | **P2** | "_validate_config() called or dead code" | `_validate_config()` defined but never called by base class |
 
 ### 6.4 Debug Artifacts
@@ -206,7 +206,7 @@ No concerns identified. tReplicate is a pure data passthrough with no file I/O, 
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Correct -- `logging.getLogger(__name__)` |
 | Level usage | Appropriate -- info for start/complete, warning for empty input, debug for output count |
 | Sensitive data | No concerns -- only logs row counts |
@@ -214,7 +214,7 @@ No concerns identified. tReplicate is a pure data passthrough with no file I/O, 
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | RuntimeError with component ID prefix |
 | Exception chaining | Yes -- `from e` used |
 | die_on_error handling | Correct -- raises or returns empty based on config |
@@ -222,7 +222,7 @@ No concerns identified. tReplicate is a pure data passthrough with no file I/O, 
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Complete -- return types and parameter types |
 | Parameter types | Correct -- Optional[pd.DataFrame], Dict[str, Any] |
 
@@ -231,13 +231,13 @@ No concerns identified. tReplicate is a pure data passthrough with no file I/O, 
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-RPL-001 | **P2** | N+1 full DataFrame `.copy()` calls for N outputs. For large DataFrames with many outputs, memory usage is (N+1)x input size. Could use shallow copy or view. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Not implemented; relies on base class batch mode |
 | Memory threshold | No threshold -- copies all data for all outputs |
 | Large data handling | Memory-bound by output_count * input_size |
@@ -249,7 +249,7 @@ No concerns identified. tReplicate is a pure data passthrough with no file I/O, 
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 23 | `tests/converters/talend_to_v1/components/test_replicate.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | 0 | None (component-specific) |
@@ -257,7 +257,7 @@ No concerns identified. tReplicate is a pure data passthrough with no file I/O, 
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-RPL-001 | **P2** | No engine unit tests for Replicate component |
 
 ### 8.3 Recommended Test Cases
@@ -275,7 +275,7 @@ No concerns identified. tReplicate is a pure data passthrough with no file I/O, 
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 0 | -- |
 | P1 | 0 | -- |
 | P2 | 6 | ENG-RPL-001, ENG-RPL-002, ENG-RPL-003, ENG-RPL-004, BUG-RPL-001, STD-RPL-001, PERF-RPL-001, TEST-RPL-001 |
@@ -285,7 +285,7 @@ No concerns identified. tReplicate is a pure data passthrough with no file I/O, 
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Engine (ENG) | 4 | ENG-RPL-001, ENG-RPL-002, ENG-RPL-003, ENG-RPL-004 |
 | Bug (BUG) | 1 | BUG-RPL-001 |
 | Standards (STD) | 1 | STD-RPL-001 |
@@ -295,7 +295,7 @@ No concerns identified. tReplicate is a pure data passthrough with no file I/O, 
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py` | `_update_global_map()` crash when globalMap set |
 | XCUT-002 | `base_component.py` | `_validate_config()` never called |
 
@@ -322,7 +322,7 @@ No P0 or P1 issues. Converter is production-ready.
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
+| -------- | ---------- | ---------- |
 | Talend docs | [tReplicate Standard Properties](https://help.qlik.com/talend/en-US/components/8.0/processing/treplicate-standard-properties) | Parameter definitions |
 | Talaxie GitHub _java.xml | [tReplicate_java.xml](https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tReplicate/tReplicate_java.xml) | Component definition XML |
 | Engine source | `src/v1/engine/components/transform/replicate.py` | Feature parity analysis |
@@ -331,7 +331,7 @@ No P0 or P1 issues. Converter is production-ready.
 ## Appendix B: Engine Config Key Mapping
 
 | Engine Config Key | _java.xml Param | Default (Engine) | Default (_java.xml) | Status |
-|-------------------|-----------------|------------------|---------------------|--------|
+| ------------------- | ----------------- | ------------------ | --------------------- | -------- |
 | `output_count` | N/A | 2 | N/A | Engine-only key -- no _java.xml equivalent |
 | `die_on_error` | N/A | True | N/A | Engine-only key -- no _java.xml equivalent |
 | `tstatcatcher_stats` | `TSTATCATCHER_STATS` | N/A | false | Framework param -- converter extracts correctly |

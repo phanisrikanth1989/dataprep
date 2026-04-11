@@ -2,9 +2,8 @@
 
 Iterates over a static list of values, exposing each as CURRENT_VALUE in globalMap.
 
-Config mapping (4 params total):
+Config mapping (3 params total):
   VALUES             -> values (list[str], default [])
-  CONNECTION_FORMAT  -> connection_format (str, default "row")  [not in _java.xml]
   TSTATCATCHER_STATS -> tstatcatcher_stats (bool, default False)
   LABEL              -> label (str, default "")
 """
@@ -67,7 +66,6 @@ class ForeachConverter(ComponentConverter):
 
         # ---- 1. Core parameters ----
         config: Dict[str, Any] = {}
-        config["connection_format"] = self._get_str(node, "CONNECTION_FORMAT", "row")
 
         # ---- 2. TABLE parameters ----
         config["values"] = _parse_values_table(params.get("VALUES", []))

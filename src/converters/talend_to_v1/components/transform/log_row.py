@@ -16,13 +16,12 @@ Config mapping (13 unique params + framework):
   USE_FIXED_LENGTH -> use_fixed_length (bool, default False)
   LENGTHS          -> lengths          (list, TABLE stride-1, default [])
   PRINT_CONTENT_WITH_LOG4J -> print_content_with_log4j (bool, default True)
-  SCHEMA_OPT_NUM   -> max_rows         (str, hidden, default "100")
   --- framework ---
   TSTATCATCHER_STATS -> tstatcatcher_stats (bool, default False)
   LABEL              -> label              (str, default "")
 
 Engine reads: basic_mode, table_print (default True), print_header (default True),
-field_separator/FIELDSEPARATOR, max_rows/SCHEMA_OPT_NUM.
+field_separator/FIELDSEPARATOR.
 Engine does NOT read: vertical, print_colnames, use_fixed_length, lengths,
 print_content_with_log4j, print_unique, print_label, print_unique_label, print_unique_name.
 """
@@ -97,7 +96,6 @@ class LogRowConverter(ComponentConverter):
 
         # ---- 4. TEXT parameters ----
         config["fieldseparator"] = self._get_str(node, "FIELDSEPARATOR", "|")
-        config["max_rows"] = self._get_str(node, "SCHEMA_OPT_NUM", "100")
 
         # ---- 5. TABLE parameter ----
         config["lengths"] = _parse_lengths(node.params.get("LENGTHS", []))

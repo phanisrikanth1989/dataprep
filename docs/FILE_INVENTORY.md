@@ -97,6 +97,7 @@ backend/
 ```
 
 **Backend Summary:**
+
 - 13 files total
 - ~850 lines of code
 - 13 API endpoints (6 jobs + 2 components + 5 execution)
@@ -310,7 +311,7 @@ frontend/src/
 │
 └── frontend/
     ├── .env.example                         (2 lines)
-    │   ├── VITE_API_URL=http://localhost:8000/api
+    │   ├── VITE_API_URL=<http://localhost:8000/api>
     │   └── VITE_WS_URL=ws://localhost:8000
     │
     └── .gitignore                           (8 lines)
@@ -322,6 +323,7 @@ frontend/src/
 ```
 
 **Frontend Summary:**
+
 - 35+ files total
 - ~2200 lines of code
 - 9 React components
@@ -391,6 +393,7 @@ Root Directory (recdataprep/)
 ```
 
 **Documentation Summary:**
+
 - 7 documentation files
 - ~1500+ lines total
 - Setup guides
@@ -476,7 +479,7 @@ recdataprep/
 
 ### Code Distribution
 | Component | Files | Lines | Status |
-|-----------|-------|-------|--------|
+| ----------- | ------- | ------- | -------- |
 | Backend | 13 | 850 | ✅ Complete |
 | Frontend | 30+ | 2200 | ✅ Complete |
 | Documentation | 7 | 1500+ | ✅ Complete |
@@ -485,7 +488,7 @@ recdataprep/
 
 ### API Endpoints
 | Category | Count | Endpoints |
-|----------|-------|-----------|
+| ---------- | ------- | ----------- |
 | Jobs | 6 | List, Get, Create, Update, Delete, Export |
 | Components | 2 | List, Get metadata |
 | Execution | 6 | Start, Status, Stop, WebSocket + 2 REST |
@@ -493,7 +496,7 @@ recdataprep/
 
 ### UI Components
 | Type | Count | Names |
-|------|-------|-------|
+| ------ | ------- | ------- |
 | Layout | 1 | Canvas |
 | Input | 2 | ComponentPalette, ConfigPanel |
 | Visualization | 2 | ComponentNode, ExecutionMonitor |
@@ -503,7 +506,7 @@ recdataprep/
 
 ### Built-in Components
 | Category | Count | Types |
-|----------|-------|-------|
+| ---------- | ------- | ------- |
 | Input | 1 | tFileInput |
 | Transform | 4 | tMap, tFilter, tAggregate, tSort |
 | Output | 1 | tFileOutput |
@@ -514,6 +517,7 @@ recdataprep/
 ## 🚀 Deployment Checklist
 
 ### Pre-Deployment
+
 - [x] All files created and tested
 - [x] Dependencies configured
 - [x] Environment templates provided
@@ -521,13 +525,15 @@ recdataprep/
 - [x] Quick start scripts ready
 
 ### Deployment Steps
+
 1. Run `quickstart.bat` or `quickstart.sh`
 2. Or follow manual setup in SETUP_DEPLOYMENT.md
 3. Start backend: `python run.py`
 4. Start frontend: `npm run dev`
-5. Open http://localhost:5173
+5. Open <http://localhost:5173>
 
 ### Post-Deployment
+
 - Run tests from TESTING_GUIDE.md
 - Verify all endpoints respond
 - Test job creation and execution
@@ -539,18 +545,21 @@ recdataprep/
 ## 📝 File Naming Convention
 
 ### Backend
+
 - `*.py` - Python files
 - Modules: lowercase with underscore (job_service.py)
 - Classes: PascalCase (ExecutionManager)
 - Functions: snake_case (create_job)
 
 ### Frontend
+
 - `*.tsx` - React + TypeScript files
 - Components: PascalCase.tsx (Canvas.tsx)
 - Services: camelCase.ts (api.ts)
 - Types: lowercase/PascalCase.ts (index.ts)
 
 ### Documentation
+
 - `*.md` - Markdown documentation
 - Descriptive names with emphasis on category
 - Uppercase when it's a guide (SETUP_DEPLOYMENT.md)
@@ -659,18 +668,21 @@ Update component node data
 ## 🔐 Configuration Files
 
 ### Backend Configuration
+
 - `backend/.env` - Environment variables (auto-created)
 - `backend/requirements.txt` - Python dependencies
 - Connection to existing engine: `from src.v1.engine.engine import ETLEngine`
 
 ### Frontend Configuration
+
 - `frontend/.env.local` - Runtime env vars (auto-created)
 - `frontend/package.json` - npm dependencies
 - `frontend/vite.config.ts` - Build configuration
 - `frontend/tsconfig.json` - TypeScript configuration
 
 ### Both
-- `/api` proxy to `http://localhost:8000/api`
+
+- `/api` proxy to `<http://localhost:8000/api`>
 - `/ws` proxy to `ws://localhost:8000`
 - CORS enabled for localhost development
 

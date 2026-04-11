@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tFileList` |
 | **V1 Engine Class** | None -- no concrete engine implementation exists |
 | **Engine File** | No dedicated engine file |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/converters/talend_to_v1/components/file/file_list.py` | Converter class `FileListConverter` (140 lines) |
 | `tests/converters/talend_to_v1/components/test_file_list.py` | Converter tests (51 tests, 11 classes) |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()`, `_build_component_dict()` |
@@ -39,7 +39,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 16 of 16 _java.xml params extracted (100%); INCLUDSUBDIR spelling correct (no E); ERROR default=False; FORMAT_FILEPATH_TO_SLASH added; FILES TABLE with elementRef pattern; module docstring follows CONVERTER_PATTERN.md |
 | Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No concrete engine implementation exists; component cannot execute |
 | Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code quality is good (follows CONVERTER_PATTERN.md), but no engine code exists -- component is incomplete |
@@ -49,6 +49,7 @@ How production-ready is this component at a glance?
 **Overall: RED -- No engine implementation. Converter correctly extracts all 16 params for future engine support, but component cannot execute in production. Engine must be implemented before this component is usable.**
 
 **Top Actions**:
+
 1. Implement concrete FileList engine class (P0 -- blocks production use)
 2. All converter and test issues resolved in v1.1 rewrite
 
@@ -72,7 +73,7 @@ The component supports glob-style or regex file matching via the FILES table, re
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Directory | `DIRECTORY` | DIRECTORY | (dir default) | Root directory to scan for files |
 | 2 | List Mode | `LIST_MODE` | CLOSED_LIST | `FILES` | What to list: FILES, DIRECTORIES, or BOTH |
 | 3 | Include Subdirectories | `INCLUDSUBDIR` | CHECK | `false` | Recurse into subdirectories. NOTE: spelling in _java.xml is INCLUDSUBDIR (no E) |
@@ -84,7 +85,7 @@ The component supports glob-style or regex file matching via the FILES table, re
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 8 | Order by Nothing | `ORDER_BY_NOTHING` | RADIO | `true` | No sorting applied (default RADIO selection) |
 | 9 | Order by Filename | `ORDER_BY_FILENAME` | RADIO | `false` | Sort results by filename |
 | 10 | Order by File Size | `ORDER_BY_FILESIZE` | RADIO | `false` | Sort results by file size |
@@ -98,7 +99,7 @@ The component supports glob-style or regex file matching via the FILES table, re
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `ITERATE` | Output | Iterate | Drives downstream subjob re-execution. One iteration per matched file. |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires after all iterations complete successfully |
 | `COMPONENT_OK` | Output (Trigger) | Trigger | Fires after component completes |
@@ -108,7 +109,7 @@ The component supports glob-style or regex file matching via the FILES table, re
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_CURRENT_FILE` | String | ITERATE | Full path of current file |
 | `{id}_CURRENT_FILEPATH` | String | ITERATE | Directory path of current file |
 | `{id}_CURRENT_FILEDIRECTORY` | String | ITERATE | Directory of current file |
@@ -131,7 +132,7 @@ The component supports glob-style or regex file matching via the FILES table, re
 ### 3.6 Framework Parameters
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | F1 | tStatCatcher Stats | `TSTATCATCHER_STATS` | CHECK | `false` | Enable statistics collection for tStatCatcher |
 | F2 | Label | `LABEL` | TEXT | `""` | User-defined label for the component instance |
 
@@ -146,7 +147,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 The converter (`FileListConverter`) uses the `ComponentConverter` base class helpers (`_get_bool`, `_get_str`) to extract parameters from the TalendNode params dict. The FILES table is parsed via a module-level `_parse_files()` function using elementRef-based FILEMASK entries per CONVERTER_PATTERN.md.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `DIRECTORY` | Yes | `directory` | TEXT -> str, default "". Extracted via `_get_str()`. |
 | 2 | `LIST_MODE` | Yes | `list_mode` | CLOSED_LIST -> str, default "FILES". Extracted via `_get_str()`. |
 | 3 | `INCLUDSUBDIR` | Yes | `include_subdirs` | CHECK -> bool, default False. Correct _java.xml spelling (no E). |
@@ -171,7 +172,7 @@ The converter (`FileListConverter`) uses the `ComponentConverter` base class hel
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | N/A | N/A | tFileList is an iterate-style component with no data flow schema. Schema is set to `{"input": [], "output": []}`. |
 
 ### 4.3 Expression Handling
@@ -181,7 +182,7 @@ No expression handling is needed for tFileList. Parameters are scalar values (st
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | CONV-FL-001 | ~~P1~~ | **FIXED** -- INCLUDSUBDIR param name corrected (was reading INCLUDESUBDIR with wrong E) |
 | CONV-FL-002 | ~~P1~~ | **FIXED** -- ERROR default corrected from True to False per _java.xml |
 | CONV-FL-003 | ~~P1~~ | **FIXED** -- FORMAT_FILEPATH_TO_SLASH parameter added (was missing) |
@@ -198,7 +199,7 @@ No expression handling is needed for tFileList. Parameters are scalar values (st
 The converter emits a single component-level needs_review entry (not per-key, since the entire engine is absent):
 
 | # | Scope | Reason | Severity |
-|---|-------|--------|----------|
+| --- | ------- | -------- | ---------- |
 | 1 | Component-level | No concrete engine implementation for tFileList. All config keys are extracted for future engine support. | engine_gap |
 
 ---
@@ -212,7 +213,7 @@ How faithfully does the v1 engine implement Talend behavior?
 No concrete engine implementation exists for tFileList.
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Directory scanning | **No** | N/A | -- | No engine class |
 | 2 | File mask matching (glob/regex) | **No** | N/A | -- | No engine class |
 | 3 | Recursive subdirectory scanning | **No** | N/A | -- | No engine class |
@@ -225,13 +226,13 @@ No concrete engine implementation exists for tFileList.
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-FL-001 | **P0** | **OPEN** -- No concrete FileList engine class exists. Jobs using tFileList cannot execute in the v1 engine. |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_CURRENT_FILE` | Yes | No | -- | No engine implementation |
 | `{id}_CURRENT_FILEPATH` | Yes | No | -- | No engine implementation |
 | `{id}_CURRENT_FILEDIRECTORY` | Yes | No | -- | No engine implementation |
@@ -249,19 +250,19 @@ How well-written is the converter code?
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | -- | -- | -- | No bugs found in the converter code. Logic is correct for what it implements. |
 
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-FL-001 | ~~P2~~ | **FIXED** -- Config keys now follow snake_case convention, consistent with _java.xml names. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-FL-001 | ~~P2~~ | "Module docstring lists ALL config keys" (CONVERTER_PATTERN.md Rule 1) | **FIXED** -- Module docstring now has `Config mapping (17 params total):` block |
 | STD-FL-002 | ~~P2~~ | "Framework params ALWAYS extracted, ALWAYS last" (CONVERTER_PATTERN.md Rule 7) | **FIXED** -- tstatcatcher_stats and label now extracted as last params |
 | STD-FL-003 | ~~P2~~ | "needs_review entries have exactly 3 keys" (CONVERTER_PATTERN.md Rule 10) | **FIXED** -- Single needs_review entry with correct 3-key format |
@@ -277,7 +278,7 @@ No concerns identified. The converter only reads XML parameter data and produces
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- `logger = logging.getLogger(__name__)` at module level |
 | Level usage | N/A -- logger not used in the converter (appropriate for simple component) |
 | Sensitive data | No concerns |
@@ -285,7 +286,7 @@ No concerns identified. The converter only reads XML parameter data and produces
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Good -- no exceptions raised per convention (converters never raise) |
 | Exception chaining | N/A |
 | die_on_error handling | N/A -- tFileList has no die_on_error parameter |
@@ -293,7 +294,7 @@ No concerns identified. The converter only reads XML parameter data and produces
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- `convert()` fully typed with return type `ComponentResult` |
 | Parameter types | Good -- `_parse_files()` uses `Any` for raw input, `List[Dict[str, str]]` for return |
 
@@ -304,13 +305,13 @@ No concerns identified. The converter only reads XML parameter data and produces
 Will it scale?
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No performance or memory concerns. The converter is lightweight with O(n) FILES table parsing. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- no engine implementation to assess |
 | Memory threshold | N/A |
 | Large data handling | Converter handles FILES tables of any size with O(n) linear scan |
@@ -324,7 +325,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 51 | `tests/converters/talend_to_v1/components/test_file_list.py` |
 | Engine unit tests | 0 | None -- no engine implementation |
 | Integration tests | 0 | None |
@@ -332,7 +333,7 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-FL-001 | ~~P1~~ | **FIXED** -- TestDefaults class added for all 15 unique params with correct defaults |
 | TEST-FL-002 | ~~P1~~ | **FIXED** -- TestFrameworkParams class added for tstatcatcher_stats and label |
 | TEST-FL-003 | ~~P2~~ | **FIXED** -- TestNeedsReview class added for needs_review verification |
@@ -344,6 +345,7 @@ What's verified?
 ### 8.3 Recommended Test Cases
 
 All recommended test cases have been implemented:
+
 - **TestRegistration**: Verify `REGISTRY.get("tFileList")` returns `FileListConverter`
 - **TestDefaults**: One test per unique config key default (15 tests)
 - **TestParameterExtraction**: Non-default values for key parameters (10 tests)
@@ -364,7 +366,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 1 (open) | **ENG-FL-001** |
 | P1 | 0 (5 fixed) | ~~CONV-FL-001~~, ~~CONV-FL-002~~, ~~CONV-FL-003~~, ~~TEST-FL-001~~, ~~TEST-FL-002~~ |
 | P2 | 0 (12 fixed) | ~~CONV-FL-004~~, ~~CONV-FL-005~~, ~~CONV-FL-006~~, ~~CONV-FL-007~~, ~~CONV-FL-008~~, ~~CONV-FL-009~~, ~~CONV-FL-010~~, ~~NAME-FL-001~~, ~~STD-FL-001~~, ~~STD-FL-002~~, ~~STD-FL-003~~, ~~TEST-FL-003~~, ~~TEST-FL-004~~, ~~TEST-FL-005~~, ~~TEST-FL-006~~, ~~TEST-FL-007~~ |
@@ -374,7 +376,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count (open/fixed) | IDs |
-|----------|-------------------|-----|
+| ---------- | ------------------- | ----- |
 | Converter (CONV) | 0/10 | ~~CONV-FL-001~~ through ~~CONV-FL-010~~ |
 | Engine (ENG) | 1/0 | **ENG-FL-001** |
 | Bug (BUG) | 0/0 | |
@@ -410,8 +412,8 @@ No P3 issues identified. Component is straightforward once engine is implemented
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://github.com/Talaxie/tdi-studio-se` (tFileList_java.xml) | Parameter definitions, defaults, types, connectors |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://github.com/Talaxie/tdi-studio-se`> (tFileList_java.xml) | Parameter definitions, defaults, types, connectors |
 | Converter source | `src/converters/talend_to_v1/components/file/file_list.py` | Converter audit (140 lines) |
 | Converter base class | `src/converters/talend_to_v1/components/base.py` | Helper methods, dataclass definitions |
 | Test source | `tests/converters/talend_to_v1/components/test_file_list.py` | Testing audit (51 tests) |
@@ -425,14 +427,14 @@ No P3 issues identified. Component is straightforward once engine is implemented
 No cross-cutting issues directly affect tFileList since no engine implementation exists. When implemented, the following would apply:
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set -- would affect globalMap variable setting |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` crash -- would affect any globalMap variable retrieval |
 
 ### Edge-Case Checklist Results
 
 | Check | Result | Notes |
-|-------|--------|-------|
+| ------- | -------- | ------- |
 | NaN handling | N/A | Converter does not process data values |
 | Empty strings in config keys | Safe | `_get_str()` returns default for None, handles empty strings |
 | Empty DataFrame input | N/A | No engine implementation |

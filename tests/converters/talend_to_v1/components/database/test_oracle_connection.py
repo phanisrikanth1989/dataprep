@@ -199,12 +199,6 @@ class TestDefaults:
         result = _convert(node)
         assert result.component["config"]["ssl_trustserver_truststore"] == ""
 
-    def test_ssl_trustserver_password_default(self):
-        """SSL_TRUSTSERVER_PASSWORD defaults to empty string."""
-        node = _make_node()
-        result = _convert(node)
-        assert result.component["config"]["ssl_trustserver_password"] == ""
-
     def test_need_client_auth_default(self):
         """NEED_CLIENT_AUTH defaults to False."""
         node = _make_node()
@@ -216,12 +210,6 @@ class TestDefaults:
         node = _make_node()
         result = _convert(node)
         assert result.component["config"]["ssl_keystore"] == ""
-
-    def test_ssl_keystore_password_default(self):
-        """SSL_KEYSTORE_PASSWORD defaults to empty string."""
-        node = _make_node()
-        result = _convert(node)
-        assert result.component["config"]["ssl_keystore_password"] == ""
 
     def test_disable_cbc_protection_default(self):
         """DISABLE_CBC_PROTECTION defaults to True (unusual -- most CHECKs default false)."""
@@ -532,7 +520,7 @@ class TestCompleteness:
         assert not extra, f"Unexpected top-level keys: {extra}"
 
     def test_all_config_keys_present(self):
-        """All 30 config keys present (28 params + 2 framework)."""
+        """All 28 config keys present (26 params + 2 framework)."""
         node = _make_node(schema=_make_schema_columns())
         result = _convert(node)
         expected_config_keys = {
@@ -548,8 +536,8 @@ class TestCompleteness:
             # Datasource alias
             "specify_datasource_alias", "datasource_alias",
             # SSL
-            "use_ssl", "ssl_trustserver_truststore", "ssl_trustserver_password",
-            "need_client_auth", "ssl_keystore", "ssl_keystore_password",
+            "use_ssl", "ssl_trustserver_truststore",
+            "need_client_auth", "ssl_keystore",
             "disable_cbc_protection",
             # Advanced
             "auto_commit", "support_nls",
@@ -571,8 +559,8 @@ class TestCompleteness:
             "encoding", "properties",
             "use_shared_connection", "shared_connection_name",
             "specify_datasource_alias", "datasource_alias",
-            "use_ssl", "ssl_trustserver_truststore", "ssl_trustserver_password",
-            "need_client_auth", "ssl_keystore", "ssl_keystore_password",
+            "use_ssl", "ssl_trustserver_truststore",
+            "need_client_auth", "ssl_keystore",
             "disable_cbc_protection",
             "auto_commit", "support_nls",
             "tstatcatcher_stats", "label",

@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tSortRow` |
 | **V1 Engine Class** | `SortRow` |
 | **Engine File** | `src/v1/engine/components/transform/sort_row.py` (396 lines) |
@@ -24,7 +24,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/transform/sort_row.py` | Engine implementation (396 lines) |
 | `src/converters/talend_to_v1/components/transform/sort_row.py` | Converter class (119 lines) |
 | `tests/converters/talend_to_v1/components/test_sort_row.py` | Converter tests (38 tests, 10 test classes) |
@@ -36,7 +36,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 5/5 unique params + 2 framework extracted; SORT/ORDER inversion fixed; phantoms removed (SORT_TYPE, EXTERNAL_SORT, BUFFER_SIZE); 3 needs_review for engine gaps |
 | Engine Feature Parity | **Y** | 0 | 3 | 2 | 1 | Engine reads na_position/case_sensitive/chunk_size not in _java.xml; no sort type distinction (num vs alpha vs date); external sort pseudo-external |
 | Code Quality | **G** | 0 | 0 | 0 | 0 | Converter follows gold standard pattern; clean stride-3 parser; well-documented |
@@ -46,6 +46,7 @@
 **Overall: YELLOW -- Converter is gold standard. Engine has engine-only keys and HYBRID streaming risk.**
 
 **Top Actions**:
+
 1. Add engine support for sort type distinction (num/alpha/date) from criteria
 2. Remove engine-only `na_position`, `case_sensitive`, `chunk_size` or add to converter
 3. Fix external sort to use true k-way merge (not full re-sort)
@@ -70,7 +71,7 @@ tSortRow is a **blocking component** -- it must receive ALL input rows before it
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Schema | `SCHEMA` | Schema editor | -- | Column definitions. Output schema always matches input (sort does not change structure). |
 | 2 | Criteria | `CRITERIA` | TABLE (stride-3) | `[]` | Sort criteria table with 3 fields per row. At least one criterion required. |
 | 2a | -- Column | `COLNAME` | elementRef | first column | Schema column to sort by |
@@ -82,7 +83,7 @@ tSortRow is a **blocking component** -- it must receive ALL input rows before it
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 3 | Sort on disk | `EXTERNAL` | CHECK | `false` | Enable external sorting using temporary files on disk instead of JVM heap memory |
 | 4 | Temp data directory path | `TEMPFILE` | DIRECTORY | `"__COMP_DEFAULT_FILE_DIR__/temp"` | Path for temporary sort files. Supports context variables. Only relevant when EXTERNAL is true |
 | 5 | Create temp dir | `CREATEDIR` | CHECK | `true` | Auto-create temp directory if it does not exist. Only relevant when EXTERNAL is true |
@@ -92,7 +93,7 @@ tSortRow is a **blocking component** -- it must receive ALL input rows before it
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Input rows to sort |
 | `FLOW` (Main) | Output | Row > Main | Sorted output rows (same schema as input) |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fired on successful completion |
@@ -101,7 +102,7 @@ tSortRow is a **blocking component** -- it must receive ALL input rows before it
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total rows processed |
 
 ### 3.5 Behavioral Notes
@@ -123,7 +124,7 @@ tSortRow is a **blocking component** -- it must receive ALL input rows before it
 The converter uses a stride-3 `_parse_criteria()` module-level function to parse the CRITERIA TABLE, producing a list of `{column, sort_type, order}` dicts. Scalar parameters use `_get_bool()` and `_get_str()` from the base class.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `CRITERIA` (TABLE) | Yes | `criteria` | List of dicts with column/sort_type/order. Stride-3 parser. |
 | 1a | `COLNAME` | Yes | `criteria[].column` | Column name, quote-stripped |
 | 1b | `SORT` | Yes | `criteria[].sort_type` | Data type: num/alpha/date (lowered). Default "num" |
@@ -140,7 +141,7 @@ The converter uses a stride-3 `_parse_criteria()` module-level function to parse
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` |
 | `type` | Yes | Converted via `convert_type()` |
 | `nullable` | Yes | |
@@ -159,7 +160,7 @@ TEMPFILE and EXTERNAL_SORT_BUFFERSIZE are extracted as strings to preserve conte
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | ~~CONV-SR-001~~ | ~~P0~~ | **FIXED** -- SORT/ORDER semantic inversion corrected. SORT now maps to sort_type (data type), ORDER maps to order (direction) |
 | ~~CONV-SR-002~~ | ~~P1~~ | **FIXED** -- Phantom SORT_TYPE column removed from CRITERIA parsing |
 | ~~CONV-SR-003~~ | ~~P1~~ | **FIXED** -- EXTERNAL_SORT renamed to EXTERNAL per _java.xml |
@@ -170,7 +171,7 @@ TEMPFILE and EXTERNAL_SORT_BUFFERSIZE are extracted as strings to preserve conte
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `na_position` | Engine reads 'na_position' (default 'last') but this is not a _java.xml param | engine_gap |
 | 2 | `case_sensitive` | Engine reads 'case_sensitive' (default True) but this is not a _java.xml param | engine_gap |
 | 3 | `chunk_size` | Engine reads 'chunk_size' (default 10000) but this is not a _java.xml param | engine_gap |
@@ -182,7 +183,7 @@ TEMPFILE and EXTERNAL_SORT_BUFFERSIZE are extracted as strings to preserve conte
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Multi-column sort | **Yes** | High | `_process()` line 167-176 | Supports multiple sort columns with per-column order |
 | 2 | Ascending/Descending | **Yes** | High | `_process()` line 173 | Maps 'desc'/'descending' to False, else True |
 | 3 | Sort type (NUM/ALPHA/DATE) | **No** | N/A | -- | Engine does not read sort_type from criteria. Uses pandas default comparison |
@@ -197,7 +198,7 @@ TEMPFILE and EXTERNAL_SORT_BUFFERSIZE are extracted as strings to preserve conte
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-SR-001 | **P1** | Engine does not distinguish sort type (NUM/ALPHA/DATE). Pandas default comparison used for all columns. Alphabetical sort of numeric strings produces wrong order (e.g., "10" < "2"). |
 | ENG-SR-002 | **P1** | External sort is pseudo-external: all chunks are loaded back into memory for final `pd.concat()` + `sort_values()`. Defeats the purpose for truly large datasets. |
 | ENG-SR-003 | **P1** | Engine reads `na_position`, `case_sensitive`, `chunk_size` which are engine-only keys not present in _java.xml. These engine extras have no Talend equivalent. |
@@ -208,7 +209,7 @@ TEMPFILE and EXTERNAL_SORT_BUFFERSIZE are extracted as strings to preserve conte
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_stats()` | Set in all paths |
 | `{id}_SORTED_BY` | No | Partial | `global_map.put()` line 221 | Engine extra, only in in-memory path |
 | `{id}_SORT_ORDERS` | No | Partial | `global_map.put()` line 222 | Engine extra, only in in-memory path |
@@ -220,7 +221,7 @@ TEMPFILE and EXTERNAL_SORT_BUFFERSIZE are extracted as strings to preserve conte
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-SR-001 | **P1** | `sort_row.py:193` | CROSS-CUTTING: Input DataFrame mutation. `input_data[temp_col] = ...` modifies the caller's DataFrame in-place during case-insensitive sort. Should use `.copy()` first. |
 | BUG-SR-002 | **P1** | `sort_row.py:279` | External sort ascending list uses `sort_orders[j]` without bounds checking. If sort_orders is shorter than sort_columns, raises IndexError. |
 | BUG-SR-003 | **P1** | `sort_row.py:376` | Streaming ascending list has `if i < len(sort_orders)` guard but silently drops columns that exceed sort_orders length, producing potentially wrong results. |
@@ -230,14 +231,14 @@ TEMPFILE and EXTERNAL_SORT_BUFFERSIZE are extracted as strings to preserve conte
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-SR-001 | **P2** | Engine reads `external_sort` but _java.xml name is `EXTERNAL`. Config key should be `external` to match converter output. |
 | NAME-SR-002 | **P2** | Engine reads `max_memory_rows` but _java.xml name is `EXTERNAL_SORT_BUFFERSIZE`. Config key should be `external_sort_buffersize`. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-SR-001 | **P2** | "Use `kind='stable'` for deterministic sort" | External sort path omits `kind='stable'` in chunk sort and final merge sort |
 
 ### 6.4 Debug Artifacts
@@ -251,7 +252,7 @@ No concerns identified. No eval(), exec(), or path traversal vectors in engine c
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- module-level `logger = logging.getLogger(__name__)` |
 | Level usage | Good -- info for start/end, warning for empty input, error for failures |
 | Sensitive data | Clean -- no data values logged |
@@ -259,7 +260,7 @@ No concerns identified. No eval(), exec(), or path traversal vectors in engine c
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | None -- uses generic Exception raise |
 | Exception chaining | Missing -- `raise` preserves traceback but no `from` chaining |
 | die_on_error handling | Not implemented -- engine has no die_on_error support for sort |
@@ -267,7 +268,7 @@ No concerns identified. No eval(), exec(), or path traversal vectors in engine c
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- all public methods fully typed |
 | Parameter types | Good -- `Dict[str, Any]`, `Optional[pd.DataFrame]`, `List[str]` |
 
@@ -276,14 +277,14 @@ No concerns identified. No eval(), exec(), or path traversal vectors in engine c
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-SR-001 | **P1** | External sort defeats purpose: all chunks are loaded back into memory for `pd.concat()` + `sort_values()`. True k-way merge sort needed for memory-constrained scenarios. |
 | PERF-SR-002 | **P2** | Streaming sort collects ALL chunks into memory before sorting. For truly streaming pipelines, this creates a memory bottleneck equal to full dataset size. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Poor -- collects all data, sorts as batch |
 | Memory threshold | Functional -- auto-triggers external sort at max_memory_rows |
 | Large data handling | Poor -- external sort still loads everything for final merge |
@@ -295,7 +296,7 @@ No concerns identified. No eval(), exec(), or path traversal vectors in engine c
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 38 | `tests/converters/talend_to_v1/components/test_sort_row.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | 0 | None (component-specific) |
@@ -303,7 +304,7 @@ No concerns identified. No eval(), exec(), or path traversal vectors in engine c
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-SR-001 | **P2** | No engine unit tests for SortRow component (D-64: Testing=Y not G) |
 
 ### 8.3 Recommended Test Cases
@@ -322,7 +323,7 @@ No concerns identified. No eval(), exec(), or path traversal vectors in engine c
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 0 | -- |
 | P1 | 6 | ENG-SR-001, ENG-SR-002, ENG-SR-003, BUG-SR-001, BUG-SR-002, BUG-SR-003, PERF-SR-001 |
 | P2 | 8 | ENG-SR-004, ENG-SR-005, BUG-SR-004, BUG-SR-005, NAME-SR-001, NAME-SR-002, STD-SR-001, PERF-SR-002, TEST-SR-001 |
@@ -332,7 +333,7 @@ No concerns identified. No eval(), exec(), or path traversal vectors in engine c
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | All 6 resolved (~~CONV-SR-001~~ through ~~CONV-SR-006~~) |
 | Engine (ENG) | 6 | ENG-SR-001 through ENG-SR-006 |
 | Bug (BUG) | 5 | BUG-SR-001 through BUG-SR-005 |
@@ -344,7 +345,7 @@ No concerns identified. No eval(), exec(), or path traversal vectors in engine c
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set |
 | XCUT-002 | `base_component.py` | HYBRID streaming mode via base class -- sort is blocking, streaming breaks correctness |
 
@@ -360,16 +361,16 @@ No concerns identified. No eval(), exec(), or path traversal vectors in engine c
 
 ### Short-term (Hardening)
 
-4. Replace pseudo-external sort with true k-way merge (ENG-SR-002, PERF-SR-001)
-5. Fix streaming ascending list truncation (BUG-SR-003)
-6. Align engine config keys with converter output: `external` not `external_sort`, `external_sort_buffersize` not `max_memory_rows` (NAME-SR-001, NAME-SR-002)
-7. Add engine unit tests (TEST-SR-001)
+1. Replace pseudo-external sort with true k-way merge (ENG-SR-002, PERF-SR-001)
+2. Fix streaming ascending list truncation (BUG-SR-003)
+3. Align engine config keys with converter output: `external` not `external_sort`, `external_sort_buffersize` not `max_memory_rows` (NAME-SR-001, NAME-SR-002)
+4. Add engine unit tests (TEST-SR-001)
 
 ### Long-term (Optimization)
 
-8. Fix bare `except:` in external sort cleanup (BUG-SR-004)
-9. Improve `_is_streaming()` detection (BUG-SR-005)
-10. Set GlobalMap variables in all paths, not just in-memory (ENG-SR-006)
+1. Fix bare `except:` in external sort cleanup (BUG-SR-004)
+2. Improve `_is_streaming()` detection (BUG-SR-005)
+3. Set GlobalMap variables in all paths, not just in-memory (ENG-SR-006)
 
 ---
 
@@ -378,7 +379,7 @@ No concerns identified. No eval(), exec(), or path traversal vectors in engine c
 ### Risk Matrix
 
 | Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
+| ------ | ----------- | -------- | ------------ |
 | HYBRID streaming mode produces incorrect sort order | High | High | Sort is a blocking operation requiring full materialization. Base class HYBRID mode chunks data and calls `_process()` per chunk, producing partially-sorted chunks instead of a globally sorted result. Disable HYBRID mode for tSortRow or force batch execution mode. |
 | External sort temp file cleanup on job failure | Medium | Medium | External sort creates temp files in `sort_dir`. The `finally` block cleans up, but if the process is killed (SIGKILL, OOM killer), temp files remain as orphans. Implement periodic temp directory cleanup or use OS-level temp file management. |
 | Memory exhaustion without external sort | Medium | High | Large datasets without EXTERNAL=true can exhaust JVM/Python heap memory. No configurable memory limit in _java.xml (engine has max_memory_rows but it is not a Talend param). Monitor memory usage and enable external sort for large datasets. |
@@ -403,9 +404,9 @@ No concerns identified. No eval(), exec(), or path traversal vectors in engine c
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://github.com/Talaxie/tcommon-studio-se` | CRITERIA TABLE columns (COLNAME, SORT, ORDER), param names (EXTERNAL, TEMPFILE, CREATEDIR, EXTERNAL_SORT_BUFFERSIZE), defaults |
-| Talend 8.0 docs | `https://help.qlik.com/talend/en-US/components/8.0/processing/tsortrow-standard-properties` | Component behavior, parameter descriptions |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://github.com/Talaxie/tcommon-studio-se`> | CRITERIA TABLE columns (COLNAME, SORT, ORDER), param names (EXTERNAL, TEMPFILE, CREATEDIR, EXTERNAL_SORT_BUFFERSIZE), defaults |
+| Talend 8.0 docs | `<https://help.qlik.com/talend/en-US/components/8.0/processing/tsortrow-standard-properties`> | Component behavior, parameter descriptions |
 | Engine source | `src/v1/engine/components/transform/sort_row.py` (396 lines) | Feature parity analysis |
 | Converter source | `src/converters/talend_to_v1/components/transform/sort_row.py` (119 lines) | Converter audit |
 
@@ -416,7 +417,7 @@ This appendix documents the SORT/ORDER semantic correction and engine config key
 ### CRITERIA TABLE Semantic Correction
 
 | _java.xml Column | Previous Converter Mapping | Corrected Mapping | Notes |
-|-------------------|---------------------------|-------------------|-------|
+| ------------------- | --------------------------- | ------------------- | ------- |
 | `COLNAME` | column (correct) | column (unchanged) | Column name |
 | `SORT` | direction (asc/desc) **WRONG** | sort_type (num/alpha/date) **FIXED** | Data type for comparison |
 | `ORDER` | (not mapped) | order (asc/desc) **ADDED** | Sort direction |
@@ -425,7 +426,7 @@ This appendix documents the SORT/ORDER semantic correction and engine config key
 ### Scalar Parameter Name Correction
 
 | _java.xml Name | Previous Converter Name | Corrected Config Key | Notes |
-|----------------|------------------------|---------------------|-------|
+| ---------------- | ------------------------ | --------------------- | ------- |
 | `EXTERNAL` | `EXTERNAL_SORT` | `external` | Bool, default False |
 | `TEMPFILE` | `TEMPFILE` (correct) | `tempfile` | String, default `"__COMP_DEFAULT_FILE_DIR__/temp"` |
 | `CREATEDIR` | `CREATE_TEMP_DIR` | `createdir` | Bool, default True (was missing) |
@@ -434,7 +435,7 @@ This appendix documents the SORT/ORDER semantic correction and engine config key
 ### Engine vs Converter Key Mismatches
 
 | Engine Reads | Converter Emits | Match? | Notes |
-|-------------|-----------------|--------|-------|
+| ------------- | ----------------- | -------- | ------- |
 | `sort_columns` (list) | `criteria` (list of dicts) | No | Engine expects flat list, converter emits structured criteria. Needs engine update. |
 | `sort_orders` (list) | `criteria[].order` | No | Engine expects flat list, converter embeds in criteria dicts |
 | `na_position` | -- | No | Engine-only key, no _java.xml equivalent |

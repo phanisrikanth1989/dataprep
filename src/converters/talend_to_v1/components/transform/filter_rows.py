@@ -96,7 +96,10 @@ class FilterRowsConverter(ComponentConverter):
         config: Dict[str, Any] = {}
         config["logical_op"] = self._get_str(node, "LOGICAL_OP", "AND")
         config["use_advanced"] = self._get_bool(node, "USE_ADVANCED", False)
-        config["advanced_cond"] = self._get_str(node, "ADVANCED_COND", "")
+        advanced_cond = self._get_str(node, "ADVANCED_COND", "")
+        if advanced_cond:
+            advanced_cond = "{{java}}" + advanced_cond
+        config["advanced_cond"] = advanced_cond
 
         # ---- 2. TABLE parameters ----
         raw_conditions = node.params.get("CONDITIONS", [])

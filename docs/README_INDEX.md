@@ -20,7 +20,7 @@ quickstart.bat
 ```
 
 ### Then Open
-**http://localhost:5173**
+**<http://localhost:5173**>
 
 ---
 
@@ -29,7 +29,7 @@ quickstart.bat
 ### 👈 **START HERE** (Pick One)
 
 | If You... | Read This |
-|-----------|-----------|
+| ----------- | ----------- |
 | **Are completely new** | [START_HERE.md](START_HERE.md) |
 | **Want quick reference** | [QUICK_REFERENCE.md](QUICK_REFERENCE.md) |
 | **Want to understand features** | [UI_README.md](UI_README.md) |
@@ -119,18 +119,21 @@ recdataprep/
 ## 🎯 KEY CONCEPTS
 
 ### For Users (UI)
+
 - **Canvas** = Visual editor where you design jobs
 - **Palette** = List of components on the left
 - **Config Panel** = Settings for selected component
 - **Monitor** = Live progress during job execution
 
 ### For Developers (Code)
+
 - **Backend** = FastAPI + Pydantic (Python)
 - **Frontend** = React + TypeScript (JS/TS)
 - **API** = 14 REST endpoints + WebSocket
 - **Storage** = File-based (JSON in backend/jobs/)
 
 ### For Integration
+
 - **Job Format** = Converted from UI → Engine format
 - **Components** = 6 pre-built, easily extensible
 - **Execution** = Async with real-time streaming
@@ -161,8 +164,8 @@ npm run build                               # Production build
 ### Tests
 ```bash
 # Start both servers, then in another terminal:
-curl http://localhost:8000/docs             # View API docs
-curl http://localhost:8000/api/components   # List components
+curl <http://localhost:8000/docs>             # View API docs
+curl <http://localhost:8000/api/components>   # List components
 ```
 
 ---
@@ -170,7 +173,7 @@ curl http://localhost:8000/api/components   # List components
 ## 📊 IMPLEMENTATION STATS
 
 | Metric | Value |
-|--------|-------|
+| -------- | ------- |
 | **Files Created** | 50+ |
 | **Lines of Code** | ~5000 |
 | **API Endpoints** | 14 |
@@ -188,7 +191,7 @@ curl http://localhost:8000/api/components   # List components
 ## ✨ FEATURES AT A GLANCE
 
 | Feature | Where | Status |
-|---------|-------|--------|
+| --------- | ------- | -------- |
 | **Visual Canvas** | Center | ✅ React Flow |
 | **Component Palette** | Left | ✅ Draggable |
 | **Configuration Forms** | Right | ✅ Dynamic |
@@ -203,11 +206,13 @@ curl http://localhost:8000/api/components   # List components
 ## 🎓 LEARNING PATH
 
 ### Quick Path (15 min)
+
 1. Run `quickstart.bat` or `./quickstart.sh`
-2. Open http://localhost:5173
+2. Open <http://localhost:5173>
 3. Read [QUICK_REFERENCE.md](QUICK_REFERENCE.md)
 
 ### Complete Path (1 hour)
+
 1. Read [START_HERE.md](START_HERE.md)
 2. Run quickstart script
 3. Read [UI_README.md](UI_README.md) Features section
@@ -215,6 +220,7 @@ curl http://localhost:8000/api/components   # List components
 5. Read [TESTING_GUIDE.md](TESTING_GUIDE.md)
 
 ### Developer Path (2 hours)
+
 1. Read [SETUP_DEPLOYMENT.md](SETUP_DEPLOYMENT.md)
 2. Read [FILE_INVENTORY.md](FILE_INVENTORY.md)
 3. Explore backend code in `backend/app/`
@@ -222,6 +228,7 @@ curl http://localhost:8000/api/components   # List components
 5. Try adding a custom component
 
 ### Deployment Path (3 hours)
+
 1. Complete Developer Path
 2. Read production section in [SETUP_DEPLOYMENT.md](SETUP_DEPLOYMENT.md)
 3. Review Docker examples
@@ -235,16 +242,18 @@ curl http://localhost:8000/api/components   # List components
 ### Do This Now (5 min)
 ```bash
 quickstart.bat    # or ./quickstart.sh
-# Opens http://localhost:5173
+# Opens <http://localhost:5173>
 ```
 
 ### Do This Next (30 min)
+
 1. Create a test job
 2. Add some components
 3. Configure them
 4. Execute and monitor
 
 ### Do This Later (1-2 hours)
+
 1. Read setup documentation
 2. Deploy to production
 3. Add custom components
@@ -277,21 +286,25 @@ quickstart.bat    # or ./quickstart.sh
 ## 🎯 WHAT'S WHERE
 
 ### To Learn
+
 - Features → [UI_README.md](UI_README.md) Features section
 - API → [UI_README.md](UI_README.md) API Reference
 - Components → [UI_README.md](UI_README.md) Component Reference
 
 ### To Do
+
 - Install → [quickstart.bat](quickstart.bat) or [quickstart.sh](quickstart.sh)
 - Setup → [SETUP_DEPLOYMENT.md](SETUP_DEPLOYMENT.md)
 - Test → [TESTING_GUIDE.md](TESTING_GUIDE.md)
 
 ### To Find
+
 - Files → [FILE_INVENTORY.md](FILE_INVENTORY.md)
 - Navigation → [UI_INDEX.md](UI_INDEX.md)
 - Everything → [COMPLETION_CHECKLIST.md](COMPLETION_CHECKLIST.md)
 
 ### To Understand
+
 - Architecture → [IMPLEMENTATION_COMPLETE.md](IMPLEMENTATION_COMPLETE.md)
 - Original engine → [ARCHITECTURE.md](ARCHITECTURE.md)
 
@@ -345,7 +358,7 @@ quickstart.bat    # or ./quickstart.sh
 
 ### 2️⃣ Open Browser
 ```
-http://localhost:5173
+<http://localhost:5173>
 ```
 
 ### 3️⃣ Create Your First Job
@@ -359,7 +372,7 @@ Click "Execute" and watch real-time progress!
 ## 🏆 IMPLEMENTATION SUMMARY
 
 | Aspect | Status | Location |
-|--------|--------|----------|
+| -------- | -------- | ---------- |
 | Backend | ✅ Complete (13 files) | `/backend` |
 | Frontend | ✅ Complete (30+ files) | `/frontend` |
 | API | ✅ Complete (14 endpoints) | Auto-docs at `/docs` |
@@ -387,7 +400,7 @@ quickstart.bat
 ./quickstart.sh
 
 # Then open
-http://localhost:5173
+<http://localhost:5173>
 ```
 
 🎉 **Your ETL UI is ready!** 🎉

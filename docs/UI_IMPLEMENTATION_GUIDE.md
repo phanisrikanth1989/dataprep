@@ -2,6 +2,7 @@
 
 ## Overview
 Build a **web-based visual job designer** similar to Talend's interface. Users can:
+
 - Drag & drop components onto a canvas
 - Connect components with flows
 - Configure component properties
@@ -54,7 +55,7 @@ Build a **web-based visual job designer** similar to Talend's interface. Users c
 
 ### Frontend
 | Tool | Purpose | Why |
-|------|---------|-----|
+| ------ | --------- | ----- |
 | **React 18+** | UI Framework | Best ecosystem, component reuse |
 | **React Flow** | Canvas/Graph | Specialized for visual workflows, handles complex layouts |
 | **Ant Design** | UI Components | Professional, built-in forms & tables |
@@ -64,7 +65,7 @@ Build a **web-based visual job designer** similar to Talend's interface. Users c
 
 ### Backend
 | Tool | Purpose | Why |
-|------|---------|-----|
+| ------ | --------- | ----- |
 | **FastAPI** | Web Framework | Fast, async, built-in WebSocket, auto docs |
 | **Pydantic** | Validation | Type-safe data models |
 | **SQLAlchemy** | Database | Job persistence (optional) |
@@ -75,6 +76,7 @@ Build a **web-based visual job designer** similar to Talend's interface. Users c
 ## Implementation Roadmap
 
 ### Phase 1: Backend API (2-3 weeks)
+
 - [ ] Create FastAPI server
 - [ ] Job CRUD endpoints
 - [ ] Component metadata endpoints
@@ -82,6 +84,7 @@ Build a **web-based visual job designer** similar to Talend's interface. Users c
 - [ ] WebSocket for live progress
 
 ### Phase 2: Frontend - Visual Designer (3-4 weeks)
+
 - [ ] React app setup with TypeScript
 - [ ] React Flow canvas integration
 - [ ] Component palette (drag-drop)
@@ -89,6 +92,7 @@ Build a **web-based visual job designer** similar to Talend's interface. Users c
 - [ ] Component configuration forms
 
 ### Phase 3: Frontend - Execution & Monitoring (2-3 weeks)
+
 - [ ] Job execution trigger
 - [ ] Real-time progress tracking
 - [ ] Statistics dashboard
@@ -96,6 +100,7 @@ Build a **web-based visual job designer** similar to Talend's interface. Users c
 - [ ] Error handling UI
 
 ### Phase 4: Polish & Features (1-2 weeks)
+
 - [ ] Save/load jobs
 - [ ] Job templates
 - [ ] Undo/redo
@@ -169,7 +174,7 @@ app = FastAPI(title="RecDataPrep UI API")
 # Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_origins=["<http://localhost:3000",> "<http://localhost:5173"],>
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -570,7 +575,7 @@ npm install
 npm install reactflow antd axios socket.io-client typescript
 
 # Start dev server
-npm run dev  # Runs on http://localhost:5173
+npm run dev  # Runs on <http://localhost:5173>
 ```
 
 ### Step 3: Connect Frontend to Backend
@@ -578,7 +583,7 @@ npm run dev  # Runs on http://localhost:5173
 // frontend/src/services/api.ts
 import axios from 'axios';
 
-const API_BASE = 'http://localhost:8000/api';
+const API_BASE = '<http://localhost:8000/api';>
 
 export const jobsAPI = {
   list: () => axios.get(`${API_BASE}/jobs`),
@@ -665,7 +670,7 @@ async def run_job_async(job_id: str, task_id: str, context_overrides: dict = Non
 ## Estimated Timeline
 
 | Phase | Time | Difficulty |
-|-------|------|-----------|
+| ------- | ------ | ----------- |
 | Backend API | 2-3 weeks | Medium |
 | Frontend Designer | 3-4 weeks | Medium-Hard |
 | Execution & Monitoring | 2-3 weeks | Medium |
@@ -688,16 +693,19 @@ async def run_job_async(job_id: str, task_id: str, context_overrides: dict = Non
 ## Alternative Options
 
 ### Option 1: Electron App (Desktop)
+
 - More professional feel
 - Full filesystem access
 - Takes longer to build (~4-6 weeks)
 
 ### Option 2: Vue.js Frontend
+
 - Simpler than React, faster to build
 - Same canvas libraries available
 - Slightly smaller bundle
 
 ### Option 3: Streamlit (Rapid Prototyping)
+
 - Build UI in pure Python
 - Very fast to prototype (~2 weeks)
 - Limited styling options, not production-grade

@@ -34,17 +34,17 @@ npm run dev
 ## 📍 Open These
 
 | What | URL |
-|------|-----|
-| **Application** | http://localhost:5173 |
-| **API Docs** | http://localhost:8000/docs |
-| **Backend Health** | http://localhost:8000/health |
+| ------ | ----- |
+| **Application** | <http://localhost:5173> |
+| **API Docs** | <http://localhost:8000/docs> |
+| **Backend Health** | <http://localhost:8000/health> |
 
 ---
 
 ## 📝 Documentation
 
 | Document | Purpose |
-|----------|---------|
+| ---------- | --------- |
 | [START_HERE.md](START_HERE.md) | 👈 **START HERE** - Overview |
 | [UI_README.md](UI_README.md) | Features & usage guide |
 | [SETUP_DEPLOYMENT.md](SETUP_DEPLOYMENT.md) | Setup & deployment |
@@ -73,7 +73,7 @@ Frontend                     Backend                ETL Engine
 ## 🎯 Main Features
 
 | Feature | Where | How |
-|---------|-------|-----|
+| --------- | ------- | ----- |
 | **Visual Canvas** | center | Drag-drop components |
 | **Component Library** | left | Pre-built 6 components |
 | **Configuration** | right | Dynamic forms per component |
@@ -113,7 +113,7 @@ WS     /api/execution/ws/{task_id}    # Real-time updates
 ## 🧩 6 Built-in Components
 
 | Name | Type | Purpose |
-|------|------|---------|
+| ------ | ------ | --------- |
 | **tFileInput** | Input | Read files (CSV/JSON/Parquet) |
 | **tMap** | Transform | Transform with expressions |
 | **tFilter** | Transform | Filter rows by condition |
@@ -136,7 +136,7 @@ LOG_LEVEL=INFO
 ### Frontend (.env.local)
 ```
 # Auto-created in frontend/.env.local
-VITE_API_URL=http://localhost:8000/api
+VITE_API_URL=<http://localhost:8000/api>
 VITE_WS_URL=ws://localhost:8000
 ```
 
@@ -145,7 +145,7 @@ VITE_WS_URL=ws://localhost:8000
 ## 📂 Key Directories
 
 | Path | Contains |
-|------|----------|
+| ------ | ---------- |
 | `backend/app/` | FastAPI routes & services |
 | `backend/jobs/` | Saved job files (JSON) |
 | `frontend/src/` | React components & pages |
@@ -158,19 +158,19 @@ VITE_WS_URL=ws://localhost:8000
 
 ### API Test
 ```bash
-curl http://localhost:8000/api/components
+curl <http://localhost:8000/api/components>
 ```
 
 ### Create Job
 ```bash
-curl -X POST http://localhost:8000/api/jobs \
+curl -X POST <http://localhost:8000/api/jobs> \
   -H "Content-Type: application/json" \
   -d '{"name":"Test","description":"","nodes":[],"edges":{},"context":{}}'
 ```
 
 ### List Jobs
 ```bash
-curl http://localhost:8000/api/jobs
+curl <http://localhost:8000/api/jobs>
 ```
 
 ---
@@ -178,7 +178,7 @@ curl http://localhost:8000/api/jobs
 ## 🐛 Common Issues
 
 | Issue | Fix |
-|-------|-----|
+| ------- | ----- |
 | Backend won't start | Check Python version, port 8000 free |
 | Frontend won't load | `npm cache clean --force` |
 | WebSocket fails | Verify backend running on 8000 |
@@ -191,7 +191,7 @@ See [TESTING_GUIDE.md](TESTING_GUIDE.md) for full troubleshooting.
 ## 📦 File Count
 
 | Component | Files | LOC |
-|-----------|-------|-----|
+| ----------- | ------- | ----- |
 | Backend | 13 | 850 |
 | Frontend | 30+ | 2200 |
 | Docs | 7 | 1500+ |
@@ -212,7 +212,7 @@ See [TESTING_GUIDE.md](TESTING_GUIDE.md) for full troubleshooting.
 ## 🎯 Your Next Steps
 
 1. Run `quickstart.bat` (or `.sh`)
-2. Open http://localhost:5173
+2. Open <http://localhost:5173>
 3. Click "+ New Job"
 4. Drag components to canvas
 5. Connect them

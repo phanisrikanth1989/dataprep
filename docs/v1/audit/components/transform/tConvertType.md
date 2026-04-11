@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tConvertType` |
 | **V1 Engine Class** | N/A (no engine implementation) |
 | **Engine File** | N/A |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/converters/talend_to_v1/components/transform/convert_type.py` | Converter class (118 lines) |
 | `tests/converters/talend_to_v1/components/test_convert_type.py` | Converter tests (24 tests) |
 
@@ -37,7 +37,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 4/4 unique params + 2 framework extracted; gold standard pattern |
 | Engine Feature Parity | **R** | 0 | 0 | 0 | 0 | No v1 engine implementation exists |
 | Code Quality | **G** | 0 | 0 | 0 | 0 | Clean converter; gold standard compliance |
@@ -47,6 +47,7 @@ How production-ready is this component at a glance?
 **Overall: R -- No v1 engine implementation; converter is gold standard**
 
 **Top Actions**:
+
 1. Implement v1 engine component for tConvertType
 2. Add engine unit tests once engine implementation exists
 
@@ -70,7 +71,7 @@ The component can also convert empty strings to null values (EMPTYTONULL). When 
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Schema | `IN_SCHEMA` | SCHEMA_TYPE | -- | Input schema definition |
 | 2 | Auto Cast | `AUTOCAST` | CHECK | `false` | Enable automatic type casting |
 | 3 | Manual Table | `MANUALTABLE` | TABLE | `[]` | Manual column-to-type mapping pairs |
@@ -87,7 +88,7 @@ No advanced settings defined in _java.xml.
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input/Output | Row > Main | Data flow with converted types |
 | `REJECT` | Output | Row > Reject | Rows that failed type conversion |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires on successful completion |
@@ -115,7 +116,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 The converter uses the gold standard pattern: `_build_component_dict()`, `_get_bool()`, `_get_str()` base class helpers, stride-2 TABLE parser for MANUALTABLE, and framework params last.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `AUTOCAST` | Yes | `autocast` | bool, default False |
 | 2 | `MANUALTABLE` | Yes | `manualtable` | list of dicts, stride-2 TABLE |
 | 2a | `INPUT_COLUMN` | Yes | `input_column` | str, elementRef in MANUALTABLE |
@@ -130,7 +131,7 @@ The converter uses the gold standard pattern: `_build_component_dict()`, `_get_b
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` |
 | `type` | Yes | Converted from Talend types via `convert_type()` |
 | `nullable` | Yes | Direct extraction |
@@ -153,7 +154,7 @@ No issues found. Converter follows gold standard pattern.
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | (all keys) | No v1 engine implementation for tConvertType -- all config keys unread | engine_gap |
 
 Single consolidated entry per D-27 (no engine exists).
@@ -169,7 +170,7 @@ How faithfully does the v1 engine implement Talend behavior?
 No v1 engine implementation exists for tConvertType.
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Auto casting | **No** | N/A | N/A | No engine class |
 | 2 | Manual type mapping | **No** | N/A | N/A | No engine class |
 | 3 | Empty to null conversion | **No** | N/A | N/A | No engine class |
@@ -213,7 +214,7 @@ No concerns identified.
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Module-level `logger = logging.getLogger(__name__)` -- correct |
 | Level usage | N/A -- no logging calls needed for simple converter |
 | Sensitive data | N/A |
@@ -221,7 +222,7 @@ No concerns identified.
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | None needed -- converter returns ComponentResult |
 | Exception chaining | N/A |
 | die_on_error handling | Extracted as config; no engine to apply it |
@@ -229,7 +230,7 @@ No concerns identified.
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Full type hints on convert() and _parse_manualtable() |
 | Parameter types | All parameters typed; return types specified |
 
@@ -244,7 +245,7 @@ N/A -- no engine implementation. Converter is lightweight and does not process d
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- no engine |
 | Memory threshold | N/A |
 | Large data handling | N/A |
@@ -258,7 +259,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 24 | `tests/converters/talend_to_v1/components/test_convert_type.py` |
 | Engine unit tests | 0 | None (no engine) |
 | Integration tests | 0 | None |
@@ -266,12 +267,13 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-CT-001 | **P2** | No engine unit tests (no engine implementation exists) |
 
 ### 8.3 Recommended Test Cases
 
 Once engine is implemented:
+
 - Auto-casting basic types (int to string, string to int)
 - Manual mapping with various type pairs
 - Empty to null conversion behavior
@@ -288,7 +290,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 0 | -- |
 | P1 | 0 | -- |
 | P2 | 1 | TEST-CT-001 |
@@ -298,7 +300,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
 | Engine (ENG) | 0 | -- |
 | Bug (BUG) | 0 | -- |
@@ -334,15 +336,15 @@ None identified.
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://github.com/Talaxie/tcommon-studio-se` | Parameter definitions, defaults, elementRef names |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://github.com/Talaxie/tcommon-studio-se`> | Parameter definitions, defaults, elementRef names |
 | Converter source | `src/converters/talend_to_v1/components/transform/convert_type.py` | Converter audit |
 | Converter tests | `tests/converters/talend_to_v1/components/test_convert_type.py` | Test coverage assessment |
 
 ## Appendix B: Converter Config Key Mapping
 
 | _java.xml Parameter | Config Key | Type | Default | Notes |
-|---------------------|-----------|------|---------|-------|
+| --------------------- | ----------- | ------ | --------- | ------- |
 | `AUTOCAST` | `autocast` | bool | `False` | CHECK type |
 | `MANUALTABLE` | `manualtable` | list[dict] | `[]` | Stride-2 TABLE |
 | `MANUALTABLE.INPUT_COLUMN` | `input_column` | str | -- | elementRef in TABLE |

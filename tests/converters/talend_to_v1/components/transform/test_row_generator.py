@@ -203,17 +203,17 @@ class TestCompleteness:
     """Verify all expected config keys are present."""
 
     def test_all_config_keys_present(self):
-        """2 unique + 2 framework = 4 total config keys."""
+        """2 unique + 1 java bridge + 2 framework = 5 total config keys."""
         node = _make_node(schema=_make_schema_columns())
         result = RowGeneratorConverter().convert(node, [], {})
         expected_keys = {
-            "nb_rows", "values",
+            "nb_rows", "values", "requires_java_bridge",
             "tstatcatcher_stats", "label",
         }
         actual_keys = set(result.component["config"].keys())
         missing = expected_keys - actual_keys
         assert not missing, f"Missing config keys: {missing}"
-        assert len(actual_keys) == 4, f"Expected 4 config keys (2 unique + 2 framework), got {len(actual_keys)}"
+        assert len(actual_keys) == 5, f"Expected 5 config keys, got {len(actual_keys)}"
 
 
 class TestComponentStructure:
@@ -228,3 +228,33 @@ class TestComponentStructure:
         node = _make_node()
         result = RowGeneratorConverter().convert(node, [], {})
         assert result.component["original_type"] == "tRowGenerator"
+
+
+class TestJavaBridge:
+    """Verify Java Bridge integration."""
+
+    def test_requires_java_bridge_flag(self):
+        """Config always includes requires_java_bridge=True."""
+        node = _make_node()
+        result = RowGeneratorConverter().convert(node, [], {})
+        assert result.component["config"]["requires_java_bridge"] is True
+
+    def test_java_expression_marked(self):
+        """Java expressions in ARRAY values are marked with {{java}} prefix."""
+        values_data = _make_values_data([
+            ('"runDate"', '"TalendDate.getDate(\"yyyy-MM-dd\")"'),
+        ])
+        node = _make_node(params={"VALUES": values_data})
+        result = RowGeneratorConverter().convert(node, [], {})
+        val = result.component["config"]["values"][0]["array"]
+        assert val.startswith("{{java}}")
+
+    def test_plain_literal_not_marked(self):
+        """Plain literal values are NOT marked with {{java}}."""
+        values_data = _make_values_data([
+            ('"col1"', '"hello_world"'),
+        ])
+        node = _make_node(params={"VALUES": values_data})
+        result = RowGeneratorConverter().convert(node, [], {})
+        val = result.component["config"]["values"][0]["array"]
+        assert not val.startswith("{{java}}")

@@ -119,11 +119,6 @@ class TestDefaults:
         result = UniqueRowConverter().convert(node, [], {})
         assert result.component["config"]["change_hash_and_equals_for_bigdecimal"] is False
 
-    def test_connection_format_default_row(self):
-        node = _make_node()
-        result = UniqueRowConverter().convert(node, [], {})
-        assert result.component["config"]["connection_format"] == "row"
-
 
 # ------------------------------------------------------------------
 # TestParameterExtraction
@@ -168,11 +163,6 @@ class TestParameterExtraction:
         node = _make_node(params={"CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL": "true"})
         result = UniqueRowConverter().convert(node, [], {})
         assert result.component["config"]["change_hash_and_equals_for_bigdecimal"] is True
-
-    def test_connection_format_table(self):
-        node = _make_node(params={"CONNECTION_FORMAT": '"table"'})
-        result = UniqueRowConverter().convert(node, [], {})
-        assert result.component["config"]["connection_format"] == "table"
 
 
 # ------------------------------------------------------------------
@@ -392,7 +382,6 @@ class TestCompleteness:
             "only_once_each_duplicated_key",
             "is_virtual_component", "buffer_size", "temp_directory",
             "change_hash_and_equals_for_bigdecimal",
-            "connection_format",
             "tstatcatcher_stats", "label",
         }
         actual_keys = set(result.component["config"].keys())
@@ -405,11 +394,10 @@ class TestCompleteness:
 # ------------------------------------------------------------------
 
 class TestPhantomParams:
-    """Verify phantom params documented but extracted."""
+    """Verify phantom params are NOT extracted (removed from converter)."""
 
-    def test_connection_format_not_in_java_xml(self):
-        """CONNECTION_FORMAT is extracted but documented as phantom (not in _java.xml)."""
+    def test_connection_format_not_extracted(self):
+        """CONNECTION_FORMAT is a phantom param (not in _java.xml) and should not appear in config."""
         node = _make_node(params={"CONNECTION_FORMAT": '"table"'})
         result = UniqueRowConverter().convert(node, [], {})
-        # It IS extracted (phantom = present in .item but not _java.xml)
-        assert result.component["config"]["connection_format"] == "table"
+        assert "connection_format" not in result.component["config"]

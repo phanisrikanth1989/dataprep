@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tAdvancedFileOutputXML` |
 | **V1 Engine Class** | None -- no concrete engine implementation exists |
 | **Engine File** | None -- no engine file |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/converters/talend_to_v1/components/file/file_output_xml.py` | Converter class `AdvancedFileOutputXmlConverter` (164 lines) |
 | `tests/converters/talend_to_v1/components/test_file_output_xml.py` | Converter tests (66 tests, 10 classes) |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()`, `_build_component_dict()` |
@@ -39,7 +39,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 33 of 33 _java.xml params extracted (100%); ROOT/GROUP/LOOP TABLE stride-5 parsers; 1 consolidated needs_review for missing engine; module docstring follows CONVERTER_PATTERN.md |
 | Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No concrete engine implementation exists; component cannot execute |
 | Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code follows gold standard, but no engine code exists -- component is incomplete |
@@ -49,6 +49,7 @@ How production-ready is this component at a glance?
 **Overall: RED -- No engine implementation. Converter correctly extracts all 33 unique params (up from 6) for future engine support, but component cannot execute in production. Engine must be implemented before this component is usable.**
 
 **Top Actions**:
+
 1. Implement concrete AdvancedFileOutputXML engine class (P0 -- blocks production use)
 2. All converter and test issues resolved in v1.1 rewrite
 
@@ -74,7 +75,7 @@ The component is a SINK (receives data, no output flow). It creates files with c
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Use Stream | `USESTREAM` | CHECK | `false` | When true, writes to a named output stream instead of a file |
 | 2 | Stream Name | `STREAMNAME` | TEXT | `outputStream` | Name of the output stream (shown when USESTREAM is true) |
 | 3 | Filename | `FILENAME` | FILE | (dir default) | Path to the XML output file (hidden when USESTREAM is true) |
@@ -95,7 +96,7 @@ The component is a SINK (receives data, no output flow). It creates files with c
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Split | `SPLIT` | CHECK | `false` | When true, splits output into multiple files |
 | 2 | Split Every | `SPLIT_EVERY` | TEXT | `1000` | Number of rows per split file |
 | 3 | Trim | `TRIM` | CHECK | `false` | When true, trims whitespace from output values |
@@ -115,7 +116,7 @@ The component is a SINK (receives data, no output flow). It creates files with c
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Input data flow. One input, maximum one output passthrough. |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires after XML writing completes successfully |
 | `SUBJOB_ERROR` | Output (Trigger) | Trigger | Fires if XML writing fails |
@@ -126,7 +127,7 @@ The component is a SINK (receives data, no output flow). It creates files with c
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Number of rows written to the XML file |
 
 ### 3.5 Behavioral Notes
@@ -151,7 +152,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 The `AdvancedFileOutputXmlConverter` class follows the gold standard CONVERTER_PATTERN.md with module-level TABLE constants and parser function (`_parse_xml_table`), section-delimited parameter extraction, and `_build_component_dict()` wrapper.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `FILENAME` | Yes | `filename` | `_get_str()`, default `""` |
 | 2 | `USESTREAM` | Yes | `usestream` | `_get_bool()`, default `False` |
 | 3 | `STREAMNAME` | Yes | `streamname` | `_get_str()`, default `"outputStream"` |
@@ -189,6 +190,7 @@ The `AdvancedFileOutputXmlConverter` class follows the gold standard CONVERTER_P
 **Summary**: 33 of 33 unique parameters extracted (100%). Plus 2 framework params. Previous converter only extracted 6 params.
 
 **Not extracted (intentional):**
+
 - `PROPERTY` -- framework property type (handled by orchestrator)
 - `SCHEMA` -- framework schema type (handled by orchestrator)
 - `SCHEMA_OPT_NUM` -- hidden optimization param (internal Talend Studio use)
@@ -198,7 +200,7 @@ The `AdvancedFileOutputXmlConverter` class follows the gold standard CONVERTER_P
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` base class method |
 | `type` | Yes | Converted via `convert_type()` from Talend types |
 | `nullable` | Yes | Boolean from schema column |
@@ -219,7 +221,7 @@ Context variables (`context.var`) and Java expressions (`{{java}}`) are passed t
 No open issues. Converter follows gold standard CONVERTER_PATTERN.md.
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No converter issues found |
 
 ### 4.5 Needs Review Entries
@@ -227,7 +229,7 @@ No open issues. Converter follows gold standard CONVERTER_PATTERN.md.
 Single consolidated needs_review entry per D-51 (no engine component):
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | (all) | No concrete engine implementation for tAdvancedFileOutputXML -- all config keys extracted for future engine support | engine_gap |
 
 ---
@@ -239,7 +241,7 @@ How faithfully does the v1 engine implement Talend behavior?
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | XML file writing | **No** | N/A | -- | No engine implementation |
 | 2 | ROOT/GROUP/LOOP element structure | **No** | N/A | -- | No engine implementation |
 | 3 | DOM4J/Null generation modes | **No** | N/A | -- | No engine implementation |
@@ -254,13 +256,13 @@ How faithfully does the v1 engine implement Talend behavior?
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-AFOXML-001 | **P0** | No engine implementation exists. Component cannot execute. All XML writing, element structuring, validation, and output features are completely absent. |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | No | -- | No engine implementation |
 
 ---
@@ -272,7 +274,7 @@ How well-written is the engine code?
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-AFOXML-001 | **P0** | -- | No engine code exists. Cannot assess bugs in non-existent code. The converter code quality is good (follows CONVERTER_PATTERN.md). |
 
 ### 6.2 Naming Consistency
@@ -290,6 +292,7 @@ None found.
 ### 6.5 Security
 
 No concerns in converter code. When engine is implemented, should validate:
+
 - FILENAME paths (path traversal risk with user-supplied paths)
 - DTD/XSL references (external entity injection if validation references are user-controlled)
 - XSL_HREF (potential SSRF if stylesheet loaded from user-supplied URL)
@@ -298,7 +301,7 @@ No concerns in converter code. When engine is implemented, should validate:
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Module-level `logger = logging.getLogger(__name__)` present |
 | Level usage | N/A -- no log statements needed in converter |
 | Sensitive data | No sensitive data logged |
@@ -306,7 +309,7 @@ No concerns in converter code. When engine is implemented, should validate:
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Not applicable -- converters return ComponentResult, never raise |
 | Exception chaining | Not applicable |
 | die_on_error handling | Not applicable -- component has no DIE_ON_ERROR param |
@@ -314,7 +317,7 @@ No concerns in converter code. When engine is implemented, should validate:
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Fully typed (convert method, _parse_xml_table function) |
 | Parameter types | All params typed with Dict, List, Any, str, bool |
 
@@ -325,13 +328,13 @@ No concerns in converter code. When engine is implemented, should validate:
 Will it scale?
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No engine implementation to assess. Performance characteristics will depend on DOM4J vs Null mode selection when engine is built. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- no engine. When implemented, Null mode should enable streaming for large output |
 | Memory threshold | N/A -- no engine. DOM4J mode will build entire document in memory |
 | Large data handling | N/A -- no engine. SPLIT option will be critical for large outputs |
@@ -345,7 +348,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 66 | `tests/converters/talend_to_v1/components/test_file_output_xml.py` |
 | Engine unit tests | 0 | None -- no engine implementation |
 | Integration tests | 0 | None -- no engine implementation |
@@ -353,12 +356,13 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-AFOXML-001 | **P0** | No engine tests -- engine does not exist |
 
 ### 8.3 Recommended Test Cases
 
 When engine is implemented:
+
 - Happy path: write simple XML from dataframe, verify ROOT/GROUP/LOOP structure
 - Empty input (0 rows) with DELETE_EMPTYFILE true vs false
 - MERGE mode: append to existing XML file
@@ -384,7 +388,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 3 | **ENG-AFOXML-001**, **BUG-AFOXML-001**, **TEST-AFOXML-001** |
 | P1 | 0 | -- |
 | P2 | 0 | -- |
@@ -394,7 +398,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
 | Engine (ENG) | 1 | ENG-AFOXML-001 |
 | Bug (BUG) | 1 | BUG-AFOXML-001 |
@@ -414,13 +418,16 @@ No cross-cutting issues applicable -- no engine implementation exists to inherit
 What should be fixed, in what order?
 
 ### Immediate (Before Production)
+
 1. **ENG-AFOXML-001 (P0):** Implement concrete AdvancedFileOutputXML engine class with DOM4J/Null XML generation, ROOT/GROUP/LOOP element structuring, file validation (DTD/XSL), merge, split, and stream output support
 2. **TEST-AFOXML-001 (P0):** Add engine unit tests after engine implementation
 
 ### Short-term (Hardening)
+
 - None -- converter is fully complete
 
 ### Long-term (Optimization)
+
 - Consider Null streaming mode for memory-efficient processing of large output files
 - Add concurrent merge protection for multi-threaded job execution
 - Implement XSD generation (OUTPUT_AS_XSD) for schema documentation output
@@ -430,8 +437,8 @@ What should be fixed, in what order?
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tAdvancedFileOutputXML/tAdvancedFileOutputXML_java.xml` | Parameter definitions, defaults, field types |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tAdvancedFileOutputXML/tAdvancedFileOutputXML_java.xml`> | Parameter definitions, defaults, field types |
 | Converter source | `src/converters/talend_to_v1/components/file/file_output_xml.py` | Converter audit |
 | Converter tests | `tests/converters/talend_to_v1/components/test_file_output_xml.py` | Test coverage analysis |
 | Gold standard templates | `docs/v1/standards/CONVERTER_PATTERN.md`, `TEST_PATTERN.md`, `AUDIT_REPORT_TEMPLATE.md` | Pattern compliance verification |
@@ -441,7 +448,7 @@ What should be fixed, in what order?
 No cross-cutting issues applicable -- no engine implementation exists.
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | -- | -- | No engine code inherits base class bugs |
 
 ---

@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tFileInputFullRow` |
 | **V1 Engine Class** | `FileInputFullRowComponent` |
 | **Engine File** | `src/v1/engine/components/file/file_input_fullrow.py` (213 lines) |
@@ -25,7 +25,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/file/file_input_fullrow.py` | Engine implementation (213 lines) |
 | `src/converters/talend_to_v1/components/file/file_input_fullrow.py` | Converter class (93 lines) |
 | `tests/converters/talend_to_v1/components/test_file_input_fullrow.py` | Converter tests (48 tests) |
@@ -37,7 +37,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 8 unique params + 2 framework params extracted; `_build_component_dict` pattern; 4 per-feature needs_review entries for engine gaps; phantom DIE_ON_ERROR removed |
 | Engine Feature Parity | **Y** | 0 | 4 | 1 | 0 | Engine reads 6 of 10 params (filename, row_separator, remove_empty_row, encoding, limit, die_on_error); ignores header_rows, footer_rows, random, nb_random; encoding default mismatch (UTF-8 vs ISO-8859-15) |
 | Code Quality | **Y** | 1 | 2 | 3 | 1 | unicode_escape crash risk; _validate_config() dead code; strip() filters whitespace-only lines; base class cross-cutting bugs |
@@ -47,6 +47,7 @@
 **Overall: Yellow -- Converter fully standardized (Green); engine has 4 known gaps documented via needs_review; engine/code quality/performance gaps keep overall at Yellow**
 
 **Top Actions:**
+
 1. Fix `_update_global_map()` crash in base class (P0, cross-cutting)
 2. Add header row skipping to engine (P1, engine gap)
 3. Add footer row skipping to engine (P1, engine gap)
@@ -71,7 +72,7 @@ The component supports configurable row separators, header/footer row skipping, 
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Schema | `SCHEMA` | SCHEMA_TYPE | -- | Output schema definition. Typically a single column named "line". |
 | 2 | File Name | `FILENAME` | FILE | `""` | Path to the file to read. Required. Supports context variables. |
 | 3 | Row Separator | `ROWSEPARATOR` | TEXT | `"\\n"` | Character(s) used to delimit rows. |
@@ -84,21 +85,21 @@ The component supports configurable row separators, header/footer row skipping, 
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 9 | Random | `RANDOM` | CHECK | `false` | Enable random line extraction mode. |
 | 10 | Nb Random | `NB_RANDOM` | TEXT | `10` | Number of random lines to extract when RANDOM is enabled. |
 
 ### 3.3 Framework Parameters
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 11 | tStatCatcher Statistics | `TSTATCATCHER_STATS` | CHECK | `false` | Enable statistics collection. |
 | 12 | Label | `LABEL` | TEXT | `""` | Component label for display. |
 
 ### 3.4 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Output | Row > Main | One row per file line, single column containing full row text |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires after successful execution |
 | `SUBJOB_ERROR` | Output (Trigger) | Trigger | Fires after failed execution |
@@ -106,7 +107,7 @@ The component supports configurable row separators, header/footer row skipping, 
 ### 3.5 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | int | After execution | Total rows read from file |
 | `{id}_NB_LINE_OK` | int | After execution | Successfully processed rows |
 | `{id}_NB_LINE_REJECT` | int | After execution | Rejected rows (always 0 for this component) |
@@ -122,7 +123,7 @@ DIE_ON_ERROR is NOT listed in the tFileInputFullRow _java.xml definition. Howeve
 ### 4.1 Parameter Mapping
 
 | # | Talend XML | Config Key | Type | Default | Converter | Status |
-|---|-----------|------------|------|---------|-----------|--------|
+| --- | ----------- | ------------ | ------ | --------- | ----------- | -------- |
 | 1 | FILENAME | filename | str | `""` | `_get_str(node, "FILENAME", "")` | OK |
 | 2 | ROWSEPARATOR | row_separator | str | `"\\n"` | `_get_str(node, "ROWSEPARATOR", "\\n")` | OK |
 | 3 | HEADER | header_rows | int | `0` | `_get_int(node, "HEADER", 0)` | OK |
@@ -138,7 +139,7 @@ DIE_ON_ERROR is NOT listed in the tFileInputFullRow _java.xml definition. Howeve
 ### 4.2 Phantom Parameters Removed
 
 | Parameter | Was In Converter | In _java.xml | Action |
-|-----------|-----------------|--------------|--------|
+| ----------- | ----------------- | -------------- | -------- |
 | DIE_ON_ERROR | Yes (default True) | No | Removed from converter output |
 
 ### 4.3 Schema Handling
@@ -150,7 +151,7 @@ DIE_ON_ERROR is NOT listed in the tFileInputFullRow _java.xml definition. Howeve
 ### 4.4 Engine Gap needs_review Entries
 
 | # | Config Key | Severity | Issue |
-|---|-----------|----------|-------|
+| --- | ----------- | ---------- | ------- |
 | 1 | header_rows | engine_gap | Engine does not support skipping header rows |
 | 2 | footer_rows | engine_gap | Engine does not support skipping footer rows |
 | 3 | random | engine_gap | Engine does not support random line extraction |
@@ -169,6 +170,7 @@ None. All parameters correctly extracted with proper defaults per _java.xml sour
 The engine reads a file line-by-line using configurable encoding and row separator, optionally removes empty rows and applies a row limit. Each line becomes a single row in a DataFrame with column name "line". The engine supports `die_on_error` to control error behavior.
 
 **Engine reads these config keys:**
+
 - `filename` -- path to file (required)
 - `row_separator` -- split delimiter (default `\n`)
 - `remove_empty_row` -- filter empty lines (default `False` -- differs from Talend's `True`)
@@ -177,6 +179,7 @@ The engine reads a file line-by-line using configurable encoding and row separat
 - `die_on_error` -- error behavior (default `True`)
 
 **Engine ignores these config keys:**
+
 - `header_rows` -- no header row skipping logic
 - `footer_rows` -- no footer row skipping logic
 - `random` -- no random extraction mode
@@ -185,7 +188,7 @@ The engine reads a file line-by-line using configurable encoding and row separat
 ### 5.2 Engine Default Mismatches
 
 | Config Key | Talend Default | Engine Default | Impact |
-|-----------|---------------|----------------|--------|
+| ----------- | --------------- | ---------------- | -------- |
 | remove_empty_row | `True` | `False` | Empty rows preserved when converter default is used but engine overrides |
 | encoding | `ISO-8859-15` | `UTF-8` | Encoding mismatch may cause garbled text for non-ASCII content |
 
@@ -205,7 +208,7 @@ The engine reads a file line-by-line using configurable encoding and row separat
 ## 6. Engine Issues
 
 | ID | Priority | Status | Description |
-|----|----------|--------|-------------|
+| ---- | ---------- | -------- | ------------- |
 | ENG-FIFR-001 | **P1** | **OPEN** | No header row skipping -- HEADER value is passed through converter but engine ignores it entirely |
 | ENG-FIFR-002 | **P1** | **OPEN** | No footer row skipping -- FOOTER value is passed through converter but engine ignores it entirely |
 | ENG-FIFR-003 | **P1** | **OPEN** | No random line extraction -- RANDOM and NB_RANDOM ignored by engine |
@@ -219,7 +222,7 @@ The engine reads a file line-by-line using configurable encoding and row separat
 ## 7. Code Quality
 
 | ID | Priority | Status | Description |
-|----|----------|--------|-------------|
+| ---- | ---------- | -------- | ------------- |
 | BUG-FIFR-001 | **P0** | **OPEN** | `_update_global_map()` crash -- base class references undefined variable. Cross-cutting: affects ALL components. |
 | BUG-FIFR-002 | **P1** | **OPEN** | `unicode_escape` decoding of `row_separator` -- can crash on invalid escape sequences (e.g., `\x` without hex digits) |
 | BUG-FIFR-003 | **P1** | **OPEN** | `strip()` in empty row removal filters whitespace-only lines, not just truly empty lines -- behavioral difference from Talend |
@@ -233,7 +236,7 @@ The engine reads a file line-by-line using configurable encoding and row separat
 ## 8. Performance & Memory
 
 | ID | Priority | Status | Description |
-|----|----------|--------|-------------|
+| ---- | ---------- | -------- | ------------- |
 | PERF-FIFR-001 | **P1** | **OPEN** | Entire file loaded into memory -- no streaming/chunked reading. Large files (>1GB) will cause OOM. |
 | PERF-FIFR-002 | **P2** | **OPEN** | Intermediate list of dicts for DataFrame construction -- `[{'line': line} for line in lines]` creates unnecessary overhead |
 | PERF-FIFR-003 | **P3** | **OPEN** | Filter + limit applied sequentially with list comprehension + slice -- could use generator with `islice()` |
@@ -245,7 +248,7 @@ The engine reads a file line-by-line using configurable encoding and row separat
 ### 9.1 Converter Tests
 
 | Category | Count | Status |
-|----------|-------|--------|
+| ---------- | ------- | -------- |
 | TestRegistration | 1 | PASS |
 | TestDefaults | 9 | PASS |
 | TestParameterExtraction | 10 | PASS |
@@ -271,7 +274,7 @@ The engine reads a file line-by-line using configurable encoding and row separat
 ### 9.4 Testing Issues
 
 | ID | Priority | Status | Description |
-|----|----------|--------|-------------|
+| ---- | ---------- | -------- | ------------- |
 | TEST-FIFR-001 | **P2** | **OPEN** | Zero engine unit tests -- no `_process()` verification, no edge case coverage |
 | TEST-FIFR-002 | **P2** | **OPEN** | Zero engine integration tests -- no end-to-end file reading verification |
 
@@ -285,26 +288,26 @@ The engine reads a file line-by-line using configurable encoding and row separat
 
 ### Short-term (P1)
 
-2. Implement header row skipping in engine
-3. Implement footer row skipping in engine
-4. Add random line extraction to engine
-5. Fix `unicode_escape` crash risk for invalid escape sequences
-6. Fix `strip()` behavior to match Talend's empty-row definition
+1. Implement header row skipping in engine
+2. Implement footer row skipping in engine
+3. Add random line extraction to engine
+4. Fix `unicode_escape` crash risk for invalid escape sequences
+5. Fix `strip()` behavior to match Talend's empty-row definition
 
 ### Medium-term (P2)
 
-7. Fix encoding default mismatch (UTF-8 -> ISO-8859-15)
-8. Fix remove_empty_row default mismatch (False -> True)
-9. Fix limit=0 semantic to match Talend (0 = unlimited)
-10. Respect schema-defined column name instead of hardcoded 'line'
-11. Wire `_validate_config()` into base class lifecycle or remove dead code
-12. Add engine unit tests and integration tests
+1. Fix encoding default mismatch (UTF-8 -> ISO-8859-15)
+2. Fix remove_empty_row default mismatch (False -> True)
+3. Fix limit=0 semantic to match Talend (0 = unlimited)
+4. Respect schema-defined column name instead of hardcoded 'line'
+5. Wire `_validate_config()` into base class lifecycle or remove dead code
+6. Add engine unit tests and integration tests
 
 ### Low Priority (P3)
 
-13. Add streaming support for large files
-14. Optimize DataFrame construction
-15. Make `\r\n` normalization conditional on row_separator
+1. Add streaming support for large files
+2. Optimize DataFrame construction
+3. Make `\r\n` normalization conditional on row_separator
 
 ---
 
@@ -333,7 +336,7 @@ Note: DIE_ON_ERROR is NOT in this _java.xml file. It is extracted by the engine 
 ## Appendix B: Engine Config Key Cross-Reference
 
 | Config Key | Converter Extracts | Engine Reads | Match |
-|-----------|-------------------|--------------|-------|
+| ----------- | ------------------- | -------------- | ------- |
 | filename | Yes | Yes | OK |
 | row_separator | Yes | Yes | OK |
 | header_rows | Yes | No | ENGINE GAP |

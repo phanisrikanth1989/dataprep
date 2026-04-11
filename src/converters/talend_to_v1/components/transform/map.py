@@ -4,14 +4,9 @@ Multi-flow data mapping with lookup joins, variable definitions, and expression-
 Most complex component in the v1 converter suite.
 
 Config mapping (9 flat params + nodeData structure + framework):
-  LINK_STYLE -> link_style (str, CLOSED_LIST, default "AUTO")
   DIE_ON_ERROR -> die_on_error (bool, hidden, default True)
-  LKUP_PARALLELIZE -> lkup_parallelize (bool, hidden, default False)
-  ENABLE_AUTO_CONVERT_TYPE -> enable_auto_convert_type (bool, hidden, default False)
   ROWS_BUFFER_SIZE -> rows_buffer_size (str, default "2000000")
   CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL -> change_hash_and_equals_for_bigdecimal (bool, default True)
-  LEVENSHTEIN -> levenshtein (str, hidden, default "0")
-  JACCARD -> jaccard (str, hidden, default "0")
   --- nodeData (MapperData XML) ---
   inputTables -> config["inputs"] (main + lookups with join keys, matching modes)
   varTables -> config["variables"] (variable definitions)
@@ -288,22 +283,15 @@ class MapConverter(ComponentConverter):
                 "lookups": lookups_config,
             },
             "variables": variables_config,
-            "var_table_name": var_table_name,
-            "var_table_size_state": var_table_size_state,
             "outputs": outputs_config,
         }
 
         # ---- 1. Core parameters ----
-        config["link_style"] = self._get_str(node, "LINK_STYLE", "AUTO")
         config["die_on_error"] = self._get_bool(node, "DIE_ON_ERROR", True)
-        config["lkup_parallelize"] = self._get_bool(node, "LKUP_PARALLELIZE", False)
-        config["enable_auto_convert_type"] = self._get_bool(node, "ENABLE_AUTO_CONVERT_TYPE", False)
         config["rows_buffer_size"] = self._get_str(node, "ROWS_BUFFER_SIZE", "2000000")
         config["change_hash_and_equals_for_bigdecimal"] = self._get_bool(
             node, "CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL", True
         )
-        config["levenshtein"] = self._get_str(node, "LEVENSHTEIN", "0")
-        config["jaccard"] = self._get_str(node, "JACCARD", "0")
 
         # ---- 5. Framework parameters (ALWAYS LAST) ----
         config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
@@ -314,15 +302,8 @@ class MapConverter(ComponentConverter):
 
         # ---- 7. Engine gap needs_review entries ----
         _engine_gap_keys = [
-            ("link_style", "Engine does not read 'link_style' -- visual editor setting only"),
-            ("lkup_parallelize", "Engine does not support parallel lookup loading"),
-            ("enable_auto_convert_type", "Engine does not support automatic type conversion"),
             ("rows_buffer_size", "Engine does not read 'rows_buffer_size' -- no disk buffering support"),
             ("change_hash_and_equals_for_bigdecimal", "Engine does not handle BigDecimal hash/equals behavior"),
-            ("levenshtein", "Engine does not read 'levenshtein' -- no fuzzy matching support"),
-            ("jaccard", "Engine does not read 'jaccard' -- no fuzzy matching support"),
-            ("var_table_name", "Engine does not read 'var_table_name' -- uses variables list directly"),
-            ("var_table_size_state", "Engine does not read 'var_table_size_state' -- UI layout only"),
         ]
         for key, detail in _engine_gap_keys:
             needs_review.append({

@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | N/A -- engine-native custom component (no Talend equivalent) |
 | **V1 Engine Class** | `PythonDataFrameComponent` |
 | **Engine File** | `src/v1/engine/components/transform/python_dataframe_component.py` (148 lines) |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/transform/python_dataframe_component.py` | Engine implementation (148 lines) |
 | `src/v1/engine/base_component.py` | Base class: `_update_stats()`, `_update_global_map()`, `validate_schema()`, `execute()`, `get_python_routines()` |
 | `src/v1/engine/global_map.py` | GlobalMap storage for `{id}_NB_LINE` etc. |
@@ -47,7 +47,7 @@ Because this is engine-native with no Talend XML source, **Sections 4 (Converter
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **N/A** | -- | -- | -- | -- | Engine-native component; no Talend XML converter exists or is needed |
 | Engine Feature Parity | **Y** | 1 | 3 | 2 | 0 | No REJECT flow; `exec()` without sandbox; silent output_columns fallthrough; no DataFrame type check after exec |
 | Code Quality | **Y** | 1 | 4 | 4 | 1 | Cross-cutting `_update_global_map()` crash; `exec()` unsandboxed; routine name shadowing; `resolve_dict()` mangles python_code |
@@ -57,6 +57,7 @@ How production-ready is this component at a glance?
 **Overall: YELLOW -- Functional for trusted code execution but has security and reliability gaps**
 
 **Top Actions**:
+
 1. Fix cross-cutting `_update_global_map()` crash (BUG-PDC-001)
 2. Add REJECT flow for error isolation (ENG-PDC-001)
 3. Restrict `__builtins__` in exec namespace (SEC-PDC-001)
@@ -83,7 +84,7 @@ This is the most performant of the three Python scripting components (`PythonCom
 ### 3.1 Configuration Parameters
 
 | # | Config Key | Type | Default | Required | Description |
-|---|------------|------|---------|----------|-------------|
+| --- | ------------ | ------ | --------- | ---------- | ------------- |
 | 1 | `python_code` | String (Python source) | `''` | **Yes** | Python code to execute. Has access to `df`, `pd`, `np`, `context`, `globalMap`, `routines`, and common builtins. Must modify `df` in-place or reassign within the namespace. |
 | 2 | `output_columns` | List[str] | `None` | No | List of column names to keep in output. If provided, only these columns appear in the output DataFrame. If `None`, all columns pass through. |
 
@@ -92,7 +93,7 @@ This is the most performant of the three Python scripting components (`PythonCom
 The following variables are available inside user-supplied `python_code`:
 
 | Variable | Type | Description |
-|----------|------|-------------|
+| ---------- | ------ | ------------- |
 | `df` | `pd.DataFrame` | The input DataFrame (a `.copy()` of input). User code modifies this. |
 | `pd` | module | `pandas` library |
 | `np` | module | `numpy` library |
@@ -107,7 +108,7 @@ The following variables are available inside user-supplied `python_code`:
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Input DataFrame from upstream component |
 | `FLOW` (Main) | Output | Row > Main | Modified DataFrame after Python code execution |
 | `REJECT` | Output | Row > Reject | **NOT IMPLEMENTED** -- errors crash the component |
@@ -115,7 +116,7 @@ The following variables are available inside user-supplied `python_code`:
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total number of input rows via `_update_stats(rows_read=...)` |
 | `{id}_NB_LINE_OK` | Integer | After execution | Number of output rows (may differ from input if user code adds/removes rows) |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Always 0 -- hardcoded, no reject mechanism exists |
@@ -152,7 +153,7 @@ How faithfully does the v1 engine implement this component's intended behavior?
 ### 5.1 Feature Implementation Status
 
 | # | Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|---------|-------------|----------|-----------------|-------|
+| ---- | --------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Execute Python code on DataFrame | **Yes** | High | `_process()` line 102 | `exec(python_code, namespace)` -- correct core mechanism |
 | 2 | DataFrame copy (isolation) | **Yes** | High | `_process()` line 75 | `input_data.copy()` prevents upstream mutation |
 | 3 | pandas/numpy in namespace | **Yes** | High | `_process()` lines 83-84 | `pd` and `np` available |
@@ -172,7 +173,7 @@ How faithfully does the v1 engine implement this component's intended behavior?
 ### 5.2 Behavioral Differences
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-PDC-001 | **P0** | **No REJECT flow**: Unlike sibling `PythonRowComponent` which catches per-row exceptions and routes them to a reject DataFrame with `errorCode` and `errorMessage`, `PythonDataFrameComponent` has NO error isolation. A single exception in user code crashes the entire component. For a component executing arbitrary user code, this is a critical reliability gap. |
 | ENG-PDC-002 | **P1** | **`exec()` with no sandbox**: Line 102 calls `exec(python_code, namespace)` without restricting `__builtins__`. User code has full access to `import os`, `open()`, `subprocess`, `eval()`, `__import__()`, etc. For production use with untrusted code, `__builtins__` should be restricted. |
 | ENG-PDC-003 | **P1** | **Silent output_columns fallthrough**: Lines 108-114: when `output_columns` is specified but NONE of the listed columns exist in the DataFrame, the code logs a warning but returns the FULL unfiltered DataFrame. Silent data integrity violation. |
@@ -183,7 +184,7 @@ How faithfully does the v1 engine implement this component's intended behavior?
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Expected | V1 Sets? | How V1 Sets It | Notes |
-|----------|----------|----------|-----------------|-------|
+| ---------- | ---------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | **Yes** | `_update_stats()` -> `_update_global_map()` -> `global_map.put_component_stat()` | Correct via base class mechanism |
 | `{id}_NB_LINE_OK` | Yes | **Yes** | Same mechanism | Reflects actual output row count |
 | `{id}_NB_LINE_REJECT` | Yes | **Hardcoded 0** | `_update_stats(rows_reject=0)` line 121 | Always 0 -- no reject mechanism |
@@ -198,7 +199,7 @@ How well-written is the engine code?
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-PDC-001 | **P0** | `base_component.py:304` | **`_update_global_map()` references undefined variable `value`**: The log statement uses `{stat_name}: {value}` but the loop variable is `stat_value`, not `value`. Causes `NameError` when `global_map` is set. **CROSS-CUTTING**: Affects ALL components. |
 | BUG-PDC-002 | **P1** | `python_dataframe_component.py:108-114` | **Silent output_columns fallthrough returns full DataFrame**: When `output_columns` is specified but no columns match, the full unfiltered DataFrame is returned. Caller expects filtered output. Silent data integrity violation. |
 | BUG-PDC-003 | **P1** | `python_dataframe_component.py:105` | **No type check on `namespace['df']` after exec**: If user code reassigns `df` to a non-DataFrame value, the subsequent `len(output_df.columns)` crashes with unhelpful `AttributeError`. |
@@ -209,13 +210,13 @@ How well-written is the engine code?
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-PDC-001 | **P3** | **`python_code` config key**: Not a Talend parameter name (no Talend equivalent exists). Consistent with sibling `PythonRowComponent` and `PythonComponent`. Naming is internally consistent. No issue. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-PDC-001 | **P2** | "`_validate_config()` returns `List[str]`" (METHODOLOGY.md) | No `_validate_config()` method defined. Only inline check for empty `python_code`. |
 | STD-PDC-002 | **P2** | "Components SHOULD call `validate_schema()` on output" | `validate_schema()` is never called on the output DataFrame. User code is responsible for type correctness. |
 
@@ -226,14 +227,14 @@ None found. Code is clean.
 ### 6.5 Security
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | SEC-PDC-001 | **P1** | **`exec()` with unrestricted `__builtins__`**: Line 102 calls `exec(python_code, namespace)` without restricting `__builtins__`. User code has full access to `import os`, `open()`, `subprocess`, `eval()`, `__import__()`, etc. For trusted internal use, this is acceptable. For any scenario where `python_code` comes from untrusted sources, this is a **remote code execution vulnerability**. |
 | SEC-PDC-002 | **P2** | **`globalMap` and `context` expose live mutable state**: `globalMap` is a live reference -- user code can call `globalMap.clear()`, wiping ALL component statistics. `context` is a shallow copy via `_get_context_dict()` but does NOT deep-copy mutable values (lists, dicts). User code can mutate nested context values and corrupt state for downstream components. |
 
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Module-level `logger = logging.getLogger(__name__)` -- correct |
 | Level usage | INFO for start/complete, WARNING for no input/missing columns, ERROR for execution failure -- correct |
 | Sensitive data | No sensitive data logged. Python code content is NOT logged, even at DEBUG -- makes debugging difficult |
@@ -241,7 +242,7 @@ None found. Code is clean.
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Exception types | `ValueError` for missing python_code (line 66). Generic `Exception` catch for exec errors (line 127). |
 | Exception chaining | Line 129 uses bare `raise` (re-raise), preserving original traceback. Correct. |
 | die_on_error handling | **Not implemented** -- all errors propagate unconditionally. No `die_on_error` config option. |
@@ -250,7 +251,7 @@ None found. Code is clean.
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | `_process()` has `Dict[str, Any]` return type, `Optional[pd.DataFrame]` parameter -- correct |
 | `_get_context_dict()` | Return type `Dict[str, Any]` -- correct |
 
@@ -261,7 +262,7 @@ None found. Code is clean.
 Will it scale?
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-PDC-001 | **P2** | **`input_data.copy()` doubles memory**: Line 75 creates a full deep copy of the input DataFrame. For a 1GB DataFrame, this allocates an additional 1GB. Consider using pandas >= 2.0 copy-on-write. |
 | PERF-PDC-002 | **P2** | **HYBRID streaming mode produces incorrect results**: `BaseComponent._execute_streaming()` splits DataFrame into chunks and calls `_process()` per chunk. User code relying on full DataFrame (aggregations, sorts, dedup) will produce wrong results. Component should force BATCH mode. |
 | PERF-PDC-003 | **P3** | **`exec()` recompiles code on every call**: Each call to `_process()` recompiles the Python code string. Pre-compiling with `compile()` would avoid repeated parsing in streaming/iterate scenarios. |
@@ -269,7 +270,7 @@ Will it scale?
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | HYBRID mode is UNSAFE -- user code may assume full DataFrame. Component should force BATCH. |
 | Memory threshold | Inherited: `MEMORY_THRESHOLD_MB = 3072` (3GB). At this threshold, HYBRID switches to streaming, which is unsafe for this component. |
 | Large data handling | `input_data.copy()` doubles memory. For large DataFrames, this is the bottleneck. |
@@ -292,7 +293,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 2 | **BUG-PDC-001**, **ENG-PDC-001** |
 | P1 | 8 | **SEC-PDC-001**, **ENG-PDC-002**, **ENG-PDC-003**, **ENG-PDC-004**, **BUG-PDC-002**, **BUG-PDC-003**, **BUG-PDC-004**, **BUG-PDC-005** |
 | P2 | 8 | **ENG-PDC-005**, **ENG-PDC-006**, **SEC-PDC-002**, **STD-PDC-001**, **STD-PDC-002**, **PERF-PDC-001**, **PERF-PDC-002**, **BUG-PDC-006** |
@@ -302,7 +303,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Engine (ENG) | 6 | ENG-PDC-001 through ENG-PDC-006 |
 | Bug (BUG) | 6 | BUG-PDC-001 through BUG-PDC-006 |
 | Security (SEC) | 2 | SEC-PDC-001, SEC-PDC-002 |
@@ -315,7 +316,7 @@ All issues grouped by priority for sprint planning.
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set (BUG-PDC-001) |
 | XCUT-002 | `base_component.py` (`resolve_dict()`) | `resolve_dict()` corrupts `python_code` containing `context.xxx` (BUG-PDC-004) |
 
@@ -333,49 +334,49 @@ What should be fixed, in what order?
 
 ### Short-term (Hardening)
 
-3. **Restrict `__builtins__` in exec namespace** (SEC-PDC-001): Add `namespace['__builtins__'] = {...curated builtins...}` to provide safe builtins without `__import__`, `open`, `eval`, `exec`, `compile`.
+1. **Restrict `__builtins__` in exec namespace** (SEC-PDC-001): Add `namespace['__builtins__'] = {...curated builtins...}` to provide safe builtins without `__import__`, `open`, `eval`, `exec`, `compile`.
 
-4. **Fix output_columns fallthrough** (BUG-PDC-002 / ENG-PDC-003): When no specified columns exist, raise `ValueError` instead of silently returning the full DataFrame.
+2. **Fix output_columns fallthrough** (BUG-PDC-002 / ENG-PDC-003): When no specified columns exist, raise `ValueError` instead of silently returning the full DataFrame.
 
-5. **Add type check after exec** (BUG-PDC-003 / ENG-PDC-004): Validate `isinstance(namespace.get('df'), pd.DataFrame)` and raise clear `TypeError` if not.
+3. **Add type check after exec** (BUG-PDC-003 / ENG-PDC-004): Validate `isinstance(namespace.get('df'), pd.DataFrame)` and raise clear `TypeError` if not.
 
-6. **Force BATCH mode** (ENG-PDC-005 / PERF-PDC-002): Override `_determine_execution_mode()` to always return `ExecutionMode.BATCH`.
+4. **Force BATCH mode** (ENG-PDC-005 / PERF-PDC-002): Override `_determine_execution_mode()` to always return `ExecutionMode.BATCH`.
 
-7. **Add routine name collision check** (BUG-PDC-005): Before unpacking `**python_routines`, check for name collisions with reserved namespace keys (`df`, `pd`, `np`, `context`, `globalMap`).
+5. **Add routine name collision check** (BUG-PDC-005): Before unpacking `**python_routines`, check for name collisions with reserved namespace keys (`df`, `pd`, `np`, `context`, `globalMap`).
 
-8. **Add `resolve_dict()` skip for `python_code`** (BUG-PDC-004): Add `python_code` to the skip list alongside `java_code` and `imports`.
+6. **Add `resolve_dict()` skip for `python_code`** (BUG-PDC-004): Add `python_code` to the skip list alongside `java_code` and `imports`.
 
 ### Long-term (Optimization)
 
-9. **Pre-compile user code** (PERF-PDC-003): Use `compile()` once, then `exec(compiled, namespace)` to avoid recompilation on repeated invocations.
+1. **Pre-compile user code** (PERF-PDC-003): Use `compile()` once, then `exec(compiled, namespace)` to avoid recompilation on repeated invocations.
 
-10. **Consider copy-on-write** (PERF-PDC-001): For pandas >= 2.0, use `pd.option_context('mode.copy_on_write', True)` instead of explicit `.copy()`.
+2. **Consider copy-on-write** (PERF-PDC-001): For pandas >= 2.0, use `pd.option_context('mode.copy_on_write', True)` instead of explicit `.copy()`.
 
-11. **Add `_validate_config()` method** (STD-PDC-001): Validate `python_code` is non-empty string, `output_columns` is list of strings if present.
+3. **Add `_validate_config()` method** (STD-PDC-001): Validate `python_code` is non-empty string, `output_columns` is list of strings if present.
 
 ---
 
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
+| -------- | ---------- | ---------- |
 | Engine source | `src/v1/engine/components/transform/python_dataframe_component.py` | Primary engine analysis (148 lines) |
 | Base component | `src/v1/engine/base_component.py` | Cross-cutting bug analysis, lifecycle |
 | Sibling: PythonRowComponent | `src/v1/engine/components/transform/python_row_component.py` | REJECT flow comparison |
 | Sibling: PythonComponent | `src/v1/engine/components/transform/python_component.py` | Namespace comparison |
-| Severus Snake GitHub | `https://github.com/ottensa/severus-snake` | Confirmed no standard Talend tPythonDataFrame exists |
+| Severus Snake GitHub | `<https://github.com/ottensa/severus-snake`> | Confirmed no standard Talend tPythonDataFrame exists |
 
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash -- NameError when `global_map` is set. Blocks stats writing for ALL components. |
 | XCUT-002 | `base_component.py` (`resolve_dict()`) | `resolve_dict()` corrupts `python_code` containing `context.xxx` patterns before `exec()` runs. |
 
 ## Appendix C: Comparison with Sibling Python Components
 
 | Feature | PythonDataFrameComponent | PythonRowComponent | PythonComponent |
-|---------|--------------------------|--------------------|-----------------|
+| --------- | -------------------------- | -------------------- | ----------------- |
 | Processing model | Full DataFrame (vectorized) | Row-by-row (`iterrows()`) | One-time (no data processing) |
 | Input data required? | Yes (returns empty if None) | Yes (returns empty if None) | No (passes through input) |
 | User code variable | `df` (DataFrame) | `input_row` + `output_row` (dicts) | N/A (just runs code) |

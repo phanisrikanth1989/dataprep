@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tFileOutputExcel` |
 | **V1 Engine Class** | `FileOutputExcel` |
 | **Engine File** | `src/v1/engine/components/file/file_output_excel.py` (382 lines) |
@@ -25,7 +25,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/file/file_output_excel.py` | Engine implementation (382 lines) |
 | `src/converters/talend_to_v1/components/file/file_output_excel.py` | Converter class (249 lines) |
 | `tests/converters/talend_to_v1/components/test_file_output_excel.py` | Converter tests (66 tests) |
@@ -37,7 +37,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 29 unique params + 2 framework extracted; AUTO_SZIE_SETTING TABLE parser; `_build_component_dict` pattern; sink schema (input populated, output empty); 16 per-feature needs_review entries; 66 converter tests |
 | Engine Feature Parity | **Y** | 0 | 5 | 5 | 2 | No .xls support (always xlsx); no cell positioning; no auto-size; no password protection; no font selection; NaN leaks to cells; no streaming write mode |
 | Code Quality | **Y** | 3 | 4 | 6 | 0 | Cross-cutting `_update_global_map()` crash (P0); NaN/empty-row filtering with string-cast; `_validate_config()` never called; workbook handle leak; f-string logging |
@@ -47,6 +47,7 @@
 **Overall: Yellow -- Converter fully standardized (Green); engine functional for basic xlsx write but missing many Talend features; code quality has cross-cutting P0 bugs; testing Yellow per D-52 (no engine unit tests)**
 
 **Top Actions:**
+
 1. Fix `_update_global_map()` crash in base class (P0, cross-cutting)
 2. Add cell positioning support (FIRST_CELL_X/Y) in engine (P1)
 3. Add workbook password protection in engine (P1)
@@ -64,6 +65,7 @@
 The component offers extensive formatting controls including font selection, cell positioning (starting row/column offset), column auto-sizing, header inclusion, and locale-aware number formatting (custom thousands/decimal separators). It also supports append modes for both files and sheets, workbook password protection, streaming write mode (SXSSF) for large datasets, formula recalculation, and encoding selection.
 
 **Notable Talend quirks:**
+
 - `IS_ALL_AUTO_SZIE` and `AUTO_SZIE_SETTING` have a typo: "SZIE" instead of "SIZE". This is the canonical _java.xml spelling and is preserved in config keys.
 - `KEEP_CELL_FORMATING` has a single "T" (not "FORMATTING"). This is the canonical spelling.
 - Default encoding is `ISO-8859-15` (not UTF-8), consistent with other Talend file components.
@@ -78,7 +80,7 @@ The component offers extensive formatting controls including font selection, cel
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Version 2007 | `VERSION_2007` | CHECK | `false` | Use .xlsx format (Excel 2007+) instead of .xls. |
 | 2 | Use stream | `USESTREAM` | CHECK | `false` | Write to an OutputStream instead of a file path. When true, STREAMNAME is used instead of FILENAME. |
 | 3 | Stream name | `STREAMNAME` | TEXT | `"outputStream"` | Name of the OutputStream variable to write to. Only active when USESTREAM=true. |
@@ -100,7 +102,7 @@ The component offers extensive formatting controls including font selection, cel
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 18 | Create directory | `CREATE` | CHECK | `true` | Create output directory if it does not exist. |
 | 19 | Flush on row | `FLUSHONROW` | CHECK | `false` | Enable periodic flushing of rows to disk during write. |
 | 20 | Flush row count | `FLUSHONROW_NUM` | TEXT | `"100"` | Number of rows to accumulate before flushing. Only active when FLUSHONROW=true. |
@@ -117,7 +119,7 @@ The component offers extensive formatting controls including font selection, cel
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Primary data input to write to Excel |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires on successful completion |
 | `SUBJOB_ERROR` | Output (Trigger) | Trigger | Fires on error |
@@ -125,7 +127,7 @@ The component offers extensive formatting controls including font selection, cel
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total rows processed |
 | `{id}_NB_LINE_OK` | Integer | After execution | Rows successfully written |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Rows rejected/skipped |
@@ -150,7 +152,7 @@ The component offers extensive formatting controls including font selection, cel
 The converter (`FileOutputExcelConverter`) uses `@REGISTRY.register("tFileOutputExcel")` for dispatch. It extracts all 29 unique parameters plus 2 framework parameters using `_get_str()`, `_get_bool()`, and direct `params.get()` for the TABLE parameter. It uses `_build_component_dict()` for the wrapper structure with sink schema pattern (input populated from `_parse_schema(node)`, output empty).
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `VERSION_2007` | Yes | `version_2007` | bool, default False |
 | 2 | `USESTREAM` | Yes | `usestream` | bool, default False |
 | 3 | `STREAMNAME` | Yes | `streamname` | str, default "outputStream" |
@@ -190,7 +192,7 @@ The converter (`FileOutputExcelConverter`) uses `@REGISTRY.register("tFileOutput
 Sink component schema pattern (D-55): input populated from FLOW connector, output empty.
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | From SchemaColumn.name |
 | `type` | Yes | Converted via `convert_type()` from Talend type |
 | `nullable` | Yes | From SchemaColumn.nullable |
@@ -207,7 +209,7 @@ Context variables (`context.var`) and Java expressions are passed through as-is 
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | CONV-FOE-001 | ~~P1~~ | **FIXED** -- FONT default was "Arial", corrected to "NONE" per _java.xml |
 | CONV-FOE-002 | ~~P1~~ | **FIXED** -- FLUSHONROW_NUM default was 1000, corrected to "100" per _java.xml |
 | CONV-FOE-003 | ~~P1~~ | **FIXED** -- ENCODING default was "UTF-8", corrected to "ISO-8859-15" per _java.xml |
@@ -226,7 +228,7 @@ Context variables (`context.var`) and Java expressions are passed through as-is 
 The converter emits 16 per-feature needs_review entries for engine gaps:
 
 | # | Config Key(s) | Reason | Severity |
-|---|--------------|--------|----------|
+| --- | -------------- | -------- | ---------- |
 | 1 | `encoding` | Engine default is 'UTF-8' but _java.xml default is 'ISO-8859-15' | engine_gap |
 | 2 | `usestream`, `streamname` | Engine does not read these keys -- OutputStream mode not supported | engine_gap |
 | 3 | `font` | Engine does not read this key -- font selection not supported | engine_gap |
@@ -251,7 +253,7 @@ The converter emits 16 per-feature needs_review entries for engine gaps:
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Write to xlsx file | **Yes** | High | `_process()` line 96-367 | Uses openpyxl; always writes .xlsx format |
 | 2 | Sheet name | **Yes** | High | `_process()` line 126 | Config key `sheetname`, default "Sheet1" |
 | 3 | Include header | **Yes** | High | `_process()` lines 277-325 | Includes append-mode header detection |
@@ -277,7 +279,7 @@ The converter emits 16 per-feature needs_review entries for engine gaps:
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-FOE-001 | **P1** | Cell positioning (FIRST_CELL_X/Y) not supported -- data always starts at A1 |
 | ENG-FOE-002 | **P1** | Password protection not available -- PROTECT_FILE/PASSWORD ignored |
 | ENG-FOE-003 | **P1** | Column auto-sizing not supported -- IS_ALL_AUTO_SZIE/AUTO_SZIE_SETTING ignored |
@@ -294,7 +296,7 @@ The converter emits 16 per-feature needs_review entries for engine gaps:
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_stats(rows_in, ...)` | Total rows processed |
 | `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats(..., rows_out, ...)` | Rows written |
 | `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats(..., ..., rows_rejected)` | Rows filtered (empty rows) |
@@ -306,7 +308,7 @@ The converter emits 16 per-feature needs_review entries for engine gaps:
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-FOE-001 | **P0** | `base_component.py:304` | **CROSS-CUTTING**: `_update_global_map()` crashes with `TypeError` when `global_map` is set -- `GlobalMap.set()` signature mismatch |
 | BUG-FOE-002 | **P0** | `base_component.py:174` | **CROSS-CUTTING**: `replace_in_config` uses literal `[i]` string instead of f-string -- Java expression resolution fails for list elements |
 | BUG-FOE-003 | **P0** | `base_component.py:132` | **CROSS-CUTTING**: `validate_schema` inverted nullable logic -- `nullable=True` triggers `fillna(0)` which destroys intentional nulls |
@@ -318,7 +320,7 @@ The converter emits 16 per-feature needs_review entries for engine gaps:
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-FOE-001 | **P2** | Engine reads `encoding` (default `UTF-8`) but _java.xml default is `ISO-8859-15` -- default mismatch between converter output and engine expectation |
 | NAME-FOE-002 | **P2** | Engine reads `die_on_error` but this param does not exist in _java.xml -- engine-only config key |
 | NAME-FOE-003 | **P2** | `create_file` local variable (line 135) doesn't match config key `create` -- naming inconsistency |
@@ -326,7 +328,7 @@ The converter emits 16 per-feature needs_review entries for engine gaps:
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-FOE-001 | **P2** | "No f-string logging" | Uses f-string interpolation in all log calls instead of `logger.info("msg %s", var)` |
 | STD-FOE-002 | **P2** | "_validate_config() must be called" | `_validate_config()` is defined (lines 63-93) but never called from `_process()` |
 | STD-FOE-003 | **P2** | "Use context manager for file handles" | Workbook opened without `with` statement or try/finally close |
@@ -344,7 +346,7 @@ None found. No print statements, no commented-out code, no TODO/FIXME comments.
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- `logging.getLogger(__name__)` at module level |
 | Level usage | Good -- info for operations, warning for missing data, error for failures, debug for details |
 | Sensitive data | Concern -- filename paths logged at INFO level; passwords not logged |
@@ -352,7 +354,7 @@ None found. No print statements, no commented-out code, no TODO/FIXME comments.
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Good -- uses `FileOperationError`, `ComponentExecutionError` |
 | Exception chaining | Good -- `raise ... from e` pattern used throughout |
 | die_on_error handling | Good -- respects config flag, graceful degradation when False |
@@ -360,7 +362,7 @@ None found. No print statements, no commented-out code, no TODO/FIXME comments.
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- `_process()` has proper type hints |
 | Parameter types | Mixed -- `Union[Dict[str, Any], pd.DataFrame, None]` is broad but correct |
 
@@ -369,7 +371,7 @@ None found. No print statements, no commented-out code, no TODO/FIXME comments.
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-FOE-001 | **P1** | Row-by-row `sheet.append()` (line 338) for all rows -- no batch write optimization. For large datasets, this is significantly slower than `pd.DataFrame.to_excel()` |
 | PERF-FOE-002 | **P2** | Entire workbook loaded into memory for append mode (line 158). Large .xlsx files (100K+ rows) can cause `MemoryError` |
 | PERF-FOE-003 | **P3** | `iterrows()` (line 234) creates a Series per row -- known pandas anti-pattern for large DataFrames |
@@ -377,7 +379,7 @@ None found. No print statements, no commented-out code, no TODO/FIXME comments.
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Not supported -- no SXSSF equivalent in engine. All data buffered in memory. |
 | Memory threshold | No limit -- entire workbook + all input data in memory simultaneously |
 | Large data handling | Poor -- 100K+ rows will be slow (iterrows) and memory-intensive (full workbook in memory) |
@@ -389,7 +391,7 @@ None found. No print statements, no commented-out code, no TODO/FIXME comments.
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 66 | `tests/converters/talend_to_v1/components/test_file_output_excel.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | 399 | `tests/converters/talend_to_v1/test_integration.py` + `test_converter_output_structure.py` |
@@ -397,7 +399,7 @@ None found. No print statements, no commented-out code, no TODO/FIXME comments.
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-FOE-001 | **P2** | No engine unit tests for FileOutputExcel -- basic xlsx write, append mode, header handling untested at engine level |
 
 ### 8.3 Recommended Test Cases
@@ -417,7 +419,7 @@ None found. No print statements, no commented-out code, no TODO/FIXME comments.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 3 | **BUG-FOE-001**, **BUG-FOE-002**, **BUG-FOE-003** |
 | P1 | 10 | **ENG-FOE-001**, **ENG-FOE-002**, **ENG-FOE-003**, **ENG-FOE-004**, **ENG-FOE-005**, **BUG-FOE-004**, **BUG-FOE-005**, **BUG-FOE-006**, **BUG-FOE-007**, **PERF-FOE-001** |
 | P2 | 13 | **ENG-FOE-006**, **ENG-FOE-007**, **ENG-FOE-008**, **ENG-FOE-009**, **ENG-FOE-010**, **NAME-FOE-001**, **NAME-FOE-002**, **NAME-FOE-003**, **STD-FOE-001**, **STD-FOE-002**, **STD-FOE-003**, **PERF-FOE-002**, **TEST-FOE-001** |
@@ -427,7 +429,7 @@ None found. No print statements, no commented-out code, no TODO/FIXME comments.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | All 12 issues resolved (FIXED) |
 | Engine (ENG) | 12 | ENG-FOE-001 through ENG-FOE-012 |
 | Bug (BUG) | 7 | BUG-FOE-001 through BUG-FOE-007 |
@@ -439,7 +441,7 @@ None found. No print statements, no commented-out code, no TODO/FIXME comments.
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set (BUG-FOE-001) |
 | XCUT-002 | `base_component.py:174` | `replace_in_config` literal `[i]` (BUG-FOE-002) |
 | XCUT-003 | `base_component.py:132` | `validate_schema` inverted nullable (BUG-FOE-003) |
@@ -449,22 +451,25 @@ None found. No print statements, no commented-out code, no TODO/FIXME comments.
 ## 10. Recommendations
 
 ### Immediate (Before Production)
+
 1. Fix `_update_global_map()` crash in base class (P0, XCUT-001)
 2. Fix `replace_in_config` literal `[i]` in base class (P0, XCUT-002)
 3. Fix `validate_schema` inverted nullable in base class (P0, XCUT-003)
 
 ### Short-term (Hardening)
-4. Add cell positioning support (ENG-FOE-001, P1)
-5. Add password protection (ENG-FOE-002, P1)
-6. Fix NaN detection string-cast (BUG-FOE-004, P1)
-7. Add workbook context manager (BUG-FOE-005, P1)
-8. Add engine unit tests (TEST-FOE-001, P2)
+
+1. Add cell positioning support (ENG-FOE-001, P1)
+2. Add password protection (ENG-FOE-002, P1)
+3. Fix NaN detection string-cast (BUG-FOE-004, P1)
+4. Add workbook context manager (BUG-FOE-005, P1)
+5. Add engine unit tests (TEST-FOE-001, P2)
 
 ### Long-term (Optimization)
-9. Add streaming write mode (ENG-FOE-010, P2)
-10. Add batch write optimization (PERF-FOE-001, P1)
-11. Add shared strings table (ENG-FOE-011, P3)
-12. Replace `iterrows()` with vectorized approach (PERF-FOE-003, P3)
+
+1. Add streaming write mode (ENG-FOE-010, P2)
+2. Add batch write optimization (PERF-FOE-001, P1)
+3. Add shared strings table (ENG-FOE-011, P3)
+4. Replace `iterrows()` with vectorized approach (PERF-FOE-003, P3)
 
 ---
 
@@ -473,7 +478,7 @@ None found. No print statements, no commented-out code, no TODO/FIXME comments.
 ### Risk Matrix
 
 | Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
+| ------ | ----------- | -------- | ------------ |
 | **File path traversal** | Medium | High | FILENAME accepts arbitrary paths with no validation. A malicious context variable could write to sensitive locations (e.g., `/etc/`, `~/.ssh/`). Mitigation: Add path allowlist or sandbox validation. |
 | **Password in plaintext config** | High | Medium | The PASSWORD param is stored in plaintext in job config JSON. If configs are logged, stored in version control, or transmitted over the network, the password is exposed. Mitigation: Use credential store or environment variable reference. |
 | **Formula injection** | Medium | High | Excel formula injection via cell content. Input data containing `=CMD(...)`, `=HYPERLINK(...)`, or similar can execute arbitrary commands when the output file is opened in Excel. Mitigation: Prefix cell values starting with `=`, `+`, `-`, `@` with a single quote. |
@@ -502,9 +507,9 @@ None found. No print statements, no commented-out code, no TODO/FIXME comments.
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Official Talend docs | https://help.qlik.com/talend/en-US/components/7.3/tfileoutputexcel/tfileoutputexcel-standard-properties | Parameter definitions, defaults |
-| Talaxie GitHub _java.xml | https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tFileOutputExcel/tFileOutputExcel_java.xml | Component definition XML -- 29 params verified |
+| -------- | ---------- | ---------- |
+| Official Talend docs | <https://help.qlik.com/talend/en-US/components/7.3/tfileoutputexcel/tfileoutputexcel-standard-properties> | Parameter definitions, defaults |
+| Talaxie GitHub _java.xml | <https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tFileOutputExcel/tFileOutputExcel_java.xml> | Component definition XML -- 29 params verified |
 | Engine source | `src/v1/engine/components/file/file_output_excel.py` | Feature parity analysis (382 lines) |
 | Converter source | `src/converters/talend_to_v1/components/file/file_output_excel.py` | Converter audit (249 lines) |
 | Converter tests | `tests/converters/talend_to_v1/components/test_file_output_excel.py` | Test coverage (66 tests) |
@@ -512,7 +517,7 @@ None found. No print statements, no commented-out code, no TODO/FIXME comments.
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set |
 | XCUT-002 | `base_component.py:174` | `replace_in_config` literal `[i]` breaks list element expression resolution |
 | XCUT-003 | `base_component.py:132` | `validate_schema` inverted nullable logic destroys intentional nulls |

@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tExtractRegexFields` |
 | **V1 Engine Class** | None -- no concrete engine implementation exists |
 | **Engine File** | No dedicated engine file |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/converters/talend_to_v1/components/transform/extract_regex_fields.py` | Converter class `ExtractRegexFieldsConverter` (80 lines) |
 | `tests/converters/talend_to_v1/components/test_extract_regex_fields.py` | Converter tests (24 tests, 10 classes) |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()`, `_build_component_dict()` |
@@ -39,7 +39,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 4 of 4 _java.xml unique params extracted (100%); phantom GROUP removed; FIELD and CHECK_FIELDS_NUM added; DIE_ON_ERROR default fixed to True; module docstring follows CONVERTER_PATTERN.md |
 | Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No concrete engine implementation exists; component cannot execute |
 | Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code quality is good (follows CONVERTER_PATTERN.md), but no engine code exists -- component is incomplete |
@@ -49,6 +49,7 @@ How production-ready is this component at a glance?
 **Overall: RED -- No engine implementation. Converter correctly extracts all 4 unique _java.xml params (FIELD, REGEX, DIE_ON_ERROR, CHECK_FIELDS_NUM) with correct defaults for future engine support, but component cannot execute in production. Engine must be implemented before this component is usable.**
 
 **Top Actions**:
+
 1. Implement concrete ExtractRegexFields engine class (P0 -- blocks production use)
 2. All converter and test issues resolved in v1.1 rewrite
 
@@ -72,7 +73,7 @@ This is the regex counterpart of `tExtractDelimitedFields` (which splits by deli
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Field | `FIELD` | PREV_COLUMN_LIST | (none) | Source column to apply the regex to. PREV_COLUMN_LIST type means it shows a dropdown of columns from the previous component's output schema. |
 | 2 | Regex Help | `REGEX_HELP` | LABEL | (informational) | Display-only label showing regex syntax help in the UI. Not a configuration parameter -- not extracted. |
 | 3 | Regex | `REGEX` | MEMO | (complex default) | Regular expression pattern with capture groups. MEMO type allows multi-line input. Each capture group maps to a schema output column. |
@@ -82,21 +83,21 @@ This is the regex counterpart of `tExtractDelimitedFields` (which splits by deli
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 6 | Die on Error | `DIE_ON_ERROR` | CHECK | `true` | Whether to abort the job on extraction error. Default is `true` per _java.xml (not `false` as the old converter had). |
 | 7 | Check Fields Num | `CHECK_FIELDS_NUM` | CHECK | `false` | Whether to verify that the number of capture groups matches the number of output schema columns. |
 
 ### 3.3 Framework Parameters
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 8 | Stat Catcher | `TSTATCATCHER_STATS` | CHECK | `false` | Enable statistics collection for tStatCatcher |
 | 9 | Label | `LABEL` | TEXT | `""` | User-defined label for the component instance |
 
 ### 3.4 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Incoming data rows with the source column to extract from |
 | `FLOW` (Main) | Output | Row > Main | Rows with extracted fields populated from regex capture groups |
 | `REJECT` | Output | Row > Reject | Rows where the regex did not match (includes errorCode/errorMessage columns) |
@@ -108,7 +109,7 @@ This is the regex counterpart of `tExtractDelimitedFields` (which splits by deli
 ### 3.5 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Number of rows processed by the component |
 
 ### 3.6 Behavioral Notes
@@ -131,7 +132,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 The `ExtractRegexFieldsConverter` class uses `_build_component_dict()` (per CONVERTER_PATTERN.md) with `type_name="tExtractRegexFields"` (per D-43, no-engine). Single consolidated `needs_review` entry per D-27 for the absent engine.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `FIELD` | Yes | `field` | `_get_str(node, "FIELD", "")` -- PREV_COLUMN_LIST type, default empty. **Added in v1.1 rewrite** (was missing). |
 | 2 | `REGEX_HELP` | No (correct) | -- | LABEL param (informational text), not a configuration value |
 | 3 | `REGEX` | Yes | `regex` | `_get_str(node, "REGEX", "")` -- MEMO type |
@@ -149,7 +150,7 @@ The `ExtractRegexFieldsConverter` class uses `_build_component_dict()` (per CONV
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` |
 | `type` | Yes | Via `convert_type()` mapping |
 | `nullable` | Yes | Direct from SchemaColumn |
@@ -170,7 +171,7 @@ REGEX is a MEMO field, meaning it can contain complex regex patterns. FIELD is a
 No open issues. Converter follows CONVERTER_PATTERN.md gold standard.
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No issues found |
 
 ### 4.5 Needs Review Entries
@@ -178,7 +179,7 @@ No open issues. Converter follows CONVERTER_PATTERN.md gold standard.
 Single consolidated needs_review entry per D-27 (no engine implementation):
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | (component-level) | No v1 engine implementation exists for tExtractRegexFields. Converter output is syntactically valid but cannot execute at runtime. | engine_gap |
 
 ---
@@ -192,7 +193,7 @@ How faithfully does the v1 engine implement Talend behavior?
 No engine implementation exists. All features are unimplemented.
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Regex field extraction | **No** | N/A | -- | No engine class exists |
 | 2 | Capture group mapping | **No** | N/A | -- | No engine class exists |
 | 3 | Die on error handling | **No** | N/A | -- | No engine class exists |
@@ -203,13 +204,13 @@ No engine implementation exists. All features are unimplemented.
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-ERF-001 | **P0** | No engine implementation exists. Component cannot execute at runtime. |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | No | -- | No engine to set globalMap variables |
 
 ---
@@ -223,7 +224,7 @@ How well-written is the engine code?
 No engine code exists. Converter code has no bugs.
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-ERF-001 | **P0** | -- | No engine code exists. Cannot assess engine code quality. |
 
 ### 6.2 Naming Consistency
@@ -231,7 +232,7 @@ No engine code exists. Converter code has no bugs.
 No issues found. Converter follows naming conventions (snake_case config keys, PascalCase class name).
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No issues found |
 
 ### 6.3 Standards Compliance
@@ -239,7 +240,7 @@ No issues found. Converter follows naming conventions (snake_case config keys, P
 Converter fully compliant with CONVERTER_PATTERN.md and TEST_PATTERN.md.
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | -- | -- | -- | No violations found |
 
 ### 6.4 Debug Artifacts
@@ -253,7 +254,7 @@ No concerns identified. The REGEX parameter contains a regular expression that w
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- `logger = logging.getLogger(__name__)` at module level |
 | Level usage | N/A -- no logging calls needed in simple converter |
 | Sensitive data | No sensitive data logged |
@@ -261,7 +262,7 @@ No concerns identified. The REGEX parameter contains a regular expression that w
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | N/A -- converter returns ComponentResult, does not raise |
 | Exception chaining | N/A |
 | die_on_error handling | N/A -- no engine implementation |
@@ -269,7 +270,7 @@ No concerns identified. The REGEX parameter contains a regular expression that w
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Complete -- all parameters and return types annotated |
 | Parameter types | Correct -- matches base class signatures |
 
@@ -282,13 +283,13 @@ Will it scale?
 No engine implementation exists -- performance cannot be assessed.
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No engine code to assess |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- no engine implementation |
 | Memory threshold | N/A |
 | Large data handling | N/A |
@@ -302,7 +303,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 24 | `tests/converters/talend_to_v1/components/test_extract_regex_fields.py` |
 | Engine unit tests | 0 | None -- no engine implementation |
 | Integration tests | 0 | None -- no engine implementation |
@@ -310,13 +311,13 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-ERF-001 | **P0** | No engine tests exist because no engine implementation exists |
 
 ### 8.3 Test Classes (Converter)
 
 | Class | Tests | What's Verified |
-|-------|-------|-----------------|
+| ------- | ------- | ----------------- |
 | TestRegistration | 1 | REGISTRY.get("tExtractRegexFields") is ExtractRegexFieldsConverter |
 | TestDefaults | 6 | field="", regex="", die_on_error=True, check_fields_num=False, tstatcatcher_stats=False, label="" |
 | TestParameterExtraction | 4 | field custom, regex custom, die_on_error=False, check_fields_num=True |
@@ -330,6 +331,7 @@ What's verified?
 ### 8.4 Recommended Test Cases
 
 When an engine is implemented, add:
+
 1. Happy path: apply regex `"(\\d+)-(\\w+)"` to column with value `"123-abc"`, verify capture groups populate output columns
 2. No match: regex doesn't match input value, verify reject flow
 3. Check fields num: capture group count mismatch with output schema columns
@@ -350,7 +352,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 3 | **ENG-ERF-001**, **BUG-ERF-001**, **TEST-ERF-001** |
 | P1 | 0 | -- |
 | P2 | 0 | -- |
@@ -360,7 +362,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
 | Engine (ENG) | 1 | ENG-ERF-001 |
 | Bug (BUG) | 1 | BUG-ERF-001 |
@@ -396,8 +398,8 @@ No long-term issues identified.
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://github.com/Talaxie/tdi-studio-se/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tExtractRegexFields/tExtractRegexFields_java.xml` | Parameter definitions, defaults, types |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://github.com/Talaxie/tdi-studio-se/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tExtractRegexFields/tExtractRegexFields_java.xml`> | Parameter definitions, defaults, types |
 | Converter source | `src/converters/talend_to_v1/components/transform/extract_regex_fields.py` | Converter audit |
 | Test source | `tests/converters/talend_to_v1/components/test_extract_regex_fields.py` | Test coverage analysis |
 | Gold standard templates | `docs/v1/standards/CONVERTER_PATTERN.md`, `TEST_PATTERN.md`, `AUDIT_REPORT_TEMPLATE.md` | Standards compliance verification |
@@ -405,7 +407,7 @@ No long-term issues identified.
 ## Appendix B: Converter Config Key Mapping
 
 | _java.xml Param | Config Key | Type | Default | Extracted | Notes |
-|-----------------|-----------|------|---------|-----------|-------|
+| ----------------- | ----------- | ------ | --------- | ----------- | ------- |
 | `FIELD` | `field` | str | `""` | Yes | PREV_COLUMN_LIST type. **Added in v1.1** (was missing). |
 | `REGEX_HELP` | -- | -- | -- | No | LABEL param (display only) |
 | `REGEX` | `regex` | str | `""` | Yes | MEMO type |

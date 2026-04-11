@@ -7,7 +7,7 @@ This document catalogs **engine-level bugs and systemic issues** that affect all
 **Issue counts by severity:**
 
 | Severity | Count | Description |
-|----------|-------|-------------|
+| ---------- | ------- | ------------- |
 | P0 -- Critical | 7 | Engine crashes, data corruption, broken imports |
 | P1 -- High | 9 | Incorrect behavior, masked errors, security holes |
 | P2 -- Medium | 8 | Missing implementations, incomplete features |
@@ -16,6 +16,7 @@ This document catalogs **engine-level bugs and systemic issues** that affect all
 **Overall engine health: NOT PRODUCTION-READY.** The engine cannot even be imported without error due to broken import chains (Section 1.4). Even if imports are fixed, every component execution will crash in `_update_global_map()` (Section 1.1), and the `GlobalMap.get()` method throws a `NameError` on every call (Section 1.2). These three issues alone block all execution.
 
 **What blocks production:**
+
 1. The engine module fails to import (`engine.py:40` -- broken aggregate imports).
 2. Every component execution crashes at stats update (`base_component.py:304`).
 3. Every `GlobalMap.get()` call raises `NameError` (`global_map.py:28`).
@@ -262,6 +263,7 @@ Also update `__all__` on line 33 from `'FileInputXml'` to `'FileInputXML'`.
 **Description:**
 
 The `_convert_type()` method uses a `type_mapping` dictionary where converters are stored as either:
+
 - Lambda functions (e.g., `lambda v: str(v).lower() in ('true', '1', 'yes')`) -- these work.
 - The actual built-in function reference `str` (lines 184-185) -- these work.
 - **String literals** like `'str'`, `'int'`, `'float'`, `'Decimal'` -- these are **NOT callable**.
@@ -277,7 +279,7 @@ try:
 **Broken type mappings (10 out of 16):**
 
 | Key | Value | What happens when called |
-|-----|-------|--------------------------|
+| ----- | ------- | -------------------------- |
 | `'id_String'` | `'str'` (string literal) | `TypeError: 'str' object is not callable` |
 | `'id_Integer'` | `'int'` (string literal) | `TypeError` |
 | `'id_Long'` | `'int'` (string literal) | `TypeError` |
@@ -292,7 +294,7 @@ try:
 **Working type mappings (6 out of 16):**
 
 | Key | Value | Why it works |
-|-----|-------|-------------|
+| ----- | ------- | ------------- |
 | `'id_Boolean'` | `lambda v: ...` | Lambda is callable |
 | `'bool'` | `lambda v: ...` | Lambda is callable |
 | `'Decimal'` | `'Decimal'` (string literal) | **Also broken** -- `'Decimal'` is not callable |
@@ -499,6 +501,7 @@ The `die_on_error` config parameter controls whether a component should abort th
 **Engine-Level Handling:**
 
 The engine (`engine.py:600-620`) does NOT check `die_on_error`. When a component raises an exception, the engine always catches it and either:
+
 - Re-raises (if `exit_code` attribute exists -- only tDie).
 - Marks as failed and continues.
 
@@ -509,7 +512,7 @@ This means the engine has **implicit `die_on_error=false` behavior for all compo
 Components that **do** implement `die_on_error` (verified by grep):
 
 | Component Category | Components with `die_on_error` | Implementation Correct | Default |
-|-------------------|-------------------------------|----------------------|---------|
+| ------------------- | ------------------------------- | ---------------------- | --------- |
 | File Input | `FileInputDelimited`, `FileInputExcel`, `FileInputPositional`, `FileInputFullRow`, `FileInputXML`, `FileInputRaw`, `FileInputJSON` | Yes | `True` |
 | File Output | `FileOutputDelimited`, `FileOutputPositional`, `FileOutputExcel` | Yes -- check config and either raise or continue | `True` |
 | Transform | `Map`, `Normalize`, `AggregateSortedRow`, `Replicate`, `ExtractDelimitedFields`, `ExtractJSONFields`, `ExtractPositionalFields`, `ExtractXMLField`, `SwiftBlockFormatter`, `SwiftTransformer`, `Join` | Yes | `True` |
@@ -520,7 +523,7 @@ Components that **do** implement `die_on_error` (verified by grep):
 Components that **lack** `die_on_error` (verified by grep):
 
 | Component Category | Components without `die_on_error` |
-|-------------------|----------------------------------|
+| ------------------- | ---------------------------------- |
 | Transform | `FilterRows`, `FilterColumns`, `SortRow`, `LogRow`, `RowGenerator`, `Denormalize`, `Unite`, `PivotToColumnsDelimited`, `UnpivotRow`, `SchemaComplianceCheck`, `XMLMap` |
 | Aggregate | `AggregateRow`, `UniqueRow` |
 | Context | `ContextLoad` |
@@ -609,13 +612,14 @@ python_condition = python_condition.replace('!= None', ' is not None')  # Line 2
 ```
 
 The problem is that line 228 replaces ALL `!` characters with ` not `. This transforms:
+
 - `!=` into ` not =` -- which is a syntax error.
 - `!= None` into ` not = None` -- line 231 then tries to replace `!= None` but it no longer exists.
 
 **Examples of corruption:**
 
 | Input Java condition | After `!` replacement | Result |
-|---------------------|----------------------|--------|
+| --------------------- | ---------------------- | -------- |
 | `x != 0` | `x  not = 0` | `SyntaxError` |
 | `x != null` | `x  not =  None` | `SyntaxError` |
 | `!flag` | ` not flag` | Correct (accidental) |
@@ -914,11 +918,13 @@ B    | X        | 3
 Correct pivot (batch): `A -> X=1, Y=2 | B -> X=3`
 
 With chunks of 2 rows:
+
 - Chunk 1 (rows 1-2): `A -> X=1, Y=2` (correct for A)
 - Chunk 2 (row 3): `B -> X=3`
 - Combined: correct (by luck)
 
 But if chunk boundary falls differently:
+
 - Chunk 1 (rows 1,3): `A -> X=1 | B -> X=3` (incomplete A)
 - Chunk 2 (row 2): `A -> Y=2` (second partial A)
 - Combined: TWO rows for A, each with only one value.
@@ -1065,6 +1071,7 @@ if self.context_manager:
 **Description:**
 
 The `resolve_dict()` method handles three types of values:
+
 - `str` -> calls `resolve_string()` (line 153)
 - `dict` -> recursively calls `resolve_dict()` (line 155)
 - `list` -> calls `resolve_string()` on each element, but **only if the element is a string** (line 157):
@@ -1178,6 +1185,7 @@ pattern2 = r'\bcontext\.(\w+)\b'
 ```
 
 This matches any `context.XXX` in any string, including:
+
 - Python code: `context.get('key')` -> resolves `get` as a variable name
 - Error messages: `"Invalid context.param value"` -> resolves `param` as a variable name
 - Documentation strings in config
@@ -1245,7 +1253,7 @@ The converter (`component_parser.py` lines 18-103) maps Talend component types t
 The following table shows component types that the converter maps to class names that do NOT exist in the engine's `COMPONENT_REGISTRY` (engine.py lines 56-205):
 
 | Talend Type | Converter Maps To | In Engine Registry? | Engine Class Exists? | Impact |
-|------------|-------------------|--------------------|--------------------|--------|
+| ------------ | ------------------- | -------------------- | -------------------- | -------- |
 | `tFileList` | `FileList` | No | No (only `BaseIterateComponent` base class) | Iterate components cannot execute |
 | `tFlowToIterate` | `FlowToIterate` | No | No | Flow-to-iterate conversion impossible |
 | `tRunJob` | `RunJobComponent` | No | No | Sub-job invocation impossible |
@@ -1294,6 +1302,7 @@ For a typical Talend job portfolio:
 - **Jobs with tXMLMap:** Silently broken due to name mismatch. The component is skipped, and its downstream flow receives no data.
 
 **Recommended fix priority:**
+
 1. Fix name mismatches (5 minutes each, high impact).
 2. Implement `FileList` (tFileList) -- most critical iterate component.
 3. Implement `FlowToIterate` (tFlowToIterate) -- second most common.
@@ -1362,7 +1371,7 @@ elif component_type == 'tFileOutputEBCDIC':
 The converter's `component_mapping` dict maps Talend type names to engine class names. Several mappings produce names that don't match the engine's `COMPONENT_REGISTRY`:
 
 | Talend Type | Converter Produces | Engine Registry Has | Match? |
-|------------|-------------------|-------------------|--------|
+| ------------ | ------------------- | ------------------- | -------- |
 | `tXMLMap` | `TXMLMap` | `XMLMap` | NO |
 | `tFileInputJSON` | `FileInputJSONComponent` | `FileInputJSON` | NO |
 | `tFileOutputExcel` | `FileOutputExcelComponent` | `FileOutputExcel` | NO |
@@ -1564,6 +1573,7 @@ Priority test targets (ordered by impact):
 **Description:**
 
 There are no tests that exercise the full pipeline:
+
 1. Convert a Talend XML file.
 2. Load the JSON into the engine.
 3. Execute the job.
@@ -1577,6 +1587,7 @@ There are no tests that exercise the full pipeline:
 **Recommended fix:**
 
 Create a set of reference Talend jobs (or hand-crafted JSON configs) that exercise:
+
 1. Simple linear flow (FileInput -> Map -> FileOutput).
 2. Branching flow (FileInput -> tReplicate -> [FileOutput1, FileOutput2]).
 3. Trigger flow (Subjob1 -OnSubjobOk-> Subjob2).
@@ -1592,6 +1603,7 @@ Create a set of reference Talend jobs (or hand-crafted JSON configs) that exerci
 **Description:**
 
 The converter has 70+ parser methods (`parse_tmap`, `parse_aggregate`, `parse_filter_rows`, etc.) with zero tests. Given that:
+
 - Two parser methods referenced in the converter don't exist (Section 7.2).
 - Multiple type name mismatches exist between converter output and engine registry (Section 7.3).
 - XML parsing correctness is critical for data integrity.
@@ -1601,6 +1613,7 @@ This is a significant gap.
 **Recommended fix:**
 
 For each parser method, create a test with a minimal XML snippet that verifies:
+
 1. The method doesn't crash.
 2. The output has the correct `type` field matching the engine registry.
 3. Required config fields are populated.
@@ -1617,7 +1630,7 @@ For each parser method, create a test with a minimal XML snippet that verifies:
 These fixes are required to make the engine importable and functional. Without them, no job can execute.
 
 | Priority | Issue | Section | Fix | Effort |
-|----------|-------|---------|-----|--------|
+| ---------- | ------- | --------- | ----- | -------- |
 | P0-1 | Engine import fails (aggregate vs transform) | 1.4 | Change import path on engine.py:40 | 2 min |
 | P0-2 | Engine import fails (FileInputXML casing) | 1.5 | Fix casing in file/__init__.py:10 | 2 min |
 | P0-3 | `_update_global_map()` crashes (undefined `value`) | 1.1 | Fix f-string on base_component.py:304 | 5 min |
@@ -1635,7 +1648,7 @@ These fixes are required to make the engine importable and functional. Without t
 These fixes address correctness issues that cause wrong results, silent data loss, or security vulnerabilities.
 
 | Priority | Issue | Section | Effort |
-|----------|-------|---------|--------|
+| ---------- | ------- | --------- | -------- |
 | P1-1 | Trigger `!` corrupts `!=` | 3.2 | 15 min |
 | P1-2 | Trigger `((Boolean)...)` not handled | 3.1 | 30 min |
 | P1-3 | `eval()` without sandboxing | 3.3 | 1-2 hr |
@@ -1660,7 +1673,7 @@ These fixes address correctness issues that cause wrong results, silent data los
 These address architecture-level issues and the testing gap.
 
 | Priority | Issue | Section | Effort |
-|----------|-------|---------|--------|
+| ---------- | ------- | --------- | -------- |
 | P2-1 | Implement tFileList component | 6.1 | 8-16 hr |
 | P2-2 | Implement tFlowToIterate component | 6.1 | 4-8 hr |
 | P2-3 | Implement tPrejob/tPostjob | 6.1 | 2-4 hr |
@@ -1685,7 +1698,7 @@ These address architecture-level issues and the testing gap.
 All files referenced in this document with their roles:
 
 | File | Role | Key Issues |
-|------|------|-----------|
+| ------ | ------ | ----------- |
 | `src/v1/engine/base_component.py` | Base class for all components | 1.1, 1.3, 1.7, 4.1, 4.2, 4.5, 5.1, 5.2 |
 | `src/v1/engine/engine.py` | Job orchestrator | 1.4, 1.5, 2.1-2.4 |
 | `src/v1/engine/global_map.py` | Global variable storage | 1.2 |
@@ -1709,6 +1722,7 @@ All files referenced in this document with their roles:
 This diagram shows how the critical bugs cascade. A single test execution triggers multiple failures:
 
 ```
+
 1. Import engine.py
    |
    +-> ImportError (Section 1.4): AggregateSortedRow not in aggregate package
@@ -1719,14 +1733,16 @@ This diagram shows how the critical bugs cascade. A single test execution trigge
    |   (engine cannot load -- STOP)
    |
    [After fixing 1.5:]
-2. Create ETLEngine(config)
+
+1. Create ETLEngine(config)
    |
    +-> ContextManager.__init__() -> load_context() -> set() -> _convert_type()
    |   +-> TypeError (Section 1.6): 'str' is not callable
    |       (caught by except, logged as warning, value stays as string)
    |       [SILENT FAILURE: context vars have wrong types]
    |
-3. engine.execute()
+
+1. engine.execute()
    |
    +-> _execute_component(comp_id)
    |   +-> component.execute(input_data)
@@ -1735,10 +1751,10 @@ This diagram shows how the critical bugs cascade. A single test execution trigge
    |       |       [SILENT FAILURE: some config values unresolved]
    |       |   +-> resolve_dict corrupts python_code (Section 5.4)
    |       |       [SILENT FAILURE: python code mangled]
-   |       |
+|       |
    |       +-> component._process(input_data)
    |       |   [May succeed or fail depending on component]
-   |       |
+|       |
    |       +-> _update_global_map()
    |           +-> NameError (Section 1.1): 'value' not defined
    |               [CRASH: replaces any real error on error path]
@@ -1783,11 +1799,11 @@ Exception
    - `ExpressionError`: Not used by any component.
    - `SchemaError`: Not used by any component.
 
-2. **Components raise generic exceptions.** Most components raise `ValueError`, `RuntimeError`, or `Exception` instead of the structured ETL exceptions. This means the engine cannot distinguish between configuration errors, data errors, and system errors.
+1. **Components raise generic exceptions.** Most components raise `ValueError`, `RuntimeError`, or `Exception` instead of the structured ETL exceptions. This means the engine cannot distinguish between configuration errors, data errors, and system errors.
 
-3. **The engine only checks for `exit_code` attribute** (engine.py line 605), not exception type. The exception hierarchy provides no practical benefit for error handling flow.
+2. **The engine only checks for `exit_code` attribute** (engine.py line 605), not exception type. The exception hierarchy provides no practical benefit for error handling flow.
 
-4. **`ComponentExecutionError` has a `cause` field** (line 29) but it duplicates Python 3's built-in exception chaining (`raise X from Y`). The `cause` is stored but never inspected by any code.
+3. **`ComponentExecutionError` has a `cause` field** (line 29) but it duplicates Python 3's built-in exception chaining (`raise X from Y`). The `cause` is stored but never inspected by any code.
 
 **Recommended fix:**
 
@@ -1804,7 +1820,7 @@ Exception
 Every call to `GlobalMap.get()` in the codebase is broken (Section 1.2). Here is a complete audit of call sites and what happens at each:
 
 | File | Line | Call Pattern | What Breaks |
-|------|------|-------------|-------------|
+| ------ | ------ | ------------- | ------------- |
 | `global_map.py:28` | `self._map.get(key, default)` | `default` undefined -> `NameError` | Core method broken |
 | `global_map.py:58` | `self.get(key, default)` | Passes 2 args to 1-param method -> `TypeError` (after fixing NameError) | Component stat fallback broken |
 | `trigger_manager.py:205` | `self.global_map.get(key, 0)` | 2 args to 1-param method -> `TypeError` | Integer cast triggers broken |
@@ -1821,7 +1837,7 @@ Every call to `GlobalMap.get()` in the codebase is broken (Section 1.2). Here is
 For each component, whether streaming mode produces correct results:
 
 | Component | Stateless? | Streaming Safe? | Issue |
-|-----------|-----------|-----------------|-------|
+| ----------- | ----------- | ----------------- | ------- |
 | FileInputDelimited | Yes | Yes | Reads file once regardless |
 | FileOutputDelimited | Yes | Yes* | Append mode only; overwrite mode overwrites per chunk |
 | Map | Yes | Yes | Row-level transformation |
@@ -1921,36 +1937,42 @@ To avoid dependency issues, fixes should be applied in this order:
 
 ```
 Phase 1: Make engine importable (5 minutes)
+
   1. Fix engine.py:40 import (Section 1.4)
   2. Fix file/__init__.py:10 casing (Section 1.5)
 
 Phase 2: Make engine runnable (15 minutes)
-  3. Fix global_map.py:26-28 get() signature (Section 1.2)
-  4. Fix base_component.py:304 _update_global_map() (Section 1.1)
-  5. Fix base_component.py:174 replace_in_config [i] (Section 1.3)
-  6. Fix base_component.py:382 __repr__ (Section 1.7)
+
+  1. Fix global_map.py:26-28 get() signature (Section 1.2)
+  2. Fix base_component.py:304 _update_global_map() (Section 1.1)
+  3. Fix base_component.py:174 replace_in_config [i] (Section 1.3)
+  4. Fix base_component.py:382 __repr__ (Section 1.7)
 
 Phase 3: Make engine correct (2-4 hours)
-  7. Fix context_manager.py:168-186 _convert_type() (Section 1.6)
-  8. Fix trigger_manager.py:228 ! replacement (Section 3.2)
-  9. Fix trigger_manager.py:201 cast type regex (Section 3.1)
-  10. Fix context_manager.py:157 resolve_dict recursion (Section 5.3)
-  11. Fix context_manager.py:150 python_code skip (Section 5.4)
-  12. Fix base_component.py:351 nullable logic (Section 5.1)
-  13. Fix base_component.py:202 config mutation (Section 5.2)
+
+  1. Fix context_manager.py:168-186 _convert_type() (Section 1.6)
+  2. Fix trigger_manager.py:228 ! replacement (Section 3.2)
+  3. Fix trigger_manager.py:201 cast type regex (Section 3.1)
+  4. Fix context_manager.py:157 resolve_dict recursion (Section 5.3)
+  5. Fix context_manager.py:150 python_code skip (Section 5.4)
+  6. Fix base_component.py:351 nullable logic (Section 5.1)
+  7. Fix base_component.py:202 config mutation (Section 5.2)
 
 Phase 4: Fix converter pipeline (1-2 hours)
-  14. Fix converter type name mismatches (Section 7.3)
-  15. Add missing parser methods (Section 7.2)
+
+  1. Fix converter type name mismatches (Section 7.3)
+  2. Add missing parser methods (Section 7.2)
 
 Phase 5: Streaming mode safety (2 hours)
-  16. Change default execution mode to batch (Section 4.2)
-  17. Fix streaming reject data loss (Section 4.1)
+
+  1. Change default execution mode to batch (Section 4.2)
+  2. Fix streaming reject data loss (Section 4.1)
 
 Phase 6: Security and correctness (2-4 hours)
-  18. Sandbox eval() in triggers (Section 3.3)
-  19. Fix exit code propagation (Section 2.3)
-  20. Add die_on_error to engine (Section 2.4)
+
+  1. Sandbox eval() in triggers (Section 3.3)
+  2. Fix exit code propagation (Section 2.3)
+  3. Add die_on_error to engine (Section 2.4)
 
 Phase 7: Add tests (40-80 hours)
   21-30. Unit tests per Section 8.1
@@ -1968,26 +1990,30 @@ The `ETLEngine.__init__()` method (engine.py lines 207-268) performs the followi
 ```
 ETLEngine.__init__(job_config)
   |
+
   1. Load configuration (lines 215-219)
   |   -> If string path, opens file and parses JSON
   |   -> If dict, uses directly
   |   -> ISSUE: No validation of JSON structure. Missing 'components' key
   |     causes KeyError later, not during init.
   |
-  2. Initialize Java Bridge Manager (lines 222-233)
+
+  1. Initialize Java Bridge Manager (lines 222-233)
   |   -> Checks java_config.enabled
   |   -> Creates JavaBridgeManager with routines and libraries
   |   -> Calls start() which finds a free port and launches JVM
   |   -> ISSUE: If JVM fails to start, the error propagates but
   |     no cleanup is performed on partially-initialized engine.
   |
-  3. Initialize Python Routine Manager (lines 236-244)
+
+  1. Initialize Python Routine Manager (lines 236-244)
   |   -> Checks python_config.enabled
   |   -> Creates PythonRoutineManager with routines directory
   |   -> ISSUE: If directory does not exist, only logs warning.
   |     Components that reference routines will fail later at runtime.
   |
-  4. Initialize core components (lines 247-254)
+
+  1. Initialize core components (lines 247-254)
   |   -> Creates GlobalMap (line 248)
   |   -> Creates ContextManager with initial_context (line 249-253)
   |     -> ContextManager.load_context() calls set() for each var
@@ -1995,7 +2021,8 @@ ETLEngine.__init__(job_config)
   |       -> SILENT FAILURE: types not converted, values remain strings
   |   -> Creates TriggerManager with GlobalMap reference (line 254)
   |
-  5. Initialize components (line 266 -> _initialize_components)
+
+  1. Initialize components (line 266 -> _initialize_components)
   |   -> For each component config:
   |     -> Look up class in COMPONENT_REGISTRY (line 277)
   |       -> ISSUE: Unknown types silently skipped (line 280-281)
@@ -2006,12 +2033,14 @@ ETLEngine.__init__(job_config)
   |     which may be None if bridge failed to start. Components check this
   |     but the check is in _resolve_java_expressions(), not in _process().
   |
-  6. Initialize triggers (line 267 -> _initialize_triggers)
+
+  1. Initialize triggers (line 267 -> _initialize_triggers)
   |   -> Loads from top-level 'triggers' array
   |   -> Also loads from per-component 'triggers'
   |   -> ISSUE: Duplicate triggers possible if both sources define same trigger
   |
-  7. Identify subjobs (line 268 -> _identify_subjobs)
+
+  1. Identify subjobs (line 268 -> _identify_subjobs)
      -> Groups by subjob_id if provided
      -> Falls back to auto-detection via connectivity
      -> Registers with trigger manager
@@ -2025,6 +2054,7 @@ ETLEngine.__init__(job_config)
 **Key architectural issue:** The initialization does not validate the completeness of the job configuration. Missing components (referenced in flows but not in the components list), dangling flows (from/to components that don't exist), and orphaned triggers are not detected during init. They manifest as runtime failures that are hard to diagnose.
 
 **Recommended fix:** Add a validation step after initialization that checks:
+
 1. All flow endpoints reference existing components.
 2. All trigger endpoints reference existing components.
 3. All component input flow names correspond to flows defined in the flows section.
@@ -2039,7 +2069,7 @@ The `resolve_string()` method (context_manager.py lines 76-139) handles several 
 **Pattern: Expression with `+` concatenation**
 
 | Input | Expected Output | Actual Output | Correct? |
-|-------|----------------|---------------|----------|
+| ------- | ---------------- | --------------- | ---------- |
 | `${context.dir} + "/file.csv"` | `/data/output/file.csv` | `/data/output/file.csv` | Yes |
 | `${context.a} + ${context.b}` | `valueA + valueB` (concat) | `valueAvalueB` | Depends on intent |
 | `"prefix" + ${context.x} + "suffix"` | `prefixVALsuffix` | `prefixVALsuffix` | Yes |
@@ -2050,7 +2080,7 @@ The `resolve_string()` method (context_manager.py lines 76-139) handles several 
 **Pattern: `${context.variable}` substitution**
 
 | Input | Expected Output | Actual Output | Correct? |
-|-------|----------------|---------------|----------|
+| ------- | ---------------- | --------------- | ---------- |
 | `${context.dir}` | `/data/output` | `/data/output` | Yes |
 | `${context.missing}` | `${context.missing}` (unresolved) | `${context.missing}` | Yes (intentional) |
 | `prefix_${context.env}_suffix` | `prefix_PROD_suffix` | `prefix_PROD_suffix` | Yes |
@@ -2060,7 +2090,7 @@ The `resolve_string()` method (context_manager.py lines 76-139) handles several 
 **Pattern: `context.variable` bare substitution**
 
 | Input | Expected Output | Actual Output | Correct? |
-|-------|----------------|---------------|----------|
+| ------- | ---------------- | --------------- | ---------- |
 | `context.dir` | `/data/output` | `/data/output` | Yes |
 | `context.get('x')` | Should NOT resolve | Tries to resolve `get` as variable name | **No** |
 | `my_context.thing` | Should NOT resolve | Does NOT resolve (`\b` prevents match) | Yes |

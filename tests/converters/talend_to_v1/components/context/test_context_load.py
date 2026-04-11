@@ -56,30 +56,6 @@ class TestRegistration:
 class TestDefaults:
     """Verify all parameters have correct defaults when no params provided."""
 
-    def test_filepath_default_empty(self):
-        """filepath defaults to empty string."""
-        node = _make_node()
-        result = ContextLoadConverter().convert(node, [], {})
-        assert result.component["config"]["filepath"] == ""
-
-    def test_format_default_empty(self):
-        """format defaults to empty string."""
-        node = _make_node()
-        result = ContextLoadConverter().convert(node, [], {})
-        assert result.component["config"]["format"] == ""
-
-    def test_delimiter_default_semicolon(self):
-        """delimiter defaults to semicolon."""
-        node = _make_node()
-        result = ContextLoadConverter().convert(node, [], {})
-        assert result.component["config"]["delimiter"] == ";"
-
-    def test_csv_separator_default_semicolon(self):
-        """csv_separator defaults to semicolon."""
-        node = _make_node()
-        result = ContextLoadConverter().convert(node, [], {})
-        assert result.component["config"]["csv_separator"] == ";"
-
     def test_print_operations_default_false(self):
         """print_operations defaults to False."""
         node = _make_node()
@@ -122,12 +98,6 @@ class TestDefaults:
         result = ContextLoadConverter().convert(node, [], {})
         assert result.component["config"]["not_load_old_variable"] == "WARNING"
 
-    def test_error_if_not_exists_default_true(self):
-        """error_if_not_exists defaults to True."""
-        node = _make_node()
-        result = ContextLoadConverter().convert(node, [], {})
-        assert result.component["config"]["error_if_not_exists"] is True
-
 
 class TestParameterExtraction:
     """Verify each parameter is correctly extracted from XML params."""
@@ -169,36 +139,6 @@ class TestParameterExtraction:
         assert result.component["config"]["die_on_error"] is True
 
     def test_disable_error_true(self):
-        """DISABLE_ERROR='true' extracted as True."""
-        node = _make_node(params={"DISABLE_ERROR": "true"})
-        result = ContextLoadConverter().convert(node, [], {})
-        assert result.component["config"]["disable_error"] is True
-
-    def test_filepath_extracted(self):
-        """CONTEXTFILE with quoted path is extracted and unquoted."""
-        node = _make_node(params={"CONTEXTFILE": '"path/to/file"'})
-        result = ContextLoadConverter().convert(node, [], {})
-        assert result.component["config"]["filepath"] == "path/to/file"
-
-    def test_format_extracted(self):
-        """FORMAT with quoted value is extracted and unquoted."""
-        node = _make_node(params={"FORMAT": '"csv"'})
-        result = ContextLoadConverter().convert(node, [], {})
-        assert result.component["config"]["format"] == "csv"
-
-    def test_delimiter_extracted(self):
-        """FIELDSEPARATOR with quoted value is extracted and unquoted."""
-        node = _make_node(params={"FIELDSEPARATOR": '"|"'})
-        result = ContextLoadConverter().convert(node, [], {})
-        assert result.component["config"]["delimiter"] == "|"
-
-    def test_csv_separator_extracted(self):
-        """CSV_SEPARATOR with quoted value is extracted and unquoted."""
-        node = _make_node(params={"CSV_SEPARATOR": '","'})
-        result = ContextLoadConverter().convert(node, [], {})
-        assert result.component["config"]["csv_separator"] == ","
-
-    def test_disable_warnings_false(self):
         """DISABLE_WARNINGS='false' overrides default True."""
         node = _make_node(params={"DISABLE_WARNINGS": "false"})
         result = ContextLoadConverter().convert(node, [], {})
@@ -209,12 +149,6 @@ class TestParameterExtraction:
         node = _make_node(params={"DISABLE_INFO": "false"})
         result = ContextLoadConverter().convert(node, [], {})
         assert result.component["config"]["disable_info"] is False
-
-    def test_error_if_not_exists_false(self):
-        """ERROR_IF_NOT_EXISTS='false' overrides default True."""
-        node = _make_node(params={"ERROR_IF_NOT_EXISTS": "false"})
-        result = ContextLoadConverter().convert(node, [], {})
-        assert result.component["config"]["error_if_not_exists"] is False
 
 
 class TestFrameworkParams:
@@ -299,14 +233,13 @@ class TestCompleteness:
     """Verify all expected config keys are present."""
 
     def test_all_config_keys_present(self):
-        """Config dict has exactly 14 keys covering all params."""
+        """Config dict has exactly 9 keys covering all params."""
         node = _make_node()
         result = ContextLoadConverter().convert(node, [], {})
         cfg = result.component["config"]
 
         expected_keys = {
-            "filepath", "format", "delimiter", "csv_separator",
-            "print_operations", "error_if_not_exists", "die_on_error",
+            "print_operations", "die_on_error",
             "disable_error", "disable_warnings", "disable_info",
             "load_new_variable", "not_load_old_variable",
             "tstatcatcher_stats", "label",
@@ -315,28 +248,31 @@ class TestCompleteness:
 
 
 class TestPhantomParams:
-    """Verify implicit context load params are documented but extracted."""
+    """Verify implicit context load params are NOT extracted."""
 
-    def test_contextfile_not_in_java_xml(self):
-        """CONTEXTFILE is extracted despite not being in _java.xml.
-
-        This parameter comes from Talend's Implicit Context Load feature,
-        not from the tContextLoad component _java.xml definition.
-        The converter extracts it because .item file exports include it.
-        """
+    def test_contextfile_not_extracted(self):
+        """CONTEXTFILE is a job-level implicit context param, not a tContextLoad param."""
         node = _make_node(params={"CONTEXTFILE": '"/opt/ctx.properties"'})
         result = ContextLoadConverter().convert(node, [], {})
-        # CONTEXTFILE IS extracted (as filepath) -- it's an implicit context param
-        assert result.component["config"]["filepath"] == "/opt/ctx.properties"
+        assert "filepath" not in result.component["config"]
 
-    def test_format_not_in_java_xml(self):
-        """FORMAT is extracted despite not being in _java.xml.
-
-        Like CONTEXTFILE, this is an implicit context load param.
-        """
+    def test_format_not_extracted(self):
+        """FORMAT is a job-level implicit context param, not a tContextLoad param."""
         node = _make_node(params={"FORMAT": '"csv"'})
         result = ContextLoadConverter().convert(node, [], {})
-        assert result.component["config"]["format"] == "csv"
+        assert "format" not in result.component["config"]
+
+    def test_csv_separator_not_extracted(self):
+        """CSV_SEPARATOR is a job-level implicit context param, not a tContextLoad param."""
+        node = _make_node(params={"CSV_SEPARATOR": '","'})
+        result = ContextLoadConverter().convert(node, [], {})
+        assert "csv_separator" not in result.component["config"]
+
+    def test_error_if_not_exists_not_extracted(self):
+        """ERROR_IF_NOT_EXISTS is a job-level implicit context param, not a tContextLoad param."""
+        node = _make_node(params={"ERROR_IF_NOT_EXISTS": "false"})
+        result = ContextLoadConverter().convert(node, [], {})
+        assert "error_if_not_exists" not in result.component["config"]
 
     def test_component_dict_structure(self):
         """Component dict has standard structure fields."""
@@ -352,15 +288,8 @@ class TestPhantomParams:
 class TestWarnings:
     """Verify warnings for edge cases."""
 
-    def test_empty_contextfile_produces_warning(self):
-        """An empty CONTEXTFILE triggers a warning."""
+    def test_no_warnings_default(self):
+        """No warnings with default params."""
         node = _make_node(params={})
-        result = ContextLoadConverter().convert(node, [], {})
-        assert len(result.warnings) == 1
-        assert "CONTEXTFILE" in result.warnings[0]
-
-    def test_no_warning_when_contextfile_present(self):
-        """No warnings when CONTEXTFILE is provided."""
-        node = _make_node(params={"CONTEXTFILE": '"/etc/app.properties"'})
         result = ContextLoadConverter().convert(node, [], {})
         assert result.warnings == []

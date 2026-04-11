@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tSendMail` |
 | **V1 Engine Class** | `SendMailComponent` |
 | **Engine File** | `src/v1/engine/components/control/send_mail.py` (252 lines) |
@@ -24,7 +24,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/control/send_mail.py` | Engine implementation (252 lines) |
 | `src/converters/talend_to_v1/components/control/send_mail.py` | Converter class |
 | `tests/converters/talend_to_v1/components/test_send_mail.py` | Converter tests |
@@ -36,7 +36,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 29 of 29 config keys extracted (27 unique + 2 framework); 3 TABLE parsers (ATTACHMENTS, HEADERS, CONFIGS); AUTH_MODE backward compat with NEED_AUTH; 12 per-feature needs_review entries for engine gaps |
 | Engine Feature Parity | **Y** | 0 | 4 | 4 | 2 | 11 params not read by engine; encoding default mismatch ("utf-8" vs "ISO-8859-15"); no OAuth2 support; no custom headers; no importance header; no personal name display |
 | Code Quality | **Y** | 0 | 3 | 3 | 2 | Duplicate validate_config methods; no SMTP context manager (resource leak); attachment filename leaks server path; SSL/STARTTLS mutual exclusion not validated |
@@ -46,6 +46,7 @@
 **Overall: YELLOW -- Not production-ready without P1 fixes to the engine**
 
 **Top Actions:**
+
 1. Implement AUTH_MODE support in engine (currently only BASIC auth) (P1)
 2. Add custom headers support from HEADERS TABLE (P1)
 3. Read importance config and set email priority header (P1)
@@ -72,7 +73,7 @@ The component has three TABLE parameters: ATTACHMENTS (file paths with transfer 
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | To | `TO` | TEXT | `"receiver@example.com"` | Main recipient email address(es), semicolon-separated |
 | 2 | From | `FROM` | TEXT | `"send@example.com"` | Sender email address |
 | 3 | Need Personal Name | `NEED_PERSONAL_NAME` | CHECK | `false` | Show sender's display name in From header |
@@ -98,7 +99,7 @@ The component has three TABLE parameters: ATTACHMENTS (file paths with transfer 
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 22 | Text Subtype | `TEXT_SUBTYPE` | CLOSED_LIST | `PLAIN` | MIME text subtype: PLAIN, HTML |
 | 23 | Encoding | `ENCODING` | ENCODING_TYPE | `"ISO-8859-15"` | Character encoding for email body |
 | 24 | Set Localhost | `SET_LOCALHOST` | CHECK | `false` | Specify custom localhost name for EHLO/HELO |
@@ -109,28 +110,28 @@ The component has three TABLE parameters: ATTACHMENTS (file paths with transfer 
 ### 3.3 ATTACHMENTS TABLE Structure
 
 | Column | XML Name | Field Type | Description |
-|--------|----------|------------|-------------|
+| -------- | ---------- | ------------ | ------------- |
 | File | `FILE` | TEXT | Absolute file path of attachment |
 | Content Transfer Encoding | `CONTENT_TRANSFER_ENCODING` | TEXT | Encoding type (e.g., BASE64, DEFAULT) |
 
 ### 3.4 HEADERS TABLE Structure
 
 | Column | XML Name | Field Type | Description |
-|--------|----------|------------|-------------|
+| -------- | ---------- | ------------ | ------------- |
 | Key | `KEY` | TEXT | Header name (e.g., X-Priority, X-Mailer) |
 | Value | `VALUE` | TEXT | Header value |
 
 ### 3.5 CONFIGS TABLE Structure
 
 | Column | XML Name | Field Type | Description |
-|--------|----------|------------|-------------|
+| -------- | ---------- | ------------ | ------------- |
 | Key | `KEY` | TEXT | SMTP session property name (e.g., mail.smtp.timeout) |
 | Value | `VALUE` | TEXT | Property value |
 
 ### 3.6 Framework Parameters
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | tStatCatcher Statistics | `TSTATCATCHER_STATS` | CHECK | `false` | Enable statistics collection for monitoring |
 | 2 | Label | `LABEL` | TEXT | `""` | User-defined label for the component instance |
 
@@ -139,7 +140,7 @@ Note: Framework parameters are defined in the common Talend component framework,
 ### 3.7 Connection Types
 
 | Connector | Direction | Description |
-|-----------|-----------|-------------|
+| ----------- | ----------- | ------------- |
 | `SUBJOB_OK` | Output (Trigger) | Fires when subjob completes successfully |
 | `SUBJOB_ERROR` | Output (Trigger) | Fires when subjob encounters an error |
 | `COMPONENT_OK` | Output (Trigger) | Fires when component completes successfully |
@@ -151,7 +152,7 @@ Note: tSendMail is a utility component -- it has no FLOW input or output connect
 ### 3.8 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_ERROR_MESSAGE` | String | After error | Error message when email sending fails |
 
 ### 3.9 Behavioral Notes
@@ -175,7 +176,7 @@ Note: tSendMail is a utility component -- it has no FLOW input or output connect
 The converter (`SendMailConverter`) extracts all 27 unique parameters plus 2 framework parameters. It uses three TABLE parsers for ATTACHMENTS, HEADERS, and CONFIGS (all stride-2). The AUTH_MODE parameter includes backward compatibility with the older NEED_AUTH boolean.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `TO` | Yes | `to` | Default `"receiver@example.com"`, semicolon-split into list |
 | 2 | `FROM` | Yes | `from_email` | Default `"send@example.com"` |
 | 3 | `NEED_PERSONAL_NAME` | Yes | `need_personal_name` | Default `False` |
@@ -219,7 +220,7 @@ Context variables (`context.var`) and Java expressions are not specifically hand
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No open converter issues. All parameters extracted, all defaults correct, all TABLE parsers working. |
 
 ### 4.5 Needs Review Entries
@@ -227,7 +228,7 @@ Context variables (`context.var`) and Java expressions are not specifically hand
 The converter emits 12 per-feature needs_review entries for engine gaps (unconditional, since these are permanent engine limitations):
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `need_personal_name` | Engine does not read need_personal_name -- sender display name not supported | engine_gap |
 | 2 | `personal_name` | Engine does not read personal_name -- sender display name not supported | engine_gap |
 | 3 | `check_attachment` | Engine does not read check_attachment -- missing attachment validation not supported | engine_gap |
@@ -248,7 +249,7 @@ The converter emits 12 per-feature needs_review entries for engine gaps (uncondi
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | SMTP host/port | **Yes** | High | `_process()` line 142-143 | Reads `smtp_host` and `smtp_port` (default 25) |
 | 2 | From email | **Yes** | High | `_process()` line 144 | Reads `from_email` |
 | 3 | To/CC/BCC recipients | **Yes** | High | `_process()` line 145-147 | Reads as lists, combines for sendmail |
@@ -274,7 +275,7 @@ The converter emits 12 per-feature needs_review entries for engine gaps (uncondi
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-SM-001 | **P1** | Engine does not read `auth_mode` config. Authentication is implicit: if `auth_username` and `auth_password` are both present, `server.login()` is called. No support for NO_AUTH (skipping login even when credentials present) or OAUTH2 (token-based auth). |
 | ENG-SM-002 | **P1** | Engine does not read `headers` TABLE. Custom email headers (X-Priority, X-Mailer, etc.) cannot be set. This also means the importance/priority feature is non-functional. |
 | ENG-SM-003 | **P1** | Engine does not read `importance` config. Talend sets X-Priority header based on importance (HIGH=1, NORMAL=3, LOW=5). Engine sends emails with no priority header. |
@@ -289,7 +290,7 @@ The converter emits 12 per-feature needs_review entries for engine gaps (uncondi
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_ERROR_MESSAGE` | Yes | No | -- | Engine does not set ERROR_MESSAGE in globalMap |
 | `{id}_NB_LINE` | Yes (0) | Yes (0) | `_update_stats(0, 0, 0)` | Utility component: always 0 |
 | `{id}_NB_LINE_OK` | Yes (0) | Yes (0) | `_update_stats(0, 0, 0)` | Always 0 |
@@ -318,7 +319,7 @@ The SMTP connection is NOT managed via context manager, risking resource leaks o
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-SM-001 | **P1** | `send_mail.py:200-216` | SMTP connection not managed with context manager (`with` statement). If an exception occurs between `smtplib.SMTP()` and `server.quit()`, the TCP connection leaks. Python's `smtplib.SMTP` supports `__enter__`/`__exit__` since Python 3.0. |
 | BUG-SM-002 | **P1** | `send_mail.py:82-114, 240-252` | Duplicate `validate_config` methods: private `_validate_config()` returns `List[str]`, public `validate_config()` returns `bool`. Both implement overlapping validation logic. Only `_validate_config()` is called (line 134). The public `validate_config()` is dead code. |
 | BUG-SM-003 | **P2** | `send_mail.py:181` | Attachment `Content-Disposition` header uses raw file path as filename: `f'attachment; filename={attachment}'`. This leaks server directory structure (e.g., `/opt/data/reports/q3.pdf`) and violates RFC 2183 (filename should be basename only, quoted). |
@@ -328,14 +329,14 @@ The SMTP connection is NOT managed via context manager, risking resource leaks o
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-SM-001 | **P3** | Engine class `SendMailComponent` vs Talend name `tSendMail` -- consistent with project convention, no action needed. |
 | NAME-SM-002 | **P3** | Engine uses `from_email` config key to avoid Python `from` keyword collision. Good practice but differs from Talend's `FROM` parameter name. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-SM-001 | **P1** | "`_validate_config()` must be called or removed" | Public `validate_config()` at line 240 is dead code -- never called by engine or base class. |
 | STD-SM-002 | N/A | "No print statements" | **COMPLIANT** -- No print statements found. Logging uses `logger.*` throughout. |
 
@@ -355,7 +356,7 @@ See Section 11 Risk Assessment for comprehensive security analysis. Key concerns
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- `logger = logging.getLogger(__name__)` |
 | Level usage | Good -- INFO for operations, DEBUG for details, ERROR for failures |
 | Sensitive data | Risk -- auth username logged at DEBUG (line 210) |
@@ -363,7 +364,7 @@ See Section 11 Risk Assessment for comprehensive security analysis. Key concerns
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Good -- uses `ConfigurationError`, `FileOperationError`, `ComponentExecutionError` |
 | Exception chaining | Good -- uses `raise ... from e` |
 | die_on_error handling | Good -- checks `die_on_error` before raising, logs warning and continues when false |
@@ -371,7 +372,7 @@ See Section 11 Risk Assessment for comprehensive security analysis. Key concerns
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- all methods have type hints |
 | Parameter types | Good -- `Dict[str, Any]`, `List[str]`, `Optional[Any]` used |
 
@@ -380,14 +381,14 @@ See Section 11 Risk Assessment for comprehensive security analysis. Key concerns
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-SM-001 | **P2** | Attachments are loaded entirely into memory (`file.read()` at line 179). For large files (100MB+), this causes significant memory pressure. |
 | PERF-SM-002 | **P3** | `msg.as_string()` at line 215 creates a second in-memory copy of the entire email including all attachments. For a 100MB attachment, peak memory is ~300-400MB (original binary + BASE64 encoded ~133% + string representation). |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- utility component, no data flow processing |
 | Memory threshold | No limits on attachment size; large files consume proportional memory |
 | Large data handling | Not optimized; consider chunked reading for large attachments |
@@ -399,7 +400,7 @@ See Section 11 Risk Assessment for comprehensive security analysis. Key concerns
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | ~60 | `tests/converters/talend_to_v1/components/test_send_mail.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | 0 | None |
@@ -407,12 +408,13 @@ See Section 11 Risk Assessment for comprehensive security analysis. Key concerns
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-SM-001 | **P0** | No engine unit tests for `SendMailComponent._process()`, `_validate_config()`, error handling paths |
 
 ### 8.3 Recommended Test Cases
 
 **Engine tests (priority):**
+
 - SSL connection creation (`smtplib.SMTP_SSL` path)
 - STARTTLS upgrade path
 - Authentication with username/password
@@ -422,6 +424,7 @@ See Section 11 Risk Assessment for comprehensive security analysis. Key concerns
 - Large attachment memory behavior
 
 **Converter tests (already comprehensive):**
+
 - All 9 test classes per TEST_PATTERN.md
 - 3 TABLE parsers (ATTACHMENTS, HEADERS, CONFIGS)
 - AUTH_MODE with NEED_AUTH backward compatibility
@@ -436,7 +439,7 @@ See Section 11 Risk Assessment for comprehensive security analysis. Key concerns
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 1 | **TEST-SM-001** |
 | P1 | 7 | **ENG-SM-001**, **ENG-SM-002**, **ENG-SM-003**, **ENG-SM-004**, **BUG-SM-001**, **BUG-SM-002**, **STD-SM-001** |
 | P2 | 8 | **ENG-SM-005**, **ENG-SM-006**, **ENG-SM-007**, **ENG-SM-008**, **BUG-SM-003**, **BUG-SM-004**, **BUG-SM-005**, **PERF-SM-001** |
@@ -448,7 +451,7 @@ Note: NAME-SM-002 is informational (good practice, not an issue). STD-SM-002 is 
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Engine (ENG) | 10 | ENG-SM-001 through ENG-SM-010 |
 | Bug (BUG) | 5 | BUG-SM-001 through BUG-SM-005 |
 | Standards (STD) | 1 | STD-SM-001 |
@@ -460,7 +463,7 @@ Note: NAME-SM-002 is informational (good practice, not an issue). STD-SM-002 is 
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap is set -- stats lost |
 | XCUT-004 | `base_component.py:202` | `self.config` mutation via `resolve_dict()` -- non-reentrant in iterate loops |
 
@@ -474,19 +477,19 @@ Note: NAME-SM-002 is informational (good practice, not an issue). STD-SM-002 is 
 
 ### Short-term (Hardening)
 
-2. **Implement AUTH_MODE support** (ENG-SM-001/P1): Read `auth_mode` config to route between NO_AUTH (skip login), BASIC (username/password login), and OAUTH2 (token-based XOAUTH2 SASL).
-3. **Add custom headers support** (ENG-SM-002/P1): Read `headers` TABLE and add each key-value pair to the MIMEMultipart message.
-4. **Set email priority header** (ENG-SM-003/P1): Read `importance` config and set X-Priority header (HIGH=1, NORMAL=3, LOW=5).
-5. **Fix encoding default** (ENG-SM-004/P1): Change `DEFAULT_ENCODING` from `'utf-8'` to `'ISO-8859-15'` to match Talend default.
-6. **Use SMTP context manager** (BUG-SM-001/P1): Replace manual connect/quit with `with smtplib.SMTP(...) as server:` to prevent resource leaks.
-7. **Remove duplicate validate_config** (BUG-SM-002/P1, STD-SM-001/P1): Remove the dead public `validate_config()` method at line 240.
+1. **Implement AUTH_MODE support** (ENG-SM-001/P1): Read `auth_mode` config to route between NO_AUTH (skip login), BASIC (username/password login), and OAUTH2 (token-based XOAUTH2 SASL).
+2. **Add custom headers support** (ENG-SM-002/P1): Read `headers` TABLE and add each key-value pair to the MIMEMultipart message.
+3. **Set email priority header** (ENG-SM-003/P1): Read `importance` config and set X-Priority header (HIGH=1, NORMAL=3, LOW=5).
+4. **Fix encoding default** (ENG-SM-004/P1): Change `DEFAULT_ENCODING` from `'utf-8'` to `'ISO-8859-15'` to match Talend default.
+5. **Use SMTP context manager** (BUG-SM-001/P1): Replace manual connect/quit with `with smtplib.SMTP(...) as server:` to prevent resource leaks.
+6. **Remove duplicate validate_config** (BUG-SM-002/P1, STD-SM-001/P1): Remove the dead public `validate_config()` method at line 240.
 
 ### Long-term (Optimization)
 
-8. **Add personal name support** (ENG-SM-005/P2): Read `need_personal_name` and `personal_name` to format From header as `"Name <email>"`.
-9. **Implement check_attachment logic** (ENG-SM-006/P2): Separate attachment existence check from die_on_error behavior.
-10. **Fix attachment filename** (BUG-SM-003/P2): Use `os.path.basename()` for Content-Disposition filename; quote per RFC 2183.
-11. **Validate SSL/STARTTLS mutual exclusion** (BUG-SM-004/P2): Raise ConfigurationError if both ssl and starttls are true.
+1. **Add personal name support** (ENG-SM-005/P2): Read `need_personal_name` and `personal_name` to format From header as `"Name <email>"`.
+2. **Implement check_attachment logic** (ENG-SM-006/P2): Separate attachment existence check from die_on_error behavior.
+3. **Fix attachment filename** (BUG-SM-003/P2): Use `os.path.basename()` for Content-Disposition filename; quote per RFC 2183.
+4. **Validate SSL/STARTTLS mutual exclusion** (BUG-SM-004/P2): Raise ConfigurationError if both ssl and starttls are true.
 
 ---
 
@@ -497,7 +500,7 @@ This section is included because tSendMail handles SMTP credentials, file system
 ### Risk Matrix
 
 | Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
+| ------ | ----------- | -------- | ------------ |
 | SMTP credential exposure in logs | Medium | High -- leaked credentials compromise email infrastructure | Ensure DEBUG logging is disabled in production; audit log output for sensitive data |
 | Password stored plain text in config | High | High -- anyone with config file access has SMTP credentials | Use secret manager or environment variable references instead of inline passwords |
 | Header injection via unsanitized fields | Low | High -- attacker could inject arbitrary headers, BCC recipients, or modify email routing | Validate and sanitize all recipient fields; reject values containing newlines |
@@ -527,9 +530,9 @@ This section is included because tSendMail handles SMTP credentials, file system
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tSendMail/tSendMail_java.xml` | Complete parameter definitions, CLOSED_LIST values, defaults, TABLE structures |
-| Official Talend docs | `https://help.qlik.com/talend/en-US/components/7.3/internet/tsendmail-standard-properties` | Component description, behavioral notes, connection types |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tSendMail/tSendMail_java.xml`> | Complete parameter definitions, CLOSED_LIST values, defaults, TABLE structures |
+| Official Talend docs | `<https://help.qlik.com/talend/en-US/components/7.3/internet/tsendmail-standard-properties`> | Component description, behavioral notes, connection types |
 | Engine source | `src/v1/engine/components/control/send_mail.py` (252 lines) | Feature parity analysis, bug identification, security assessment |
 | Converter source | `src/converters/talend_to_v1/components/control/send_mail.py` | Converter audit |
 | Converter tests | `tests/converters/talend_to_v1/components/test_send_mail.py` | Test coverage analysis |
@@ -538,14 +541,14 @@ This section is included because tSendMail handles SMTP credentials, file system
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap is set -- stats lost (0,0,0 for utility component, low impact) |
 | XCUT-004 | `base_component.py:202` | `self.config` mutation via `resolve_dict()` -- if tSendMail runs inside iterate loop, config modified on first pass |
 
 ### Edge-Case Checklist Results
 
 | Check | Result | Notes |
-|-------|--------|-------|
+| ------- | -------- | ------- |
 | NaN handling | N/A | Utility component -- no data processing |
 | Empty strings in config | Risk | Empty SMTP_HOST or TO triggers warnings but not hard errors in converter |
 | Empty DataFrame input | N/A | No data flow input |
@@ -561,15 +564,15 @@ This section is included because tSendMail handles SMTP credentials, file system
 
 ```
 Client                          Server
-  |  EHLO localhost               |
-  |------------------------------>|
-  |  250-smtp.server.com          |
-  |<------------------------------|
-  |  MAIL FROM:<sender@ex.com>    |
-  |------------------------------>|
-  |  250 OK                       |
-  |<------------------------------|
-  |  (continue with recipients)   |
+|  EHLO localhost               |
+| ------------------------------> |
+|  250-smtp.server.com          |
+| <------------------------------ |
+|  MAIL FROM:<sender@ex.com>    |
+| ------------------------------> |
+|  250 OK                       |
+| <------------------------------ |
+|  (continue with recipients)   |
 ```
 
 No login step. Used for internal relays or open SMTP servers.
@@ -578,23 +581,23 @@ No login step. Used for internal relays or open SMTP servers.
 
 ```
 Client                          Server
-  |  EHLO localhost               |
-  |------------------------------>|
-  |  250-smtp.server.com          |
-  |  250-AUTH LOGIN PLAIN         |
-  |<------------------------------|
-  |  AUTH LOGIN                   |
-  |------------------------------>|
-  |  334 VXNlcm5hbWU6            |
-  |<------------------------------|
-  |  (base64 username)            |
-  |------------------------------>|
-  |  334 UGFzc3dvcmQ6            |
-  |<------------------------------|
-  |  (base64 password)            |
-  |------------------------------>|
-  |  235 Authentication OK        |
-  |<------------------------------|
+|  EHLO localhost               |
+| ------------------------------> |
+|  250-smtp.server.com          |
+|  250-AUTH LOGIN PLAIN         |
+| <------------------------------ |
+|  AUTH LOGIN                   |
+| ------------------------------> |
+|  334 VXNlcm5hbWU6            |
+| <------------------------------ |
+|  (base64 username)            |
+| ------------------------------> |
+|  334 UGFzc3dvcmQ6            |
+| <------------------------------ |
+|  (base64 password)            |
+| ------------------------------> |
+|  235 Authentication OK        |
+| <------------------------------ |
 ```
 
 Standard username/password authentication. Currently the ONLY mode supported by the v1 engine.
@@ -603,14 +606,14 @@ Standard username/password authentication. Currently the ONLY mode supported by 
 
 ```
 Client                          Server
-  |  EHLO localhost               |
-  |------------------------------>|
-  |  250-AUTH XOAUTH2             |
-  |<------------------------------|
-  |  AUTH XOAUTH2 <base64 token> |
-  |------------------------------>|
-  |  235 Accepted                 |
-  |<------------------------------|
+|  EHLO localhost               |
+| ------------------------------> |
+|  250-AUTH XOAUTH2             |
+| <------------------------------ |
+|  AUTH XOAUTH2 <base64 token> |
+| ------------------------------> |
+|  235 Accepted                 |
+| <------------------------------ |
 ```
 
 Uses XOAUTH2 SASL mechanism. The token is a base64-encoded string containing the username and OAuth2 access token. USE_TWO_LINE_TOKEN controls whether the auth command is sent as one line or two.
@@ -624,7 +627,7 @@ Uses XOAUTH2 SASL mechanism. The token is a base64-encoded string containing the
 Each ATTACHMENTS row has 2 fields (stride-2):
 
 | Field | XML elementRef | Type | Description |
-|-------|---------------|------|-------------|
+| ------- | --------------- | ------ | ------------- |
 | File path | `FILE` | TEXT | Absolute path to attachment file |
 | Transfer encoding | `CONTENT_TRANSFER_ENCODING` | TEXT | Encoding: BASE64, DEFAULT, 7BIT, QUOTED-PRINTABLE |
 
@@ -650,7 +653,7 @@ The engine reads `attachments` as a flat list of file paths (not dicts). It igno
 Each HEADERS row has 2 fields (stride-2):
 
 | Field | XML elementRef | Type | Description |
-|-------|---------------|------|-------------|
+| ------- | --------------- | ------ | ------------- |
 | Key | `KEY` | TEXT | Header name (e.g., X-Priority, X-Mailer) |
 | Value | `VALUE` | TEXT | Header value |
 
@@ -659,14 +662,14 @@ Each HEADERS row has 2 fields (stride-2):
 Each CONFIGS row has 2 fields (stride-2):
 
 | Field | XML elementRef | Type | Description |
-|-------|---------------|------|-------------|
+| ------- | --------------- | ------ | ------------- |
 | Key | `KEY` | TEXT | SMTP session property name |
 | Value | `VALUE` | TEXT | Property value |
 
 ### Common CONFIGS Properties
 
 | Property | Description | Example Value |
-|----------|-------------|---------------|
+| ---------- | ------------- | --------------- |
 | `mail.smtp.timeout` | Socket read timeout (ms) | `"30000"` |
 | `mail.smtp.connectiontimeout` | Connection timeout (ms) | `"10000"` |
 | `mail.smtp.writetimeout` | Write timeout (ms) | `"30000"` |

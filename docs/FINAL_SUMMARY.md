@@ -55,6 +55,7 @@
 **Complete production-ready full-stack web application**
 
 ### What You Got
+
 1. **Visual job designer** - Drag-drop canvas with React Flow
 2. **6 pre-built components** - Map, Filter, FileInput, FileOutput, Aggregate, Sort
 3. **Real-time execution** - WebSocket streaming with live progress, logs, stats
@@ -74,19 +75,20 @@
 ```bash
 cd c:\Users\phani\OneDrive\Documents\GitHub\recdataprep
 quickstart.bat
-# → Opens http://localhost:5173
+# → Opens <http://localhost:5173>
 ```
 
 ### Mac/Linux
 ```bash
 ./quickstart.sh
-# → Opens http://localhost:5173
+# → Opens <http://localhost:5173>
 ```
 
 ### Manual
+
 1. `cd backend && pip install -r requirements.txt && python run.py`
 2. `cd frontend && npm install && npm run dev`
-3. Open http://localhost:5173
+3. Open <http://localhost:5173>
 
 ---
 
@@ -171,6 +173,7 @@ recdataprep/
 ## 🔧 Tech Stack
 
 ### Backend
+
 - **FastAPI** - Modern async web framework
 - **Pydantic** - Data validation
 - **Uvicorn** - ASGI server
@@ -178,6 +181,7 @@ recdataprep/
 - **Python** 3.8+
 
 ### Frontend
+
 - **React** 18.2 - UI framework
 - **TypeScript** 5.2 - Type safety
 - **React Flow** 11.10 - Visual canvas
@@ -186,6 +190,7 @@ recdataprep/
 - **Node.js** 16+
 
 ### Integration
+
 - RESTful API
 - WebSocket streaming
 - Type-safe serialization
@@ -196,7 +201,7 @@ recdataprep/
 ## 📊 By The Numbers
 
 | Metric | Value |
-|--------|-------|
+| -------- | ------- |
 | Files Created | 50+ |
 | Code Lines | ~5000 |
 | Documentation | 2500+ |
@@ -258,7 +263,7 @@ See `SETUP_DEPLOYMENT.md` for Dockerfile examples
 ## 📚 Documentation Map
 
 | Need | Document |
-|------|----------|
+| ------ | ---------- |
 | Get started quickly | START_HERE.md |
 | Quick lookup | QUICK_REFERENCE.md |
 | Master index | README_INDEX.md |
@@ -304,22 +309,25 @@ See `SETUP_DEPLOYMENT.md` for Dockerfile examples
 ### RIGHT NOW (5 min)
 ```bash
 quickstart.bat    # or ./quickstart.sh
-# Opens http://localhost:5173
+# Opens <http://localhost:5173>
 ```
 
 ### TODAY (30 min)
+
 1. Create a test job
 2. Add components
 3. Execute and monitor
 4. Read QUICK_REFERENCE.md
 
 ### THIS WEEK (1-2 hours)
+
 1. Read SETUP_DEPLOYMENT.md
 2. Deploy to production
 3. Add custom components
 4. Integrate with your data
 
 ### ONGOING
+
 1. Add more components
 2. Customize UI as needed
 3. Integrate with systems
@@ -362,6 +370,7 @@ quickstart.bat    # or ./quickstart.sh
 ## 🎊 YOU'RE READY!
 
 You have:
+
 - ✅ Complete backend
 - ✅ Complete frontend
 - ✅ Complete documentation
@@ -383,7 +392,7 @@ quickstart.bat
 ./quickstart.sh
 
 # Then visit
-http://localhost:5173
+<http://localhost:5173>
 ```
 
 **Start with:** [START_HERE.md](START_HERE.md)  

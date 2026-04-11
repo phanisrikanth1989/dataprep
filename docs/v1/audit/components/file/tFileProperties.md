@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tFileProperties` |
 | **V1 Engine Class** | `FileProperties` |
 | **Engine File** | `src/v1/engine/components/file/file_properties.py` (179 lines) |
@@ -25,7 +25,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/file/file_properties.py` | Engine implementation (179 lines) |
 | `src/converters/talend_to_v1/components/file/file_properties.py` | Converter class (72 lines) |
 | `tests/converters/talend_to_v1/components/test_file_properties.py` | Converter tests (28 tests) |
@@ -37,7 +37,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 2 unique params + 2 framework params extracted; `_build_component_dict` pattern; 2 per-feature needs_review entries for engine key mismatches |
 | Engine Feature Parity | **Y** | 0 | 2 | 1 | 0 | Engine reads FILENAME/MD5 as uppercase keys; converter sends snake_case per D-38; missing `{id}_ERROR_MESSAGE` globalMap variable |
 | Code Quality | **Y** | 1 | 2 | 3 | 1 | Cross-cutting base class bugs; TOCTOU race on file existence; double getmtime() call; no file-type guard (directories accepted); timezone-naive datetime |
@@ -47,6 +47,7 @@
 **Overall: Yellow -- Converter fully standardized (Green); engine has known key mismatch documented via needs_review; engine/code quality gaps keep overall at Yellow**
 
 **Top Actions:**
+
 1. Fix `_update_global_map()` crash in base class (P0, cross-cutting)
 2. Fix engine to read snake_case config keys (P1, key mismatch for FILENAME)
 3. Fix engine to read snake_case config keys (P1, key mismatch for MD5)
@@ -71,7 +72,7 @@ This component is commonly paired with `tFileList` connected via an Iterator lin
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Schema | `SCHEMA` | SCHEMA_TYPE (read-only) | Predefined | Read-only schema with 7 columns (8 with MD5). Cannot be modified. Conditional TABLE definition based on MD5 value. |
 | 2 | File Name | `FILENAME` | FILE | `"__COMP_DEFAULT_FILE_DIR__/file.txt"` | **Required.** Path to the file to analyze. Supports context variables and globalMap references. |
 | 3 | Calculate MD5 Hash | `MD5` | CHECK | `false` | When true, calculates MD5 checksum and adds an 8th column to the read-only schema. |
@@ -79,7 +80,7 @@ This component is commonly paired with `tFileList` connected via an Iterator lin
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 4 | tStatCatcher Statistics | `TSTATCATCHER_STATS` | CHECK | `false` | Capture processing metadata for tStatCatcher component. Framework parameter. |
 | 5 | Label | `LABEL` | TEXT | `""` | Designer canvas label. No runtime impact. Framework parameter. |
 
@@ -88,7 +89,7 @@ This component is commonly paired with `tFileList` connected via an Iterator lin
 The schema is read-only and conditional on the MD5 setting:
 
 | # | Column Name | Type | Length | Description |
-|---|-------------|------|--------|-------------|
+| --- | ------------- | ------ | -------- | ------------- |
 | 1 | `abs_path` | id_String | 255 | Absolute path of the file |
 | 2 | `dirname` | id_String | 255 | Directory containing the file |
 | 3 | `basename` | id_String | 255 | Base name of the file |
@@ -101,7 +102,7 @@ The schema is read-only and conditional on the MD5 setting:
 ### 3.4 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Output | Row > Main | Single-row output with file properties |
 | `ITERATE` | Input/Output | Iterate | For use with tFileList loops |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires after successful execution |
@@ -113,7 +114,7 @@ The schema is read-only and conditional on the MD5 setting:
 ### 3.5 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Always 1 (one file analyzed) |
 | `{id}_NB_LINE_OK` | Integer | After execution | 1 if successful, 0 on failure |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Always 0 (no reject flow) |
@@ -136,7 +137,7 @@ The schema is read-only and conditional on the MD5 setting:
 The converter uses `_build_component_dict()` with `type_name="FileProperties"` per D-40/D-43. Parameters extracted via `_get_str()` and `_get_bool()` helpers. Config keys follow D-38 snake_case convention.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `SCHEMA` | No (framework) | -- | Read-only predefined schema; not extracted as config param |
 | 2 | `FILENAME` | **Yes** | `filename` | `_get_str(node, "FILENAME", "")` -- snake_case per D-38 |
 | 3 | `MD5` | **Yes** | `md5` | `_get_bool(node, "MD5", False)` -- snake_case per D-38 |
@@ -148,7 +149,7 @@ The converter uses `_build_component_dict()` with `type_name="FileProperties"` p
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | All | N/A | Utility component -- schema is `{"input": [], "output": []}`. The read-only predefined schema columns are handled by the engine, not the converter. |
 
 ### 4.3 Expression Handling
@@ -158,13 +159,13 @@ FILENAME supports context variables and Java expressions. The converter preserve
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No converter issues. All parameters correctly extracted per _java.xml source of truth. |
 
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `filename` | Engine reads `FILENAME` (uppercase) but converter sends `filename` (snake_case per D-38) -- config key mismatch | engine_gap |
 | 2 | `md5` | Engine reads `MD5` (uppercase) but converter sends `md5` (snake_case per D-38) -- config key mismatch | engine_gap |
 
@@ -175,7 +176,7 @@ FILENAME supports context variables and Java expressions. The converter preserve
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | File path analysis (abs_path, dirname, basename) | **Yes** | High | `_process()` lines 115-119 | Uses `os.path` functions correctly |
 | 2 | File permissions (mode_string) | **Yes** | Medium | `_process()` line 119 | Uses `oct(os.stat().st_mode)` -- format differs from Talend's octal string |
 | 3 | File size | **Yes** | High | `_process()` line 120 | `os.path.getsize()` |
@@ -187,7 +188,7 @@ FILENAME supports context variables and Java expressions. The converter preserve
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-FPR-001 | **P1** | Engine reads config key `FILENAME` (uppercase) but converter sends `filename` (snake_case). Config key mismatch will cause engine to fail reading filename from converter output. |
 | ENG-FPR-002 | **P1** | Engine reads config key `MD5` (uppercase) but converter sends `md5` (snake_case). Config key mismatch will cause engine to default to False regardless of converter setting. |
 | ENG-FPR-003 | **P2** | `mtime_string` uses `datetime.fromtimestamp()` which is timezone-naive and locale-dependent. Talend uses Java SimpleDateFormat which may produce different output. |
@@ -195,7 +196,7 @@ FILENAME supports context variables and Java expressions. The converter preserve
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_stats(1, 1, 0)` | Always 1 |
 | `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats(1, 1, 0)` | 1 on success |
 | `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats(1, 1, 0)` | Always 0 |
@@ -208,7 +209,7 @@ FILENAME supports context variables and Java expressions. The converter preserve
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-FPR-001 | **P0** | `base_component.py:304` | **CROSS-CUTTING**: `_update_global_map()` references undefined variable, causing `UnboundLocalError` at runtime when globalMap is provided. Affects all components. |
 | BUG-FPR-002 | **P1** | `file_properties.py:108-110` | TOCTOU race condition: file existence check at line 108 and metadata reads at lines 115-122 are not atomic. File could be deleted between check and read. |
 | BUG-FPR-003 | **P1** | `file_properties.py:121-122` | Double `os.path.getmtime()` syscall: `mtime` and `mtime_string` each call `getmtime()` separately. If file is modified between calls, timestamps will be inconsistent. |
@@ -216,13 +217,13 @@ FILENAME supports context variables and Java expressions. The converter preserve
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-FPR-001 | **P2** | Engine reads `FILENAME` and `MD5` as uppercase config keys but D-38 convention is snake_case. Converter now sends snake_case per standard. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-FPR-001 | **P2** | "`_validate_config()` called or dead code" | `_validate_config()` is defined but return value is ignored by base class -- validation is bypassed at runtime |
 | STD-FPR-002 | **P2** | "No custom exception usage" | Uses custom exceptions correctly (ConfigurationError, FileOperationError) -- compliant |
 
@@ -233,14 +234,14 @@ None found. No print statements or TODO comments in engine code.
 ### 6.5 Security
 
 | Concern | Assessment |
-|---------|------------|
+| --------- | ------------ |
 | Path traversal | No path sanitization on FILENAME. Accepts any path the OS allows, including `../../` traversal. |
 | Directory accepted | Engine does not check if FILENAME points to a regular file vs directory. `os.path.getsize()` on a directory returns 0 on some platforms. |
 
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Correct: `logger = logging.getLogger(__name__)` |
 | Level usage | Good: info for start/complete, debug for details, error for failures |
 | Sensitive data | File paths logged at info level -- acceptable for debugging |
@@ -248,7 +249,7 @@ None found. No print statements or TODO comments in engine code.
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Uses `ConfigurationError` and `FileOperationError` correctly |
 | Exception chaining | Uses `from e` for proper chaining in catch-all handler |
 | die_on_error handling | Not implemented -- component always raises on error |
@@ -256,7 +257,7 @@ None found. No print statements or TODO comments in engine code.
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | All methods have return type hints |
 | Parameter types | All parameters typed with `Optional[Any]`, `str`, `Dict`, `List` |
 
@@ -265,14 +266,14 @@ None found. No print statements or TODO comments in engine code.
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-FPR-001 | **P2** | No file size guard before MD5 computation. Multi-GB files will complete but take significant time with no progress indication or timeout. |
 | PERF-FPR-002 | **P2** | Result converted to DataFrame (`pd.DataFrame([file_properties])`) for a single-row utility output -- unnecessary overhead. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Not applicable -- utility component processes one file at a time |
 | Memory threshold | MD5 uses 4KB chunk reads -- memory-safe for large files |
 | Large data handling | Single-file operation -- no large dataset concerns |
@@ -284,7 +285,7 @@ None found. No print statements or TODO comments in engine code.
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 28 | `tests/converters/talend_to_v1/components/test_file_properties.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | Covered | `tests/converters/talend_to_v1/test_integration.py` (regression guard) |
@@ -292,7 +293,7 @@ None found. No print statements or TODO comments in engine code.
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-FPR-001 | **P2** | No engine unit tests for FileProperties `_process()` method |
 | TEST-FPR-002 | **P2** | No engine test for MD5 computation accuracy |
 
@@ -313,7 +314,7 @@ None found. No print statements or TODO comments in engine code.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 1 | BUG-FPR-001 (cross-cutting) |
 | P1 | 4 | ENG-FPR-001, ENG-FPR-002, BUG-FPR-002, BUG-FPR-003 |
 | P2 | 7 | ENG-FPR-003, NAME-FPR-001, STD-FPR-001, PERF-FPR-001, PERF-FPR-002, TEST-FPR-001, TEST-FPR-002 |
@@ -323,7 +324,7 @@ None found. No print statements or TODO comments in engine code.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
 | Engine (ENG) | 3 | ENG-FPR-001, ENG-FPR-002, ENG-FPR-003 |
 | Bug (BUG) | 3 | BUG-FPR-001, BUG-FPR-002, BUG-FPR-003 |
@@ -335,7 +336,7 @@ None found. No print statements or TODO comments in engine code.
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set -- P0 |
 
 ---
@@ -343,14 +344,17 @@ None found. No print statements or TODO comments in engine code.
 ## 10. Recommendations
 
 ### Immediate (Before Production)
+
 - Fix `_update_global_map()` crash in base class (BUG-FPR-001, cross-cutting P0)
 
 ### Short-term (Hardening)
+
 - Fix engine to read snake_case config keys `filename`/`md5` (ENG-FPR-001, ENG-FPR-002)
 - Fix TOCTOU race by caching `os.stat()` result (BUG-FPR-002)
 - Fix double `getmtime()` by using cached stat result (BUG-FPR-003)
 
 ### Long-term (Optimization)
+
 - Add engine unit tests (TEST-FPR-001, TEST-FPR-002)
 - Add file size guard for MD5 (PERF-FPR-001)
 - Fix timezone-naive datetime (ENG-FPR-003)
@@ -360,7 +364,7 @@ None found. No print statements or TODO comments in engine code.
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
+| -------- | ---------- | ---------- |
 | Official Talend docs | [tFileProperties Standard Properties (Talend 8.0)](https://help.qlik.com/talend/en-US/components/8.0/tfileproperties/tfileproperties-standard-properties) | Parameter definitions, defaults |
 | Talaxie GitHub _java.xml | [tFileProperties_java.xml](https://raw.githubusercontent.com/Talaxie/tdi-studio-se/master/main/plugins/org.talend.designer.components.localprovider/components/tFileProperties/tFileProperties_java.xml) | Component definition XML -- 3 params: SCHEMA, FILENAME, MD5 |
 | Engine source | `src/v1/engine/components/file/file_properties.py` | Feature parity analysis (179 lines) |
@@ -370,7 +374,7 @@ None found. No print statements or TODO comments in engine code.
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` broken parameter signature |
 | XCUT-003 | All components | Zero engine unit tests |

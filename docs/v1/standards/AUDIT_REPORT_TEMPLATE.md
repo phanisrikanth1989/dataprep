@@ -10,6 +10,7 @@ Every component audit report MUST follow this exact section structure. No sectio
 ## Purpose of Audit Reports
 
 These reports serve dual purpose:
+
 1. **Now**: Task prioritization for production readiness — what's broken, what order to fix
 2. **Later**: Production documentation — how the component works, known limitations
 
@@ -35,7 +36,7 @@ At a glance: **bold = needs attention**, ~~strikethrough~~ = done.
 ## Priority Definitions
 
 | Priority | Label | Definition | Action Required |
-|----------|-------|------------|-----------------|
+| ---------- | ------- | ------------ | ----------------- |
 | **P0** | Critical | Causes incorrect results, data loss, runtime crash, or blocks production use | Must fix before any production migration |
 | **P1** | Major | Significant feature gap or behavioral difference vs Talend. Likely hit in real jobs | Fix before production migration of affected jobs |
 | **P2** | Moderate | Minor feature gap, edge case, cosmetic issue, naming inconsistency, or standards violation | Fix during hardening phase |
@@ -46,7 +47,7 @@ At a glance: **bold = needs attention**, ~~strikethrough~~ = done.
 ## Scoring
 
 | Score | Meaning |
-|-------|---------|
+| ------- | --------- |
 | **R (Red)** | Broken, missing, or will produce wrong results |
 | **Y (Yellow)** | Partially works, gaps exist, needs attention |
 | **G (Green)** | Works correctly, meets standards |
@@ -59,12 +60,14 @@ At a glance: **bold = needs attention**, ~~strikethrough~~ = done.
 From METHODOLOGY.md — every audit goes through:
 
 ### Pass 1: Initial Audit
+
 - Research Talend documentation online (.item files + _java.xml from Talaxie GitHub)
 - Read the v1 engine implementation (every line)
 - Read the converter code (dispatch + parser + parameter mapping)
 - Write the full audit report following this template
 
 ### Pass 2: Adversarial Review
+
 - A separate reviewer reads the report AND the source code
 - Mindset: "Find at least 3-5 issues the report missed"
 - Focuses on edge cases, cross-class interactions, behavioral subtleties
@@ -77,7 +80,7 @@ From METHODOLOGY.md — every audit goes through:
 Every audit MUST check these cross-cutting concerns (from METHODOLOGY.md):
 
 | Check | Why |
-|-------|-----|
+| ------- | ----- |
 | NaN handling (`pd.isna()` vs `is None`) | pandas uses NaN, not None — `value is None` misses NaN |
 | Empty strings in config keys | Can produce crashes (e.g., `str.split("")` raises ValueError) |
 | Empty DataFrame input (0 rows with columns vs None) | Returning `pd.DataFrame()` loses column schema |
@@ -108,7 +111,7 @@ Every audit MUST check these cross-cutting concerns (from METHODOLOGY.md):
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `{tComponentName}` |
 | **V1 Engine Class** | `{EngineClassName}` |
 | **Engine File** | `src/v1/engine/components/{category}/{file}.py` ({N} lines) |
@@ -120,7 +123,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/{...}` | Engine implementation ({N} lines) |
 | `src/converters/talend_to_v1/components/{...}` | Converter class ({N} lines) |
 | `tests/converters/talend_to_v1/components/test_{...}.py` | Converter tests ({N} tests) |
@@ -134,7 +137,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **{R/Y/G}** | {n} | {n} | {n} | {n} | {Brief: X of Y params extracted, needs_review count} |
 | Engine Feature Parity | **{R/Y/G}** | {n} | {n} | {n} | {n} | {Brief: key gaps} |
 | Code Quality | **{R/Y/G}** | {n} | {n} | {n} | {n} | {Brief: cross-cutting bugs, naming, standards} |
@@ -163,7 +166,7 @@ What does Talend actually do? This section is the SOURCE OF TRUTH — researched
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | {Human name} | `{XML_NAME}` | {Type} | {default} | {Description with behavioral notes} |
 
 ### 3.2 Advanced Settings
@@ -173,7 +176,7 @@ What does Talend actually do? This section is the SOURCE OF TRUTH — researched
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Output | Row > Main | {Description} |
 | `REJECT` | Output | Row > Reject | {Description with errorCode/errorMessage columns note} |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | {Description} |
@@ -181,12 +184,13 @@ What does Talend actually do? This section is the SOURCE OF TRUTH — researched
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | {Description} |
 
 ### 3.5 Behavioral Notes
 
 {Numbered list of important behavioral details:
+
 - Non-obvious defaults (e.g., ISO-8859-15 not UTF-8)
 - Common gotchas
 - Parameter interactions
@@ -204,7 +208,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 {Brief description of converter architecture and flow.}
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `{PARAM_NAME}` | Yes/No | `{config_key}` | {Notes including default value} |
 
 **Summary**: {X} of {Y} parameters extracted ({Z}%).
@@ -212,7 +216,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | {How} |
 | `type` | Yes | {How — note any conversion from Talend types} |
 | `nullable` | Yes | |
@@ -229,7 +233,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | CONV-{ID}-001 | **P{N}** | {Description — OPEN/FIXED/SUPERSEDED/DEFERRED} |
 
 ### 4.5 Needs Review Entries
@@ -237,7 +241,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 {All needs_review entries the converter emits for engine gaps.}
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `{key}` | {Why this is an engine gap} | engine_gap |
 
 ---
@@ -249,19 +253,19 @@ How faithfully does the v1 engine implement Talend behavior?
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | {Feature} | **Yes/No/Partial** | High/Medium/Low/N/A | `{method}` line {N} | {Notes} |
 
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-{ID}-001 | **P{N}** | {Detailed description} |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_{VAR}` | Yes | Yes/No/Partial | {Method} | {Notes} |
 
 {For complex components like tMap, add:}
@@ -279,19 +283,19 @@ How well-written is the engine code?
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-{ID}-001 | **P{N}** | `{file}:{line}` | {Description. Note CROSS-CUTTING if applicable.} |
 
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-{ID}-001 | **P{N}** | {Description} |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-{ID}-001 | **P{N}** | "{Standard rule}" | {How violated} |
 
 ### 6.4 Debug Artifacts
@@ -305,7 +309,7 @@ How well-written is the engine code?
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | {Assessment} |
 | Level usage | {Assessment} |
 | Sensitive data | {Assessment} |
@@ -313,7 +317,7 @@ How well-written is the engine code?
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | {Assessment} |
 | Exception chaining | {Assessment} |
 | die_on_error handling | {Assessment} |
@@ -321,7 +325,7 @@ How well-written is the engine code?
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | {Assessment} |
 | Parameter types | {Assessment} |
 
@@ -332,13 +336,13 @@ How well-written is the engine code?
 Will it scale?
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-{ID}-001 | **P{N}** | {Description} |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | {Assessment} |
 | Memory threshold | {Assessment} |
 | Large data handling | {Assessment} |
@@ -354,7 +358,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | {N} | `tests/converters/talend_to_v1/components/test_{name}.py` |
 | Engine unit tests | {N} | {Location or "None"} |
 | Integration tests | {N} | {Location or "None"} |
@@ -362,12 +366,13 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-{ID}-001 | **P{N}** | {What's not tested} |
 
 ### 8.3 Recommended Test Cases
 
 {List specific test scenarios that should be added. Focus on:
+
 - Happy path with realistic data
 - Edge cases (empty input, nulls, encoding)
 - Error paths (die_on_error=True/False)
@@ -384,7 +389,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | {N} | {List — bold for OPEN, strikethrough for resolved} |
 | P1 | {N} | {List} |
 | P2 | {N} | {List} |
@@ -394,7 +399,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | {N} | {List} |
 | Engine (ENG) | {N} | {List} |
 | Bug (BUG) | {N} | {List} |
@@ -431,7 +436,7 @@ What should be fixed, in what order?
 ### Risk Matrix
 
 | Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
+| ------ | ----------- | -------- | ------------ |
 | {Risk description} | High/Medium/Low | High/Medium/Low | {How to mitigate} |
 
 ### High-Risk Job Patterns
@@ -445,7 +450,7 @@ What should be fixed, in what order?
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
+| -------- | ---------- | ---------- |
 | Official Talend docs | {URL} | Parameter definitions, defaults |
 | Talaxie GitHub _java.xml | {URL} | Component definition XML |
 | Real .item file examples | {URL} | Framework params, TABLE structures |
@@ -457,7 +462,7 @@ What should be fixed, in what order?
 {Reference shared issues by canonical ID. Include file:line for current location.}
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set |
 
 ## Appendix C: Historical Notes (optional)

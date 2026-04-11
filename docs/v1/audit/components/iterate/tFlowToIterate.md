@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tFlowToIterate` |
 | **V1 Engine Class** | None -- no concrete engine implementation exists |
 | **Engine File** | No dedicated engine file. Abstract base only: `src/v1/engine/base_iterate_component.py` (175 lines) |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/base_iterate_component.py` | Abstract base class `BaseIterateComponent` (175 lines) -- `prepare_iterations()` and `set_iteration_globalmap()` abstract methods |
 | `src/converters/talend_to_v1/components/iterate/flow_to_iterate.py` | Converter class `FlowToIterateConverter` (114 lines) |
 | `tests/converters/talend_to_v1/components/test_flow_to_iterate.py` | Converter tests |
@@ -42,7 +42,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 5 of 5 config keys extracted (100%); DEFAULT_MAP, MAP (KEY/VALUE), CONNECTION_FORMAT, tstatcatcher_stats, label; needs_review entry for engine gap; module docstring follows CONVERTER_PATTERN.md |
 | Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No concrete engine implementation exists; only abstract BaseIterateComponent base class; component cannot execute |
 | Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code quality is good (follows CONVERTER_PATTERN.md), but no engine code exists at all -- component is incomplete. Converter alone cannot deliver functionality. |
@@ -52,6 +52,7 @@ How production-ready is this component at a glance?
 **Overall: RED -- No engine implementation. Converter correctly extracts all params for future engine support, but component cannot execute in production. Engine must be implemented before this component is usable.**
 
 **Top Actions**:
+
 1. Implement concrete FlowToIterate engine class extending BaseIterateComponent (P0 -- blocks production use)
 2. All converter and test issues resolved in v1.1 rewrite
 
@@ -77,7 +78,7 @@ The component sits between a data-producing flow (like tFixedFlowInput or a data
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Default Map | `DEFAULT_MAP` | CHECK | `true` | When true, all input columns are automatically mapped to globalMap variables. When false, only explicit MAP entries are used. |
 | 2 | Map Table | `MAP` | TABLE | (empty) | Explicit column-to-variable mappings. Only visible when `DEFAULT_MAP == "false"`. Contains KEY (TEXT) + VALUE (PREV_COLUMN_LIST) pairs. |
 
@@ -88,7 +89,7 @@ No advanced settings defined in _java.xml for tFlowToIterate.
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Input data flow. Maximum 1 input connection. Each row becomes one iteration. |
 | `ITERATE` | Output | Iterate | Drives downstream subjob re-execution. One iteration per input row. |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires after all iterations complete successfully |
@@ -99,7 +100,7 @@ No advanced settings defined in _java.xml for tFlowToIterate.
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | AFTER | Total number of input rows processed (= total iterations) |
 | `{id}_CURRENT_ITERATION` | Integer | FLOW | Current iteration index (0-based during iteration) |
 
@@ -115,7 +116,7 @@ No advanced settings defined in _java.xml for tFlowToIterate.
 ### 3.6 Framework Parameters
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | F1 | tStatCatcher Stats | `TSTATCATCHER_STATS` | CHECK | `false` | Enable statistics collection for tStatCatcher |
 | F2 | Label | `LABEL` | TEXT | `""` | User-defined label for the component instance |
 
@@ -130,19 +131,19 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 The converter (`FlowToIterateConverter`) uses the `ComponentConverter` base class helpers (`_get_bool`, `_get_str`) to extract parameters from the TalendNode params dict. The MAP table is parsed via a module-level `_parse_map_table()` function using stride-2 grouping of KEY/VALUE elementRef entries per CONVERTER_PATTERN.md.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `DEFAULT_MAP` | Yes | `default_map` | CHECK -> bool, default True. Extracted via `_get_bool()`. |
 | 2 | `MAP` | Yes | `map_entries` | TABLE -> list of dicts. Parsed via `_parse_map_table()` with KEY/VALUE field names matching _java.xml. Stride-2 grouping, incomplete trailing groups skipped. |
-| 3 | `CONNECTION_FORMAT` | Yes | `connection_format` | TEXT -> str, default "row". Phantom param: NOT in _java.xml but present in .item exports. |
+| 3 | `CONNECTION_FORMAT` | **REMOVED** | ~~connection_format~~ | Phantom param (not in _java.xml) -- removed from converter |
 | F1 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | CHECK -> bool, default False. Framework param extracted last per convention. |
 | F2 | `LABEL` | Yes | `label` | TEXT -> str, default "". Framework param extracted last per convention. |
 
-**Summary**: 4 of 4 _java.xml parameters extracted (100%). Plus 1 phantom param (CONNECTION_FORMAT). All framework params extracted.
+**Summary**: 4 of 4 _java.xml parameters extracted (100%). Phantom param CONNECTION_FORMAT removed. All framework params extracted.
 
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` base class method |
 | `type` | Yes | Converted from Talend types via `convert_type()` |
 | `nullable` | Yes | Boolean |
@@ -161,7 +162,7 @@ No expression handling is needed for tFlowToIterate. The MAP table VALUE field c
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | CONV-FTI-001 | ~~P1~~ | **FIXED** -- tstatcatcher_stats framework param now extracted |
 | CONV-FTI-002 | ~~P1~~ | **FIXED** -- label framework param now extracted |
 | CONV-FTI-003 | ~~P2~~ | **FIXED** -- MAP table now uses KEY/VALUE field names per _java.xml |
@@ -173,7 +174,7 @@ No expression handling is needed for tFlowToIterate. The MAP table VALUE field c
 The converter emits a single component-level needs_review entry (not per-key, since the entire engine is absent):
 
 | # | Scope | Reason | Severity |
-|---|-------|--------|----------|
+| --- | ------- | -------- | ---------- |
 | 1 | Component-level | No concrete engine implementation for tFlowToIterate -- only BaseIterateComponent abstract base exists. All config keys are extracted for future engine support. | engine_gap |
 
 ---
@@ -187,7 +188,7 @@ How faithfully does the v1 engine implement Talend behavior?
 No concrete engine implementation exists for tFlowToIterate. Only `BaseIterateComponent` at `src/v1/engine/base_iterate_component.py` (175 lines) provides an abstract base class.
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Default column-to-globalMap mapping | **No** | N/A | -- | No concrete class implements `prepare_iterations()` |
 | 2 | Explicit MAP table variable mapping | **No** | N/A | -- | No concrete class implements `set_iteration_globalmap()` |
 | 3 | ITERATE connector output | **Partial** | Low | `base_iterate_component.py` | Base class provides iteration framework but no FlowToIterate-specific logic |
@@ -197,13 +198,13 @@ No concrete engine implementation exists for tFlowToIterate. Only `BaseIterateCo
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-FTI-001 | **P0** | **OPEN** -- No concrete FlowToIterate engine class exists. Jobs using tFlowToIterate cannot execute in the v1 engine. Only BaseIterateComponent abstract base is available. |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Partial | `base_iterate_component.py:70` via `stats['NB_LINE']` then `_update_global_map()` | Base class sets NB_LINE in stats but `_update_global_map()` has a known cross-cutting bug (undefined `value` variable) |
 | `{id}_CURRENT_ITERATION` | Yes | Partial | `base_iterate_component.py:112` directly via `global_map.put()` | Set in `get_next_iteration_context()` but no concrete class calls this method |
 
@@ -216,19 +217,19 @@ How well-written is the converter code?
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | -- | -- | -- | No bugs found in the converter code. Logic is correct for what it implements. |
 
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-FTI-001 | ~~P2~~ | **FIXED** -- MAP table now uses `KEY`/`VALUE` field names matching _java.xml definition. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-FTI-001 | ~~P2~~ | "Module docstring lists ALL config keys" (CONVERTER_PATTERN.md Rule 1) | **FIXED** -- Module docstring now has `Config mapping (5 params total):` block |
 | STD-FTI-002 | ~~P2~~ | "Framework params ALWAYS extracted, ALWAYS last" (CONVERTER_PATTERN.md Rule 7) | **FIXED** -- tstatcatcher_stats and label now extracted as last params |
 | STD-FTI-003 | ~~P2~~ | "needs_review entries have exactly 3 keys" (CONVERTER_PATTERN.md Rule 10) | **FIXED** -- 3 needs_review entries now emitted with correct format |
@@ -244,7 +245,7 @@ No concerns identified. The converter only reads XML parameter data and produces
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- `logger = logging.getLogger(__name__)` at module level |
 | Level usage | N/A -- logger not used in the converter (appropriate for simple component) |
 | Sensitive data | No concerns |
@@ -252,7 +253,7 @@ No concerns identified. The converter only reads XML parameter data and produces
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Good -- no exceptions raised per convention (converters never raise) |
 | Exception chaining | N/A |
 | die_on_error handling | N/A -- tFlowToIterate has no die_on_error parameter |
@@ -260,7 +261,7 @@ No concerns identified. The converter only reads XML parameter data and produces
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- `convert()` fully typed with return type `ComponentResult` |
 | Parameter types | Good -- `_parse_map_table()` uses `Any` for raw input, `List[Dict[str, str]]` for return |
 
@@ -271,13 +272,13 @@ No concerns identified. The converter only reads XML parameter data and produces
 Will it scale?
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No performance or memory concerns. The converter is lightweight with O(n) MAP table parsing. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- no engine implementation to assess |
 | Memory threshold | N/A |
 | Large data handling | Converter handles MAP tables of any size with O(n) linear scan |
@@ -291,7 +292,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 21 | `tests/converters/talend_to_v1/components/test_flow_to_iterate.py` |
 | Engine unit tests | 0 | None -- no engine implementation |
 | Integration tests | 0 | None |
@@ -299,7 +300,7 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-FTI-001 | ~~P1~~ | **FIXED** -- TestFrameworkParams class added. tstatcatcher_stats and label tested. |
 | TEST-FTI-002 | ~~P2~~ | **FIXED** -- TestNeedsReview class added. needs_review entries tested for count, severity, component_id, framework param exclusion. |
 | TEST-FTI-003 | ~~P2~~ | **FIXED** -- TestCompleteness class added. All expected config keys asserted. |
@@ -326,7 +327,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 1 (open) | **ENG-FTI-001** |
 | P1 | 0 (2 fixed) | ~~CONV-FTI-001~~, ~~CONV-FTI-002~~, ~~TEST-FTI-001~~ |
 | P2 | 0 (7 fixed) | ~~CONV-FTI-003~~, ~~CONV-FTI-004~~, ~~CONV-FTI-005~~, ~~NAME-FTI-001~~, ~~STD-FTI-001~~, ~~TEST-FTI-002~~, ~~TEST-FTI-003~~ |
@@ -336,7 +337,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count (open/fixed) | IDs |
-|----------|-------------------|-----|
+| ---------- | ------------------- | ----- |
 | Converter (CONV) | 0/5 | ~~CONV-FTI-001~~, ~~CONV-FTI-002~~, ~~CONV-FTI-003~~, ~~CONV-FTI-004~~, ~~CONV-FTI-005~~ |
 | Engine (ENG) | 1/0 | **ENG-FTI-001** |
 | Bug (BUG) | 0/0 | |
@@ -348,7 +349,7 @@ All issues grouped by priority for sprint planning.
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set -- would affect BaseIterateComponent execution if a concrete FlowToIterate class existed |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` crash -- would affect iteration context variable retrieval |
 
@@ -375,8 +376,8 @@ No P3 issues identified. Component is simple and well-contained.
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://github.com/Talaxie/tdi-studio-se` (tFlowToIterate_java.xml) | Parameter definitions, defaults, types, connectors, globalMap returns |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://github.com/Talaxie/tdi-studio-se`> (tFlowToIterate_java.xml) | Parameter definitions, defaults, types, connectors, globalMap returns |
 | Engine abstract base | `src/v1/engine/base_iterate_component.py` | Feature parity analysis (175 lines) |
 | Converter source | `src/converters/talend_to_v1/components/iterate/flow_to_iterate.py` | Converter audit (114 lines) |
 | Converter base class | `src/converters/talend_to_v1/components/base.py` | Helper methods, dataclass definitions |
@@ -389,7 +390,7 @@ No P3 issues identified. Component is simple and well-contained.
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` undefined `value` variable crashes all components when globalMap is set. Would affect FlowToIterate execution through BaseIterateComponent which calls `_update_global_map()` at lines 72 and 138. |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` undefined `default` parameter. Would affect any globalMap variable retrieval for iteration context. |
 | XCUT-003 | `base_component.py:351` | `validate_schema` inverted nullable logic. Not directly relevant to FlowToIterate (no schema enforcement at engine level) but impacts overall engine quality. |
@@ -399,7 +400,7 @@ No P3 issues identified. Component is simple and well-contained.
 ### Edge-Case Checklist Results
 
 | Check | Result | Notes |
-|-------|--------|-------|
+| ------- | -------- | ------- |
 | NaN handling | N/A | Converter does not process data values |
 | Empty strings in config keys | Safe | `_get_str()` returns default for None, handles empty strings |
 | Empty DataFrame input | N/A | No engine implementation |
@@ -412,4 +413,4 @@ No P3 issues identified. Component is simple and well-contained.
 ---
 
 *Report generated: 2026-04-03*
-*Last updated: 2026-04-03 after converter rewrite and adversarial review*
+*Last updated: 2026-04-03 after hidden/design-time param removal*

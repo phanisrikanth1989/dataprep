@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tFileDelete` |
 | **V1 Engine Class** | `FileDelete` |
 | **Engine File** | `src/v1/engine/components/file/file_delete.py` (175 lines) |
@@ -25,7 +25,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/file/file_delete.py` | Engine implementation (175 lines) |
 | `src/converters/talend_to_v1/components/file/file_delete.py` | Converter class (82 lines) |
 | `tests/converters/talend_to_v1/components/test_file_delete.py` | Converter tests (31 tests) |
@@ -37,7 +37,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 6 unique params + 2 framework params extracted; `_build_component_dict` pattern; 5 per-feature needs_review entries for engine gaps |
 | Engine Feature Parity | **Y** | 0 | 3 | 2 | 1 | Engine uses different config key names (path vs filename, fail_on_error vs failon, is_directory vs folder, is_folder_file vs folder_file); engine has `recursive` param not in _java.xml; no DELETE_PATH globalMap variable |
 | Code Quality | **Y** | 1 | 2 | 2 | 1 | Cross-cutting `_update_global_map()` crash (P0); dead `_validate_config()` (P1); no path sanitization (P1); f-string in logger (P2); empty string path accepted (P2); redundant os.path checks (P3) |
@@ -47,6 +47,7 @@
 **Overall: Yellow -- Converter fully standardized (Green); engine has config key mismatches documented via 5 needs_review entries; engine/code quality gaps keep overall at Yellow**
 
 **Top Actions:**
+
 1. Fix `_update_global_map()` crash in base class (P0, cross-cutting)
 2. Align engine config keys with converter output (P1, engine gaps: failon/fail_on_error, folder/is_directory, folder_file/is_folder_file)
 3. Implement `_validate_config()` or remove dead code (P1, code quality)
@@ -71,7 +72,7 @@ The component supports three deletion modes controlled by two checkboxes: file-o
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | File Name | `FILENAME` | FILE | `""` | **Mandatory** (in default mode). Absolute path of the file to delete. Hidden when FOLDER or FOLDER_FILE is selected. Supports context variables and Java expressions. |
 | 2 | Directory | `DIRECTORY` | DIRECTORY | `""` | **Mandatory** (when FOLDER=true). Absolute path of the directory to delete. Only visible when "Delete folder" checkbox is selected. |
 | 3 | File or directory to delete | `PATH` | TEXT | `""` | **Mandatory** (when FOLDER_FILE=true). Path to the file or directory, whichever exists. Only visible when "Delete file or folder" checkbox is selected. |
@@ -82,7 +83,7 @@ The component supports three deletion modes controlled by two checkboxes: file-o
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 7 | tStatCatcher Statistics | `TSTATCATCHER_STATS` | CHECK | `false` | Enables collection of processing metadata for tStatCatcher. |
 | 8 | Label | `LABEL` | TEXT | `""` | Text label for the component on the designer canvas. No runtime impact. |
 
@@ -91,7 +92,7 @@ The component supports three deletion modes controlled by two checkboxes: file-o
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `ITERATE` | Input | Iterate | Enables iterative deletion when connected from tFileList or tFlowToIterate. |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires when the subjob completes successfully. |
 | `SUBJOB_ERROR` | Output (Trigger) | Trigger | Fires when the subjob fails with an error. |
@@ -102,7 +103,7 @@ The component supports three deletion modes controlled by two checkboxes: file-o
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_DELETE_PATH` | String | After execution | Path of the deleted file/directory. Not implemented in v1 engine. |
 | `{id}_CURRENT_STATUS` | String | After execution | "deleted" or "not exist". Not implemented in v1 engine. |
 | `{id}_ERROR_MESSAGE` | String | After error | Error message when deletion fails. |
@@ -125,7 +126,7 @@ The component supports three deletion modes controlled by two checkboxes: file-o
 The `talend_to_v1` converter uses a dedicated `FileDeleteConverter` class registered via `@REGISTRY.register("tFileDelete")`. It extracts all 6 unique parameters plus 2 framework parameters using safe `_get_str()` / `_get_bool()` helpers. The converter follows the gold standard pattern with `_build_component_dict()` wrapper.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `FILENAME` | Yes | `filename` | String, default `""`. Quotes stripped by `_get_str()`. |
 | 2 | `DIRECTORY` | Yes | `directory` | String, default `""`. Quotes stripped by `_get_str()`. |
 | 3 | `PATH` | Yes | `path` | String, default `""`. FOLDER_FILE mode path param. Quotes stripped. |
@@ -140,7 +141,7 @@ The `talend_to_v1` converter uses a dedicated `FileDeleteConverter` class regist
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | N/A | N/A | Utility component per D-56 -- no data flow schema. Both `input` and `output` are empty arrays. |
 
 ### 4.3 Expression Handling
@@ -152,7 +153,7 @@ All string parameters (`filename`, `directory`, `path`) are extracted as-is afte
 All previous converter issues have been resolved in the gold-standard rewrite:
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | CONV-DEL-001 | ~~P1~~ | **FIXED** -- Was extracting `FAIL_ON_ERROR` (phantom param); now uses `FAILON` per _java.xml |
 | CONV-DEL-002 | ~~P1~~ | **FIXED** -- Was extracting `FOLDER_FILE_PATH` (phantom param); now uses `PATH` per _java.xml |
 | CONV-DEL-003 | ~~P1~~ | **FIXED** -- FAILON default was `False`; now `True` per _java.xml |
@@ -163,7 +164,7 @@ All previous converter issues have been resolved in the gold-standard rewrite:
 The converter emits 5 per-feature engine gap needs_review entries:
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `failon` | Engine reads `fail_on_error` (default True) but converter outputs `failon` per _java.xml param FAILON | engine_gap |
 | 2 | `folder` | Engine reads `is_directory` but converter outputs `folder` per _java.xml param FOLDER | engine_gap |
 | 3 | `folder_file` | Engine reads `is_folder_file` but converter outputs `folder_file` per _java.xml param FOLDER_FILE | engine_gap |
@@ -177,7 +178,7 @@ The converter emits 5 per-feature engine gap needs_review entries:
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | File deletion | **Yes** | High | `_process()` line 117-125 | Standard `os.remove()` for files |
 | 2 | Directory deletion | **Yes** | High | `_process()` line 104-115 | Uses `os.rmdir()` (empty) or `shutil.rmtree()` (recursive) |
 | 3 | Auto-detect mode (FOLDER_FILE) | **Yes** | Medium | `_process()` line 86-102 | Checks `os.path.isfile()` then `os.path.isdir()` |
@@ -190,7 +191,7 @@ The converter emits 5 per-feature engine gap needs_review entries:
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-DEL-001 | **P1** | Engine reads `path` as single config key for all modes; Talend has 3 separate path params (FILENAME, DIRECTORY, PATH) for different modes. Converter now outputs all 3 per _java.xml. |
 | ENG-DEL-002 | **P1** | Engine reads `fail_on_error` but converter outputs `failon` per _java.xml param name FAILON. Config key mismatch prevents proper error handling. |
 | ENG-DEL-003 | **P1** | Engine reads `is_directory` / `is_folder_file` but converter outputs `folder` / `folder_file` per _java.xml. Mode detection broken. |
@@ -201,7 +202,7 @@ The converter emits 5 per-feature engine gap needs_review entries:
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_stats()` | Counts 1 for each operation |
 | `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats()` | 1 if deleted, 0 otherwise |
 | `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats()` | 0 if deleted, 1 otherwise |
@@ -216,20 +217,20 @@ The converter emits 5 per-feature engine gap needs_review entries:
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-DEL-001 | **P0** | `base_component.py:304` | **CROSS-CUTTING**: `_update_global_map()` crash when globalMap is set -- affects all components |
 | BUG-DEL-002 | **P1** | `file_delete.py:65` | Empty string `path` accepted via `.get('path', '')` -- raises no error, proceeds silently until `ValueError` at line 80 |
 
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-DEL-001 | **P1** | Engine uses `fail_on_error`, `is_directory`, `is_folder_file` but _java.xml uses `FAILON`, `FOLDER`, `FOLDER_FILE`. Converter now outputs _java.xml names; engine needs alignment. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-DEL-001 | **P2** | "No f-strings in logger calls" | Engine uses f-strings in logger.info/error/warning calls (lines 71, 79, 89, etc.) |
 | STD-DEL-002 | **P2** | "_validate_config() should be called" | `_validate_config()` method defined (line 144) but never called by execution path |
 
@@ -244,7 +245,7 @@ No path sanitization in engine -- user-provided paths are used directly with `os
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Correct: `logger = logging.getLogger(__name__)` |
 | Level usage | Appropriate: info for operations, error for failures, warning for missing files |
 | Sensitive data | File paths logged -- acceptable for debugging but may expose directory structure |
@@ -252,7 +253,7 @@ No path sanitization in engine -- user-provided paths are used directly with `os
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Uses base class `FileOperationError` (declared in docstring but uses generic Exception re-raise) |
 | Exception chaining | No -- bare `raise` in except block |
 | fail_on_error handling | Correct pattern: catches exception, re-raises only if `fail_on_error=True` |
@@ -260,7 +261,7 @@ No path sanitization in engine -- user-provided paths are used directly with `os
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Present: `_process(self, input_data: Optional[Any] = None) -> Dict[str, Any]` |
 | Parameter types | Present: `_validate_config(self) -> List[str]` |
 
@@ -269,13 +270,13 @@ No path sanitization in engine -- user-provided paths are used directly with `os
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-DEL-001 | **P3** | Minor: redundant `os.path.isfile()` / `os.path.isdir()` checks in auto-detect mode. Could use single `os.path.exists()` then `os.path.isfile()`. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- utility component, no data processing |
 | Memory threshold | N/A -- single file operation |
 | Large data handling | N/A -- deletes files/directories, no data flow |
@@ -287,7 +288,7 @@ No path sanitization in engine -- user-provided paths are used directly with `os
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 31 | `tests/converters/talend_to_v1/components/test_file_delete.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | Included | `tests/converters/talend_to_v1/test_integration.py` (regression guard) |
@@ -295,12 +296,13 @@ No path sanitization in engine -- user-provided paths are used directly with `os
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-DEL-001 | **P2** | No engine unit tests for FileDelete `_process()` -- prevents Testing from reaching Green |
 
 ### 8.3 Recommended Test Cases
 
 **Engine tests (if implemented):**
+
 - Happy path: delete existing file, verify removed
 - Happy path: delete existing directory (empty), verify removed
 - Auto-detect mode: file exists, directory exists, neither exists
@@ -317,7 +319,7 @@ No path sanitization in engine -- user-provided paths are used directly with `os
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 1 | **BUG-DEL-001** |
 | P1 | 3 | **BUG-DEL-002**, **NAME-DEL-001**, **ENG-DEL-001/002/003** (counted as 1 engine alignment task) |
 | P2 | 4 | ENG-DEL-004, ENG-DEL-005, STD-DEL-001, STD-DEL-002, TEST-DEL-001 |
@@ -327,7 +329,7 @@ No path sanitization in engine -- user-provided paths are used directly with `os
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | All 4 previous CONV issues FIXED |
 | Engine (ENG) | 6 | ENG-DEL-001, 002, 003, 004, 005, 006 |
 | Bug (BUG) | 2 | BUG-DEL-001, 002 |
@@ -339,7 +341,7 @@ No path sanitization in engine -- user-provided paths are used directly with `os
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap is set |
 
 ---
@@ -347,10 +349,12 @@ No path sanitization in engine -- user-provided paths are used directly with `os
 ## 10. Recommendations
 
 ### Immediate (Before Production)
+
 - Fix `_update_global_map()` crash in base class (P0, cross-cutting -- fixes all 54 components)
 - Align engine config keys with converter output: `failon`/`fail_on_error`, `folder`/`is_directory`, `folder_file`/`is_folder_file` (P1)
 
 ### Short-term (Hardening)
+
 - Fix empty string path handling in engine (P1)
 - Add path sanitization against traversal attacks (P1)
 - Implement `{id}_DELETE_PATH` and `{id}_CURRENT_STATUS` globalMap variables (P2)
@@ -359,6 +363,7 @@ No path sanitization in engine -- user-provided paths are used directly with `os
 - Implement or remove dead `_validate_config()` (P2)
 
 ### Long-term (Optimization)
+
 - Handle symbolic links explicitly in deletion logic (P3)
 - Optimize redundant os.path checks in auto-detect mode (P3)
 
@@ -367,9 +372,9 @@ No path sanitization in engine -- user-provided paths are used directly with `os
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Official Talend docs | https://help.qlik.com/talend/en-US/components/7.3/tfiledelete/tfiledelete-standard-properties | Parameter definitions, defaults |
-| Talaxie GitHub _java.xml | https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tFileDelete/tFileDelete_java.xml | _java.xml source of truth for param names and defaults |
+| -------- | ---------- | ---------- |
+| Official Talend docs | <https://help.qlik.com/talend/en-US/components/7.3/tfiledelete/tfiledelete-standard-properties> | Parameter definitions, defaults |
+| Talaxie GitHub _java.xml | <https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tFileDelete/tFileDelete_java.xml> | _java.xml source of truth for param names and defaults |
 | Engine source | `src/v1/engine/components/file/file_delete.py` | Feature parity analysis (175 lines) |
 | Converter source | `src/converters/talend_to_v1/components/file/file_delete.py` | Converter audit (82 lines) |
 | Test source | `tests/converters/talend_to_v1/components/test_file_delete.py` | Test coverage (31 tests) |
@@ -377,7 +382,7 @@ No path sanitization in engine -- user-provided paths are used directly with `os
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap is set -- affects statistics reporting |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` broken signature -- may affect DELETE_PATH/CURRENT_STATUS retrieval |
 

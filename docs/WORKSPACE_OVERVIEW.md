@@ -9,6 +9,7 @@
 ## 🎯 Project Vision
 
 **RecDataPrep** is a **Python-based ETL (Extract-Transform-Load) visual designer** inspired by Talend's architecture. It provides:
+
 - A web-based UI for designing ETL jobs visually (drag-and-drop)
 - A powerful backend engine that executes these jobs
 - Integration with Python and Java routines
@@ -22,7 +23,7 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    USER (Web Browser)                       │
-│                  http://localhost:5173                      │
+│                  <http://localhost:5173>                      │
 └─────────────────────────────────────────────────────────────┘
                             │
                             │ HTTP/WebSocket
@@ -238,7 +239,7 @@ src/
 
 ### Backend Stack
 | Technology | Version | Purpose |
-|-----------|---------|---------|
+| ----------- | --------- | --------- |
 | **FastAPI** | 0.104.1+ | REST API & async server |
 | **Pydantic** | 2.5.0 | Data validation & models |
 | **uvicorn** | 0.24.0+ | ASGI server |
@@ -249,7 +250,7 @@ src/
 
 ### Frontend Stack
 | Technology | Version | Purpose |
-|-----------|---------|---------|
+| ----------- | --------- | --------- |
 | **React** | 18.2.0 | UI framework |
 | **React Flow** | 11.10.1 | Visual canvas (drag-drop DAG) |
 | **Ant Design** | 5.11.3 | Component library |
@@ -261,7 +262,7 @@ src/
 
 ### Core Engine Dependencies
 | Library | Purpose |
-|---------|---------|
+| --------- | --------- |
 | **Pandas** | DataFrame operations, joins, grouping |
 | **Py4J** | Python-Java bridge (optional) |
 | **Apache Arrow** | Efficient DataFrame serialization |
@@ -303,6 +304,7 @@ Backend
 Frontend → WebSocket connection
   ├─ Requests real-time updates
   └─ Receives:
+
       - Component start/end events
       - Progress (rows processed)
       - Logs and errors
@@ -341,22 +343,26 @@ ETLEngine.execute(job_config)
 ## 📋 Core Concepts
 
 ### Jobs
+
 - **Definition:** A reusable ETL workflow with components and connections
 - **Storage:** JSON files in `backend/jobs/`
 - **Schema:** `JobSchema` with nodes, edges, context, and configs
 
 ### Components
+
 - **Definition:** Individual ETL operations (Map, Filter, FileInput, etc.)
 - **Base Class:** `BaseComponent` (abstract)
 - **Lifecycle:** Init → Execute → Update Stats → Output
 - **Registry:** Defined in `backend/app/schemas.py` and `src/v1/engine/COMPONENT_REGISTRY`
 
 ### Nodes & Edges
+
 - **Nodes:** Components on the canvas (position, config, type)
 - **Edges:** Data flow connections between components (source → target)
 - **Types:** Main flow, error/reject flow, trigger flow
 
 ### Execution
+
 - **Status:** pending → running → success/error
 - **Task ID:** Unique identifier for each execution run
 - **Streaming:** Real-time updates via WebSocket
@@ -376,12 +382,14 @@ globalMap.put("my_var", value)
 ```
 
 ### Triggers (Workflow Control)
+
 - **OnSubjobOk:** Fire when subjob completes successfully
 - **OnComponentOk:** Fire when component succeeds
 - **OnSubjobError:** Fire when subjob fails
 - Activates dependent subjobs/components
 
 ### Execution Modes
+
 - **Batch:** Process entire DataFrame at once
 - **Streaming:** Process in chunks (memory-efficient)
 - **Hybrid:** Auto-switch based on data size (default)
@@ -419,7 +427,7 @@ WS     /ws/execution/{task_id}        # WebSocket stream (real-time updates)
 ## 🧩 Component Library (Built-in)
 
 | Component | Type | Inputs | Outputs | Purpose |
-|-----------|------|--------|---------|---------|
+| ----------- | ------ | -------- | --------- | --------- |
 | **Map (tMap)** | Transform | 1+ | 2+ | Transformation, joins, lookups (1140 LOC) |
 | **Filter** | Transform | 1 | 2 | Row filtering (main + reject) |
 | **FileInput** | Input | 0 | 1 | Read CSV/JSON/Parquet/Excel |
@@ -428,6 +436,7 @@ WS     /ws/execution/{task_id}        # WebSocket stream (real-time updates)
 | **Sort** | Transform | 1 | 1 | Sort by columns |
 
 ### Extending Components
+
 1. Create new class extending `BaseComponent`
 2. Implement `_process(input_data)` method
 3. Register in `COMPONENT_REGISTRY`
@@ -441,7 +450,7 @@ WS     /ws/execution/{task_id}        # WebSocket stream (real-time updates)
 ```bash
 cd c:\Users\phani\OneDrive\Documents\GitHub\recdataprep
 quickstart.bat
-# Then open http://localhost:5173
+# Then open <http://localhost:5173>
 ```
 
 ### Mac/Linux
@@ -449,7 +458,7 @@ quickstart.bat
 cd ~/GitHub/recdataprep
 chmod +x quickstart.sh
 ./quickstart.sh
-# Then open http://localhost:5173
+# Then open <http://localhost:5173>
 ```
 
 ### Manual Start
@@ -470,7 +479,7 @@ npm run dev
 ## 📊 Statistics & Metrics
 
 | Aspect | Value |
-|--------|-------|
+| -------- | ------- |
 | **Total Files** | 50+ |
 | **Total LOC** | ~5000 |
 | **Backend Files** | 13 |
@@ -482,6 +491,7 @@ npm run dev
 | **Core Engine LOC** | ~2400 |
 
 ### Largest Files
+
 1. `src/v1/engine/components/transform/map.py` - 1141 LOC (tMap)
 2. `src/v1/engine/engine.py` - 743 LOC (Main orchestrator)
 3. `src/v1/engine/base_component.py` - 378 LOC (Base class)
@@ -491,6 +501,7 @@ npm run dev
 ## ✨ Key Features
 
 ### Frontend (React)
+
 - ✅ **Visual Designer:** Drag-drop canvas with React Flow
 - ✅ **Component Palette:** Organized by category
 - ✅ **Dynamic Configuration:** Auto-generated forms
@@ -499,6 +510,7 @@ npm run dev
 - ✅ **Type Safety:** Full TypeScript
 
 ### Backend (FastAPI)
+
 - ✅ **REST API:** 14+ endpoints
 - ✅ **WebSocket Streaming:** Real-time execution updates
 - ✅ **Async Execution:** Non-blocking job runs
@@ -507,6 +519,7 @@ npm run dev
 - ✅ **Extensible:** Easy to add routes/services
 
 ### Core Engine
+
 - ✅ **Component-based:** Modular architecture
 - ✅ **Trigger-driven:** Workflow control
 - ✅ **Multi-input/output:** Flexible data routing
@@ -523,38 +536,40 @@ npm run dev
 ### Simple Example: FileInput → Map → FileOutput
 
 ```
+
 1. FileInput reads data
    └─ Returns: {"main": DataFrame}
 
-2. Map receives input
+1. Map receives input
    ├─ Applies transformations
    ├─ Evaluates expressions
    └─ Returns: {"main": DataFrame, "reject": DataFrame}
 
-3. FileOutput receives mapped data
+1. FileOutput receives mapped data
    ├─ Filters for "main" flow
    └─ Writes to file
 
-4. Error handling
+1. Error handling
    └─ Reject rows can be routed to error component
 ```
 
 ### Complex Example: With Lookups
 
 ```
+
 1. Main input (tFileInput_1)
    └─ Returns: sales_data (1000 rows)
 
-2. Lookup input (tFileInput_2)
+1. Lookup input (tFileInput_2)
    └─ Returns: product_lookup (500 rows)
 
-3. tMap joins them
+1. tMap joins them
    ├─ Join on product_id
    ├─ Apply transformations
    ├─ Evaluate variables
    └─ Return: output data with joined columns
 
-4. Route to outputs
+1. Route to outputs
    ├─ tFileOutput_1: main flow (900 rows)
    └─ tFileOutput_2: reject flow (100 rows)
 ```
@@ -564,21 +579,25 @@ npm run dev
 ## 🛠️ Development Workflow
 
 ### To Modify Backend
+
 1. Edit files in `backend/app/` (routes, services, models)
 2. Restart `python run.py`
 3. FastAPI auto-reloads on file changes (in dev mode)
 
 ### To Modify Frontend
+
 1. Edit files in `frontend/src/`
 2. Vite automatically reloads browser
 3. No manual refresh needed
 
 ### To Modify Core Engine
+
 1. Edit files in `src/v1/engine/`
 2. Changes take effect on next job execution
 3. No server restart needed (Python reimports)
 
 ### To Add New Component
+
 1. Create `src/v1/engine/components/<category>/<name>.py`
 2. Extend `BaseComponent`
 3. Implement `_process()` method
@@ -591,7 +610,7 @@ npm run dev
 ## 📚 Documentation Map
 
 | Document | Purpose | Audience |
-|----------|---------|----------|
+| ---------- | --------- | ---------- |
 | [START_HERE.md](START_HERE.md) | Quick overview | Everyone |
 | [QUICK_REFERENCE.md](QUICK_REFERENCE.md) | Command reference | All users |
 | [UI_README.md](UI_README.md) | Feature guide | UI users |
@@ -628,22 +647,26 @@ npm run dev
 ## 📞 Quick Help
 
 **Backend won't start?**
+
 - Check Python version (3.8+)
 - Verify dependencies: `pip install -r backend/requirements.txt`
 - Check port 8000 is free
 
 **Frontend won't load?**
+
 - Check Node.js installed (14+)
 - Clear node_modules: `rm -rf frontend/node_modules`
 - Reinstall: `npm install` in frontend/
 
 **Jobs not saving?**
+
 - Verify `backend/jobs/` directory exists
 - Check write permissions
 - Inspect browser console for API errors
 
 **Execution not working?**
-- Check backend is running (`http://localhost:8000/health`)
+
+- Check backend is running (`<http://localhost:8000/health`>)
 - Verify WebSocket connection in browser Network tab
 - Check job configuration is valid JSON
 

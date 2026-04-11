@@ -2,10 +2,9 @@
 
 Converts input flow rows into iterate loop variables via globalMap.
 
-Config mapping (5 params total):
+Config mapping (4 params total):
   DEFAULT_MAP        -> default_map (bool, default True)
   MAP                -> map_entries (list[dict], default [])
-  CONNECTION_FORMAT  -> connection_format (str, default "row")  [not in _java.xml]
   TSTATCATCHER_STATS -> tstatcatcher_stats (bool, default False)
   LABEL              -> label (str, default "")
 """
@@ -76,7 +75,6 @@ class FlowToIterateConverter(ComponentConverter):
         config: Dict[str, Any] = {}
         default_map = self._get_bool(node, "DEFAULT_MAP", True)
         config["default_map"] = default_map
-        config["connection_format"] = self._get_str(node, "CONNECTION_FORMAT", "row")
 
         # ---- 2. TABLE parameters ----
         if not default_map:

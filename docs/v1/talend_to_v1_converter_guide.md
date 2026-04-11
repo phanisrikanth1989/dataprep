@@ -4,7 +4,7 @@
 
 The `talend_to_v1` converter transforms Talend `.item` XML files into V1 engine JSON configurations. It replaces the old `complex_converter` with a clean, registry-based architecture.
 
-```
+```text
 Talend .item XML  ──>  talend_to_v1 converter  ──>  V1 engine JSON config
 ```
 
@@ -119,7 +119,7 @@ The converter produces a JSON dict with these top-level keys:
 Every conversion automatically runs a 4-layer validator:
 
 | Layer | What it checks |
-|-------|---------------|
+| ----- | -------------- |
 | Reference integrity | Flow/trigger sources and targets point to existing components |
 | Component-specific | tMap join keys non-empty, lookups have matching flows |
 | Expression quality | Detects leftover Java method calls in expressions |
@@ -146,7 +146,7 @@ The converter supports **85+ Talend component types** across 7 categories:
 ### File I/O (25 components)
 
 | Talend Type | V1 Engine Type |
-|---|---|
+| --- | --- |
 | tFileInputDelimited | FileInputDelimited |
 | tFileOutputDelimited | FileOutputDelimited |
 | tFileInputExcel | FileInputExcel |
@@ -176,7 +176,7 @@ The converter supports **85+ Talend component types** across 7 categories:
 ### Transform (35 components)
 
 | Talend Type | V1 Engine Type |
-|---|---|
+| --- | --- |
 | tMap | Map |
 | tXMLMap | XMLMap |
 | tFilterRow / tFilterRows | FilterRows |
@@ -216,14 +216,14 @@ The converter supports **85+ Talend component types** across 7 categories:
 ### Aggregate (2 components)
 
 | Talend Type | V1 Engine Type |
-|---|---|
+| --- | --- |
 | tAggregateRow | AggregateRow |
 | tUniqueRow / tUniqRow / tUnqRow | UniqueRow |
 
 ### Database (11 components)
 
 | Talend Type | V1 Engine Type |
-|---|---|
+| --- | --- |
 | tOracleConnection / tDBConnection | OracleConnection |
 | tOracleInput | OracleInput |
 | tOracleOutput | OracleOutput |
@@ -239,7 +239,7 @@ The converter supports **85+ Talend component types** across 7 categories:
 ### Control (9 components)
 
 | Talend Type | V1 Engine Type |
-|---|---|
+| --- | --- |
 | tDie | Die |
 | tWarn | Warn |
 | tSleep | SleepComponent |
@@ -253,13 +253,13 @@ The converter supports **85+ Talend component types** across 7 categories:
 ### Context (1 component)
 
 | Talend Type | V1 Engine Type |
-|---|---|
+| --- | --- |
 | tContextLoad | ContextLoad |
 
 ### Iterate (2 components)
 
 | Talend Type | V1 Engine Type |
-|---|---|
+| --- | --- |
 | tFlowToIterate | FlowToIterate |
 | tForeach | Foreach |
 
@@ -369,7 +369,7 @@ def test_basic_conversion():
 ### Available base class helpers
 
 | Helper | Purpose |
-|--------|---------|
+| ------ | ------- |
 | `_get_str(node, name, default="")` | Extract string param, strips quotes |
 | `_get_bool(node, name, default=False)` | Extract boolean (handles "true"/"false"/"1"/"0") |
 | `_get_int(node, name, default=0)` | Extract integer safely |
@@ -397,6 +397,29 @@ schema={"input": schema_cols, "output": schema_cols}
 schema={"input": [], "output": []}
 ```
 
+> **Note:** The `schema.input` values set by individual component
+> converters are **overwritten** during pipeline Step 6
+> (`_propagate_input_schemas`).  Each target component's `schema.input`
+> is replaced with its upstream component's `schema.output`, derived
+> from the flow connection graph.  This means component converters only
+> need to set `schema.output` correctly; the pipeline handles
+> `schema.input` automatically.
+
+### Hidden / design-time parameters
+
+Talend components include several parameter categories that are **not**
+extracted by the converter:
+
+| Category | Examples | Reason for exclusion |
+| ---------- | ---------- | ---------------------- |
+| Schema optimization | `SCHEMA_OPT_NUM` | Studio-only hint for schema preview sampling; no runtime effect |
+| Hidden UI controls | `USE_ITEMS`, `LOOP_QUERY_BASE`, `USE_XML_FIELD`, `XML_TEXT`, `XML_PREFIX`, `LINK_STYLE`, `LKUP_PARALLELIZE`, `ENABLE_AUTO_CONVERT_TYPE`, `LEVENSHTEIN`, `JACCARD`, `HASH_KEY_FROM_INPUT_CONNECTOR` | `show="false"` in component XML; never set by users |
+| Phantom parameters | `CONNECTION_FORMAT`, `TEMP_DIR`, `DESTINATION`, `USE_HEADER_AS_IS`, `TEMP_DIRECTORY`, `SPLIT_LIST`, `JDK_VERSION`, `VAR_TABLE_NAME`, `VAR_TABLE_SIZE_STATE` | Present in `.item` XML but absent from `_java.xml` definition or only used at design time |
+
+These parameters were previously extracted and flagged as `engine_gap`
+entries. They have been removed to reduce noise in the converted JSON
+output and eliminate false-positive needs_review entries.
+
 ### TABLE parameter parsing
 
 XmlParser stores TABLE params as flat lists of `{elementRef, value}` dicts:
@@ -422,7 +445,7 @@ for entry in raw:
 
 ## Architecture
 
-```
+```text
 src/converters/talend_to_v1/
 ├── __init__.py              # Public API: TalendToV1Converter, convert_job
 ├── converter.py             # 12-step pipeline orchestrator
@@ -445,28 +468,41 @@ src/converters/talend_to_v1/
 
 ### Conversion Pipeline
 
+```text
+
+ 1. XmlParser.parse(filepath)     → TalendJob (nodes, connections, context)
+ 2. Convert context variables     → type mapping applied
+ 3. For each node:
+    ├─ REGISTRY.get(type)         → find converter class
+    ├─ converter.convert(node)    → ComponentResult (or _unsupported placeholder)
+    └─ collect warnings
+
+ 1. Parse flows from connections  → centrally, not per-component
+ 2. Update component inputs/outputs from flows
+ 3. Propagate input schemas       → set each target's schema.input from
+                                    its upstream component's schema.output
+
+ 1. Parse triggers               → PascalCase naming (OnSubjobOk, etc.)
+ 2. Detect subjobs               → DFS on flow connectivity
+ 3. Detect Java requirement       → scan for Java component types + {{java}} markers
+4. Validate                     → 4-layer validation
+5. Return assembled config dict
 ```
-1. XmlParser.parse(filepath)     → TalendJob (nodes, connections, context)
-2. Convert context variables     → type mapping applied
-3. For each node:
-   ├─ REGISTRY.get(type)         → find converter class
-   ├─ converter.convert(node)    → ComponentResult (or _unsupported placeholder)
-   └─ collect warnings
-4. Parse flows from connections  → centrally, not per-component
-5. Update component inputs/outputs from flows
-6. Parse triggers               → PascalCase naming (OnSubjobOk, etc.)
-7. Detect subjobs               → DFS on flow connectivity
-8. Detect Java requirement       → scan for Java component types + {{java}} markers
-9. Validate                     → 4-layer validation
-10. Return assembled config dict
-```
+
+> **Step 6 detail:** After all components are parsed and connections are
+> wired, the pipeline walks every flow and sets the target component's
+> `schema.input` to the source component's `schema.output`.  This
+> ensures reshape components (e.g. tAggregateSortedRow, tAggregateRow,
+> tNormalize) whose output columns differ from their input columns get
+> the correct upstream schema — rather than echoing their own FLOW
+> metadata for both input and output.
 
 ---
 
 ## Differences from `complex_converter`
 
 | Aspect | Old (`complex_converter`) | New (`talend_to_v1`) |
-|--------|--------------------------|---------------------|
+| ------ | ------------------------ | ------------------- |
 | Dispatch | 150-line `elif` chain | Registry-based decorator lookup |
 | Component files | 1 file (2,985 lines) | 85 files (one per component) |
 | Null safety | `node.find().get()` crashes | Base class `_get_*` helpers |

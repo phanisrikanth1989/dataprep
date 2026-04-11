@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tReplace` |
 | **V1 Engine Class** | None -- no concrete engine implementation exists |
 | **Engine File** | No dedicated engine file |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/converters/talend_to_v1/components/transform/replace.py` | Converter class `ReplaceConverter` (202 lines) |
 | `tests/converters/talend_to_v1/components/test_replace.py` | Converter tests (30 tests, 10 classes) |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()`, `_build_component_dict()` |
@@ -39,7 +39,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 5 unique + 2 framework params extracted (100%); SUBSTITUTIONS stride-7 TABLE; ADVANCED_SUBST stride-4 TABLE; WHOLE_WORD default fixed True; phantom CONNECTION_FORMAT removed; single consolidated needs_review |
 | Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No concrete engine implementation exists; component cannot execute |
 | Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code quality is good (follows CONVERTER_PATTERN.md), but no engine code exists -- component is incomplete |
@@ -49,6 +49,7 @@ How production-ready is this component at a glance?
 **Overall: RED -- No engine implementation. Converter correctly extracts all 7 params (5 unique + 2 framework) with both TABLE parsers and WHOLE_WORD default fix. Engine must be implemented before this component is usable.**
 
 **Top Actions**:
+
 1. Implement concrete Replace engine class (P0 -- blocks production use)
 2. All converter and test issues resolved in v1.1 rewrite
 
@@ -72,7 +73,7 @@ In advanced mode, the component uses an ADVANCED_SUBST table where the search an
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Simple Mode | `SIMPLE_MODE` | CHECK | `true` | When true, use literal search/replace patterns from SUBSTITUTIONS table |
 | 2 | Substitutions | `SUBSTITUTIONS` | TABLE (stride-7) | [] | Table of substitution rules for simple mode |
 | 2a | - Input Column | `INPUT_COLUMN` | str (elementRef) | -- | Column name to apply substitution to |
@@ -87,7 +88,7 @@ In advanced mode, the component uses an ADVANCED_SUBST table where the search an
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 4 | Advanced Mode | `ADVANCED_MODE` | CHECK | `false` | When true, use column-based search/replace from ADVANCED_SUBST table |
 | 5 | Advanced Substitutions | `ADVANCED_SUBST` | TABLE (stride-4) | [] | Table of column-based substitution rules |
 | 5a | - Input Column | `INPUT_COLUMN` | str (elementRef) | -- | Column to apply substitution to |
@@ -98,7 +99,7 @@ In advanced mode, the component uses an ADVANCED_SUBST table where the search an
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Data flow to apply replacements to |
 | `FLOW` (Main) | Output | Row > Main | Data with replacements applied (same schema as input) |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires when subjob completes successfully |
@@ -107,7 +108,7 @@ In advanced mode, the component uses an ADVANCED_SUBST table where the search an
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | N/A | -- | -- | No globalMap variables documented for tReplace |
 
 ### 3.5 Behavioral Notes
@@ -130,7 +131,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 The converter uses `@REGISTRY.register("tReplace")` decorator for dispatch and the `ReplaceConverter` class inheriting from `ComponentConverter`. It extracts 5 unique params plus 2 framework params using base class helpers. Two module-level TABLE parser functions (`_parse_substitutions` for stride-7, `_parse_advanced_subst` for stride-4) handle the TABLE parameters. Uses `_build_component_dict` with `type_name="tReplace"` per D-43 no-engine pattern.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `SIMPLE_MODE` | Yes | `simple_mode` | `_get_bool(node, "SIMPLE_MODE", True)` |
 | 2 | `SUBSTITUTIONS` | Yes | `substitutions` | Stride-7 TABLE via `_parse_substitutions()`. WHOLE_WORD default True (CRITICAL FIX). |
 | 3 | `STRICT_MATCH` | Yes | `strict_match` | `_get_bool(node, "STRICT_MATCH", True)`. Hidden param (SHOW=false). |
@@ -145,7 +146,7 @@ The converter uses `@REGISTRY.register("tReplace")` decorator for dispatch and t
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` from FLOW connector |
 | `type` | Yes | Via `convert_type()` for Talend-to-Python type mapping |
 | `nullable` | Yes | From SchemaColumn |
@@ -164,13 +165,13 @@ The converter passes through string values as-is. Context variable references (`
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No open converter issues. All resolved in v1.1 gold standard rewrite. |
 
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | (all) | No v1 engine implementation for tReplace -- single consolidated entry per D-27 | engine_gap |
 
 ---
@@ -182,7 +183,7 @@ How faithfully does the v1 engine implement Talend behavior?
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Simple mode search-and-replace | **No** | N/A | No engine file | No engine implementation exists |
 | 2 | Advanced mode column-based replace | **No** | N/A | No engine file | No engine implementation exists |
 | 3 | Whole word matching | **No** | N/A | No engine file | No engine implementation exists |
@@ -192,13 +193,13 @@ How faithfully does the v1 engine implement Talend behavior?
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-REP-001 | **P0** | No concrete engine implementation exists. tReplace cannot execute in v1 engine. |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | N/A | -- | -- | -- | No globalMap variables for tReplace; no engine exists |
 
 ---
@@ -210,19 +211,19 @@ How well-written is the engine code?
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-REP-001 | **P0** | No engine file | No engine code exists -- component is non-functional |
 
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | Converter follows snake_case convention for all config keys. No naming issues. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | -- | -- | -- | Converter follows CONVERTER_PATTERN.md gold standard. No violations. |
 
 ### 6.4 Debug Artifacts
@@ -236,7 +237,7 @@ No concerns identified. The converter performs data extraction only and does not
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Module-level `logger = logging.getLogger(__name__)` present |
 | Level usage | N/A -- no engine code to assess |
 | Sensitive data | No sensitive data exposure in converter |
@@ -244,7 +245,7 @@ No concerns identified. The converter performs data extraction only and does not
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | N/A -- no engine code; converter returns ComponentResult |
 | Exception chaining | N/A -- no engine code |
 | die_on_error handling | N/A -- no engine code |
@@ -252,7 +253,7 @@ No concerns identified. The converter performs data extraction only and does not
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Full type hints on convert(), parser functions, all parameters |
 | Parameter types | `Dict[str, Any]`, `List[Dict[str, Any]]` throughout |
 
@@ -263,13 +264,13 @@ No concerns identified. The converter performs data extraction only and does not
 Will it scale?
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No engine implementation to assess |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- no engine implementation |
 | Memory threshold | N/A |
 | Large data handling | N/A |
@@ -283,7 +284,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 30 | `tests/converters/talend_to_v1/components/test_replace.py` |
 | Engine unit tests | 0 | None -- no engine implementation |
 | Integration tests | 0 | None -- no engine implementation |
@@ -291,12 +292,13 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-REP-001 | **P0** | No engine unit tests -- engine is unimplemented |
 
 ### 8.3 Recommended Test Cases
 
 When engine is implemented:
+
 - Happy path: simple mode with single substitution
 - Multiple substitutions on same column
 - Whole word vs partial matching
@@ -319,7 +321,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 1 | **ENG-REP-001** (no engine) |
 | P1 | 0 | -- |
 | P2 | 0 | -- |
@@ -329,7 +331,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
 | Engine (ENG) | 1 | ENG-REP-001 |
 | Bug (BUG) | 0 | -- |
@@ -368,8 +370,8 @@ What should be fixed, in what order?
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://github.com/nicogbg/talaxie/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tReplace/tReplace_java.xml` | Parameter definitions, defaults, TABLE structures |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://github.com/nicogbg/talaxie/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tReplace/tReplace_java.xml`> | Parameter definitions, defaults, TABLE structures |
 | Converter source | `src/converters/talend_to_v1/components/transform/replace.py` | Converter audit (202 lines) |
 | Test source | `tests/converters/talend_to_v1/components/test_replace.py` | Test coverage analysis (30 tests) |
 | Base class | `src/converters/talend_to_v1/components/base.py` | Helper methods, _build_component_dict |
@@ -377,7 +379,7 @@ What should be fixed, in what order?
 ## Appendix B: Converter Config Key Mapping
 
 | # | Talend XML Name | Config Key | Type | Default | Parser |
-|---|-----------------|-----------|------|---------|--------|
+| --- | ----------------- | ----------- | ------ | --------- | -------- |
 | 1 | `SIMPLE_MODE` | `simple_mode` | bool | `True` | `_get_bool()` |
 | 2 | `SUBSTITUTIONS` | `substitutions` | list[dict] | `[]` | `_parse_substitutions()` stride-7 |
 | 2a | `INPUT_COLUMN` | `input_column` | str | -- | elementRef |

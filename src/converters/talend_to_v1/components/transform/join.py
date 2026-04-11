@@ -135,7 +135,10 @@ class JoinConverter(ComponentConverter):
 
         # ---- 4. Schema ----
         schema_cols = self._parse_schema(node)
+        reject_cols = self._parse_schema(node, "REJECT")
         schema = {"input": schema_cols, "output": schema_cols}
+        if reject_cols:
+            schema["reject"] = reject_cols
 
         # ---- 5. Engine gap needs_review entries ----
         _engine_gap_keys = [

@@ -15,7 +15,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tExtractJSONFields` |
 | **V1 Engine Class** | `ExtractJSONFields` |
 | **Engine File** | `src/v1/engine/components/transform/extract_json_fields.py` (364 lines) |
@@ -27,7 +27,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/transform/extract_json_fields.py` | Engine implementation (364 lines) |
 | `src/converters/talend_to_v1/components/transform/extract_json_fields.py` | Converter class (198 lines) |
 | `tests/converters/talend_to_v1/components/test_extract_json_fields.py` | Converter tests (45 tests) |
@@ -39,16 +39,17 @@ What is this component and where does everything live?
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 15 config keys (13 unique + 2 framework) extracted; dual-TABLE parsing (XPath MAPPING stride-3 + JSONPath MAPPING_4_JSONPATH stride-2); SCHEMA_OPT_NUM, JDK_VERSION added; 9 per-feature needs_review entries |
 | Engine Feature Parity | **Y** | 1 | 4 | 3 | 1 | Hardcoded `_is_relative_query()` heuristic; no XPath mode support; no `json_field` column selection; no `use_loop_as_root`; REJECT flow incomplete |
 | Code Quality | **R** | 3 | 3 | 3 | 1 | Cross-cutting `_update_global_map()` crash; `json.loads` on non-string crashes; per-mapping silent exception swallowing; hardcoded property list in `_is_relative_query()` |
 | Performance & Memory | **Y** | 0 | 1 | 1 | 1 | Row-by-row `iterrows()` + per-row JSONPath `parse()` calls; no caching; streaming mode loses reject output |
 | Testing | **Y** | 0 | 0 | 1 | 0 | 45 converter tests (Green); zero engine unit tests |
 
-**Overall: YELLOW -- Converter fully standardized with 45 tests and dual-TABLE parsing; engine has P0 bugs and missing features preventing Green**
+Overall: YELLOW -- Converter fully standardized with 45 tests and dual-TABLE parsing; engine has P0 bugs and missing features preventing Green
 
 **Top Actions**:
+
 1. Fix NaN bypass in json.loads crash path (P0 BUG-EJF-001)
 2. Fix `_update_global_map()` crash (P0 cross-cutting BUG-EJF-002)
 3. Implement XPath mode extraction (P1 ENG-EJF-001)
@@ -73,7 +74,7 @@ The component supports two extraction modes: **JSONPath** (default, using `$.pat
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Schema | `SCHEMA` | Schema editor | -- | Output column definitions with extracted field types. |
 | 2 | Read By | `READ_BY` | CLOSED_LIST | `"JSONPATH"` | Extraction mode: JSONPATH or XPATH. Controls which MAPPING TABLE and loop query are active. |
 | 3 | JSONPath Library Version | `JSON_PATH_VERSION` | CLOSED_LIST | `"2_1_0"` | JSONPath library version. Values: 2_1_0, 0_8_0. Only visible when READ_BY=JSONPATH. |
@@ -88,7 +89,7 @@ The component supports two extraction modes: **JSONPath** (default, using `$.pat
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 11 | Schema Optimization Number | `SCHEMA_OPT_NUM` | TEXT (HIDDEN) | `"100"` | Hidden parameter for Talend internal schema optimization. |
 | 12 | Encoding | `ENCODING` | ENCODING_TYPE | `"UTF-8"` | Character encoding for JSON parsing. |
 | 13 | Use Loop as Root | `USE_LOOP_AS_ROOT` | CHECK | `true` | When true, JSONPath queries within mapping are relative to the loop node. |
@@ -98,7 +99,7 @@ The component supports two extraction modes: **JSONPath** (default, using `$.pat
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Incoming data with JSON string column |
 | `FLOW` (Main) | Output | Row > Main | Extracted fields as separate columns |
 | `REJECT` | Output | Row > Reject | Rows that failed JSON extraction (with errorCode/errorMessage) |
@@ -108,7 +109,7 @@ The component supports two extraction modes: **JSONPath** (default, using `$.pat
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total rows processed |
 | `{id}_NB_LINE_OK` | Integer | After execution | Rows successfully extracted |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Rows that failed extraction |
@@ -133,7 +134,7 @@ The component supports two extraction modes: **JSONPath** (default, using `$.pat
 The converter uses `_build_component_dict()` with `type_name="ExtractJSONFields"`. Two module-level TABLE parsers handle the dual mapping modes: `_parse_mapping_xpath()` for stride-3 XPath MAPPING and `_parse_mapping_jsonpath()` for stride-2 JSONPath MAPPING_4_JSONPATH. Both use elementRef-based parsing (not positional stride).
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `SCHEMA` | Yes | (schema) | Via `_parse_schema()` -- passthrough (input=output) |
 | 2 | `READ_BY` | Yes | `read_by` | CLOSED_LIST, default "JSONPATH" |
 | 3 | `JSON_PATH_VERSION` | Yes | `json_path_version` | CLOSED_LIST, default "2_1_0" |
@@ -143,20 +144,20 @@ The converter uses `_build_component_dict()` with `type_name="ExtractJSONFields"
 | 7 | `MAPPING` | Yes | `mapping` | TABLE stride-3: QUERY, NODECHECK, ISARRAY |
 | 8 | `MAPPING_4_JSONPATH` | Yes | `mapping_4_jsonpath` | TABLE stride-2: SCHEMA_COLUMN, QUERY |
 | 9 | `DIE_ON_ERROR` | Yes | `die_on_error` | CHECK, default False |
-| 10 | `SCHEMA_OPT_NUM` | Yes | `schema_opt_num` | HIDDEN, default "100" |
+| 10 | `SCHEMA_OPT_NUM` | **REMOVED** | ~~schema_opt_num~~ | Hidden/design-time param -- removed from converter |
 | 11 | `ENCODING` | Yes | `encoding` | ENCODING_TYPE, default "UTF-8" |
 | 12 | `USE_LOOP_AS_ROOT` | Yes | `use_loop_as_root` | CHECK, default True |
-| 13 | `SPLIT_LIST` | Yes | `split_list` | HIDDEN CHECK, default True |
-| 14 | `JDK_VERSION` | Yes | `jdk_version` | CLOSED_LIST, default "JDK_8" |
+| 13 | `SPLIT_LIST` | **REMOVED** | ~~split_list~~ | Hidden/design-time param -- removed from converter |
+| 14 | `JDK_VERSION` | **REMOVED** | ~~jdk_version~~ | Hidden/design-time param -- removed from converter |
 | 15 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Framework, default False |
 | 16 | `LABEL` | Yes | `label` | Framework, default "" |
 
-**Summary**: 16 of 16 extractable parameters extracted (100%). PROPERTY and SCHEMA_REJECT are non-extractable types.
+**Summary**: 13 of 16 extractable parameters extracted. 3 hidden/design-time params removed.
 
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Direct from SchemaColumn |
 | `type` | Yes | Converted via `convert_type()` |
 | `nullable` | Yes | Direct from SchemaColumn |
@@ -173,7 +174,7 @@ Context variables (`context.var_name`) and Java expressions within parameter val
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | CONV-EJF-001 | ~~P1~~ | **SUPERSEDED** -- Old dual-parser conflict eliminated by dedicated talend_to_v1 converter |
 | CONV-EJF-002 | ~~P1~~ | **SUPERSEDED** -- ElementRef-based MAPPING_4_JSONPATH parsing replaces fragile stride-2 |
 | CONV-EJF-003 | ~~P1~~ | **SUPERSEDED** -- Both LOOP_QUERY and JSON_LOOP_QUERY extracted as independent keys |
@@ -186,16 +187,13 @@ Context variables (`context.var_name`) and Java expressions within parameter val
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `read_by` | Engine does not read 'read_by' -- always uses JSONPath internally | engine_gap |
 | 2 | `json_path_version` | Engine does not read 'json_path_version' config key | engine_gap |
 | 3 | `jsonfield` | Engine does not read 'jsonfield' -- uses first column by default | engine_gap |
 | 4 | `json_loop_query` | Engine does not read 'json_loop_query' -- only uses loop_query | engine_gap |
 | 5 | `encoding` | Engine does not read 'encoding' config key | engine_gap |
 | 6 | `use_loop_as_root` | Engine does not read 'use_loop_as_root' config key | engine_gap |
-| 7 | `split_list` | Engine does not read 'split_list' config key | engine_gap |
-| 8 | `schema_opt_num` | Engine does not read 'schema_opt_num' -- hidden Talend param | engine_gap |
-| 9 | `jdk_version` | Engine does not read 'jdk_version' -- hidden Talend param | engine_gap |
 
 ---
 
@@ -204,7 +202,7 @@ Context variables (`context.var_name`) and Java expressions within parameter val
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | JSONPath extraction | **Yes** | Medium | `_extract_fields()` line 239 | Uses `jsonpath_ng.parse()` -- different library than Talend's json-path |
 | 2 | XPath extraction | **No** | N/A | -- | Engine only supports JSONPath mode |
 | 3 | Loop query iteration | **Yes** | Medium | `_extract_fields()` line 258 | Falls back to whole document if no matches |
@@ -221,7 +219,7 @@ Context variables (`context.var_name`) and Java expressions within parameter val
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-EJF-001 | **P1** | No XPath mode support -- READ_BY=XPATH jobs cannot execute |
 | ENG-EJF-002 | **P0** | `_is_relative_query()` uses hardcoded property list instead of USE_LOOP_AS_ROOT config -- breaks for any non-hardcoded property names |
 | ENG-EJF-003 | **P1** | Always reads JSON from `row[0]` instead of the column specified by JSONFIELD |
@@ -234,7 +232,7 @@ Context variables (`context.var_name`) and Java expressions within parameter val
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_stats()` line 220 | Via base class |
 | `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats()` line 220 | rows_out count |
 | `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats()` line 220 | reject count |
@@ -246,7 +244,7 @@ Context variables (`context.var_name`) and Java expressions within parameter val
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-EJF-001 | **P0** | `_process():170` | `json.loads(row[0])` crashes on NaN/None values -- pandas `iterrows()` converts None to NaN which is not a valid JSON string. CROSS-CUTTING with NaN handling issue. |
 | BUG-EJF-002 | **P0** | base_component.py | `_update_global_map()` crash when globalMap is set -- affects all components. CROSS-CUTTING. |
 | BUG-EJF-003 | **P0** | `_extract_fields():289` | `_is_relative_query()` uses hardcoded list of 5 property names (`$.skill`, `$.level`, `$.name`, `$.value`) and a string check for `$.employee` -- completely unreliable for real-world jobs |
@@ -257,14 +255,14 @@ Context variables (`context.var_name`) and Java expressions within parameter val
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-EJF-001 | **P2** | REJECT output uses `errorJSONField` (camelCase) instead of standard `error_json_field` (snake_case) |
 | NAME-EJF-002 | **P3** | Method `_is_relative_query` is misleadingly named -- it is actually a hardcoded property filter |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-EJF-001 | **P2** | "No hardcoded business logic" | `_is_relative_query()` has hardcoded property names that only work for specific demo data |
 
 ### 6.4 Debug Artifacts
@@ -274,7 +272,7 @@ Multiple `logger.debug()` statements with detailed intermediate state are presen
 ### 6.5 Security
 
 | Concern | Assessment |
-|---------|------------|
+| --------- | ------------ |
 | JSONPath injection | Low risk -- `jsonpath_ng.parse()` compiles to AST, limited injection surface |
 | Path traversal | N/A -- no file system access |
 | Data logging | `logger.debug()` logs full JSON data and extracted values -- sensitive data exposure risk in debug mode |
@@ -282,7 +280,7 @@ Multiple `logger.debug()` statements with detailed intermediate state are presen
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | **Good** -- module-level `logging.getLogger(__name__)` |
 | Level usage | **Excessive** -- 20+ debug statements in a 364-line file |
 | Sensitive data | **Concern** -- full JSON payloads logged at debug level |
@@ -290,7 +288,7 @@ Multiple `logger.debug()` statements with detailed intermediate state are presen
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | **Good** -- uses ComponentExecutionError, ConfigurationError |
 | Exception chaining | **Good** -- `from e` used correctly |
 | die_on_error handling | **Good** -- raises ComponentExecutionError when true, adds to reject when false |
@@ -298,7 +296,7 @@ Multiple `logger.debug()` statements with detailed intermediate state are presen
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | **Good** -- all methods have return type hints |
 | Parameter types | **Good** -- explicit types on all parameters |
 
@@ -307,7 +305,7 @@ Multiple `logger.debug()` statements with detailed intermediate state are presen
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-EJF-001 | **P1** | `iterrows()` row-by-row processing defeats pandas vectorization -- 100-1000x slower on large datasets |
 | PERF-EJF-002 | **P2** | `jsonpath_ng.parse()` called per-mapping per-row -- should be compiled once and reused |
 | PERF-EJF-003 | **P3** | `json.dumps()` serialization pass on every column of every row -- unnecessary for non-complex types |
@@ -315,7 +313,7 @@ Multiple `logger.debug()` statements with detailed intermediate state are presen
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | **Not supported** -- base class HYBRID mode would chunk input but `_process()` accumulates all results in `main_output` list |
 | Memory threshold | **No limit** -- large JSON documents produce unbounded `extracted_rows` lists |
 | Large data handling | **Poor** -- row-by-row + per-row JSONPath parsing is both CPU-bound and memory-accumulating |
@@ -327,7 +325,7 @@ Multiple `logger.debug()` statements with detailed intermediate state are presen
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 45 | `tests/converters/talend_to_v1/components/test_extract_json_fields.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | 0 | None (covered by regression guard) |
@@ -335,7 +333,7 @@ Multiple `logger.debug()` statements with detailed intermediate state are presen
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-EJF-001 | **P1** | No engine unit tests -- zero coverage of `ExtractJSONFields._process()`, `_extract_fields()`, `_is_relative_query()` |
 
 ### 8.3 Recommended Test Cases
@@ -356,7 +354,7 @@ Multiple `logger.debug()` statements with detailed intermediate state are presen
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 3 | **BUG-EJF-001**, **BUG-EJF-002**, **BUG-EJF-003** |
 | P1 | 6 | **ENG-EJF-001**, **ENG-EJF-003**, **ENG-EJF-004**, **ENG-EJF-005**, **BUG-EJF-004**, **BUG-EJF-005**, **PERF-EJF-001**, **TEST-EJF-001** |
 | P2 | 6 | **ENG-EJF-006**, **ENG-EJF-007**, **ENG-EJF-008**, **BUG-EJF-006**, **NAME-EJF-001**, **STD-EJF-001**, **PERF-EJF-002** |
@@ -366,7 +364,7 @@ Multiple `logger.debug()` statements with detailed intermediate state are presen
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | All ~~superseded~~ |
 | Engine (ENG) | 8 | ENG-EJF-001 through ENG-EJF-008 |
 | Bug (BUG) | 6 | BUG-EJF-001 through BUG-EJF-006 |
@@ -378,7 +376,7 @@ Multiple `logger.debug()` statements with detailed intermediate state are presen
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set (BUG-EJF-002) |
 | XCUT-002 | `base_component.py:iterrows` | Type demotion through iterrows/Series reconstruction (BUG-EJF-004) |
 | XCUT-003 | Multiple components | `iterrows()` anti-pattern 100-1000x performance degradation (PERF-EJF-001) |
@@ -395,17 +393,17 @@ Multiple `logger.debug()` statements with detailed intermediate state are presen
 
 ### Short-term (Hardening)
 
-4. **ENG-EJF-001 (P1)**: Implement XPath extraction mode for READ_BY=XPATH jobs
-5. **ENG-EJF-003 (P1)**: Read column from `jsonfield` config instead of hardcoded `row[0]`
-6. **ENG-EJF-005 (P1)**: Standardize REJECT column names to match Talend conventions
-7. **PERF-EJF-001 (P1)**: Replace `iterrows()` with vectorized JSON extraction (apply or list comprehension)
-8. **TEST-EJF-001 (P1)**: Add engine unit test suite
+1. **ENG-EJF-001 (P1)**: Implement XPath extraction mode for READ_BY=XPATH jobs
+2. **ENG-EJF-003 (P1)**: Read column from `jsonfield` config instead of hardcoded `row[0]`
+3. **ENG-EJF-005 (P1)**: Standardize REJECT column names to match Talend conventions
+4. **PERF-EJF-001 (P1)**: Replace `iterrows()` with vectorized JSON extraction (apply or list comprehension)
+5. **TEST-EJF-001 (P1)**: Add engine unit test suite
 
 ### Long-term (Optimization)
 
-9. **PERF-EJF-002 (P2)**: Cache compiled JSONPath expressions -- compile once per mapping, reuse across rows
-10. **ENG-EJF-006 (P2)**: Implement SPLIT_LIST support for array-valued extractions
-11. **NAME-EJF-002 (P3)**: Rename `_is_relative_query()` to reflect actual behavior or remove entirely
+1. **PERF-EJF-002 (P2)**: Cache compiled JSONPath expressions -- compile once per mapping, reuse across rows
+2. **ENG-EJF-006 (P2)**: Implement SPLIT_LIST support for array-valued extractions
+3. **NAME-EJF-002 (P3)**: Rename `_is_relative_query()` to reflect actual behavior or remove entirely
 
 ---
 
@@ -414,7 +412,7 @@ Multiple `logger.debug()` statements with detailed intermediate state are presen
 ### Risk Matrix
 
 | Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
+| ------ | ----------- | -------- | ------------ |
 | JSON injection via crafted JSONPath expressions | Low | Medium | `jsonpath_ng` compiles to AST -- limited injection surface, but untrusted user input in queries should be validated |
 | Large JSON document memory consumption | High | High | No streaming support; row-by-row + per-row JSONPath creates O(rows * doc_size) memory pressure; add size limits |
 | Encoding mismatches (UTF-8 default vs non-UTF-8 input) | Medium | Medium | Engine ignores encoding config; non-UTF-8 JSON will cause `json.loads()` UnicodeDecodeError or silent corruption |
@@ -442,9 +440,9 @@ Multiple `logger.debug()` statements with detailed intermediate state are presen
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Official Talend docs | https://help.qlik.com/talend/en-US/components/8.0/processing/textractjsonfields-standard-properties | Parameter definitions, defaults |
-| Talaxie GitHub _java.xml | https://github.com/nicoan/talend_components | Full parameter list with types and defaults |
+| -------- | ---------- | ---------- |
+| Official Talend docs | <https://help.qlik.com/talend/en-US/components/8.0/processing/textractjsonfields-standard-properties> | Parameter definitions, defaults |
+| Talaxie GitHub _java.xml | <https://github.com/nicoan/talend_components> | Full parameter list with types and defaults |
 | Engine source | `src/v1/engine/components/transform/extract_json_fields.py` | Feature parity analysis (364 lines) |
 | Converter source | `src/converters/talend_to_v1/components/transform/extract_json_fields.py` | Converter audit (198 lines) |
 | Test suite | `tests/converters/talend_to_v1/components/test_extract_json_fields.py` | 45 tests, 8 test classes |
@@ -452,7 +450,7 @@ Multiple `logger.debug()` statements with detailed intermediate state are presen
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set -- affects NB_LINE stats |
 | XCUT-002 | `base_component.py:iterrows` | Type demotion Decimal->float64, datetime64->object during extraction |
 | XCUT-003 | Multiple components | `iterrows()` anti-pattern -- 100-1000x performance degradation |
@@ -461,4 +459,4 @@ Multiple `logger.debug()` statements with detailed intermediate state are presen
 ---
 
 *Report generated: 2026-03-21*
-*Last updated: 2026-04-04 after Phase 12 gold-standard rewrite -- full audit rewrite with Section 11 Risk Assessment, dual-TABLE converter, 45 tests*
+*Last updated: 2026-04-04 after hidden/design-time param removal*

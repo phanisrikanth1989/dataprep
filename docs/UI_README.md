@@ -5,18 +5,21 @@ A modern web-based visual job designer for the RecDataPrep ETL engine, inspired 
 ## Features
 
 ### 🎨 Visual Job Designer
+
 - **Drag-and-Drop Canvas** - Intuitive component palette with drag-to-canvas functionality
 - **React Flow Integration** - Professional visual workflow editing with zoom, pan, and minimap
 - **Component Configuration** - Dynamic forms based on component metadata
 - **Real-time Validation** - Component compatibility checking and error highlighting
 
 ### 🚀 Job Management
+
 - **CRUD Operations** - Create, read, update, delete ETL jobs
 - **Job Templates** - Save and reuse job configurations
 - **Export/Import** - Export jobs as JSON for version control or sharing
 - **Persistent Storage** - File-based or database storage (configured)
 
 ### 📊 Execution & Monitoring
+
 - **Real-time Progress** - WebSocket-based live job execution updates
 - **Component Statistics** - Track lines processed, accepted, rejected per component
 - **Live Logs** - Stream execution logs to the UI as they happen
@@ -24,6 +27,7 @@ A modern web-based visual job designer for the RecDataPrep ETL engine, inspired 
 
 ### 🔧 Component Library
 Pre-built components ready to use:
+
 - **Input**: tFileInput (CSV, JSON, Parquet)
 - **Transform**: tMap, tFilter, tAggregate, tSort
 - **Output**: tFileOutput (single or bulk write)
@@ -32,6 +36,7 @@ Pre-built components ready to use:
 ## Quick Start
 
 ### Prerequisites
+
 - Python 3.8+
 - Node.js 16+
 - npm or yarn
@@ -84,7 +89,7 @@ cd frontend
 npm run dev
 ```
 
-Open http://localhost:5173 in your browser.
+Open <http://localhost:5173> in your browser.
 
 ## Project Structure
 
@@ -273,8 +278,8 @@ Receives JSON updates every second:
    - Click a component to select it
    - Adjust settings in the right panel
    - Click **"Save Config"** to apply changes
-3. **Connect Components**: Click the output handle of one component and drag to the input handle of another
-4. **Save Job**: Click **"Save"** at the top to persist your changes
+1. **Connect Components**: Click the output handle of one component and drag to the input handle of another
+2. **Save Job**: Click **"Save"** at the top to persist your changes
 
 ### 3. Running a Job
 
@@ -296,21 +301,25 @@ Receives JSON updates every second:
 Read data from files (CSV, JSON, Parquet)
 
 **Fields:**
+
 - `file_path` (text): Path to input file
 - `file_format` (select): CSV, JSON, Parquet
 - `delimiter` (text): For CSV files, default `,`
 
 **Outputs:**
+
 - Default output with full schema
 
 ### tMap
 Transform data with expressions and mappings
 
 **Fields:**
+
 - `mappings` (expression): JavaScript object with output mappings
 - `filter_condition` (expression): Optional row filter
 
 **Outputs:**
+
 - Main output with transformed schema
 - Reject output for failed rows
 
@@ -327,10 +336,12 @@ Transform data with expressions and mappings
 Filter rows based on conditions
 
 **Fields:**
+
 - `condition` (expression): JavaScript boolean expression
 - `reject_on_false` (boolean): Route non-matching rows to reject
 
 **Outputs:**
+
 - Main (matching rows)
 - Reject (non-matching rows if enabled)
 
@@ -338,31 +349,37 @@ Filter rows based on conditions
 Group and aggregate data
 
 **Fields:**
+
 - `group_by` (text): Comma-separated grouping columns
 - `aggregations` (expression): Aggregation functions
 
 **Outputs:**
+
 - Aggregated data
 
 ### tSort
 Sort data by one or more columns
 
 **Fields:**
+
 - `sort_keys` (text): Comma-separated column names
 - `reverse` (boolean): Descending order
 
 **Outputs:**
+
 - Sorted data
 
 ### tFileOutput
 Write data to files
 
 **Fields:**
+
 - `file_path` (text): Output file path
 - `file_format` (select): CSV, JSON, Parquet
 - `append_mode` (boolean): Append to existing file
 
 **Outputs:**
+
 - None (terminal component)
 
 ## Adding Custom Components
@@ -389,7 +406,7 @@ To add a new component:
 }
 ```
 
-2. **Implement component class** in `src/v1/engine/components/`:
+1. **Implement component class** in `src/v1/engine/components/`:
 ```python
 class MyComponent(BaseComponent):
     def __init__(self, config):
@@ -401,31 +418,35 @@ class MyComponent(BaseComponent):
         return transformed_data
 ```
 
-3. **Register in engine** in `src/v1/engine/engine.py`
+1. **Register in engine** in `src/v1/engine/engine.py`
 
-4. **Frontend auto-loads** from metadata API
+2. **Frontend auto-loads** from metadata API
 
 ## Troubleshooting
 
 ### Backend won't start
+
 - Check Python version: `python --version` (need 3.8+)
 - Check dependencies: `pip list | grep -E "fastapi|pydantic|uvicorn"`
 - Check port: Ensure port 8000 is free
 - Check firewall: Allow localhost:8000
 
 ### Frontend won't load
+
 - Check Node version: `node --version` (need 16+)
 - Check npm packages: `npm list` in frontend folder
 - Clear cache: `rm -rf node_modules && npm install`
 - Check environment: Verify `.env.local` has correct API URL
 
 ### WebSocket connection fails
+
 - Verify backend is running on 8000
 - Check browser console for connection errors
 - Ensure CORS is enabled (should be in main.py)
 - Try different port if 8000 is blocked
 
 ### Job execution errors
+
 - Check job export format with `/api/jobs/{job_id}/export`
 - Verify component configurations are complete
 - Check backend logs for detailed error messages
@@ -434,6 +455,7 @@ class MyComponent(BaseComponent):
 ## Development
 
 ### Hot Reload
+
 - Backend: Auto-reloads with Uvicorn (changes to run.py)
 - Frontend: Vite provides instant HMR for all changes
 
@@ -457,7 +479,7 @@ npm run preview  # Test production build locally
 
 **Frontend** (`frontend/.env.local`):
 ```
-VITE_API_URL=http://localhost:8000/api
+VITE_API_URL=<http://localhost:8000/api>
 VITE_WS_URL=ws://localhost:8000
 ```
 
@@ -506,6 +528,7 @@ To extend the UI:
 ## Support
 
 For issues, questions, or suggestions:
+
 1. Check the troubleshooting section above
 2. Review API documentation
 3. Check backend logs: `backend/run.py` output

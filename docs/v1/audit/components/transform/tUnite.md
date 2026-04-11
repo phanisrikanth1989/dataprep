@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tUnite` |
 | **V1 Engine Class** | `Unite` |
 | **Engine File** | `src/v1/engine/components/transform/unite.py` (393 lines) |
@@ -24,7 +24,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/transform/unite.py` | Engine implementation (393 lines) |
 | `src/converters/talend_to_v1/components/transform/unite.py` | Converter class (60 lines) |
 | `tests/converters/talend_to_v1/components/test_unite.py` | Converter tests (18 tests) |
@@ -36,7 +36,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 0 unique + 2 framework params extracted (100%); _build_component_dict; passthrough schema; 0 needs_review (engine defaults compatible) |
 | Code Quality | **G** | 0 | 0 | 0 | 0 | Gold standard converter pattern; clean, minimal, well-documented module docstring with config mapping |
 | Testing | **Y** | 0 | 0 | 1 | 0 | 18 converter tests across 7 test classes; no engine unit tests (TEST-UNI-001) |
@@ -64,7 +64,7 @@ The component is commonly used when data arrives from multiple sources (e.g., di
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Schema | `SCHEMA` | Schema editor | -- | Propagated from first upstream connection via "Sync Columns". tUnite passes through the input schema identically to its output. All inputs must share the same schema. |
 | 2 | Label | `LABEL` | String (TEXT) | `""` | Text label for the component in Talend Studio. No runtime impact. Framework param. |
 | 3 | tStatCatcher Statistics | `TSTATCATCHER_STATS` | Boolean (CHECK) | `false` | Capture processing metadata for tStatCatcher. Framework param. |
@@ -78,7 +78,7 @@ None. tUnite has no advanced settings tab.
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `Row (Main)` | Input | Row > Main | Multiple input data flows. All connected inputs are merged. |
 | `Row (Main)` | Output | Row > Main | Single merged output flow containing all input rows. |
 | `COMPONENT_OK` | Output (Trigger) | Trigger | Fires on successful completion |
@@ -87,7 +87,7 @@ None. tUnite has no advanced settings tab.
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total rows processed across all inputs |
 | `{id}_NB_LINE_OK` | Integer | After execution | Rows successfully merged to output |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Rows rejected (always 0 for unite) |
@@ -108,7 +108,7 @@ None. tUnite has no advanced settings tab.
 The converter uses `_build_component_dict` with `type_name="Unite"` and passthrough schema pattern. No unique parameters to extract beyond framework params.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `SCHEMA` | Yes | schema (passthrough) | `_parse_schema(node)` with input == output |
 | 2 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | `_get_bool(node, ..., False)` -- framework param |
 | 3 | `LABEL` | Yes | `label` | `_get_str(node, ..., "")` -- framework param |
@@ -118,7 +118,7 @@ The converter uses `_build_component_dict` with `type_name="Unite"` and passthro
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` |
 | `type` | Yes | Converted from Talend types via `convert_type()` |
 | `nullable` | Yes | Boolean |
@@ -149,7 +149,7 @@ None. Engine defaults (UNION mode, no dedup) match Talend UNION ALL behavior. En
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | UNION ALL merge | **Yes** | High | `_process_batch()` line 220-223 | `pd.concat(dataframes, ignore_index=True, sort=False)` |
 | 2 | Multiple input handling | **Yes** | High | `execute()` line 117-144 | Accepts dict of DataFrames |
 | 3 | Schema passthrough | **Partial** | Medium | N/A | Engine does not validate that all inputs share the same schema |
@@ -163,7 +163,7 @@ None. Engine defaults (UNION mode, no dedup) match Talend UNION ALL behavior. En
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-UNI-001 | **P2** | Engine reads `mode` (default 'UNION') which has no _java.xml equivalent. Default is safe (matches Talend). |
 | ENG-UNI-002 | **P2** | Engine reads `remove_duplicates` (default False) which has no _java.xml equivalent. Default matches Talend (no dedup). |
 | ENG-UNI-003 | **P2** | Engine reads `keep` (default 'first') which has no _java.xml equivalent. Only relevant when remove_duplicates=True. |
@@ -176,7 +176,7 @@ None. Engine defaults (UNION mode, no dedup) match Talend UNION ALL behavior. En
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_stats()` | Total input rows across all inputs |
 | `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats()` | Output rows |
 | `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats()` | Always 0 |
@@ -192,7 +192,7 @@ None. Engine defaults (UNION mode, no dedup) match Talend UNION ALL behavior. En
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-UNI-001 | **P2** | `unite.py:54-57` | `_validate_config()` performs mode/merge validation but is never called by base class -- dead code |
 
 ### 6.2 Naming Consistency
@@ -202,7 +202,7 @@ No naming issues found in converter or engine.
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-UNI-001 | **P2** | "_validate_config() called or dead code" | `_validate_config()` defined but never called by base class |
 
 ### 6.4 Debug Artifacts
@@ -216,7 +216,7 @@ No concerns identified. tUnite is a pure data merging component with no file I/O
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Correct -- `logging.getLogger(__name__)` |
 | Level usage | Appropriate -- info for start/complete, warning for empty input, debug for per-input counts |
 | Sensitive data | No concerns -- only logs row counts and input names |
@@ -224,7 +224,7 @@ No concerns identified. tUnite is a pure data merging component with no file I/O
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Generic Exception re-raise in `_process_batch()` |
 | Exception chaining | No -- bare `raise` without chaining |
 | die_on_error handling | Not present -- engine always raises on error |
@@ -232,7 +232,7 @@ No concerns identified. tUnite is a pure data merging component with no file I/O
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Complete -- return types and parameter types on all methods |
 | Parameter types | Correct -- Optional[Any], Dict[str, Any], List[str] |
 
@@ -241,14 +241,14 @@ No concerns identified. tUnite is a pure data merging component with no file I/O
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-UNI-001 | **P2** | `pd.concat()` creates a full copy of all input data. For N inputs totaling M rows, peak memory is approximately 2x M rows (all inputs + concatenated result). No streaming option for UNION mode. |
 | PERF-UNI-002 | **P3** | MERGE mode with no `merge_columns` falls back to common-column detection (set intersection per merge step), which is O(n_cols) per merge. Acceptable for typical use but not optimized. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Implemented for UNION only via generator (`_process_streaming()`). MERGE falls back to batch. |
 | Memory threshold | No threshold -- loads all inputs into memory before concat |
 | Large data handling | Memory-bound by sum of all input sizes. No chunked processing in batch mode. |
@@ -260,7 +260,7 @@ No concerns identified. tUnite is a pure data merging component with no file I/O
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 18 | `tests/converters/talend_to_v1/components/test_unite.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | 0 | None (component-specific) |
@@ -268,7 +268,7 @@ No concerns identified. tUnite is a pure data merging component with no file I/O
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-UNI-001 | **P2** | No engine unit tests for Unite component |
 
 ### 8.3 Recommended Test Cases
@@ -289,7 +289,7 @@ No concerns identified. tUnite is a pure data merging component with no file I/O
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 0 | -- |
 | P1 | 0 | -- |
 | P2 | 11 | ENG-UNI-001 through ENG-UNI-008, BUG-UNI-001, STD-UNI-001, PERF-UNI-001, TEST-UNI-001 |
@@ -299,7 +299,7 @@ No concerns identified. tUnite is a pure data merging component with no file I/O
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Engine (ENG) | 8 | ENG-UNI-001 through ENG-UNI-008 |
 | Bug (BUG) | 1 | BUG-UNI-001 |
 | Standards (STD) | 1 | STD-UNI-001 |
@@ -309,7 +309,7 @@ No concerns identified. tUnite is a pure data merging component with no file I/O
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py` | `_update_global_map()` crash when globalMap set |
 | XCUT-002 | `base_component.py` | `_validate_config()` never called |
 
@@ -338,7 +338,7 @@ No P0 or P1 issues. Converter is production-ready.
 ### Risk Matrix
 
 | Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
+| ------ | ----------- | -------- | ------------ |
 | MERGE mode accidentally triggered via engine config | Low | High | Engine defaults to UNION mode. Converter never outputs `mode` key. Risk only if manual JSON editing sets mode=MERGE. |
 | Schema mismatch across inputs | Medium | Medium | tUnite assumes all inputs have identical schemas. Engine uses `pd.concat(sort=False)` which produces NaN columns if schemas differ. No validation in converter or engine. Talend Studio prevents this via Sync Columns. |
 | Streaming mode data ordering | Low | Low | Streaming mode only supports UNION. Generator yields chunks from each input sequentially. Row order may differ from batch mode if inputs are generators vs DataFrames. |
@@ -362,7 +362,7 @@ No P0 or P1 issues. Converter is production-ready.
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
+| -------- | ---------- | ---------- |
 | Talend docs | [tUnite Standard Properties](https://help.qlik.com/talend/en-US/components/8.0/processing/tunite-standard-properties) | Parameter definitions |
 | Talaxie GitHub _java.xml | [tUnite_java.xml](https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tUnite/tUnite_java.xml) | Component definition XML |
 | Engine source | `src/v1/engine/components/transform/unite.py` | Feature parity analysis (393 lines) |
@@ -371,7 +371,7 @@ No P0 or P1 issues. Converter is production-ready.
 ## Appendix B: Engine Config Key Mapping
 
 | Engine Config Key | _java.xml Param | Default (Engine) | Default (_java.xml) | Status |
-|-------------------|-----------------|------------------|---------------------|--------|
+| ------------------- | ----------------- | ------------------ | --------------------- | -------- |
 | `mode` | N/A | `'UNION'` | N/A | Engine-only key -- default matches Talend UNION ALL |
 | `remove_duplicates` | N/A | `False` | N/A | Engine-only key -- default matches Talend (no dedup) |
 | `keep` | N/A | `'first'` | N/A | Engine-only key -- only relevant if remove_duplicates=True |

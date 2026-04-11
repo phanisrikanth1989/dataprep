@@ -6,7 +6,7 @@ password protection, trimming, date conversion, and advanced separators.
 Config mapping (30 params total):
   VERSION_2007              -> version_2007              (bool, default False)
   FILENAME                  -> filepath                  (str, default "")
-  PASSWORD                  -> password                  (str, default "")
+  PASSWORD                  -> password                  (str, always empty -- cleared for security)
   ALL_SHEETS                -> all_sheets                (bool, default False)
   SHEETLIST                 -> sheetlist                 (TABLE stride-2: SHEETNAME, USE_REGEX)
   HEADER                    -> header                    (int, default 0)
@@ -205,7 +205,7 @@ class FileInputExcelConverter(ComponentConverter):
         config: Dict[str, Any] = {}
         config["version_2007"] = self._get_bool(node, "VERSION_2007", False)
         config["filepath"] = self._get_str(node, "FILENAME", "")
-        config["password"] = self._get_str(node, "PASSWORD", "")
+        config["password"] = ""  # Always empty -- never carry passwords into JSON
         config["all_sheets"] = self._get_bool(node, "ALL_SHEETS", False)
         config["header"] = self._get_int(node, "HEADER", 0)
         config["footer"] = self._get_int(node, "FOOTER", 0)

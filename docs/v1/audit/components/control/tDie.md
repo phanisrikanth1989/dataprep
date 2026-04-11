@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tDie` |
 | **V1 Engine Class** | `Die` |
 | **Engine File** | `src/v1/engine/components/control/die.py` (205 lines) |
@@ -24,7 +24,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/control/die.py` | Engine implementation (205 lines) |
 | `src/converters/talend_to_v1/components/control/die.py` | Converter class |
 | `tests/converters/talend_to_v1/components/test_die.py` | Converter tests |
@@ -36,7 +36,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 6 of 6 Talend params extracted (100%); MESSAGE default "the end is near", CODE default "4", PRIORITY default "5" per _java.xml; 3 per-feature needs_review for engine gaps |
 | Engine Feature Parity | **Y** | 0 | 3 | 2 | 1 | Message default mismatch; code default mismatch; EXIT_JVM not supported; phantom exit_code param; no tLogCatcher integration |
 | Code Quality | **Y** | 1 | 1 | 1 | 1 | Cross-cutting `_update_global_map()` crash bug; `_validate_config()` dead code; narrow globalMap regex pattern; good logging |
@@ -46,6 +46,7 @@
 **Overall: YELLOW -- Engine gaps and cross-cutting bugs prevent production readiness**
 
 **Top Actions**:
+
 1. Fix engine message default "Job execution stopped" to match Talend "the end is near"
 2. Fix engine code default 1 to match Talend 4
 3. Implement EXIT_JVM support in engine
@@ -72,7 +73,7 @@
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Die Message | `MESSAGE` | TEXT (Expression) | `"the end is near"` | Error message to display when job terminates. Supports context variables, globalMap references, and Java expressions. |
 | 2 | Code | `CODE` | TEXT (Integer) | `4` | Numeric error code associated with the die event. Used for programmatic filtering in tLogCatcher. Error codes >255 incompatible with Linux exit codes. |
 | 3 | Priority | `PRIORITY` | CLOSED_LIST (Integer) | `5` (ERROR) | Priority level. Items: TRACE(1), DEBUG(2), INFO(3), WARNING(4), ERROR(5), FATAL(6). Same priority scale as tWarn but defaults to ERROR instead of WARNING. |
@@ -80,13 +81,13 @@
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 4 | Exit JVM | `EXIT_JVM` | CHECK (Boolean) | `false` | When true, calls `System.exit()` to terminate the entire JVM process rather than just raising an exception. Used for hard termination when exception-based shutdown is insufficient. |
 
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Optional input data rows. Rows are counted as rejected before job terminates. |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Never fires -- component always terminates the job. |
 | `SUBJOB_ERROR` | Output (Trigger) | Trigger | Fires when the die event is caught by tLogCatcher before termination. |
@@ -98,7 +99,7 @@
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `DIE_MESSAGES` | String | After execution | The die message text. Note: plural "MESSAGES" (not "MESSAGE"). |
 | `DIE_CODE` | Integer | After execution | The die error code. |
 | `DIE_PRIORITY` | Integer | After execution | The die priority level. |
@@ -129,7 +130,7 @@
 The converter uses a dedicated `DieConverter` class with `@REGISTRY.register("tDie")` decorator-based dispatch. It extracts all 4 unique parameters plus 2 framework parameters using the standard `_get_str` and `_get_bool` helpers from the `ComponentConverter` base class.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `MESSAGE` | Yes | `message` | Default `"the end is near"` per _java.xml |
 | 2 | `CODE` | Yes | `code` | Default `"4"` per _java.xml. Extracted as string (TEXT field). |
 | 3 | `PRIORITY` | Yes | `priority` | Default `"5"` per _java.xml. Extracted as string (CLOSED_LIST stores integer value). |
@@ -150,13 +151,13 @@ MESSAGE values containing context variables or Java expressions are passed throu
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No converter issues. All parameters correctly extracted with correct defaults. |
 
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `message` | Engine default "Job execution stopped" differs from Talend default "the end is near" | engine_gap |
 | 2 | `code` | Engine default 1 differs from Talend default 4 | engine_gap |
 | 3 | `exit_jvm` | EXIT_JVM parameter not read by engine -- JVM exit behavior not supported | engine_gap |
@@ -168,7 +169,7 @@ MESSAGE values containing context variables or Java expressions are passed throu
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Die message | **Yes** | Medium | `_process()` line 126 | Default "Job execution stopped" differs from Talend "the end is near" |
 | 2 | Error code | **Yes** | Medium | `_process()` line 127 | Default 1 differs from Talend 4 |
 | 3 | Priority logging | **Yes** | High | `_process()` lines 140-149 | Priority constants match Talend (1-6). Default 5 matches Talend ERROR. |
@@ -184,7 +185,7 @@ MESSAGE values containing context variables or Java expressions are passed throu
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-DIE-001 | **P1** | **Message default mismatch**: Engine uses `"Job execution stopped"` (line 126) but Talend _java.xml default is `"the end is near"`. When converter emits the Talend default, behavior matches. If config key is stripped, engine falls back to wrong default. |
 | ENG-DIE-002 | **P1** | **Code default mismatch**: Engine uses `1` (line 127) but Talend _java.xml default is `4`. Same config-stripping risk as message. |
 | ENG-DIE-003 | **P1** | **EXIT_JVM not supported**: Engine does not read EXIT_JVM config key. Talend's System.exit() behavior cannot be replicated. Jobs relying on JVM termination semantics will behave differently -- exception-based shutdown allows tPostjob and finally blocks to run. |
@@ -195,7 +196,7 @@ MESSAGE values containing context variables or Java expressions are passed throu
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_MESSAGE` | Yes | Yes | `_process()` line 153 | Matches Talend |
 | `{id}_CODE` | Yes | Yes | `_process()` line 154 | Matches Talend |
 | `{id}_PRIORITY` | Yes | Yes | `_process()` line 155 | Matches Talend |
@@ -213,20 +214,20 @@ MESSAGE values containing context variables or Java expressions are passed throu
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-DIE-001 | **P0** | `base_component.py:298` | **CROSS-CUTTING**: `_update_global_map()` crashes ALL components when globalMap is set. Method calls `self.global_map.set()` but `GlobalMap` has `put()` not `set()`. |
 | BUG-DIE-002 | **P1** | `die.py:198` | **Narrow globalMap regex**: Only handles `((Integer)globalMap.get("key"))`. Missing String, Long, Float, Double, Boolean cast variants. Messages with `((String)globalMap.get("key"))` will not be resolved. |
 
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-DIE-001 | **P2** | Engine reads `exit_code` config key that does not exist in _java.xml. This phantom parameter creates confusion about what config keys are expected. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-DIE-001 | **P3** | "`_validate_config()` should be called or removed" | `_validate_config()` (lines 67-107) is defined but never called. Dead code -- base class `execute()` does not call component-level validation. |
 
 ### 6.4 Debug Artifacts
@@ -240,7 +241,7 @@ No concerns identified. The component does not execute arbitrary code, access th
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- module-level `logger = logging.getLogger(__name__)` |
 | Level usage | Good -- priority-based logging (info/warning/error/critical) matches the PRIORITY parameter |
 | Sensitive data | No concern -- message content is user-controlled and intended for logging |
@@ -248,7 +249,7 @@ No concerns identified. The component does not execute arbitrary code, access th
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Good -- uses `ComponentExecutionError` with exit code attachment |
 | Exception chaining | Good -- re-raises ComponentExecutionError, chains unexpected errors with `from e` |
 | die_on_error handling | N/A -- tDie always terminates; there is no "continue on error" mode |
@@ -256,7 +257,7 @@ No concerns identified. The component does not execute arbitrary code, access th
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- all methods have return type annotations |
 | Parameter types | Good -- `input_data: Optional[pd.DataFrame]`, `message: str` |
 
@@ -265,13 +266,13 @@ No concerns identified. The component does not execute arbitrary code, access th
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-DIE-001 | **P3** | **Regex recompilation**: `_resolve_global_map_variables()` calls `re.sub()` with inline pattern on every invocation. Could be compiled once as a module-level constant. Minimal impact since component only executes once before terminating. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- component terminates job immediately |
 | Memory threshold | N/A -- no data accumulation |
 | Large data handling | N/A -- input data only counted, not processed |
@@ -283,7 +284,7 @@ No concerns identified. The component does not execute arbitrary code, access th
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 24+ | `tests/converters/talend_to_v1/components/test_die.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | 0 | None |
@@ -291,7 +292,7 @@ No concerns identified. The component does not execute arbitrary code, access th
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-DIE-001 | **P2** | No engine unit tests for Die component |
 | TEST-DIE-002 | **P2** | No integration test for tDie + tLogCatcher interaction |
 
@@ -310,7 +311,7 @@ No concerns identified. The component does not execute arbitrary code, access th
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 1 | **BUG-DIE-001** |
 | P1 | 4 | **ENG-DIE-001**, **ENG-DIE-002**, **ENG-DIE-003**, **BUG-DIE-002** |
 | P2 | 5 | **ENG-DIE-004**, **ENG-DIE-005**, **NAME-DIE-001**, **TEST-DIE-001**, **TEST-DIE-002** |
@@ -320,7 +321,7 @@ No concerns identified. The component does not execute arbitrary code, access th
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Engine (ENG) | 6 | ENG-DIE-001 through ENG-DIE-006 |
 | Bug (BUG) | 2 | BUG-DIE-001, BUG-DIE-002 |
 | Naming (NAME) | 1 | NAME-DIE-001 |
@@ -331,7 +332,7 @@ No concerns identified. The component does not execute arbitrary code, access th
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:298` | `_update_global_map()` crash when globalMap set -- affects Die's globalMap storage |
 
 ---
@@ -347,26 +348,26 @@ No concerns identified. The component does not execute arbitrary code, access th
 
 ### Short-term (Hardening)
 
-5. **BUG-DIE-002** (P1): Expand globalMap regex to handle all cast variants
-6. **ENG-DIE-004** (P2): Remove phantom exit_code parameter from engine
-7. **ENG-DIE-005** (P2): Add missing Talend globalMap variables (DIE_MESSAGES, DIE_CODE, DIE_PRIORITY)
-8. **TEST-DIE-001/002** (P2): Add engine unit tests and integration tests
+1. **BUG-DIE-002** (P1): Expand globalMap regex to handle all cast variants
+2. **ENG-DIE-004** (P2): Remove phantom exit_code parameter from engine
+3. **ENG-DIE-005** (P2): Add missing Talend globalMap variables (DIE_MESSAGES, DIE_CODE, DIE_PRIORITY)
+4. **TEST-DIE-001/002** (P2): Add engine unit tests and integration tests
 
 ### Long-term (Optimization)
 
-9. **ENG-DIE-006** (P3): Implement tLogCatcher integration
-10. **STD-DIE-001** (P3): Remove dead `_validate_config()` method
-11. **PERF-DIE-001** (P3): Compile globalMap regex pattern once
+1. **ENG-DIE-006** (P3): Implement tLogCatcher integration
+2. **STD-DIE-001** (P3): Remove dead `_validate_config()` method
+3. **PERF-DIE-001** (P3): Compile globalMap regex pattern once
 
 ---
 
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub tDie_java.xml | `https://github.com/Talaxie/tdi-studio-se/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tDie/tDie_java.xml` | Parameter definitions, defaults |
-| Official Talend docs (tDie 8.0) | `https://help.qlik.com/talend/en-US/components/8.0/logs-and-errors/tdie` | Component behavior, usage |
-| Error handling guide (Talend 8.0) | `https://help.qlik.com/talend/en-US/studio-user-guide/8.0-R2024-07/using-tdie-twarn-and-tlogcatcher-for-error-handling` | tDie + tLogCatcher interaction |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub tDie_java.xml | `<https://github.com/Talaxie/tdi-studio-se/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tDie/tDie_java.xml`> | Parameter definitions, defaults |
+| Official Talend docs (tDie 8.0) | `<https://help.qlik.com/talend/en-US/components/8.0/logs-and-errors/tdie`> | Component behavior, usage |
+| Error handling guide (Talend 8.0) | `<https://help.qlik.com/talend/en-US/studio-user-guide/8.0-R2024-07/using-tdie-twarn-and-tlogcatcher-for-error-handling`> | tDie + tLogCatcher interaction |
 | Engine source | `src/v1/engine/components/control/die.py` (205 lines) | Feature parity analysis |
 | Converter source | `src/converters/talend_to_v1/components/control/die.py` | Converter audit |
 | Base component | `src/v1/engine/base_component.py` | Cross-cutting bug analysis |
@@ -374,7 +375,7 @@ No concerns identified. The component does not execute arbitrary code, access th
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:298` | `_update_global_map()` crash when globalMap set. Die stores 6 globalMap variables -- all would fail if base class method were called instead of direct `global_map.put()`. Currently Die uses direct `global_map.put()` calls (lines 153-158), bypassing the broken base class method. |
 | XCUT-002 | `base_component.py` | `_validate_config()` dead code pattern. Die defines validation (lines 67-107) that is never called. |
 | XCUT-003 | `global_map.py:28` | `GlobalMap.get()` broken method. Die uses `global_map.put()` directly which works correctly. |

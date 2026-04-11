@@ -112,14 +112,14 @@ class TestParameterExtraction:
             {"key": "var1", "value": "val1"},
         ]
 
-    def test_expression_values_preserved(self):
-        """Expression values are preserved as-is (quotes stripped)."""
+    def test_expression_values_marked_java(self):
+        """Java expression values are marked with {{java}} prefix."""
         table = _make_variables([
             ('"runDate"', '"TalendDate.getDate()"'),
         ])
         node = _make_node(params={"VARIABLES": table})
         result = SetGlobalVarConverter().convert(node, [], {})
-        assert result.component["config"]["variables"][0]["value"] == "TalendDate.getDate()"
+        assert result.component["config"]["variables"][0]["value"] == "{{java}}TalendDate.getDate()"
 
 
 class TestFrameworkParams:
@@ -205,7 +205,7 @@ class TestCompleteness:
         table = _make_variables([('"k"', '"v"')])
         node = _make_node(params={"VARIABLES": table})
         result = SetGlobalVarConverter().convert(node, [], {})
-        expected_keys = {"variables", "tstatcatcher_stats", "label"}
+        expected_keys = {"variables", "requires_java_bridge", "tstatcatcher_stats", "label"}
         actual_keys = set(result.component["config"].keys())
         missing = expected_keys - actual_keys
         assert not missing, f"Missing config keys: {missing}"

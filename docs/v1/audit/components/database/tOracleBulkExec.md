@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tOracleBulkExec` |
 | **V1 Engine Class** | None -- no concrete engine implementation exists |
 | **Engine File** | None -- no engine file for this component |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/converters/talend_to_v1/components/database/oracle_bulk_exec.py` | Converter class `OracleBulkExecConverter` |
 | `tests/converters/talend_to_v1/components/test_oracle_bulk_exec.py` | Converter tests |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()` |
@@ -39,7 +39,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 38 of 38 unique config keys extracted (100%); all connection, core, advanced SQL*Loader, NLS, encoding, and framework params extracted; single consolidated needs_review for engine gap |
 | Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No concrete engine implementation exists; component cannot execute |
 | Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code quality is good (follows CONVERTER_PATTERN.md), but no engine code exists at all -- component is incomplete |
@@ -49,6 +49,7 @@ How production-ready is this component at a glance?
 **Overall: RED -- No engine implementation. Converter correctly extracts all 38 params (most of any database component) for future engine support, but component cannot execute in production. Engine must be implemented before this component is usable.**
 
 **Top Actions**:
+
 1. Implement concrete OracleBulkExec engine class with SQL*Loader integration (P0 -- blocks production use)
 2. All converter and test issues resolved in v1.1 rewrite
 
@@ -74,7 +75,7 @@ This is the most parameter-rich database component in the Oracle family with app
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Use Existing Connection | `USE_EXISTING_CONNECTION` | CHECK | `false` | When true, reuse an existing tOracleConnection instead of creating a new one |
 | 2 | Connection | `CONNECTION` | COMPONENT_LIST | `""` | References the tOracleConnection component to reuse. Only visible when USE_EXISTING_CONNECTION is true. Filtered to tOracleConnection instances. |
 | 3 | Connection Type | `CONNECTION_TYPE` | CLOSED_LIST | `"ORACLE_SID"` | Connection method: ORACLE_SID, ORACLE_SERVICE_NAME, ORACLE_OCI, ORACLE_CUSTOM |
@@ -94,7 +95,7 @@ This is the most parameter-rich database component in the Oracle family with app
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | A1 | JDBC Properties | `PROPERTIES` | TEXT | `""` | Additional JDBC connection properties string |
 | A2 | Advanced Separator | `ADVANCED_SEPARATOR` | CHECK | `false` | Enable custom thousands/decimal separator formatting |
 | A3 | Thousands Separator | `THOUSANDS_SEPARATOR` | TEXT | `","` | Character for thousands grouping. Only relevant when ADVANCED_SEPARATOR is true. |
@@ -122,7 +123,7 @@ This is the most parameter-rich database component in the Oracle family with app
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` | N/A | Row > Main | No data flow connectors. tOracleBulkExec loads from a file, not from an input flow. |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires after bulk load completes successfully |
 | `SUBJOB_ERROR` | Output (Trigger) | Trigger | Fires if bulk load encounters an error |
@@ -133,7 +134,7 @@ This is the most parameter-rich database component in the Oracle family with app
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Number of rows loaded by SQL*Loader |
 
 ### 3.5 Behavioral Notes
@@ -151,7 +152,7 @@ This is the most parameter-rich database component in the Oracle family with app
 ### 3.6 Framework Parameters
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | F1 | tStatCatcher Stats | `TSTATCATCHER_STATS` | CHECK | `false` | Enable statistics collection for tStatCatcher |
 | F2 | Label | `LABEL` | TEXT | `""` | User-defined label for the component instance |
 
@@ -166,7 +167,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 The converter (`OracleBulkExecConverter`) uses the flat config dict pattern (no `_build_component_dict`). It extracts all 38 parameters including 15 basic connection/core params, 23 advanced SQL*Loader/NLS/encoding params, and 2 framework params. Uses `_get_str()`, `_get_bool()`, and `_get_int()` helpers from base class. OPTIONS TABLE is parsed via module-level `_parse_options_table()` function.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `USE_EXISTING_CONNECTION` | Yes | `use_existing_connection` | CHECK -> bool, default False |
 | 2 | `CONNECTION` | Yes | `connection` | COMPONENT_LIST -> str, default "" |
 | 3 | `CONNECTION_TYPE` | Yes | `connection_type` | CLOSED_LIST -> str, default "ORACLE_SID" |
@@ -213,7 +214,7 @@ The converter (`OracleBulkExecConverter`) uses the flat config dict pattern (no 
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` base class method |
 | `type` | Yes | Converted from Talend types via `convert_type()` |
 | `nullable` | Yes | Boolean |
@@ -232,7 +233,7 @@ Most parameters are simple string/boolean values. TEXT parameters like HOST, POR
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No converter issues. All parameters correctly extracted per gold standard pattern. DIE_ON_ERROR phantom removed. |
 
 ### 4.5 Needs Review Entries
@@ -240,7 +241,7 @@ Most parameters are simple string/boolean values. TEXT parameters like HOST, POR
 The converter emits a single consolidated needs_review entry per D-27 (entire engine absent):
 
 | # | Scope | Reason | Severity |
-|---|-------|--------|----------|
+| --- | ------- | -------- | ---------- |
 | 1 | Component-level | No concrete engine implementation for tOracleBulkExec. All 38 config keys are extracted for future engine support. SQL*Loader integration required. | engine_gap |
 
 ---
@@ -254,7 +255,7 @@ How faithfully does the v1 engine implement Talend behavior?
 No concrete engine implementation exists for tOracleBulkExec.
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | SQL*Loader bulk loading | **No** | N/A | -- | No engine class exists |
 | 2 | Control file generation | **No** | N/A | -- | No engine class exists |
 | 3 | Oracle connection management | **No** | N/A | -- | No engine class exists |
@@ -264,13 +265,13 @@ No concrete engine implementation exists for tOracleBulkExec.
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-OBE-001 | **P0** | **OPEN** -- No concrete OracleBulkExec engine class exists. Jobs using tOracleBulkExec cannot execute in the v1 engine. SQL*Loader integration, control file generation, NLS handling, and all 38 parameters must be implemented. |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | No | -- | No engine implementation |
 
 ---
@@ -282,19 +283,19 @@ How well-written is the converter code?
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | -- | -- | -- | No bugs found in the converter code. |
 
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No naming issues. Config keys follow snake_case convention. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | -- | -- | -- | No standards violations. Converter follows CONVERTER_PATTERN.md. |
 
 ### 6.4 Debug Artifacts
@@ -308,7 +309,7 @@ No concerns identified in the converter itself. The converter only reads XML par
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- `logger = logging.getLogger(__name__)` at module level |
 | Level usage | N/A -- logger not used in the converter (appropriate for complex parameter extraction) |
 | Sensitive data | No concerns in converter. PASS value is passed through without logging. |
@@ -316,7 +317,7 @@ No concerns identified in the converter itself. The converter only reads XML par
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Good -- no exceptions raised per convention (converters never raise) |
 | Exception chaining | N/A |
 | die_on_error handling | N/A -- tOracleBulkExec has no DIE_ON_ERROR parameter (phantom removed) |
@@ -324,7 +325,7 @@ No concerns identified in the converter itself. The converter only reads XML par
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- `convert()` fully typed with return type `ComponentResult` |
 | Parameter types | Good -- all base class helpers properly typed |
 
@@ -335,13 +336,13 @@ No concerns identified in the converter itself. The converter only reads XML par
 Will it scale?
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No performance or memory concerns in the converter. The converter is a parameter extractor. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- no engine implementation to assess |
 | Memory threshold | N/A |
 | Large data handling | N/A -- tOracleBulkExec loads via SQL*Loader (external process), not in-memory |
@@ -355,7 +356,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | Yes | `tests/converters/talend_to_v1/components/test_oracle_bulk_exec.py` |
 | Engine unit tests | 0 | None -- no engine implementation |
 | Integration tests | 0 | None |
@@ -363,7 +364,7 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | -- | -- | No test gaps. All required test classes per TEST_PATTERN.md present including TestPhantomParams for DIE_ON_ERROR removal. |
 
 ### 8.3 Recommended Test Cases
@@ -387,7 +388,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 1 (open) | **ENG-OBE-001** |
 | P1 | 0 | |
 | P2 | 0 | |
@@ -397,7 +398,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count (open/fixed) | IDs |
-|----------|-------------------|-----|
+| ---------- | ------------------- | ----- |
 | Converter (CONV) | 0/0 | |
 | Engine (ENG) | 1/0 | **ENG-OBE-001** |
 | Bug (BUG) | 0/0 | |
@@ -409,7 +410,7 @@ All issues grouped by priority for sprint planning.
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | -- | -- | No cross-cutting issues affect tOracleBulkExec directly (no engine implementation to interact with base class bugs) |
 
 ---
@@ -435,8 +436,8 @@ No P3 issues identified. Future engine implementation should consider: streaming
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://github.com/Talaxie/tdi-studio-se` (tOracleBulkExec_java.xml) | Parameter definitions, connectors, defaults |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://github.com/Talaxie/tdi-studio-se`> (tOracleBulkExec_java.xml) | Parameter definitions, connectors, defaults |
 | Converter source | `src/converters/talend_to_v1/components/database/oracle_bulk_exec.py` | Converter audit |
 | Converter base class | `src/converters/talend_to_v1/components/base.py` | Helper methods, dataclass definitions |
 | Test source | `tests/converters/talend_to_v1/components/test_oracle_bulk_exec.py` | Testing audit |
@@ -448,14 +449,14 @@ No P3 issues identified. Future engine implementation should consider: streaming
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | No impact -- no engine implementation to interact with `_update_global_map()` |
 | XCUT-002 | `global_map.py:28` | No impact -- no engine implementation to call `GlobalMap.get()` |
 
 ### Edge-Case Checklist Results
 
 | Check | Result | Notes |
-|-------|--------|-------|
+| ------- | -------- | ------- |
 | NaN handling | N/A | Converter does not process data values |
 | Empty strings in config keys | Safe | `_get_str()` returns default for None, handles empty strings |
 | Empty DataFrame input | N/A | No data flow (loads from file via SQL*Loader) |

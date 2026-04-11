@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tMap` |
 | **V1 Engine Class** | `Map` |
 | **Engine File** | `src/v1/engine/components/transform/map.py` (1164 lines) |
@@ -24,7 +24,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/transform/map.py` | Engine implementation (1164 lines -- largest in codebase) |
 | `src/converters/talend_to_v1/components/transform/map.py` | `MapConverter` class -- parses MapperData XML into v1 JSON config |
 | `tests/converters/talend_to_v1/components/test_map.py` | 56 converter tests across 11 test classes |
@@ -38,7 +38,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 9 unique + 2 framework params extracted (100%). CHANGE_HASH default fixed. LEVENSHTEIN/JACCARD added. 9 per-feature needs_review. Multi-flow nodeData parsing preserved. |
 | Engine Feature Parity | **Y** | 1 | 6 | 5 | 2 | No RELOAD_AT_EACH_ROW; no disk-based lookup caching; no parallel lookup; no catch_output_reject; UNIQUE_MATCH semantic deviation |
 | Code Quality | **Y** | 3 | 4 | 6 | 3 | Cross-cutting base class bugs; parallel forEach race condition; `print()` in bridge |
@@ -48,6 +48,7 @@
 **Overall: Y -- Most complex component. Converter now gold standard. Engine has significant feature gaps.**
 
 **Top Actions**:
+
 1. Fix cross-cutting `_update_global_map()` crash (P0, all components)
 2. Implement RELOAD_AT_EACH_ROW lookup mode (P1, correctness)
 3. Add engine unit tests for tMap (P1, testing gap)
@@ -72,14 +73,14 @@ The component uses Java expressions for all column mappings, filters, and join c
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Map | `MAP` | EXTERNAL | -- | Visual mapper editor reference. Not extracted (UI-only). |
 | 2 | Link Style | `LINK_STYLE` | CLOSED_LIST | `AUTO` | Connection line rendering style (AUTO, ROW, COLUMN). Visual only. |
 
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 3 | Die on Error | `DIE_ON_ERROR` | CHECK (hidden) | `true` | Stop job on component error |
 | 4 | Lookup Parallelize | `LKUP_PARALLELIZE` | CHECK (hidden) | `false` | Load lookup tables in parallel |
 | 5 | Levenshtein | `LEVENSHTEIN` | TEXT (hidden) | `0` | Levenshtein distance threshold for fuzzy string matching |
@@ -93,7 +94,7 @@ The component uses Java expressions for all column mappings, filters, and join c
 tMap's primary configuration lives in nodeData XML, not elementParameters:
 
 | Element | Purpose | Key Attributes |
-|---------|---------|----------------|
+| --------- | --------- | ---------------- |
 | `inputTables` (first) | Main input flow | `name`, `activateExpressionFilter`, `expressionFilter`, `matchingMode`, `lookupMode` |
 | `inputTables` (subsequent) | Lookup flows | Above + `innerJoin`, `persistent`, `sizeState` |
 | `varTables` | Variable definitions | `name`, `sizeState` |
@@ -103,14 +104,14 @@ tMap's primary configuration lives in nodeData XML, not elementParameters:
 ### 3.4 Framework Parameters
 
 | # | Parameter | Talend XML Name | Type | Default |
-|---|-----------|-----------------|------|---------|
+| --- | ----------- | ----------------- | ------ | --------- |
 | 10 | Stat Catcher | `TSTATCATCHER_STATS` | CHECK | `false` |
 | 11 | Label | `LABEL` | TEXT | `""` |
 
 ### 3.5 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Primary data input |
 | `LOOKUP` | Input | Row > Lookup | Lookup table input (one per lookup) |
 | `FLOW` (Output) | Output | Row > Main | Named output flows |
@@ -121,7 +122,7 @@ tMap's primary configuration lives in nodeData XML, not elementParameters:
 ### 3.6 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Number of rows processed |
 
 ### 3.7 Behavioral Notes
@@ -142,14 +143,14 @@ tMap's primary configuration lives in nodeData XML, not elementParameters:
 MapConverter parses both elementParameter flat params and nodeData MapperData XML. The converter uses module-level helper functions for each nodeData section: `_parse_input_main()`, `_parse_lookup()`, `_parse_variables()`, `_parse_outputs()`. All expressions are prefixed with `{{java}}` marker for engine routing.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|---|----------------------|------------|---------------|-------|
+| --- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `MAP` | No | -- | Visual editor reference, not a config param |
-| 2 | `LINK_STYLE` | Yes | `link_style` | Default "AUTO" |
+| 2 | `LINK_STYLE` | **REMOVED** | ~~link_style~~ | Hidden/design-time param -- removed from converter |
 | 3 | `DIE_ON_ERROR` | Yes | `die_on_error` | Default True |
-| 4 | `LKUP_PARALLELIZE` | Yes | `lkup_parallelize` | Default False |
-| 5 | `LEVENSHTEIN` | Yes | `levenshtein` | Default "0". **NEW** -- was missing |
-| 6 | `JACCARD` | Yes | `jaccard` | Default "0". **NEW** -- was missing |
-| 7 | `ENABLE_AUTO_CONVERT_TYPE` | Yes | `enable_auto_convert_type` | Default False |
+| 4 | `LKUP_PARALLELIZE` | **REMOVED** | ~~lkup_parallelize~~ | Hidden/design-time param -- removed from converter |
+| 5 | `LEVENSHTEIN` | **REMOVED** | ~~levenshtein~~ | Hidden/design-time param -- removed from converter |
+| 6 | `JACCARD` | **REMOVED** | ~~jaccard~~ | Hidden/design-time param -- removed from converter |
+| 7 | `ENABLE_AUTO_CONVERT_TYPE` | **REMOVED** | ~~enable_auto_convert_type~~ | Hidden/design-time param -- removed from converter |
 | 8 | `ROWS_BUFFER_SIZE` | Yes | `rows_buffer_size` | Default "2000000". Extracted as str for expression support. |
 | 9 | `CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL` | Yes | `change_hash_and_equals_for_bigdecimal` | Default True. **FIXED** (was False) |
 | 10 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Framework param, default False |
@@ -158,13 +159,13 @@ MapConverter parses both elementParameter flat params and nodeData MapperData XM
 **nodeData extraction:**
 
 | Element | Extracted? | V1 Config Path | Notes |
-|---------|------------|----------------|-------|
+| --------- | ------------ | ---------------- | ------- |
 | `inputTables[0]` | Yes | `config.inputs.main` | Main flow with filter, matching_mode, lookup_mode |
 | `inputTables[1:]` | Yes | `config.inputs.lookups[]` | Lookup flows with join keys, join_mode, matching_mode |
 | `varTables` | Yes | `config.variables[]` | Variable definitions with expressions |
 | `outputTables` | Yes | `config.outputs[]` | Output tables with columns, reject flags, filters |
 
-**Summary**: 9 of 9 unique parameters extracted (100%) + 2 framework params + full nodeData parsing.
+**Summary**: 4 of 9 unique parameters extracted + 2 framework params + full nodeData parsing. 5 hidden/design-time params removed.
 
 ### 4.2 Schema Extraction
 
@@ -177,7 +178,7 @@ All MapperData expressions (join keys, variable definitions, output column mappi
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | ~~CONV-MAP-001~~ | ~~P1~~ | **FIXED** -- CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL default corrected to True |
 | ~~CONV-MAP-002~~ | ~~P1~~ | **FIXED** -- LEVENSHTEIN param added (was missing entirely) |
 | ~~CONV-MAP-003~~ | ~~P1~~ | **FIXED** -- JACCARD param added (was missing entirely) |
@@ -188,16 +189,9 @@ All MapperData expressions (join keys, variable definitions, output column mappi
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
-| 1 | `link_style` | Engine does not read -- visual editor setting only | engine_gap |
-| 2 | `lkup_parallelize` | Engine does not support parallel lookup loading | engine_gap |
-| 3 | `enable_auto_convert_type` | Engine does not support automatic type conversion | engine_gap |
-| 4 | `rows_buffer_size` | Engine does not read -- no disk buffering support | engine_gap |
-| 5 | `change_hash_and_equals_for_bigdecimal` | Engine does not handle BigDecimal hash/equals behavior | engine_gap |
-| 6 | `levenshtein` | Engine does not read -- no fuzzy matching support | engine_gap |
-| 7 | `jaccard` | Engine does not read -- no fuzzy matching support | engine_gap |
-| 8 | `var_table_name` | Engine does not read -- uses variables list directly | engine_gap |
-| 9 | `var_table_size_state` | Engine does not read -- UI layout only | engine_gap |
+| --- | ----------- | -------- | ---------- |
+| 1 | `rows_buffer_size` | Engine does not read -- no disk buffering support | engine_gap |
+| 2 | `change_hash_and_equals_for_bigdecimal` | Engine does not handle BigDecimal hash/equals behavior | engine_gap |
 
 ---
 
@@ -206,8 +200,8 @@ All MapperData expressions (join keys, variable definitions, output column mappi
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|---|----------------|-------------|----------|-----------------|-------|
-| 1 | Main input processing | **Yes** | High | `_process()` line 90 | Reads config['inputs']['main'] |
+| --- | ---------------- | ------------- | ---------- | ----------------- | ------- |
+| 1 | Main input processing | **Yes** | High | `_process()` line 90 | Reads config\['inputs'\]\['main'\] |
 | 2 | Lookup joins | **Yes** | Medium | `_join_lookups()` | Uses pandas merge, matching_mode support |
 | 3 | UNIQUE_MATCH mode | **Partial** | Low | `_join_lookups()` | Uses drop_duplicates -- may not match Talend's "first row" semantics |
 | 4 | ALL_MATCHES mode | **Yes** | High | `_join_lookups()` | Default pandas merge behavior |
@@ -232,7 +226,7 @@ All MapperData expressions (join keys, variable definitions, output column mappi
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-MAP-001 | **P0** | `_update_global_map()` crash when globalMap is set (cross-cutting base class bug) |
 | ENG-MAP-002 | **P0** | Parallel forEach race condition in Java bridge chunked execution |
 | ENG-MAP-003 | **P0** | `parse_base_component()` returns None for tMap (multi-input routing mismatch) |
@@ -253,7 +247,7 @@ All MapperData expressions (join keys, variable definitions, output column mappi
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_global_map()` in base class | Cross-cutting crash bug (ENG-MAP-001) |
 
 ---
@@ -263,7 +257,7 @@ All MapperData expressions (join keys, variable definitions, output column mappi
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-MAP-001 | **P0** | `base_component.py:304` | CROSS-CUTTING: `_update_global_map()` crashes when globalMap is set |
 | BUG-MAP-002 | **P0** | `global_map.py:28` | CROSS-CUTTING: `GlobalMap.get()` broken signature |
 | BUG-MAP-003 | **P0** | `bridge.py` | Parallel forEach race condition in `execute_compiled_tmap_chunked()` |
@@ -275,14 +269,14 @@ All MapperData expressions (join keys, variable definitions, output column mappi
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-MAP-001 | **P2** | `_strip_java_marker()` vs `_java_expr()` -- inconsistent naming convention |
 | NAME-MAP-002 | **P2** | `_is_simple_column_ref()` returns bool but pattern is `SIMPLE_COLUMN_PATTERN` (class vs module level) |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-MAP-001 | **P2** | "No print statements" | `print()` in bridge.py for tMap script compilation |
 | STD-MAP-002 | **P2** | "Module-level logger" | Logger present but some error paths use bare `raise` without logging |
 | STD-MAP-003 | **P2** | "Type hints on all methods" | Several private methods lack return type annotations |
@@ -299,7 +293,7 @@ See Section 11 Risk Assessment for comprehensive security analysis.
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Correct: `logger = logging.getLogger(__name__)` |
 | Level usage | Adequate: info for processing counts, warning for empty inputs, error for failures |
 | Sensitive data | No sensitive data logged |
@@ -307,7 +301,7 @@ See Section 11 Risk Assessment for comprehensive security analysis.
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Uses base class exception hierarchy |
 | Exception chaining | Present in some paths via `raise ... from e` |
 | die_on_error handling | Reads `config.get('die_on_error', True)` -- controls exception propagation |
@@ -315,7 +309,7 @@ See Section 11 Risk Assessment for comprehensive security analysis.
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Present on public methods, missing on some private helpers |
 | Parameter types | Mostly typed, some `Any` overuse |
 
@@ -324,7 +318,7 @@ See Section 11 Risk Assessment for comprehensive security analysis.
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-MAP-001 | **P1** | 50K chunk size hard-coded -- not configurable per job |
 | PERF-MAP-002 | **P2** | Cartesian join (ALL_MATCHES) has no size guard -- OOM on large lookups |
 | PERF-MAP-003 | **P2** | Arrow serialization overhead per chunk for Java bridge |
@@ -334,7 +328,7 @@ See Section 11 Risk Assessment for comprehensive security analysis.
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Chunked execution via Java bridge (50K rows per chunk) |
 | Memory threshold | No explicit threshold -- relies on Python/Java heap limits |
 | Large data handling | Adequate for typical jobs; cartesian joins risk OOM |
@@ -346,7 +340,7 @@ See Section 11 Risk Assessment for comprehensive security analysis.
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 56 | `tests/converters/talend_to_v1/components/test_map.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | 5 | `tests/converters/talend_to_v1/test_integration.py` (TestComplexTMapStructure) |
@@ -354,7 +348,7 @@ See Section 11 Risk Assessment for comprehensive security analysis.
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-MAP-001 | **P1** | No engine unit tests for Map component |
 
 ### 8.3 Recommended Test Cases
@@ -377,7 +371,7 @@ See Section 11 Risk Assessment for comprehensive security analysis.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 3 | BUG-MAP-001, BUG-MAP-002, BUG-MAP-003 |
 | P1 | 8 | BUG-MAP-004, BUG-MAP-005, BUG-MAP-006, BUG-MAP-007, ENG-MAP-004, ENG-MAP-005, ENG-MAP-006, PERF-MAP-001, TEST-MAP-001 |
 | P2 | 12 | NAME-MAP-001, NAME-MAP-002, STD-MAP-001, STD-MAP-002, STD-MAP-003, ENG-MAP-010, ENG-MAP-011, ENG-MAP-012, ENG-MAP-013, ENG-MAP-014, PERF-MAP-002, PERF-MAP-003, PERF-MAP-004 |
@@ -387,7 +381,7 @@ See Section 11 Risk Assessment for comprehensive security analysis.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | All fixed |
 | Engine (ENG) | 13 | ENG-MAP-001 through ENG-MAP-016 |
 | Bug (BUG) | 7 | BUG-MAP-001 through BUG-MAP-007 |
@@ -399,7 +393,7 @@ See Section 11 Risk Assessment for comprehensive security analysis.
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set -- affects NB_LINE tracking |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` broken signature -- affects all globalMap reads |
 
@@ -415,17 +409,17 @@ See Section 11 Risk Assessment for comprehensive security analysis.
 
 ### Short-term (Hardening)
 
-4. Implement RELOAD_AT_EACH_ROW lookup mode (ENG-MAP-004)
-5. Fix UNIQUE_MATCH first-row semantics (BUG-MAP-004)
-6. Add engine unit tests (TEST-MAP-001)
-7. Add cartesian join size guard (PERF-MAP-002)
-8. Fix catch_output_reject support (ENG-MAP-006)
+1. Implement RELOAD_AT_EACH_ROW lookup mode (ENG-MAP-004)
+2. Fix UNIQUE_MATCH first-row semantics (BUG-MAP-004)
+3. Add engine unit tests (TEST-MAP-001)
+4. Add cartesian join size guard (PERF-MAP-002)
+5. Fix catch_output_reject support (ENG-MAP-006)
 
 ### Long-term (Optimization)
 
-9. Implement fuzzy matching (Levenshtein/Jaccard) (ENG-MAP-011)
-10. Make chunk size configurable (PERF-MAP-001)
-11. Add expression caching (PERF-MAP-005)
+1. Implement fuzzy matching (Levenshtein/Jaccard) (ENG-MAP-011)
+2. Make chunk size configurable (PERF-MAP-001)
+3. Add expression caching (PERF-MAP-005)
 
 ---
 
@@ -434,7 +428,7 @@ See Section 11 Risk Assessment for comprehensive security analysis.
 ### Risk Matrix
 
 | Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
+| ------ | ----------- | -------- | ------------ |
 | Multi-flow output shape change breaks engine | Low (converter preserves shape) | **Critical** -- engine directly accesses `config['inputs']['main']['name']` | Per D-74: maintain existing output shape. Document changes as needs_review 'output_shape_change'. |
 | Java expression injection in column mappings | Medium (expressions from .item files) | **High** -- arbitrary code execution in Java bridge | Validate expression syntax before passing to Java bridge. Sandbox Java execution. |
 | Lookup join memory explosion | Medium (ALL_MATCHES with large tables) | **High** -- OOM crash kills entire job | Add size guard: fail fast if cartesian product exceeds threshold. |
@@ -465,7 +459,7 @@ See Section 11 Risk Assessment for comprehensive security analysis.
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
+| -------- | ---------- | ---------- |
 | Talaxie GitHub _java.xml | `org.talend.designer.components/components/tMap/tMap_java.xml` | Parameter definitions, defaults, types |
 | Engine source | `src/v1/engine/components/transform/map.py` | Feature parity analysis (1164 lines) |
 | Converter source | `src/converters/talend_to_v1/components/transform/map.py` | Converter audit |
@@ -475,7 +469,7 @@ See Section 11 Risk Assessment for comprehensive security analysis.
 ## Appendix B: Engine Config Key Mapping
 
 | Config Key | Engine Reads? | Engine Location | Notes |
-|-----------|---------------|-----------------|-------|
+| ----------- | --------------- | ----------------- | ------- |
 | `inputs.main` | **Yes** | `_process()` line 110 | Nested dict with name, filter, matching_mode, etc. |
 | `inputs.lookups` | **Yes** | `_process()` line 111 | List of lookup dicts |
 | `variables` | **Yes** | `_process()` line 112 | List of variable defs |
@@ -548,4 +542,4 @@ tMap's nodeData uses the MapperData XML format. This is the primary configuratio
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after gold standard rewrite with Section 11 Risk Assessment*
+*Last updated: 2026-04-04 after hidden/design-time param removal*

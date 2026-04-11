@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tOracleRow` |
 | **V1 Engine Class** | None -- no concrete engine implementation exists |
 | **Engine File** | None -- no engine file for this component |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/converters/talend_to_v1/components/database/oracle_row.py` | Converter class `OracleRowConverter` |
 | `tests/converters/talend_to_v1/components/test_oracle_row.py` | Converter tests |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()` |
@@ -39,7 +39,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 26 of 26 unique config keys extracted (100%); all connection, query, prepared statement, datasource, and advanced params extracted; framework params extracted; single consolidated needs_review for engine gap |
 | Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No concrete engine implementation exists; component cannot execute |
 | Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code quality is good (follows CONVERTER_PATTERN.md), but no engine code exists at all -- component is incomplete |
@@ -49,6 +49,7 @@ How production-ready is this component at a glance?
 **Overall: RED -- No engine implementation. Converter correctly extracts all params for future engine support, but component cannot execute in production. Engine must be implemented before this component is usable.**
 
 **Top Actions**:
+
 1. Implement concrete OracleRow engine class (P0 -- blocks production use)
 2. All converter and test issues resolved in v1.1 rewrite
 
@@ -74,7 +75,7 @@ When `DIE_ON_ERROR` is false, a REJECT flow connector becomes available, routing
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Use existing connection | `USE_EXISTING_CONNECTION` | CHECK | `false` | When true, reuses a connection opened by tOracleConnection. When false, creates its own connection. |
 | 2 | Connection | `CONNECTION` | COMPONENT_LIST | `""` | Required when USE_EXISTING_CONNECTION is true. References the tOracleConnection component. Filter: tOracleConnection only. |
 | 3 | Connection type | `CONNECTION_TYPE` | CLOSED_LIST | `"ORACLE_SID"` | Oracle connection method. Options: ORACLE_SID, ORACLE_SERVICE_NAME, ORACLE_OCI, ORACLE_RAC. Shown when not using existing connection. |
@@ -97,7 +98,7 @@ When `DIE_ON_ERROR` is false, a REJECT flow connector becomes available, routing
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | A1 | JDBC properties | `PROPERTIES` | TEXT | `""` | Additional JDBC connection parameters. Format: "param1=value1&&param2=value2". Shown when not using existing connection. |
 | A2 | Propagate record set | `PROPAGATE_RECORD_SET` | CHECK | `false` | When true, propagates the JDBC ResultSet object downstream for advanced processing. |
 | A3 | Record set column | `RECORD_SET_COLUMN` | COLUMN_LIST | `""` | Column to receive the ResultSet. Shown when PROPAGATE_RECORD_SET is true. |
@@ -110,7 +111,7 @@ When `DIE_ON_ERROR` is false, a REJECT flow connector becomes available, routing
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input/Output | Row > Main | Input: receives rows for parameterized queries. Output: passes rows through (max 1 in, 1 out). |
 | `REJECT` | Output | Row > Reject | Failed rows with errorCode and errorMessage columns. Only available when DIE_ON_ERROR is false. |
 | `ITERATE` | Input/Output | Iterate | Iterate connector (max 1 in, 1 out). |
@@ -123,7 +124,7 @@ When `DIE_ON_ERROR` is false, a REJECT flow connector becomes available, routing
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_QUERY` | String | During FLOW | The SQL query being executed. |
 | `{id}_NB_LINE_UPDATED` | Integer | After execution | Number of rows updated (when USE_NB_LINE == NB_LINE_UPDATED). |
 | `{id}_NB_LINE_INSERTED` | Integer | After execution | Number of rows inserted (when USE_NB_LINE == NB_LINE_INSERTED). |
@@ -153,7 +154,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 The converter uses the flat config dict pattern (no-engine component). All 26 unique parameters plus 2 framework parameters are extracted via `_get_str()`, `_get_bool()`, `_get_int()`, and a stride-based TABLE parser for SET_PREPAREDSTATEMENT_PARAMETERS.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `USE_EXISTING_CONNECTION` | Yes | `use_existing_connection` | bool, default False |
 | 2 | `CONNECTION` | Yes | `connection` | str, default "" |
 | 3 | `CONNECTION_TYPE` | Yes | `connection_type` | str, default "ORACLE_SID" |
@@ -188,7 +189,7 @@ The converter uses the flat config dict pattern (no-engine component). All 26 un
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` |
 | `type` | Yes | Converted via `convert_type()` |
 | `nullable` | Yes | Boolean |
@@ -209,7 +210,7 @@ None -- all converter issues resolved in v1.1 rewrite.
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | (all keys) | No concrete engine implementation for tOracleRow. All config keys are extracted for future engine support. | engine_gap |
 
 ---
@@ -221,7 +222,7 @@ How faithfully does the v1 engine implement Talend behavior?
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | SQL query execution | **No** | N/A | None | No engine implementation exists |
 | 2 | Prepared statements | **No** | N/A | None | No engine implementation exists |
 | 3 | Connection management | **No** | N/A | None | No engine implementation exists |
@@ -232,13 +233,13 @@ How faithfully does the v1 engine implement Talend behavior?
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-ORC-001 | **P0** | No engine implementation exists. Component cannot execute any SQL queries. All 26 config keys are extracted by the converter but have no engine to consume them. |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_QUERY` | Yes | No | N/A | No engine implementation |
 | `{id}_NB_LINE_UPDATED` | Yes | No | N/A | No engine implementation |
 | `{id}_NB_LINE_INSERTED` | Yes | No | N/A | No engine implementation |
@@ -257,13 +258,13 @@ No engine code exists. Converter code has no bugs after v1.1 rewrite.
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No issues. Converter follows snake_case convention for all config keys. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | -- | -- | -- | Converter follows CONVERTER_PATTERN.md. No violations. |
 
 ### 6.4 Debug Artifacts
@@ -277,7 +278,7 @@ No engine code to assess. Converter passes password values through as-is (no pla
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Module-level `logger = logging.getLogger(__name__)` present |
 | Level usage | N/A -- converter uses no log statements (appropriate for simple extraction) |
 | Sensitive data | Password not logged |
@@ -285,7 +286,7 @@ No engine code to assess. Converter passes password values through as-is (no pla
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | N/A -- converters never raise exceptions |
 | Exception chaining | N/A |
 | die_on_error handling | Extracted as config key; engine handling N/A |
@@ -293,7 +294,7 @@ No engine code to assess. Converter passes password values through as-is (no pla
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Fully typed: `convert()` with `TalendNode`, `List[TalendConnection]`, `Dict[str, Any]` -> `ComponentResult` |
 | Parameter types | All helper calls use typed defaults |
 
@@ -308,7 +309,7 @@ No engine implementation to assess.
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- no engine |
 | Memory threshold | N/A |
 | Large data handling | N/A |
@@ -322,7 +323,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | ~35 | `tests/converters/talend_to_v1/components/test_oracle_row.py` |
 | Engine unit tests | 0 | None -- no engine implementation |
 | Integration tests | 0 | None |
@@ -330,7 +331,7 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-ORC-001 | **P0** | No engine tests (engine is unimplemented) |
 
 ### 8.3 Recommended Test Cases
@@ -347,7 +348,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 3 | **ENG-ORC-001**, **TEST-ORC-001**, (engine missing -- affects Engine, Code Quality, Testing dimensions) |
 | P1 | 0 | -- |
 | P2 | 0 | -- |
@@ -357,7 +358,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
 | Engine (ENG) | 1 | **ENG-ORC-001** |
 | Bug (BUG) | 0 | -- |
@@ -393,8 +394,8 @@ No P2/P3 issues. Converter is fully standardized.
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://github.com/Talaxie/tdi-studio-se/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tOracleRow/tOracleRow_java.xml` | Parameter definitions, defaults, TABLE structures, connection types |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://github.com/Talaxie/tdi-studio-se/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tOracleRow/tOracleRow_java.xml`> | Parameter definitions, defaults, TABLE structures, connection types |
 | Converter source | `src/converters/talend_to_v1/components/database/oracle_row.py` | Converter audit |
 | Test source | `tests/converters/talend_to_v1/components/test_oracle_row.py` | Testing coverage audit |
 | Base class | `src/converters/talend_to_v1/components/base.py` | Helper method signatures |
@@ -404,7 +405,7 @@ No P2/P3 issues. Converter is fully standardized.
 No engine implementation exists, so no cross-cutting engine issues apply.
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | -- | -- | No engine code to analyze |
 
 ---

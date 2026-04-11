@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tFileOutputEBCDIC` |
 | **V1 Engine Class** | None -- no concrete engine implementation exists |
 | **Engine File** | None -- no engine file |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/converters/talend_to_v1/components/file/file_output_ebcdic.py` | Converter class `FileOutputEbcdicConverter` (78 lines) |
 | `tests/converters/talend_to_v1/components/test_file_output_ebcdic.py` | Converter tests (28 tests, 9 classes) |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()`, `_build_component_dict()` |
@@ -39,7 +39,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 5 of 5 known params extracted (100%); LOW confidence (no _java.xml available); 1 consolidated needs_review for missing engine; module docstring follows CONVERTER_PATTERN.md |
 | Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No concrete engine implementation exists; component cannot execute |
 | Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code follows gold standard, but no engine code exists -- component is incomplete |
@@ -49,6 +49,7 @@ How production-ready is this component at a glance?
 **Overall: RED -- No engine implementation. Converter correctly extracts all 5 known params for future engine support, but component cannot execute in production. Enterprise-only component: _java.xml NOT available in open-source Talaxie repository. Params are LOW confidence.**
 
 **Top Actions**:
+
 1. Implement concrete FileOutputEBCDIC engine class (P0 -- blocks production use)
 2. Obtain enterprise _java.xml to verify param names and defaults (LOW confidence currently)
 3. All converter and test issues resolved in v1.1 rewrite
@@ -75,7 +76,7 @@ The component reads incoming rows from a FLOW connection and writes each row to 
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Confidence | Description |
-|---|-----------|-----------------|------|---------|------------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------ | ------------- |
 | 1 | Filename | `FILENAME` | FILE | `""` | LOW | Path to the output EBCDIC file |
 | 2 | Encoding | `ENCODING` | ENCODING_TYPE | `"Cp1047"` | LOW | EBCDIC codepage. Cp1047 is US EBCDIC standard |
 | 3 | Append | `APPEND` | CHECK | `false` | LOW | When true, appends to existing file instead of overwriting |
@@ -89,7 +90,7 @@ Unknown -- enterprise-only component, _java.xml not available. Possible addition
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Input data flow. Each row is written to the EBCDIC output file. |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires after all rows written successfully |
 | `COMPONENT_OK` | Output (Trigger) | Trigger | Fires after component completes |
@@ -98,7 +99,7 @@ Unknown -- enterprise-only component, _java.xml not available. Possible addition
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Number of rows written (assumed, not verified) |
 
 ### 3.5 Behavioral Notes
@@ -120,7 +121,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 The `FileOutputEbcdicConverter` class follows the gold standard CONVERTER_PATTERN.md with section-delimited parameter extraction and `_build_component_dict()` wrapper. Uses `type_name="tFileOutputEBCDIC"` (Talend name) per D-43 since no engine implementation exists.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `FILENAME` | Yes | `filename` | `_get_str()`, default `""` |
 | 2 | `ENCODING` | Yes | `encoding` | `_get_str()`, default `"Cp1047"` |
 | 3 | `APPEND` | Yes | `append` | `_get_bool()`, default `False` |
@@ -134,7 +135,7 @@ The `FileOutputEbcdicConverter` class follows the gold standard CONVERTER_PATTER
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` base class method |
 | `type` | Yes | Converted via `convert_type()` from Talend types |
 | `nullable` | Yes | Boolean from schema column |
@@ -153,7 +154,7 @@ Context variables (`context.var`) and Java expressions are passed through in str
 No open issues. Converter follows gold standard CONVERTER_PATTERN.md.
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No converter issues found |
 
 ### 4.5 Needs Review Entries
@@ -161,7 +162,7 @@ No open issues. Converter follows gold standard CONVERTER_PATTERN.md.
 Single consolidated needs_review entry per D-51 (no engine component):
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | (all) | No v1 engine implementation exists for tFileOutputEBCDIC. All converter output keys are informational only and cannot be consumed by the engine. | engine_gap |
 
 ---
@@ -173,7 +174,7 @@ How faithfully does the v1 engine implement Talend behavior?
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | EBCDIC file writing | **No** | N/A | -- | No engine implementation |
 | 2 | Cp1047/EBCDIC encoding | **No** | N/A | -- | No engine implementation |
 | 3 | Append mode | **No** | N/A | -- | No engine implementation |
@@ -183,13 +184,13 @@ How faithfully does the v1 engine implement Talend behavior?
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-EBCDIC-001 | **P0** | No engine implementation exists. Component cannot execute. All EBCDIC file writing, encoding handling, and output generation features are completely absent. |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Assumed | No | -- | No engine implementation |
 
 ---
@@ -201,7 +202,7 @@ How well-written is the engine code?
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-EBCDIC-001 | **P0** | -- | No engine code exists. Cannot assess bugs in non-existent code. The converter code quality is good (follows CONVERTER_PATTERN.md). |
 
 ### 6.2 Naming Consistency
@@ -223,7 +224,7 @@ No concerns in converter code. When engine is implemented, should validate FILEN
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Module-level `logger = logging.getLogger(__name__)` present |
 | Level usage | N/A -- no log statements needed in converter |
 | Sensitive data | No sensitive data logged |
@@ -231,7 +232,7 @@ No concerns in converter code. When engine is implemented, should validate FILEN
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Not applicable -- converters return ComponentResult, never raise |
 | Exception chaining | Not applicable |
 | die_on_error handling | Extracted as config key for future engine use |
@@ -239,7 +240,7 @@ No concerns in converter code. When engine is implemented, should validate FILEN
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Fully typed (convert method) |
 | Parameter types | All params typed with Dict, List, Any, str, bool |
 
@@ -250,13 +251,13 @@ No concerns in converter code. When engine is implemented, should validate FILEN
 Will it scale?
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No engine implementation to assess. Performance will depend on EBCDIC encoding implementation and buffered file writing when engine is built. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- no engine. When implemented, should support batch/streaming writing for large datasets |
 | Memory threshold | N/A -- no engine |
 | Large data handling | N/A -- no engine. EBCDIC encoding conversion may require memory-efficient buffering |
@@ -270,7 +271,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 28 | `tests/converters/talend_to_v1/components/test_file_output_ebcdic.py` |
 | Engine unit tests | 0 | None -- no engine implementation |
 | Integration tests | 0 | None -- no engine implementation |
@@ -278,12 +279,13 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-EBCDIC-001 | **P0** | No engine tests -- engine does not exist |
 
 ### 8.3 Recommended Test Cases
 
 When engine is implemented:
+
 - EBCDIC file writing with Cp1047 encoding (basic)
 - Multiple EBCDIC codepages (Cp037, Cp500, Cp1140)
 - Append mode vs overwrite
@@ -302,7 +304,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 3 | **ENG-EBCDIC-001**, **BUG-EBCDIC-001**, **TEST-EBCDIC-001** |
 | P1 | 0 | -- |
 | P2 | 0 | -- |
@@ -312,7 +314,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
 | Engine (ENG) | 1 | **ENG-EBCDIC-001** |
 | Bug (BUG) | 1 | **BUG-EBCDIC-001** |
@@ -352,7 +354,7 @@ What should be fixed, in what order?
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
+| -------- | ---------- | ---------- |
 | Existing converter code | `src/converters/talend_to_v1/components/file/file_output_ebcdic.py` | Parameter extraction, config mapping |
 | Talend domain knowledge | -- | EBCDIC encoding defaults, common codepages |
 | Talaxie GitHub | Not available -- enterprise-only component | _java.xml NOT FOUND in open-source repository |
@@ -363,7 +365,7 @@ What should be fixed, in what order?
 No cross-cutting issues applicable. No engine code exists.
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | -- | -- | No engine code to be affected |
 
 ---

@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tOracleSP` |
 | **V1 Engine Class** | None -- no concrete engine implementation exists |
 | **Engine File** | None -- no engine file for this component |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/converters/talend_to_v1/components/database/oracle_sp.py` | Converter class `OracleSPConverter` |
 | `tests/converters/talend_to_v1/components/test_oracle_sp.py` | Converter tests |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()` |
@@ -39,7 +39,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 23 of 23 unique config keys extracted (100%); SP_NAME (not PROCEDURE), PASS (not PASSWORD), SP_ARGS stride-6 TABLE, IS_FUNCTION, RETURN, RETURN_BDTYPE; framework params extracted; single consolidated needs_review for engine gap |
 | Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No concrete engine implementation exists; component cannot execute |
 | Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code quality is good (follows CONVERTER_PATTERN.md), but no engine code exists at all -- component is incomplete |
@@ -49,6 +49,7 @@ How production-ready is this component at a glance?
 **Overall: Red -- No engine implementation. Converter correctly extracts all params including SP_ARGS TABLE and phantom param fixes (SP_NAME, PASS) for future engine support, but component cannot execute in production.**
 
 **Top Actions**:
+
 1. Implement concrete OracleSP engine class with stored procedure/function invocation support (P0 -- blocks production use)
 2. All converter and test issues resolved in v1.1 rewrite
 
@@ -74,7 +75,7 @@ The component supports Oracle-specific features including SID/Service Name conne
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Use existing connection | `USE_EXISTING_CONNECTION` | CHECK | `false` | When true, reuses a connection opened by tOracleConnection. When false, creates its own connection with the parameters below. |
 | 2 | Connection | `CONNECTION` | COMPONENT_LIST | `""` | References the tOracleConnection component to reuse. Only visible when USE_EXISTING_CONNECTION is true. Filtered to show only tOracleConnection instances. |
 | 3 | Connection type | `CONNECTION_TYPE` | CLOSED_LIST | `"ORACLE_SID"` | Connection method: ORACLE_SID (SID-based) or ORACLE_SERVICE_NAME (service name). Controls how DBNAME vs LOCAL_SERVICE_NAME is used. |
@@ -97,7 +98,7 @@ The component supports Oracle-specific features including SID/Service Name conne
 #### 3.1.1 SP_ARGS TABLE Structure (stride-6)
 
 | Field | Talend XML Name | Type | Default | Description |
-|-------|-----------------|------|---------|-------------|
+| ------- | ----------------- | ------ | --------- | ------------- |
 | Column | `COLUMN` | COLUMN_LIST | `""` | Schema column reference for this argument |
 | Parameter type | `TYPE` | CLOSED_LIST | `"IN"` | Argument direction: IN, OUT, INOUT, or RECORDSET |
 | DB type | `DBTYPE` | CLOSED_LIST | `"AUTOMAPPING"` | Database type mapping for the argument |
@@ -108,7 +109,7 @@ The component supports Oracle-specific features including SID/Service Name conne
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | A1 | Additional JDBC properties | `PROPERTIES` | TEXT | `""` | Extra JDBC connection properties string. |
 | A2 | Encoding | `ENCODING` | ENCODING_TYPE | `"ISO-8859-15"` | Character encoding for the connection. Note: default is ISO-8859-15, not UTF-8. |
 | A3 | NLS Language | `NLS_LANGUAGE` | CLOSED_LIST | `"NONE"` | Oracle NLS_LANGUAGE session parameter. Set to non-NONE to customize. |
@@ -118,7 +119,7 @@ The component supports Oracle-specific features including SID/Service Name conne
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Output | Row > Main | Output flow carrying stored procedure results or OUT parameter values. |
 | `REJECT` | Output | Row > Reject | Reject flow for rows that cause errors during execution. |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires after stored procedure execution succeeds |
@@ -130,7 +131,7 @@ The component supports Oracle-specific features including SID/Service Name conne
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Number of rows processed |
 
 ### 3.5 Behavioral Notes
@@ -148,7 +149,7 @@ The component supports Oracle-specific features including SID/Service Name conne
 ### 3.6 Framework Parameters
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | F1 | tStatCatcher Stats | `TSTATCATCHER_STATS` | CHECK | `false` | Enable statistics collection for tStatCatcher |
 | F2 | Label | `LABEL` | TEXT | `""` | User-defined label for the component instance |
 
@@ -163,11 +164,12 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 The converter uses the flat config dict pattern (no `_build_component_dict()`). All 23 unique parameters plus 2 framework parameters are extracted. SP_ARGS TABLE uses a stride-6 module-level parser `_parse_sp_args()`.
 
 **CRITICAL phantom param fixes applied:**
+
 - `PROCEDURE` -> `SP_NAME`: Old converter used `PROCEDURE` which does not exist in _java.xml. Fixed to `SP_NAME`.
 - `PASSWORD` -> `PASS`: Old converter used `PASSWORD` which does not exist in _java.xml for tOracleSP. Fixed to `PASS`.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `USE_EXISTING_CONNECTION` | Yes | `use_existing_connection` | bool, default false |
 | 2 | `CONNECTION` | Yes | `connection` | str, default "" |
 | 3 | `CONNECTION_TYPE` | Yes | `connection_type` | str, default "ORACLE_SID" |
@@ -197,13 +199,14 @@ The converter uses the flat config dict pattern (no `_build_component_dict()`). 
 **Summary**: 23 of 23 unique parameters extracted (100%), plus 2 framework parameters.
 
 **Removed phantom params:**
+
 - `PROCEDURE` -- not in _java.xml, old converter used this instead of `SP_NAME`
 - `DIE_ON_ERROR` -- not in _java.xml for tOracleSP, old converter extracted this
 
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` |
 | `type` | Yes | Via `_parse_schema()` with `convert_type()` |
 | `nullable` | Yes | Via `_parse_schema()` |
@@ -222,7 +225,7 @@ Context variables (`context.var`) and Java expressions in parameter values are p
 No open converter issues. All parameters extracted correctly after v1.1 rewrite.
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | ~~CONV-OSP-001~~ | ~~P0~~ | **FIXED** -- Old converter used `PROCEDURE` instead of `SP_NAME` (phantom param). Fixed in v1.1 rewrite. |
 | ~~CONV-OSP-002~~ | ~~P0~~ | **FIXED** -- Old converter used `PASSWORD` instead of `PASS` (phantom param). Fixed in v1.1 rewrite. |
 | ~~CONV-OSP-003~~ | ~~P1~~ | **FIXED** -- Old converter missing 16 of 23 params (SP_ARGS, IS_FUNCTION, RETURN, connection type, NLS, etc.). Fixed in v1.1 rewrite. |
@@ -236,7 +239,7 @@ No open converter issues. All parameters extracted correctly after v1.1 rewrite.
 Single consolidated needs_review entry per D-27 (entire engine absent):
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | (all) | No concrete engine implementation for tOracleSP. All config keys are extracted for future engine support. | engine_gap |
 
 ---
@@ -250,7 +253,7 @@ How faithfully does the v1 engine implement Talend behavior?
 No engine implementation exists. All features are unimplemented.
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Stored procedure execution | **No** | N/A | N/A | No engine class |
 | 2 | Function execution (IS_FUNCTION) | **No** | N/A | N/A | No engine class |
 | 3 | SP_ARGS parameter binding | **No** | N/A | N/A | No engine class |
@@ -261,13 +264,13 @@ No engine implementation exists. All features are unimplemented.
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-OSP-001 | **P0** | No engine implementation exists. tOracleSP cannot execute in production. All stored procedure/function invocations will fail. |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | No | N/A | No engine implementation |
 
 ---
@@ -281,19 +284,19 @@ How well-written is the engine code?
 No engine code exists to audit for bugs.
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | (none) | -- | -- | No engine code |
 
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | (none) | -- | Converter naming follows conventions |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | (none) | -- | -- | Converter follows CONVERTER_PATTERN.md |
 
 ### 6.4 Debug Artifacts
@@ -307,7 +310,7 @@ No concerns identified. Password parameter is extracted as-is (no logging of sen
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Module-level `logger = logging.getLogger(__name__)` present |
 | Level usage | N/A -- no engine code to log |
 | Sensitive data | Password not logged |
@@ -315,7 +318,7 @@ No concerns identified. Password parameter is extracted as-is (no logging of sen
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | N/A -- no engine code |
 | Exception chaining | N/A -- no engine code |
 | die_on_error handling | N/A -- no engine code |
@@ -323,7 +326,7 @@ No concerns identified. Password parameter is extracted as-is (no logging of sen
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Fully typed (`convert()` signature matches base class) |
 | Parameter types | All parameters typed (`str`, `bool`, `int`, `List[Dict]`) |
 
@@ -336,13 +339,13 @@ Will it scale?
 No engine implementation exists to assess performance.
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | (none) | -- | No engine code to assess |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- no engine implementation |
 | Memory threshold | N/A -- no engine implementation |
 | Large data handling | N/A -- no engine implementation |
@@ -356,7 +359,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 30+ | `tests/converters/talend_to_v1/components/test_oracle_sp.py` |
 | Engine unit tests | 0 | None -- no engine implementation |
 | Integration tests | 0 | None -- no engine implementation |
@@ -364,7 +367,7 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-OSP-001 | **P0** | No engine tests -- engine does not exist |
 
 ### 8.3 Recommended Test Cases
@@ -386,7 +389,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 1 (+ 2 fixed) | **ENG-OSP-001**, ~~CONV-OSP-001~~, ~~CONV-OSP-002~~ |
 | P1 | 0 (+ 1 fixed) | ~~CONV-OSP-003~~ |
 | P2 | 0 (+ 4 fixed) | ~~CONV-OSP-004~~, ~~CONV-OSP-005~~, ~~CONV-OSP-006~~, ~~CONV-OSP-007~~ |
@@ -396,7 +399,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 open (7 fixed) | ~~CONV-OSP-001~~ through ~~CONV-OSP-007~~ |
 | Engine (ENG) | 1 | **ENG-OSP-001** |
 | Bug (BUG) | 0 | |
@@ -432,7 +435,7 @@ No long-term issues identified.
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
+| -------- | ---------- | ---------- |
 | Talaxie GitHub _java.xml | tOracleSP_java.xml from tdi-studio-se repository | Parameter definitions, defaults, TABLE structure |
 | Converter source | `src/converters/talend_to_v1/components/database/oracle_sp.py` | Converter audit |
 | Test source | `tests/converters/talend_to_v1/components/test_oracle_sp.py` | Test coverage audit |
@@ -444,7 +447,7 @@ No long-term issues identified.
 No cross-cutting issues -- no engine code exists.
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | (none) | -- | No engine code to be affected |
 
 ---

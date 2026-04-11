@@ -109,6 +109,11 @@ class {ComponentName}Converter(ComponentConverter):
         # schema = {"input": schema_cols, "output": schema_cols}
         # Utility/control (no data flow):
         # schema = {"input": [], "output": []}
+        #
+        # NOTE: schema.input is auto-propagated by the pipeline
+        # (converter.py Step 6b: _propagate_input_schemas) from the
+        # upstream component's schema.output.  Component converters
+        # only need to set schema.output correctly.
 
         # ---- 7. Engine gap needs_review entries ----
         _engine_gap_keys = [

@@ -218,9 +218,10 @@ class TestParameterExtraction:
         assert result.component["config"]["encrypt_method"] == "AES"
 
     def test_password_extracted(self):
+        """PASSWORD is always cleared to empty string for security."""
         node = _make_node(params={"PASSWORD": '"secret123"'})
         result = FileArchiveConverter().convert(node, [], {})
-        assert result.component["config"]["password"] == "secret123"
+        assert result.component["config"]["password"] == ""
 
     def test_zip64_mode_extracted(self):
         node = _make_node(params={"ZIP64_MODE": '"ALWAYS"'})

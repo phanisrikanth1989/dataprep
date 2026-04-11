@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tFileInputExcel` |
 | **V1 Engine Class** | `FileInputExcel` |
 | **Engine File** | `src/v1/engine/components/file/file_input_excel.py` (1022 lines) |
@@ -25,7 +25,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/file/file_input_excel.py` | Engine implementation (1022 lines) |
 | `src/converters/talend_to_v1/components/file/file_input_excel.py` | Converter class (263 lines) |
 | `tests/converters/talend_to_v1/components/test_file_input_excel.py` | Converter tests (83 tests) |
@@ -38,14 +38,14 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 30/30 params extracted (100%); 3 TABLE parsers; 9 needs_review; 3 critical defaults fixed; 83 tests |
 | Engine Feature Parity | **Y** | 2 | 4 | 3 | 2 | 9 config keys not read by engine; no REJECT flow; password decryption incomplete; dead code |
 | Code Quality | **Y** | 2 | 3 | 5 | 3 | Cross-cutting base class bugs; dead methods; duplicated read logic; _validate_config never called |
 | Performance & Memory | **G** | 0 | 1 | 1 | 1 | Streaming mode works; batch/streaming auto-detection; large spreadsheet memory pressure |
 | Testing | **Y** | 0 | 1 | 0 | 0 | 83 converter tests (Green); zero engine unit tests (Yellow per scoring rules) |
 
-**Overall: GREEN -- Converter production-ready; engine has known gaps documented via needs_review**
+Overall: GREEN -- Converter production-ready; engine has known gaps documented via needs_review
 
 **Top Actions**: Engine tests needed for Yellow->Green testing; password decryption; REJECT flow; remove dead code
 
@@ -67,7 +67,7 @@ The component supports password-protected workbooks, multi-sheet reading with re
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Excel 2007 format | `VERSION_2007` | BOOLEAN | `false` | When true, forces .xlsx (OOXML) processing; when false, auto-detects from file extension |
 | 2 | File path | `FILENAME` | FILE | `""` | Path to the Excel file to read (required) |
 | 3 | Password | `PASSWORD` | PASSWORD | `""` | Password for encrypted workbooks |
@@ -83,7 +83,7 @@ The component supports password-protected workbooks, multi-sheet reading with re
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 12 | Die on error | `DIE_ON_ERROR` | BOOLEAN | `false` | When true, job fails on read error; when false, returns empty result |
 | 13 | Advanced separator | `ADVANCED_SEPARATOR` | BOOLEAN | `false` | Enable custom number separators |
 | 14 | Thousands separator | `THOUSANDS_SEPARATOR` | TEXT | `","` | Thousands grouping character |
@@ -105,14 +105,14 @@ The component supports password-protected workbooks, multi-sheet reading with re
 ### 3.3 Framework Parameters
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 29 | Stat catcher | `TSTATCATCHER_STATS` | BOOLEAN | `false` | Enable statistics collection |
 | 30 | Label | `LABEL` | TEXT | `""` | Component label for display |
 
 ### 3.4 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Output | Row > Main | Data rows read from Excel file |
 | `REJECT` | Output | Row > Reject | Rows that fail validation (with errorCode/errorMessage columns) |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires when subjob completes successfully |
@@ -121,7 +121,7 @@ The component supports password-protected workbooks, multi-sheet reading with re
 ### 3.5 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Number of data rows read |
 | `{id}_NB_LINE_OK` | Integer | After execution | Number of rows successfully processed |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Number of rejected rows |
@@ -147,10 +147,10 @@ The component supports password-protected workbooks, multi-sheet reading with re
 The `FileInputExcelConverter` in `src/converters/talend_to_v1/components/file/file_input_excel.py` uses the gold-standard pattern: `_build_component_dict` with `type_name="FileInputExcel"`, module-level TABLE parsers (`_parse_sheetlist`, `_parse_trim_select`, `_parse_date_select`), and per-feature `needs_review` entries for all 9 engine gaps.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `VERSION_2007` | Yes | `version_2007` | bool, default False |
 | 2 | `FILENAME` | Yes | `filepath` | str, default "" |
-| 3 | `PASSWORD` | Yes | `password` | str, default "" |
+| 3 | `PASSWORD` | Yes | `password` | str, always empty -- cleared for security |
 | 4 | `ALL_SHEETS` | Yes | `all_sheets` | bool, default False |
 | 5 | `SHEETLIST` | Yes | `sheetlist` | TABLE, module-level `_parse_sheetlist()` |
 | 6 | `HEADER` | Yes | `header` | int, default 0 |
@@ -182,6 +182,7 @@ The `FileInputExcelConverter` in `src/converters/talend_to_v1/components/file/fi
 **Summary**: 30 of 30 parameters extracted (100%).
 
 **Critical Fixes Applied:**
+
 - `DIE_ON_ERROR`: Default changed from `True` to `False` per _java.xml
 - `ENCODING`: Default changed from `"UTF-8"` to `"ISO-8859-15"` per _java.xml
 - `GENERATION_MODE`: Default changed from `"EVENT_MODE"` to `"USER_MODE"` per _java.xml
@@ -190,7 +191,7 @@ The `FileInputExcelConverter` in `src/converters/talend_to_v1/components/file/fi
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Direct from column definition |
 | `type` | Yes | Converted via `convert_type()` |
 | `nullable` | Yes | Boolean from column definition |
@@ -211,7 +212,7 @@ None. All parameters correctly extracted with proper defaults.
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `version_2007` | Engine auto-detects .xls vs .xlsx from file extension | engine_gap |
 | 2 | `affect_each_sheet` | Engine does not apply header/footer per-sheet independently | engine_gap |
 | 3 | `novalidate_on_cell` | Engine does not skip cell type validation | engine_gap |
@@ -229,7 +230,7 @@ None. All parameters correctly extracted with proper defaults.
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | .xls file reading | **Yes** | High | `_process_xls_file()` | Uses xlrd library |
 | 2 | .xlsx file reading | **Yes** | High | `_process_xlsx_file()` | Uses openpyxl library |
 | 3 | Auto format detection | **Yes** | High | `_detect_excel_format()` | Extension-based detection |
@@ -261,7 +262,7 @@ None. All parameters correctly extracted with proper defaults.
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-FIE-001 | **P0** | No REJECT flow -- errored rows are silently dropped instead of routed to error handling path |
 | ENG-FIE-002 | **P0** | Password decryption incomplete -- xlrd engine has no password support; openpyxl support is basic |
 | ENG-FIE-003 | **P1** | `all_sheets` defaults to True in engine (line 429/513) but False in _java.xml -- behavioral mismatch |
@@ -277,7 +278,7 @@ None. All parameters correctly extracted with proper defaults.
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_stats()` | Set after execution |
 | `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats()` | Equal to NB_LINE |
 | `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats()` | Always 0 (no REJECT flow) |
@@ -290,7 +291,7 @@ None. All parameters correctly extracted with proper defaults.
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-FIE-001 | **P0** | `base_component.py:304` | CROSS-CUTTING: `_update_global_map()` crash when globalMap is set |
 | BUG-FIE-002 | **P0** | `base_component.py:174` | CROSS-CUTTING: `replace_in_config` literal `[i]` replacement breaks list indexing |
 | BUG-FIE-003 | **P1** | `file_input_excel.py:429,513` | `all_sheets` default True contradicts _java.xml default False |
@@ -300,14 +301,14 @@ None. All parameters correctly extracted with proper defaults.
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-FIE-001 | **P2** | Method `_detect_excel_format()` returns engine name string, not format enum |
 | NAME-FIE-002 | **P2** | `_process_xls_file` and `_process_xlsx_file` share near-identical signatures but different internal logic |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-FIE-001 | **P2** | "No dead code" | Three methods that duplicate logic across xls/xlsx paths |
 | STD-FIE-002 | **P3** | "DRY principle" | `_apply_row_limits()` logic duplicated in xls and xlsx processing paths |
 | STD-FIE-003 | **P3** | "Config validation" | `_validate_config()` defined but never called by `_process()` |
@@ -323,7 +324,7 @@ Password values may be logged at DEBUG level. See Section 11 for comprehensive s
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- module-level `logger = logging.getLogger(__name__)` |
 | Level usage | Good -- info for status, error for failures, debug for details |
 | Sensitive data | Risk -- password may appear in debug logs |
@@ -331,7 +332,7 @@ Password values may be logged at DEBUG level. See Section 11 for comprehensive s
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Good -- uses FileOperationError, ConfigurationError, ComponentExecutionError |
 | Exception chaining | Good -- `raise ... from e` pattern used |
 | die_on_error handling | Good -- respects config, returns empty DataFrame when False |
@@ -339,7 +340,7 @@ Password values may be logged at DEBUG level. See Section 11 for comprehensive s
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- all methods have return type hints |
 | Parameter types | Good -- uses Optional, Dict, List appropriately |
 
@@ -348,7 +349,7 @@ Password values may be logged at DEBUG level. See Section 11 for comprehensive s
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-FIE-001 | **P1** | USER_MODE (DOM) loads entire workbook into memory -- no upper bound on file size |
 | PERF-FIE-002 | **P2** | `_build_converters_dict()` creates closure per column per call -- minor overhead |
 | PERF-FIE-003 | **P3** | Sheet name iteration creates intermediate list even when single sheet requested |
@@ -356,7 +357,7 @@ Password values may be logged at DEBUG level. See Section 11 for comprehensive s
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Implemented -- auto-detects based on file size threshold |
 | Memory threshold | Hardcoded -- not configurable by user (ignores GENERATION_MODE) |
 | Large data handling | Risk -- no upper bound in batch mode; 100MB+ Excel files can exhaust memory |
@@ -368,7 +369,7 @@ Password values may be logged at DEBUG level. See Section 11 for comprehensive s
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 83 | `tests/converters/talend_to_v1/components/test_file_input_excel.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | 399 (shared) | `tests/converters/talend_to_v1/test_integration.py` |
@@ -377,7 +378,7 @@ Password values may be logged at DEBUG level. See Section 11 for comprehensive s
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-FIE-001 | **P1** | Zero engine unit tests -- FileInputExcel is the largest engine component (1022 lines) with no tests |
 
 ### 8.3 Recommended Test Cases
@@ -401,7 +402,7 @@ Password values may be logged at DEBUG level. See Section 11 for comprehensive s
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 2 | BUG-FIE-001, BUG-FIE-002 |
 | P1 | 5 | BUG-FIE-003, BUG-FIE-004, BUG-FIE-005, ENG-FIE-003, ENG-FIE-004, ENG-FIE-005, ENG-FIE-006, PERF-FIE-001, TEST-FIE-001 |
 | P2 | 5 | NAME-FIE-001, NAME-FIE-002, STD-FIE-001, ENG-FIE-007, ENG-FIE-008, ENG-FIE-009, PERF-FIE-002 |
@@ -411,7 +412,7 @@ Password values may be logged at DEBUG level. See Section 11 for comprehensive s
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
 | Engine (ENG) | 9 | ENG-FIE-001 through ENG-FIE-011 |
 | Bug (BUG) | 5 | BUG-FIE-001 through BUG-FIE-005 |
@@ -423,7 +424,7 @@ Password values may be logged at DEBUG level. See Section 11 for comprehensive s
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap is set -- stats lost |
 | XCUT-002 | `base_component.py:174` | `replace_in_config` literal `[i]` -- breaks list iteration configs |
 
@@ -460,7 +461,7 @@ This section is included because tFileInputExcel handles Excel files which are Z
 ### Risk Matrix
 
 | Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
+| ------ | ----------- | -------- | ------------ |
 | ZIP bomb via crafted .xlsx | Medium | High -- memory exhaustion / DoS; .xlsx files are ZIP archives containing XML | Engine does not implement CONFIGURE_INFLATION_RATIO; use system-level file size limits; monitor memory |
 | XML External Entity (XXE) in .xlsx | Low | High -- .xlsx contains XML files that could reference external entities | openpyxl has built-in XXE protection; verify library version is current |
 | Formula injection via cell values | Medium | Medium -- Excel cells may contain formulas that execute when opened downstream | Engine reads cell values not formulas by default; READ_REAL_VALUE=false is safe default |
@@ -491,8 +492,8 @@ This section is included because tFileInputExcel handles Excel files which are Z
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://github.com/Talaxie/tdi-studio-se/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tFileInputExcel/tFileInputExcel_java.xml` | Parameter definitions, defaults, CLOSED_LIST values |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://github.com/Talaxie/tdi-studio-se/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tFileInputExcel/tFileInputExcel_java.xml`> | Parameter definitions, defaults, CLOSED_LIST values |
 | Engine source | `src/v1/engine/components/file/file_input_excel.py` (1022 lines) | Feature parity analysis, bug identification, security assessment |
 | Converter source | `src/converters/talend_to_v1/components/file/file_input_excel.py` (263 lines) | Converter audit |
 | Converter tests | `tests/converters/talend_to_v1/components/test_file_input_excel.py` (83 tests) | Test coverage analysis |
@@ -501,7 +502,7 @@ This section is included because tFileInputExcel handles Excel files which are Z
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap is set -- stats lost |
 | XCUT-002 | `base_component.py:174` | `replace_in_config` literal `[i]` -- breaks list-indexed config resolution |
 | XCUT-003 | `base_component.py:202` | `self.config` mutation via `resolve_dict()` -- non-reentrant in iterate loops |
@@ -509,7 +510,7 @@ This section is included because tFileInputExcel handles Excel files which are Z
 ### Edge-Case Checklist Results
 
 | Check | Result | Notes |
-|-------|--------|-------|
+| ------- | -------- | ------- |
 | NaN handling | Risk | `_build_converters_dict()` handles NaN per type but edge cases possible |
 | Empty strings in config | OK | Empty filepath produces warning, returns empty DataFrame |
 | Empty DataFrame input | N/A | Source component -- no input data |
@@ -556,6 +557,7 @@ This section is included because tFileInputExcel handles Excel files which are Z
 ### SHEETLIST Matching
 
 Each SHEETLIST entry has:
+
 - `sheetname`: The sheet name or regex pattern
 - `use_regex`: When true, `sheetname` is treated as a regex pattern matched against all sheet names
 

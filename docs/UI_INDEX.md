@@ -6,11 +6,13 @@
 ## 📑 Quick Navigation
 
 ### 🚀 Getting Started (5 minutes)
+
 1. **[quickstart.bat](quickstart.bat)** - Windows automated setup
 2. **[quickstart.sh](quickstart.sh)** - Mac/Linux automated setup
 3. **[UI_README.md](UI_README.md)** - Complete feature guide
 
 ### 📖 Comprehensive Documentation
+
 - **[SETUP_DEPLOYMENT.md](SETUP_DEPLOYMENT.md)** - Detailed setup and production deployment
 - **[TESTING_GUIDE.md](TESTING_GUIDE.md)** - Testing procedures and validation checklist
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - Original engine architecture documentation
@@ -75,7 +77,7 @@ frontend/
 
 #### Core Setup
 | File | Lines | Purpose |
-|------|-------|---------|
+| ------ | ------- | --------- |
 | `run.py` | 15 | Uvicorn entry point on 0.0.0.0:8000 |
 | `requirements.txt` | 15 | FastAPI, Pydantic, Socket.io, pytest |
 | `app/main.py` | 70 | FastAPI app factory, CORS, routes |
@@ -83,19 +85,19 @@ frontend/
 
 #### Data Models
 | File | Lines | Purpose |
-|------|-------|---------|
+| ------ | ------- | --------- |
 | `app/models.py` | 60 | Pydantic models: Component, Job, Execution |
 | `app/schemas.py` | 120 | Component registry with 6 built-in components |
 
 #### Business Logic
 | File | Lines | Purpose |
-|------|-------|---------|
+| ------ | ------- | --------- |
 | `app/services/job_service.py` | 120 | Job CRUD, config export, file persistence |
 | `app/services/execution_service.py` | 90 | Async execution manager, WebSocket support |
 
 #### API Routes
 | File | Lines | Purpose |
-|------|-------|---------|
+| ------ | ------- | --------- |
 | `app/routes/jobs.py` | 75 | 6 endpoints: list/get/create/update/delete/export |
 | `app/routes/components.py` | 35 | 2 endpoints: list/get components |
 | `app/routes/execution.py` | 115 | 5 REST + 1 WebSocket: start/status/stop/stream |
@@ -110,7 +112,7 @@ frontend/
 
 #### Configuration (4 files)
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `package.json` | npm dependencies (React, TypeScript, Vite, React Flow, Ant Design) |
 | `vite.config.ts` | Build config: port 5173, API proxy, React plugin |
 | `tsconfig.json` | Strict TypeScript, React JSX, path aliases |
@@ -118,14 +120,14 @@ frontend/
 
 #### Type System & Services (5 files)
 | File | Lines | Purpose |
-|------|-------|---------|
+| ------ | ------- | --------- |
 | `src/types/index.ts` | 70 | TypeScript interfaces: Job, Component, Execution |
 | `src/services/api.ts` | 40 | Axios client: jobsAPI, componentsAPI, executionAPI |
 | `src/services/websocket.ts` | 70 | WebSocket hook with connection management |
 
 #### UI Components (6 files)
 | File | Lines | Purpose |
-|------|-------|---------|
+| ------ | ------- | --------- |
 | `src/components/Canvas.tsx` | 80 | React Flow: drag-drop, nodes, edges, minimap |
 | `src/components/ComponentNode.tsx` | 45 | Custom React Flow node with handles |
 | `src/components/ComponentPalette.tsx` | 75 | Draggable component library, category groups |
@@ -135,14 +137,14 @@ frontend/
 
 #### Pages & App (3 files)
 | File | Lines | Purpose |
-|------|-------|---------|
+| ------ | ------- | --------- |
 | `src/pages/JobDesigner.tsx` | 240 | Main designer: canvas + palette + config + controls |
 | `src/App.tsx` | 110 | App shell with navigation between pages |
 | `src/main.tsx` | 10 | React entry point |
 
 #### Assets (3 files)
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/index.css` | Global styles with CSS variables |
 | `.env.example` | Environment template |
 | `.gitignore` | Git ignore patterns |
@@ -156,8 +158,9 @@ frontend/
 ## 🔌 API Specification
 
 ### Base URL
-- **Development:** `http://localhost:8000`
-- **Production:** `https://your-domain.com`
+
+- **Development:** `<http://localhost:8000`>
+- **Production:** `<https://your-domain.com`>
 
 ### Job Management (6 endpoints)
 
@@ -276,18 +279,22 @@ Message: {
 6 pre-built components available:
 
 ### Input Components
+
 - **tFileInput** - Read from CSV, JSON, Parquet files
 
 ### Transform Components
+
 - **tMap** - Transform data with expressions
 - **tFilter** - Filter rows based on conditions
 - **tAggregate** - Group and aggregate data
 - **tSort** - Sort by multiple columns
 
 ### Output Components
+
 - **tFileOutput** - Write to files
 
 **Adding custom components:**
+
 1. Define metadata in `backend/app/schemas.py`
 2. Implement component class in `src/v1/engine/components/`
 3. Register in engine - frontend auto-loads via API
@@ -324,7 +331,7 @@ npm run dev
 ```
 
 ### Access Application
-Open browser to: **http://localhost:5173**
+Open browser to: **<http://localhost:5173**>
 
 ---
 
@@ -349,6 +356,7 @@ All major components have been tested:
 ## 🎨 UI Features
 
 ### Job Designer
+
 - **Visual Canvas** - React Flow based with zoom, pan, minimap
 - **Drag-and-Drop** - Components from palette to canvas
 - **Connection Editor** - Draw edges between components
@@ -356,12 +364,14 @@ All major components have been tested:
 - **Save/Export** - Persist to backend or export as JSON
 
 ### Component Palette
+
 - **Categorized** - Input, Transform, Output categories
 - **Searchable** - Filter by component type
 - **Dynamic** - Loads from backend API
 - **Draggable** - Drag to canvas to add
 
 ### Execution Monitor
+
 - **Real-Time Dashboard** - Progress bar, statistics, logs
 - **WebSocket Updates** - 1 second refresh rate
 - **Component Stats** - NB_LINE, NB_LINE_OK, NB_LINE_REJECT
@@ -369,6 +379,7 @@ All major components have been tested:
 - **Stop Control** - Cancel running jobs
 
 ### Job Management
+
 - **List View** - Table of all jobs
 - **CRUD Operations** - Create, edit, delete jobs
 - **Quick Actions** - Execute or edit from list
@@ -378,11 +389,13 @@ All major components have been tested:
 ## 🔒 Security Considerations
 
 **Current Version (Development):**
+
 - No authentication required
 - CORS enabled for localhost only
 - File-based storage (no database)
 
 **Production Recommendations:**
+
 1. Add JWT authentication
 2. Implement role-based access control (RBAC)
 3. Move to database backend (SQLite, PostgreSQL)
@@ -399,18 +412,21 @@ See **SETUP_DEPLOYMENT.md** for production setup details.
 ## 📈 Performance Metrics
 
 ### Load Times
+
 - Backend startup: < 2 seconds
 - Frontend dev server: < 5 seconds
 - Job list load: < 500ms
 - Canvas render (10 components): < 100ms
 
 ### Real-Time Performance
+
 - WebSocket update interval: 1 second
 - UI update latency: < 50ms
 - Component addition latency: < 100ms
 - Job execution feedback: < 1 second
 
 ### Scalability
+
 - Supports 50+ components on canvas (with virtualization)
 - Handles 1000+ lines per component efficiently
 - WebSocket supports multiple concurrent executions
@@ -421,6 +437,7 @@ See **SETUP_DEPLOYMENT.md** for production setup details.
 ## 🐛 Known Limitations & Future Work
 
 ### Current Limitations
+
 1. ⚠️ Component logic executed server-side only
 2. ⚠️ Single-machine execution (no distributed mode)
 3. ⚠️ No job scheduling/cron support
@@ -430,6 +447,7 @@ See **SETUP_DEPLOYMENT.md** for production setup details.
 7. ⚠️ Limited error context in UI
 
 ### Planned Enhancements
+
 - [ ] Job versioning and rollback
 - [ ] User authentication and RBAC
 - [ ] Advanced trigger editor UI
@@ -450,22 +468,26 @@ See **SETUP_DEPLOYMENT.md** for production setup details.
 ### Common Issues
 
 **Backend won't start:**
+
 - Check Python version: `python --version`
 - Check port 8000 is free
 - Check firewall settings
 
 **Frontend won't load:**
+
 - Check Node version: `node --version`
 - Clear npm cache: `npm cache clean --force`
 - Delete node_modules and reinstall
 
 **WebSocket connection fails:**
+
 - Verify backend is running
 - Check browser console for errors
 - Ensure CORS is enabled
 - Try different port if 8000 is blocked
 
 **Job execution fails:**
+
 - Check component configuration in UI
 - Verify job export format: `/api/jobs/{id}/export`
 - Check backend logs for error messages
@@ -518,17 +540,20 @@ CMD ["npm", "run", "preview"]
 ## 📚 Additional Resources
 
 ### Documentation Files
+
 - [UI_README.md](UI_README.md) - Feature guide and API reference
 - [SETUP_DEPLOYMENT.md](SETUP_DEPLOYMENT.md) - Setup and production deployment
 - [TESTING_GUIDE.md](TESTING_GUIDE.md) - Testing procedures
 - [ARCHITECTURE.md](ARCHITECTURE.md) - Engine architecture (original)
 
 ### Code References
+
 - Backend: `backend/app/` - FastAPI implementation
 - Frontend: `frontend/src/` - React implementation
 - Config: `backend/requirements.txt`, `frontend/package.json`
 
 ### External Resources
+
 - [FastAPI Docs](https://fastapi.tiangolo.com/)
 - [React Flow Docs](https://reactflow.dev/)
 - [Ant Design Docs](https://ant.design/)
@@ -539,7 +564,7 @@ CMD ["npm", "run", "preview"]
 ## ✅ Implementation Status
 
 | Component | Status | Files | LOC |
-|-----------|--------|-------|-----|
+| ----------- | -------- | ------- | ----- |
 | Backend | ✅ Complete | 13 | 850 |
 | Frontend | ✅ Complete | 30+ | 2200 |
 | Documentation | ✅ Complete | 4 | 1500+ |

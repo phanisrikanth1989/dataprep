@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tFileOutputDelimited` |
 | **V1 Engine Class** | `FileOutputDelimited` |
 | **Engine File** | `src/v1/engine/components/file/file_output_delimited.py` (471 lines) |
@@ -25,7 +25,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/file/file_output_delimited.py` | Engine implementation (471 lines) |
 | `src/converters/talend_to_v1/components/file/file_output_delimited.py` | Converter class (112 lines) |
 | `tests/converters/talend_to_v1/components/test_file_output_delimited.py` | Converter tests (53 tests) |
@@ -37,7 +37,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 25 unique params + 2 framework params extracted; `_build_component_dict` pattern; 3 per-feature needs_review entries for engine default mismatches |
 | Engine Feature Parity | **Y** | 0 | 3 | 3 | 1 | 3 default mismatches (delimiter, encoding, include_header); compression/splitting/streaming not implemented; many converter config keys differ from engine expectations |
 | Code Quality | **Y** | 1 | 1 | 3 | 1 | Cross-cutting `_update_global_map()` crash (P0); indentation bug (P1); f-string logger (P2); dead `_validate_config` (P2); naming mismatch (P2); unused exception variable (P3) |
@@ -47,6 +47,7 @@
 **Overall: Yellow -- Converter fully standardized (Green) with FILE_EXIST_EXCEPTION=True, fieldseparator=';', encoding='ISO-8859-15' per _java.xml; engine has 3 critical default mismatches and missing features documented via needs_review; engine/code quality gaps keep overall at Yellow**
 
 **Top Actions:**
+
 1. Fix `_update_global_map()` crash in base class (P0, cross-cutting)
 2. Align engine default delimiter from ',' to ';' per _java.xml (P1, behavioral difference)
 3. Align engine default encoding from 'UTF-8' to 'ISO-8859-15' per _java.xml (P1, behavioral difference)
@@ -73,7 +74,7 @@ Key behavioral notes: FIELDSEPARATOR defaults to ';' (semicolon, not comma), ENC
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Use Output Stream | `USESTREAM` | CHECK | `false` | When checked, writes to a Java OutputStream instead of a file path. |
 | 2 | Output Stream Name | `STREAMNAME` | TEXT | `"outputStream"` | Name of the OutputStream variable. Active when USESTREAM is enabled. |
 | 3 | File Name | `FILENAME` | FILE | `""` | Output file path. Supports context variables and Java expressions. Required when USESTREAM is disabled. |
@@ -92,7 +93,7 @@ Key behavioral notes: FIELDSEPARATOR defaults to ';' (semicolon, not comma), ENC
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 15 | OS Line Separator | `OS_LINE_SEPARATOR_AS_ROW_SEPARATOR` | CHECK | `true` | When checked, uses OS-specific line separator instead of configured ROWSEPARATOR. |
 | 16 | CSV Row Separator | `CSVROWSEPARATOR` | CLOSED_LIST | `"LF"` | Row separator when CSV_OPTION is enabled. Values: LF, CR, CRLF. |
 | 17 | Create Directory | `CREATE` | CHECK | `true` | When checked, creates parent directories if they do not exist. |
@@ -110,7 +111,7 @@ Key behavioral notes: FIELDSEPARATOR defaults to ';' (semicolon, not comma), ENC
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Input data rows to write to the file. |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires when the subjob completes successfully. |
 | `SUBJOB_ERROR` | Output (Trigger) | Trigger | Fires when the subjob encounters an error. |
@@ -118,7 +119,7 @@ Key behavioral notes: FIELDSEPARATOR defaults to ';' (semicolon, not comma), ENC
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total rows written to the file. |
 | `{id}_NB_LINE_OK` | Integer | After execution | Successfully written rows. |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Failed rows (typically 0). |
@@ -144,7 +145,7 @@ Key behavioral notes: FIELDSEPARATOR defaults to ';' (semicolon, not comma), ENC
 The converter uses `_get_str()`, `_get_bool()` from the base class to extract all 25 unique parameters plus 2 framework parameters. Config keys use snake_case per D-38 conventions. The converter uses `_build_component_dict()` wrapper per D-55 with `type_name="FileOutputDelimited"` and sink schema pattern (input populated, output empty).
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `USESTREAM` | Yes | `usestream` | bool, default False |
 | 2 | `STREAMNAME` | Yes | `streamname` | str, default "outputStream" |
 | 3 | `FILENAME` | Yes | `filepath` | str, default "" |
@@ -180,7 +181,7 @@ The converter uses `_get_str()`, `_get_bool()` from the base class to extract al
 Sink component pattern: schema.input populated from `_parse_schema(node)`, schema.output always empty.
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Column name |
 | `type` | Yes | Converted from Talend type via `convert_type()` |
 | `nullable` | Yes | Boolean |
@@ -197,7 +198,7 @@ String parameters (filepath, fieldseparator, etc.) preserve context variable exp
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | ~~CONV-FOD-001~~ | ~~P1~~ | **FIXED** -- FILE_EXIST_EXCEPTION default corrected from False to True per _java.xml |
 | ~~CONV-FOD-002~~ | ~~P1~~ | **FIXED** -- Config key renamed from 'delimiter' to 'fieldseparator' per D-38 |
 | ~~CONV-FOD-003~~ | ~~P1~~ | **FIXED** -- text_enclosure now always extracted (was conditional on csv_option) |
@@ -208,7 +209,7 @@ String parameters (filepath, fieldseparator, etc.) preserve context variable exp
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `fieldseparator` | Engine default delimiter=',' but _java.xml FIELDSEPARATOR default is ';' | engine_gap |
 | 2 | `encoding` | Engine default encoding='UTF-8' but _java.xml ENCODING default is 'ISO-8859-15' | engine_gap |
 | 3 | `include_header` | Engine default include_header=True but _java.xml INCLUDEHEADER default is False | engine_gap |
@@ -220,7 +221,7 @@ String parameters (filepath, fieldseparator, etc.) preserve context variable exp
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | File writing (basic) | **Yes** | High | `_process()` line 124 | pandas `to_csv()` for standard writes |
 | 2 | Field delimiter | **Yes** | High | `_process()` line 141 | Reads `delimiter` key (not `fieldseparator`) |
 | 3 | Row separator | **Yes** | Medium | `_handle_empty_data()` line 276 | Manual handling; `to_csv()` uses `lineterminator` |
@@ -245,7 +246,7 @@ String parameters (filepath, fieldseparator, etc.) preserve context variable exp
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-FOD-001 | **P1** | Engine default delimiter=',' but Talend default FIELDSEPARATOR=';'. Jobs relying on default will produce comma-separated instead of semicolon-separated. |
 | ENG-FOD-002 | **P1** | Engine default encoding='UTF-8' but Talend default ENCODING='ISO-8859-15'. Jobs with non-ASCII characters may produce different output. |
 | ENG-FOD-003 | **P1** | Engine default include_header=True but Talend default INCLUDEHEADER=False. Jobs relying on default will include unexpected header row. |
@@ -257,7 +258,7 @@ String parameters (filepath, fieldseparator, etc.) preserve context variable exp
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_stats()` | Total rows |
 | `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats()` | Successful rows |
 | `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats()` | Failed rows (always 0) |
@@ -269,20 +270,20 @@ String parameters (filepath, fieldseparator, etc.) preserve context variable exp
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-FOD-001 | **P0** | `base_component.py:304` | CROSS-CUTTING: `_update_global_map()` crashes when globalMap is set. Affects NB_LINE statistics. |
 | BUG-FOD-002 | **P1** | `file_output_delimited.py:178-183` | `die_on_error` check and `raise` at wrong indentation level -- `raise FileOperationError` is outside the `except` block, causing NameError when `e` is undefined. |
 
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-FOD-001 | **P2** | Engine reads `delimiter` but _java.xml parameter is `FIELDSEPARATOR`; converter outputs `fieldseparator`. Config key mismatch. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-FOD-001 | **P2** | "Use %-formatting in logger calls" | Uses f-strings in logger calls throughout (lines 152, 159-162, 188, etc.) |
 | STD-FOD-002 | **P2** | "Consistent indentation" | Mixed indentation levels -- some methods have 4-space indent inside class, others have 8-space (see `DEFAULT_DELIMITER` at line 70 vs class body) |
 
@@ -297,7 +298,7 @@ See Section 11 Risk Assessment for detailed security analysis including delimite
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- module-level `logger = logging.getLogger(__name__)` |
 | Level usage | Good -- info for operations, debug for details, error for failures |
 | Sensitive data | No concerns -- only logs file paths and row counts |
@@ -305,7 +306,7 @@ See Section 11 Risk Assessment for detailed security analysis including delimite
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Good -- uses `ConfigurationError`, `FileOperationError` |
 | Exception chaining | Good -- uses `from e` for exception chaining |
 | die_on_error handling | Has bug (BUG-FOD-002) -- raise at wrong scope |
@@ -313,7 +314,7 @@ See Section 11 Risk Assessment for detailed security analysis including delimite
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- all methods have return type annotations |
 | Parameter types | Good -- typed parameters with Optional where appropriate |
 
@@ -322,13 +323,13 @@ See Section 11 Risk Assessment for detailed security analysis including delimite
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-FOD-001 | **P2** | Full DataFrame loaded into memory before writing. For very large datasets, this could cause OOM. Streaming mode mitigates this for iterator inputs. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Supported via `_write_streaming()` for Iterator inputs |
 | Memory threshold | No configurable memory limit; relies on pandas defaults |
 | Large data handling | Adequate for moderate datasets; streaming mode recommended for large files |
@@ -340,7 +341,7 @@ See Section 11 Risk Assessment for detailed security analysis including delimite
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 53 | `tests/converters/talend_to_v1/components/test_file_output_delimited.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | Yes | `tests/converters/talend_to_v1/test_integration.py` (399 passing) |
@@ -348,7 +349,7 @@ See Section 11 Risk Assessment for detailed security analysis including delimite
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-FOD-001 | **P2** | No engine unit tests for FileOutputDelimited. Need tests for: basic write, append mode, empty data handling, streaming mode, CSV quoting, encoding, delete empty file, directory creation. |
 
 ### 8.3 Recommended Test Cases
@@ -370,7 +371,7 @@ See Section 11 Risk Assessment for detailed security analysis including delimite
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 1 | **BUG-FOD-001** |
 | P1 | 4 | **ENG-FOD-001**, **ENG-FOD-002**, **ENG-FOD-003**, **BUG-FOD-002** |
 | P2 | 8 | **ENG-FOD-004**, **ENG-FOD-005**, **ENG-FOD-006**, **NAME-FOD-001**, **STD-FOD-001**, **STD-FOD-002**, **PERF-FOD-001**, **TEST-FOD-001** |
@@ -380,7 +381,7 @@ See Section 11 Risk Assessment for detailed security analysis including delimite
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | All fixed (CONV-FOD-001 through CONV-FOD-006) |
 | Engine (ENG) | 7 | ENG-FOD-001 through ENG-FOD-007 |
 | Bug (BUG) | 2 | BUG-FOD-001, BUG-FOD-002 |
@@ -392,7 +393,7 @@ See Section 11 Risk Assessment for detailed security analysis including delimite
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set -- affects NB_LINE statistics |
 
 ---
@@ -400,6 +401,7 @@ See Section 11 Risk Assessment for detailed security analysis including delimite
 ## 10. Recommendations
 
 ### Immediate (Before Production)
+
 1. Fix `_update_global_map()` crash in base class (BUG-FOD-001, P0, cross-cutting)
 2. Align engine default delimiter to ';' (ENG-FOD-001, P1)
 3. Align engine default encoding to 'ISO-8859-15' (ENG-FOD-002, P1)
@@ -407,6 +409,7 @@ See Section 11 Risk Assessment for detailed security analysis including delimite
 5. Fix `raise` indentation in list-to-DataFrame conversion (BUG-FOD-002, P1)
 
 ### Short-term (Hardening)
+
 1. Align engine config key from 'delimiter' to 'fieldseparator' (ENG-FOD-004 / NAME-FOD-001, P2)
 2. Implement COMPRESS (ZIP output) (ENG-FOD-005, P2)
 3. Implement SPLIT (file splitting) (ENG-FOD-006, P2)
@@ -415,6 +418,7 @@ See Section 11 Risk Assessment for detailed security analysis including delimite
 6. Fix inconsistent indentation (STD-FOD-002, P2)
 
 ### Long-term (Optimization)
+
 1. Implement FILE_EXIST_EXCEPTION check (ENG-FOD-007, P3)
 
 ---
@@ -424,7 +428,7 @@ See Section 11 Risk Assessment for detailed security analysis including delimite
 ### Risk Matrix
 
 | Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
+| ------ | ----------- | -------- | ------------ |
 | Delimiter injection (field contains separator) | Medium | High | Enable CSV_OPTION with proper text_enclosure; engine uses pandas quoting which handles this |
 | File path traversal | Medium | High | Validate file paths at job level; engine does no path sanitization |
 | Encoding mismatch data loss | High | Medium | Engine defaults to UTF-8 vs _java.xml ISO-8859-15; non-ASCII chars may be lost or garbled if encoding not explicitly set |
@@ -434,12 +438,14 @@ See Section 11 Risk Assessment for detailed security analysis including delimite
 | Text enclosure escaping | Medium | Medium | pandas handles escaping for QUOTE_MINIMAL; custom escape chars may not work as expected |
 
 ### High-Risk Job Patterns
+
 1. Jobs relying on default delimiter (';' in Talend, ',' in engine) without explicit FIELDSEPARATOR
 2. Jobs with non-ASCII data relying on default encoding (ISO-8859-15 in Talend, UTF-8 in engine)
 3. Jobs using COMPRESS or SPLIT (silently ignored by engine)
 4. Jobs using FILE_EXIST_EXCEPTION=true to prevent overwriting (not enforced by engine)
 
 ### Safe Usage Patterns
+
 1. Always explicitly set FIELDSEPARATOR, ENCODING, and INCLUDEHEADER in job config
 2. Use append=False (default) for single-write jobs
 3. Use create_directory=True (default) to avoid directory-not-found errors
@@ -450,7 +456,7 @@ See Section 11 Risk Assessment for detailed security analysis including delimite
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
+| -------- | ---------- | ---------- |
 | Official Talend docs | [tFileOutputDelimited Standard Properties](https://help.qlik.com/talend/en-US/components/7.3/tfileoutputdelimited/tfileoutputdelimited-standard-properties) | Parameter definitions, descriptions |
 | Talaxie GitHub _java.xml | [tFileOutputDelimited_java.xml](https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tFileOutputDelimited/tFileOutputDelimited_java.xml) | Defaults, parameter types, CLOSED_LIST values |
 | Engine source | `src/v1/engine/components/file/file_output_delimited.py` | Feature parity analysis (471 lines) |
@@ -460,7 +466,7 @@ See Section 11 Risk Assessment for detailed security analysis including delimite
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set -- affects NB_LINE/NB_LINE_OK/NB_LINE_REJECT statistics |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` broken signature -- affects globalMap variable reads |
 

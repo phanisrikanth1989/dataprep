@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tFixedFlowInput` |
 | **V1 Engine Class** | `FixedFlowInputComponent` |
 | **Engine File** | `src/v1/engine/components/file/fixed_flow_input.py` (330 lines) |
@@ -24,7 +24,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/file/fixed_flow_input.py` | Engine implementation (330 lines) |
 | `src/converters/talend_to_v1/components/file/fixed_flow_input.py` | Converter class (139 lines) |
 | `tests/converters/talend_to_v1/components/test_fixed_flow_input.py` | Converter tests (56 tests) |
@@ -36,7 +36,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 8 unique + 2 framework params extracted via _build_component_dict; 3 needs_review for engine gaps; phantom params removed |
 | Engine Feature Parity | **Y** | 1 | 5 | 3 | 0 | Three modes implemented; _update_stats NB_LINE bug; eval() in _resolve_value; validate_schema never called; separator normalization incomplete |
 | Code Quality | **Y** | 2 | 2 | 4 | 2 | Cross-cutting base class bugs; dead _validate_config; eval() security risk; bare except clauses |
@@ -46,6 +46,7 @@
 **Overall: YELLOW -- Converter gold-standard; engine has P0/P1 behavioral bugs**
 
 **Top Actions**:
+
 1. Fix `_update_stats()` NB_LINE=0 bug (P0, ENG-FFI-001)
 2. Fix `_update_global_map()` crash (P0, cross-cutting BUG-FFI-001)
 3. Replace `eval()` with safe expression parsing (P1, SEC-FFI-001)
@@ -70,7 +71,7 @@ Three mutually exclusive modes are available: Single mode (VALUES table with one
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Schema | `SCHEMA` | SCHEMA_TYPE | -- | Column definitions with types, lengths, patterns. Defines the output structure. |
 | 2 | Number of Rows | `NB_ROWS` | TEXT | `1` | Total number of rows to generate. In Single mode, controls repetition. In Inline Content mode, typically ignored. |
 | 3 | Use Single Table | `USE_SINGLEMODE` | RADIO | `true` | Default mode. Enables the VALUES table where each schema column gets a single value expression. |
@@ -85,7 +86,7 @@ Three mutually exclusive modes are available: Single mode (VALUES table with one
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 11 | tStatCatcher Statistics | `TSTATCATCHER_STATS` | CHECK | `false` | Framework param. Capture processing metadata for tStatCatcher. |
 | 12 | Label | `LABEL` | TEXT | `""` | Framework param. Text label for the component in the Talend Studio designer. |
 
@@ -94,7 +95,7 @@ Three mutually exclusive modes are available: Single mode (VALUES table with one
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Output | Row > Main | Generated rows matching the output schema |
 | `ITERATE` | Output | Iterate | For iterative processing with tFlowToIterate |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires on successful subjob completion |
@@ -108,7 +109,7 @@ Three mutually exclusive modes are available: Single mode (VALUES table with one
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total rows generated |
 | `{id}_NB_LINE_OK` | Integer | After execution | Rows successfully output (always equals NB_LINE) |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Always 0 (no rejection mechanism) |
@@ -131,7 +132,7 @@ Three mutually exclusive modes are available: Single mode (VALUES table with one
 The converter uses `FixedFlowInputConverter` in `src/converters/talend_to_v1/components/file/fixed_flow_input.py`, registered via `@REGISTRY.register("tFixedFlowInput")`. Uses `_build_component_dict` with `type_name="FixedFlowInputComponent"` per D-40/D-43.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `NB_ROWS` | Yes | `nb_rows` | int, default 1 via `_get_int()` |
 | 2 | `USE_SINGLEMODE` | Yes | `use_singlemode` | bool/RADIO, default True via `_get_bool()` |
 | 3 | `VALUES` | Yes | `values_config` | TABLE stride-2, module-level `_parse_values()` |
@@ -152,7 +153,7 @@ The converter uses `FixedFlowInputConverter` in `src/converters/talend_to_v1/com
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` base class method |
 | `type` | Yes | Converted via `convert_type()` |
 | `nullable` | Yes | Boolean |
@@ -169,13 +170,13 @@ The rewritten converter does NOT handle context variables or Java expressions in
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No open converter issues. All phantom params removed. All _java.xml params extracted. |
 
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `intable` | Engine reads `intable_data` but converter produces `intable` -- key name mismatch | engine_gap |
 | 2 | `die_on_error` | Engine reads `die_on_error` but DIE_ON_ERROR not in _java.xml -- engine hardcoded default applies | engine_gap |
 | 3 | `rows` | Engine reads `rows` for pre-generated data -- converter now provides raw config instead | engine_gap |
@@ -187,7 +188,7 @@ The rewritten converter does NOT handle context variables or Java expressions in
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Single mode (VALUES) | **Yes** | High | `_generate_single_mode_rows()` L165 | Uses pre-parsed rows or values_config |
 | 2 | Inline Table mode | **Partial** | Low | `_generate_intable_mode_rows()` L195 | Method exists but converter key mismatch (intable vs intable_data) |
 | 3 | Inline Content mode | **Yes** | High | `_generate_inline_content_rows()` L217 | Splits content by separators |
@@ -198,17 +199,17 @@ The rewritten converter does NOT handle context variables or Java expressions in
 | 8 | Die on error | **Yes** | High | `_process()` L156 | Re-raises or returns empty DataFrame |
 | 9 | Statistics tracking | **Partial** | Low | `_process()` L142 | NB_LINE is 0 instead of rows_generated |
 | 10 | Empty schema handling | **Yes** | High | `_process()` L150 | Returns empty DataFrame with correct columns |
-| 11 | Separator normalization | **Partial** | Medium | L232-234 | Only \\n and \\| handled; \\t missing |
+| 11 | Separator normalization | **Partial** | Medium | L232-234 | Only \\n and \\ | handled; \\t missing |
 | 12 | validate_schema() | **No** | N/A | -- | Never called |
 
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-FFI-001 | **P0** | **`_update_stats()` passes 0 for NB_LINE**: L142 calls `self._update_stats(0, rows_generated, 0)`. NB_LINE is always 0. Should be `self._update_stats(rows_generated, rows_generated, 0)`. |
 | ENG-FFI-002 | **P1** | **`_resolve_value()` uses `eval()` for globalMap expressions**: L321 calls `eval()` on partially user-controlled string. Security risk. |
 | ENG-FFI-003 | **P1** | **`validate_schema()` never called**: Generated data types are whatever Python infers. |
-| ENG-FFI-004 | **P1** | **Separator normalization incomplete**: Only `\\n` and `\\|` handled. `\\t` and other escapes not normalized. |
+| ENG-FFI-004 | **P1** | **Separator normalization incomplete**: Only `\\n` and `\\ | ` handled. `\\t` and other escapes not normalized. |
 | ENG-FFI-005 | **P1** | **No `{id}_ERROR_MESSAGE` in globalMap**: Error messages not stored for downstream error handlers. |
 | ENG-FFI-006 | **P2** | **Inline content strips field values unconditionally**: L256 calls `.strip()` on all values. Talend preserves whitespace. |
 | ENG-FFI-007 | **P2** | **Single mode with `rows` ignores `nb_rows`**: When converter pre-generates rows, NB_ROWS is not respected. |
@@ -217,7 +218,7 @@ The rewritten converter does NOT handle context variables or Java expressions in
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | **Bug** | `_update_stats(0, ...)` | Always 0 (ENG-FFI-001) |
 | `{id}_NB_LINE_OK` | Yes | **Yes** | `_update_stats(_, rows_generated, _)` | Correct |
 | `{id}_NB_LINE_REJECT` | Yes (0) | **Yes** | `_update_stats(_, _, 0)` | Always 0 (correct) |
@@ -230,7 +231,7 @@ The rewritten converter does NOT handle context variables or Java expressions in
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-FFI-001 | **P0** | `base_component.py:304` | **CROSS-CUTTING**: `_update_global_map()` references undefined variable `value` (should be `stat_value`). Causes NameError at runtime. |
 | BUG-FFI-002 | **P0** | `global_map.py:28` | **CROSS-CUTTING**: `GlobalMap.get()` references undefined `default` parameter. Causes NameError. |
 | BUG-FFI-003 | **P1** | `fixed_flow_input.py:142` | `_update_stats(0, rows_generated, 0)` sets NB_LINE to 0. |
@@ -245,13 +246,13 @@ The rewritten converter does NOT handle context variables or Java expressions in
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | NAME-FFI-001 | **P2** | `field_separator` vs `delimiter` inconsistency across file components |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-FFI-001 | **P1** | `_validate_config()` should be called at start of `_process()` | Never called -- dead code |
 | STD-FFI-002 | **P2** | `validate_schema()` should be called on output DataFrame | Never called |
 
@@ -262,14 +263,14 @@ Excessive INFO-level logging in `_generate_inline_content_rows()` (8 log stateme
 ### 6.5 Security
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | SEC-FFI-001 | **P1** | `eval()` call in `_resolve_value()` L321 on partially user-controlled string from globalMap. Should use `ast.literal_eval()` or safe expression evaluator. |
 | SEC-FFI-002 | **P3** | Raw inline content logged at INFO level -- may contain sensitive data. |
 
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Correct: `logger = logging.getLogger(__name__)` |
 | Level usage | Partially incorrect: many DEBUG-appropriate messages at INFO |
 | Sensitive data | Risk: raw inline content logged at INFO |
@@ -277,7 +278,7 @@ Excessive INFO-level logging in `_generate_inline_content_rows()` (8 log stateme
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Not used (generic Exception re-raise) |
 | die_on_error handling | Correct pattern: re-raises or returns empty DF |
 | Bare except | Two bare `except:` clauses in `_resolve_value()` |
@@ -285,7 +286,7 @@ Excessive INFO-level logging in `_generate_inline_content_rows()` (8 log stateme
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | `_process()` return type correct |
 | `_resolve_value()` | Return type missing |
 | Parameter types | Partially typed (`List` should be `List[Dict]`) |
@@ -295,14 +296,14 @@ Excessive INFO-level logging in `_generate_inline_content_rows()` (8 log stateme
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-FFI-001 | **P2** | `_resolve_value()` called per cell, not vectorized. For 1000x10 schema, 10K calls with regex and eval(). |
 | PERF-FFI-002 | **P3** | `import re` inside `_resolve_value()` on every call with globalMap reference. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Not applicable -- data generated in-memory |
 | Memory threshold | Large NB_ROWS (millions) could consume significant memory |
 | Large data handling | All rows generated as List[Dict] before DataFrame creation |
@@ -314,7 +315,7 @@ Excessive INFO-level logging in `_generate_inline_content_rows()` (8 log stateme
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 56 | `tests/converters/talend_to_v1/components/test_fixed_flow_input.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | 0 | None (covered by regression guard `test_converter_output_structure.py`) |
@@ -322,7 +323,7 @@ Excessive INFO-level logging in `_generate_inline_content_rows()` (8 log stateme
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-FFI-001 | **P2** | No engine unit tests for FixedFlowInputComponent (330 lines of untested engine code) |
 
 ### 8.3 Recommended Test Cases
@@ -340,7 +341,7 @@ Excessive INFO-level logging in `_generate_inline_content_rows()` (8 log stateme
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 2 | BUG-FFI-001, BUG-FFI-002 (cross-cutting) |
 | P1 | 7 | BUG-FFI-003, BUG-FFI-004, ENG-FFI-002, ENG-FFI-003, ENG-FFI-004, ENG-FFI-005, SEC-FFI-001 |
 | P2 | 8 | BUG-FFI-005, BUG-FFI-006, BUG-FFI-007, BUG-FFI-008, ENG-FFI-006, ENG-FFI-007, ENG-FFI-008, PERF-FFI-001 |
@@ -350,7 +351,7 @@ Excessive INFO-level logging in `_generate_inline_content_rows()` (8 log stateme
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
 | Engine (ENG) | 8 | ENG-FFI-001 through ENG-FFI-008 |
 | Bug (BUG) | 10 | BUG-FFI-001 through BUG-FFI-010 |
@@ -363,7 +364,7 @@ Excessive INFO-level logging in `_generate_inline_content_rows()` (8 log stateme
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash (BUG-FFI-001) |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` crash (BUG-FFI-002) |
 
@@ -372,6 +373,7 @@ Excessive INFO-level logging in `_generate_inline_content_rows()` (8 log stateme
 ## 10. Recommendations
 
 ### Immediate (Before Production)
+
 - Fix `_update_stats()` NB_LINE=0 bug (P0, ENG-FFI-001)
 - Fix cross-cutting base class bugs (P0, BUG-FFI-001/002)
 - Replace `eval()` in `_resolve_value()` (P1, SEC-FFI-001)
@@ -379,6 +381,7 @@ Excessive INFO-level logging in `_generate_inline_content_rows()` (8 log stateme
 - Call `validate_schema()` on output DataFrame (P1, ENG-FFI-003)
 
 ### Short-term (Hardening)
+
 - Fix separator normalization for \\t and other escapes (P1, ENG-FFI-004)
 - Store `{id}_ERROR_MESSAGE` in globalMap on error (P1, ENG-FFI-005)
 - Fix bare except clauses (P2, BUG-FFI-005)
@@ -386,6 +389,7 @@ Excessive INFO-level logging in `_generate_inline_content_rows()` (8 log stateme
 - Add engine unit tests (P2, TEST-FFI-001)
 
 ### Long-term (Optimization)
+
 - Vectorize `_resolve_value()` for large NB_ROWS (P2, PERF-FFI-001)
 - Move `import re` to module level (P3, BUG-FFI-009)
 - Reduce INFO logging verbosity (P3, SEC-FFI-002)
@@ -397,7 +401,7 @@ Excessive INFO-level logging in `_generate_inline_content_rows()` (8 log stateme
 ### Risk Matrix
 
 | Risk | Likelihood | Impact | Mitigation |
-|------|-----------|--------|------------|
+| ------ | ----------- | -------- | ------------ |
 | Data injection via eval() | Low | High | Replace eval() with ast.literal_eval() or safe expression evaluator |
 | NB_LINE=0 breaks downstream NB_LINE checks | High | Medium | Fix _update_stats() first argument |
 | Large NB_ROWS memory exhaustion | Low | High | Document max recommended NB_ROWS; consider streaming for >100K |
@@ -425,9 +429,9 @@ Excessive INFO-level logging in `_generate_inline_content_rows()` (8 log stateme
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
-| Talaxie GitHub _java.xml | `https://github.com/nicmarti/Talaxie/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tFixedFlowInput/tFixedFlowInput_java.xml` | Parameter definitions, defaults |
-| Talend Help | `https://help.talend.com/r/en-US/7.3/tfixedflowinput/tfixedflowinput-standard-properties` | Behavioral documentation |
+| -------- | ---------- | ---------- |
+| Talaxie GitHub _java.xml | `<https://github.com/nicmarti/Talaxie/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tFixedFlowInput/tFixedFlowInput_java.xml`> | Parameter definitions, defaults |
+| Talend Help | `<https://help.talend.com/r/en-US/7.3/tfixedflowinput/tfixedflowinput-standard-properties`> | Behavioral documentation |
 | Engine source | `src/v1/engine/components/file/fixed_flow_input.py` | Feature parity analysis |
 | Converter source | `src/converters/talend_to_v1/components/file/fixed_flow_input.py` | Converter audit |
 | Converter tests | `tests/converters/talend_to_v1/components/test_fixed_flow_input.py` | Test coverage analysis |
@@ -435,7 +439,7 @@ Excessive INFO-level logging in `_generate_inline_content_rows()` (8 log stateme
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set |
 | XCUT-002 | `global_map.py:28` | `GlobalMap.get()` broken signature |
 

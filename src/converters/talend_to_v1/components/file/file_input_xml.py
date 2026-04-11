@@ -3,7 +3,7 @@
 Reads XML files using XPath expressions with loop-based row extraction
 and per-column MAPPING TABLE defining column/xpath/nodecheck triplets.
 
-Config mapping (19 params total):
+Config mapping (18 params total):
   FILENAME             -> filepath             (str, default "")
   LOOP_QUERY           -> loop_query           (str, default "/bills/bill/line")
   MAPPING              -> mapping              (TABLE, stride-3: SCHEMA_COLUMN + QUERY + NODECHECK)
@@ -19,8 +19,6 @@ Config mapping (19 params total):
   GENERATION_MODE      -> generation_mode      (str/CLOSED_LIST, default "Dom4j")
   CHECK_DATE           -> check_date           (bool, default False)
   ENCODING             -> encoding             (str, default "ISO-8859-15")
-  TMP_FILENAME         -> tmp_filename         (str, default "")
-  SCHEMA_OPT_NUM       -> schema_opt_num       (int, default 100)
   --- framework ---
   TSTATCATCHER_STATS   -> tstatcatcher_stats   (bool, default False)
   LABEL                -> label                (str, default "")
@@ -120,8 +118,6 @@ class FileInputXMLConverter(ComponentConverter):
         config["check_date"] = self._get_bool(node, "CHECK_DATE", False)
         config["use_separator"] = self._get_bool(node, "USE_SEPARATOR", False)
         config["field_separator"] = self._get_str(node, "FIELD_SEPARATOR", ",")
-        config["tmp_filename"] = self._get_str(node, "TMP_FILENAME", "")
-        config["schema_opt_num"] = self._get_int(node, "SCHEMA_OPT_NUM", 100)
 
         # ---- 5. Framework parameters (ALWAYS LAST) ----
         config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
@@ -143,8 +139,6 @@ class FileInputXMLConverter(ComponentConverter):
             ("check_date", "engine does not validate date fields during XML extraction"),
             ("use_separator", "engine does not support field separator concatenation for XML"),
             ("field_separator", "engine does not read field_separator config key"),
-            ("tmp_filename", "engine does not read tmp_filename config key"),
-            ("schema_opt_num", "engine does not read schema_opt_num config key"),
         ]
         for key, detail in _engine_gap_keys:
             needs_review.append({

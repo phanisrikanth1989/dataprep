@@ -3,18 +3,17 @@
 Deduplicates input rows based on specified key columns, routing unique rows
 to UNIQUE output and duplicates to DUPLICATE output.
 
-Config mapping (11 params total):
+Config mapping (9 params total):
   UNIQUE_KEY                              -> key_columns (list[dict], default [])
   (derived from UNIQUE_KEY)               -> case_sensitive (bool, default True)
   (derived from ONLY_ONCE_EACH_DUPLICATED_KEY) -> keep (str, default "first")
   ONLY_ONCE_EACH_DUPLICATED_KEY           -> only_once_each_duplicated_key (bool, default False)
   IS_VIRTUAL_COMPONENT                    -> is_virtual_component (bool, default False)
   BUFFER_SIZE                             -> buffer_size (str, default "M")
-  TEMP_DIRECTORY                          -> temp_directory (str, default "")
+  TEMP_DIRECTORY                           -> temp_directory (str, default "")
   CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL   -> change_hash_and_equals_for_bigdecimal (bool, default False)
-  CONNECTION_FORMAT                       -> connection_format (str, default "row")  [not in _java.xml]
   TSTATCATCHER_STATS                      -> tstatcatcher_stats (bool, default False)
-  LABEL                                   -> label (str, default "")
+  LABEL                                   -> label (str, default ""
 """
 import logging
 from typing import Any, Dict, List
@@ -131,10 +130,7 @@ class UniqueRowConverter(ComponentConverter):
         temp_directory = self._get_str(node, "TEMP_DIRECTORY", default="")
         change_hash = self._get_bool(node, "CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL", default=False)
 
-        # ---- 4. Phantom parameter ----
-        connection_format = self._get_str(node, "CONNECTION_FORMAT", default="row")
-
-        # ---- 5. Framework parameters (ALWAYS LAST) ----
+        # ---- 4. Framework parameters (ALWAYS LAST) ----
         tstatcatcher_stats = self._get_bool(node, "TSTATCATCHER_STATS", default=False)
         label = self._get_str(node, "LABEL", default="")
 
@@ -148,7 +144,6 @@ class UniqueRowConverter(ComponentConverter):
             "buffer_size": buffer_size,
             "temp_directory": temp_directory,
             "change_hash_and_equals_for_bigdecimal": change_hash,
-            "connection_format": connection_format,
             "tstatcatcher_stats": tstatcatcher_stats,
             "label": label,
         }

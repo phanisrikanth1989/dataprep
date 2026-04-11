@@ -12,7 +12,7 @@
 ## 1. Component Identity
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tFilterColumns` |
 | **V1 Engine Class** | `FilterColumns` |
 | **Engine File** | `src/v1/engine/components/transform/filter_columns.py` (205 lines) |
@@ -24,7 +24,7 @@
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/v1/engine/components/transform/filter_columns.py` | Engine implementation (205 lines) |
 | `src/converters/talend_to_v1/components/transform/filter_columns.py` | Converter class (68 lines) |
 | `tests/converters/talend_to_v1/components/test_filter_columns.py` | Converter tests (23 tests) |
@@ -36,7 +36,7 @@
 ## 2. Scorecard
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 0 unique + 2 framework params extracted (100%); _build_component_dict; passthrough schema; 2 per-feature needs_review for engine-only keys (mode, keep_row_order) |
 | Code Quality | **G** | 0 | 0 | 0 | 0 | Gold standard converter pattern; clean, minimal, well-documented module docstring with config mapping |
 | Testing | **Y** | 0 | 0 | 1 | 0 | 23 converter tests across 7 test classes; no engine unit tests (TEST-FC-001) |
@@ -64,7 +64,7 @@ The component is commonly used to reduce a wide schema to only the columns neede
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Schema | `SCHEMA` | Schema editor | -- | Defines which columns pass through. The output FLOW schema determines the column list -- columns in this schema are kept, others are dropped. |
 | 2 | Label | `LABEL` | String (TEXT) | `""` | Text label for the component in Talend Studio. No runtime impact. Framework param. |
 | 3 | tStatCatcher Statistics | `TSTATCATCHER_STATS` | Boolean (CHECK) | `false` | Capture processing metadata for tStatCatcher. Framework param. |
@@ -78,7 +78,7 @@ None. tFilterColumns has no advanced settings tab.
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `Row (Main)` | Input | Row > Main | Input data flow with full column set |
 | `Row (Main)` | Output | Row > Main | Output data flow with filtered column set (per output schema) |
 | `COMPONENT_OK` | Output (Trigger) | Trigger | Fires on successful completion |
@@ -87,7 +87,7 @@ None. tFilterColumns has no advanced settings tab.
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total rows processed |
 | `{id}_NB_LINE_OK` | Integer | After execution | Rows successfully filtered |
 | `{id}_NB_LINE_REJECT` | Integer | After execution | Rows rejected (always 0 for filter columns) |
@@ -111,7 +111,7 @@ None. tFilterColumns has no advanced settings tab.
 The converter uses `_build_component_dict` with `type_name="FilterColumns"` and passthrough schema pattern. No unique parameters to extract beyond framework params.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `SCHEMA` | Yes | schema (passthrough) | `_parse_schema(node)` with input == output |
 | 2 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | `_get_bool(node, ..., False)` -- framework param |
 | 3 | `LABEL` | Yes | `label` | `_get_str(node, ..., "")` -- framework param |
@@ -121,7 +121,7 @@ The converter uses `_build_component_dict` with `type_name="FilterColumns"` and 
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` |
 | `type` | Yes | Converted from Talend types via `convert_type()` |
 | `nullable` | Yes | Boolean |
@@ -144,7 +144,7 @@ None. Converter is gold standard.
 ### 4.5 Needs Review Entries
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | `mode` | Engine reads this key (default 'include') but it is not a _java.xml param. Converter does not output this key. | engine_gap |
 | 2 | `keep_row_order` | Engine reads this key (default True) but it is not a _java.xml param. Converter does not output this key. | engine_gap |
 
@@ -155,7 +155,7 @@ None. Converter is gold standard.
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Column filtering (include mode) | **Yes** | High | `_process()` line 149-170 | Keeps specified columns, logs missing columns as warnings |
 | 2 | Column filtering (exclude mode) | **Yes** | Medium | `_process()` line 172-183 | Removes specified columns -- no Talend equivalent mode parameter |
 | 3 | Error handling | **Yes** | Medium | `_process()` line 202-205 | Catches exceptions, raises `ComponentExecutionError` |
@@ -166,7 +166,7 @@ None. Converter is gold standard.
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-FC-001 | **P2** | Engine reads `mode` (default 'include') with include/exclude semantics. Talend has no mode parameter -- column filtering is purely schema-driven. |
 | ENG-FC-002 | **P2** | Engine reads `columns` (default []) as an explicit column name list. In Talend, columns are determined by the output schema, not a parameter. |
 | ENG-FC-003 | **P2** | Engine reads `keep_row_order` (default True) which has no _java.xml equivalent. Currently not used in engine logic (documented but no-op). |
@@ -177,7 +177,7 @@ None. Converter is gold standard.
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | Yes | `_update_stats()` | Total rows processed |
 | `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats()` | Successfully filtered rows |
 | `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats()` | Always 0 for filter columns |
@@ -191,7 +191,7 @@ None. Converter is gold standard.
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | BUG-FC-001 | **P2** | `filter_columns.py:71` | Mutable class default `DEFAULT_COLUMNS = []`. If ever appended to, shared across all instances. Should use `None` sentinel with `or []` in method. |
 | BUG-FC-002 | **P2** | `filter_columns.py:131-133` | Empty input returns `pd.DataFrame()` which loses column schema. Should return DataFrame with correct columns but 0 rows. |
 | BUG-FC-003 | **P2** | `filter_columns.py:164-166` | Include mode with no valid columns returns empty DataFrame and updates stats as 0 OK / total_rows REJECT, but this is misleading -- rows are not "rejected", columns are just missing. |
@@ -203,7 +203,7 @@ No naming issues found in converter or engine.
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | STD-FC-001 | **P2** | "_validate_config() called or dead code" | `_validate_config()` defined (lines 75-108) but never called by base class |
 
 ### 6.4 Debug Artifacts
@@ -217,7 +217,7 @@ No concerns identified. tFilterColumns is a pure column projection with no file 
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Correct -- `logging.getLogger(__name__)` |
 | Level usage | Appropriate -- info for start/complete, warning for missing columns and empty input, debug for configuration details |
 | Sensitive data | No concerns -- logs column names and row counts only |
@@ -225,7 +225,7 @@ No concerns identified. tFilterColumns is a pure column projection with no file 
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | `ComponentExecutionError` raised on failure |
 | Exception chaining | Yes -- `from e` used |
 | die_on_error handling | Not applicable -- engine has no die_on_error for this component |
@@ -233,7 +233,7 @@ No concerns identified. tFilterColumns is a pure column projection with no file 
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Complete -- return types and parameter types |
 | Parameter types | Correct -- Optional[pd.DataFrame], Dict[str, Any], List[str] |
 
@@ -242,13 +242,13 @@ No concerns identified. tFilterColumns is a pure column projection with no file 
 ## 7. Performance & Memory
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | PERF-FC-001 | **P3** | `.copy()` on result DataFrame (line 170, 183). For large DataFrames, creates full copy. Could use view for read-only downstream. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | Not implemented; relies on base class batch mode |
 | Memory threshold | No threshold -- processes entire DataFrame at once |
 | Large data handling | Memory-bound by input size (single copy) |
@@ -260,7 +260,7 @@ No concerns identified. tFilterColumns is a pure column projection with no file 
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 23 | `tests/converters/talend_to_v1/components/test_filter_columns.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | 0 | None (component-specific) |
@@ -268,7 +268,7 @@ No concerns identified. tFilterColumns is a pure column projection with no file 
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-FC-001 | **P2** | No engine unit tests for FilterColumns component |
 
 ### 8.3 Recommended Test Cases
@@ -289,7 +289,7 @@ No concerns identified. tFilterColumns is a pure column projection with no file 
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 0 | -- |
 | P1 | 0 | -- |
 | P2 | 10 | ENG-FC-001, ENG-FC-002, ENG-FC-003, ENG-FC-004, ENG-FC-005, ENG-FC-006, BUG-FC-001, BUG-FC-002, BUG-FC-003, STD-FC-001 |
@@ -299,7 +299,7 @@ No concerns identified. tFilterColumns is a pure column projection with no file 
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Engine (ENG) | 6 | ENG-FC-001, ENG-FC-002, ENG-FC-003, ENG-FC-004, ENG-FC-005, ENG-FC-006 |
 | Bug (BUG) | 3 | BUG-FC-001, BUG-FC-002, BUG-FC-003 |
 | Standards (STD) | 1 | STD-FC-001 |
@@ -309,7 +309,7 @@ No concerns identified. tFilterColumns is a pure column projection with no file 
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | XCUT-001 | `base_component.py` | `_update_global_map()` crash when globalMap set |
 | XCUT-002 | `base_component.py` | `_validate_config()` never called |
 
@@ -338,7 +338,7 @@ No P0 or P1 issues. Converter is production-ready.
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
+| -------- | ---------- | ---------- |
 | Talaxie GitHub _java.xml | [tFilterColumns_java.xml](https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tFilterColumns/tFilterColumns_java.xml) | Component definition XML |
 | Engine source | `src/v1/engine/components/transform/filter_columns.py` | Feature parity analysis |
 | Converter source | `src/converters/talend_to_v1/components/transform/filter_columns.py` | Converter audit |
@@ -346,7 +346,7 @@ No P0 or P1 issues. Converter is production-ready.
 ## Appendix B: Engine Config Key Mapping
 
 | Engine Config Key | _java.xml Param | Default (Engine) | Default (_java.xml) | Status |
-|-------------------|-----------------|------------------|---------------------|--------|
+| ------------------- | ----------------- | ------------------ | --------------------- | -------- |
 | `mode` | N/A | `'include'` | N/A | Engine-only key -- no _java.xml equivalent |
 | `columns` | N/A (schema-driven) | `[]` | N/A | Engine reads column list; Talend uses FLOW schema |
 | `keep_row_order` | N/A | `True` | N/A | Engine-only key -- no _java.xml equivalent, currently no-op |

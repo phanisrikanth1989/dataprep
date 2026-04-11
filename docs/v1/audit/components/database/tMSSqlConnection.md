@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tMSSqlConnection` |
 | **V1 Engine Class** | None -- no concrete engine implementation exists |
 | **Engine File** | None -- no engine file for this component |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/converters/talend_to_v1/components/database/mssql_connection.py` | Converter class `MSSqlConnectionConverter` |
 | `tests/converters/talend_to_v1/components/test_mssql_connection.py` | Converter tests |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()` |
@@ -39,7 +39,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 16 of 16 unique config keys extracted (100%); encrypted password handling retained via `_extract_password()`; MSSQL-specific port 1433 default; single consolidated needs_review for engine gap |
 | Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No concrete engine implementation exists; component cannot execute |
 | Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code quality is good (follows CONVERTER_PATTERN.md), but no engine code exists at all -- component is incomplete |
@@ -49,6 +49,7 @@ How production-ready is this component at a glance?
 **Overall: Red (RED) -- No engine implementation. Converter correctly extracts all 16 unique params (plus 2 framework) for future engine support, including encrypted password handling and MSSQL-specific defaults, but component cannot execute in production. Engine must be implemented before this component is usable.**
 
 **Top Actions**:
+
 1. Implement concrete MSSqlConnection engine class (P0 -- blocks production use)
 2. All converter and test issues resolved in v1.1 rewrite
 
@@ -74,7 +75,7 @@ A notable feature is encrypted password handling: Talend Studio stores passwords
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Driver | `DRIVER` | CLOSED_LIST | `"MSSQL_PROP"` | JDBC driver selection: `MSSQL_PROP` (Microsoft proprietary) or `JTDS` (open-source jTDS). Affects connection URL format and available features. |
 | 2 | Host | `HOST` | TEXT | `""` | Server hostname or IP address. Required. |
 | 3 | Port | `PORT` | TEXT | `"1433"` | Server port. Default 1433 is the standard MSSQL port. |
@@ -92,7 +93,7 @@ A notable feature is encrypted password handling: Talend Studio stores passwords
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | A1 | Active Directory Auth | `ACTIVE_DIR_AUTH` | CHECK | `false` | Use Windows Active Directory authentication. Only available with MSSQL_PROP driver. When enabled, USER/PASS may not be required. |
 | A2 | Auto Commit | `AUTO_COMMIT` | CHECK | `false` | Enable auto-commit mode for transactions. When false, transactions must be explicitly committed. |
 | A3 | Share Identity Setting | `SHARE_IDENTITY_SETTING` | CHECK | `false` | Share identity setting across components using this connection. |
@@ -100,7 +101,7 @@ A notable feature is encrypted password handling: Talend Studio stores passwords
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` | N/A | Row > Main | Max input 0, max output 0. No data flow. |
 | `ITERATE` | N/A | Iterate | Max input 0, max output 0. No iterate flow. |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires after connection is established successfully |
@@ -128,7 +129,7 @@ No explicit RETURNS section in _java.xml. The connection object itself is stored
 ### 3.6 Framework Parameters
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | F1 | tStatCatcher Stats | `TSTATCATCHER_STATS` | CHECK | `false` | Enable statistics collection for tStatCatcher |
 | F2 | Label | `LABEL` | TEXT | `""` | User-defined label for the component instance |
 
@@ -143,7 +144,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 The converter (`MSSqlConnectionConverter`) uses the flat config dict pattern (no `_build_component_dict`). It extracts all 16 unique parameters via `_get_str()`, `_get_bool()`, and a custom `_extract_password()` static method for encrypted password handling. Framework parameters are extracted last per convention.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `DRIVER` | Yes | `driver` | CLOSED_LIST -> str, default "MSSQL_PROP". |
 | 2 | `HOST` | Yes | `host` | TEXT -> str, default "". |
 | 3 | `PORT` | Yes | `port` | TEXT -> str, default "1433". MSSQL default port. |
@@ -168,7 +169,7 @@ The converter (`MSSqlConnectionConverter`) uses the flat config dict pattern (no
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` base class method |
 | `type` | Yes | Converted from Talend types via `convert_type()` |
 | `nullable` | Yes | Boolean |
@@ -187,7 +188,7 @@ Connection parameters may contain context variable references (e.g., `context.DB
 ### 4.4 Converter Issues
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No converter issues. All parameters correctly extracted per gold standard pattern. |
 
 ### 4.5 Needs Review Entries
@@ -195,7 +196,7 @@ Connection parameters may contain context variable references (e.g., `context.DB
 The converter emits a single consolidated needs_review entry per D-27 (entire engine absent):
 
 | # | Scope | Reason | Severity |
-|---|-------|--------|----------|
+| --- | ------- | -------- | ---------- |
 | 1 | Component-level | No concrete engine implementation for tMSSqlConnection. All config keys are extracted for future engine support. | engine_gap |
 
 ---
@@ -209,7 +210,7 @@ How faithfully does the v1 engine implement Talend behavior?
 No concrete engine implementation exists for tMSSqlConnection.
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Open MSSQL JDBC connection | **No** | N/A | -- | No engine class exists |
 | 2 | MSSQL_PROP driver support | **No** | N/A | -- | No engine class exists |
 | 3 | JTDS driver support | **No** | N/A | -- | No engine class exists |
@@ -221,7 +222,7 @@ No concrete engine implementation exists for tMSSqlConnection.
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-MSC-001 | **P0** | **OPEN** -- No concrete MSSqlConnection engine class exists. Jobs using tMSSqlConnection cannot execute in the v1 engine. |
 
 ### 5.3 GlobalMap Variable Coverage
@@ -237,19 +238,19 @@ How well-written is the converter code?
 ### 6.1 Bugs
 
 | ID | Priority | Location | Description |
-|----|----------|----------|-------------|
+| ---- | ---------- | ---------- | ------------- |
 | -- | -- | -- | No bugs found in the converter code. |
 
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No naming issues. Config keys follow snake_case convention. MSSQL family naming per D-29. PASS -> password per D-30. |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
-|----|----------|----------|-----------|
+| ---- | ---------- | ---------- | ----------- |
 | -- | -- | -- | No standards violations. Converter follows CONVERTER_PATTERN.md. |
 
 ### 6.4 Debug Artifacts
@@ -263,7 +264,7 @@ Password handling is the primary security concern. The converter strips the `enc
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Good -- `logger = logging.getLogger(__name__)` at module level |
 | Level usage | N/A -- logger not used in the converter (appropriate for simple component) |
 | Sensitive data | Password value is present in config output -- acceptable for converter (encryption handled at engine level) |
@@ -271,7 +272,7 @@ Password handling is the primary security concern. The converter strips the `enc
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | Good -- no exceptions raised per convention (converters never raise) |
 | Exception chaining | N/A |
 | die_on_error handling | N/A -- tMSSqlConnection has no die_on_error parameter |
@@ -279,7 +280,7 @@ Password handling is the primary security concern. The converter strips the `enc
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Good -- `convert()` fully typed with return type `ComponentResult` |
 | Parameter types | Good -- all base class helpers properly typed; `_extract_password()` typed with `str` return |
 
@@ -290,13 +291,13 @@ Password handling is the primary security concern. The converter strips the `enc
 Will it scale?
 
 | ID | Priority | Issue |
-|----|----------|-------|
+| ---- | ---------- | ------- |
 | -- | -- | No performance or memory concerns. The converter is a trivial parameter extractor. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- no engine implementation to assess |
 | Memory threshold | N/A |
 | Large data handling | N/A -- no data flow (connection component) |
@@ -310,7 +311,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | Yes | `tests/converters/talend_to_v1/components/test_mssql_connection.py` |
 | Engine unit tests | 0 | None -- no engine implementation |
 | Integration tests | 0 | None |
@@ -318,12 +319,13 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-MSC-001 | **P0** | **OPEN** -- No engine tests exist because no engine implementation exists |
 
 ### 8.3 Recommended Test Cases
 
 When the engine is implemented, test:
+
 - Connection establishment with MSSQL_PROP driver
 - Connection establishment with JTDS driver
 - Active Directory authentication flow
@@ -342,7 +344,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 3 | **ENG-MSC-001**, **TEST-MSC-001**, (engine absent -- all dimensions affected) |
 | P1 | 0 | -- |
 | P2 | 0 | -- |
@@ -352,7 +354,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
 | Engine (ENG) | 1 | **ENG-MSC-001** |
 | Bug (BUG) | 0 | -- |
@@ -389,7 +391,7 @@ No P3 issues identified.
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
+| -------- | ---------- | ---------- |
 | Talaxie GitHub _java.xml | `tdi-studio-se/main/components/tMSSqlConnection/tMSSqlConnection_java.xml` | Parameter definitions, defaults, types |
 | Converter source | `src/converters/talend_to_v1/components/database/mssql_connection.py` | Converter audit |
 | Test source | `tests/converters/talend_to_v1/components/test_mssql_connection.py` | Test coverage audit |
@@ -401,7 +403,7 @@ No P3 issues identified.
 No cross-cutting issues apply to tMSSqlConnection at this time. The component has no engine implementation, so engine-level cross-cutting bugs are not relevant.
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | -- | -- | No engine code exists -- cross-cutting engine bugs do not apply |
 
 ---

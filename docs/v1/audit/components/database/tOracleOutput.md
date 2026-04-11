@@ -14,7 +14,7 @@
 What is this component and where does everything live?
 
 | Field | Value |
-|-------|-------|
+| ------- | ------- |
 | **Talend Name** | `tOracleOutput` |
 | **V1 Engine Class** | None -- no concrete engine implementation exists |
 | **Engine File** | No dedicated engine file |
@@ -26,7 +26,7 @@ What is this component and where does everything live?
 ### Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `src/converters/talend_to_v1/components/database/oracle_output.py` | Converter class `OracleOutputConverter` |
 | `tests/converters/talend_to_v1/components/test_oracle_output.py` | Converter tests |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_get_int()`, `_parse_schema()` |
@@ -39,7 +39,7 @@ What is this component and where does everything live?
 How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
-|-----------|-------|----|----|----|----|---------|
+| ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 26 of 26 config keys extracted (100%); all _java.xml params mapped to snake_case; needs_review entry for engine gap |
 | Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No concrete engine implementation exists; component cannot execute |
 | Code Quality | **R** | 1 | 0 | 0 | 0 | Converter follows CONVERTER_PATTERN.md but no engine code exists |
@@ -49,6 +49,7 @@ How production-ready is this component at a glance?
 **Overall: Red (RED) -- No engine implementation. Converter correctly extracts all 26 params for future engine support, but component cannot execute in production.**
 
 **Top Actions**:
+
 1. Implement concrete OracleOutput engine class (P0 -- blocks production use)
 2. All converter and test issues resolved in v1.1 rewrite
 
@@ -74,7 +75,7 @@ The component provides flexible table management with TABLE_ACTION (CREATE, DROP
 ### 3.1 Basic Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | 1 | Use Existing Connection | `USE_EXISTING_CONNECTION` | CHECK | false | Reuse a shared Oracle connection from tOracleConnection |
 | 2 | Connection | `CONNECTION` | COMPONENT_LIST | "" | Reference to the tOracleConnection component when USE_EXISTING_CONNECTION is true |
 | 3 | Connection Type | `CONNECTION_TYPE` | CLOSED_LIST | "ORACLE_SID" | Oracle connection method: ORACLE_SID, ORACLE_SERVICE_NAME, ORACLE_OCI |
@@ -92,7 +93,7 @@ The component provides flexible table management with TABLE_ACTION (CREATE, DROP
 ### 3.2 Advanced Settings
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
-|---|-----------|-----------------|------|---------|-------------|
+| --- | ----------- | ----------------- | ------ | --------- | ------------- |
 | A1 | Commit Every | `COMMIT_EVERY` | TEXT | 10000 | Number of rows between commits. Integer stored as TEXT in XML |
 | A2 | Use Batch Size | `USE_BATCH_SIZE` | CHECK | true | Enable JDBC batch operations for performance. Default TRUE |
 | A3 | Batch Size | `BATCH_SIZE` | TEXT | 10000 | Number of rows per JDBC batch. Only used when USE_BATCH_SIZE is true |
@@ -108,7 +109,7 @@ The component provides flexible table management with TABLE_ACTION (CREATE, DROP
 ### 3.3 Connection Types
 
 | Connector | Direction | Type | Description |
-|-----------|-----------|------|-------------|
+| ----------- | ----------- | ------ | ------------- |
 | `FLOW` (Main) | Input | Row > Main | Input data rows to write to Oracle table |
 | `REJECT` | Output | Row > Reject | Rejected rows with errorCode/errorMessage columns |
 | `SUBJOB_OK` | Output (Trigger) | Trigger | Fires when subjob completes successfully |
@@ -119,7 +120,7 @@ The component provides flexible table management with TABLE_ACTION (CREATE, DROP
 ### 3.4 GlobalMap Variables
 
 | Variable Pattern | Type | When Set | Description |
-|------------------|------|----------|-------------|
+| ------------------ | ------ | ---------- | ------------- |
 | `{id}_NB_LINE` | Integer | After execution | Total number of rows written |
 | `{id}_NB_LINE_INSERTED` | Integer | After execution | Number of rows inserted |
 | `{id}_NB_LINE_UPDATED` | Integer | After execution | Number of rows updated |
@@ -146,7 +147,7 @@ How faithfully does the converter translate Talend XML to v1 JSON?
 Flat config dict pattern (no-engine component). All parameters extracted via `_get_str()`, `_get_bool()`, `_get_int()` base class helpers.
 
 | # | Talend XML Parameter | Extracted? | V1 Config Key | Notes |
-|----|----------------------|------------|---------------|-------|
+| ---- | ---------------------- | ------------ | --------------- | ------- |
 | 1 | `USE_EXISTING_CONNECTION` | Yes | `use_existing_connection` | bool, default false |
 | 2 | `CONNECTION` | Yes | `connection` | str, default "" |
 | 3 | `CONNECTION_TYPE` | Yes | `connection_type` | str, default "ORACLE_SID" |
@@ -179,7 +180,7 @@ Flat config dict pattern (no-engine component). All parameters extracted via `_g
 ### 4.2 Schema Extraction
 
 | Schema Attribute | Extracted? | Notes |
-|------------------|-----------|-------|
+| ------------------ | ----------- | ------- |
 | `name` | Yes | Via `_parse_schema()` |
 | `type` | Yes | Converted from Talend types via `convert_type()` |
 | `nullable` | Yes | |
@@ -202,7 +203,7 @@ None -- converter follows gold standard pattern after v1.1 rewrite.
 Single consolidated needs_review entry per D-27 (no engine implementation).
 
 | # | Config Key | Reason | Severity |
-|---|-----------|--------|----------|
+| --- | ----------- | -------- | ---------- |
 | 1 | (all) | No concrete engine implementation for tOracleOutput. All config keys extracted for future engine support. | engine_gap |
 
 ---
@@ -214,19 +215,19 @@ How faithfully does the v1 engine implement Talend behavior?
 ### 5.1 Feature Implementation Status
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
-|----|----------------|-------------|----------|-----------------|-------|
+| ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Oracle table output | **No** | N/A | No engine file | No engine implementation exists |
 
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
-|----|----------|-------------|
+| ---- | ---------- | ------------- |
 | ENG-OO-001 | **P0** | No engine implementation exists for tOracleOutput. Component cannot execute. |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
-|----------|-------------|----------|-----------------|-------|
+| ---------- | ------------- | ---------- | ----------------- | ------- |
 | `{id}_NB_LINE` | Yes | No | N/A | No engine implementation |
 | `{id}_NB_LINE_INSERTED` | Yes | No | N/A | No engine implementation |
 | `{id}_NB_LINE_UPDATED` | Yes | No | N/A | No engine implementation |
@@ -262,7 +263,7 @@ No concerns identified for converter. Password parameter (`PASS`) is extracted a
 ### 6.6 Logging Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Logger setup | Correct -- `logger = logging.getLogger(__name__)` at module level |
 | Level usage | N/A -- converter uses warnings list, not logger |
 | Sensitive data | Password extracted as plain text into config (standard for converters) |
@@ -270,7 +271,7 @@ No concerns identified for converter. Password parameter (`PASS`) is extracted a
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Custom exceptions | N/A -- converters return ComponentResult with warnings |
 | Exception chaining | N/A |
 | die_on_error handling | Extracted as config param; no engine to implement behavior |
@@ -278,7 +279,7 @@ No concerns identified for converter. Password parameter (`PASS`) is extracted a
 ### 6.8 Type Hints
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Method signatures | Full type hints on convert() method |
 | Parameter types | All helpers properly typed via base class |
 
@@ -293,7 +294,7 @@ No engine implementation exists, so performance cannot be assessed.
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
-|--------|------------|
+| -------- | ------------ |
 | Streaming mode | N/A -- no engine implementation |
 | Memory threshold | N/A |
 | Large data handling | N/A |
@@ -307,7 +308,7 @@ What's verified?
 ### 8.1 Current Coverage
 
 | Test Type | Count | Location |
-|-----------|-------|----------|
+| ----------- | ------- | ---------- |
 | Converter unit tests | 30+ | `tests/converters/talend_to_v1/components/test_oracle_output.py` |
 | Engine unit tests | 0 | None -- no engine implementation |
 | Integration tests | 0 | None |
@@ -315,12 +316,13 @@ What's verified?
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
-|----|----------|-----|
+| ---- | ---------- | ----- |
 | TEST-OO-001 | **P0** | No engine tests exist because engine is unimplemented |
 
 ### 8.3 Recommended Test Cases
 
 When engine is implemented:
+
 - INSERT with batch operations (use_batch_size=true, batch_size=10000)
 - UPDATE with WHERE clause generation from key columns
 - INSERT_OR_UPDATE merge operation
@@ -345,7 +347,7 @@ All issues grouped by priority for sprint planning.
 ### By Priority
 
 | Priority | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | P0 | 2 | **ENG-OO-001**, **TEST-OO-001** |
 | P1 | 0 | |
 | P2 | 0 | |
@@ -355,7 +357,7 @@ All issues grouped by priority for sprint planning.
 ### By Category
 
 | Category | Count | IDs |
-|----------|-------|-----|
+| ---------- | ------- | ----- |
 | Converter (CONV) | 0 | |
 | Engine (ENG) | 1 | **ENG-OO-001** |
 | Bug (BUG) | 0 | |
@@ -375,13 +377,16 @@ No cross-cutting issues -- no engine implementation to share common base class b
 What should be fixed, in what order?
 
 ### Immediate (Before Production)
+
 - **ENG-OO-001**: Implement concrete OracleOutput engine class with Oracle JDBC support for INSERT/UPDATE/DELETE/INSERT_OR_UPDATE operations, batch processing, DDL table actions, and commit management
 - **TEST-OO-001**: Add comprehensive engine tests once engine is implemented
 
 ### Short-term (Hardening)
+
 - None -- all converter issues resolved in v1.1 rewrite
 
 ### Long-term (Optimization)
+
 - Consider connection pooling for high-throughput Oracle output scenarios
 - Optimize batch size tuning for large data volumes
 
@@ -390,7 +395,7 @@ What should be fixed, in what order?
 ## Appendix A: Source References
 
 | Source | URL/Path | Used For |
-|--------|----------|----------|
+| -------- | ---------- | ---------- |
 | Talaxie GitHub _java.xml | `tOracleOutput_java.xml` from tdi-studio-se repository | Parameter definitions, defaults, types |
 | Converter source | `src/converters/talend_to_v1/components/database/oracle_output.py` | Converter audit |
 | Test source | `tests/converters/talend_to_v1/components/test_oracle_output.py` | Test coverage audit |
@@ -402,7 +407,7 @@ What should be fixed, in what order?
 No cross-cutting issues apply -- no engine implementation exists.
 
 | Canonical ID | Location | Impact on This Component |
-|-------------|----------|--------------------------|
+| ------------- | ---------- | -------------------------- |
 | N/A | N/A | No engine code to share common bugs |
 
 ---

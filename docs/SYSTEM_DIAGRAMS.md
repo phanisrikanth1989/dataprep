@@ -5,7 +5,7 @@
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │                      WEB BROWSER (User)                              │
-│                   http://localhost:5173                              │
+│                   <http://localhost:5173>                              │
 │  ┌────────────────────────────────────────────────────────────────┐  │
 │  │              FRONTEND (React 18 + TypeScript)                  │  │
 │  │                                                                │  │
@@ -47,7 +47,7 @@
                     ▼                                  ▼
 ┌──────────────────────────────────────────────────────────────────────┐
 │                    BACKEND SERVER (FastAPI)                          │
-│                    http://localhost:8000                             │
+│                    <http://localhost:8000>                             │
 │                                                                      │
 │  ┌────────────────────────────────────────────────────────────────┐ │
 │  │                    Routes Layer                               │ │
@@ -311,7 +311,7 @@ INTERNAL STEPS:
 1. Load lookups into memory
    └─ Product lookup: 500 rows → indexed by product_id
 
-2. Iterate main rows (1000 rows)
+1. Iterate main rows (1000 rows)
    ├─ Row 1: Product ID = 101
    │  ├─ Find in lookup (Product ID 101)
    │  ├─ Merge data (Product Name + Category)
@@ -324,7 +324,7 @@ INTERNAL STEPS:
    │
    └─ ... repeat for all 1000 rows
 
-3. Generate outputs
+1. Generate outputs
    ├─ MAIN output: 950 rows (successful matches)
    └─ REJECT output: 50 rows (lookup misses/errors)
 

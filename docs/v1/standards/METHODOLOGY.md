@@ -21,7 +21,7 @@ Developers experienced with Talend who have Python skills and are using AI assis
 ## Priority Definitions
 
 | Priority | Label | Definition | Action Required |
-|----------|-------|------------|-----------------|
+| ---------- | ------- | ------------ | ----------------- |
 | **P0** | Critical | Causes incorrect results, data loss, runtime crash, or blocks production use. Jobs will fail or produce wrong output. | Must fix before any production migration |
 | **P1** | Major | Significant feature gap or behavioral difference vs Talend. Likely to be hit in real jobs. Workaround may exist but is fragile. | Fix before production migration of affected jobs |
 | **P2** | Moderate | Minor feature gap, edge case handling, cosmetic issue, naming inconsistency, or standards violation. May not be hit often but indicates quality gap. | Fix during hardening phase |
@@ -34,6 +34,7 @@ Developers experienced with Talend who have Python skills and are using AI assis
 ### 1. Talend Feature Baseline
 
 For each component, we document the **complete** feature set of the Talend equivalent:
+
 - All configuration parameters (Basic Settings, Advanced Settings)
 - All connection types (input flows, output flows, triggers)
 - All behavioral modes and options
@@ -49,7 +50,7 @@ Source: Talend documentation, Talend Studio reference, online resources.
 Does the `talend_to_v1` converter correctly extract all Talend XML data for this component?
 
 | Check | Description |
-|-------|-------------|
+| ------- | ------------- |
 | **Parameter extraction** | Every `elementParameter` Talend emits is captured |
 | **Parameter mapping** | Raw XML names correctly mapped to v1 config keys |
 | **Schema extraction** | All `metadata/column` attributes captured (name, type, nullable, length, precision, pattern) |
@@ -65,7 +66,7 @@ Does the `talend_to_v1` converter correctly extract all Talend XML data for this
 Does the Python component produce the same results as the Talend component?
 
 | Check | Description |
-|-------|-------------|
+| ------- | ------------- |
 | **Core functionality** | Does the common/happy path work correctly? |
 | **All Talend parameters honored** | Every config option has corresponding logic |
 | **Behavioral fidelity** | Output matches Talend row-for-row in common cases |
@@ -80,7 +81,7 @@ Does the Python component produce the same results as the Talend component?
 ### 4. Code Quality
 
 | Check | Description |
-|-------|-------------|
+| ------- | ------------- |
 | **Bugs** | Confirmed runtime errors, logic errors, typos |
 | **Naming consistency** | Config keys, class names, parameter names follow conventions |
 | **STANDARDS.md compliance** | Follows `docs/v1/STANDARDS.md` |
@@ -94,7 +95,7 @@ Does the Python component produce the same results as the Talend component?
 ### 5. Performance & Memory
 
 | Check | Description |
-|-------|-------------|
+| ------- | ------------- |
 | **Memory efficiency** | Unnecessary copies, full loads vs streaming |
 | **Streaming support** | Works in HYBRID mode without data loss |
 | **Scalability** | O(n) vs O(n^2) patterns, large file handling |
@@ -104,7 +105,7 @@ Does the Python component produce the same results as the Talend component?
 ### 6. Testing Coverage
 
 | Check | Description |
-|-------|-------------|
+| ------- | ------------- |
 | **Unit tests exist** | Any test file for this component? |
 | **Happy path tested** | Basic functionality verified |
 | **Edge cases tested** | Empty input, null values, missing files, encoding |
@@ -122,6 +123,7 @@ Each report follows a fixed structure — see `tFileInputDelimited.md` as the go
 ### Cross-Cutting Issues (`docs/v1/audit/CROSS_CUTTING_ISSUES.md`)
 
 Issues that affect the entire engine, not a single component:
+
 - `_update_global_map()` crash (base_component.py:304 — undefined `value` variable)
 - `GlobalMap.get()` crash (global_map.py:28 — undefined `default` parameter)
 - `replace_in_config` literal `[i]` bug (base_component.py:174 — Java expressions in lists never resolved)
@@ -145,7 +147,7 @@ Traffic-light matrix: every component x every dimension = R/Y/G with issue count
 ## Scoring
 
 | Score | Meaning |
-|-------|---------|
+| ------- | --------- |
 | **R (Red)** | Broken, missing, or will produce wrong results |
 | **Y (Yellow)** | Partially works, gaps exist, needs attention |
 | **G (Green)** | Works correctly, meets standards |
@@ -158,12 +160,14 @@ Traffic-light matrix: every component x every dimension = R/Y/G with issue count
 Each component goes through a **two-pass review process**:
 
 ### Pass 1: Initial Audit
+
 - Research Talend documentation online for the component
 - Read the v1 engine implementation (every line)
 - Read the converter code (dispatch + parser + parameter mapping)
 - Write the full audit report following the gold standard template
 
 ### Pass 2: Adversarial Review
+
 - A separate reviewer reads the report AND the source code
 - Mindset: "Find at least 3-5 issues the report missed"
 - Focuses on edge cases, cross-class interactions, and behavioral subtleties
@@ -174,7 +178,7 @@ Each component goes through a **two-pass review process**:
 Every audit MUST check these cross-cutting concerns:
 
 | Check | Why |
-|-------|-----|
+| ------- | ----- |
 | NaN handling (`pd.isna()` vs `is None`) | pandas uses NaN, not None — `value is None` misses NaN |
 | Empty strings in config keys | Can produce crashes (e.g., `str.split("")` raises ValueError) |
 | Empty DataFrame input (0 rows with columns vs None) | Returning `pd.DataFrame()` loses column schema |
@@ -193,7 +197,7 @@ Every audit MUST check these cross-cutting concerns:
 These bugs appear in EVERY component report (referenced by component-specific IDs):
 
 | Bug | Location | Impact |
-|-----|----------|--------|
+| ----- | ---------- | -------- |
 | `_update_global_map()` undefined `value` | `base_component.py:304` | Crashes all components when globalMap is set. Results lost. |
 | `GlobalMap.get()` undefined `default` | `global_map.py:28` | Crashes any direct `.get()` call. `get_component_stat()` line 58 also fails. |
 | `replace_in_config` literal `[i]` | `base_component.py:174` | Java expressions in list config values never resolved back. |

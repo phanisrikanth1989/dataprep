@@ -5,6 +5,7 @@
 Complete setup instructions for the RecDataPrep ETL Visual Designer UI with backend and frontend.
 
 **Architecture:**
+
 - **Backend:** FastAPI server (Python) on port 8000
 - **Frontend:** React + Vite app on port 5173
 - **Communication:** REST API + WebSocket
@@ -69,13 +70,14 @@ python run.py
 
 **Expected output:**
 ```
-INFO:     Uvicorn running on http://0.0.0.0:8000
+INFO:     Uvicorn running on <http://0.0.0.0:8000>
 INFO:     Application startup complete
 ```
 
 **Verify the server:**
-- API docs: http://localhost:8000/docs
-- Health check: http://localhost:8000/health
+
+- API docs: <http://localhost:8000/docs>
+- Health check: <http://localhost:8000/health>
 
 ---
 
@@ -96,7 +98,7 @@ npm install
 Create `.env.local` file:
 
 ```env
-VITE_API_URL=http://localhost:8000/api
+VITE_API_URL=<http://localhost:8000/api>
 VITE_WS_URL=ws://localhost:8000
 ```
 
@@ -110,13 +112,13 @@ npm run dev
 ```
 VITE v5.0.8  ready in 500 ms
 
-➜  Local:   http://localhost:5173/
+➜  Local:   <http://localhost:5173/>
 ➜  Press h to show help
 ```
 
 ### Step 4: Open in Browser
 
-Navigate to: **http://localhost:5173**
+Navigate to: **<http://localhost:5173**>
 
 ---
 
@@ -132,16 +134,19 @@ Navigate to: **http://localhost:5173**
 ### 2. Design the Job
 
 **Drag and Drop Components:**
+
 - Left panel: Component palette
 - Drag components onto the canvas
 - Connect components with flows (click output → click input)
 
 **Configure Components:**
+
 - Click on a component to select it
 - Right panel: Configure properties
 - Click **"Save Configuration"**
 
 **Supported Components:**
+
 - **Input:** FileInput
 - **Transform:** Map, Filter, Aggregate, Sort
 - **Output:** FileOutput
@@ -267,7 +272,7 @@ cd frontend
 npm run dev
 ```
 
-Now open **http://localhost:5173** in your browser!
+Now open **<http://localhost:5173**> in your browser!
 
 ---
 
@@ -330,12 +335,14 @@ CMD ["nginx", "-g", "daemon off;"]
 ### CORS Errors
 
 **Solution:** Ensure both servers are running and CORS is configured:
+
 - Backend: `vite:5173` is in allowed origins
 - Frontend: API URL points to correct backend
 
 ### WebSocket Connection Fails
 
 **Check:**
+
 - Backend running on port 8000
 - WebSocket proxy configured in `vite.config.ts`
 - Browser console for error details
@@ -343,6 +350,7 @@ CMD ["nginx", "-g", "daemon off;"]
 ### Job Execution Fails
 
 **Check:**
+
 - ETL engine path in `execution_service.py` is correct
 - Job has valid configuration
 - Required components are implemented
@@ -350,6 +358,7 @@ CMD ["nginx", "-g", "daemon off;"]
 ### "Job not found" Error
 
 **Solution:**
+
 - Save job first before running
 - Verify job file exists in `backend/jobs/` folder
 
@@ -361,18 +370,18 @@ CMD ["nginx", "-g", "daemon off;"]
    - Edit `backend/app/schemas.py` to add component definitions
    - Implement component classes in `src/v1/engine/components/`
 
-2. **Enhance Job Monitoring:**
+1. **Enhance Job Monitoring:**
    - Stream real-time logs from ETL engine
    - Add component-level statistics tracking
    - Build advanced job analytics dashboard
 
-3. **Add Features:**
+1. **Add Features:**
    - Job templates & clone
    - Parameter overrides at runtime
    - Job scheduling/cron
    - Audit logs & history
 
-4. **Security:**
+1. **Security:**
    - Add authentication (JWT)
    - Add authorization (RBAC)
    - Encrypt sensitive data
@@ -382,7 +391,8 @@ CMD ["nginx", "-g", "daemon off;"]
 ## Support
 
 For issues or questions:
-1. Check backend logs: `http://localhost:8000/docs`
+
+1. Check backend logs: `<http://localhost:8000/docs`>
 2. Check browser console (F12)
 3. Review API responses in Network tab
 4. Check `jobs/` folder for saved configurations

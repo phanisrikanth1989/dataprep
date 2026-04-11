@@ -3,7 +3,7 @@
 Establishes an Oracle database connection with support for SID,
 Service Name, OCI, Custom URL, RAC, and Wallet connection types.
 
-Config mapping (30 params total):
+Config mapping (28 params total):
   CONNECTION_TYPE            -> connection_type (str, default "ORACLE_SID")
   DB_VERSION                 -> db_version (str, default "ORACLE_18")
   RAC_URL                    -> rac_url (str, default "")
@@ -25,10 +25,8 @@ Config mapping (30 params total):
   DATASOURCE_ALIAS           -> datasource_alias (str, default "")
   USE_SSL                    -> use_ssl (bool, default False)
   SSL_TRUSTSERVER_TRUSTSTORE -> ssl_trustserver_truststore (str, default "")
-  SSL_TRUSTSERVER_PASSWORD   -> ssl_trustserver_password (str, default "")
   NEED_CLIENT_AUTH           -> need_client_auth (bool, default False)
   SSL_KEYSTORE               -> ssl_keystore (str, default "")
-  SSL_KEYSTORE_PASSWORD      -> ssl_keystore_password (str, default "")
   DISABLE_CBC_PROTECTION     -> disable_cbc_protection (bool, default True)
   AUTO_COMMIT                -> auto_commit (bool, default False)
   SUPPORT_NLS                -> support_nls (bool, default False)
@@ -90,10 +88,8 @@ class OracleConnectionConverter(ComponentConverter):
         # ---- 6. SSL parameters ----
         config["use_ssl"] = self._get_bool(node, "USE_SSL", False)
         config["ssl_trustserver_truststore"] = self._get_str(node, "SSL_TRUSTSERVER_TRUSTSTORE", "")
-        config["ssl_trustserver_password"] = self._get_str(node, "SSL_TRUSTSERVER_PASSWORD", "")
         config["need_client_auth"] = self._get_bool(node, "NEED_CLIENT_AUTH", False)
         config["ssl_keystore"] = self._get_str(node, "SSL_KEYSTORE", "")
-        config["ssl_keystore_password"] = self._get_str(node, "SSL_KEYSTORE_PASSWORD", "")
         config["disable_cbc_protection"] = self._get_bool(node, "DISABLE_CBC_PROTECTION", True)
 
         # ---- 7. Advanced parameters ----
