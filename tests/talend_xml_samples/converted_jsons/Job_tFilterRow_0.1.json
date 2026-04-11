@@ -1,0 +1,742 @@
+{
+  "job_name": "Job_tFilterRow_0.1",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {}
+  },
+  "components": [
+    {
+      "id": "tFileInputDelimited_1",
+      "type": "FileInputDelimited",
+      "original_type": "tFileInputDelimited",
+      "position": {
+        "x": 128,
+        "y": 160
+      },
+      "config": {
+        "filepath": "C:/Users/phani/Documents/talend_samples/transform_components/tFilterRow/data/employees_full.csv",
+        "csv_option": false,
+        "row_separator": "\\n",
+        "csv_row_separator": "\\n",
+        "fieldseparator": ";",
+        "escape_char": "\"",
+        "text_enclosure": "\"",
+        "header_rows": 1,
+        "footer_rows": 0,
+        "limit": "",
+        "remove_empty_row": true,
+        "uncompress": false,
+        "die_on_error": false,
+        "advanced_separator": false,
+        "thousands_separator": ",",
+        "decimal_separator": ".",
+        "random": false,
+        "nb_random": 10,
+        "trim_all": false,
+        "check_fields_num": false,
+        "check_date": false,
+        "encoding": "ISO-8859-15",
+        "split_record": false,
+        "enable_decode": false,
+        "trim_select": [
+          {
+            "column": "id",
+            "trim": false
+          },
+          {
+            "column": "name",
+            "trim": false
+          },
+          {
+            "column": "age",
+            "trim": false
+          },
+          {
+            "column": "department",
+            "trim": false
+          },
+          {
+            "column": "salary",
+            "trim": false
+          },
+          {
+            "column": "status",
+            "trim": false
+          }
+        ],
+        "decode_cols": [
+          {
+            "column": "id",
+            "decode": false
+          },
+          {
+            "column": "name",
+            "decode": false
+          },
+          {
+            "column": "age",
+            "decode": false
+          },
+          {
+            "column": "department",
+            "decode": false
+          },
+          {
+            "column": "salary",
+            "decode": false
+          },
+          {
+            "column": "status",
+            "decode": false
+          }
+        ],
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {
+            "name": "id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "age",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "salary",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "status",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 20
+          }
+        ]
+      },
+      "inputs": [],
+      "outputs": [
+        "row1"
+      ]
+    },
+    {
+      "id": "tFilterRow_1",
+      "type": "FilterRows",
+      "original_type": "tFilterRow",
+      "position": {
+        "x": 320,
+        "y": 160
+      },
+      "config": {
+        "logical_op": "&&",
+        "use_advanced": true,
+        "advanced_cond": "{{java}}// code sample : use input_row to define the condition.\n// input_row.columnName1.equals(\"foo\") ||!(input_row.columnName2.equals(\"bar\"))\n// replace the following expression by your own filter condition \ninput_row.age.equals(input_row.salary)\n\t\t\t",
+        "conditions": [
+          {
+            "column": "age",
+            "function": "",
+            "operator": ">=",
+            "value": "25"
+          }
+        ],
+        "tstatcatcher_stats": false,
+        "label": "Filter_Active_HighPaid"
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "age",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "salary",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "status",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 20
+          }
+        ],
+        "output": [
+          {
+            "name": "id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "age",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "salary",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "status",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          }
+        ]
+      },
+      "inputs": [
+        "row1"
+      ],
+      "outputs": [
+        "matched",
+        "rejected"
+      ]
+    },
+    {
+      "id": "tLogRow_1",
+      "type": "LogRow",
+      "original_type": "tLogRow",
+      "position": {
+        "x": 512,
+        "y": 128
+      },
+      "config": {
+        "basic_mode": true,
+        "table_print": false,
+        "vertical": false,
+        "print_unique": true,
+        "print_label": false,
+        "print_unique_label": false,
+        "print_header": false,
+        "print_unique_name": false,
+        "print_colnames": false,
+        "use_fixed_length": false,
+        "print_content_with_log4j": true,
+        "fieldseparator": "|",
+        "lengths": [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        "tstatcatcher_stats": false,
+        "label": "Matched_Rows"
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "age",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "salary",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "status",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          }
+        ],
+        "output": [
+          {
+            "name": "id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "age",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "salary",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "status",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          }
+        ]
+      },
+      "inputs": [
+        "matched"
+      ],
+      "outputs": []
+    },
+    {
+      "id": "tLogRow_2",
+      "type": "LogRow",
+      "original_type": "tLogRow",
+      "position": {
+        "x": 512,
+        "y": 256
+      },
+      "config": {
+        "basic_mode": true,
+        "table_print": false,
+        "vertical": false,
+        "print_unique": true,
+        "print_label": false,
+        "print_unique_label": false,
+        "print_header": false,
+        "print_unique_name": false,
+        "print_colnames": false,
+        "use_fixed_length": false,
+        "print_content_with_log4j": true,
+        "fieldseparator": "|",
+        "lengths": [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        "tstatcatcher_stats": false,
+        "label": "Rejected_Rows"
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "age",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "salary",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "status",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          }
+        ],
+        "output": [
+          {
+            "name": "id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "age",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "salary",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "status",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "errorMessage",
+            "type": "str",
+            "nullable": true,
+            "key": false,
+            "length": 255,
+            "precision": 0
+          }
+        ]
+      },
+      "inputs": [
+        "rejected"
+      ],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {
+      "name": "row1",
+      "from": "tFileInputDelimited_1",
+      "to": "tFilterRow_1",
+      "type": "flow"
+    },
+    {
+      "name": "matched",
+      "from": "tFilterRow_1",
+      "to": "tLogRow_1",
+      "type": "filter"
+    },
+    {
+      "name": "rejected",
+      "from": "tFilterRow_1",
+      "to": "tLogRow_2",
+      "type": "reject"
+    }
+  ],
+  "triggers": [],
+  "subjobs": {
+    "subjob_1": [
+      "tFileInputDelimited_1",
+      "tFilterRow_1",
+      "tLogRow_2",
+      "tLogRow_1"
+    ]
+  },
+  "java_config": {
+    "enabled": true,
+    "routines": [
+      "routines.DataOperation",
+      "routines.Mathematical",
+      "routines.Numeric",
+      "routines.Relational",
+      "routines.StringHandling",
+      "routines.TalendDataGenerator",
+      "routines.TalendDate",
+      "routines.TalendStringUtil",
+      "routines.TalendString"
+    ],
+    "libraries": []
+  },
+  "_validation": {
+    "valid": true,
+    "summary": "Validation passed with no issues",
+    "issues": []
+  },
+  "_needs_review": [
+    {
+      "issue": "Engine does not read 'fieldseparator' config key -- engine reads 'delimiter' config key, not 'fieldseparator'",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'csv_option' config key -- engine has no explicit RFC4180 CSV toggle",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'csv_row_separator' config key -- engine uses only row_separator, ignores csv_row_separator",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'split_record' config key -- engine has no explicit multi-line field toggle",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'random' config key -- engine does not support random line extraction",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'check_fields_num' config key -- engine does not validate row field count",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'check_date' config key -- engine does not validate dates against schema patterns",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'enable_decode' config key -- engine does not support hex/octal number parsing",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'advanced_separator' config key -- engine has partial support -- applies to all string columns, not just numeric",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'uncompress' config key -- engine does not support compressed file reading",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine gap for 'conditions.function' -- Engine does not support FUNCTION pre-transforms on conditions",
+      "component": "tFilterRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine gap for 'advanced_cond' -- Engine uses eval() for advanced conditions -- security risk, limited operator support",
+      "component": "tFilterRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'vertical' config key -- engine only checks basic_mode and table_print for display mode",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_label' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique_label' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique_name' config key -- engine does not read unique name printing option",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_colnames' config key -- engine does not read column name printing option",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'use_fixed_length' config key -- engine does not implement fixed-width formatting",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'lengths' config key -- engine does not implement fixed-width column lengths",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_content_with_log4j' config key -- engine does not implement Log4J output routing",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'basic_mode' is False but Talend default is True -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'table_print' is True but Talend default is False -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'print_header' is True but Talend default is False -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'vertical' config key -- engine only checks basic_mode and table_print for display mode",
+      "component": "tLogRow_2",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_2",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_label' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_2",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique_label' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_2",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique_name' config key -- engine does not read unique name printing option",
+      "component": "tLogRow_2",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_colnames' config key -- engine does not read column name printing option",
+      "component": "tLogRow_2",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'use_fixed_length' config key -- engine does not implement fixed-width formatting",
+      "component": "tLogRow_2",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'lengths' config key -- engine does not implement fixed-width column lengths",
+      "component": "tLogRow_2",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_content_with_log4j' config key -- engine does not implement Log4J output routing",
+      "component": "tLogRow_2",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'basic_mode' is False but Talend default is True -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_2",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'table_print' is True but Talend default is False -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_2",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'print_header' is True but Talend default is False -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_2",
+      "severity": "engine_gap"
+    }
+  ]
+}

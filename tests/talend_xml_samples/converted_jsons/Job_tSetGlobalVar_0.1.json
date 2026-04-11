@@ -1,0 +1,609 @@
+{
+  "job_name": "Job_tSetGlobalVar_0.1",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {}
+  },
+  "components": [
+    {
+      "id": "tSetGlobalVar_1",
+      "type": "SetGlobalVar",
+      "original_type": "tSetGlobalVar",
+      "position": {
+        "x": 64,
+        "y": 128
+      },
+      "config": {
+        "variables": [
+          {
+            "key": "CURRENCY",
+            "value": "USD"
+          },
+          {
+            "key": "BATCH_ID",
+            "value": "BATCH_2024_001"
+          },
+          {
+            "key": "PROCESSING_DATE",
+            "value": "{{java}}TalendDate.getDate(\"yyyy-MM-dd\")"
+          },
+          {
+            "key": "HIGH_VALUE_THRESHOLD",
+            "value": "5000"
+          }
+        ],
+        "requires_java_bridge": true,
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [],
+        "output": []
+      },
+      "inputs": [],
+      "outputs": []
+    },
+    {
+      "id": "tFileInputDelimited_1",
+      "type": "FileInputDelimited",
+      "original_type": "tFileInputDelimited",
+      "position": {
+        "x": 256,
+        "y": 128
+      },
+      "config": {
+        "filepath": "C:/Users/phani/Documents/talend_samples/control_components/tSetGlobalVar/data/transactions.csv",
+        "csv_option": false,
+        "row_separator": "\\n",
+        "csv_row_separator": "\\n",
+        "fieldseparator": ";",
+        "escape_char": "\"",
+        "text_enclosure": "\"",
+        "header_rows": 1,
+        "footer_rows": 0,
+        "limit": "",
+        "remove_empty_row": true,
+        "uncompress": false,
+        "die_on_error": false,
+        "advanced_separator": false,
+        "thousands_separator": ",",
+        "decimal_separator": ".",
+        "random": false,
+        "nb_random": 10,
+        "trim_all": false,
+        "check_fields_num": false,
+        "check_date": false,
+        "encoding": "ISO-8859-15",
+        "split_record": false,
+        "enable_decode": false,
+        "trim_select": [
+          {
+            "column": "txn_id",
+            "trim": false
+          },
+          {
+            "column": "customer",
+            "trim": false
+          },
+          {
+            "column": "amount",
+            "trim": false
+          },
+          {
+            "column": "category",
+            "trim": false
+          }
+        ],
+        "decode_cols": [
+          {
+            "column": "txn_id",
+            "decode": false
+          },
+          {
+            "column": "customer",
+            "decode": false
+          },
+          {
+            "column": "amount",
+            "decode": false
+          },
+          {
+            "column": "category",
+            "decode": false
+          }
+        ],
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {
+            "name": "txn_id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "customer",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "amount",
+            "type": "float",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "category",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          }
+        ]
+      },
+      "inputs": [],
+      "outputs": [
+        "row1"
+      ]
+    },
+    {
+      "id": "tJavaRow_1",
+      "type": "JavaRowComponent",
+      "original_type": "tJavaRow",
+      "position": {
+        "x": 448,
+        "y": 128
+      },
+      "config": {
+        "java_code": " // Access global variables set by tSetGlobalVar \n String batchId = (String)globalMap.get(\"BATCH_ID\"); \n String currency = (String)globalMap.get(\"CURRENCY\"); \n int threshold = (Integer)globalMap.get(\"HIGH_VALUE_THRESHOLD\");  \n output_row.txn_id = input_row.txn_id; \n output_row.customer = input_row.customer; \n output_row.amount = input_row.amount; \n output_row.category = input_row.category; \n output_row.batch_id = batchId; \n output_row.currency = currency; \n output_row.high_value_flag = (input_row.amount > threshold) ? \"YES\" : \"NO\"; ",
+        "imports": "//import java.util.List;",
+        "output_schema": [
+          {
+            "name": "txn_id",
+            "type": "int"
+          },
+          {
+            "name": "customer",
+            "type": "str"
+          },
+          {
+            "name": "amount",
+            "type": "float"
+          },
+          {
+            "name": "category",
+            "type": "str"
+          },
+          {
+            "name": "batch_id",
+            "type": "str"
+          },
+          {
+            "name": "currency",
+            "type": "str"
+          },
+          {
+            "name": "high_value_flag",
+            "type": "str"
+          }
+        ],
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "txn_id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "customer",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "amount",
+            "type": "float",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "category",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          }
+        ],
+        "output": [
+          {
+            "name": "txn_id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "customer",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "amount",
+            "type": "float",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "category",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "batch_id",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "currency",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 10
+          },
+          {
+            "name": "high_value_flag",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 5
+          }
+        ]
+      },
+      "inputs": [
+        "row1"
+      ],
+      "outputs": [
+        "enriched"
+      ]
+    },
+    {
+      "id": "tLogRow_1",
+      "type": "LogRow",
+      "original_type": "tLogRow",
+      "position": {
+        "x": 640,
+        "y": 128
+      },
+      "config": {
+        "basic_mode": false,
+        "table_print": false,
+        "vertical": false,
+        "print_unique": true,
+        "print_label": false,
+        "print_unique_label": false,
+        "print_header": false,
+        "print_unique_name": false,
+        "print_colnames": false,
+        "use_fixed_length": false,
+        "print_content_with_log4j": true,
+        "fieldseparator": "|",
+        "lengths": [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "txn_id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "customer",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "amount",
+            "type": "float",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "category",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "batch_id",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "currency",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 10
+          },
+          {
+            "name": "high_value_flag",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 5
+          }
+        ],
+        "output": [
+          {
+            "name": "txn_id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "customer",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "amount",
+            "type": "float",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "category",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "batch_id",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "currency",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 10
+          },
+          {
+            "name": "high_value_flag",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 5
+          }
+        ]
+      },
+      "inputs": [
+        "enriched"
+      ],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {
+      "name": "row1",
+      "from": "tFileInputDelimited_1",
+      "to": "tJavaRow_1",
+      "type": "flow"
+    },
+    {
+      "name": "enriched",
+      "from": "tJavaRow_1",
+      "to": "tLogRow_1",
+      "type": "flow"
+    }
+  ],
+  "triggers": [
+    {
+      "type": "OnSubjobOk",
+      "from": "tSetGlobalVar_1",
+      "to": "tFileInputDelimited_1"
+    }
+  ],
+  "subjobs": {
+    "subjob_1": [
+      "tSetGlobalVar_1"
+    ],
+    "subjob_2": [
+      "tFileInputDelimited_1",
+      "tJavaRow_1",
+      "tLogRow_1"
+    ]
+  },
+  "java_config": {
+    "enabled": true,
+    "routines": [
+      "routines.DataOperation",
+      "routines.Mathematical",
+      "routines.Numeric",
+      "routines.Relational",
+      "routines.StringHandling",
+      "routines.TalendDataGenerator",
+      "routines.TalendDate",
+      "routines.TalendStringUtil",
+      "routines.TalendString"
+    ],
+    "libraries": []
+  },
+  "_validation": {
+    "valid": true,
+    "summary": "Validation passed with no issues",
+    "issues": []
+  },
+  "_needs_review": [
+    {
+      "issue": "tSetGlobalVar VALUE expressions are Java code that must be executed via Java Bridge at runtime. Values containing Java expressions are marked with {{java}} prefix.",
+      "component": "tSetGlobalVar_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'fieldseparator' config key -- engine reads 'delimiter' config key, not 'fieldseparator'",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'csv_option' config key -- engine has no explicit RFC4180 CSV toggle",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'csv_row_separator' config key -- engine uses only row_separator, ignores csv_row_separator",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'split_record' config key -- engine has no explicit multi-line field toggle",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'random' config key -- engine does not support random line extraction",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'check_fields_num' config key -- engine does not validate row field count",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'check_date' config key -- engine does not validate dates against schema patterns",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'enable_decode' config key -- engine does not support hex/octal number parsing",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'advanced_separator' config key -- engine has partial support -- applies to all string columns, not just numeric",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'uncompress' config key -- engine does not support compressed file reading",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine gap for 'imports' -- engine does not read 'imports' from config",
+      "component": "tJavaRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine gap for 'output_schema' -- output_schema is converter-generated for engine compatibility, not from _java.xml",
+      "component": "tJavaRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'vertical' config key -- engine only checks basic_mode and table_print for display mode",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_label' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique_label' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique_name' config key -- engine does not read unique name printing option",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_colnames' config key -- engine does not read column name printing option",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'use_fixed_length' config key -- engine does not implement fixed-width formatting",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'lengths' config key -- engine does not implement fixed-width column lengths",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_content_with_log4j' config key -- engine does not implement Log4J output routing",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'basic_mode' is False but Talend default is True -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'table_print' is True but Talend default is False -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'print_header' is True but Talend default is False -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    }
+  ]
+}

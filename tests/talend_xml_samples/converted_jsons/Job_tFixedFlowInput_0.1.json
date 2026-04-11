@@ -1,0 +1,310 @@
+{
+  "job_name": "Job_tFixedFlowInput_0.1",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {}
+  },
+  "components": [
+    {
+      "id": "tFixedFlowInput_1",
+      "type": "FixedFlowInputComponent",
+      "original_type": "tFixedFlowInput",
+      "position": {
+        "x": 128,
+        "y": 128
+      },
+      "config": {
+        "nb_rows": 5,
+        "use_singlemode": false,
+        "use_intable": false,
+        "use_inlinecontent": true,
+        "row_separator": "\\n",
+        "field_separator": ";",
+        "inline_content": "1;John Doe;Engineering;95000\r\n2;Jane Smith;Marketing;82000\r\n3;Bob Wilson;Sales;78000\r\n4;Alice Brown;Engineering;91000\r\n5;Charlie Davis;HR;70000",
+        "values_config": [
+          {
+            "schema_column": "id",
+            "value": ""
+          },
+          {
+            "schema_column": "name",
+            "value": ""
+          },
+          {
+            "schema_column": "department",
+            "value": ""
+          },
+          {
+            "schema_column": "salary",
+            "value": ""
+          }
+        ],
+        "intable": [
+          {
+            "element_ref": "id",
+            "value": "newLine"
+          },
+          {
+            "element_ref": "name",
+            "value": ""
+          },
+          {
+            "element_ref": "department",
+            "value": ""
+          },
+          {
+            "element_ref": "salary",
+            "value": ""
+          }
+        ],
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {
+            "name": "id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "salary",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          }
+        ]
+      },
+      "inputs": [],
+      "outputs": [
+        "inline_rows"
+      ]
+    },
+    {
+      "id": "tLogRow_1",
+      "type": "LogRow",
+      "original_type": "tLogRow",
+      "position": {
+        "x": 384,
+        "y": 128
+      },
+      "config": {
+        "basic_mode": false,
+        "table_print": false,
+        "vertical": false,
+        "print_unique": true,
+        "print_label": false,
+        "print_unique_label": false,
+        "print_header": false,
+        "print_unique_name": false,
+        "print_colnames": false,
+        "use_fixed_length": false,
+        "print_content_with_log4j": true,
+        "fieldseparator": "|",
+        "lengths": [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        "tstatcatcher_stats": false,
+        "label": "Display_Inline_Data"
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "salary",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          }
+        ],
+        "output": [
+          {
+            "name": "id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "salary",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          }
+        ]
+      },
+      "inputs": [
+        "inline_rows"
+      ],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {
+      "name": "inline_rows",
+      "from": "tFixedFlowInput_1",
+      "to": "tLogRow_1",
+      "type": "flow"
+    }
+  ],
+  "triggers": [],
+  "subjobs": {
+    "subjob_1": [
+      "tFixedFlowInput_1",
+      "tLogRow_1"
+    ]
+  },
+  "java_config": {
+    "enabled": false,
+    "routines": [
+      "routines.DataOperation",
+      "routines.Mathematical",
+      "routines.Numeric",
+      "routines.Relational",
+      "routines.StringHandling",
+      "routines.TalendDataGenerator",
+      "routines.TalendDate",
+      "routines.TalendStringUtil",
+      "routines.TalendString"
+    ],
+    "libraries": []
+  },
+  "_validation": {
+    "valid": true,
+    "summary": "Validation passed with no issues",
+    "issues": []
+  },
+  "_needs_review": [
+    {
+      "issue": "Engine reads 'intable_data' config key but converter produces 'intable' -- key name mismatch",
+      "component": "tFixedFlowInput_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine reads 'die_on_error' config key but DIE_ON_ERROR is not in _java.xml -- engine default (True) applies without converter extraction",
+      "component": "tFixedFlowInput_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine reads 'rows' config key for pre-generated row data -- converter extracts raw VALUES/INTABLE config instead; engine falls back to values_config for single mode",
+      "component": "tFixedFlowInput_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'vertical' config key -- engine only checks basic_mode and table_print for display mode",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_label' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique_label' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique_name' config key -- engine does not read unique name printing option",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_colnames' config key -- engine does not read column name printing option",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'use_fixed_length' config key -- engine does not implement fixed-width formatting",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'lengths' config key -- engine does not implement fixed-width column lengths",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_content_with_log4j' config key -- engine does not implement Log4J output routing",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'basic_mode' is False but Talend default is True -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'table_print' is True but Talend default is False -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'print_header' is True but Talend default is False -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    }
+  ]
+}

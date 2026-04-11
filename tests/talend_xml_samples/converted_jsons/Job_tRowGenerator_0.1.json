@@ -1,0 +1,490 @@
+{
+  "job_name": "Job_tRowGenerator_0.1",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {
+      "numRows": {
+        "value": "100",
+        "type": "int"
+      }
+    }
+  },
+  "components": [
+    {
+      "id": "tRowGenerator_1",
+      "type": "RowGenerator",
+      "original_type": "tRowGenerator",
+      "position": {
+        "x": 128,
+        "y": 160
+      },
+      "config": {
+        "nb_rows": "context.numRows",
+        "values": [
+          {
+            "schema_column": "id",
+            "array": "{{java}}Numeric.sequence(\"s1\" ,1 ,1 )"
+          },
+          {
+            "schema_column": "first_name",
+            "array": "{{java}}TalendString.getAsciiRandomString(8 )"
+          },
+          {
+            "schema_column": "last_name",
+            "array": "{{java}}TalendString.getAsciiRandomString(10 )"
+          },
+          {
+            "schema_column": "email",
+            "array": "{{java}}StringHandling.DOWNCASE(\"company.com\" )"
+          },
+          {
+            "schema_column": "department",
+            "array": "{{java}}TalendString.getAsciiRandomString(50 )"
+          },
+          {
+            "schema_column": "salary",
+            "array": "{{java}}Numeric.random(40000 ,120000 )"
+          },
+          {
+            "schema_column": "hire_date",
+            "array": "{{java}}TalendDate.getRandomDate(\"2015-01-01\" ,\"2025-12-31\" )"
+          }
+        ],
+        "requires_java_bridge": true,
+        "tstatcatcher_stats": false,
+        "label": "Generate_Employee_Data"
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {
+            "name": "id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "first_name",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "last_name",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "email",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "salary",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "hire_date",
+            "type": "datetime",
+            "nullable": false,
+            "key": false,
+            "date_pattern": "%Y-%m-%d"
+          }
+        ]
+      },
+      "inputs": [],
+      "outputs": [
+        "row1",
+        "row2"
+      ]
+    },
+    {
+      "id": "tLogRow_1",
+      "type": "LogRow",
+      "original_type": "tLogRow",
+      "position": {
+        "x": 384,
+        "y": 96
+      },
+      "config": {
+        "basic_mode": false,
+        "table_print": false,
+        "vertical": false,
+        "print_unique": true,
+        "print_label": false,
+        "print_unique_label": false,
+        "print_header": false,
+        "print_unique_name": false,
+        "print_colnames": false,
+        "use_fixed_length": false,
+        "print_content_with_log4j": true,
+        "fieldseparator": "|",
+        "lengths": [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        "tstatcatcher_stats": false,
+        "label": "Display_Generated"
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "first_name",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "last_name",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "email",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "salary",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "hire_date",
+            "type": "datetime",
+            "nullable": false,
+            "key": false,
+            "date_pattern": "%Y-%m-%d"
+          }
+        ],
+        "output": [
+          {
+            "name": "id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "first_name",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "last_name",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "email",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "salary",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "hire_date",
+            "type": "datetime",
+            "nullable": false,
+            "key": false,
+            "date_pattern": "%Y-%m-%d"
+          }
+        ]
+      },
+      "inputs": [
+        "row1"
+      ],
+      "outputs": []
+    },
+    {
+      "id": "tFileOutputDelimited_1",
+      "type": "FileOutputDelimited",
+      "original_type": "tFileOutputDelimited",
+      "position": {
+        "x": 384,
+        "y": 256
+      },
+      "config": {
+        "usestream": false,
+        "streamname": "outputStream",
+        "filepath": "generated_employees.csv",
+        "row_separator": "\\n",
+        "fieldseparator": ";",
+        "append": false,
+        "include_header": true,
+        "compress": false,
+        "advanced_separator": false,
+        "thousands_separator": ",",
+        "decimal_separator": ".",
+        "csv_option": false,
+        "escape_char": "\"",
+        "text_enclosure": "\"",
+        "os_line_separator": true,
+        "csvrowseparator": "\\n",
+        "create_directory": true,
+        "split": false,
+        "split_every": "1000",
+        "flushonrow": false,
+        "flush_row_count": "1",
+        "row_mode": false,
+        "encoding": "ISO-8859-15",
+        "delete_empty_file": false,
+        "file_exist_exception": true,
+        "tstatcatcher_stats": false,
+        "label": "Save_To_File"
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "first_name",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "last_name",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "email",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "salary",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "hire_date",
+            "type": "datetime",
+            "nullable": false,
+            "key": false,
+            "date_pattern": "%Y-%m-%d"
+          }
+        ],
+        "output": []
+      },
+      "inputs": [
+        "row2"
+      ],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {
+      "name": "row1",
+      "from": "tRowGenerator_1",
+      "to": "tLogRow_1",
+      "type": "flow"
+    },
+    {
+      "name": "row2",
+      "from": "tRowGenerator_1",
+      "to": "tFileOutputDelimited_1",
+      "type": "flow"
+    }
+  ],
+  "triggers": [],
+  "subjobs": {
+    "subjob_1": [
+      "tRowGenerator_1",
+      "tFileOutputDelimited_1",
+      "tLogRow_1"
+    ]
+  },
+  "java_config": {
+    "enabled": true,
+    "routines": [
+      "routines.Mathematical",
+      "routines.Numeric",
+      "routines.Relational",
+      "routines.TalendDate",
+      "routines.TalendDataGenerator",
+      "routines.DataOperation",
+      "routines.TalendString",
+      "routines.StringHandling",
+      "routines.TalendStringUtil"
+    ],
+    "libraries": []
+  },
+  "_validation": {
+    "valid": true,
+    "summary": "Validation passed with no issues",
+    "issues": []
+  },
+  "_needs_review": [
+    {
+      "issue": "tRowGenerator ARRAY expressions are Java code that must be executed via Java Bridge at runtime. Values containing Java expressions are marked with {{java}} prefix.",
+      "component": "tRowGenerator_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'nb_rows' is 1 but Talend default is 100 -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tRowGenerator_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine reads schema via self.config.get('schema', {}).get('output', []) but converter places schema at component['schema'] not inside config -- engine will not find output schema through its config path",
+      "component": "tRowGenerator_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'vertical' config key -- engine only checks basic_mode and table_print for display mode",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_label' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique_label' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique_name' config key -- engine does not read unique name printing option",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_colnames' config key -- engine does not read column name printing option",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'use_fixed_length' config key -- engine does not implement fixed-width formatting",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'lengths' config key -- engine does not implement fixed-width column lengths",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_content_with_log4j' config key -- engine does not implement Log4J output routing",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'basic_mode' is False but Talend default is True -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'table_print' is True but Talend default is False -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'print_header' is True but Talend default is False -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default delimiter=',' but _java.xml FIELDSEPARATOR default is ';' -- converter outputs 'fieldseparator'",
+      "component": "tFileOutputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default encoding='UTF-8' but _java.xml ENCODING default is 'ISO-8859-15'",
+      "component": "tFileOutputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default include_header=True but _java.xml INCLUDEHEADER default is False",
+      "component": "tFileOutputDelimited_1",
+      "severity": "engine_gap"
+    }
+  ]
+}

@@ -1,0 +1,620 @@
+{
+  "job_name": "Job_tAggregatedSortedRow_0.1",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {}
+  },
+  "components": [
+    {
+      "id": "tFileInputDelimited_1",
+      "type": "FileInputDelimited",
+      "original_type": "tFileInputDelimited",
+      "position": {
+        "x": 64,
+        "y": 160
+      },
+      "config": {
+        "filepath": "C:/Users/phani/Documents/talend_samples/transform_components/tAggregatedSortedRow/data/presorted_sales.csv",
+        "csv_option": false,
+        "row_separator": "\\n",
+        "csv_row_separator": "\\n",
+        "fieldseparator": ";",
+        "escape_char": "\"",
+        "text_enclosure": "\"",
+        "header_rows": 1,
+        "footer_rows": 0,
+        "limit": "",
+        "remove_empty_row": true,
+        "uncompress": false,
+        "die_on_error": true,
+        "advanced_separator": false,
+        "thousands_separator": ",",
+        "decimal_separator": ".",
+        "random": false,
+        "nb_random": 10,
+        "trim_all": false,
+        "check_fields_num": false,
+        "check_date": false,
+        "encoding": "ISO-8859-15",
+        "split_record": false,
+        "enable_decode": false,
+        "trim_select": [
+          {
+            "column": "department",
+            "trim": false
+          },
+          {
+            "column": "employee",
+            "trim": false
+          },
+          {
+            "column": "sale_amount",
+            "trim": false
+          },
+          {
+            "column": "sale_date",
+            "trim": false
+          }
+        ],
+        "decode_cols": [
+          {
+            "column": "department",
+            "decode": false
+          },
+          {
+            "column": "employee",
+            "decode": false
+          },
+          {
+            "column": "sale_amount",
+            "decode": false
+          },
+          {
+            "column": "sale_date",
+            "decode": false
+          }
+        ],
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "employee",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "sale_amount",
+            "type": "float",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "sale_date",
+            "type": "datetime",
+            "nullable": false,
+            "key": false,
+            "date_pattern": "%Y-%m-%d"
+          }
+        ]
+      },
+      "inputs": [],
+      "outputs": [
+        "row1"
+      ]
+    },
+    {
+      "id": "tSortRow_1",
+      "type": "SortRow",
+      "original_type": "tSortRow",
+      "position": {
+        "x": 224,
+        "y": 160
+      },
+      "config": {
+        "criteria": [
+          {
+            "column": "department",
+            "sort_type": "alpha",
+            "order": "asc"
+          }
+        ],
+        "external": true,
+        "tempfile": "C:/Softwares/TOS_DI-20211109_1610-V8.0.1/TOS_DI-20211109_1610-V8.0.1/workspace/temp",
+        "createdir": true,
+        "external_sort_buffersize": "1000000",
+        "tstatcatcher_stats": false,
+        "label": "Sort_By_Dept"
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "employee",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "sale_amount",
+            "type": "float",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "sale_date",
+            "type": "datetime",
+            "nullable": false,
+            "key": false,
+            "date_pattern": "%Y-%m-%d"
+          }
+        ],
+        "output": [
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "employee",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "sale_amount",
+            "type": "float",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "sale_date",
+            "type": "datetime",
+            "nullable": false,
+            "key": false,
+            "date_pattern": "%Y-%m-%d"
+          }
+        ]
+      },
+      "inputs": [
+        "row1"
+      ],
+      "outputs": [
+        "row2"
+      ]
+    },
+    {
+      "id": "tAggregateSortedRow_1",
+      "type": "AggregateSortedRow",
+      "original_type": "tAggregateSortedRow",
+      "position": {
+        "x": 384,
+        "y": 160
+      },
+      "config": {
+        "groupbys": [
+          {
+            "output_column": "department",
+            "input_column": "department"
+          }
+        ],
+        "operations": [
+          {
+            "output_column": "total_sales",
+            "function": "sum",
+            "input_column": "sale_amount",
+            "ignore_null": true
+          },
+          {
+            "output_column": "num_sales",
+            "function": "count",
+            "input_column": "sale_amount",
+            "ignore_null": true
+          },
+          {
+            "output_column": "min_sale",
+            "function": "min",
+            "input_column": "sale_amount",
+            "ignore_null": true
+          },
+          {
+            "output_column": "max_sale",
+            "function": "max",
+            "input_column": "sale_amount",
+            "ignore_null": true
+          }
+        ],
+        "row_count": "((Integer)globalMap.get(\"tFileInputDelimited_1_NB_LINE\"))",
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "employee",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "sale_amount",
+            "type": "float",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "sale_date",
+            "type": "datetime",
+            "nullable": false,
+            "key": false,
+            "date_pattern": "%Y-%m-%d"
+          }
+        ],
+        "output": [
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "total_sales",
+            "type": "float",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "num_sales",
+            "type": "float",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "min_sale",
+            "type": "float",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "max_sale",
+            "type": "float",
+            "nullable": true,
+            "key": false
+          }
+        ]
+      },
+      "inputs": [
+        "row2"
+      ],
+      "outputs": [
+        "row3"
+      ]
+    },
+    {
+      "id": "tLogRow_1",
+      "type": "LogRow",
+      "original_type": "tLogRow",
+      "position": {
+        "x": 576,
+        "y": 160
+      },
+      "config": {
+        "basic_mode": false,
+        "table_print": false,
+        "vertical": false,
+        "print_unique": true,
+        "print_label": false,
+        "print_unique_label": false,
+        "print_header": false,
+        "print_unique_name": false,
+        "print_colnames": false,
+        "use_fixed_length": false,
+        "print_content_with_log4j": true,
+        "fieldseparator": "|",
+        "lengths": [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "total_sales",
+            "type": "float",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "num_sales",
+            "type": "float",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "min_sale",
+            "type": "float",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "max_sale",
+            "type": "float",
+            "nullable": true,
+            "key": false
+          }
+        ],
+        "output": [
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "total_sales",
+            "type": "float",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "num_sales",
+            "type": "float",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "min_sale",
+            "type": "float",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "max_sale",
+            "type": "float",
+            "nullable": true,
+            "key": false
+          }
+        ]
+      },
+      "inputs": [
+        "row3"
+      ],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {
+      "name": "row1",
+      "from": "tFileInputDelimited_1",
+      "to": "tSortRow_1",
+      "type": "flow"
+    },
+    {
+      "name": "row2",
+      "from": "tSortRow_1",
+      "to": "tAggregateSortedRow_1",
+      "type": "flow"
+    },
+    {
+      "name": "row3",
+      "from": "tAggregateSortedRow_1",
+      "to": "tLogRow_1",
+      "type": "flow"
+    }
+  ],
+  "triggers": [],
+  "subjobs": {
+    "subjob_1": [
+      "tFileInputDelimited_1",
+      "tSortRow_1",
+      "tAggregateSortedRow_1",
+      "tLogRow_1"
+    ]
+  },
+  "java_config": {
+    "enabled": false,
+    "routines": [
+      "routines.DataOperation",
+      "routines.Mathematical",
+      "routines.Numeric",
+      "routines.Relational",
+      "routines.StringHandling",
+      "routines.TalendDataGenerator",
+      "routines.TalendDate",
+      "routines.TalendStringUtil",
+      "routines.TalendString"
+    ],
+    "libraries": []
+  },
+  "_validation": {
+    "valid": true,
+    "summary": "Validation passed with no issues",
+    "issues": []
+  },
+  "_needs_review": [
+    {
+      "issue": "Engine does not read 'fieldseparator' config key -- engine reads 'delimiter' config key, not 'fieldseparator'",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'csv_option' config key -- engine has no explicit RFC4180 CSV toggle",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'csv_row_separator' config key -- engine uses only row_separator, ignores csv_row_separator",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'split_record' config key -- engine has no explicit multi-line field toggle",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'random' config key -- engine does not support random line extraction",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'check_fields_num' config key -- engine does not validate row field count",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'check_date' config key -- engine does not validate dates against schema patterns",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'enable_decode' config key -- engine does not support hex/octal number parsing",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'advanced_separator' config key -- engine has partial support -- applies to all string columns, not just numeric",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'uncompress' config key -- engine does not support compressed file reading",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine gap for 'na_position' -- Engine reads 'na_position' (default 'last') but this is not a _java.xml param",
+      "component": "tSortRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine gap for 'case_sensitive' -- Engine reads 'case_sensitive' (default True) but this is not a _java.xml param",
+      "component": "tSortRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine gap for 'chunk_size' -- Engine reads 'chunk_size' (default 10000) but this is not a _java.xml param",
+      "component": "tSortRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'row_count' config key -- engine processes all rows regardless",
+      "component": "tAggregateSortedRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine ignores per-operation ignore_null flag -- always uses pandas default skipna=True",
+      "component": "tAggregateSortedRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'vertical' config key -- engine only checks basic_mode and table_print for display mode",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_label' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique_label' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique_name' config key -- engine does not read unique name printing option",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_colnames' config key -- engine does not read column name printing option",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'use_fixed_length' config key -- engine does not implement fixed-width formatting",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'lengths' config key -- engine does not implement fixed-width column lengths",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_content_with_log4j' config key -- engine does not implement Log4J output routing",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'basic_mode' is False but Talend default is True -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'table_print' is True but Talend default is False -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'print_header' is True but Talend default is False -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    }
+  ]
+}

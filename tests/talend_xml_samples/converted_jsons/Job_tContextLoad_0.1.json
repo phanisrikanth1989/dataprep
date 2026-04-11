@@ -1,0 +1,326 @@
+{
+  "job_name": "Job_tContextLoad_0.1",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {
+      "db_host": {
+        "value": "default_host",
+        "type": "str"
+      },
+      "db_port": {
+        "value": "3306",
+        "type": "str"
+      },
+      "db_name": {
+        "value": "default_db",
+        "type": "str"
+      },
+      "db_user": {
+        "value": "default_user",
+        "type": "str"
+      },
+      "db_password": {
+        "value": "enc:system.encryption.key.v1:8fOeWYux34vzOOtyxEBr7mgKvejKz6Lel5XUX7sRI5f5JiBGi6tXf6cY",
+        "type": "str"
+      },
+      "input_dir": {
+        "value": "/data/input",
+        "type": "str"
+      },
+      "output_dir": {
+        "value": "/data/output",
+        "type": "str"
+      },
+      "batch_size": {
+        "value": "500",
+        "type": "str"
+      },
+      "log_level": {
+        "value": "DEBUG",
+        "type": "str"
+      },
+      "max_retries": {
+        "value": "1",
+        "type": "str"
+      }
+    }
+  },
+  "components": [
+    {
+      "id": "tFileInputDelimited_1",
+      "type": "FileInputDelimited",
+      "original_type": "tFileInputDelimited",
+      "position": {
+        "x": 64,
+        "y": 96
+      },
+      "config": {
+        "filepath": "C:/Users/phani/Documents/talend_samples/context_components/tContextLoad/data/context_params.csv",
+        "csv_option": false,
+        "row_separator": "\\n",
+        "csv_row_separator": "\\n",
+        "fieldseparator": ";",
+        "escape_char": "\"",
+        "text_enclosure": "\"",
+        "header_rows": 0,
+        "footer_rows": 0,
+        "limit": "",
+        "remove_empty_row": true,
+        "uncompress": false,
+        "die_on_error": false,
+        "advanced_separator": false,
+        "thousands_separator": ",",
+        "decimal_separator": ".",
+        "random": false,
+        "nb_random": 10,
+        "trim_all": false,
+        "check_fields_num": false,
+        "check_date": false,
+        "encoding": "ISO-8859-15",
+        "split_record": false,
+        "enable_decode": false,
+        "trim_select": [
+          {
+            "column": "key",
+            "trim": false
+          },
+          {
+            "column": "value",
+            "trim": false
+          }
+        ],
+        "decode_cols": [
+          {
+            "column": "key",
+            "decode": false
+          },
+          {
+            "column": "value",
+            "decode": false
+          }
+        ],
+        "tstatcatcher_stats": false,
+        "label": "Read_Context_File"
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {
+            "name": "key",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "value",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 500
+          }
+        ]
+      },
+      "inputs": [],
+      "outputs": [
+        "row1"
+      ]
+    },
+    {
+      "id": "tContextLoad_1",
+      "type": "ContextLoad",
+      "original_type": "tContextLoad",
+      "position": {
+        "x": 352,
+        "y": 96
+      },
+      "config": {
+        "print_operations": true,
+        "die_on_error": false,
+        "disable_error": false,
+        "disable_warnings": true,
+        "disable_info": true,
+        "load_new_variable": "Warning",
+        "not_load_old_variable": "Warning",
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "key",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "value",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 500
+          }
+        ],
+        "output": []
+      },
+      "inputs": [
+        "row1"
+      ],
+      "outputs": []
+    },
+    {
+      "id": "tJava_1",
+      "type": "JavaComponent",
+      "original_type": "tJava",
+      "position": {
+        "x": 288,
+        "y": 256
+      },
+      "config": {
+        "java_code": " System.out.println(\"=== Context loaded from file ===\"); System.out.println(\"db_host: \" + context.db_host); System.out.println(\"db_port: \" + context.db_port); System.out.println(\"db_name: \" + context.db_name); System.out.println(\"db_user: \" + context.db_user); System.out.println(\"input_dir: \" + context.input_dir); System.out.println(\"output_dir: \" + context.output_dir); System.out.println(\"batch_size: \" + context.batch_size); System.out.println(\"log_level: \" + context.log_level); System.out.println(\"max_retries: \" + context.max_retries); ",
+        "imports": "//import java.util.List;",
+        "tstatcatcher_stats": false,
+        "label": "Use_Loaded_Context"
+      },
+      "schema": {
+        "input": [],
+        "output": []
+      },
+      "inputs": [],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {
+      "name": "row1",
+      "from": "tFileInputDelimited_1",
+      "to": "tContextLoad_1",
+      "type": "flow"
+    }
+  ],
+  "triggers": [
+    {
+      "type": "OnComponentOk",
+      "from": "tContextLoad_1",
+      "to": "tJava_1"
+    }
+  ],
+  "subjobs": {
+    "subjob_1": [
+      "tFileInputDelimited_1",
+      "tContextLoad_1"
+    ],
+    "subjob_2": [
+      "tJava_1"
+    ]
+  },
+  "java_config": {
+    "enabled": true,
+    "routines": [
+      "routines.Mathematical",
+      "routines.Numeric",
+      "routines.Relational",
+      "routines.TalendDate",
+      "routines.TalendDataGenerator",
+      "routines.DataOperation",
+      "routines.TalendString",
+      "routines.StringHandling",
+      "routines.TalendStringUtil"
+    ],
+    "libraries": []
+  },
+  "_validation": {
+    "valid": true,
+    "summary": "Validation passed with no issues",
+    "issues": []
+  },
+  "_needs_review": [
+    {
+      "issue": "Engine does not read 'fieldseparator' config key -- engine reads 'delimiter' config key, not 'fieldseparator'",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'csv_option' config key -- engine has no explicit RFC4180 CSV toggle",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'csv_row_separator' config key -- engine uses only row_separator, ignores csv_row_separator",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'split_record' config key -- engine has no explicit multi-line field toggle",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'random' config key -- engine does not support random line extraction",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'check_fields_num' config key -- engine does not validate row field count",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'check_date' config key -- engine does not validate dates against schema patterns",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'enable_decode' config key -- engine does not support hex/octal number parsing",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'advanced_separator' config key -- engine has partial support -- applies to all string columns, not just numeric",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'uncompress' config key -- engine does not support compressed file reading",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'die_on_error' from config -- Engine always raises on error; does not honor die_on_error=false to log and continue",
+      "component": "tContextLoad_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'disable_warnings' from config -- Engine has no warning-level message filtering; disable_warnings config key is ignored",
+      "component": "tContextLoad_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'disable_error' from config -- Engine has no error-level message filtering; disable_error config key is ignored",
+      "component": "tContextLoad_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'disable_info' from config -- Engine has no info-level message filtering; disable_info config key is ignored",
+      "component": "tContextLoad_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'load_new_variable' from config -- Engine does not validate unknown keys in incoming flow against job context",
+      "component": "tContextLoad_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'not_load_old_variable' from config -- Engine does not validate missing context keys against incoming flow",
+      "component": "tContextLoad_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'imports' config key -- JavaComponent only reads 'java_code'",
+      "component": "tJava_1",
+      "severity": "engine_gap"
+    }
+  ]
+}

@@ -1,0 +1,389 @@
+{
+  "job_name": "Job_tFileInputJSON_0.1",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {
+      "jsonFile": {
+        "value": "data/products.json",
+        "type": "str"
+      }
+    }
+  },
+  "components": [
+    {
+      "id": "tFileInputJSON_1",
+      "type": "FileInputJSON",
+      "original_type": "tFileInputJSON",
+      "position": {
+        "x": 128,
+        "y": 160
+      },
+      "config": {
+        "filename": "C:/Users/phani/Documents/talend_samples/file_components/tFileInputJSON/data/products.json",
+        "encoding": "UTF-8",
+        "read_by": "XPATH",
+        "json_path_version": "2_1_0",
+        "useurl": false,
+        "urlpath": "http://localhost:8080/JSON/JSON_file.txt",
+        "loop_query": "/bills/bill/line",
+        "json_loop_query": "$[*]",
+        "mapping": [
+          {
+            "column": "id",
+            "jsonpath": "",
+            "nodecheck": false
+          },
+          {
+            "column": "name",
+            "jsonpath": "",
+            "nodecheck": false
+          },
+          {
+            "column": "category",
+            "jsonpath": "",
+            "nodecheck": false
+          },
+          {
+            "column": "price",
+            "jsonpath": "",
+            "nodecheck": false
+          },
+          {
+            "column": "stock",
+            "jsonpath": "",
+            "nodecheck": false
+          },
+          {
+            "column": "supplier_name",
+            "jsonpath": "",
+            "nodecheck": false
+          },
+          {
+            "column": "supplier_country",
+            "jsonpath": "",
+            "nodecheck": false
+          }
+        ],
+        "die_on_error": true,
+        "advanced_separator": false,
+        "thousands_separator": ",",
+        "decimal_separator": ".",
+        "check_date": false,
+        "use_loop_as_root": true,
+        "tstatcatcher_stats": false,
+        "label": "Read_Products_JSON"
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {
+            "name": "id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "category",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "price",
+            "type": "float",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "stock",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "supplier_name",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "supplier_country",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          }
+        ]
+      },
+      "inputs": [],
+      "outputs": [
+        "row1"
+      ]
+    },
+    {
+      "id": "tLogRow_1",
+      "type": "LogRow",
+      "original_type": "tLogRow",
+      "position": {
+        "x": 384,
+        "y": 160
+      },
+      "config": {
+        "basic_mode": false,
+        "table_print": false,
+        "vertical": false,
+        "print_unique": true,
+        "print_label": false,
+        "print_unique_label": false,
+        "print_header": false,
+        "print_unique_name": false,
+        "print_colnames": false,
+        "use_fixed_length": false,
+        "print_content_with_log4j": true,
+        "fieldseparator": "|",
+        "lengths": [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "category",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "price",
+            "type": "float",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "stock",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "supplier_name",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "supplier_country",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          }
+        ],
+        "output": [
+          {
+            "name": "id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "category",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "price",
+            "type": "float",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "stock",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "supplier_name",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "supplier_country",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          }
+        ]
+      },
+      "inputs": [
+        "row1"
+      ],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {
+      "name": "row1",
+      "from": "tFileInputJSON_1",
+      "to": "tLogRow_1",
+      "type": "flow"
+    }
+  ],
+  "triggers": [],
+  "subjobs": {
+    "subjob_1": [
+      "tFileInputJSON_1",
+      "tLogRow_1"
+    ]
+  },
+  "java_config": {
+    "enabled": false,
+    "routines": [
+      "routines.DataOperation",
+      "routines.Mathematical",
+      "routines.Numeric",
+      "routines.Relational",
+      "routines.StringHandling",
+      "routines.TalendDataGenerator",
+      "routines.TalendDate",
+      "routines.TalendStringUtil",
+      "routines.TalendString"
+    ],
+    "libraries": []
+  },
+  "_validation": {
+    "valid": true,
+    "summary": "Validation passed with no issues",
+    "issues": []
+  },
+  "_needs_review": [
+    {
+      "issue": "Engine does not read 'loop_query' config key -- engine only supports JSONPATH mode via json_loop_query; XPath loop_query is ignored",
+      "component": "tFileInputJSON_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'json_path_version' config key -- engine reads this key but never uses it in processing logic",
+      "component": "tFileInputJSON_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'use_loop_as_root' config key -- engine default is False but Talend default is True -- behavioral mismatch",
+      "component": "tFileInputJSON_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'vertical' config key -- engine only checks basic_mode and table_print for display mode",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_label' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique_label' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique_name' config key -- engine does not read unique name printing option",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_colnames' config key -- engine does not read column name printing option",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'use_fixed_length' config key -- engine does not implement fixed-width formatting",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'lengths' config key -- engine does not implement fixed-width column lengths",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_content_with_log4j' config key -- engine does not implement Log4J output routing",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'basic_mode' is False but Talend default is True -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'table_print' is True but Talend default is False -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'print_header' is True but Talend default is False -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    }
+  ]
+}

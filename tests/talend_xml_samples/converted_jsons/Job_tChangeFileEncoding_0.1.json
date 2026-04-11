@@ -1,0 +1,121 @@
+{
+  "job_name": "Job_tChangeFileEncoding_0.1",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {
+      "inputFile": {
+        "value": "data/utf8_input.csv",
+        "type": "str"
+      },
+      "outputFile": {
+        "value": "data/latin1_output.csv",
+        "type": "str"
+      }
+    }
+  },
+  "components": [
+    {
+      "id": "tChangeFileEncoding_1",
+      "type": "tChangeFileEncoding",
+      "original_type": "tChangeFileEncoding",
+      "position": {
+        "x": 128,
+        "y": 160
+      },
+      "config": {
+        "use_inencoding": true,
+        "inencoding": "UTF-8",
+        "infile_name": "C:/Users/phani/Documents/talend_samples/file_components/tChangeFileEncoding/data/utf8_input.csv",
+        "outfile_name": "C:/Users/phani/Documents/talend_samples/file_components/tChangeFileEncoding/data/utf8_out.csv",
+        "encoding": "ISO-8859-15",
+        "buffersize": "8192",
+        "create": true,
+        "tstatcatcher_stats": false,
+        "label": "Convert_UTF8_to_Latin1"
+      },
+      "schema": {
+        "input": [],
+        "output": []
+      },
+      "inputs": [],
+      "outputs": []
+    },
+    {
+      "id": "tJava_1",
+      "type": "JavaComponent",
+      "original_type": "tJava",
+      "position": {
+        "x": 352,
+        "y": 160
+      },
+      "config": {
+        "java_code": " System.out.println(\"Encoding conversion complete.\"); System.out.println(\"Source: \" + context.inputFile + \" (UTF-8)\"); System.out.println(\"Target: \" + context.outputFile + \" (ISO-8859-1)\"); ",
+        "imports": "//import java.util.List;",
+        "tstatcatcher_stats": false,
+        "label": "Log_Complete"
+      },
+      "schema": {
+        "input": [],
+        "output": []
+      },
+      "inputs": [],
+      "outputs": []
+    }
+  ],
+  "flows": [],
+  "triggers": [],
+  "subjobs": {
+    "subjob_1": [
+      "tChangeFileEncoding_1"
+    ],
+    "subjob_2": [
+      "tJava_1"
+    ]
+  },
+  "java_config": {
+    "enabled": true,
+    "routines": [
+      "routines.DataOperation",
+      "routines.Mathematical",
+      "routines.Numeric",
+      "routines.Relational",
+      "routines.StringHandling",
+      "routines.TalendDataGenerator",
+      "routines.TalendDate",
+      "routines.TalendStringUtil",
+      "routines.TalendString"
+    ],
+    "libraries": []
+  },
+  "_validation": {
+    "valid": true,
+    "summary": "Validation: 2 warning(s)",
+    "issues": [
+      {
+        "severity": "warning",
+        "component_id": "tChangeFileEncoding_1",
+        "field": "flows",
+        "message": "Orphan component 'tChangeFileEncoding_1' has no flows or triggers"
+      },
+      {
+        "severity": "warning",
+        "component_id": "tJava_1",
+        "field": "flows",
+        "message": "Orphan component 'tJava_1' has no flows or triggers"
+      }
+    ]
+  },
+  "_needs_review": [
+    {
+      "issue": "No v1 engine implementation exists for tChangeFileEncoding. Converter output is syntactically valid but cannot execute at runtime.",
+      "component": "tChangeFileEncoding_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'imports' config key -- JavaComponent only reads 'java_code'",
+      "component": "tJava_1",
+      "severity": "engine_gap"
+    }
+  ]
+}

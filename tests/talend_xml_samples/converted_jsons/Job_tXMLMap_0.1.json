@@ -1,0 +1,844 @@
+{
+  "job_name": "Job_tXMLMap_0.1",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {}
+  },
+  "components": [
+    {
+      "id": "tFileInputXML_1",
+      "type": "FileInputXML",
+      "original_type": "tFileInputXML",
+      "position": {
+        "x": 64,
+        "y": 128
+      },
+      "config": {
+        "filepath": "C:/Users/phani/Documents/talend_samples/transform_components/tXMLMap/data/employees.xml",
+        "loop_query": "/employees/employee",
+        "limit": "",
+        "die_on_error": false,
+        "encoding": "ISO-8859-15",
+        "ignore_ns": false,
+        "ignore_dtd": false,
+        "generation_mode": "Dom4j",
+        "mapping": [
+          {
+            "column": "emp_id",
+            "xpath": "@id",
+            "nodecheck": false
+          },
+          {
+            "column": "name",
+            "xpath": "name",
+            "nodecheck": false
+          },
+          {
+            "column": "department",
+            "xpath": "department",
+            "nodecheck": false
+          },
+          {
+            "column": "salary",
+            "xpath": "salary",
+            "nodecheck": false
+          },
+          {
+            "column": "currency",
+            "xpath": "salary/@currency",
+            "nodecheck": false
+          }
+        ],
+        "advanced_separator": false,
+        "thousands_separator": ",",
+        "decimal_separator": ".",
+        "check_date": false,
+        "use_separator": false,
+        "field_separator": ",",
+        "tstatcatcher_stats": false,
+        "label": "Read_Employees_XML"
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {
+            "name": "emp_id",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "salary",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "currency",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          }
+        ]
+      },
+      "inputs": [],
+      "outputs": [
+        "row1"
+      ]
+    },
+    {
+      "id": "tXMLMap_1",
+      "type": "XMLMap",
+      "original_type": "tXMLMap",
+      "position": {
+        "x": 256,
+        "y": 128
+      },
+      "config": {
+        "die_on_error": false,
+        "keep_order_for_document": false,
+        "input_trees": [
+          {
+            "name": "row1",
+            "matchingMode": "ALL_ROWS",
+            "lookupMode": "LOAD_ONCE",
+            "lookup": false,
+            "activateGlobalMap": false,
+            "nodes": [
+              {
+                "name": "emp_id",
+                "expression": "",
+                "type": "id_String",
+                "xpath": "row1/emp_id",
+                "children": []
+              },
+              {
+                "name": "name",
+                "expression": "",
+                "type": "id_String",
+                "xpath": "row1/name",
+                "children": []
+              },
+              {
+                "name": "department",
+                "expression": "",
+                "type": "id_String",
+                "xpath": "row1/department",
+                "children": []
+              },
+              {
+                "name": "salary",
+                "expression": "",
+                "type": "id_Integer",
+                "xpath": "row1/salary",
+                "children": []
+              },
+              {
+                "name": "currency",
+                "expression": "",
+                "type": "id_String",
+                "xpath": "row1/currency",
+                "children": []
+              }
+            ]
+          },
+          {
+            "name": "row2",
+            "matchingMode": "UNIQUE_MATCH",
+            "lookupMode": "LOAD_ONCE",
+            "lookup": true,
+            "activateGlobalMap": false,
+            "nodes": [
+              {
+                "name": "dept_code",
+                "expression": "row1.department",
+                "type": "id_String",
+                "xpath": "row2/dept_code",
+                "children": []
+              },
+              {
+                "name": "dept_name",
+                "expression": "",
+                "type": "id_String",
+                "xpath": "row2/dept_name",
+                "children": []
+              },
+              {
+                "name": "budget",
+                "expression": "",
+                "type": "id_Integer",
+                "xpath": "row2/budget",
+                "children": []
+              }
+            ]
+          }
+        ],
+        "output_trees": [
+          {
+            "name": "out1",
+            "expressionFilter": "",
+            "activateExpressionFilter": false,
+            "allInOne": false,
+            "nodes": [
+              {
+                "name": "emp_id",
+                "expression": "row1.emp_id",
+                "type": "id_String",
+                "xpath": "out1/emp_id",
+                "children": []
+              },
+              {
+                "name": "name",
+                "expression": "row1.name",
+                "type": "id_String",
+                "xpath": "out1/name",
+                "children": []
+              },
+              {
+                "name": "dept_code",
+                "expression": "row2.dept_code",
+                "type": "id_String",
+                "xpath": "out1/dept_code",
+                "children": []
+              },
+              {
+                "name": "department",
+                "expression": "row1.department",
+                "type": "id_String",
+                "xpath": "out1/department",
+                "children": []
+              },
+              {
+                "name": "budget",
+                "expression": "row2.budget",
+                "type": "id_Integer",
+                "xpath": "out1/budget",
+                "children": []
+              },
+              {
+                "name": "salary",
+                "expression": "row1.salary",
+                "type": "id_Integer",
+                "xpath": "out1/salary",
+                "children": []
+              }
+            ]
+          }
+        ],
+        "connections": [
+          {
+            "source": "//@node.1/@nodeData/@inputTrees.0/@nodes.2",
+            "target": "//@node.1/@nodeData/@inputTrees.1/@nodes.0",
+            "sourceExpression": ""
+          },
+          {
+            "source": "//@node.1/@nodeData/@inputTrees.0/@nodes.0",
+            "target": "//@node.1/@nodeData/@outputTrees.0/@nodes.0",
+            "sourceExpression": ""
+          },
+          {
+            "source": "//@node.1/@nodeData/@inputTrees.0/@nodes.1",
+            "target": "//@node.1/@nodeData/@outputTrees.0/@nodes.1",
+            "sourceExpression": ""
+          },
+          {
+            "source": "//@node.1/@nodeData/@inputTrees.0/@nodes.2",
+            "target": "//@node.1/@nodeData/@outputTrees.0/@nodes.3",
+            "sourceExpression": ""
+          },
+          {
+            "source": "//@node.1/@nodeData/@inputTrees.1/@nodes.2",
+            "target": "//@node.1/@nodeData/@outputTrees.0/@nodes.4",
+            "sourceExpression": ""
+          },
+          {
+            "source": "//@node.1/@nodeData/@inputTrees.1/@nodes.0",
+            "target": "//@node.1/@nodeData/@outputTrees.0/@nodes.2",
+            "sourceExpression": ""
+          },
+          {
+            "source": "//@node.1/@nodeData/@inputTrees.0/@nodes.3",
+            "target": "//@node.1/@nodeData/@outputTrees.0/@nodes.5",
+            "sourceExpression": ""
+          }
+        ],
+        "var_tables": [
+          {
+            "name": "Var",
+            "minimized": true
+          }
+        ],
+        "output_schema": [
+          {
+            "name": "emp_id",
+            "type": "id_String",
+            "nullable": false,
+            "key": false,
+            "length": -1,
+            "precision": -1
+          },
+          {
+            "name": "name",
+            "type": "id_String",
+            "nullable": false,
+            "key": false,
+            "length": -1,
+            "precision": -1
+          },
+          {
+            "name": "dept_code",
+            "type": "id_String",
+            "nullable": false,
+            "key": false,
+            "length": -1,
+            "precision": -1
+          },
+          {
+            "name": "department",
+            "type": "id_String",
+            "nullable": false,
+            "key": false,
+            "length": -1,
+            "precision": -1
+          },
+          {
+            "name": "budget",
+            "type": "id_Integer",
+            "nullable": false,
+            "key": false,
+            "length": -1,
+            "precision": -1
+          },
+          {
+            "name": "salary",
+            "type": "id_Integer",
+            "nullable": false,
+            "key": false,
+            "length": -1,
+            "precision": -1
+          }
+        ],
+        "expressions": {
+          "emp_id": "./emp_id",
+          "name": "./ancestor::name",
+          "department": "./ancestor::department",
+          "budget": "./ancestor::department",
+          "dept_code": "./emp_id",
+          "salary": "./ancestor::salary"
+        },
+        "looping_element": "emp_id",
+        "expression_filter": "",
+        "activate_expression_filter": false,
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "dept_code",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "dept_name",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "budget",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          }
+        ],
+        "output": [
+          {
+            "name": "emp_id",
+            "type": "id_String",
+            "nullable": false,
+            "key": false,
+            "length": -1,
+            "precision": -1
+          },
+          {
+            "name": "name",
+            "type": "id_String",
+            "nullable": false,
+            "key": false,
+            "length": -1,
+            "precision": -1
+          },
+          {
+            "name": "dept_code",
+            "type": "id_String",
+            "nullable": false,
+            "key": false,
+            "length": -1,
+            "precision": -1
+          },
+          {
+            "name": "department",
+            "type": "id_String",
+            "nullable": false,
+            "key": false,
+            "length": -1,
+            "precision": -1
+          },
+          {
+            "name": "budget",
+            "type": "id_Integer",
+            "nullable": false,
+            "key": false,
+            "length": -1,
+            "precision": -1
+          },
+          {
+            "name": "salary",
+            "type": "id_Integer",
+            "nullable": false,
+            "key": false,
+            "length": -1,
+            "precision": -1
+          }
+        ]
+      },
+      "inputs": [
+        "row1",
+        "row2"
+      ],
+      "outputs": [
+        "out1"
+      ]
+    },
+    {
+      "id": "tFileInputXML_2",
+      "type": "FileInputXML",
+      "original_type": "tFileInputXML",
+      "position": {
+        "x": 64,
+        "y": 288
+      },
+      "config": {
+        "filepath": "C:/Users/phani/Documents/talend_samples/transform_components/tXMLMap/data/departments.xml",
+        "loop_query": "/departments/department",
+        "limit": "",
+        "die_on_error": false,
+        "encoding": "ISO-8859-15",
+        "ignore_ns": false,
+        "ignore_dtd": false,
+        "generation_mode": "Dom4j",
+        "mapping": [
+          {
+            "column": "dept_code",
+            "xpath": "@code",
+            "nodecheck": false
+          },
+          {
+            "column": "dept_name",
+            "xpath": "name",
+            "nodecheck": false
+          },
+          {
+            "column": "budget",
+            "xpath": "budget",
+            "nodecheck": false
+          }
+        ],
+        "advanced_separator": false,
+        "thousands_separator": ",",
+        "decimal_separator": ".",
+        "check_date": false,
+        "use_separator": false,
+        "field_separator": ",",
+        "tstatcatcher_stats": false,
+        "label": "Read_Departments_XML"
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {
+            "name": "dept_code",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "dept_name",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "budget",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          }
+        ]
+      },
+      "inputs": [],
+      "outputs": [
+        "row2"
+      ]
+    },
+    {
+      "id": "tLogRow_1",
+      "type": "LogRow",
+      "original_type": "tLogRow",
+      "position": {
+        "x": 480,
+        "y": 128
+      },
+      "config": {
+        "basic_mode": false,
+        "table_print": false,
+        "vertical": false,
+        "print_unique": true,
+        "print_label": false,
+        "print_unique_label": false,
+        "print_header": false,
+        "print_unique_name": false,
+        "print_colnames": false,
+        "use_fixed_length": false,
+        "print_content_with_log4j": true,
+        "fieldseparator": "|",
+        "lengths": [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "emp_id",
+            "type": "id_String",
+            "nullable": false,
+            "key": false,
+            "length": -1,
+            "precision": -1
+          },
+          {
+            "name": "name",
+            "type": "id_String",
+            "nullable": false,
+            "key": false,
+            "length": -1,
+            "precision": -1
+          },
+          {
+            "name": "dept_code",
+            "type": "id_String",
+            "nullable": false,
+            "key": false,
+            "length": -1,
+            "precision": -1
+          },
+          {
+            "name": "department",
+            "type": "id_String",
+            "nullable": false,
+            "key": false,
+            "length": -1,
+            "precision": -1
+          },
+          {
+            "name": "budget",
+            "type": "id_Integer",
+            "nullable": false,
+            "key": false,
+            "length": -1,
+            "precision": -1
+          },
+          {
+            "name": "salary",
+            "type": "id_Integer",
+            "nullable": false,
+            "key": false,
+            "length": -1,
+            "precision": -1
+          }
+        ],
+        "output": [
+          {
+            "name": "emp_id",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "dept_code",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "budget",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "salary",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          }
+        ]
+      },
+      "inputs": [
+        "out1"
+      ],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {
+      "name": "row1",
+      "from": "tFileInputXML_1",
+      "to": "tXMLMap_1",
+      "type": "flow"
+    },
+    {
+      "name": "out1",
+      "from": "tXMLMap_1",
+      "to": "tLogRow_1",
+      "type": "flow"
+    },
+    {
+      "name": "row2",
+      "from": "tFileInputXML_2",
+      "to": "tXMLMap_1",
+      "type": "flow"
+    }
+  ],
+  "triggers": [],
+  "subjobs": {
+    "subjob_1": [
+      "tFileInputXML_1",
+      "tXMLMap_1",
+      "tFileInputXML_2",
+      "tLogRow_1"
+    ]
+  },
+  "java_config": {
+    "enabled": false,
+    "routines": [
+      "routines.DataOperation",
+      "routines.Mathematical",
+      "routines.Numeric",
+      "routines.Relational",
+      "routines.StringHandling",
+      "routines.TalendDataGenerator",
+      "routines.TalendDate",
+      "routines.TalendStringUtil",
+      "routines.TalendString"
+    ],
+    "libraries": []
+  },
+  "_validation": {
+    "valid": true,
+    "summary": "Validation passed with no issues",
+    "issues": []
+  },
+  "_needs_review": [
+    {
+      "issue": "Engine does not read 'generation_mode' config key -- engine only supports Dom4j-style DOM processing; SAX mode not implemented",
+      "component": "tFileInputXML_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'advanced_separator' config key -- engine does not support locale-aware number formatting for XML",
+      "component": "tFileInputXML_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'check_date' config key -- engine does not validate date fields during XML extraction",
+      "component": "tFileInputXML_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'use_separator' config key -- engine does not support field separator concatenation for XML",
+      "component": "tFileInputXML_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'field_separator' config key -- engine does not read field_separator config key",
+      "component": "tFileInputXML_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'die_on_error' config key -- errors are silently swallowed regardless of setting",
+      "component": "tXMLMap_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'keep_order_for_document' config key -- document ordering is not enforced by engine",
+      "component": "tXMLMap_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'input_trees' config key -- input tree metadata stored but not used by engine",
+      "component": "tXMLMap_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'output_trees' config key -- output tree metadata stored but not used by engine",
+      "component": "tXMLMap_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'connections' config key -- connection metadata stored but not used by engine",
+      "component": "tXMLMap_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'expression_filter' config key -- expression filter is not evaluated by engine",
+      "component": "tXMLMap_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'activate_expression_filter' config key -- expression filter activation flag not checked",
+      "component": "tXMLMap_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'var_tables' config key -- variable tables not supported by engine",
+      "component": "tXMLMap_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Output shape affected: 'allInOne' -- allInOne output mode not supported -- engine outputs flat rows only",
+      "component": "tXMLMap_1",
+      "severity": "output_shape_change"
+    },
+    {
+      "issue": "Output shape affected: 'lookup' -- lookup/join input trees not supported by engine",
+      "component": "tXMLMap_1",
+      "severity": "output_shape_change"
+    },
+    {
+      "issue": "Engine does not read 'generation_mode' config key -- engine only supports Dom4j-style DOM processing; SAX mode not implemented",
+      "component": "tFileInputXML_2",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'advanced_separator' config key -- engine does not support locale-aware number formatting for XML",
+      "component": "tFileInputXML_2",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'check_date' config key -- engine does not validate date fields during XML extraction",
+      "component": "tFileInputXML_2",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'use_separator' config key -- engine does not support field separator concatenation for XML",
+      "component": "tFileInputXML_2",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'field_separator' config key -- engine does not read field_separator config key",
+      "component": "tFileInputXML_2",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'vertical' config key -- engine only checks basic_mode and table_print for display mode",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_label' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique_label' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique_name' config key -- engine does not read unique name printing option",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_colnames' config key -- engine does not read column name printing option",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'use_fixed_length' config key -- engine does not implement fixed-width formatting",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'lengths' config key -- engine does not implement fixed-width column lengths",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_content_with_log4j' config key -- engine does not implement Log4J output routing",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'basic_mode' is False but Talend default is True -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'table_print' is True but Talend default is False -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'print_header' is True but Talend default is False -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    }
+  ]
+}

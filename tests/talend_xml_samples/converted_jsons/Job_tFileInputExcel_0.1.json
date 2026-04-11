@@ -1,0 +1,355 @@
+{
+  "job_name": "Job_tFileInputExcel_0.1",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {
+      "excelFile": {
+        "value": "data/sales_data.xlsx",
+        "type": "str"
+      }
+    }
+  },
+  "components": [
+    {
+      "id": "tFileInputExcel_1",
+      "type": "FileInputExcel",
+      "original_type": "tFileInputExcel",
+      "position": {
+        "x": 128,
+        "y": 160
+      },
+      "config": {
+        "version_2007": false,
+        "filepath": "context.excelFile",
+        "password": "",
+        "all_sheets": false,
+        "header": true,
+        "footer": 0,
+        "limit": "",
+        "affect_each_sheet": "",
+        "first_column": 0,
+        "last_column": "5",
+        "die_on_error": false,
+        "suppress_warn": false,
+        "novalidate_on_cell": false,
+        "advanced_separator": false,
+        "thousands_separator": ",",
+        "decimal_separator": ".",
+        "trimall": false,
+        "sheetlist": [],
+        "trim_select": [],
+        "convertdatetostring": false,
+        "date_select": [],
+        "encoding": "ISO-8859-15",
+        "read_real_value": false,
+        "stopread_on_emptyrow": false,
+        "generation_mode": "USER_MODE",
+        "include_phoneticruns": true,
+        "configure_inflation_ratio": false,
+        "inflation_ratio": "",
+        "tstatcatcher_stats": false,
+        "label": "Read_Sales_Excel"
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {
+            "name": "sale_id",
+            "type": "int",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "product",
+            "type": "str",
+            "nullable": true,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "region",
+            "type": "str",
+            "nullable": true,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "quantity",
+            "type": "int",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "revenue",
+            "type": "float",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "sale_date",
+            "type": "datetime",
+            "nullable": true,
+            "key": false,
+            "date_pattern": "%Y-%m-%d"
+          }
+        ]
+      },
+      "inputs": [],
+      "outputs": [
+        "row1"
+      ]
+    },
+    {
+      "id": "tLogRow_1",
+      "type": "LogRow",
+      "original_type": "tLogRow",
+      "position": {
+        "x": 384,
+        "y": 160
+      },
+      "config": {
+        "basic_mode": false,
+        "table_print": false,
+        "vertical": false,
+        "print_unique": true,
+        "print_label": false,
+        "print_unique_label": false,
+        "print_header": false,
+        "print_unique_name": false,
+        "print_colnames": false,
+        "use_fixed_length": false,
+        "print_content_with_log4j": true,
+        "fieldseparator": "|",
+        "max_rows": "100",
+        "lengths": [],
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "sale_id",
+            "type": "int",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "product",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "region",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "quantity",
+            "type": "int",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "revenue",
+            "type": "float",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "sale_date",
+            "type": "datetime",
+            "nullable": true,
+            "key": false
+          }
+        ],
+        "output": [
+          {
+            "name": "sale_id",
+            "type": "int",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "product",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "region",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "quantity",
+            "type": "int",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "revenue",
+            "type": "float",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "sale_date",
+            "type": "datetime",
+            "nullable": true,
+            "key": false
+          }
+        ]
+      },
+      "inputs": [
+        "row1"
+      ],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {
+      "name": "row1",
+      "from": "tFileInputExcel_1",
+      "to": "tLogRow_1",
+      "type": "flow"
+    }
+  ],
+  "triggers": [],
+  "subjobs": {
+    "subjob_1": [
+      "tFileInputExcel_1",
+      "tLogRow_1"
+    ]
+  },
+  "java_config": {
+    "enabled": false,
+    "routines": [
+      "routines.DataOperation",
+      "routines.Mathematical",
+      "routines.Numeric",
+      "routines.Relational",
+      "routines.StringHandling",
+      "routines.TalendDataGenerator",
+      "routines.TalendDate",
+      "routines.TalendStringUtil",
+      "routines.TalendString"
+    ],
+    "libraries": []
+  },
+  "_validation": {
+    "valid": true,
+    "summary": "Validation passed with no issues",
+    "issues": []
+  },
+  "_needs_review": [
+    {
+      "issue": "Engine does not read 'version_2007' config key -- engine auto-detects .xls vs .xlsx from file extension",
+      "component": "tFileInputExcel_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'affect_each_sheet' config key -- engine does not apply header/footer per-sheet independently",
+      "component": "tFileInputExcel_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'novalidate_on_cell' config key -- engine does not skip cell type validation",
+      "component": "tFileInputExcel_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'generation_mode' config key -- engine does not switch between USER_MODE/EVENT_MODE/STREAM_MODE",
+      "component": "tFileInputExcel_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'encoding' config key -- engine relies on openpyxl/xlrd internal encoding handling",
+      "component": "tFileInputExcel_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'read_real_value' config key -- engine does not support reading underlying cell values",
+      "component": "tFileInputExcel_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'include_phoneticruns' config key -- engine does not handle East Asian phonetic annotations",
+      "component": "tFileInputExcel_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'configure_inflation_ratio' config key -- engine does not configure zip inflation ratio",
+      "component": "tFileInputExcel_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'inflation_ratio' config key -- engine does not configure zip inflation ratio",
+      "component": "tFileInputExcel_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'vertical' config key -- engine only checks basic_mode and table_print for display mode",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_label' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique_label' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique_name' config key -- engine does not read unique name printing option",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_colnames' config key -- engine does not read column name printing option",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'use_fixed_length' config key -- engine does not implement fixed-width formatting",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'lengths' config key -- engine does not implement fixed-width column lengths",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_content_with_log4j' config key -- engine does not implement Log4J output routing",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'basic_mode' is False but Talend default is True -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'table_print' is True but Talend default is False -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'print_header' is True but Talend default is False -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    }
+  ]
+}
