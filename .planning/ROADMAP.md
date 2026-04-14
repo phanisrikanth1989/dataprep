@@ -77,13 +77,14 @@ Decimal phases appear between their surrounding integers in numeric order.
 ### Phase 5: tMap Component
 **Goal**: tMap correctly performs joins, applies expressions and filters, routes to multiple outputs including reject, and handles all Talend join semantics (UNIQUE_MATCH, null handling, inner join rejects)
 **Depends on**: Phase 2, Phase 3
-**Requirements**: MAP-01, MAP-02, MAP-03, MAP-04, MAP-05, MAP-06, MAP-07, TEST-03
+**Requirements**: MAP-01, MAP-02, MAP-03, MAP-04, MAP-05, MAP-06, MAP-07, MAP-08, TEST-03
 **Success Criteria** (what must be TRUE):
   1. UNIQUE_MATCH uses first-row semantics (matching Talend), inner join rejects route separately from generic rejects, and null keys never match in joins
   2. tMap uses BaseComponent lifecycle instead of overriding execute(), and supports activateCondensedTool catch output for expression errors
   3. Auto type conversion for join columns works when ENABLE_AUTO_CONVERT_TYPE is configured
-  4. {id}_NB_LINE globalMap variable is correctly set after execution
-  5. Engine unit tests pass for tMap covering join modes, reject routing, expressions, and multi-output scenarios
+  4. RELOAD_AT_EACH_ROW lookup mode re-executes lookup per main row for parameterized lookups
+  5. {id}_NB_LINE globalMap variable is correctly set after execution
+  6. Engine unit tests pass for tMap covering join modes, reject routing, expressions, reload modes, and multi-output scenarios
 **Plans**: TBD
 
 ### Phase 6: Transform Group A -- Aggregation, Sort, Filter

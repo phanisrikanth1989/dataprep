@@ -64,6 +64,7 @@ Requirements for engine restructure milestone. Each maps to roadmap phases.
 - [ ] **MAP-05**: Implement catch output reject (`activateCondensedTool`) — capture expression evaluation errors
 - [ ] **MAP-06**: Implement auto type conversion for join columns (`ENABLE_AUTO_CONVERT_TYPE`)
 - [ ] **MAP-07**: Implement `{id}_NB_LINE` globalMap variable (fix via base class)
+- [ ] **MAP-08**: Implement RELOAD_AT_EACH_ROW lookup mode — re-execute lookup per main row for parameterized lookups (P1)
 
 ### tFileOutputDelimited
 
@@ -215,7 +216,6 @@ Deferred to future milestone. Tracked but not in current roadmap.
 
 ### Advanced tMap Features
 
-- **MAP-V2-01**: RELOAD_AT_EACH_ROW lookup mode with caching
 - **MAP-V2-02**: Disk-based lookup caching (`STORE_ON_DISK`, `ROWS_BUFFER_SIZE`)
 - **MAP-V2-03**: Parallel lookup loading (`LKUP_PARALLELIZE`)
 - **MAP-V2-04**: Fuzzy matching (Levenshtein/Jaccard distance thresholds)
@@ -301,6 +301,7 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | MAP-05 | Phase 5 | Pending |
 | MAP-06 | Phase 5 | Pending |
 | MAP-07 | Phase 5 | Pending |
+| MAP-08 | Phase 5 | Pending |
 | FOLD-01 | Phase 4 | Pending |
 | FOLD-02 | Phase 4 | Pending |
 | FOLD-03 | Phase 4 | Pending |
@@ -396,8 +397,8 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | PERF-04 | Phase 12 | Pending |
 
 **Coverage:**
-- v1 requirements: 118 total
-- Mapped to phases: 118
+- v1 requirements: 119 total
+- Mapped to phases: 119
 - Unmapped: 0
 
 **Note:** TEST-03 covers unit tests for target components and is split across Phase 4 (file I/O tests) and Phase 5 (tMap tests). All other requirements map to exactly one phase.
