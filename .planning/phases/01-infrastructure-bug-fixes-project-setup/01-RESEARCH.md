@@ -631,22 +631,22 @@ class TestTriggerConditionEval:
 | A2 | pandas>=2.0,<4 is a safe dependency range | Standard Stack | Medium -- some components may use pandas 2.x-specific APIs. The rewrite should use pandas 3.0-compatible APIs only. |
 | A3 | The `_original_config` deep copy pattern is sufficient for iterate re-execution | Architecture Patterns | Low -- copy.deepcopy handles all JSON-serializable config structures. Edge case: config containing non-serializable objects (unlikely for JSON-derived configs). |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **pandas 3.0 vs. REQUIREMENTS.md Out-of-Scope Declaration**
    - What we know: pandas 3.0.1 is installed. REQUIREMENTS.md says "pandas 3.0 upgrade" is out of scope.
    - What's unclear: Does "out of scope" mean "don't upgrade to 3.0" (already happened) or "don't address 3.0-specific breaking changes"?
-   - Recommendation: Write the rewrite code to be compatible with pandas 3.0 since it's the installed version. The pyproject.toml range `>=2.0,<4` allows both. No special pandas 3.0 migration work beyond writing correct code.
+   - RESOLVED: Write the rewrite code to be compatible with pandas 3.0 since it's the installed version. The pyproject.toml range `>=2.0,<4` allows both. No special pandas 3.0 migration work beyond writing correct code. Plans implement this.
 
 2. **die_on_error as BaseComponent First-Class Attribute**
    - What we know: The audit (Section 2.4) recommends making `die_on_error` a BaseComponent attribute. Currently ~50% of components implement it ad-hoc.
    - What's unclear: Should this be part of Phase 1 BaseComponent rewrite or left for Phase 3 engine execution loop?
-   - Recommendation: Add `die_on_error` as a BaseComponent property (reads from `self.config.get('die_on_error', True)`) in Phase 1. The engine enforcement of it belongs in Phase 3.
+   - RESOLVED: Add `die_on_error` as a BaseComponent property (reads from `self.config.get('die_on_error', True)`) in Phase 1. The engine enforcement of it belongs in Phase 3. Plan 05 implements this.
 
 3. **BaseIterateComponent Rewrite Scope**
    - What we know: BaseIterateComponent extends BaseComponent and overrides `execute()`. The rewrite of BaseComponent changes the lifecycle.
    - What's unclear: CONTEXT.md says "rewrite BaseComponent" but doesn't explicitly mention BaseIterateComponent.
-   - Recommendation: Rewrite BaseIterateComponent alongside BaseComponent in Phase 1 to ensure the iterate lifecycle is correct. It's a small file (176 lines) and must align with the new BaseComponent.
+   - RESOLVED: Rewrite BaseIterateComponent alongside BaseComponent in Phase 1 to ensure the iterate lifecycle is correct. It's a small file (176 lines) and must align with the new BaseComponent. Plan 05 implements this.
 
 ## Environment Availability
 
