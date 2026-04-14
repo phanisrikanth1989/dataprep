@@ -1,472 +1,539 @@
-"""
-FileOutputDelimited - Write delimited files (CSV, TSV, etc.).
+"""Engine component for FileOutputDelimited (tFileOutputDelimited).
 
-Talend equivalent: tFileOutputDelimited
+Writes DataFrame data to delimited text files with configurable formatting,
+encoding, and output options. Sink component -- receives input data and writes
+to disk.
 
-This component writes DataFrame data to delimited text files with configurable
-formatting options. Supports various delimiters, encodings, and output modes.
-Handles empty data according to Talend behavior (creates header-only files).
+Config keys consumed (25 total):
+  filepath            (str, required)        -- output file path
+  fieldseparator      (str, default ";")     -- field delimiter character
+  row_separator       (str, default "\\n")   -- row separator for non-CSV mode
+  encoding            (str, default "ISO-8859-15") -- file encoding
+  include_header      (bool, default False)  -- write column names as first row
+  append              (bool, default False)  -- append to existing file
+  csv_option          (bool, default False)  -- enable CSV quoting mode
+  escape_char         (str, default '"')     -- escape character in CSV mode
+  text_enclosure      (str, default '"')     -- quote character in CSV mode
+  os_line_separator   (bool, default True)   -- use os.linesep as row separator
+  csvrowseparator     (str, default "LF")    -- row separator in CSV mode (LF/CR/CRLF)
+  create_directory    (bool, default True)   -- create parent directories
+  split               (bool, default False)  -- split output into multiple files
+  split_every         (str, default "1000")  -- rows per split file
+  delete_empty_file   (bool, default False)  -- delete file if no data written
+  file_exist_exception (bool, default True)  -- raise if file exists in non-append mode
+  die_on_error        (bool, default False)  -- fail on errors vs continue
+  compress            (bool, default False)  -- [DEFERRED] ZIP compression
+  usestream           (bool, default False)  -- [DEFERRED] Java OutputStream mode
+  row_mode            (bool, default False)  -- [DEFERRED] per-row flush mode
+  flushonrow          (bool, default False)  -- [DEFERRED] flush every N rows
+  advanced_separator  (bool, default False)  -- [DEFERRED] numeric formatting
+  thousands_separator (str, default ",")     -- [DEFERRED] thousands grouping
+  decimal_separator   (str, default ".")     -- [DEFERRED] decimal point
+  streamname          (str, default "outputStream") -- [DEFERRED] stream variable name
 """
+import csv
 import logging
 import os
-from typing import Any, Dict, Iterator, List, Optional
+from pathlib import Path
+from typing import Any, Optional
 
 import pandas as pd
 
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
 from ...exceptions import ConfigurationError, FileOperationError
 
 logger = logging.getLogger(__name__)
 
+# Deferred feature flags that log a warning when enabled
+_DEFERRED_FEATURES = {
+    "compress": "ZIP compression",
+    "usestream": "OutputStream mode",
+    "row_mode": "per-row flush mode",
+    "flushonrow": "flush-on-row buffering",
+}
 
+# CSV row separator closed-list mapping
+_CSV_ROW_SEPARATORS = {
+    "LF": "\n",
+    "CR": "\r",
+    "CRLF": "\r\n",
+}
+
+
+@REGISTRY.register("FileOutputDelimited", "tFileOutputDelimited")
 class FileOutputDelimited(BaseComponent):
-    """
-    Write DataFrame data to delimited text files with configurable formatting.
+    """tFileOutputDelimited engine implementation.
 
-    This component outputs data in various delimited formats (CSV, TSV, pipe-separated, etc.)
-    with support for custom delimiters, encodings, and text enclosures. Handles streaming
-    data and provides Talend-compatible empty file behavior.
+    Writes DataFrame data to delimited text files with configurable
+    field/row separators, encoding, quoting, file splitting, and
+    directory creation. Supports Talend-compatible defaults and
+    FILE_EXIST_EXCEPTION safety check.
 
-        Configuration:
-            filepath (str): Output file path. Required. Supports context variables.
-            delimiter (str): Field delimiter character. Default: ','
-            encoding (str): File encoding. Default: 'UTF-8'
-            include_header (bool): Include column headers. Default: True
-            append (bool): Append to existing file. Default: False
-            text_enclosure (str): Quote character for text fields. Default: None (no quoting)
-            create_directory (bool): Create parent directories if needed. Default: True
-            delete_empty_file (bool): Delete file if no data rows written. Default: False
-            die_on_error (bool): Fail on errors vs. continue. Default: True
-            row_separator (str): Row separator. Default: '\n'
-            output_schema (List[str]): Column names to output in order. Optional.
-
-        Inputs:
-            main: DataFrame to write to file
-
-        Outputs:
-            main: Pass-through of input DataFrame (for flow continuation)
-
-        Statistics:
-            NB_LINE: Total rows written
-            NB_LINE_OK: Successfully written rows
-            NB_LINE_REJECT: Failed rows (0 for this component)
-
-        Example:
-            config = {
-                "filepath": "/data/output.csv",
-                "delimiter": ",",
-                "encoding": "UTF-8",
-                "include_header": True
-            }
-
-        Notes:
-            - Empty input creates header-only file when include_header=True
-            - Special handling for single-column output without delimiter (AT17854)
-            - Supports streaming mode for large datasets
-            - Text enclosure None disables all quoting (csv.QUOTE_NONE)
+    Config keys:
+        filepath: Output file path (required).
+        fieldseparator: Field delimiter (default ";").
+        encoding: File encoding (default "ISO-8859-15").
+        include_header: Write header row (default False).
+        append: Append to existing file (default False).
+        csv_option: Enable CSV quoting mode (default False).
+        split: Split output into multiple files (default False).
+        split_every: Rows per split file (default "1000").
+        file_exist_exception: Raise if file exists (default True).
     """
 
-        # Class constants for default values
-    DEFAULT_DELIMITER = ','
-    DEFAULT_ENCODING = 'UTF-8'
-    DEFAULT_ROW_SEPARATOR = '\n'
-    DEFAULT_ESCAPE_CHAR = '\\'
-    QUOTE_NONE = 3      # csv.QUOTE_NONE
-    QUOTE_MINIMAL = 1   # csv.QUOTE_MINIMAL
+    # ------------------------------------------------------------------
+    # Configuration Validation
+    # ------------------------------------------------------------------
 
-    def _validate_config(self) -> List[str]:
-        """
-        Validate component configuration.
-
-        Returns:
-            List of error messages (empty if valid)
-        """
-        errors = []
-
-            # Required fields
-        if 'filepath' not in self.config or not self.config['filepath']:
-            errors.append("Missing required config: 'filepath'")
-
-            # Optional field validation
-        if 'delimiter' in self.config:
-            delimiter = self.config['delimiter']
-            if not isinstance(delimiter, str):
-                errors.append("Config 'delimiter' must be a string")
-
-        if 'encoding' in self.config:
-            encoding = self.config['encoding']
-            if not isinstance(encoding, str):
-                errors.append("Config 'encoding' must be a string")
-
-        if 'include_header' in self.config:
-            if not isinstance(self.config['include_header'], bool):
-                errors.append("Config 'include_header' must be boolean")
-
-        if 'append' in self.config:
-            if not isinstance(self.config['append'], bool):
-                errors.append("Config 'append' must be boolean")
-
-        if 'create_directory' in self.config:
-            if not isinstance(self.config['create_directory'], bool):
-                errors.append("Config 'create_directory' must be boolean")
-
-        if 'die_on_error' in self.config:
-            if not isinstance(self.config['die_on_error'], bool):
-                errors.append("Config 'die_on_error' must be boolean")
-
-        if 'output_schema' in self.config:
-            schema = self.config['output_schema']
-            if not isinstance(schema, list):
-                errors.append("Config 'output_schema' must be a list")
-
-        return errors
-
-    def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
-        """
-            Write DataFrame to delimited file.
-
-        Args:
-            input_data: Input DataFrame to write. May be None or empty.
-
-        Returns:
-            Dictionary containing:
-                - 'main': Pass-through of input DataFrame
+    def _validate_config(self) -> None:
+        """Validate component configuration.
 
         Raises:
-            ConfigurationError: If required configuration is missing
-            FileOperationError: If file write operation fails
+            ConfigurationError: If filepath is missing.
         """
-        # Get configuration with defaults
-        filepath = self.config.get('filepath', '')
-        delimiter = self.config.get('delimiter', self.DEFAULT_DELIMITER)
-        encoding = self.config.get('encoding', self.DEFAULT_ENCODING)
-        include_header = self.config.get('include_header', True)
-        append = self.config.get('append', False)
-        text_enclosure = self.config.get('text_enclosure', None)
-        create_directory = self.config.get('create_directory', True)
-        delete_empty_file = self.config.get('delete_empty_file', False)
-        die_on_error = self.config.get('die_on_error', True)
+        if not self.config.get("filepath"):
+            raise ConfigurationError(
+                f"[{self.id}] Missing required config key 'filepath'"
+            )
 
-        if not filepath:
-            error_msg = "filepath is required"
-            logger.error(f"[{self.id}] Configuration error: {error_msg}")
-            if die_on_error:
-                raise ConfigurationError(f"[{self.id}] {error_msg}")
-            else:
-                self._update_stats(0, 0, 0)
-                return {'main': pd.DataFrame()}
+    # ------------------------------------------------------------------
+    # Core Processing
+    # ------------------------------------------------------------------
 
-        logger.info(f"[{self.id}] Writing started: target file '{filepath}'")
-        logger.debug(f"[{self.id}] Configuration: delimiter='{delimiter}', "
-                f"encoding='{encoding}', include_header={include_header}, "
-                f"text_enclosure='{text_enclosure}'")
+    def _process(self, input_data: Optional[pd.DataFrame] = None) -> dict:
+        """Write DataFrame to delimited file(s).
 
-        # Handle streaming input
-        if isinstance(input_data, Iterator):
-            logger.debug(f"[{self.id}] Processing streaming input")
-            return self._write_streaming(input_data,filepath,delimiter,encoding,
-                include_header,append,text_enclosure,
-                create_directory,delete_empty_file,die_on_error)
+        Args:
+            input_data: Input DataFrame from upstream component, or None.
 
-        # Convert list input to DataFrame if needed
-        if isinstance(input_data, list):
-            try:
-                input_data = pd.DataFrame(input_data)
-                logger.debug(f"[{self.id}] Converted list input to DataFrame: {len(input_data)} rows")
-            except Exception as e:
-                error_msg = f"Failed to convert list to DataFrame: {str(e)}"
-                logger.error(f"[{self.id}] Data conversion error: {error_msg}")
-            if die_on_error:
-                raise FileOperationError(f"[{self.id}] {error_msg}") from e
-            else:
-                self._update_stats(0, 0, len(input_data) if input_data else 0)
-                return {'main': pd.DataFrame()}
-            
-        # Log input data details for debugging
-        if input_data is not None and not input_data.empty:
-            logger.debug(f"[{self.id}] Input data shape: {input_data.shape}")
-            logger.debug(f"[{self.id}] Input columns: {list(input_data.columns)}")
-            if len(input_data) <= 5:
-                logger.debug(f"[{self.id}] Input sample:\n{input_data.head()}")
+        Returns:
+            dict with 'main' (pass-through of input) and 'reject' (None).
 
-        # Handle empty data - Talend behavior: create header-only file when configured
-        if input_data is None or (hasattr(input_data, 'empty') and input_data.empty):
-            logger.info(f"[{self.id}] Empty input received: applying Talend empty data behavior")
-            return self._handle_empty_data(filepath, encoding, delimiter, include_header,
-                                        delete_empty_file, append)
-        
-        # Create directory if needed
-        if create_directory:
-            self._ensure_directory_exists(filepath)
+        Raises:
+            FileOperationError: If file write fails or file exists when
+                file_exist_exception is True.
+        """
+        # ---- Read config values ----
+        filepath = self.config.get("filepath", "")
+        fieldseparator = self.config.get("fieldseparator", ";")
+        row_separator = self.config.get("row_separator", "\\n")
+        encoding = self.config.get("encoding", "ISO-8859-15")
+        include_header = self.config.get("include_header", False)
+        append = self.config.get("append", False)
+        csv_option = self.config.get("csv_option", False)
+        escape_char = self.config.get("escape_char", '"')
+        text_enclosure = self.config.get("text_enclosure", '"')
+        os_line_separator = self.config.get("os_line_separator", True)
+        csvrowseparator = self.config.get("csvrowseparator", "LF")
+        create_directory = self.config.get("create_directory", True)
+        split = self.config.get("split", False)
+        split_every = self.config.get("split_every", "1000")
+        delete_empty_file = self.config.get("delete_empty_file", False)
+        file_exist_exception = self.config.get("file_exist_exception", True)
 
-        # Normalize delimiter for pandas
-        delimiter= self._normalize_delimiter(delimiter)
-
-        # Apply output schema filtering if configured
-        input_data = self._apply_output_schema(input_data)
-
-        try:
-            rows_in = len(input_data)
-
-            # Determine file write mode and header behavior
-            mode = 'a' if append else 'w'
-            write_header = include_header
-            if append and os.path.exists(filepath):
-                write_header = False
-                logger.debug(f"[{self.id}] Appending to existing file: header disabled")
-
-            # Configure quoting behavior based on text_enclosure
-            quoting, quotechar = self._configure_quoting(text_enclosure)
-
-            logger.info(f"[{self.id}] Writing file: mode='{mode}', quoting={quoting}, "
-                f"header={write_header}")
-
-            # Special case: empty delimiter for single-column output (AT17854 logic)
-            if delimiter == "":
-                logger.debug(f"[{self.id}] Using manual write for empty delimiter (single column)")
-                self._write_single_column(input_data,filepath,mode,encoding)
-            else:
-            # Standard pandas CSV write
-                input_data.to_csv(
-                    filepath,
-                    sep=delimiter,
-                    encoding=encoding,
-                    header=write_header,
-                    index=False,
-                    mode=mode,
-                    quotechar=quotechar,
-                    quoting=quoting,
-                    escapechar=self.DEFAULT_ESCAPE_CHAR
+        # ---- Warn on deferred features ----
+        for flag, description in _DEFERRED_FEATURES.items():
+            if self.config.get(flag, False):
+                logger.warning(
+                    f"[{self.id}] {description} ('{flag}') is not yet "
+                    f"implemented. Config flag will be ignored."
                 )
 
-            # Update statistics and log completion
-            self._update_stats(rows_in, rows_in, 0)
-            logger.info(f"[{self.id}] Writing complete: {rows_in} rows written to '{filepath}'")
+        # ---- Resolve filepath ----
+        resolved_path = Path(filepath)
 
-            return {'main': input_data}
-
-        except Exception as e:
-            error_msg = f"Error writing file '{filepath}': {str(e)}"
-            logger.error(f"[{self.id}] File operation failed: {error_msg}")
-
-            if die_on_error:
-                raise FileOperationError(f"[{self.id}] {error_msg}") from e
-            else:
-                rows_in = len(input_data) if input_data is not None else 0
-                self._update_stats(rows_in, 0, rows_in)
-                return {'main': pd.DataFrame()}
-
-    def _handle_empty_data(self, filepath: str, encoding: str, delimiter: str,
-                          include_header: bool, delete_empty_file: bool,
-                          append: bool ) -> Dict[str, Any]:
-        """
-        Handle empty data according to Talend behavior.
-        Talend creates empty file with header when include_header=True.
-        This logic preserves that behavior (AT17854).
-        """
-
-        logger.debug(f"[{self.id}] Handling empty data: include_header={include_header}, "
-            f"delete_empty_file={delete_empty_file}")
-
-        # Normalize delimiter and row separator
-        if delimiter == '\\t':
-            delimiter = '\t'
-
-        row_separator = self.config.get('row_separator',self.DEFAULT_ROW_SEPARATOR)
-        if row_separator == '\\n':
-            row_separator = '\n'
-        elif row_separator == '\\r\\n':
-            row_separator = '\r\n'
-        elif row_separator == '\\t':
-            row_separator = '\t'
-
-        mode = 'a' if append else 'w'
-
-        # Determine header columns from various sources
-        output_schema = self._get_output_schema_columns()
-
-        # Write header only if required and schema available
-        if include_header and output_schema:
-            logger.info(f"[{self.id}] Writing header-only file: {len(output_schema)} columns")
-            try:
-                with open(filepath, mode, encoding=encoding) as f:
-                    f.write(delimiter.join(output_schema) + row_separator)
-            except Exception as e:
-                logger.error(f"[{self.id}] Failed to write header: {str(e)}")
-                raise FileOperationError(f"[{self.id}] Failed to write header: {str(e)}") from e
-
-        # Delete file only if configured AND no header was written
-        elif delete_empty_file and (not include_header or not output_schema) and os.path.exists(filepath):
-            try:
-                os.remove(filepath)
-                logger.info(f"[{self.id}] Deleted empty file: '{filepath}'")
-            except Exception as e:
-                logger.warning(f"[{self.id}] Could not delete empty file '{filepath}': {str(e)}")
-
-        self._update_stats(0, 0, 0)
-        return {'main': pd.DataFrame()}
-    
-    def _write_streaming(self, data_iterator: Iterator[pd.DataFrame], filepath: str,
-                         delimiter: str, encoding: str, include_header: bool, 
-                         append: bool, text_enclosure: str, create_directory: bool,
-                         delete_empty_file: bool, die_on_error: bool) -> Dict[str, Any]:
-        """Write data in streaming mode for large datasets."""
-        logger.info(f"[{self.id}] Writing in streaming mode: target '{filepath}'")
-
-        # Create directory if needed
+        # ---- Create directory ----
         if create_directory:
-            self._ensure_directory_exists(filepath)
+            resolved_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Normalize delimiter
-        delimiter = self._normalize_delimiter(delimiter)
+        # ---- FILE_EXIST_EXCEPTION check ----
+        if file_exist_exception and not append and resolved_path.exists():
+            raise FileOperationError(
+                f"[{self.id}] File already exists: '{filepath}'. "
+                f"Set file_exist_exception=false or append=true to allow writing."
+            )
 
-        total_rows = 0
-        first_chunk = True
+        # ---- Handle empty input ----
+        if input_data is None or input_data.empty:
+            return self._handle_empty_input(
+                resolved_path, encoding, fieldseparator,
+                include_header, delete_empty_file, os_line_separator,
+                csv_option, csvrowseparator, row_separator,
+            )
 
-        try:
-            for chunk_num, chunk in enumerate(data_iterator, 1):
-                if chunk.empty:
-                    logger.debug(f"[{self.id}] Skipping empty chunk #{chunk_num}")
-                    continue
+        # ---- Determine effective line separator ----
+        effective_line_sep = self._resolve_line_separator(
+            os_line_separator, csv_option, csvrowseparator, row_separator
+        )
 
-                # Determine write mode and header for this chunk
-                if first_chunk:
-                    mode = 'a' if append else 'w'
-                    write_header = include_header and not (append and os.path.exists(filepath))
-                    first_chunk = False
-                    logger.debug(f"[{self.id}] First chunk: mode='{mode}', header={write_header}")
-                else:
-                    mode = 'a'
-                    write_header = False
+        # ---- Unescape field separator ----
+        field_sep = _unescape_separator(fieldseparator)
 
-                # Configure quoting
-                quoting, quotechar = self._configure_quoting(text_enclosure)
-
-                # Write chunk
-                chunk.to_csv(
-                    filepath,
-                    sep=delimiter,
-                    encoding=encoding,
-                    header=write_header,
-                    index=False,
-                    mode=mode,
-                    quotechar=quotechar,
-                    quoting=quoting,
-                    escapechar=self.DEFAULT_ESCAPE_CHAR
-                )
-
-                # Update statistics
-                chunk_rows = len(chunk)
-                total_rows += chunk_rows
-                self._update_stats(chunk_rows, chunk_rows, 0)
-
-                logger.debug(f"[{self.id}] Chunk {chunk_num} written: {chunk_rows} rows")
-
-            # Handle empty result
-            if total_rows == 0 and delete_empty_file and os.path.exists(filepath):
-                logger.info(f"[{self.id}] No data written: considering file deletion")
-                # Note: Keeping original logic - commented out deletion
-                # os.remove(filepath)
-                logger.info(f"[{self.id}] Empty file deletion skipped: '{filepath}'")
-            else:
-                logger.info(f"[{self.id}] Streaming write complete: {total_rows} total rows")
-
-            return {'main': pd.DataFrame()}  # Return empty DataFrame for streaming
-
-        except Exception as e:
-            error_msg = f"Error in streaming write to '{filepath}': {str(e)}"
-            logger.error(f"[{self.id}] Streaming operation failed: {error_msg}")
-
-            if die_on_error:
-                raise FileOperationError(f"[{self.id}] {error_msg}") from e
-            else:
-                return {'main': pd.DataFrame()}
-            
-    def _ensure_directory_exists(self, filepath: str) -> None:
-        """Create parent directories if they don't exist."""
-        directory = os.path.dirname(filepath)
-        if directory and not os.path.exists(directory):
-            try:
-                os.makedirs(directory, exist_ok=True)
-                logger.debug(f"[{self.id}] Created directory: '{directory}'")
-            except Exception as e:
-                logger.error(f"[{self.id}] Failed to create directory '{directory}': {str(e)}")
-                raise FileOperationError(f"[{self.id}] Cannot create directory '{directory}': {str(e)}") from e
-
-    def _normalize_delimiter(self, delimiter: str) -> str:
-        """Convert delimiter shortcuts to actual characters for pandas."""
-        if delimiter == "\\t" or delimiter == "\t":
-            return "\t"
-        elif len(delimiter) > 1:
-            return rf"{delimiter}"
-        return delimiter
-
-    def _configure_quoting(self,text_enclosure: Optional[str]) -> tuple:
-        """Configure pandas CSV quoting behavior based on text_enclosure setting."""
-        if text_enclosure is None:
-            # No quoting - disable entirely
-            quoting = self.QUOTE_NONE
-            quotechar = None
-            logger.debug(f"[{self.id}] Quoting disabled: text_enclosure=None")
+        # ---- SPLIT mode ----
+        if split:
+            rows_per_file = _safe_int(split_every, 1000)
+            total_written = self._write_split(
+                input_data, filepath, rows_per_file, field_sep,
+                effective_line_sep, encoding, include_header, csv_option,
+                text_enclosure, escape_char, append,
+            )
         else:
-            # Quote when needed
-            quoting = self.QUOTE_MINIMAL
-            quotechar = text_enclosure
-            logger.debug(f"[{self.id}] Quoting enabled: text_enclosure='{text_enclosure}'")
+            # ---- Write single file ----
+            self._write_file(
+                input_data, str(resolved_path), field_sep,
+                effective_line_sep, encoding, include_header, csv_option,
+                text_enclosure, escape_char, append,
+            )
+            total_written = len(input_data)
 
-        return quoting, quotechar
+        # ---- Set globalMap variables ----
+        if self.global_map:
+            self.global_map.put(f"{self.id}_FILE_NAME", str(resolved_path))
+            self.global_map.put(f"{self.id}_NB_LINE", total_written)
 
-    def _apply_output_schema(self,df: pd.DataFrame) -> pd.DataFrame:
-        """Apply output schema filtering if configured."""
-        output_schema = self.config.get('output_schema')
+        logger.info(
+            f"[{self.id}] Write complete: {total_written} rows to '{filepath}'"
+        )
 
-        if not output_schema:
-            # Try alternative schema sources
-            if hasattr(self, 'output_schema') and self.output_schema:
-                output_schema = [col['name'] for col in self.output_schema]
-            elif hasattr(self, 'schema') and self.schema and 'output' in self.schema:
-                output_schema = [col['name'] for col in self.schema['output']]
+        return {"main": input_data, "reject": None}
 
-        if output_schema and isinstance(df, pd.DataFrame):
-            # Filter and reorder columns according to schema
-            available_cols = [col for col in output_schema if col in df.columns]
-            if available_cols != list(df.columns):
-                logger.debug(f"[{self.id}] Applying output schema: "f"{len(available_cols)} of "
-                             f"{len(output_schema)} columns available")
-                df = df[available_cols]
+    # ------------------------------------------------------------------
+    # Empty Input Handling
+    # ------------------------------------------------------------------
 
-        return df
-    
-    def _get_output_schema_columns(self) -> List[str]:
-        """Get output column names from various schema sources."""
-        # Try config first
-        output_schema = self.config.get('output_schema')
-        if output_schema:
-            return output_schema
+    def _handle_empty_input(
+        self,
+        resolved_path: Path,
+        encoding: str,
+        fieldseparator: str,
+        include_header: bool,
+        delete_empty_file: bool,
+        os_line_separator: bool,
+        csv_option: bool,
+        csvrowseparator: str,
+        row_separator: str,
+    ) -> dict:
+        """Handle empty or None input data.
 
-        # Try component schema attributes
-        if hasattr(self, 'output_schema') and self.output_schema:
-            return [col['name'] for col in self.output_schema]
-        elif hasattr(self, 'schema') and self.schema and 'output' in self.schema:
-            return [col['name'] for col in self.schema['output']]
+        Args:
+            resolved_path: Resolved output file path.
+            encoding: File encoding.
+            fieldseparator: Field delimiter.
+            include_header: Whether to write header row.
+            delete_empty_file: Whether to delete empty file.
+            os_line_separator: Whether to use OS line separator.
+            csv_option: Whether CSV mode is enabled.
+            csvrowseparator: CSV row separator value.
+            row_separator: Row separator string.
 
-        # No schema available
+        Returns:
+            dict with 'main' (None or empty DataFrame) and 'reject' (None).
+        """
+        if delete_empty_file:
+            # Do not create file; delete if exists
+            if resolved_path.exists():
+                resolved_path.unlink()
+                logger.info(f"[{self.id}] Deleted empty file: '{resolved_path}'")
+            return {"main": None, "reject": None}
+
+        effective_line_sep = self._resolve_line_separator(
+            os_line_separator, csv_option, csvrowseparator, row_separator
+        )
+        field_sep = _unescape_separator(fieldseparator)
+
+        if include_header:
+            # Determine header columns from output_schema or input DataFrame
+            columns = self._get_header_columns()
+            if columns:
+                header_line = field_sep.join(columns) + effective_line_sep
+                resolved_path.write_text(header_line, encoding=encoding)
+                logger.info(
+                    f"[{self.id}] Wrote header-only file with "
+                    f"{len(columns)} columns"
+                )
+            else:
+                # No schema info available -- write empty file
+                resolved_path.write_bytes(b"")
+        else:
+            # Write empty file (0 bytes)
+            resolved_path.write_bytes(b"")
+
+        # Set globalMap variables
+        if self.global_map:
+            self.global_map.put(f"{self.id}_FILE_NAME", str(resolved_path))
+            self.global_map.put(f"{self.id}_NB_LINE", 0)
+
+        return {"main": None, "reject": None}
+
+    # ------------------------------------------------------------------
+    # File Writing
+    # ------------------------------------------------------------------
+
+    def _write_file(
+        self,
+        df: pd.DataFrame,
+        filepath: str,
+        field_sep: str,
+        line_sep: str,
+        encoding: str,
+        include_header: bool,
+        csv_option: bool,
+        text_enclosure: str,
+        escape_char: str,
+        append: bool,
+    ) -> None:
+        """Write DataFrame to a single delimited file.
+
+        Args:
+            df: DataFrame to write.
+            filepath: Output file path.
+            field_sep: Field delimiter character.
+            line_sep: Line separator string.
+            encoding: File encoding.
+            include_header: Whether to write header row.
+            csv_option: Whether to use CSV quoting mode.
+            text_enclosure: Quote character for CSV mode.
+            escape_char: Escape character for CSV mode.
+            append: Whether to append to existing file.
+        """
+        mode = "a" if append else "w"
+
+        if csv_option:
+            self._write_csv_mode(
+                df, filepath, field_sep, line_sep, encoding,
+                include_header, text_enclosure, escape_char, mode,
+            )
+        else:
+            df.to_csv(
+                filepath,
+                sep=field_sep,
+                header=include_header,
+                index=False,
+                encoding=encoding,
+                quoting=csv.QUOTE_NONE,
+                lineterminator=line_sep,
+                mode=mode,
+                escapechar="\\",
+            )
+
+    def _write_csv_mode(
+        self,
+        df: pd.DataFrame,
+        filepath: str,
+        field_sep: str,
+        line_sep: str,
+        encoding: str,
+        include_header: bool,
+        text_enclosure: str,
+        escape_char: str,
+        mode: str,
+    ) -> None:
+        """Write DataFrame using Python csv.writer for RFC4180 compliance.
+
+        Args:
+            df: DataFrame to write.
+            filepath: Output file path.
+            field_sep: Field delimiter.
+            line_sep: Line separator.
+            encoding: File encoding.
+            include_header: Whether to write header.
+            text_enclosure: Quote character.
+            escape_char: Escape character.
+            mode: File open mode ('w' or 'a').
+        """
+        doublequote = (escape_char == text_enclosure)
+        esc = escape_char if not doublequote else None
+
+        with open(filepath, mode, newline="", encoding=encoding) as f:
+            writer = csv.writer(
+                f,
+                delimiter=field_sep,
+                quotechar=text_enclosure,
+                escapechar=esc,
+                doublequote=doublequote,
+                quoting=csv.QUOTE_MINIMAL,
+                lineterminator=line_sep,
+            )
+            if include_header:
+                writer.writerow(list(df.columns))
+            for row in df.itertuples(index=False, name=None):
+                writer.writerow(row)
+
+    def _write_split(
+        self,
+        df: pd.DataFrame,
+        filepath: str,
+        rows_per_file: int,
+        field_sep: str,
+        line_sep: str,
+        encoding: str,
+        include_header: bool,
+        csv_option: bool,
+        text_enclosure: str,
+        escape_char: str,
+        append: bool,
+    ) -> int:
+        """Write DataFrame split across multiple files.
+
+        Files are named: {stem}{index}{suffix} (e.g., output0.csv, output1.csv).
+
+        Args:
+            df: DataFrame to write.
+            filepath: Base output file path.
+            rows_per_file: Maximum rows per split file.
+            field_sep: Field delimiter.
+            line_sep: Line separator.
+            encoding: File encoding.
+            include_header: Whether to write header.
+            csv_option: Whether to use CSV quoting mode.
+            text_enclosure: Quote character.
+            escape_char: Escape character.
+            append: Whether to append to existing file.
+
+        Returns:
+            Total number of rows written.
+        """
+        total_written = 0
+
+        for i in range(0, len(df), rows_per_file):
+            chunk = df.iloc[i : i + rows_per_file]
+            chunk_index = i // rows_per_file
+            split_path = _split_filename(filepath, chunk_index)
+
+            self._write_file(
+                chunk, split_path, field_sep, line_sep, encoding,
+                include_header, csv_option, text_enclosure, escape_char,
+                append,
+            )
+            total_written += len(chunk)
+            logger.debug(
+                f"[{self.id}] Split file {chunk_index}: "
+                f"{len(chunk)} rows to '{split_path}'"
+            )
+
+        return total_written
+
+    # ------------------------------------------------------------------
+    # Line Separator Resolution
+    # ------------------------------------------------------------------
+
+    def _resolve_line_separator(
+        self,
+        os_line_separator: bool,
+        csv_option: bool,
+        csvrowseparator: str,
+        row_separator: str,
+    ) -> str:
+        """Determine the effective line separator.
+
+        Args:
+            os_line_separator: Whether to use OS line separator.
+            csv_option: Whether CSV mode is enabled.
+            csvrowseparator: CSV row separator value (LF/CR/CRLF).
+            row_separator: Raw row separator string.
+
+        Returns:
+            Effective line separator string.
+        """
+        if os_line_separator:
+            return os.linesep
+        elif csv_option:
+            return _resolve_csv_row_separator(csvrowseparator)
+        else:
+            return _unescape_separator(row_separator)
+
+    # ------------------------------------------------------------------
+    # Header Column Resolution
+    # ------------------------------------------------------------------
+
+    def _get_header_columns(self) -> list[str]:
+        """Get header column names from output schema or input schema.
+
+        Returns:
+            List of column names, or empty list if no schema available.
+        """
+        # Try output_schema (set by engine)
+        if hasattr(self, "output_schema") and self.output_schema:
+            return [col["name"] for col in self.output_schema]
+
+        # Try input schema from config
+        schema = self.config.get("schema", {})
+        if isinstance(schema, dict):
+            input_schema = schema.get("input", [])
+            if input_schema:
+                return [col["name"] for col in input_schema]
+
         return []
 
-    def _write_single_column(self,df: pd.DataFrame,filepath: str,mode: str,encoding: str) -> None:
-        """
-        Handle special case of single-column output without delimiter (AT17854 logic).
 
-        When delimiter is empty, write each row as a single string, one per line.
-        This preserves the original AT17854 functionality.
-        """
-        row_separator = self.config.get('row_separator',self.DEFAULT_ROW_SEPARATOR)
-        logger.debug(f"[{self.id}] Single column write: {len(df)} rows, "f"row_separator='{row_separator}'")
+# ------------------------------------------------------------------
+# Module-Level Helpers
+# ------------------------------------------------------------------
 
-        try:
-            with open(filepath, mode, encoding=encoding) as f:
-                for value in df.iloc[:, 0]:  # First column only
-                    f.write(f"{value}{row_separator}")
-        except Exception as e:
-            raise FileOperationError(f"[{self.id}] Failed single column write: {str(e)}") from e
-        
+
+def _unescape_separator(sep: str) -> str:
+    """Convert escaped separator strings to actual characters.
+
+    Args:
+        sep: Separator string, possibly containing escape sequences.
+
+    Returns:
+        Unescaped separator string.
+    """
+    replacements = {
+        "\\n": "\n",
+        "\\r": "\r",
+        "\\t": "\t",
+        "\\r\\n": "\r\n",
+    }
+    # Try longest match first
+    if sep in replacements:
+        return replacements[sep]
+    return sep
+
+
+def _split_filename(filepath: str, index: int) -> str:
+    """Generate split filename: {stem}{index}{suffix}.
+
+    Args:
+        filepath: Base file path.
+        index: Split file index (0-based).
+
+    Returns:
+        Split file path string.
+    """
+    p = Path(filepath)
+    return str(p.with_name(f"{p.stem}{index}{p.suffix}"))
+
+
+def _resolve_csv_row_separator(csvrowseparator: str) -> str:
+    """Convert CSV row separator closed-list value to actual characters.
+
+    Args:
+        csvrowseparator: One of "LF", "CR", "CRLF" or a raw string.
+
+    Returns:
+        Actual line separator characters.
+    """
+    result = _CSV_ROW_SEPARATORS.get(csvrowseparator)
+    if result is not None:
+        return result
+    # Fall back to unescape for raw values
+    return _unescape_separator(csvrowseparator)
+
+
+def _safe_int(value: str, default: int) -> int:
+    """Safely parse a string to int with a default fallback.
+
+    Args:
+        value: String to parse.
+        default: Default value if parsing fails.
+
+    Returns:
+        Parsed integer or default.
+    """
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
