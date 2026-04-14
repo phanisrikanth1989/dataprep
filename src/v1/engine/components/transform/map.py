@@ -1722,6 +1722,19 @@ class Map(BaseComponent):
         main_df = main_df.copy()
         lookup_df = lookup_df.copy()
 
+        def _is_string_like(dtype) -> bool:
+            """Check if dtype is string-like (object or pandas StringDtype)."""
+            if dtype == object:
+                return True
+            return pd.api.types.is_string_dtype(dtype)
+
+        def _safe_issubdtype(dtype, supertype) -> bool:
+            """np.issubdtype wrapper safe for pandas extension dtypes."""
+            try:
+                return np.issubdtype(dtype, supertype)
+            except TypeError:
+                return False
+
         for left_key, right_key in zip(left_keys, right_keys):
             if left_key not in main_df.columns or right_key not in lookup_df.columns:
                 continue
@@ -1733,23 +1746,23 @@ class Map(BaseComponent):
                 continue
 
             # str -> numeric
-            if left_dtype == object and np.issubdtype(right_dtype, np.number):
+            if _is_string_like(left_dtype) and _safe_issubdtype(right_dtype, np.number):
                 main_df[left_key] = pd.to_numeric(
                     main_df[left_key], errors="coerce"
                 )
-            elif right_dtype == object and np.issubdtype(left_dtype, np.number):
+            elif _is_string_like(right_dtype) and _safe_issubdtype(left_dtype, np.number):
                 lookup_df[right_key] = pd.to_numeric(
                     lookup_df[right_key], errors="coerce"
                 )
             # numeric -> str
-            elif np.issubdtype(left_dtype, np.number) and right_dtype == object:
+            elif _safe_issubdtype(left_dtype, np.number) and _is_string_like(right_dtype):
                 main_df[left_key] = main_df[left_key].astype(str)
-            elif np.issubdtype(right_dtype, np.number) and left_dtype == object:
+            elif _safe_issubdtype(right_dtype, np.number) and _is_string_like(left_dtype):
                 lookup_df[right_key] = lookup_df[right_key].astype(str)
             # int <-> float
-            elif np.issubdtype(left_dtype, np.integer) and np.issubdtype(right_dtype, np.floating):
+            elif _safe_issubdtype(left_dtype, np.integer) and _safe_issubdtype(right_dtype, np.floating):
                 main_df[left_key] = main_df[left_key].astype(float)
-            elif np.issubdtype(left_dtype, np.floating) and np.issubdtype(right_dtype, np.integer):
+            elif _safe_issubdtype(left_dtype, np.floating) and _safe_issubdtype(right_dtype, np.integer):
                 lookup_df[right_key] = lookup_df[right_key].astype(float)
 
             logger.debug(
