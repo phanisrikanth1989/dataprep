@@ -45,6 +45,16 @@ class ExpressionError(ETLError):
     pass
 
 
+class TriggerEvaluationError(ETLError):
+    """Raised when a trigger condition fails to evaluate."""
+
+    def __init__(self, trigger_type: str, condition: str, message: str, cause: Exception = None):
+        self.trigger_type = trigger_type
+        self.condition = condition
+        self.cause = cause
+        super().__init__(f"Trigger {trigger_type} condition failed: {message} (condition: {condition})")
+
+
 class SchemaError(ETLError):
     """Raised when there is a schema-related issue."""
     pass
