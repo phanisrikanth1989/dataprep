@@ -37,7 +37,15 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. BaseComponent template is standardized with correct lifecycle (validate_config wired in, config snapshot/restore for re-execution, REJECT flow routing)
   4. Config key alignment is complete -- converter output keys match engine input keys for all target components
   5. pytest infrastructure exists (conftest.py, fixtures, markers) and core infrastructure classes (GlobalMap, ContextManager, TriggerManager) have passing unit tests
-**Plans**: TBD
+**Plans:** 7 plans
+Plans:
+- [ ] 01-01-PLAN.md -- Project setup (pyproject.toml, pytest infrastructure)
+- [ ] 01-02-PLAN.md -- GlobalMap rewrite + exhaustive tests
+- [ ] 01-03-PLAN.md -- ContextManager rewrite + exhaustive tests
+- [ ] 01-04-PLAN.md -- TriggerManager rewrite + exceptions refinement + exhaustive tests
+- [ ] 01-05-PLAN.md -- BaseComponent + BaseIterateComponent rewrite
+- [ ] 01-06-PLAN.md -- BaseComponent exhaustive tests + engine.py minimal updates
+- [ ] 01-07-PLAN.md -- Standards docs (ENGINE_COMPONENT_PATTERN.md, ENGINE_TEST_PATTERN.md)
 
 ### Phase 2: Java Bridge Reliability
 **Goal**: The Java bridge reliably serializes all data types, syncs context/globalMap bidirectionally, and handles JVM lifecycle -- so all downstream components using Java expressions can depend on correct bridge behavior
@@ -171,7 +179,7 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Infrastructure Bug Fixes & Project Setup | 0/TBD | Not started | - |
+| 1. Infrastructure Bug Fixes & Project Setup | 0/7 | Planning complete | - |
 | 2. Java Bridge Reliability | 0/TBD | Not started | - |
 | 3. Execution Loop Restructure | 0/TBD | Not started | - |
 | 4. File I/O Components | 0/TBD | Not started | - |
