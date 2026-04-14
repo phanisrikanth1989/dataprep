@@ -348,6 +348,13 @@ class Executor:
         # when ALL components in the subjob are complete, so it naturally won't fire
         # here mid-subjob (the check in TriggerManager._check_subjob_ok verifies
         # all components have status).
+        #
+        # NOTE (WR-04): When the last component of a subjob completes here,
+        # OnSubjobOk/OnSubjobError MAY fire via get_triggered_components'
+        # idempotency set. _collect_triggered_subjobs also evaluates these
+        # triggers but uses _already_executed_subjobs() and _attempted_subjobs
+        # guards to prevent duplicate subjob execution. This dual-path is safe
+        # but relies on the dedup in execute_job's pending_subjobs loop.
         triggered = self.trigger_manager.get_triggered_components(comp_id)
         if triggered:
             logger.debug("Component triggers from %s: %s", comp_id, triggered)
