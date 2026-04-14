@@ -35,7 +35,7 @@ Any Talend job using the target components must produce identical results when r
 
 **Target Components (Talend feature parity):**
 - [x] tFileInputDelimited — full Talend feature parity (encoding, delimiters, headers, footers, schema, reject flow) *(Phase 4)*
-- [ ] tMap — full Talend feature parity (joins, expressions, filters, multiple inputs/outputs, reject, variables)
+- [x] tMap — full Talend feature parity (joins, expressions, filters, multiple inputs/outputs, reject, variables) *(Phase 5)*
 - [x] tFileOutputDelimited — full Talend feature parity (encoding, delimiters, append, headers, schema) *(Phase 4)*
 - [ ] tJava — full Talend feature parity (Java code execution, imports, context access)
 - [ ] tJavaRow — full Talend feature parity (per-row Java execution, input/output column access)
@@ -140,4 +140,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-15 after Phase 4 completion*
+*Last updated: 2026-04-15 after Phase 5 completion*
