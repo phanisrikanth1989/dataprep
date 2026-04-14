@@ -474,7 +474,7 @@ class TestMapperDataParsing:
         assert lk["join_keys"][0] == {
             "lookup_column": "id",
             "expression": "{{java}}row1.id",
-            "type": "id_Integer",
+            "type": "int",
             "nullable": True,
             "operator": "",
         }
@@ -558,13 +558,13 @@ class TestMapperDataParsing:
         assert variables[0] == {
             "name": "v_name",
             "expression": "{{java}}row1.first + row1.last",
-            "type": "id_String",
+            "type": "str",
             "nullable": True,
         }
         assert variables[1] == {
             "name": "v_total",
             "expression": "{{java}}row1.qty * row1.price",
-            "type": "id_Double",
+            "type": "float",
             "nullable": True,
         }
 
@@ -612,7 +612,7 @@ class TestMapperDataParsing:
         assert out["columns"][0] == {
             "name": "id",
             "expression": "{{java}}row1.id",
-            "type": "id_Integer",
+            "type": "int",
             "nullable": False,
             "operator": "",
             "length": -1,
