@@ -73,7 +73,12 @@ Plans:
   3. OnSubjobOk triggers fire after all components in a subjob complete (not after each individual component)
   4. Engine raises an error with clear diagnostics when components are unreachable due to missing connections (no silent stalls)
   5. Streaming mode processes chunks without dropping reject data
-**Plans**: TBD
+**Plans:** 4 plans
+Plans:
+- [ ] 03-01-PLAN.md -- Component registry + StubComponent test fixture + registry tests
+- [ ] 03-02-PLAN.md -- ExecutionPlan (DAG, topo sort, validation) + tests
+- [ ] 03-03-PLAN.md -- OutputRouter (data flow routing, memory management) + tests
+- [ ] 03-04-PLAN.md -- Executor + engine.py rewrite + orchestration tests
 
 ### Phase 4: File I/O Components
 **Goal**: Users can read and write delimited files with full Talend feature parity -- encoding, delimiters, headers, CSV mode, field validation, file splitting, and all globalMap variables
@@ -186,7 +191,7 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 |-------|----------------|--------|-----------|
 | 1. Infrastructure Bug Fixes & Project Setup | 0/7 | Planning complete | - |
 | 2. Java Bridge Reliability | 0/4 | Planning complete | - |
-| 3. Execution Loop Restructure | 0/TBD | Not started | - |
+| 3. Execution Loop Restructure | 0/4 | Planning complete | - |
 | 4. File I/O Components | 0/TBD | Not started | - |
 | 5. tMap Component | 0/TBD | Not started | - |
 | 6. Transform Group A -- Aggregation, Sort, Filter | 0/TBD | Not started | - |
