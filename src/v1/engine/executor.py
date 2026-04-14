@@ -75,6 +75,9 @@ class Executor:
         # Track which subjobs were actually attempted (for stall detection)
         self._attempted_subjobs: set[str] = set()
 
+        # Incrementally tracked set of completed subjobs (WR-01)
+        self._executed_subjobs: set[str] = set()
+
     # ------------------------------------------------------------------
     # Main entry point
     # ------------------------------------------------------------------
@@ -233,6 +236,9 @@ class Executor:
         self.output_router.clear_subjob_flows(
             subjob_plan.component_set, self.executed_components
         )
+
+        # Track completion incrementally (WR-01)
+        self._executed_subjobs.add(subjob_id)
 
         return "error" if subjob_failed else "success"
 
@@ -436,27 +442,13 @@ class Executor:
     def _already_executed_subjobs(self) -> set[str]:
         """Return set of subjob IDs that have already been executed.
 
-        Used to prevent duplicate subjob execution.
+        Tracked incrementally via _executed_subjobs (populated in
+        _execute_subjob) instead of recomputing from scratch each call.
 
         Returns:
             Set of subjob IDs whose components have all been executed or attempted.
         """
-        executed_subjobs: set[str] = set()
-
-        for subjob_id in self.execution_plan.all_subjob_ids:
-            plan = self.execution_plan.get_subjob_plan(subjob_id)
-            # A subjob is "done" if all its components have been executed
-            if plan.component_set.issubset(self.executed_components):
-                executed_subjobs.add(subjob_id)
-            # Also check if any component was marked as skipped
-            elif all(
-                comp_id in self.executed_components
-                or self.execution_stats.get(comp_id, {}).get("status") == "skipped"
-                for comp_id in plan.component_ids
-            ):
-                executed_subjobs.add(subjob_id)
-
-        return executed_subjobs
+        return self._executed_subjobs
 
     # ------------------------------------------------------------------
     # Stall diagnostics
