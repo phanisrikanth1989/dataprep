@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "dataprep"
+version = "1.0.0"
+description = "Talend ETL Migration Engine"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas>=2.0,<4",
+    "numpy>=1.24,<3",
+]
+
+[project.optional-dependencies]
+java = ["pyarrow>=15.0,<24", "py4j>=0.10.9,<0.11"]
+excel = ["openpyxl>=3.1,<4", "xlrd>=2.0,<3"]
+xml = ["lxml>=4.9,<7"]
+yaml = ["PyYAML>=6.0,<7"]
+json = ["jsonpath-ng>=1.5,<2"]
+dev = ["pytest>=8.0,<10"]
+all = ["dataprep[java,excel,xml,yaml,json]"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "unit: Unit tests (fast, no I/O)",
+    "integration: Integration tests (may require file I/O)",
+    "java: Tests requiring Java bridge",
+    "slow: Tests that take >5 seconds",
+]
+addopts = "-v --tb=short"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
