@@ -172,86 +172,83 @@ public class JavaBridge {
         this.globalMap.putAll(globalMapVars);
 
         ByteArrayInputStream inputStream = new ByteArrayInputStream(arrowData);
-        ArrowStreamReader reader = new ArrowStreamReader(inputStream, allocator);
-        VectorSchemaRoot inputRoot = reader.getVectorSchemaRoot();
-        reader.loadNextBatch();
+        try (ArrowStreamReader reader = new ArrowStreamReader(inputStream, allocator)) {
+            VectorSchemaRoot inputRoot = reader.getVectorSchemaRoot();
+            reader.loadNextBatch();
 
-        int rowCount = inputRoot.getRowCount();
+            int rowCount = inputRoot.getRowCount();
 
-        // Output arrays -- one per output column
-        Map<String, Object[]> outputArrays = new HashMap<>();
-        for (String colName : outputSchema.keySet()) {
-            outputArrays.put(colName, new Object[rowCount]);
-        }
+            // Output arrays -- one per output column
+            Map<String, Object[]> outputArrays = new HashMap<>();
+            for (String colName : outputSchema.keySet()) {
+                outputArrays.put(colName, new Object[rowCount]);
+            }
 
-        // Compile script once
-        logger.fine("[JavaBridge] Compiling Groovy script for executeJavaRow");
-        long compileStart = System.currentTimeMillis();
-        Script compiledScript = groovyShell.parse(javaCode);
-        // Cache the class so we can create independent instances per row
-        Class<? extends Script> scriptClass = compiledScript.getClass();
-        long compileTime = System.currentTimeMillis() - compileStart;
-        logger.fine("[JavaBridge] Script compiled in " + compileTime + " ms");
+            // Compile script once
+            logger.fine("[JavaBridge] Compiling Groovy script for executeJavaRow");
+            long compileStart = System.currentTimeMillis();
+            Script compiledScript = groovyShell.parse(javaCode);
+            // Cache the class so we can create independent instances per row
+            Class<? extends Script> scriptClass = compiledScript.getClass();
+            long compileTime = System.currentTimeMillis() - compileStart;
+            logger.fine("[JavaBridge] Script compiled in " + compileTime + " ms");
 
-        logger.info("[JavaBridge] executeJavaRow: processing " + rowCount + " rows");
-        long execStart = System.currentTimeMillis();
+            logger.info("[JavaBridge] executeJavaRow: processing " + rowCount + " rows");
+            long execStart = System.currentTimeMillis();
 
-        for (int i = 0; i < rowCount; i++) {
-            try {
-                // Create a fresh Script instance per row (no synchronization needed)
-                Script rowScript = scriptClass.getDeclaredConstructor().newInstance();
+            for (int i = 0; i < rowCount; i++) {
+                try {
+                    // Create a fresh Script instance per row (no synchronization needed)
+                    Script rowScript = scriptClass.getDeclaredConstructor().newInstance();
 
-                // Build input row map from Arrow vectors
-                Map<String, Object> inputRowMap = new HashMap<>();
-                for (FieldVector vec : inputRoot.getFieldVectors()) {
-                    String fieldName = vec.getName();
-                    inputRowMap.put(fieldName, vec.isNull(i) ? null : vec.getObject(i));
+                    // Build input row map from Arrow vectors
+                    Map<String, Object> inputRowMap = new HashMap<>();
+                    for (FieldVector vec : inputRoot.getFieldVectors()) {
+                        String fieldName = vec.getName();
+                        inputRowMap.put(fieldName, vec.isNull(i) ? null : vec.getObject(i));
+                    }
+
+                    RowWrapper input_row = new RowWrapper();
+                    input_row.setInputRow(inputRowMap);
+
+                    RowWrapper output_row = new RowWrapper();
+
+                    Binding binding = new Binding();
+                    binding.setVariable("input_row", input_row);
+                    binding.setVariable("output_row", output_row);
+                    binding.setVariable("context", context);
+                    binding.setVariable("globalMap", globalMap);
+
+                    // Add loaded routines
+                    addRoutinesToBinding(binding);
+
+                    rowScript.setBinding(binding);
+                    rowScript.run();
+
+                    // Collect output values from the output row map (not the input side)
+                    Map<String, Object> outputValues = output_row.getOutputRow();
+                    for (String colName : outputSchema.keySet()) {
+                        outputArrays.get(colName)[i] = outputValues.get(colName);
+                    }
+                } catch (Exception e) {
+                    logger.severe("[JavaBridge] Error processing row " + i + ": " + e.getMessage());
+                    throw new RuntimeException("Error processing row " + i, e);
                 }
+            }
 
-                RowWrapper input_row = new RowWrapper();
-                input_row.setInputRow(inputRowMap);
+            long execTime = System.currentTimeMillis() - execStart;
+            logger.info("[JavaBridge] executeJavaRow: processed " + rowCount + " rows in " + execTime + " ms");
 
-                RowWrapper output_row = new RowWrapper();
-
-                Binding binding = new Binding();
-                binding.setVariable("input_row", input_row);
-                binding.setVariable("output_row", output_row);
-                binding.setVariable("context", context);
-                binding.setVariable("globalMap", globalMap);
-
-                // Add loaded routines
-                addRoutinesToBinding(binding);
-
-                rowScript.setBinding(binding);
-                rowScript.run();
-
-                // Collect output values from the output row map (not the input side)
-                Map<String, Object> outputValues = output_row.getOutputRow();
-                for (String colName : outputSchema.keySet()) {
-                    outputArrays.get(colName)[i] = outputValues.get(colName);
-                }
-            } catch (Exception e) {
-                logger.severe("[JavaBridge] Error processing row " + i + ": " + e.getMessage());
-                throw new RuntimeException("Error processing row " + i, e);
+            // Create output Arrow data via ArrowSerializer
+            try (VectorSchemaRoot outputRoot = ArrowSerializer.createOutputRootFromData(allocator, outputArrays, outputSchema)) {
+                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+                ArrowStreamWriter writer = new ArrowStreamWriter(outputRoot, null, outputStream);
+                writer.start();
+                writer.writeBatch();
+                writer.close();
+                return outputStream.toByteArray();
             }
         }
-
-        long execTime = System.currentTimeMillis() - execStart;
-        logger.info("[JavaBridge] executeJavaRow: processed " + rowCount + " rows in " + execTime + " ms");
-
-        // Create output Arrow data via ArrowSerializer
-        VectorSchemaRoot outputRoot = ArrowSerializer.createOutputRootFromData(allocator, outputArrays, outputSchema);
-
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        ArrowStreamWriter writer = new ArrowStreamWriter(outputRoot, null, outputStream);
-        writer.writeBatch();
-        writer.close();
-
-        inputRoot.close();
-        reader.close();
-        outputRoot.close();
-
-        return outputStream.toByteArray();
     }
 
     // ------------------------------------------------------------------
@@ -357,74 +354,72 @@ public class JavaBridge {
         this.globalMap.putAll(globalMapVars);
 
         ByteArrayInputStream inputStream = new ByteArrayInputStream(arrowData);
-        ArrowStreamReader reader = new ArrowStreamReader(inputStream, allocator);
-        VectorSchemaRoot inputRoot = reader.getVectorSchemaRoot();
-        reader.loadNextBatch();
+        try (ArrowStreamReader reader = new ArrowStreamReader(inputStream, allocator)) {
+            VectorSchemaRoot inputRoot = reader.getVectorSchemaRoot();
+            reader.loadNextBatch();
 
-        int rowCount = inputRoot.getRowCount();
-        logger.info("[JavaBridge] tMap preprocessing: " + rowCount + " rows, " + expressions.size() + " expressions");
+            int rowCount = inputRoot.getRowCount();
+            logger.info("[JavaBridge] tMap preprocessing: " + rowCount + " rows, " + expressions.size() + " expressions");
 
-        // Compile all expressions once
-        logger.fine("[JavaBridge] Compiling " + expressions.size() + " expressions");
-        Map<String, Class<? extends Script>> compiledExprClasses = new HashMap<>();
-        GroovyShell compileShell = new GroovyShell();
+            // Compile all expressions once
+            logger.fine("[JavaBridge] Compiling " + expressions.size() + " expressions");
+            Map<String, Class<? extends Script>> compiledExprClasses = new HashMap<>();
+            GroovyShell compileShell = new GroovyShell();
 
-        for (Map.Entry<String, String> entry : expressions.entrySet()) {
-            String exprId = entry.getKey();
-            String expression = entry.getValue();
-            try {
-                Script compiled = compileShell.parse(expression);
-                compiledExprClasses.put(exprId, compiled.getClass());
-            } catch (Exception e) {
-                logger.severe("[JavaBridge] Error compiling expression '" + exprId + "': " + e.getMessage());
-            }
-        }
-
-        // Result arrays
-        Map<String, Object[]> results = new HashMap<>();
-        for (String exprId : expressions.keySet()) {
-            results.put(exprId, new Object[rowCount]);
-        }
-
-        long execStart = System.currentTimeMillis();
-
-        for (int i = 0; i < rowCount; i++) {
-            // Build row wrappers that read from Arrow vectors
-            RowWrapper mainRow = buildArrowRowWrapper(inputRoot, i, mainTableName);
-
-            Binding binding = new Binding();
-            binding.setVariable(mainTableName, mainRow);
-
-            for (String lookupName : lookupNames) {
-                RowWrapper lookupRow = buildArrowRowWrapper(inputRoot, i, lookupName);
-                binding.setVariable(lookupName, lookupRow);
-            }
-
-            binding.setVariable("context", context);
-            binding.setVariable("globalMap", globalMap);
-            addRoutinesToBinding(binding);
-
-            for (Map.Entry<String, Class<? extends Script>> entry : compiledExprClasses.entrySet()) {
+            for (Map.Entry<String, String> entry : expressions.entrySet()) {
                 String exprId = entry.getKey();
+                String expression = entry.getValue();
                 try {
-                    Script instance = entry.getValue().getDeclaredConstructor().newInstance();
-                    instance.setBinding(binding);
-                    Object result = instance.run();
-                    results.get(exprId)[i] = result;
+                    Script compiled = compileShell.parse(expression);
+                    compiledExprClasses.put(exprId, compiled.getClass());
                 } catch (Exception e) {
-                    logger.fine("[JavaBridge] Error evaluating '" + exprId + "' at row " + i + ": " + e.getMessage());
-                    results.get(exprId)[i] = null;
+                    logger.severe("[JavaBridge] Error compiling expression '" + exprId + "': " + e.getMessage());
                 }
             }
+
+            // Result arrays
+            Map<String, Object[]> results = new HashMap<>();
+            for (String exprId : expressions.keySet()) {
+                results.put(exprId, new Object[rowCount]);
+            }
+
+            long execStart = System.currentTimeMillis();
+
+            for (int i = 0; i < rowCount; i++) {
+                // Build row wrappers that read from Arrow vectors
+                RowWrapper mainRow = buildArrowRowWrapper(inputRoot, i, mainTableName);
+
+                Binding binding = new Binding();
+                binding.setVariable(mainTableName, mainRow);
+
+                for (String lookupName : lookupNames) {
+                    RowWrapper lookupRow = buildArrowRowWrapper(inputRoot, i, lookupName);
+                    binding.setVariable(lookupName, lookupRow);
+                }
+
+                binding.setVariable("context", context);
+                binding.setVariable("globalMap", globalMap);
+                addRoutinesToBinding(binding);
+
+                for (Map.Entry<String, Class<? extends Script>> entry : compiledExprClasses.entrySet()) {
+                    String exprId = entry.getKey();
+                    try {
+                        Script instance = entry.getValue().getDeclaredConstructor().newInstance();
+                        instance.setBinding(binding);
+                        Object result = instance.run();
+                        results.get(exprId)[i] = result;
+                    } catch (Exception e) {
+                        logger.fine("[JavaBridge] Error evaluating '" + exprId + "' at row " + i + ": " + e.getMessage());
+                        results.get(exprId)[i] = null;
+                    }
+                }
+            }
+
+            long execTime = System.currentTimeMillis() - execStart;
+            logger.info("[JavaBridge] tMap preprocessing complete: " + rowCount + " rows in " + execTime + " ms");
+
+            return results;
         }
-
-        long execTime = System.currentTimeMillis() - execStart;
-        logger.info("[JavaBridge] tMap preprocessing complete: " + rowCount + " rows in " + execTime + " ms");
-
-        inputRoot.close();
-        reader.close();
-
-        return results;
     }
 
     // ------------------------------------------------------------------
@@ -458,32 +453,30 @@ public class JavaBridge {
         this.globalMap.putAll(globalMapVars);
 
         ByteArrayInputStream inputStream = new ByteArrayInputStream(arrowData);
-        ArrowStreamReader reader = new ArrowStreamReader(inputStream, allocator);
-        VectorSchemaRoot inputRoot = reader.getVectorSchemaRoot();
-        reader.loadNextBatch();
+        try (ArrowStreamReader reader = new ArrowStreamReader(inputStream, allocator)) {
+            VectorSchemaRoot inputRoot = reader.getVectorSchemaRoot();
+            reader.loadNextBatch();
 
-        int rowCount = inputRoot.getRowCount();
-        logger.info("[JavaBridge] tMap compiled: " + rowCount + " rows, " + outputSchemas.size() + " outputs");
+            int rowCount = inputRoot.getRowCount();
+            logger.info("[JavaBridge] tMap compiled: " + rowCount + " rows, " + outputSchemas.size() + " outputs");
 
-        // Compile script
-        Binding compileBinding = buildTMapBinding(inputRoot, rowCount, mainTableName,
-                lookupNames, outputSchemas, outputTypes);
-        GroovyShell shell = new GroovyShell(compileBinding);
-        Script compiledScript = shell.parse(javaScript);
-        compiledScript.setBinding(compileBinding);
+            // Compile script
+            Binding compileBinding = buildTMapBinding(inputRoot, rowCount, mainTableName,
+                    lookupNames, outputSchemas, outputTypes);
+            GroovyShell shell = new GroovyShell(compileBinding);
+            Script compiledScript = shell.parse(javaScript);
+            compiledScript.setBinding(compileBinding);
 
-        long execStart = System.currentTimeMillis();
-        Object scriptResult = compiledScript.run();
-        long execTime = System.currentTimeMillis() - execStart;
-        logger.info("[JavaBridge] tMap compiled: executed in " + execTime + " ms");
+            long execStart = System.currentTimeMillis();
+            Object scriptResult = compiledScript.run();
+            long execTime = System.currentTimeMillis() - execStart;
+            logger.info("[JavaBridge] tMap compiled: executed in " + execTime + " ms");
 
-        @SuppressWarnings("unchecked")
-        Map<String, Map<String, Object>> outputResults = (Map<String, Map<String, Object>>) scriptResult;
+            @SuppressWarnings("unchecked")
+            Map<String, Map<String, Object>> outputResults = (Map<String, Map<String, Object>>) scriptResult;
 
-        inputRoot.close();
-        reader.close();
-
-        return convertTMapOutputsToArrow(outputResults, outputSchemas, outputTypes);
+            return convertTMapOutputsToArrow(outputResults, outputSchemas, outputTypes);
+        }
     }
 
     /**
@@ -563,32 +556,30 @@ public class JavaBridge {
         this.globalMap.putAll(globalMapVars);
 
         ByteArrayInputStream inputStream = new ByteArrayInputStream(arrowData);
-        ArrowStreamReader reader = new ArrowStreamReader(inputStream, allocator);
-        VectorSchemaRoot inputRoot = reader.getVectorSchemaRoot();
-        reader.loadNextBatch();
+        try (ArrowStreamReader reader = new ArrowStreamReader(inputStream, allocator)) {
+            VectorSchemaRoot inputRoot = reader.getVectorSchemaRoot();
+            reader.loadNextBatch();
 
-        int rowCount = inputRoot.getRowCount();
-        logger.info("[JavaBridge] Executing compiled " + componentId + ": " + rowCount + " rows");
+            int rowCount = inputRoot.getRowCount();
+            logger.info("[JavaBridge] Executing compiled " + componentId + ": " + rowCount + " rows");
 
-        // Create a FRESH Script instance from the cached class (BRDG-06 -- no synchronization)
-        Script scriptInstance = meta.scriptClass.getDeclaredConstructor().newInstance();
+            // Create a FRESH Script instance from the cached class (BRDG-06 -- no synchronization)
+            Script scriptInstance = meta.scriptClass.getDeclaredConstructor().newInstance();
 
-        Binding execBinding = buildTMapBinding(inputRoot, rowCount, meta.mainTableName,
-                meta.lookupNames, meta.outputSchemas, meta.outputTypes);
-        scriptInstance.setBinding(execBinding);
+            Binding execBinding = buildTMapBinding(inputRoot, rowCount, meta.mainTableName,
+                    meta.lookupNames, meta.outputSchemas, meta.outputTypes);
+            scriptInstance.setBinding(execBinding);
 
-        long execStart = System.currentTimeMillis();
-        Object scriptResult = scriptInstance.run();
-        long execTime = System.currentTimeMillis() - execStart;
-        logger.info("[JavaBridge] Executed " + componentId + " in " + execTime + " ms");
+            long execStart = System.currentTimeMillis();
+            Object scriptResult = scriptInstance.run();
+            long execTime = System.currentTimeMillis() - execStart;
+            logger.info("[JavaBridge] Executed " + componentId + " in " + execTime + " ms");
 
-        @SuppressWarnings("unchecked")
-        Map<String, Map<String, Object>> outputResults = (Map<String, Map<String, Object>>) scriptResult;
+            @SuppressWarnings("unchecked")
+            Map<String, Map<String, Object>> outputResults = (Map<String, Map<String, Object>>) scriptResult;
 
-        inputRoot.close();
-        reader.close();
-
-        return convertTMapOutputsToArrow(outputResults, meta.outputSchemas, meta.outputTypes);
+            return convertTMapOutputsToArrow(outputResults, meta.outputSchemas, meta.outputTypes);
+        }
     }
 
     /**
@@ -794,15 +785,14 @@ public class JavaBridge {
             }
 
             // Create Arrow output via ArrowSerializer
-            VectorSchemaRoot outputRoot = ArrowSerializer.createOutputRootFromData(allocator, columnData, schema);
-
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            ArrowStreamWriter writer = new ArrowStreamWriter(outputRoot, null, outputStream);
-            writer.writeBatch();
-            writer.close();
-
-            outputArrowData.put(outputName, outputStream.toByteArray());
-            outputRoot.close();
+            try (VectorSchemaRoot outputRoot = ArrowSerializer.createOutputRootFromData(allocator, columnData, schema)) {
+                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+                ArrowStreamWriter writer = new ArrowStreamWriter(outputRoot, null, outputStream);
+                writer.start();
+                writer.writeBatch();
+                writer.close();
+                outputArrowData.put(outputName, outputStream.toByteArray());
+            }
         }
 
         return outputArrowData;
