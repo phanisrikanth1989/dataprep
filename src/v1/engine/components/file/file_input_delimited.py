@@ -543,10 +543,16 @@ class FileInputDelimited(BaseComponent):
         elif col_type in ("float", "double"):
             return pd.to_numeric(series, errors="raise").astype(float)
         elif col_type in ("bool",):
-            return series.map(
-                {"true": True, "false": False, "True": True, "False": False,
-                 "1": True, "0": False}
-            )
+            mapping = {
+                "true": True, "false": False, "True": True, "False": False,
+                "1": True, "0": False, "yes": True, "no": False,
+                "Yes": True, "No": False, "YES": True, "NO": False,
+            }
+            mapped = series.map(mapping)
+            if mapped.isna().any():
+                # Unmapped values found -- force fallback to per-row conversion
+                raise ValueError("Unmapped bool values found")
+            return mapped
         elif col_type == "datetime":
             return pd.to_datetime(series, errors="raise")
         return series
