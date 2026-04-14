@@ -24,8 +24,9 @@ Make the Python-Java bridge (Py4J + Apache Arrow) reliable for data type seriali
 
 ### Schema-Driven Serialization
 - **D-04:** Every bridge method receives an explicit schema dict mapping column names to types. No data inference. No guessing from first non-null value. Schema is the single source of truth for Arrow type mapping.
-- **D-05:** Research phase MUST audit what format converters produce for schema in JSON configs. That format becomes THE standard schema representation across the entire application. Bridge, engine components, and all downstream code use the same schema format. This has been a pain point -- one format, everywhere.
-- **D-06:** The bridge handles the mapping from the standardized schema format to Arrow types. Components pass schema as-is from their config. Single source of truth for type mapping lives in the bridge.
+- **D-05:** Research phase MUST audit what format the talend_to_v1 converters produce for schema in JSON configs. That format becomes THE standard schema representation across the entire application. Bridge, engine components, and all downstream code use the same schema format. This has been a pain point -- one format, everywhere.
+- **D-05a:** Fix the tXMLMap converter bug that outputs raw Talend `id_*` type strings instead of running them through `convert_type()`. Every converter must produce Python type strings (`str`, `int`, `float`, `bool`, `datetime`, `Decimal`, `object`). No exceptions, no fallbacks.
+- **D-06:** The bridge handles the mapping from the standardized schema format (7 Python type strings only) to Arrow types. No fallback handling for raw Talend `id_*` types -- the converter is responsible for producing correct types. Components pass schema as-is from their config. Single source of truth for type mapping lives in the bridge.
 
 ### Java-Side Scope
 - **D-07:** Full audit and rewrite of JavaBridge.java (42KB) and RowWrapper.java. Remove unused code, fix type handling on the Java side, match the new Python bridge API.
@@ -80,9 +81,10 @@ Make the Python-Java bridge (Py4J + Apache Arrow) reliable for data type seriali
 - `.planning/REQUIREMENTS.md` -- BRDG-01 through BRDG-06 requirements for this phase
 - `.planning/phases/01-infrastructure-bug-fixes-project-setup/01-CONTEXT.md` -- Phase 1 decisions (D-18 deferred bridge tests here)
 
-### Schema Investigation (Research Phase)
+### Schema Investigation & Converter Fix (Research Phase)
 - `src/converters/talend_to_v1/components/base.py` -- Converter base with `_parse_schema()` method
-- `src/converters/talend_to_v1/type_mapping.py` -- Talend-to-Python type mapping
+- `src/converters/talend_to_v1/type_mapping.py` -- Talend-to-Python type mapping (convert_type() function)
+- `src/converters/talend_to_v1/components/transform/xml_map.py` -- tXMLMap converter (has bug: outputs raw id_* types, must fix)
 - `tests/talend_xml_samples/converted_jsons/` -- Sample converter output to audit schema format
 
 ### Standards
