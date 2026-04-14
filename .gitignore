@@ -5,3 +5,5 @@ __pycache__/
 *.pyd
 *.class
 *.lst
+.claude/
+.gemini/
