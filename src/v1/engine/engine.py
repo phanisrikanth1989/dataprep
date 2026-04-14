@@ -14,37 +14,48 @@ from .context_manager import ContextManager
 from .trigger_manager import TriggerManager
 from .base_component import BaseComponent, ComponentStatus
 from .base_iterate_component import BaseIterateComponent
+from .exceptions import ETLError, ConfigurationError, ComponentExecutionError
 from .java_bridge_manager import JavaBridgeManager
 from .python_routine_manager import PythonRoutineManager
 
-# Import all components
-from .components.file import FileInputDelimited, FileOutputDelimited, FileInputPositional, FileInputXML
-from .components.file import FileInputFullRowComponent, FixedFlowInputComponent, FileArchiveComponent
-from .components.file import FileUnarchiveComponent, FileDelete, FileCopy, FileTouch
-from .components.file import FileInputRaw, FileRowCount, FileExistComponent, FileProperties
-from .components.file import FileInputExcel, FileOutputExcel, FileInputJSON
-from .components.file import SetGlobalVar
-from .components.transform import Map, FilterRows, SortRow, JavaRowComponent, JavaComponent
-from .components.transform import PythonRowComponent, PythonDataFrameComponent, PythonComponent
-from .components.transform import SwiftBlockFormatter, SwiftTransformer, RowGenerator, LogRow
-from .components.transform import ExtractDelimitedFields, ExtractJSONFields
-from .components.transform import ExtractPositionalFields, ExtractXMLField
-from .components.transform import Join, PivotToColumnsDelimited, SchemaComplianceCheck
-from .components.transform import Unite, UnpivotRow, XMLMap
-from .components.transform import FilterColumns
-# from .components.database import OracleConnection, OracleClose, OracleRollback
-# from .components.database import OracleInput, OracleOutput, OracleRow, OracleSP
-# from .components.database import OracleBulkExec, MSSqlConnection, MSSqlInput
-# from .components.database import OracleCommit
-from .components.aggregate import AggregateRow, UniqueRow
-from .components.transform import AggregateSortedRow, Denormalize, Normalize, Replicate
-from .components.context import ContextLoad
-from .components.control import Warn, Die, SleepComponent
-from .components.control import SendMailComponent
+# Component imports -- these WILL break until each component is rewritten (Phases 4-11)
+# This is expected per D-09 (accept breakage of all ~50 existing components)
+_COMPONENT_IMPORTS_AVAILABLE = True
+try:
+    from .components.file import FileInputDelimited, FileOutputDelimited, FileInputPositional, FileInputXML
+    from .components.file import FileInputFullRowComponent, FixedFlowInputComponent, FileArchiveComponent
+    from .components.file import FileUnarchiveComponent, FileDelete, FileCopy, FileTouch
+    from .components.file import FileInputRaw, FileRowCount, FileExistComponent, FileProperties
+    from .components.file import FileInputExcel, FileOutputExcel, FileInputJSON
+    from .components.file import SetGlobalVar
+    from .components.transform import Map, FilterRows, SortRow, JavaRowComponent, JavaComponent
+    from .components.transform import PythonRowComponent, PythonDataFrameComponent, PythonComponent
+    from .components.transform import SwiftBlockFormatter, SwiftTransformer, RowGenerator, LogRow
+    from .components.transform import ExtractDelimitedFields, ExtractJSONFields
+    from .components.transform import ExtractPositionalFields, ExtractXMLField
+    from .components.transform import Join, PivotToColumnsDelimited, SchemaComplianceCheck
+    from .components.transform import Unite, UnpivotRow, XMLMap
+    from .components.transform import FilterColumns
+    # from .components.database import OracleConnection, OracleClose, OracleRollback
+    # from .components.database import OracleInput, OracleOutput, OracleRow, OracleSP
+    # from .components.database import OracleBulkExec, MSSqlConnection, MSSqlInput
+    # from .components.database import OracleCommit
+    from .components.aggregate import AggregateRow, UniqueRow
+    from .components.transform import AggregateSortedRow, Denormalize, Normalize, Replicate
+    from .components.context import ContextLoad
+    from .components.control import Warn, Die, SleepComponent
+    from .components.control import SendMailComponent
+except (ImportError, TypeError) as e:
+    _COMPONENT_IMPORTS_AVAILABLE = False
+    # Defer logger warning until after logging is configured
+    _COMPONENT_IMPORT_ERROR = str(e)
 
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+if not _COMPONENT_IMPORTS_AVAILABLE:
+    logger.warning(f"Component imports failed (expected until components are rewritten): {_COMPONENT_IMPORT_ERROR}")
 
 
 class ETLEngine:
@@ -365,7 +376,7 @@ class ETLEngine:
                 comp_id for comp_id in components
                 if not self.components[comp_id].inputs
             ]
-            self.trigger_manager.register_subjob(subjob_id, components, source_components)
+            self.trigger_manager.register_subjob(subjob_id, components)
 
         logger.info(f"Identified {len(subjobs)} subjobs")
 
@@ -481,7 +492,7 @@ class ETLEngine:
                             logger.info(f"Subjob {completed_subjob} completed and removed from active subjobs")
 
                     # Get triggered components based on execution status
-                    newly_triggered = self.trigger_manager.get_triggered_components(comp_id, status)
+                    newly_triggered = self.trigger_manager.get_triggered_components(comp_id)
 
                     # If triggers fired, activate the target subjobs
                     if newly_triggered:
@@ -689,10 +700,10 @@ class ETLEngine:
                             self.trigger_manager.set_component_status(comp_id, 'error')
                             self.failed_components.add(comp_id)
                             self.executed_components.add(comp_id)
-                            raise RuntimeError(f"Iteration failed at component {current_comp_id}")
+                            raise ComponentExecutionError(current_comp_id, f"Iteration failed at component {current_comp_id}")
 
                         # Check for triggered components after successful execution
-                        triggered = self.trigger_manager.get_triggered_components(current_comp_id, status)
+                        triggered = self.trigger_manager.get_triggered_components(current_comp_id)
                         for triggered_comp in triggered:
                             if triggered_comp not in iteration_executed:
                                 iteration_queue.append(triggered_comp)
@@ -884,5 +895,5 @@ if __name__ == '__main__':
     # Run the job with the provided configuration and context overrides
     stats = run_job(args.job_config, context_overrides)
 
-    # Print execution statistics
-    print(json.dumps(stats, indent=2))
+    # Log execution statistics
+    logger.info(json.dumps(stats, indent=2))
