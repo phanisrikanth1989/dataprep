@@ -75,6 +75,24 @@ class GlobalMap:
         self._component_stats.clear()
         logger.debug("GlobalMap: Cleared all values")
 
+    def reset_component(self, component_id: str) -> None:
+        """Reset all statistics for a component.
+
+        Clears the component's stats from both _component_stats and _map.
+        Used by BaseComponent.reset() during iterate re-execution.
+
+        Args:
+            component_id: The component identifier.
+        """
+        if component_id in self._component_stats:
+            stat_names = list(self._component_stats[component_id].keys())
+            del self._component_stats[component_id]
+            for stat_name in stat_names:
+                key = f"{component_id}_{stat_name}"
+                if key in self._map:
+                    del self._map[key]
+            logger.debug(f"GlobalMap: Reset component {component_id}")
+
     def get_all_stats(self) -> Dict[str, Dict[str, int]]:
         """Get all component statistics """
         return self._component_stats.copy()
