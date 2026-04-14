@@ -1,12 +1,18 @@
 # Phase 1: Infrastructure Bug Fixes & Project Setup - Context
 
-**Gathered:** 2026-04-14
+**Gathered:** 2026-04-14 (updated after assumptions review)
 **Status:** Ready for planning
 
 <domain>
 ## Phase Boundary
 
-Fix engine base classes and shared infrastructure so they're correct and stable. Any component built on top of BaseComponent, GlobalMap, ContextManager, and TriggerManager can trust their behavior. Create project build configuration and test infrastructure.
+Rewrite engine base classes and shared infrastructure from scratch so they're correct, stable, and designed for iterate (Phase 10), Oracle (Phase 11), and all future component phases. Any component built on top of BaseComponent, GlobalMap, ContextManager, and TriggerManager can trust their behavior. Create project build configuration and test infrastructure.
+
+**Approach: Rewrite, not patch.** The current engine architecture has systemic design issues (config mutation, fragile execution lifecycle, dead code paths). Instead of applying 23 individual bug fixes to flawed code, rewrite the infrastructure classes with a clean design that inherently avoids those bugs and supports future needs.
+
+**Phase 1 vs Phase 3 boundary:** Phase 1 rewrites individual classes (BaseComponent, GlobalMap, ContextManager, TriggerManager). Phase 3 rewrites orchestration (execution loop, subjob management, DAG construction, data routing between components). The split is: Phase 1 = correct individual parts, Phase 3 = correct how they work together.
+
+**Backward compatibility: None.** The rewritten BaseComponent will break all ~50 existing engine components at import time. This is accepted — clean design takes priority. Each component's phase (4-11) rewrites it to conform to the new BaseComponent pattern using ENGINE_COMPONENT_PATTERN.md.
 
 </domain>
 
@@ -22,32 +28,41 @@ Fix engine base classes and shared infrastructure so they're correct and stable.
 - **D-06:** ENG-22 (converter .find().get() null-safety) — verify during research phase whether already resolved. Skip if fixed.
 - **D-07:** ENG-23 (discover additional bugs) — research phase must: (a) verify all ENG-01 through ENG-22 against actual code to separate real bugs from audit hallucinations, (b) actively hunt for additional bugs in infrastructure files, (c) report confirmed vs. hallucinated issues. Plan only covers verified + newly discovered bugs.
 
-### Component Template (BaseComponent Refactor)
-- **D-08:** Comprehensive refactor of BaseComponent with explicit lifecycle hooks (not just bug fixes). This sets the pattern for all 12+ target components in later phases.
-- **D-09:** Lifecycle designed as a proper contract, but components can extend or override if needed. tMap and other complex components should be able to hook into the lifecycle without being forced into a rigid mold.
-- **D-10:** `_validate_config()` becomes abstract and required — every component MUST implement it. Enforces discipline across all components.
-- **D-11:** Create `docs/v1/standards/ENGINE_COMPONENT_PATTERN.md` — same prescriptive style as CONVERTER_PATTERN.md. Complete code template with numbered rules that every engine component must follow.
-- **D-12:** Create `docs/v1/standards/ENGINE_TEST_PATTERN.md` — test pattern for engine component tests, mirroring TEST_PATTERN.md for converter tests.
-- **D-13:** Leave AUDIT_REPORT_TEMPLATE.md as-is. Resolved edge-case checklist items become naturally obsolete.
+### Rewrite Approach
+- **D-08:** Rewrite infrastructure classes from scratch — BaseComponent, GlobalMap, ContextManager, TriggerManager. Not patching bugs in existing code. Design the classes knowing iterate (Phase 10), Oracle (Phase 11), and multi-subjob execution (Phase 3) are coming.
+- **D-09:** Accept breakage of all ~50 existing engine components. No backward compatibility layer. Clean design takes priority. Each component's phase (4-11) rewrites it to conform to the new pattern.
+- **D-10:** Phase 1 rewrites individual classes. Phase 3 rewrites orchestration (execution loop, data routing). Engine.py gets minimal updates in Phase 1 (imports, registry, component instantiation) — full execution loop rewrite is Phase 3.
+
+### BaseComponent Lifecycle Design
+- **D-11:** Comprehensive rewrite of BaseComponent with explicit lifecycle hooks. This sets THE pattern for all 12+ target components in later phases.
+- **D-12:** Lifecycle designed as a proper contract, but components can extend or override if needed. tMap and other complex components should be able to hook into the lifecycle without being forced into a rigid mold.
+- **D-13:** `_validate_config()` becomes abstract and required — every component MUST implement it. Enforces discipline across all components.
+- **D-14:** Config snapshot/restore built into the lifecycle from the start — designed for iterate re-execution (Phase 10), not bolted on later.
+
+### Standards Documentation
+- **D-15:** Create `docs/v1/standards/ENGINE_COMPONENT_PATTERN.md` — same prescriptive style as CONVERTER_PATTERN.md. Complete code template with numbered rules that every engine component must follow.
+- **D-16:** Create `docs/v1/standards/ENGINE_TEST_PATTERN.md` — test pattern for engine component tests, mirroring TEST_PATTERN.md for converter tests.
+- **D-17:** Leave AUDIT_REPORT_TEMPLATE.md as-is. Resolved edge-case checklist items become naturally obsolete.
 
 ### Test Strategy
-- **D-14:** JavaBridgeManager tests are deferred to Phase 2 (Java Bridge Reliability). Phase 1 tests only cover Python-side infrastructure: GlobalMap, ContextManager, TriggerManager.
-- **D-15:** In-memory DataFrames for test data. No file I/O fixtures in Phase 1 — real file fixtures come in Phase 4 (File I/O Components) and Phase 12 (Integration Testing).
-- **D-16:** Pytest markers defined from the start: unit, integration, java, slow. Configured in pyproject.toml. Enables `pytest -m unit` for fast feedback.
-- **D-17:** Minimal conftest.py — markers and basic pytest configuration only. Each test file creates its own fixtures explicitly. No shared fixture objects.
-- **D-18:** Engine test location: `tests/v1/engine/` matching the source structure `src/v1/engine/`.
-- **D-19:** Local pytest only — no CI configuration in Phase 1.
-- **D-20:** Exhaustive test coverage for core infrastructure (GlobalMap, ContextManager, TriggerManager) — comprehensive edge cases including empty inputs, None/NaN values, type coercion, concurrent access patterns, large data. Not just happy paths.
+- **D-18:** JavaBridgeManager tests are deferred to Phase 2 (Java Bridge Reliability). Phase 1 tests only cover Python-side infrastructure: GlobalMap, ContextManager, TriggerManager.
+- **D-19:** In-memory DataFrames for test data. No file I/O fixtures in Phase 1 — real file fixtures come in Phase 4 (File I/O Components) and Phase 12 (Integration Testing).
+- **D-20:** Pytest markers defined from the start: unit, integration, java, slow. Configured in pyproject.toml. Enables `pytest -m unit` for fast feedback.
+- **D-21:** Minimal conftest.py — markers and basic pytest configuration only. Each test file creates its own fixtures explicitly. No shared fixture objects.
+- **D-22:** Engine test location: `tests/v1/engine/` matching the source structure `src/v1/engine/`.
+- **D-23:** Local pytest only — no CI configuration in Phase 1.
+- **D-24:** Exhaustive test coverage for the rewritten infrastructure (GlobalMap, ContextManager, TriggerManager, BaseComponent) — comprehensive edge cases including empty inputs, None/NaN values, type coercion, config snapshot/restore cycles, reset behavior. These tests validate the new design, not just bug fix regressions.
 
 ### Build Setup
-- **D-21:** Compatible dependency ranges in pyproject.toml (>=min,<next_major format). No exact pins in the project file.
-- **D-22:** Optional dependency groups: core (pandas, numpy), java (pyarrow, py4j), dev (pytest). Install via `pip install -e .[dev,java]`.
-- **D-23:** Pytest configuration in pyproject.toml under [tool.pytest.ini_options] — test paths, markers, default addopts. Single source of truth.
-- **D-24:** Full project metadata in pyproject.toml — name, version, description, python_requires='>=3.10'.
+- **D-25:** Compatible dependency ranges in pyproject.toml (>=min,<next_major format). No exact pins in the project file.
+- **D-26:** Optional dependency groups: core (pandas, numpy), java (pyarrow, py4j), dev (pytest). Install via `pip install -e .[dev,java]`.
+- **D-27:** Pytest configuration in pyproject.toml under [tool.pytest.ini_options] — test paths, markers, default addopts. Single source of truth.
+- **D-28:** Full project metadata in pyproject.toml — name, version, description, python_requires='>=3.10'.
 
 ### Claude's Discretion
 - Build backend choice (setuptools vs hatch vs other — leaning setuptools)
-- Specific lifecycle hook names and design for the BaseComponent refactor
+- Specific lifecycle hook names and design for the BaseComponent rewrite
+- Internal class design decisions (data structures, method signatures) for the rewritten classes
 - ENG-22 disposition — pending verification during research phase
 - Exact dependency version ranges based on current environment
 
@@ -88,20 +103,23 @@ Fix engine base classes and shared infrastructure so they're correct and stable.
 <code_context>
 ## Existing Code Insights
 
-### Reusable Assets
-- Exception hierarchy already exists at `src/v1/engine/exceptions.py` — ETLError, ConfigurationError, DataValidationError, ComponentExecutionError, FileOperationError, JavaBridgeError, ExpressionError, SchemaError. Phase 1 wires this in properly.
-- BaseIterateComponent at `src/v1/engine/base_iterate_component.py` — extends BaseComponent for iterate. Refactor must preserve this subclass relationship.
+### What to Study (Not Reuse)
+- Current `src/v1/engine/base_component.py` — read to understand what the execute() lifecycle SHOULD do (mode selection, Java resolution, context resolution, stats tracking) before designing the replacement. The existing logic captures the right concerns but implements them poorly.
+- Current `src/v1/engine/base_iterate_component.py` — understand the iterate subclass relationship. The rewrite must support iterate as a first-class concern, not an afterthought subclass.
+- Exception hierarchy at `src/v1/engine/exceptions.py` — this is well-designed and can be preserved or refined. The hierarchy itself is sound; it just wasn't wired in.
 - Converter test infrastructure at `tests/converters/talend_to_v1/` — mature pattern with fixtures, per-concern test classes. Engine tests should match this quality.
 
-### Established Patterns
+### Established Patterns (Preserve)
 - Converter uses decorator-based registry (`@REGISTRY.register("tComponentName")`). Engine uses static dict `COMPONENT_REGISTRY`. No change planned to engine registry pattern in Phase 1.
-- Components use template method: `execute()` orchestrates, `_process()` is abstract. Refactor extends this with lifecycle hooks but preserves the core template method pattern.
-- Module-level loggers via `logging.getLogger(__name__)` already used in most files. Phase 1 ensures consistency.
+- Template method pattern: `execute()` orchestrates, `_process()` is abstract. Rewrite should preserve this core pattern while adding proper lifecycle hooks around it.
+- Module-level loggers via `logging.getLogger(__name__)`.
 
-### Integration Points
-- BaseComponent.execute() is called by ETLEngine._execute_component() — any lifecycle changes must remain compatible with the engine's execution loop.
-- GlobalMap is shared state accessed by all components, ContextManager, and JavaBridgeManager — changes must be thread-safe conceptually even though execution is single-threaded (future-proofing for Phase 10 iterate).
-- Config snapshot/restore (D-08, D-09) enables Phase 10 iterate re-execution — must be designed with that use case in mind.
+### Design Constraints for Rewrite
+- The rewritten BaseComponent must support iterate re-execution from the start — config snapshot/restore, state reset, re-entrant lifecycle.
+- GlobalMap must be designed knowing it's shared state accessed by all components, ContextManager, and JavaBridgeManager. Single-threaded now but should not have anti-patterns that prevent future parallelism.
+- ContextManager must handle all resolution patterns (`{{java}}`, `${context.var}`, bare `context.var`) without corrupting code fields (the ENG-18 problem must be designed away, not patched).
+- TriggerManager must handle condition evaluation safely without the `!` → `not` string corruption pattern.
+- Engine.py gets minimal changes in Phase 1 (imports, registry, component instantiation to work with new base classes). Full execution loop rewrite is Phase 3.
 
 </code_context>
 
