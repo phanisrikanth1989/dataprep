@@ -58,10 +58,10 @@ Plans:
   4. JAR/library loading is robust with proper classpath management, and compiled script synchronization works correctly
 **Plans:** 4 plans
 Plans:
-- [ ] 02-01-PLAN.md -- Python type mapping module + bridge.py rewrite (schema-driven serialization, sync-after-every-call)
-- [ ] 02-02-PLAN.md -- Java bridge rewrite (decompose JavaBridge.java into 4 classes) + pom.xml updates
-- [ ] 02-03-PLAN.md -- JavaBridgeManager updates (fail-fast, log level) + Python unit tests (type mapping, serialization, sync)
-- [ ] 02-04-PLAN.md -- Java JAR build + integration tests (12-type round-trip, compiled script verification)
+- [x] 02-01-PLAN.md -- Python type mapping module + bridge.py rewrite (schema-driven serialization, sync-after-every-call)
+- [x] 02-02-PLAN.md -- Java bridge rewrite (decompose JavaBridge.java into 4 classes) + pom.xml updates
+- [x] 02-03-PLAN.md -- JavaBridgeManager updates (fail-fast, log level) + Python unit tests (type mapping, serialization, sync)
+- [x] 02-04-PLAN.md -- Java JAR build + integration tests (12-type round-trip, compiled script verification)
 
 ### Phase 3: Execution Loop Restructure
 **Goal**: The engine can execute multi-subjob jobs with correct component ordering, data routing between components, trigger firing after subjob completion, and stall detection
