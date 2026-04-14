@@ -1,1164 +1,1796 @@
-"""
-tMap component - Data transformation and lookup/join operations
+"""Engine component for Map (tMap).
 
-This component mimics Talend's tMap functionality:
-- Multiple inputs (main + lookups)
-- Multiple outputs with filters
-- Variable definitions
-- Complex expression evaluation
-- Join operations between inputs
-- Optimized execution: Pandas for joins, Java for expressions
+Multi-flow data mapping with lookup joins, variable evaluation, expression-based
+column mappings, and multi-output routing. Preserves hybrid architecture: pandas
+for bulk equality joins, Java bridge for expression evaluation.
+
+Config keys consumed (7 total):
+  inputs            (dict)  -- main input + lookups list with join keys, modes
+  variables         (list)  -- variable definitions with expressions
+  outputs           (list)  -- output tables with column expressions, filters, reject flags
+  die_on_error      (bool, default True)  -- raise on expression error
+  rows_buffer_size  (str, default "2000000")  -- buffer size hint
+  enable_auto_convert_type  (bool, default False)  -- auto-cast join key types
+  label             (str, default "")  -- component label
 """
-from typing import Any, Dict, Optional, List, Set
-import pandas as pd
 import logging
 import re
-from ...base_component import BaseComponent
+from typing import Any, Optional
+
+import numpy as np
+import pandas as pd
+
+from ...base_component import BaseComponent, ExecutionMode
+from ...component_registry import REGISTRY
+from ...exceptions import ConfigurationError, ComponentExecutionError, DataValidationError
 
 logger = logging.getLogger(__name__)
 
+# Pattern to detect simple column references: table.column
+_SIMPLE_COLUMN_RE = re.compile(r'^([a-zA-Z_]\w*)\.([a-zA-Z_]\w*)$')
 
+# Matching modes
+_UNIQUE_MATCH = "UNIQUE_MATCH"
+_FIRST_MATCH = "FIRST_MATCH"
+_LAST_MATCH = "LAST_MATCH"
+_ALL_MATCHES = "ALL_MATCHES"
+
+# Lookup modes
+_LOAD_ONCE = "LOAD_ONCE"
+_RELOAD_AT_EACH_ROW = "RELOAD_AT_EACH_ROW"
+_CACHE_OR_RELOAD = "CACHE_OR_RELOAD"
+
+# Join types from smart routing
+_JOIN_EQUALITY = "equality"
+_JOIN_CONTEXT_ONLY = "context_only"
+_JOIN_CROSS_TABLE = "cross_table"
+
+# Chunk size for preprocessing and compiled script execution
+_DEFAULT_CHUNK_SIZE = 50000
+_DEFAULT_CHUNK_THRESHOLD = 100000  # Only chunk if DataFrame exceeds this
+
+# Size guard thresholds for cartesian/cross-table joins
+_WARN_RESULT_ROWS = 10_000_000
+_FAIL_RESULT_ROWS = 100_000_000
+
+# Java marker prefix
+_JAVA_MARKER = "{{java}}"
+
+
+@REGISTRY.register("Map", "tMap")
 class Map(BaseComponent):
-    """
-    Execute tMap transformations with lookups and multiple outputs
+    """tMap engine implementation.
 
-    Execution Strategy (Optimized Hybrid):
-    1. Filter lookup tables (if filters present)
-    2. Pre-evaluate complex Java expressions in ONE batch call
-    3. Extract simple column references directly (no Java)
-    4. Use pandas for fast bulk joins with matching mode support
-    5. Evaluate variables and output expressions via Java
-    6. Route to outputs based on filters
+    Multi-flow data mapping with lookup joins, variable evaluation,
+    expression-based column mappings, and multi-output routing.
 
-    Config parameters:
-    - inputs: Dict with 'main' and 'lookups' list
-    - variables: List of variable definitions
-    - outputs: List of output configurations
-
-    Matching Modes (per lookup):
-    - UNIQUE_MATCH: Keep first occurrence (same as FIRST_MATCH)
-    - FIRST_MATCH: Keep first matching row from lookup
-    - LAST_MATCH: Keep last matching row from lookup
-    - ALL_MATCHES: Keep all matches (default pandas behavior)
+    Config keys:
+        inputs: Main input and lookups list with join keys and modes.
+        variables: Variable definitions with expressions.
+        outputs: Output tables with column expressions, filters, reject flags.
+        die_on_error: Raise on expression error (default True).
+        rows_buffer_size: Buffer size hint (default "2000000").
+        enable_auto_convert_type: Auto-cast join key types (default False).
+        label: Component label (default "").
     """
 
-    # Pattern to detect simple column references: table.column
-    SIMPLE_COLUMN_PATTERN = re.compile(r'^([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)$')
+    # ------------------------------------------------------------------
+    # Lifecycle Hook Overrides
+    # ------------------------------------------------------------------
 
-    def execute(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
+    def _resolve_expressions(self) -> None:
+        """Resolve context variables on scalar config fields only.
+
+        tMap's expressions (output columns, filters, variables, join keys)
+        reference row data (row1.column, lookup1.column) that do not exist
+        at config resolution time. We skip Java expression resolution
+        entirely and only resolve context variables on scalar config fields.
+
+        Does NOT delegate to the parent class resolve method.
         """
-        Override execute() to skip base class's Java expression resolution.
+        if self.context_manager is None:
+            return
+        for key in ("die_on_error", "rows_buffer_size", "label",
+                     "enable_auto_convert_type"):
+            if key in self.config and isinstance(self.config[key], str):
+                self.config[key] = self.context_manager.resolve_string(
+                    self.config[key]
+                )
 
-        tMap expressions (variables, outputs) reference row data and must be evaluated
-        row-by-row during _process(), not during config resolution.
-        """
-        import time
-        from ...base_component import ComponentStatus
+    def _select_mode(self, input_data) -> ExecutionMode:
+        """Always BATCH -- tMap handles its own chunking via Java bridge."""
+        return ExecutionMode.BATCH
 
-        self.status = ComponentStatus.RUNNING
-        start_time = time.time()
+    def _update_stats_from_result(self, result: dict) -> None:
+        """Sum rows across ALL named output DataFrames.
 
-        try:
-            # Skip Java expression resolution - tMap handles this internally
-            # Just resolve context variables (${context.var})
-            if self.context_manager:
-                self.config = self.context_manager.resolve_dict(self.config)
-
-            # Execute processing
-            result = self._process(input_data)
-
-            # Update statistics
-            self.stats['EXECUTION_TIME'] = time.time() - start_time
-            self._update_global_map()
-
-            self.status = ComponentStatus.SUCCESS
-
-            # Add stats to result
-            result['stats'] = self.stats.copy()
-
-            return result
-
-        except Exception as e:
-            self.status = ComponentStatus.ERROR
-            self.error_message = str(e)
-            self.stats['EXECUTION_TIME'] = time.time() - start_time
-            self._update_global_map()
-
-            logger.error(f"Component {self.id} failed: {e}")
-            raise
-
-    def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
-        """
-        Execute tMap transformation
+        tMap returns arbitrary named outputs (out1, reject1, etc.),
+        not just main/reject. Iterates all result keys except 'stats'.
 
         Args:
-            input_data: Can be a single DataFrame or dict of {flow_name: DataFrame}
-                        depending on whether component has single or multiple inputs
+            result: Dict returned by _process().
         """
-        # Store input_data so _get_input_dataframes() can access it
-        self._current_input_data = input_data
+        total_rows = 0
+        reject_rows = 0
+        for key, value in result.items():
+            if key == "stats":
+                continue
+            if isinstance(value, pd.DataFrame) and not value.empty:
+                count = len(value)
+                total_rows += count
+                output_cfg = self._get_output_config(key)
+                if output_cfg and (output_cfg.get("is_reject")
+                                   or output_cfg.get("inner_join_reject")):
+                    reject_rows += count
+        self.stats["NB_LINE"] += total_rows
+        self.stats["NB_LINE_OK"] += total_rows - reject_rows
+        self.stats["NB_LINE_REJECT"] += reject_rows
 
-        # Get all input data from component inputs
-        inputs = self._get_input_dataframes()
+    # ------------------------------------------------------------------
+    # Configuration Validation
+    # ------------------------------------------------------------------
 
-        if not inputs:
-            logger.warning(f"Component {self.id}: No input data")
+    def _validate_config(self) -> None:
+        """Validate tMap component configuration.
+
+        Raises:
+            ConfigurationError: If configuration is invalid.
+        """
+        if "inputs" not in self.config or not isinstance(self.config["inputs"], dict):
+            raise ConfigurationError(
+                f"[{self.id}] Missing or invalid 'inputs' config key"
+            )
+        inputs_cfg = self.config["inputs"]
+        if "main" not in inputs_cfg:
+            raise ConfigurationError(
+                f"[{self.id}] Missing 'inputs.main' config key"
+            )
+        if "name" not in inputs_cfg["main"]:
+            raise ConfigurationError(
+                f"[{self.id}] Missing 'inputs.main.name' config key"
+            )
+        lookups = inputs_cfg.get("lookups", [])
+        if not isinstance(lookups, list):
+            raise ConfigurationError(
+                f"[{self.id}] 'inputs.lookups' must be a list"
+            )
+        for i, lookup in enumerate(lookups):
+            if "name" not in lookup:
+                raise ConfigurationError(
+                    f"[{self.id}] Lookup [{i}] missing 'name'"
+                )
+            if "join_keys" not in lookup or not isinstance(lookup["join_keys"], list):
+                raise ConfigurationError(
+                    f"[{self.id}] Lookup '{lookup.get('name', i)}' missing "
+                    f"or invalid 'join_keys'"
+                )
+            for j, jk in enumerate(lookup["join_keys"]):
+                if "lookup_column" not in jk:
+                    raise ConfigurationError(
+                        f"[{self.id}] Lookup '{lookup['name']}' join_key [{j}] "
+                        f"missing 'lookup_column'"
+                    )
+                if "expression" not in jk:
+                    raise ConfigurationError(
+                        f"[{self.id}] Lookup '{lookup['name']}' join_key [{j}] "
+                        f"missing 'expression'"
+                    )
+            if "join_mode" not in lookup:
+                raise ConfigurationError(
+                    f"[{self.id}] Lookup '{lookup['name']}' missing 'join_mode'"
+                )
+
+        if "outputs" not in self.config or not isinstance(self.config["outputs"], list):
+            raise ConfigurationError(
+                f"[{self.id}] Missing or invalid 'outputs' config key"
+            )
+        if len(self.config["outputs"]) < 1:
+            raise ConfigurationError(
+                f"[{self.id}] At least one output is required"
+            )
+        for i, output in enumerate(self.config["outputs"]):
+            if "name" not in output:
+                raise ConfigurationError(
+                    f"[{self.id}] Output [{i}] missing 'name'"
+                )
+            if "columns" not in output or not isinstance(output["columns"], list):
+                raise ConfigurationError(
+                    f"[{self.id}] Output '{output.get('name', i)}' missing "
+                    f"or invalid 'columns'"
+                )
+
+    # ------------------------------------------------------------------
+    # Core Processing
+    # ------------------------------------------------------------------
+
+    def _process(self, input_data=None) -> dict:
+        """Process tMap transformation.
+
+        Receives Dict[flow_name, DataFrame] from OutputRouter.
+        Returns Dict[output_name, DataFrame] for downstream routing.
+
+        Args:
+            input_data: Dict of DataFrames keyed by flow name, or single
+                DataFrame, or None.
+
+        Returns:
+            Dict mapping output names to DataFrames.
+        """
+        # Step 1: Parse input
+        inputs = self._parse_inputs(input_data)
+        if inputs is None:
             return self._create_empty_outputs()
 
-        # Get configuration
         config = self.config
-        main_config = config['inputs']['main']
-        lookups_config = config['inputs'].get('lookups', [])
-        variables_config = config.get('variables', [])
-        outputs_config = config['outputs']
+        main_config = config["inputs"]["main"]
+        lookups_config = config["inputs"].get("lookups", [])
+        variables_config = config.get("variables", [])
+        outputs_config = config["outputs"]
+        main_name = main_config["name"]
 
-        # ============================================================
-        # PHASE 1: FILTER LOOKUPS
-        # ============================================================
-
-        inputs = self._filter_lookups(inputs, lookups_config)
-
-        # ============================================================
-        # PHASE 2: FILTER MAIN INPUT & PREPARE JOIN KEYS
-        # ============================================================
-
-        main_name = main_config['name']
         main_df = inputs.get(main_name)
-
         if main_df is None or main_df.empty:
-            logger.warning(f"Component {self.id}: Main input '{main_name}' is empty")
+            logger.warning(
+                f"[{self.id}] Main input '{main_name}' is empty"
+            )
             return self._create_empty_outputs()
 
-        logger.info(f"Component {self.id}: Processing {len(main_df)} main rows")
-
-        # 2a. Apply main input filter if present
-        if main_config.get('activate_filter') and main_config.get('filter'):
-            filter_expr = self._strip_java_marker(main_config['filter'])
-
-            # Check if it's a simple column reference
-            if self._is_simple_column_ref(filter_expr):
-                table, column = self._parse_column_ref(filter_expr)
-                # Extract column value directly
-                if table in main_df.columns:
-                    filter_mask = main_df[table].values
-                elif f"{table}.{column}" in main_df.columns:
-                    filter_mask = main_df[f"{table}.{column}"].values
-                elif column in main_df.columns:
-                    filter_mask = main_df[column].values
-                else:
-                    logger.warning(f"Component {self.id}: Filter column '{table}.{column}' not found")
-                    filter_mask = None
-
-                if filter_mask is not None:
-                    main_df = main_df[filter_mask].copy()
-                    logger.info(f"Component {self.id}: After filter: {len(main_df)} rows")
-
-            else:
-                # Complex expression - use Java
-                filter_results = self._batch_evaluate_expressions(
-                    main_df,
-                    {'__main_filter__': filter_expr},
-                    main_name,
-                    []   # No lookups joined yet during main filter phase
-                )
-                if '__main_filter__' in filter_results:
-                    filter_mask = filter_results['__main_filter__']
-                    # Ensure mask is boolean and has no NA/NaN - AT17854
-                    filter_mask = pd.Series(filter_mask).fillna(False).values
-                    main_df = main_df[filter_mask].copy()
-                    logger.info(f"Component {self.id}: After filter: {len(main_df)} rows")
-
-        # ============================================================
-        # PHASE 3: LOOKUPS - Use pandas for fast bulk joins
-        # ============================================================
-
-        lookup_result = self._perform_lookups(main_df, inputs, lookups_config, main_name)
-        joined_df = lookup_result['joined']
-        inner_join_rejects = lookup_result['inner_join_rejects']
-
-        if joined_df.empty and inner_join_rejects.empty:
-            logger.warning(f"Component {self.id}: No rows after lookups")
-            return self._create_empty_outputs()
-
-        logger.info(f"Component {self.id}: After lookups: {len(joined_df)} rows, {len(joined_df.columns)} columns")
-
-        # ============================================================
-        # PHASE 4: VARIABLES & OUTPUTS - Java expression evaluation
-        # ============================================================
-        # pd.set_option('display.max_rows', None)
-        # logger.info(f"Component {self.id}: Data after lookup join \n{joined_df.head().T}")
-        # pd.reset_option('display.max_rows')
-        output_dfs = self._evaluate_and_route_outputs(
-            joined_df,
-            variables_config,
-            outputs_config,
-            inner_join_rejects=inner_join_rejects
+        logger.info(
+            f"[{self.id}] Processing {len(main_df)} main rows "
+            f"with {len(lookups_config)} lookups"
         )
 
-        # Update statistics
-        total_output_rows = sum(len(df) for df in output_dfs.values())
-        self._update_stats(
-            rows_read=len(main_df),
-            rows_ok=total_output_rows
-        )
-
-        logger.info(f"Component {self.id}: Produced {len(output_dfs)} outputs with {total_output_rows} total rows")
-
-        # Debug: print first 5 rows of each output
-        for output_name, output_df in output_dfs.items():
-            logger.debug(f"Component {self.id}: Output '{output_name}' first 5 rows:\n{output_df.head(5)}")
-            logger.debug(f"Component {self.id}: columns: {output_df.columns.tolist()}")
-
-        return output_dfs
-
-    def _strip_java_marker(self, expression: str) -> str:
-        """Remove {{java}} marker if present"""
-        if expression.startswith('{{java}}'):
-            return expression[8:]
-        return expression
-
-    def _is_simple_column_ref(self, expression: str) -> bool:
-        """Check if expression is a simple column reference (table.column)"""
-        return bool(self.SIMPLE_COLUMN_PATTERN.match(expression.strip()))
-
-    def _parse_column_ref(self, expression: str) -> tuple:
-        """Parse simple column reference into (table, column)"""
-        match = self.SIMPLE_COLUMN_PATTERN.match(expression.strip())
-        if match:
-            return (match.group(1), match.group(2))
-        return (None, None)
-
-    def _is_context_only_expression(self, expression: str) -> bool:
-        """
-        Check if expression contains ONLY context/globalMap references (no row data)
-
-        Context-only expressions trigger cartesian joins since they don't depend on
-        row values.
-
-        Examples:
-            "context.region + ' ' + context.year" -> True (cartesian join)
-            "main.customer_id" -> False (normal join)
-            "context.year + orders.amount" -> False (has row reference, normal join)
-            "1 == 1" -> True (constant, cartesian join)
-
-        Returns:
-            True if expression has NO row references (table.column pattern)
-        """
-        # Strip Java marker if present
-        expr = self._strip_java_marker(expression).strip()
-
-        # Check for any row references (table.column pattern)
-        # If ANY found, it's NOT context-only
-        row_ref_pattern = re.compile(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)\b')
-        matches = row_ref_pattern.findall(expr)
-
-        # Filter out context.* and globalMap.* references
-        row_references = [
-            match for match in matches
-            if match[0] not in ['context', 'globalMap']
-        ]
-
-        # If no row references found, it's context-only
-        return len(row_references) == 0
-
-    def _filter_lookups(
-        self,
-        inputs: Dict[str, pd.DataFrame],
-        lookups_config: List[Dict]
-    ) -> Dict[str, pd.DataFrame]:
-        """
-        Filter lookup tables before joining
-
-        Args:
-            inputs: All input DataFrames
-            lookups_config: Lookup configurations
-
-        Returns:
-            Filtered inputs dict
-        """
-        filtered_inputs = inputs.copy()
-
-        for lookup_config in lookups_config:
-            lookup_name = lookup_config['name']
-            lookup_df = filtered_inputs.get(lookup_name)
-
-            if lookup_df is None or lookup_df.empty:
-                continue
-
-            # Check if lookup has a filter
-            if not lookup_config.get('activate_filter') or not lookup_config.get('filter'):
-                continue
-
-            filter_expr = self._strip_java_marker(lookup_config['filter'])
-
-            logger.info(f"Component {self.id}: Filtering lookup '{lookup_name}'")
-
-            # Evaluate filter on lookup table
-            if self._is_simple_column_ref(filter_expr):
-                # Simple column reference - use pandas directly
-                table, column = self._parse_column_ref(filter_expr)
-                if column in lookup_df.columns:
-                    filtered_inputs[lookup_name] = lookup_df[lookup_df[column] == True].copy()
-                else:
-                    logger.warning(f"Component {self.id}: Filter column '{column}' not found in '{lookup_name}'")
-            else:
-                # Complex expression - use Java
-                filter_results = self._batch_evaluate_expressions(
-                    lookup_df,
-                    {'filter': filter_expr},
-                    lookup_name,
-                    []   # No lookups joined yet during filter phase
-                )
-                if 'filter' in filter_results:
-                    filter_mask = filter_results['filter']
-                    # Ensure mask is boolean and has no NA/NaN AT17854
-                    filter_mask = pd.Series(filter_mask).fillna(False).values
-                    filtered_inputs[lookup_name] = lookup_df[filter_mask].copy()
-                    logger.info(f"Component {self.id}: Lookup '{lookup_name}' filtered: {len(lookup_df)} -> {len(filtered_inputs[lookup_name])} rows")
-
-        return filtered_inputs
-
-    def _get_input_dataframes(self) -> Dict[str, pd.DataFrame]:
-        """
-        Get input DataFrames from component inputs.
-
-        The engine sets self._current_input_data during execute() call.
-        This is either:
-        - A single DataFrame (if component has 1 input)
-        - A dict of {flow_name: DataFrame} (if component has multiple inputs)
-
-        Returns:
-        Dict of {flow_name: DataFrame} for all inputs
-        """
-        input_data = getattr(self, '_current_input_data', None)
-
-        if input_data is None:
-            return {}
-
-        # If already a dict, return as-is
-        if isinstance(input_data, dict):
-            return input_data
-
-        # If single DataFrame, map to first input name
-        if isinstance(input_data, pd.DataFrame):
-            # Get first input name from config
-            main_name = self.config['inputs']['main']['name']
-            return {main_name: input_data}
-
-        return {}
-
-    def _batch_evaluate_expressions(
-        self,
-        df: pd.DataFrame,
-        expressions: Dict[str, str],
-        main_table_name: str,
-        lookup_table_names: List[str] = None
-    ) -> Dict[str, Any]:
-        """
-        Batch evaluate multiple expressions in one Java call
-
-        Args:
-            df: DataFrame to evaluate expressions on
-            expressions: Dict of {expr_id: expression_string}
-            main_table_name: Name of the main table for expression context
-            lookup_table_names: List of lookup table names already joined (for
-                chained lookups)
-
-        Returns:
-            Dict of {expr_id: result_array}
-        """
-        if not expressions:
-            return {}
-
-        # Get Java bridge
-        if not self.context_manager or not self.context_manager.is_java_enabled():
-            raise RuntimeError(
-                f"Component {self.id}: Java execution is not available. "
-                "tMap requires Java bridge for expression evaluation."
+        # Step 2: Apply main input filter
+        if main_config.get("activate_filter") and main_config.get("filter"):
+            main_df = self._apply_filter(
+                main_df, main_config["filter"], main_name, []
             )
+            if main_df.empty:
+                logger.warning(f"[{self.id}] Main input empty after filter")
+                return self._create_empty_outputs()
 
-        java_bridge = self.context_manager.get_java_bridge()
-
-        try:
-            # Sync context to bridge
-            if self.context_manager:
-                context_all = self.context_manager.get_all()
-                # Flatten nested context structure
-                flattened_context = {}
-                for context_name, context_vars in context_all.items():
-                    if isinstance(context_vars, dict):
-                        for var_name, var_info in context_vars.items():
-                            if isinstance(var_info, dict) and 'value' in var_info:
-                                flattened_context[var_name] = var_info['value']
-                            else:
-                                flattened_context[var_name] = var_info
-                    else:
-                        flattened_context[context_name] = context_vars
-
-                for key, value in flattened_context.items():
-                    java_bridge.set_context(key, value)
-
-            if self.global_map:
-                for key, value in self.global_map.get_all().items():
-                    java_bridge.set_global_map(key, value)
-
-            # Call Java bridge to evaluate all expressions at once
-            results = java_bridge.execute_tmap_preprocessing(
-                df=df,
-                expressions=expressions,
-                main_table_name=main_table_name,
-                lookup_table_names=lookup_table_names or []
-            )
-
-            return results
-
-        except Exception as e:
-            logger.error(f"Component {self.id}: Batch expression evaluation failed: {e}")
-            raise
-
-    def _perform_lookups(
-        self,
-        main_df: pd.DataFrame,
-        inputs: Dict[str, pd.DataFrame],
-        lookups_config: List[Dict],
-        main_name: str
-    ) -> Dict[str, pd.DataFrame]:
-        """
-        Perform all lookup operations using pandas merge
-
-        Supports:
-        - Sequential lookup evaluation (Lookup2 can reference Lookup1's columns)
-        - Cartesian joins (context-only expressions)
-        - Normal joins (row-based expressions)
-
-        Args:
-            main_df: Main input DataFrame
-            inputs: All input DataFrames (filtered)
-            lookups_config: Lookup configurations
-            main_name: Name of the main input table
-
-        Returns:
-            Dict with 'joined' DataFrame and 'inner_join_rejects' DataFrame (if any)
-        """
+        # Step 3: Process lookups sequentially
         joined_df = main_df.copy()
-        joined_lookups = []
-        inner_join_rejects = pd.DataFrame()
+        inner_join_reject_dfs: dict[str, pd.DataFrame] = {}
+        joined_lookup_names: list[str] = []
 
         for lookup_config in lookups_config:
-            lookup_name = lookup_config['name']
+            lookup_name = lookup_config["name"]
             lookup_df = inputs.get(lookup_name)
 
-            if lookup_df is None:
-                logger.warning(f"Component {self.id}: Lookup table '{lookup_name}' not found")
+            if lookup_df is None or lookup_df.empty:
+                logger.warning(
+                    f"[{self.id}] Lookup '{lookup_name}' is empty, skipping"
+                )
+                joined_lookup_names.append(lookup_name)
                 continue
 
-            if lookup_df.empty:
-                logger.warning(f"Component {self.id}: Lookup table '{lookup_name}' is empty after filtering")
-                continue
+            # Apply lookup filter
+            if (lookup_config.get("activate_filter")
+                    and lookup_config.get("filter")):
+                lookup_df = self._apply_filter(
+                    lookup_df, lookup_config["filter"],
+                    lookup_name, joined_lookup_names
+                )
 
-            join_keys = lookup_config['join_keys']
+            # Route to appropriate join handler
+            lookup_mode = lookup_config.get("lookup_mode", _LOAD_ONCE)
 
-            # Detect if this is a cartesian join (all join expressions are context-only)
-            is_cartesian = all(
-                self._is_context_only_expression(jk['expression'])
-                for jk in join_keys
-            )
-
-            if is_cartesian:
-                # CARTESIAN JOIN PATH
-                joined_df = self._perform_cartesian_join(
-                    joined_df, lookup_df, lookup_name, join_keys
+            if lookup_mode == _RELOAD_AT_EACH_ROW:
+                joined_df, rejects = self._join_reload_per_row(
+                    joined_df, lookup_df, lookup_config
                 )
             else:
-                # NORMAL JOIN PATH (with chained lookup support)
-                prev_df = joined_df.copy()
-                joined_df = self._perform_normal_join(
-                    joined_df, lookup_df, lookup_name, join_keys,
-                    lookup_config, main_name, joined_lookups
+                join_type = self._classify_join_type(
+                    lookup_config["join_keys"]
                 )
-
-                if lookup_config.get('join_mode', 'LEFT_OUTER_JOIN') == 'INNER_JOIN':
-                    # Find unmatched main rows
-                    merged = prev_df.merge(
-                        joined_df,
-                        how='left',
-                        indicator=True
+                if join_type == _JOIN_EQUALITY:
+                    joined_df, rejects = self._join_equality(
+                        joined_df, lookup_df, lookup_config
                     )
-                    unmatched = merged[merged['_merge'] == 'left_only'].drop(columns=['_merge'])
-                    if not unmatched.empty:
-                        inner_join_rejects = pd.concat([inner_join_rejects, unmatched], ignore_index=True)
+                elif join_type == _JOIN_CONTEXT_ONLY:
+                    joined_df, rejects = self._join_context_only(
+                        joined_df, lookup_df, lookup_config
+                    )
+                else:
+                    joined_df, rejects = self._join_cross_table(
+                        joined_df, lookup_df, lookup_config
+                    )
 
-            # Track this lookup as joined (for subsequent lookups that may reference it)
-            joined_lookups.append(lookup_name)
+            if rejects is not None and not rejects.empty:
+                inner_join_reject_dfs[lookup_name] = rejects
 
-        return {'joined': joined_df, 'inner_join_rejects': inner_join_rejects}
+            joined_lookup_names.append(lookup_name)
 
-    def _perform_cartesian_join(
+        if joined_df.empty:
+            logger.info(f"[{self.id}] No rows after lookups")
+            # Still route inner join rejects
+            result = self._create_empty_outputs()
+            self._route_inner_join_rejects(
+                result, inner_join_reject_dfs, outputs_config
+            )
+            return result
+
+        logger.info(
+            f"[{self.id}] After lookups: {len(joined_df)} rows, "
+            f"{len(joined_df.columns)} columns"
+        )
+
+        # Step 5: Evaluate variables
+        if variables_config:
+            joined_df = self._evaluate_variables(
+                joined_df, variables_config, main_name, joined_lookup_names
+            )
+
+        # Steps 6-8: Evaluate outputs (compiled script or simple column refs)
+        result = self._evaluate_outputs(
+            joined_df, outputs_config, variables_config,
+            main_name, joined_lookup_names
+        )
+
+        # Step 9: Route inner join rejects
+        self._route_inner_join_rejects(
+            result, inner_join_reject_dfs, outputs_config
+        )
+
+        return result
+
+    # ------------------------------------------------------------------
+    # Input Parsing
+    # ------------------------------------------------------------------
+
+    def _parse_inputs(
+        self, input_data: Any
+    ) -> Optional[dict[str, pd.DataFrame]]:
+        """Parse input_data into Dict[flow_name, DataFrame].
+
+        Args:
+            input_data: Dict of DataFrames, single DataFrame, or None.
+
+        Returns:
+            Dict of DataFrames keyed by flow name, or None if no data.
+        """
+        if input_data is None:
+            return None
+        if isinstance(input_data, dict):
+            return input_data
+        if isinstance(input_data, pd.DataFrame):
+            main_name = self.config["inputs"]["main"]["name"]
+            return {main_name: input_data}
+        return None
+
+    # ------------------------------------------------------------------
+    # Filter Evaluation
+    # ------------------------------------------------------------------
+
+    def _apply_filter(
+        self,
+        df: pd.DataFrame,
+        filter_expr: str,
+        table_name: str,
+        lookup_names: list[str],
+    ) -> pd.DataFrame:
+        """Apply a filter expression to a DataFrame.
+
+        Uses Java bridge preprocessing for complex expressions, or
+        direct column access for simple column references.
+
+        Args:
+            df: DataFrame to filter.
+            filter_expr: Filter expression (may have {{java}} prefix).
+            table_name: Name of the table being filtered.
+            lookup_names: Names of already-joined lookups.
+
+        Returns:
+            Filtered DataFrame.
+        """
+        expr = self._strip_java_marker(filter_expr)
+
+        if self._is_simple_column_ref(expr):
+            match = _SIMPLE_COLUMN_RE.match(expr.strip())
+            if match:
+                table, column = match.group(1), match.group(2)
+                col_name = self._find_column(df, table, column)
+                if col_name is not None:
+                    mask = df[col_name].astype(bool)
+                    filtered = df[mask].copy()
+                    logger.info(
+                        f"[{self.id}] Filter on {table}.{column}: "
+                        f"{len(df)} -> {len(filtered)} rows"
+                    )
+                    return filtered
+                logger.warning(
+                    f"[{self.id}] Filter column '{table}.{column}' not found"
+                )
+                return df
+
+        # Complex expression -- use Java bridge
+        result = self._evaluate_with_bridge(
+            df, {"__filter__": expr}, table_name, lookup_names
+        )
+        if "__filter__" in result:
+            mask = pd.Series(result["__filter__"]).fillna(False).values
+            filtered = df[mask].copy()
+            logger.info(
+                f"[{self.id}] Java filter: {len(df)} -> {len(filtered)} rows"
+            )
+            return filtered
+
+        return df
+
+    # ------------------------------------------------------------------
+    # Join Classification and Routing
+    # ------------------------------------------------------------------
+
+    def _classify_join_type(self, join_keys: list[dict]) -> str:
+        """Classify join keys into equality, context_only, or cross_table.
+
+        Args:
+            join_keys: List of join key dicts with 'expression' field.
+
+        Returns:
+            One of: "equality", "context_only", "cross_table".
+        """
+        has_equality = False
+        has_context = False
+
+        for jk in join_keys:
+            expr = self._strip_java_marker(jk["expression"])
+            if self._is_simple_column_ref(expr):
+                has_equality = True
+            elif self._is_context_only_expression(expr):
+                has_context = True
+            else:
+                return _JOIN_CROSS_TABLE
+
+        if has_context and not has_equality:
+            return _JOIN_CONTEXT_ONLY
+        return _JOIN_EQUALITY
+
+    # ------------------------------------------------------------------
+    # Equality Join (pandas merge)
+    # ------------------------------------------------------------------
+
+    def _join_equality(
         self,
         joined_df: pd.DataFrame,
         lookup_df: pd.DataFrame,
-        lookup_name: str,
-        join_keys: List[Dict]
-    ) -> pd.DataFrame:
-        """
-        Perform cartesian join with context-based filtering
-
-        Example:
-            Join expression: context.region + " " + context.year
-            Lookup column: region_year
-
-        Steps:
-            1. Evaluate expression (e.g., "WEST 2024")
-            2. Filter lookup: WHERE region_year = "WEST 2024"
-            3. Cross join: joined_df x filtered_lookup
+        lookup_config: dict,
+    ) -> tuple[pd.DataFrame, Optional[pd.DataFrame]]:
+        """Perform equality join using pandas merge.
 
         Args:
-            joined_df: Current accumulated DataFrame
-            lookup_df: Lookup table to join
-            lookup_name: Name of lookup table
-            join_keys: Join key configurations
+            joined_df: Current joined DataFrame (main + previous lookups).
+            lookup_df: Lookup DataFrame.
+            lookup_config: Lookup configuration dict.
 
         Returns:
-            DataFrame with cartesian join applied
+            Tuple of (joined result, inner join rejects or None).
         """
-        logger.info(f"Component {self.id}: Performing CARTESIAN join with lookup '{lookup_name}'")
+        lookup_name = lookup_config["name"]
+        join_keys = lookup_config["join_keys"]
+        join_mode = lookup_config.get("join_mode", "LEFT_OUTER_JOIN")
+        matching_mode = lookup_config.get("matching_mode", _UNIQUE_MATCH)
+        auto_convert = self.config.get("enable_auto_convert_type", False)
 
-        # Evaluate each context-only expression and filter lookup
-        filtered_lookup = lookup_df.copy()
-
-        for join_key in join_keys:
-            expression = self._strip_java_marker(join_key['expression'])
-            lookup_col = join_key['lookup_column']
-
-            # Evaluate context expression ONCE (not per-row)
-            if self.context_manager and self.context_manager.is_java_enabled():
-                java_bridge = self.context_manager.get_java_bridge()
-
-                # Sync context
-                if self.context_manager:
-                    for key, value in self.context_manager.get_all().items():
-                        if isinstance(value, dict):
-                            for var_name, var_info in value.items():
-                                if isinstance(var_info, dict) and 'value' in var_info:
-                                    java_bridge.set_context(var_name, var_info['value'])
-
-                # Evaluate expression
-                try:
-                    filter_value = java_bridge.execute_one_time_expression(expression)
-                    logger.info(f"Component {self.id}: Cartesian filter: {lookup_col} = {filter_value}")
-
-                    # Filter lookup table
-                    filtered_lookup = filtered_lookup[filtered_lookup[lookup_col] == filter_value]
-                except Exception as e:
-                    logger.error(f"Component {self.id}: Failed to evaluate cartesian expression '{expression}': {e}")
-                    # Continue with unfiltered lookup
+        # Build key column mappings
+        left_keys = []
+        right_keys = []
+        for jk in join_keys:
+            expr = self._strip_java_marker(jk["expression"])
+            match = _SIMPLE_COLUMN_RE.match(expr.strip())
+            if match:
+                table, column = match.group(1), match.group(2)
+                col_name = self._find_column(joined_df, table, column)
+                if col_name is None:
+                    col_name = column
+                left_keys.append(col_name)
             else:
-                logger.warning(f"Component {self.id}: Java bridge not available for cartesian expression")
+                left_keys.append(expr)
+            right_keys.append(jk["lookup_column"])
+
+        # Apply matching mode dedup to lookup
+        lookup_df = self._apply_matching_mode(lookup_df, right_keys, matching_mode)
+
+        # Size guard for ALL_MATCHES
+        if matching_mode == _ALL_MATCHES:
+            self._check_size_guard(len(joined_df), len(lookup_df), matching_mode)
+
+        # Prefix lookup columns to avoid collisions
+        lookup_df = self._prefix_lookup_columns(lookup_df, lookup_name)
+        prefixed_right_keys = [f"{lookup_name}.{k}" for k in right_keys]
+
+        # Auto type conversion (MAP-06)
+        if auto_convert:
+            joined_df, lookup_df = self._auto_convert_join_keys(
+                joined_df, lookup_df, left_keys, prefixed_right_keys
+            )
+
+        # Null key pre-filter (MAP-03)
+        main_nonnull, main_null = self._prefilter_null_keys(joined_df, left_keys)
+        lookup_nonnull, _ = self._prefilter_null_keys(lookup_df, prefixed_right_keys)
+
+        # Perform pandas merge
+        if main_nonnull.empty:
+            merged = pd.DataFrame(
+                columns=list(joined_df.columns) + list(lookup_df.columns)
+            )
+            rejects = main_null.copy() if join_mode == "INNER_JOIN" else None
+        else:
+            merged = pd.merge(
+                main_nonnull, lookup_nonnull,
+                left_on=left_keys, right_on=prefixed_right_keys,
+                how="left", indicator=True, suffixes=("", "__dup__")
+            )
+
+            # Track inner join rejects (MAP-02)
+            rejects = None
+            if join_mode == "INNER_JOIN":
+                unmatched_mask = merged["_merge"] == "left_only"
+                if unmatched_mask.any():
+                    rejects = merged.loc[unmatched_mask].drop(
+                        columns=["_merge"]
+                    ).copy()
+                # Also add null-key main rows to rejects
+                if not main_null.empty:
+                    if rejects is not None:
+                        rejects = pd.concat(
+                            [rejects, main_null], ignore_index=True
+                        )
+                    else:
+                        rejects = main_null.copy()
+                # Keep only matched rows for inner join
+                merged = merged.loc[~unmatched_mask].copy()
+
+            # Drop merge indicator
+            if "_merge" in merged.columns:
+                merged = merged.drop(columns=["_merge"])
+
+        # For left outer join, re-add null-key rows (they get NaN lookup cols)
+        if join_mode != "INNER_JOIN" and not main_null.empty:
+            merged = pd.concat([merged, main_null], ignore_index=True)
+
+        # Drop duplicate join key columns from lookup side
+        dup_cols = [c for c in merged.columns if c.endswith("__dup__")]
+        if dup_cols:
+            merged = merged.drop(columns=dup_cols)
+
+        logger.info(
+            f"[{self.id}] Equality join with '{lookup_name}': "
+            f"{len(merged)} rows"
+            + (f", {len(rejects)} inner join rejects" if rejects is not None else "")
+        )
+        return merged, rejects
+
+    # ------------------------------------------------------------------
+    # Context-Only Join
+    # ------------------------------------------------------------------
+
+    def _join_context_only(
+        self,
+        joined_df: pd.DataFrame,
+        lookup_df: pd.DataFrame,
+        lookup_config: dict,
+    ) -> tuple[pd.DataFrame, Optional[pd.DataFrame]]:
+        """Join where all keys are context-only expressions.
+
+        Evaluates context expressions once, filters lookup, cross-joins.
+
+        Args:
+            joined_df: Current joined DataFrame.
+            lookup_df: Lookup DataFrame.
+            lookup_config: Lookup configuration dict.
+
+        Returns:
+            Tuple of (joined result, inner join rejects or None).
+        """
+        lookup_name = lookup_config["name"]
+        join_keys = lookup_config["join_keys"]
+        join_mode = lookup_config.get("join_mode", "LEFT_OUTER_JOIN")
+        matching_mode = lookup_config.get("matching_mode", _UNIQUE_MATCH)
+
+        # Evaluate context expressions for lookup filter
+        filter_mask = pd.Series([True] * len(lookup_df), index=lookup_df.index)
+        for jk in join_keys:
+            expr = self._strip_java_marker(jk["expression"])
+            lookup_col = jk["lookup_column"]
+            # Resolve context value
+            if self.context_manager:
+                resolved = self.context_manager.resolve_string(expr)
+            elif self.global_map:
+                # Try globalMap.get pattern
+                resolved = expr
+            else:
+                resolved = expr
+
+            if lookup_col in lookup_df.columns:
+                filter_mask = filter_mask & (
+                    lookup_df[lookup_col].astype(str) == str(resolved)
+                )
+
+        filtered_lookup = lookup_df[filter_mask].copy()
+
+        # Apply matching mode
+        key_cols = [jk["lookup_column"] for jk in join_keys]
+        filtered_lookup = self._apply_matching_mode(
+            filtered_lookup, key_cols, matching_mode
+        )
+
+        # Prefix and cross-join
+        filtered_lookup = self._prefix_lookup_columns(filtered_lookup, lookup_name)
 
         if filtered_lookup.empty:
-            logger.warning(f"Component {self.id}: Lookup '{lookup_name}' is empty after cartesian filter")
-            return joined_df
+            if join_mode == "INNER_JOIN":
+                return pd.DataFrame(columns=joined_df.columns), joined_df.copy()
+            return joined_df, None
 
-        # Prefix ALL lookup columns with "lookup_name." to match normal join behavior
-        lookup_df_prefixed = filtered_lookup.copy()
-        lookup_df_prefixed.columns = [f"{lookup_name}.{col}" for col in filtered_lookup.columns]
+        self._check_size_guard(
+            len(joined_df), len(filtered_lookup), matching_mode
+        )
 
-        # Perform CROSS JOIN
-        logger.info(f"Component {self.id}: Cartesian join: {len(joined_df)} rows x {len(filtered_lookup)} rows (all lookup columns prefixed)")
+        # Cross join
+        joined_df = joined_df.assign(__cross_key__=1)
+        filtered_lookup = filtered_lookup.assign(__cross_key__=1)
+        result = pd.merge(joined_df, filtered_lookup, on="__cross_key__")
+        result = result.drop(columns=["__cross_key__"])
 
-        # pandas cross join (available in pandas >= 1.2.0)
-        result_df = joined_df.merge(lookup_df_prefixed, how='cross')
+        logger.info(
+            f"[{self.id}] Context-only join with '{lookup_name}': "
+            f"{len(result)} rows"
+        )
+        return result, None
 
-        logger.info(f"Component {self.id}: After cartesian join: {len(result_df)} rows")
+    # ------------------------------------------------------------------
+    # Cross-Table Join
+    # ------------------------------------------------------------------
 
-        return result_df
-
-    def _perform_normal_join(
+    def _join_cross_table(
         self,
         joined_df: pd.DataFrame,
         lookup_df: pd.DataFrame,
-        lookup_name: str,
-        join_keys: List[Dict],
-        lookup_config: Dict,
-        main_name: str,
-        joined_lookups: List[str]
-    ) -> pd.DataFrame:
-        """
-        Perform normal join with sequential evaluation
+        lookup_config: dict,
+    ) -> tuple[pd.DataFrame, Optional[pd.DataFrame]]:
+        """Join where keys reference both main and lookup columns.
 
-        Supports chained lookups where Lookup2 can reference Lookup1's columns.
-        Evaluates join keys against CURRENT joined_df (not just main_df).
+        Uses Java bridge preprocessing for expression evaluation.
 
         Args:
-            joined_df: Current accumulated DataFrame (includes previous lookups)
-            lookup_df: Lookup table to join
-            lookup_name: Name of lookup table
-            join_keys: Join key configurations
-            lookup_config: Full lookup configuration
-            main_name: Name of main input table
-            joined_lookups: List of lookup names that have already been joined
+            joined_df: Current joined DataFrame.
+            lookup_df: Lookup DataFrame.
+            lookup_config: Lookup configuration dict.
 
         Returns:
-            DataFrame with lookup joined (ALL lookup columns prefixed with
-            "lookup_name.")
+            Tuple of (joined result, inner join rejects or None).
         """
-        # Evaluate join key expressions against CURRENT joined_df
-        simple_expressions = {}
-        complex_expressions = {}
+        lookup_name = lookup_config["name"]
+        join_keys = lookup_config["join_keys"]
+        join_mode = lookup_config.get("join_mode", "LEFT_OUTER_JOIN")
+        matching_mode = lookup_config.get("matching_mode", _UNIQUE_MATCH)
 
-        for idx, join_key in enumerate(join_keys):
-            expr_id = f"__join_{lookup_name}_{idx}__"   # String key for consistency
-            expression = self._strip_java_marker(join_key['expression'])
+        self._check_size_guard(len(joined_df), len(lookup_df), matching_mode)
 
-            if self._is_simple_column_ref(expression):
-                simple_expressions[expr_id] = self._parse_column_ref(expression)
-            else:
-                complex_expressions[expr_id] = expression
+        logger.warning(
+            f"[{self.id}] Cross-table join with '{lookup_name}' "
+            f"-- O(n*m) evaluation ({len(joined_df)} x {len(lookup_df)} rows)"
+        )
 
-        # Extract simple column values from joined_df
-        join_key_values = {}
+        # Apply matching mode to lookup first
+        key_cols = [jk["lookup_column"] for jk in join_keys]
+        lookup_df = self._apply_matching_mode(lookup_df, key_cols, matching_mode)
 
-        for expr_id, (table, column) in simple_expressions.items():
-            # Try multiple column name formats to find the right one
-            found = False
+        # Prefix lookup columns
+        lookup_df = self._prefix_lookup_columns(lookup_df, lookup_name)
 
-            # Format 1: table.column (e.g., "orders.customer_id")
-            if f"{table}.{column}" in joined_df.columns:
-                join_key_values[expr_id] = joined_df[f"{table}.{column}"].values
-                found = True
-            # Format 2: column only (e.g., "customer_id")
-            elif column in joined_df.columns:
-                join_key_values[expr_id] = joined_df[column].values
-                found = True
-            # Format 3: table only (for boolean columns, etc.)
-            elif table in joined_df.columns:
-                join_key_values[expr_id] = joined_df[table].values
-                found = True
-            # Format 4: With suffix from previous lookup (e.g.,
-            # "customer_id_customers")
-            else:
-                # Try to find column with any suffix
-                matching_cols = [col for col in joined_df.columns if col.startswith(column)]
-                if matching_cols:
-                    join_key_values[expr_id] = joined_df[matching_cols[0]].values
-                    logger.debug(f"Component {self.id}: Using column '{matching_cols[0]}' for join key")
-                    found = True
+        # Cross join and evaluate expressions
+        joined_df_cross = joined_df.assign(__cross_key__=1)
+        lookup_df_cross = lookup_df.assign(__cross_key__=1)
+        cross = pd.merge(joined_df_cross, lookup_df_cross, on="__cross_key__")
+        cross = cross.drop(columns=["__cross_key__"])
 
-            if not found:
-                logger.warning(f"Component {self.id}: Column '{table}.{column}' not found in joined_df")
+        if cross.empty:
+            if join_mode == "INNER_JOIN":
+                return pd.DataFrame(columns=joined_df.columns), joined_df.copy()
+            return joined_df, None
 
-        # Evaluate complex expressions via Java
-        if complex_expressions:
-            logger.info(f"Component {self.id}: Evaluating {len(complex_expressions)} complex join expressions for '{lookup_name}'")
-            complex_results = self._batch_evaluate_expressions(
-                joined_df,
-                complex_expressions,
-                main_name,
-                joined_lookups   # Pass list of already-joined lookups for expression context
+        # Evaluate all join key expressions on the cross product
+        main_name = self.config["inputs"]["main"]["name"]
+        exprs = {}
+        for i, jk in enumerate(join_keys):
+            expr = self._strip_java_marker(jk["expression"])
+            exprs[f"__jk_{i}__"] = expr
+
+        eval_results = self._evaluate_with_bridge(
+            cross, exprs, main_name, [lookup_name]
+        )
+
+        # Build match mask
+        match_mask = pd.Series([True] * len(cross), index=cross.index)
+        for i, jk in enumerate(join_keys):
+            expr_key = f"__jk_{i}__"
+            lookup_col = f"{lookup_name}.{jk['lookup_column']}"
+            if expr_key in eval_results:
+                eval_vals = pd.Series(eval_results[expr_key], index=cross.index)
+                if lookup_col in cross.columns:
+                    match_mask = match_mask & (
+                        eval_vals.astype(str) == cross[lookup_col].astype(str)
+                    )
+
+        matched = cross[match_mask].copy()
+
+        rejects = None
+        if join_mode == "INNER_JOIN":
+            # Find main rows that didn't match
+            matched_main_idx = matched.index.intersection(
+                joined_df.index
             )
-            join_key_values.update(complex_results)
+            # Use original main index tracking
+            unmatched = joined_df.loc[
+                ~joined_df.index.isin(
+                    matched[joined_df.columns].drop_duplicates().index
+                )
+            ]
+            if not unmatched.empty:
+                rejects = unmatched.copy()
 
-        # Build join columns
-        left_on = []
-        right_on = []
+        if matched.empty and join_mode != "INNER_JOIN":
+            return joined_df, None
 
-        for idx, join_key in enumerate(join_keys):
-            expr_id = f"__join_{lookup_name}_{idx}__"   # Match the expr_id used above
-            lookup_col = join_key['lookup_column']
-
-            # Add evaluated join key as temp column
-            temp_col = f"_join_{lookup_name}_{idx}"
-            if expr_id in join_key_values:
-                joined_df[temp_col] = join_key_values[expr_id]
-                left_on.append(temp_col)
-                right_on.append(lookup_col)
-            else:
-                logger.warning(f"Component {self.id}: Join key {idx} not evaluated for '{lookup_name}'")
-
-        if not left_on:
-            logger.warning(f"Component {self.id}: No join keys for lookup '{lookup_name}'")
-            return joined_df
-
-        # Apply matching mode BEFORE join by deduplicating lookup data
-        matching_mode = lookup_config.get('matching_mode', 'UNIQUE_MATCH')
-        deduplicated_lookup_df = self._apply_matching_mode(
-            lookup_df,
-            right_on,   # Use original column names (before prefixing)
-            matching_mode,
-            lookup_name
+        logger.info(
+            f"[{self.id}] Cross-table join with '{lookup_name}': "
+            f"{len(matched)} rows"
         )
+        return matched, rejects
 
-        # Prefix ALL lookup columns with "lookup_name." to avoid conflicts
-        lookup_df_prefixed = deduplicated_lookup_df.copy()
-        lookup_df_prefixed.columns = [f"{lookup_name}.{col}" for col in deduplicated_lookup_df.columns]
+    # ------------------------------------------------------------------
+    # RELOAD_AT_EACH_ROW Join (MAP-08)
+    # ------------------------------------------------------------------
 
-        # Update right_on keys to use prefixed names
-        right_on_prefixed = [f"{lookup_name}.{col}" for col in right_on]
-
-        # --- JOIN MODE LOGIC ADDED HERE ---
-        join_mode = lookup_config.get('join_mode', 'LEFT_OUTER_JOIN')
-        if join_mode == 'INNER_JOIN':
-            how = 'inner'
-        else:
-            how = 'left'
-
-        logger.info(f"Component {self.id}: Joining with lookup '{lookup_name}' on {len(left_on)} key(s) (all lookup columns prefixed), join_mode={join_mode}")
-
-        # Perform pandas JOIN
-        result_df = joined_df.merge(
-            lookup_df_prefixed,
-            left_on=left_on,
-            right_on=right_on_prefixed,
-            how=how
-        )
-
-        # Cleanup temp join columns
-        result_df.drop(columns=left_on, inplace=True)
-
-        return result_df
-
-    def _apply_matching_mode(
+    def _join_reload_per_row(
         self,
+        joined_df: pd.DataFrame,
         lookup_df: pd.DataFrame,
-        join_keys: List[str],
-        matching_mode: str,
-        lookup_name: str
-    ) -> pd.DataFrame:
-        """
-        Apply matching mode to lookup DataFrame by deduplicating on join keys
+        lookup_config: dict,
+    ) -> tuple[pd.DataFrame, Optional[pd.DataFrame]]:
+        """Per-row lookup re-filter for RELOAD_AT_EACH_ROW mode.
+
+        For each main row, sets globalMap variables from the row,
+        re-evaluates the lookup filter expression against the full
+        lookup DataFrame, and performs single-row join.
 
         Args:
-            lookup_df: Lookup DataFrame to deduplicate
-            join_keys: List of column names to use as join keys (without prefixes)
-            matching_mode: 'UNIQUE_MATCH', 'FIRST_MATCH', 'LAST_MATCH', or 'ALL_MATCHES'
-            lookup_name: Name of lookup for logging
+            joined_df: Current joined DataFrame.
+            lookup_df: Full unfiltered lookup DataFrame.
+            lookup_config: Lookup configuration dict.
 
         Returns:
-            Deduplicated DataFrame based on matching mode
+            Tuple of (joined result, inner join rejects or None).
         """
-        if matching_mode == 'ALL_MATCHES' or not join_keys:
-            # No deduplication needed
-            return lookup_df.copy()
+        lookup_name = lookup_config["name"]
+        join_keys = lookup_config["join_keys"]
+        join_mode = lookup_config.get("join_mode", "LEFT_OUTER_JOIN")
+        matching_mode = lookup_config.get("matching_mode", _UNIQUE_MATCH)
 
-        original_count = len(lookup_df)
-
-        # MODIFIED: UNIQUE_MATCH now behaves like LAST_MATCH
-        if matching_mode == 'UNIQUE_MATCH':
-            # Changed: UNIQUE_MATCH now keeps LAST occurrence instead of first
-            deduplicated_df = lookup_df.drop_duplicates(subset=join_keys, keep='last')
-            logger.debug(f"Component {self.id}: Applied UNIQUE_MATCH with LAST match behavior to lookup '{lookup_name}'")
-        elif matching_mode == 'FIRST_MATCH':
-            # Keep first occurrence of each join key combination
-            deduplicated_df = lookup_df.drop_duplicates(subset=join_keys, keep='first')
-        elif matching_mode == 'LAST_MATCH':
-            # Keep last occurrence of each join key combination
-            deduplicated_df = lookup_df.drop_duplicates(subset=join_keys, keep='last')
-        else:
-            # Unknown matching mode - default to ALL_MATCHES
-            logger.warning(f"Component {self.id}: Unknown matching mode '{matching_mode}' for lookup '{lookup_name}', defaulting to ALL_MATCHES")
-            return lookup_df.copy()
-
-        final_count = len(deduplicated_df)
-        if final_count < original_count:
-            logger.debug(f"Component {self.id}: Applied {matching_mode} to lookup '{lookup_name}': {original_count} -> {final_count} rows")
-
-        return deduplicated_df
-
-    def _evaluate_and_route_outputs(
-        self,
-        joined_df: pd.DataFrame,
-        variables_config: List[Dict],
-        outputs_config: List[Dict],
-        inner_join_rejects: pd.DataFrame = None
-    ) -> Dict[str, pd.DataFrame]:
-        """
-        Evaluate variables and route to outputs using optimized Java execution
-
-        Uses compiled Java scripts for high-performance parallel execution.
-        """
-        output_dfs = self._evaluate_outputs_java(joined_df, variables_config, outputs_config)
-
-        # Handle inner join rejects for outputs with inner_join_reject: true
-        if inner_join_rejects is not None and not inner_join_rejects.empty:
-            for output in outputs_config:
-                if output.get('inner_join_reject'):
-                    output_name = output['name']
-                    # Apply output filter if present
-                    filtered_rejects = inner_join_rejects
-                    filter_expr = output.get('filter')
-                    activate_filter = output.get('activate_filter', False)
-                    if activate_filter and filter_expr:
-                        # Remove {{java}} marker if present
-                        expr = self._strip_java_marker(filter_expr)
-                        # Evaluate filter using Java bridge
-                        filter_results = self._batch_evaluate_expressions(
-                            filtered_rejects,
-                            {'__inner_join_reject_filter__': expr},
-                            self.config['inputs']['main']['name'],
-                            []
-                        )
-                        mask = filter_results.get('__inner_join_reject_filter__')
-                        if mask is not None:
-                            filtered_rejects = filtered_rejects[mask].copy()
-
-                    # Apply the same output expressions as the main output, not just raw DataFrame
-                    if filtered_rejects.empty:
-                        output_dfs[output_name] = pd.DataFrame()
-                    else:
-                        # Evaluate output expressions for reject rows using the same
-                        # logic as main output
-                        reject_outputs = self._evaluate_outputs_java(
-                            filtered_rejects,
-                            variables_config,
-                            [output]   # Only evaluate this specific reject output
-                        )
-                        output_dfs[output_name] = reject_outputs.get(output_name, pd.DataFrame())
-
-        return output_dfs
-
-    def _evaluate_outputs_java(
-        self,
-        joined_df: pd.DataFrame,
-        variables_config: List[Dict],
-        outputs_config: List[Dict]
-    ) -> Dict[str, pd.DataFrame]:
-        """
-        OPTIMIZED: Evaluate variables and outputs using compiled script
-
-        Generates and compiles entire tMap logic once, then executes in parallel.
-        Achieves similar performance to tJavaRow (~189k rows/sec).
-        """
-        if not self.context_manager or not self.context_manager.is_java_enabled():
-            raise RuntimeError(
-                f"Component {self.id}: Java execution is not available for output evaluation"
+        if (len(joined_df) > 10000 and len(lookup_df) > 10000):
+            logger.warning(
+                f"[{self.id}] RELOAD_AT_EACH_ROW with large datasets: "
+                f"{len(joined_df)} main x {len(lookup_df)} lookup rows "
+                f"-- O(n*m) operation"
             )
 
-        java_bridge = self.context_manager.get_java_bridge()
+        result_rows = []
+        reject_rows = []
+        key_cols = [jk["lookup_column"] for jk in join_keys]
+        lookup_prefixed = self._prefix_lookup_columns(lookup_df, lookup_name)
 
-        try:
-            logger.info(f"Component {self.id}: Evaluating {len(variables_config)} variables and {len(outputs_config)} outputs (COMPILED)")
-
-            # Sync context and globalMap to Java bridge
-            flattened_context = {}
-            if self.context_manager:
-                context_all = self.context_manager.get_all()
-                for context_name, context_vars in context_all.items():
-                    if isinstance(context_vars, dict):
-                        for var_name, var_info in context_vars.items():
-                            if isinstance(var_info, dict) and 'value' in var_info:
-                                flattened_context[var_name] = var_info['value']
-                            else:
-                                flattened_context[var_name] = var_info
-                    else:
-                        flattened_context[context_name] = context_vars
-
-                for key, value in flattened_context.items():
-                    java_bridge.set_context(key, value)
-
+        for idx, main_row in joined_df.iterrows():
+            # Set globalMap variables from main row
             if self.global_map:
-                for key, value in self.global_map.get_all().items():
-                    java_bridge.set_global_map(key, value)
+                for col in joined_df.columns:
+                    self.global_map.put(f"row.{col}", main_row[col])
 
-            # Get main input name and lookup names
-            main_name = self.config['inputs']['main']['name']
-            lookup_names = [lookup['name'] for lookup in self.config['inputs'].get('lookups', [])]
+            # Re-filter lookup
+            if (lookup_config.get("activate_filter")
+                    and lookup_config.get("filter")):
+                main_name = self.config["inputs"]["main"]["name"]
+                filtered = self._apply_filter(
+                    lookup_df, lookup_config["filter"],
+                    lookup_name, []
+                )
+            else:
+                filtered = lookup_df
 
-            # Get die_on_error configuration (default: true for safety)
-            die_on_error = self.config.get('die_on_error', True)
+            if filtered.empty:
+                if join_mode == "INNER_JOIN":
+                    reject_rows.append(main_row)
+                else:
+                    result_rows.append(main_row)
+                continue
 
-            # Generate compiled script
-            script = self._generate_tmap_compiled_script(
-                variables_config,
-                outputs_config,
-                main_name,
-                lookup_names,
-                die_on_error
+            # Apply matching mode
+            filtered = self._apply_matching_mode(filtered, key_cols, matching_mode)
+            filtered = self._prefix_lookup_columns(filtered, lookup_name)
+
+            # Evaluate join keys for this single row
+            matched = False
+            for _, lookup_row in filtered.iterrows():
+                key_match = True
+                for jk in join_keys:
+                    expr = self._strip_java_marker(jk["expression"])
+                    lookup_col = f"{lookup_name}.{jk['lookup_column']}"
+                    match = _SIMPLE_COLUMN_RE.match(expr.strip())
+                    if match:
+                        table, column = match.group(1), match.group(2)
+                        main_val = main_row.get(
+                            self._find_column(joined_df, table, column)
+                            or column
+                        )
+                    else:
+                        main_val = None
+                    lookup_val = lookup_row.get(lookup_col)
+
+                    # Null keys never match (MAP-03)
+                    if pd.isna(main_val) or pd.isna(lookup_val):
+                        key_match = False
+                        break
+                    if str(main_val) != str(lookup_val):
+                        key_match = False
+                        break
+
+                if key_match:
+                    combined = pd.concat([main_row, lookup_row])
+                    result_rows.append(combined)
+                    matched = True
+                    if matching_mode in (_UNIQUE_MATCH, _FIRST_MATCH, _LAST_MATCH):
+                        break
+
+            if not matched:
+                if join_mode == "INNER_JOIN":
+                    reject_rows.append(main_row)
+                else:
+                    result_rows.append(main_row)
+
+        # Build result DataFrames
+        if result_rows:
+            result_df = pd.DataFrame(result_rows).reset_index(drop=True)
+        else:
+            result_df = pd.DataFrame(
+                columns=list(joined_df.columns) + list(lookup_prefixed.columns)
             )
 
-            # Prepare output schemas and types
-            output_schemas = {}
-            output_types = {}
-            for output in outputs_config:
-                output_name = output['name']
-                col_names = [col['name'] for col in output['columns']]
-                output_schemas[output_name] = col_names
+        rejects = None
+        if reject_rows:
+            rejects = pd.DataFrame(reject_rows).reset_index(drop=True)
 
-                for col in output['columns']:
-                    type_key = f"{output_name}_{col['name']}"
-                    output_types[type_key] = col.get('type', 'id_String')
+        logger.info(
+            f"[{self.id}] RELOAD_AT_EACH_ROW join with '{lookup_name}': "
+            f"{len(result_df)} rows"
+            + (f", {len(rejects)} inner join rejects" if rejects is not None else "")
+        )
+        return result_df, rejects
 
-            # STEP 1: Compile script ONCE
-            java_bridge.compile_tmap_script(
+    # ------------------------------------------------------------------
+    # Variable Evaluation
+    # ------------------------------------------------------------------
+
+    def _evaluate_variables(
+        self,
+        joined_df: pd.DataFrame,
+        variables_config: list[dict],
+        main_name: str,
+        lookup_names: list[str],
+    ) -> pd.DataFrame:
+        """Evaluate variable definitions and add as columns.
+
+        Variables are evaluated sequentially (dependency chains supported).
+        Results stored as Var.{variable_name} columns in joined_df.
+
+        Args:
+            joined_df: Joined DataFrame with all lookup columns.
+            variables_config: List of variable config dicts.
+            main_name: Main table name.
+            lookup_names: Lookup table names.
+
+        Returns:
+            DataFrame with variable columns added.
+        """
+        for var in variables_config:
+            var_name = var.get("name", "")
+            var_expr = var.get("expression", "")
+            if not var_expr:
+                continue
+
+            expr = self._strip_java_marker(var_expr)
+            col_name = f"Var.{var_name}"
+
+            if self._is_simple_column_ref(expr):
+                match = _SIMPLE_COLUMN_RE.match(expr.strip())
+                if match:
+                    table, column = match.group(1), match.group(2)
+                    src_col = self._find_column(joined_df, table, column)
+                    if src_col:
+                        joined_df[col_name] = joined_df[src_col].values
+                    else:
+                        joined_df[col_name] = None
+            else:
+                result = self._evaluate_with_bridge(
+                    joined_df, {col_name: expr}, main_name, lookup_names
+                )
+                if col_name in result:
+                    joined_df[col_name] = result[col_name]
+                else:
+                    joined_df[col_name] = None
+
+        logger.debug(
+            f"[{self.id}] Evaluated {len(variables_config)} variables"
+        )
+        return joined_df
+
+    # ------------------------------------------------------------------
+    # Output Evaluation
+    # ------------------------------------------------------------------
+
+    def _evaluate_outputs(
+        self,
+        joined_df: pd.DataFrame,
+        outputs_config: list[dict],
+        variables_config: list[dict],
+        main_name: str,
+        lookup_names: list[str],
+    ) -> dict[str, pd.DataFrame]:
+        """Evaluate output expressions and route to named outputs.
+
+        Uses Java bridge compile-once-execute-many pattern when available,
+        falls back to simple column reference evaluation otherwise.
+
+        Args:
+            joined_df: Joined DataFrame with all lookup and variable columns.
+            outputs_config: List of output config dicts.
+            variables_config: List of variable config dicts.
+            main_name: Main table name.
+            lookup_names: Lookup table names.
+
+        Returns:
+            Dict mapping output names to DataFrames.
+        """
+        result: dict[str, pd.DataFrame] = {}
+
+        # Check if we can use compiled script execution
+        has_java_expressions = self._has_java_expressions(outputs_config)
+
+        if has_java_expressions and self.java_bridge is not None:
+            result = self._evaluate_outputs_compiled(
+                joined_df, outputs_config, variables_config,
+                main_name, lookup_names
+            )
+        else:
+            result = self._evaluate_outputs_simple(
+                joined_df, outputs_config, main_name, lookup_names
+            )
+
+        return result
+
+    def _evaluate_outputs_compiled(
+        self,
+        joined_df: pd.DataFrame,
+        outputs_config: list[dict],
+        variables_config: list[dict],
+        main_name: str,
+        lookup_names: list[str],
+    ) -> dict[str, pd.DataFrame]:
+        """Evaluate outputs using compiled Java script execution.
+
+        Generates a Groovy script, compiles once, executes in chunks.
+        Handles output filters and catch output reject routing.
+
+        Args:
+            joined_df: Joined DataFrame.
+            outputs_config: Output config list.
+            variables_config: Variable config list.
+            main_name: Main table name.
+            lookup_names: Lookup table names.
+
+        Returns:
+            Dict mapping output names to DataFrames.
+        """
+        # Build script and output schemas
+        script = self._build_compiled_script(
+            outputs_config, variables_config, main_name, lookup_names
+        )
+        output_schemas, output_types = self._build_output_schema(outputs_config)
+
+        # Build schema dict for Arrow serialization
+        schema_dict = {}
+        for col in joined_df.columns:
+            dtype = str(joined_df[col].dtype)
+            if "int" in dtype:
+                schema_dict[col] = "int"
+            elif "float" in dtype:
+                schema_dict[col] = "float"
+            elif "datetime" in dtype:
+                schema_dict[col] = "datetime"
+            elif "bool" in dtype:
+                schema_dict[col] = "bool"
+            else:
+                schema_dict[col] = "str"
+
+        # Compile script
+        try:
+            self.java_bridge.compile_tmap_script(
                 component_id=self.id,
                 java_script=script,
                 output_schemas=output_schemas,
                 output_types=output_types,
                 main_table_name=main_name,
-                lookup_names=lookup_names
+                lookup_names=lookup_names,
+                input_columns=list(joined_df.columns),
+                schema=schema_dict,
+            )
+        except Exception as e:
+            logger.error(
+                f"[{self.id}] Failed to compile tMap script: {e}"
+            )
+            raise ComponentExecutionError(
+                self.id, f"Failed to compile tMap script: {e}", cause=e
             )
 
-            # STEP 2: Execute on chunks
-            output_dfs = java_bridge.execute_compiled_tmap_chunked(
+        # Execute in chunks
+        chunk_size = int(self.config.get("rows_buffer_size", _DEFAULT_CHUNK_SIZE))
+        try:
+            raw_result = self.java_bridge.execute_compiled_tmap_chunked(
                 component_id=self.id,
                 df=joined_df,
-                chunk_size=50000
+                chunk_size=chunk_size,
+                input_columns=list(joined_df.columns),
+                schema=schema_dict,
+            )
+        except Exception as e:
+            logger.error(
+                f"[{self.id}] Failed to execute compiled tMap script: {e}"
+            )
+            raise ComponentExecutionError(
+                self.id, f"Failed to execute compiled tMap script: {e}",
+                cause=e,
             )
 
-            # Handle error tracking if die_on_error=false
-            if not die_on_error and '__errors__' in output_dfs:
-                error_info = output_dfs.pop('__errors__')   # Remove from normal outputs
-                error_count = error_info.get('count', 0)
+        # Process compiled results
+        result: dict[str, pd.DataFrame] = {}
+        for output_cfg in outputs_config:
+            out_name = output_cfg["name"]
+            if out_name in raw_result:
+                out_df = raw_result[out_name]
+                # Apply output filter if needed
+                if (output_cfg.get("activate_filter")
+                        and output_cfg.get("filter")):
+                    out_df = self._apply_output_filter(
+                        out_df, output_cfg, result, main_name, lookup_names
+                    )
+                result[out_name] = out_df
+            else:
+                result[out_name] = pd.DataFrame(
+                    columns=[c["name"] for c in output_cfg["columns"]]
+                )
 
-                # Store error count in globalMap
-                if self.global_map:
-                    self.global_map.put(f"{self.id}_ERROR_COUNT", error_count)
+        # Handle catch output reject (MAP-05)
+        self._route_catch_output_rejects(result, raw_result, outputs_config)
 
-                if error_count > 0:
-                    logger.warning(f"Component {self.id}: {error_count} error rows routed to reject output")
+        return result
 
-            # Sync context and globalMap back from Java to Python
-            java_bridge._sync_from_java()
-
-            # Update ContextManager with synced context values
-            if self.context_manager:
-                for key, value in java_bridge.context.items():
-                    self.context_manager.set(key, value)
-
-            # Update GlobalMap with synced globalMap values
-            if self.global_map:
-                for key, value in java_bridge.global_map.items():
-                    self.global_map.put(key, value)
-
-            return output_dfs
-
-        except Exception as e:
-            logger.error(f"Component {self.id}: Compiled output evaluation failed: {e}")
-            raise
-
-    def _generate_tmap_compiled_script(
+    def _evaluate_outputs_simple(
         self,
-        variables_config: List[Dict],
-        outputs_config: List[Dict],
+        joined_df: pd.DataFrame,
+        outputs_config: list[dict],
         main_name: str,
-        lookup_names: List[str],
-        die_on_error: bool = True
-    ) -> str:
-        """
-        Generate compiled Java script for tMap execution
+        lookup_names: list[str],
+    ) -> dict[str, pd.DataFrame]:
+        """Evaluate outputs using simple column references.
 
-        Uses pure Java syntax as requested (not Groovy shortcuts).
+        Fallback when Java bridge is not available. Only handles simple
+        table.column references; complex expressions are skipped with a warning.
 
         Args:
-            die_on_error: If True, throw exception on errors. If False, log and
-                continue.
+            joined_df: Joined DataFrame.
+            outputs_config: Output config list.
+            main_name: Main table name.
+            lookup_names: Lookup table names.
+
+        Returns:
+            Dict mapping output names to DataFrames.
         """
-        # Build script parts
+        result: dict[str, pd.DataFrame] = {}
+
+        for output_cfg in outputs_config:
+            out_name = output_cfg["name"]
+            is_reject = output_cfg.get("is_reject", False)
+            is_inner_reject = output_cfg.get("inner_join_reject", False)
+
+            # Skip reject outputs -- they are populated from rejects
+            if is_reject or is_inner_reject:
+                result[out_name] = pd.DataFrame(
+                    columns=[c["name"] for c in output_cfg["columns"]]
+                )
+                continue
+
+            out_df = pd.DataFrame()
+            for col_cfg in output_cfg["columns"]:
+                col_name = col_cfg["name"]
+                col_expr = col_cfg.get("expression", "")
+                expr = self._strip_java_marker(col_expr)
+
+                if self._is_simple_column_ref(expr):
+                    match = _SIMPLE_COLUMN_RE.match(expr.strip())
+                    if match:
+                        table, column = match.group(1), match.group(2)
+                        src_col = self._find_column(joined_df, table, column)
+                        if src_col:
+                            out_df[col_name] = joined_df[src_col].values
+                        else:
+                            out_df[col_name] = None
+                elif expr.startswith("Var."):
+                    # Variable reference
+                    var_col = expr
+                    if var_col in joined_df.columns:
+                        out_df[col_name] = joined_df[var_col].values
+                    else:
+                        out_df[col_name] = None
+                else:
+                    # Try Java bridge preprocessing for single expression
+                    eval_result = self._evaluate_with_bridge(
+                        joined_df, {col_name: expr}, main_name, lookup_names
+                    )
+                    if col_name in eval_result:
+                        out_df[col_name] = eval_result[col_name]
+                    else:
+                        logger.warning(
+                            f"[{self.id}] Cannot evaluate expression "
+                            f"for column '{col_name}' in output '{out_name}' "
+                            f"-- Java bridge not available"
+                        )
+                        out_df[col_name] = None
+
+            # Apply output filter
+            if (output_cfg.get("activate_filter")
+                    and output_cfg.get("filter")):
+                out_df = self._apply_output_filter(
+                    out_df, output_cfg, result, main_name, lookup_names
+                )
+
+            result[out_name] = out_df
+
+        return result
+
+    def _apply_output_filter(
+        self,
+        out_df: pd.DataFrame,
+        output_cfg: dict,
+        result: dict,
+        main_name: str,
+        lookup_names: list[str],
+    ) -> pd.DataFrame:
+        """Apply output filter and route rejects.
+
+        Args:
+            out_df: Output DataFrame before filtering.
+            output_cfg: Output configuration.
+            result: Current result dict (to add reject rows).
+            main_name: Main table name.
+            lookup_names: Lookup table names.
+
+        Returns:
+            Filtered output DataFrame.
+        """
+        filter_expr = output_cfg.get("filter", "")
+        if not filter_expr or out_df.empty:
+            return out_df
+
+        expr = self._strip_java_marker(filter_expr)
+        eval_result = self._evaluate_with_bridge(
+            out_df, {"__out_filter__": expr}, main_name, lookup_names
+        )
+
+        if "__out_filter__" in eval_result:
+            mask = pd.Series(eval_result["__out_filter__"]).fillna(False).values
+            passed = out_df[mask].copy()
+            failed = out_df[~mask].copy()
+
+            # Route failed rows to reject outputs
+            if not failed.empty:
+                outputs_config = self.config.get("outputs", [])
+                for oc in outputs_config:
+                    if oc.get("is_reject") and not oc.get("inner_join_reject"):
+                        rej_name = oc["name"]
+                        if rej_name in result:
+                            result[rej_name] = pd.concat(
+                                [result[rej_name], failed], ignore_index=True
+                            )
+                        else:
+                            result[rej_name] = failed
+
+            return passed
+
+        return out_df
+
+    # ------------------------------------------------------------------
+    # Catch Output Reject Routing (MAP-05)
+    # ------------------------------------------------------------------
+
+    def _route_catch_output_rejects(
+        self,
+        result: dict,
+        raw_result: dict,
+        outputs_config: list[dict],
+    ) -> None:
+        """Route expression error rows to catch output reject outputs.
+
+        Catch output outputs receive rows where expression evaluation
+        threw an exception, with an added errorMessage column.
+
+        Args:
+            result: Current result dict to update.
+            raw_result: Raw result from compiled script execution.
+            outputs_config: Output config list.
+        """
+        error_key = "__errors__"
+        if error_key not in raw_result:
+            return
+
+        error_df = raw_result[error_key]
+        if error_df is None or (isinstance(error_df, pd.DataFrame) and error_df.empty):
+            return
+
+        for output_cfg in outputs_config:
+            if output_cfg.get("catch_output_reject"):
+                out_name = output_cfg["name"]
+                if isinstance(error_df, pd.DataFrame):
+                    if "errorMessage" not in error_df.columns:
+                        error_df["errorMessage"] = "Expression evaluation error"
+                    result[out_name] = error_df
+                    logger.info(
+                        f"[{self.id}] Routed {len(error_df)} error rows "
+                        f"to catch output '{out_name}'"
+                    )
+
+    # ------------------------------------------------------------------
+    # Inner Join Reject Routing
+    # ------------------------------------------------------------------
+
+    def _route_inner_join_rejects(
+        self,
+        result: dict,
+        inner_join_reject_dfs: dict[str, pd.DataFrame],
+        outputs_config: list[dict],
+    ) -> None:
+        """Route inner join reject rows to appropriate outputs.
+
+        Args:
+            result: Current result dict to update.
+            inner_join_reject_dfs: Dict of reject DataFrames per lookup.
+            outputs_config: Output config list.
+        """
+        if not inner_join_reject_dfs:
+            return
+
+        # Combine all inner join rejects
+        all_rejects = pd.concat(
+            list(inner_join_reject_dfs.values()), ignore_index=True
+        )
+
+        for output_cfg in outputs_config:
+            if output_cfg.get("inner_join_reject"):
+                out_name = output_cfg["name"]
+                # Select only columns defined in this output
+                out_cols = [c["name"] for c in output_cfg["columns"]]
+                reject_df = pd.DataFrame()
+                for col_name in out_cols:
+                    if col_name in all_rejects.columns:
+                        reject_df[col_name] = all_rejects[col_name].values
+                    else:
+                        reject_df[col_name] = None
+
+                if out_name in result and not result[out_name].empty:
+                    result[out_name] = pd.concat(
+                        [result[out_name], reject_df], ignore_index=True
+                    )
+                else:
+                    result[out_name] = reject_df
+
+                logger.info(
+                    f"[{self.id}] Routed {len(reject_df)} inner join "
+                    f"rejects to output '{out_name}'"
+                )
+
+    # ------------------------------------------------------------------
+    # Compiled Script Generation
+    # ------------------------------------------------------------------
+
+    def _build_compiled_script(
+        self,
+        outputs: list[dict],
+        variables: list[dict],
+        main_name: str,
+        lookup_names: list[str],
+    ) -> str:
+        """Generate Groovy script for compiled tMap execution.
+
+        Uses sequential forEach (NOT parallel) to fix BUG-MAP-003.
+
+        Args:
+            outputs: Output config list.
+            variables: Variable config list.
+            main_name: Main table name.
+            lookup_names: Lookup table names.
+
+        Returns:
+            Groovy script string.
+        """
         lines = []
 
-        # Import statements
-        lines.append("import java.util.*;")
-        lines.append("import java.util.concurrent.atomic.*;")
-        lines.append("import java.util.stream.*;")
-        lines.append("import com.citi.gru.etl.RowWrapper;")
-        lines.append("")
+        # Output struct definitions
+        for output in outputs:
+            if output.get("is_reject") or output.get("inner_join_reject"):
+                continue
+            out_name = output["name"]
+            cols = output["columns"]
+            lines.append(f"// Output: {out_name}")
 
-        # Setup output arrays and counters
-        for output in outputs_config:
-            output_name = output['name']
-            num_cols = len(output['columns'])
-            lines.append(f"// Output: {output_name}")
-            lines.append(f"Object[][] {output_name}_data = new Object[rowCount][{num_cols}];")
-            lines.append(f"AtomicInteger {output_name}_count = new AtomicInteger(0);")
-            lines.append("")
+        # Check if any output has catch_output_reject
+        has_catch = any(o.get("catch_output_reject") for o in outputs)
 
-        # If die_on_error=false, setup error tracking
-        if not die_on_error:
-            lines.append("// Error tracking (die_on_error=false)")
-            lines.append("AtomicInteger errorCount = new AtomicInteger(0);")
-            lines.append("java.util.concurrent.ConcurrentHashMap<Integer, String> errorMap = new java.util.concurrent.ConcurrentHashMap<>();")
-            lines.append("")
+        # Main processing loop -- sequential forEach (fixes BUG-MAP-003)
+        lines.append("IntStream.range(0, rowCount).forEach(i -> {")
+        lines.append("    Map<String, Object> Var = new HashMap<>();")
 
-        # Parallel processing loop
-        lines.append("// Process rows in parallel")
-        lines.append("IntStream.range(0, rowCount).parallel().forEach(i -> {")
-        lines.append("    try {")
-        lines.append("        // Create row wrappers (each knows its table name for column lookup)")
-        lines.append(f"        RowWrapper {main_name} = new RowWrapper(inputRoot, i, \"{main_name}\");")
-        lines.append("")
+        # Variable evaluation (in order, supports dependency chains)
+        for var in variables:
+            var_name = var.get("name", "")
+            var_expr = var.get("expression", "")
+            if var_expr:
+                expr = self._strip_java_marker(var_expr)
+                lines.append(f'    Var.put("{var_name}", {expr});')
 
-        # Create RowWrappers for each lookup (each knows its table name)
-        for lookup in lookup_names:
-            lines.append(f"        RowWrapper {lookup} = new RowWrapper(inputRoot, i, \"{lookup}\");")
-        lines.append("")
-
-        # Track if row matched any output (for reject logic)
-        has_reject = any(output.get('is_reject') for output in outputs_config)
-        if has_reject:
-            lines.append("        boolean matchedAny = false;")
-            lines.append("")
-
-        # INNER TRY-CATCH: Wrap variables and all non-reject outputs
-        lines.append("        // Inner try-catch: Variables and outputs can error")
-        lines.append("        try {")
-
-        # Evaluate variables IN ORDER
-        if variables_config:
-            lines.append("            // Evaluate variables")
-            lines.append("            Map<String, Object> Var = new HashMap<>();")
-            for var in variables_config:
-                var_name = var['name']
-                var_expr = self._strip_java_marker(var['expression'])
-
-                # Handle empty expression (Talend allows blank variables)
-                if not var_expr or var_expr.strip() == "":
-                    var_expr = "null"
-
-                lines.append(f"            Var.put(\"{var_name}\", {var_expr});")
-            lines.append("")
-
-        # Route to outputs (first pass: non-reject)
-        for output in outputs_config:
-            output_name = output['name']
-            is_reject = output.get('is_reject', False)
-
-            if is_reject:
-                continue   # Handle rejects OUTSIDE inner try-catch
-
-            # Check filter
-            filter_expr = output.get('filter', '')
-            activate_filter = output.get('activate_filter', False)
-
-            num_cols = len(output['columns'])
-
-            if activate_filter and filter_expr:
-                clean_filter = self._strip_java_marker(filter_expr)
-                lines.append(f"            // Output: {output_name} (with filter)")
-                lines.append(f"            if ({clean_filter}) {{")
-                indent = "    "
-            else:
-                lines.append(f"            // Output: {output_name} (no filter)")
-                lines.append("            {")
-                indent = "    "
-
-            # Pre-evaluate ALL columns into temp array (atomic operation)
-            lines.append(f"            {indent}// Pre-evaluate all columns (if any fails, nothing is committed)")
-            lines.append(f"            {indent}Object[] {output_name}_tempRow = new Object[{num_cols}];")
-
-            # **FIX: Use enumerate() to get both index and column**
-            for col_idx, col in enumerate(output['columns']):
-                col_name = col['name']
-                col_expr = self._strip_java_marker(col['expression'])
-
-                # Handle empty expression (Talend allows blank output columns)
-                if not col_expr or col_expr.strip() == "":
-                    col_expr = "null"
-
-                lines.append(f"            {indent}{output_name}_tempRow[{col_idx}] = {col_expr};")
-
-            # ONLY if all columns succeeded, commit to output
-            lines.append(f"            {indent}// All columns evaluated successfully, commit to output")
-            if has_reject:
-                lines.append(f"            {indent}matchedAny = true;")
-            lines.append(f"            {indent}int {output_name}_idx = {output_name}_count.getAndIncrement();")
-            lines.append(f"            {indent}{output_name}_data[{output_name}_idx] = {output_name}_tempRow;")
-
-            lines.append(f"            {indent}}}")
-            lines.append("")
-
-        # Exception handling for inner try-catch
-        lines.append("        } catch (Exception e) {")
-        if die_on_error:
-            lines.append("            // die_on_error=true: Re-throw exception")
-            lines.append("            String errorMsg = e.getMessage() != null ? e.getMessage() : e.toString();")
-            lines.append("            throw new RuntimeException(\"Error at row \" + i + \": \" + errorMsg, e);")
+        # Output expression evaluation
+        if has_catch:
+            lines.append("    try {")
+            indent = "        "
         else:
-            lines.append("            // die_on_error=false: Log error, row will go to reject")
-            lines.append("            String errorMsg = e.getMessage() != null ? e.getMessage() : e.toString();")
-            # lines.append("            System.err.println(\"[tMap Error] Row \" + i + \": \" + errorMsg);")")
-            lines.append("            errorCount.incrementAndGet();")
-            lines.append("            errorMap.put(i, errorMsg);")
-            if has_reject:
-                lines.append("            // matchedAny stays false, row will go to reject")
-                lines.append("            matchedAny = false;")
-                # lines.append("            System.err.println(\"[tMap Debug] Row \" + i + \" will be routed to reject due to error\");")
-        lines.append("        }")
-        lines.append("")
+            indent = "    "
 
-        # Handle reject outputs (OUTSIDE inner try-catch - won't error)
-        if has_reject:
-            lines.append("        // Reject outputs (if no match or if error occurred)")
-            lines.append("        if (!matchedAny) {")
+        for output in outputs:
+            if output.get("is_reject") or output.get("inner_join_reject"):
+                continue
+            out_name = output["name"]
+            for col in output["columns"]:
+                col_name = col["name"]
+                col_expr = col.get("expression", "")
+                expr = self._strip_java_marker(col_expr)
+                lines.append(
+                    f'{indent}outputRow("{out_name}", "{col_name}", i, {expr});'
+                )
 
-            # Add debug statement to track reject rows
-            if not die_on_error:
-                lines.append("            // Debug: Check if this is an error row")
-                lines.append("            if (errorMap.containsKey(i)) {")
-                # lines.append("            System.err.println(\"[tMap Debug] Adding error row \" + i + \" to reject output\");")
-                lines.append("            }")
+        if has_catch:
+            lines.append("    } catch (Exception e) {")
+            lines.append('        errorRow(i, e.getMessage());')
+            lines.append("    }")
 
-            for output in outputs_config:
-                if not output.get('is_reject'):
-                    continue
-
-                output_name = output['name']
-                num_cols = len(output['columns'])
-
-                # Pre-evaluate all reject columns into temp array
-                lines.append(f"            Object[] {output_name}_tempRow = new Object[{num_cols}];")
-                for col_idx, col in enumerate(output['columns']):
-                    col_name = col['name']
-                    col_expr = self._strip_java_marker(col['expression'])
-
-                    # Handle empty expression
-                    if not col_expr or col_expr.strip() == "":
-                        col_expr = "null"
-
-                    lines.append(f"            {output_name}_tempRow[{col_idx}] = {col_expr};")
-
-                # Commit to reject output
-                lines.append(f"            int {output_name}_idx = {output_name}_count.getAndIncrement();")
-                lines.append(f"            {output_name}_data[{output_name}_idx] = {output_name}_tempRow;")
-
-                # Debug: Print reject output size after adding record
-                # lines.append(f"            System.err.println(\"[tMap Debug] Added row \" + i + \" to reject '{output_name}', current count: \" + {output_name}_count.get());")
-
-            lines.append("        }")
-            lines.append("")
-
-        lines.append("    } catch (Exception outerE) {")
-        lines.append("        String errorMsg = outerE.getMessage() != null ? outerE.getMessage() : outerE.toString();")
-        lines.append("        throw new RuntimeException(\"Error at row \" + i + \" (outer): \" + errorMsg, outerE);")
-        lines.append("    }")
         lines.append("});")
-        lines.append("")
 
-        # Return results
-        lines.append("// Return results")
-        lines.append("Map<String, Map<String, Object>> results = new HashMap<>();")
+        return "\n".join(lines)
+
+    def _build_output_schema(
+        self, outputs: list[dict]
+    ) -> tuple[dict[str, list], dict[str, str]]:
+        """Build output_schemas and output_types for compile call.
+
+        Args:
+            outputs: Output config list.
+
+        Returns:
+            Tuple of (output_schemas, output_types).
+        """
+        output_schemas: dict[str, list] = {}
+        output_types: dict[str, str] = {}
+
+        for output in outputs:
+            out_name = output["name"]
+            cols = output["columns"]
+            output_schemas[out_name] = [c["name"] for c in cols]
+            output_types[out_name] = "normal"
+            if output.get("is_reject"):
+                output_types[out_name] = "reject"
+            elif output.get("inner_join_reject"):
+                output_types[out_name] = "inner_join_reject"
+            elif output.get("catch_output_reject"):
+                output_types[out_name] = "catch_reject"
+
+        return output_schemas, output_types
+
+    # ------------------------------------------------------------------
+    # Java Bridge Wrappers
+    # ------------------------------------------------------------------
+
+    def _evaluate_with_bridge(
+        self,
+        df: pd.DataFrame,
+        expressions: dict[str, str],
+        main_name: str,
+        lookup_names: list[str],
+    ) -> dict:
+        """Evaluate expressions via Java bridge preprocessing.
+
+        Falls back gracefully if Java bridge is not available.
+
+        Args:
+            df: DataFrame to evaluate against.
+            expressions: Dict of expr_id -> expression_string.
+            main_name: Main table name.
+            lookup_names: Lookup table names.
+
+        Returns:
+            Dict of expr_id -> numpy array of results.
+        """
+        if self.java_bridge is None:
+            logger.warning(
+                f"[{self.id}] Java bridge not available, "
+                f"skipping expression evaluation for "
+                f"{list(expressions.keys())}"
+            )
+            return {}
+
+        if df.empty:
+            return {}
+
+        # Build schema dict for Arrow
+        schema_dict = {}
+        for col in df.columns:
+            dtype = str(df[col].dtype)
+            if "int" in dtype:
+                schema_dict[col] = "int"
+            elif "float" in dtype:
+                schema_dict[col] = "float"
+            elif "datetime" in dtype:
+                schema_dict[col] = "datetime"
+            elif "bool" in dtype:
+                schema_dict[col] = "bool"
+            else:
+                schema_dict[col] = "str"
+
+        try:
+            return self.java_bridge.execute_tmap_preprocessing(
+                df=df,
+                expressions=expressions,
+                main_table_name=main_name,
+                lookup_table_names=lookup_names,
+                schema=schema_dict,
+            )
+        except Exception as e:
+            logger.error(
+                f"[{self.id}] Java bridge preprocessing failed: {e}"
+            )
+            if self.die_on_error:
+                raise ComponentExecutionError(
+                    self.id, f"Expression evaluation failed: {e}", cause=e
+                )
+            return {}
+
+    def _has_java_expressions(self, outputs_config: list[dict]) -> bool:
+        """Check if any output column has a Java expression.
+
+        Args:
+            outputs_config: Output config list.
+
+        Returns:
+            True if any column expression starts with {{java}}.
+        """
         for output in outputs_config:
-            output_name = output['name']
-            lines.append(f"Map<String, Object> {output_name}_result = new HashMap<>();")
-            lines.append(f"{output_name}_result.put(\"data\", {output_name}_data);")
-            lines.append(f"{output_name}_result.put(\"count\", {output_name}_count.get());")
-            lines.append(f"results.put(\"{output_name}\", {output_name}_result);")
+            for col in output.get("columns", []):
+                expr = col.get("expression", "")
+                if expr.startswith(_JAVA_MARKER):
+                    stripped = self._strip_java_marker(expr)
+                    if not self._is_simple_column_ref(stripped):
+                        return True
+            filter_expr = output.get("filter", "")
+            if filter_expr.startswith(_JAVA_MARKER):
+                stripped = self._strip_java_marker(filter_expr)
+                if not self._is_simple_column_ref(stripped):
+                    return True
+        return False
 
-        # Return error tracking info if die_on_error=false
-        if not die_on_error:
-            lines.append("")
-            lines.append("// Return error tracking info")
-            lines.append("Map<String, Object> errorInfo = new HashMap<>();")
-            lines.append("errorInfo.put(\"count\", errorCount.get());")
-            lines.append("errorInfo.put(\"indices\", new java.util.ArrayList<>(errorMap.keySet()));")
-            lines.append("errorInfo.put(\"messages\", errorMap);")
-            lines.append("results.put(\"__errors__\", errorInfo);")
+    # ------------------------------------------------------------------
+    # Helper Methods
+    # ------------------------------------------------------------------
 
-        lines.append("return results;")
-        logger.debug(f"{'\n'.join(lines)}")
-        return '\n'.join(lines)
+    def _strip_java_marker(self, expr: str) -> str:
+        """Remove {{java}} prefix from expression.
 
-    def _create_empty_outputs(self) -> Dict[str, pd.DataFrame]:
-        """Create empty DataFrames for all outputs"""
-        outputs = {}
-        for output_config in self.config['outputs']:
-            outputs[output_config['name']] = pd.DataFrame()
-        return outputs
+        Args:
+            expr: Expression string, possibly with {{java}} prefix.
+
+        Returns:
+            Expression with prefix stripped.
+        """
+        if expr.startswith(_JAVA_MARKER):
+            return expr[len(_JAVA_MARKER):]
+        return expr
+
+    def _is_simple_column_ref(self, expr: str) -> bool:
+        """Check if expression is a simple column reference (table.column).
+
+        Args:
+            expr: Expression string (already stripped of {{java}}).
+
+        Returns:
+            True if expression matches table.column pattern.
+        """
+        return bool(_SIMPLE_COLUMN_RE.match(expr.strip()))
+
+    def _is_context_only_expression(self, expr: str) -> bool:
+        """Check if expression references only context/globalMap values.
+
+        An expression is context-only if it contains NO row references
+        (table.column patterns where table is not 'context' or 'globalMap').
+
+        Args:
+            expr: Expression string (already stripped of {{java}}).
+
+        Returns:
+            True if expression has no row-data references.
+        """
+        stripped = self._strip_java_marker(expr).strip()
+
+        # Find all table.column patterns
+        row_ref_pattern = re.compile(
+            r'\b([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)\b'
+        )
+        matches = row_ref_pattern.findall(stripped)
+
+        # Filter out context.* and globalMap.* references
+        row_references = [
+            m for m in matches
+            if m[0] not in ("context", "globalMap", "Var")
+        ]
+
+        return len(row_references) == 0
+
+    def _find_column(
+        self, df: pd.DataFrame, table: str, column: str
+    ) -> Optional[str]:
+        """Find a column in DataFrame by table.column reference.
+
+        Tries multiple name patterns:
+        1. Exact table.column (prefixed lookup columns)
+        2. Just column name (main table columns)
+        3. Var.column (variable references)
+
+        Args:
+            df: DataFrame to search.
+            table: Table name portion.
+            column: Column name portion.
+
+        Returns:
+            Column name found in DataFrame, or None.
+        """
+        # Try prefixed form first (for lookup columns)
+        prefixed = f"{table}.{column}"
+        if prefixed in df.columns:
+            return prefixed
+
+        # Try plain column name (for main table)
+        if column in df.columns:
+            return column
+
+        # Try Var. prefix (for variable references)
+        var_name = f"Var.{column}"
+        if var_name in df.columns:
+            return var_name
+
+        return None
+
+    def _prefilter_null_keys(
+        self, df: pd.DataFrame, key_columns: list[str]
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Split DataFrame into rows with all keys non-null vs any key null.
+
+        Implements MAP-03: Null join keys never match (SQL/Talend semantics).
+
+        Args:
+            df: DataFrame to split.
+            key_columns: List of key column names.
+
+        Returns:
+            Tuple of (non_null_df, null_key_df).
+        """
+        if df.empty:
+            return df.copy(), pd.DataFrame(columns=df.columns)
+
+        # Filter to only key columns that exist in the DataFrame
+        existing_keys = [k for k in key_columns if k in df.columns]
+        if not existing_keys:
+            return df.copy(), pd.DataFrame(columns=df.columns)
+
+        null_mask = df[existing_keys].isna().any(axis=1)
+        return df[~null_mask].copy(), df[null_mask].copy()
+
+    def _apply_matching_mode(
+        self,
+        lookup_df: pd.DataFrame,
+        key_columns: list[str],
+        mode: str,
+    ) -> pd.DataFrame:
+        """Deduplicate lookup DataFrame per matching mode.
+
+        Args:
+            lookup_df: Lookup DataFrame.
+            key_columns: Join key column names.
+            mode: Matching mode string.
+
+        Returns:
+            Deduplicated DataFrame.
+        """
+        if lookup_df.empty:
+            return lookup_df
+
+        existing_keys = [k for k in key_columns if k in lookup_df.columns]
+        if not existing_keys:
+            return lookup_df
+
+        if mode == _UNIQUE_MATCH:
+            # Talend HashMap.put overwrites -- last row wins (keep='last')
+            return lookup_df.drop_duplicates(
+                subset=existing_keys, keep="last"
+            )
+        elif mode == _FIRST_MATCH:
+            return lookup_df.drop_duplicates(
+                subset=existing_keys, keep="first"
+            )
+        elif mode == _LAST_MATCH:
+            return lookup_df.drop_duplicates(
+                subset=existing_keys, keep="last"
+            )
+        elif mode == _ALL_MATCHES:
+            # No dedup -- cartesian product possible
+            return lookup_df
+        else:
+            logger.warning(
+                f"[{self.id}] Unknown matching mode '{mode}', "
+                f"defaulting to UNIQUE_MATCH"
+            )
+            return lookup_df.drop_duplicates(
+                subset=existing_keys, keep="last"
+            )
+
+    def _prefix_lookup_columns(
+        self, lookup_df: pd.DataFrame, lookup_name: str
+    ) -> pd.DataFrame:
+        """Prefix all lookup columns with lookup_name to avoid collisions.
+
+        Args:
+            lookup_df: Lookup DataFrame.
+            lookup_name: Lookup table name.
+
+        Returns:
+            DataFrame with prefixed column names.
+        """
+        renamed = {}
+        for col in lookup_df.columns:
+            if not col.startswith(f"{lookup_name}."):
+                renamed[col] = f"{lookup_name}.{col}"
+        if renamed:
+            return lookup_df.rename(columns=renamed)
+        return lookup_df
+
+    def _auto_convert_join_keys(
+        self,
+        main_df: pd.DataFrame,
+        lookup_df: pd.DataFrame,
+        left_keys: list[str],
+        right_keys: list[str],
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Auto-convert join key columns to compatible types (MAP-06).
+
+        Handles common type mismatches: str<->numeric, int<->float.
+
+        Args:
+            main_df: Main DataFrame.
+            lookup_df: Lookup DataFrame.
+            left_keys: Main side join key columns.
+            right_keys: Lookup side join key columns.
+
+        Returns:
+            Tuple of (main_df, lookup_df) with converted types.
+        """
+        main_df = main_df.copy()
+        lookup_df = lookup_df.copy()
+
+        for left_key, right_key in zip(left_keys, right_keys):
+            if left_key not in main_df.columns or right_key not in lookup_df.columns:
+                continue
+
+            left_dtype = main_df[left_key].dtype
+            right_dtype = lookup_df[right_key].dtype
+
+            if left_dtype == right_dtype:
+                continue
+
+            # str -> numeric
+            if left_dtype == object and np.issubdtype(right_dtype, np.number):
+                main_df[left_key] = pd.to_numeric(
+                    main_df[left_key], errors="coerce"
+                )
+            elif right_dtype == object and np.issubdtype(left_dtype, np.number):
+                lookup_df[right_key] = pd.to_numeric(
+                    lookup_df[right_key], errors="coerce"
+                )
+            # numeric -> str
+            elif np.issubdtype(left_dtype, np.number) and right_dtype == object:
+                main_df[left_key] = main_df[left_key].astype(str)
+            elif np.issubdtype(right_dtype, np.number) and left_dtype == object:
+                lookup_df[right_key] = lookup_df[right_key].astype(str)
+            # int <-> float
+            elif np.issubdtype(left_dtype, np.integer) and np.issubdtype(right_dtype, np.floating):
+                main_df[left_key] = main_df[left_key].astype(float)
+            elif np.issubdtype(left_dtype, np.floating) and np.issubdtype(right_dtype, np.integer):
+                lookup_df[right_key] = lookup_df[right_key].astype(float)
+
+            logger.debug(
+                f"[{self.id}] Auto-converted join key types: "
+                f"{left_key}({left_dtype}) <-> {right_key}({right_dtype})"
+            )
+
+        return main_df, lookup_df
+
+    def _get_output_config(self, output_name: str) -> Optional[dict]:
+        """Find output config by name.
+
+        Args:
+            output_name: Output name to find.
+
+        Returns:
+            Output config dict, or None if not found.
+        """
+        for output in self.config.get("outputs", []):
+            if output.get("name") == output_name:
+                return output
+        return None
+
+    def _create_empty_outputs(self) -> dict:
+        """Create dict with empty DataFrames for all configured outputs.
+
+        Returns:
+            Dict mapping output names to empty DataFrames.
+        """
+        result = {}
+        for output in self.config.get("outputs", []):
+            out_name = output["name"]
+            cols = [c["name"] for c in output.get("columns", [])]
+            result[out_name] = pd.DataFrame(columns=cols)
+        return result
+
+    def _check_size_guard(
+        self, main_count: int, lookup_count: int, mode: str
+    ) -> None:
+        """Warn or fail for large cartesian/cross-table joins.
+
+        Implements T-05-02 and T-05-03 threat mitigations.
+
+        Args:
+            main_count: Number of main rows.
+            lookup_count: Number of lookup rows.
+            mode: Matching mode or join description.
+
+        Raises:
+            ComponentExecutionError: If product exceeds hard limit.
+        """
+        product = main_count * lookup_count
+        if product >= _FAIL_RESULT_ROWS:
+            raise ComponentExecutionError(
+                self.id,
+                f"Join would produce ~{product:,} rows "
+                f"(main={main_count:,} x lookup={lookup_count:,}, "
+                f"mode={mode}). Exceeds safety limit of "
+                f"{_FAIL_RESULT_ROWS:,} rows."
+            )
+        if product >= _WARN_RESULT_ROWS:
+            logger.warning(
+                f"[{self.id}] Large join: ~{product:,} rows "
+                f"(main={main_count:,} x lookup={lookup_count:,}, "
+                f"mode={mode})"
+            )
