@@ -4,13 +4,14 @@ Multi-flow data mapping with lookup joins, variable evaluation, expression-based
 column mappings, and multi-output routing. Preserves hybrid architecture: pandas
 for bulk equality joins, Java bridge for expression evaluation.
 
-Config keys consumed (7 total):
+Config keys consumed (8 total):
   inputs            (dict)  -- main input + lookups list with join keys, modes
   variables         (list)  -- variable definitions with expressions
   outputs           (list)  -- output tables with column expressions, filters, reject flags
   die_on_error      (bool, default True)  -- raise on expression error
   rows_buffer_size  (str, default "2000000")  -- buffer size hint
   enable_auto_convert_type  (bool, default False)  -- auto-cast join key types
+  parallel_execution (bool, default True)  -- parallel forEach in compiled scripts
   label             (str, default "")  -- component label
 """
 import logging
@@ -48,6 +49,14 @@ _JOIN_CROSS_TABLE = "cross_table"
 # Chunk size for preprocessing and compiled script execution
 _DEFAULT_CHUNK_SIZE = 50000
 _DEFAULT_CHUNK_THRESHOLD = 100000  # Only chunk if DataFrame exceeds this
+
+# Parallel stream processing for compiled script execution.
+# True = IntStream.parallel().forEach() for high throughput (thread-safe:
+#   Var map is local to each lambda iteration, output indices use AtomicInteger,
+#   error tracking uses ConcurrentHashMap).
+# False = IntStream.forEach() for sequential processing.
+# Configurable via 'parallel_execution' config key (default: True).
+_DEFAULT_PARALLEL_EXECUTION = True
 
 # Size guard thresholds for cartesian/cross-table joins
 _WARN_RESULT_ROWS = 10_000_000
@@ -1311,7 +1320,14 @@ class Map(BaseComponent):
     ) -> str:
         """Generate Groovy script for compiled tMap execution.
 
-        Uses sequential forEach (NOT parallel) to fix BUG-MAP-003.
+        Parallel execution is thread-safe because:
+        - Var HashMap is local to each lambda iteration (not shared)
+        - Output indices use AtomicInteger.getAndIncrement() (unique per thread)
+        - Error tracking uses ConcurrentHashMap (thread-safe)
+        - RowWrapper reads from Arrow table by index (read-only, no mutation)
+
+        Parallelism is configurable via 'parallel_execution' config key
+        (default: True). Set to False for sequential processing if needed.
 
         Args:
             outputs: Output config list.
@@ -1335,8 +1351,14 @@ class Map(BaseComponent):
         # Check if any output has catch_output_reject
         has_catch = any(o.get("catch_output_reject") for o in outputs)
 
-        # Main processing loop -- sequential forEach (fixes BUG-MAP-003)
-        lines.append("IntStream.range(0, rowCount).forEach(i -> {")
+        # Parallel vs sequential execution (configurable, default: parallel)
+        use_parallel = self.config.get(
+            "parallel_execution", _DEFAULT_PARALLEL_EXECUTION
+        )
+        if use_parallel:
+            lines.append("IntStream.range(0, rowCount).parallel().forEach(i -> {")
+        else:
+            lines.append("IntStream.range(0, rowCount).forEach(i -> {")
         lines.append("    Map<String, Object> Var = new HashMap<>();")
 
         # Variable evaluation (in order, supports dependency chains)
