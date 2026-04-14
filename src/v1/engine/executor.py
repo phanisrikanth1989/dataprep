@@ -202,9 +202,9 @@ class Executor:
             comp_result = self._execute_component(comp_id)
 
             if comp_result == "error":
-                # Check die_on_error config (resolved config)
+                # Check die_on_error from resolved config (set during component.execute())
                 component = self.components[comp_id]
-                die_on_error = component._original_config.get("die_on_error", True)
+                die_on_error = component.die_on_error
 
                 if die_on_error:
                     # Mark remaining components in this subjob as skipped
