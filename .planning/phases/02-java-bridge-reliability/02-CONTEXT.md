@@ -39,14 +39,19 @@ Make the Python-Java bridge (Py4J + Apache Arrow) reliable for data type seriali
 
 ### Logging
 - **D-13:** ASCII-only logging throughout. No emojis, unicode symbols, or non-ASCII characters in any log messages. Production target is RHEL Linux servers. Use `[OK]`, `[ERROR]`, `[WARN]` text markers.
-- **D-14:** Replace all `print()` statements with proper `logging.getLogger(__name__)` calls. Both Python and Java sides.
+- **D-14:** Replace all `print()` statements with proper `logging.getLogger(__name__)` calls on Python side. Java side uses `java.util.logging` (no SLF4J/Logback -- keep dependencies minimal).
+- **D-15:** Java log messages must be clearly identifiable as coming from the Java side. Use a logger name or prefix (e.g., `[JavaBridge]`) so interleaved Python/Java logs have obvious boundaries.
+- **D-16:** Log level sync between Python and Java. Python passes its log level to Java at bridge startup. Mapping: Python `DEBUG` -> JUL `FINE`, `INFO` -> `INFO`, `WARNING` -> `WARNING`, `ERROR` -> `SEVERE`. One knob on Python side controls both. No separate Java log config needed.
+
+### Java Code Organization
+- **D-17:** JavaBridge.java (42KB single file) may be decomposed into smaller focused classes for maintainability. Research determines the right boundaries (e.g., core gateway, Arrow serialization, expression execution, tMap operations, routine loading).
 
 ### Test Strategy
-- **D-15:** Unit tests for Python-side logic (schema mapping, type conversion, retry logic) with mocked Py4J gateway. No JVM required for these.
-- **D-16:** Integration tests that start a real JVM and round-trip data through the bridge end-to-end. Marked with `@pytest.mark.java` so they can be skipped on machines without JVM.
-- **D-17:** Round-trip test coverage for 12 Talend data types: String, Integer, Long, Float, Double, BigDecimal, Date, Timestamp, Boolean, Byte, Short, Character. Skip byte[], List, Object, Document -- not needed for production jobs.
-- **D-18:** Subsequent component phases (tMap, tJava, tJavaRow, etc.) will add their own bridge integration tests. Phase 2 tests cover the bridge infrastructure itself, not component-specific bridge usage.
-- **D-19:** Java 21 is available on dev machine (OpenJDK 21.0.10 via Homebrew). Java 11 is the minimum target for production.
+- **D-18:** Unit tests for Python-side logic (schema mapping, type conversion, retry logic) with mocked Py4J gateway. No JVM required for these.
+- **D-19:** Integration tests that start a real JVM and round-trip data through the bridge end-to-end. Marked with `@pytest.mark.java` so they can be skipped on machines without JVM.
+- **D-20:** Round-trip test coverage for 12 Talend data types: String, Integer, Long, Float, Double, BigDecimal, Date, Timestamp, Boolean, Byte, Short, Character. Skip byte[], List, Object, Document -- not needed for production jobs.
+- **D-21:** Subsequent component phases (tMap, tJava, tJavaRow, etc.) will add their own bridge integration tests. Phase 2 tests cover the bridge infrastructure itself, not component-specific bridge usage.
+- **D-22:** Java 21 is available on dev machine (OpenJDK 21.0.10 via Homebrew). Java 11 is the minimum target for production.
 
 ### Claude's Discretion
 - java_bridge_manager.py -- update vs rewrite based on needed changes
