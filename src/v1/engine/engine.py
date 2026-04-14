@@ -78,6 +78,7 @@ class ETLEngine:
         flows_config = self.job_config.get('flows', [])
         triggers_config = self.job_config.get('triggers', [])
         subjobs_dict = self._build_subjobs_dict()
+        # Empty dict (no components have subjob_id) -> None triggers auto-detection
         self.execution_plan = ExecutionPlan(
             components_config, flows_config, triggers_config, subjobs_dict or None
         )
