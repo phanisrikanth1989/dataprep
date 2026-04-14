@@ -339,12 +339,7 @@ class TriggerManager:
             value = self.global_map.get(key)
             if value is None:
                 return "None"
-            elif isinstance(value, str):
-                return repr(value)
-            elif isinstance(value, bool):
-                return repr(value)
-            else:
-                return repr(value)
+            return repr(value)
 
         return pattern.sub(_ref_replacer, condition)
 
