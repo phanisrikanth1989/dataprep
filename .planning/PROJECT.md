@@ -40,6 +40,12 @@ Any Talend job using the target components must produce identical results when r
 - [ ] tJava — full Talend feature parity (Java code execution, imports, context access)
 - [ ] tJavaRow — full Talend feature parity (per-row Java execution, input/output column access)
 - [ ] tContextLoad — full Talend feature parity (load context from flow, file, key-value parsing)
+- [ ] tAggregateRow — fix _ensure_output_columns bug, missing functions, ignore_null, output_column
+- [ ] tSortRow — sort type distinction (num/alpha/date), streaming fix, engine key alignment
+- [ ] tFilterRow — replace eval() with safe expression parser, expand operator support (14+ operators)
+- [ ] tFilterColumns — engine unit tests (already functionally Green)
+- [ ] tJoin — fix case-insensitive join corruption, reject schema, INCLUDE_LOOKUP toggle
+- [ ] tUnite — engine unit tests (already functionally Green)
 
 **Python Equivalents:**
 - [ ] python_component — Python equivalent of tJava, standardized alongside it
@@ -81,7 +87,7 @@ Any Talend job using the target components must produce identical results when r
 ### Out of Scope
 
 - Removing the legacy complex_converter — not blocking, defer to later cleanup
-- Components beyond the 6 targets + iterate + Oracle — will follow this milestone's patterns
+- Components beyond the 12 targets + iterate + Oracle — will follow this milestone's patterns
 - Database components beyond Oracle (MSSQL etc.) — defer to future milestone
 - UI job designer frontend — separate concern
 - Distributed/parallel execution — single-threaded is fine for now
@@ -111,7 +117,8 @@ Any Talend job using the target components must produce identical results when r
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Fix engine architecture (pragmatic refactor) | Engine execution loop is 140 lines of nested logic — fixing bugs in it is harder than cleaning it up. Refactor only what blocks component work. | — Pending |
-| Standardize 6 components as blueprint | These components appear in most jobs. Getting them right creates the pattern for the remaining ~44 engine components. | — Pending |
+| Standardize 12 components as blueprint | These components appear in most jobs. Getting them right creates the pattern for the remaining ~38 engine components. | — Pending |
+| Add 6 transform components (manager request) | tAggregateRow, tSortRow, tFilterRow, tFilterColumns, tJoin, tUnite added to milestone scope per management directive | — Pending |
 | Iterate support in this milestone | 30% of jobs use iterate — can't defer without blocking a third of production migration | — Pending |
 | Leave legacy complex_converter | Not blocking production work, removing it is cleanup that can happen later | — Pending |
 | Both unit and integration tests | Engine has zero tests today. Need unit tests for isolation + integration tests for confidence that converted jobs actually run. | — Pending |
