@@ -109,9 +109,9 @@ Plans:
   6. Engine unit tests pass for tMap covering join modes, reject routing, expressions, reload modes, and multi-output scenarios
 **Plans:** 3 plans
 Plans:
-- [ ] 05-01-PLAN.md -- Core tMap engine component rewrite (all MAP requirements)
-- [ ] 05-02-PLAN.md -- Exhaustive unit test suite (60-100 tests)
-- [ ] 05-03-PLAN.md -- Converter update for MAP-06 + integration tests
+- [x] 05-01-PLAN.md -- Core tMap engine component rewrite (all MAP requirements)
+- [x] 05-02-PLAN.md -- Exhaustive unit test suite (60-100 tests)
+- [x] 05-03-PLAN.md -- Converter update for MAP-06 + integration tests
 
 ### Phase 6: Transform Group A -- Aggregation, Sort, Filter
 **Goal**: The three most complex transform components (tAggregateRow, tSortRow, tFilterRow) produce correct results matching Talend behavior, with all P0/P1 bugs fixed and full operator/function support
