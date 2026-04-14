@@ -47,11 +47,7 @@ except (ImportError, TypeError) as e:
     _COMPONENT_IMPORT_ERROR = str(e)
 
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-if not _COMPONENT_IMPORTS_AVAILABLE:
-    logger.warning(f"Component imports failed (expected until components are rewritten): {_COMPONENT_IMPORT_ERROR}")
 
 
 class ETLEngine:
@@ -837,6 +833,11 @@ def run_job(job_config_path: str, context_overrides: Dict[str, Any] = None) -> D
 
 if __name__ == '__main__':
     import sys
+
+    logging.basicConfig(level=logging.INFO)
+
+    if not _COMPONENT_IMPORTS_AVAILABLE:
+        logger.warning(f"Component imports failed (expected until components are rewritten): {_COMPONENT_IMPORT_ERROR}")
 
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description='Run ETL job with optional context overrides.')
