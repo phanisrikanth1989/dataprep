@@ -44,7 +44,11 @@ class ETLEngine:
             routines = java_config.get('routines', [])
             libraries = java_config.get('libraries', [])
             self.java_bridge_manager = JavaBridgeManager(enable=True, routines=routines, libraries=libraries)
-            self.java_bridge_manager.start()
+            try:
+                self.java_bridge_manager.start()
+            except Exception:
+                self.java_bridge_manager.stop()
+                raise
             logger.info(f"Java bridge initialized with {len(routines)} routines and {len(libraries)} libraries")
 
         # Python routine manager
