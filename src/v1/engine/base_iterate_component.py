@@ -34,6 +34,9 @@ class BaseIterateComponent(BaseComponent):
         2. ``_process()`` calls ``prepare_iterations()`` to populate iteration items
         3. Engine iterate loop calls ``has_next_iteration()`` / ``get_next_iteration_context()``
         4. After all iterations, engine calls ``finalize_iterations()``
+
+    Subclasses must implement ``_validate_config()``, ``prepare_iterations()``,
+    and ``set_iteration_globalmap()``. Do NOT override ``_process()``.
     """
 
     def __init__(
