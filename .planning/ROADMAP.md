@@ -101,13 +101,17 @@ Plans:
 **Depends on**: Phase 2, Phase 3
 **Requirements**: MAP-01, MAP-02, MAP-03, MAP-04, MAP-05, MAP-06, MAP-07, MAP-08, TEST-03
 **Success Criteria** (what must be TRUE):
-  1. UNIQUE_MATCH uses first-row semantics (matching Talend), inner join rejects route separately from generic rejects, and null keys never match in joins
+  1. UNIQUE_MATCH uses last-row semantics (matching Talend -- HashMap.put overwrites, confirmed by research), inner join rejects route separately from generic rejects, and null keys never match in joins
   2. tMap uses BaseComponent lifecycle instead of overriding execute(), and supports activateCondensedTool catch output for expression errors
   3. Auto type conversion for join columns works when ENABLE_AUTO_CONVERT_TYPE is configured
   4. RELOAD_AT_EACH_ROW lookup mode re-executes lookup per main row for parameterized lookups
   5. {id}_NB_LINE globalMap variable is correctly set after execution
   6. Engine unit tests pass for tMap covering join modes, reject routing, expressions, reload modes, and multi-output scenarios
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 05-01-PLAN.md -- Core tMap engine component rewrite (all MAP requirements)
+- [ ] 05-02-PLAN.md -- Exhaustive unit test suite (60-100 tests)
+- [ ] 05-03-PLAN.md -- Converter update for MAP-06 + integration tests
 
 ### Phase 6: Transform Group A -- Aggregation, Sort, Filter
 **Goal**: The three most complex transform components (tAggregateRow, tSortRow, tFilterRow) produce correct results matching Talend behavior, with all P0/P1 bugs fixed and full operator/function support
@@ -197,7 +201,7 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 2. Java Bridge Reliability | 0/4 | Planning complete | - |
 | 3. Execution Loop Restructure | 4/4 | Complete    | 2026-04-14 |
 | 4. File I/O Components | 0/3 | Planning complete | - |
-| 5. tMap Component | 0/TBD | Not started | - |
+| 5. tMap Component | 0/3 | Planning complete | - |
 | 6. Transform Group A -- Aggregation, Sort, Filter | 0/TBD | Not started | - |
 | 7. Transform Group B -- Column, Join, Unite | 0/TBD | Not started | - |
 | 8. Code Components | 0/TBD | Not started | - |
