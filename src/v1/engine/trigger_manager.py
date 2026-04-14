@@ -13,7 +13,7 @@ from enum import Enum
 import logging
 import re
 
-from src.v1.engine.exceptions import TriggerEvaluationError
+from .exceptions import TriggerEvaluationError
 
 logger = logging.getLogger(__name__)
 
