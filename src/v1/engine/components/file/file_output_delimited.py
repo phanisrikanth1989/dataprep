@@ -299,23 +299,30 @@ class FileOutputDelimited(BaseComponent):
         """
         mode = "a" if append else "w"
 
-        if csv_option:
-            self._write_csv_mode(
-                df, filepath, field_sep, line_sep, encoding,
-                include_header, text_enclosure, escape_char, mode,
-            )
-        else:
-            df.to_csv(
-                filepath,
-                sep=field_sep,
-                header=include_header,
-                index=False,
-                encoding=encoding,
-                quoting=csv.QUOTE_NONE,
-                lineterminator=line_sep,
-                mode=mode,
-                escapechar="\\",
-            )
+        try:
+            if csv_option:
+                self._write_csv_mode(
+                    df, filepath, field_sep, line_sep, encoding,
+                    include_header, text_enclosure, escape_char, mode,
+                )
+            else:
+                df.to_csv(
+                    filepath,
+                    sep=field_sep,
+                    header=include_header,
+                    index=False,
+                    encoding=encoding,
+                    quoting=csv.QUOTE_NONE,
+                    lineterminator=line_sep,
+                    mode=mode,
+                    escapechar="\\",
+                )
+        except FileOperationError:
+            raise
+        except Exception as e:
+            raise FileOperationError(
+                f"[{self.id}] Failed to write file '{filepath}': {e}"
+            ) from e
 
     def _write_csv_mode(
         self,
