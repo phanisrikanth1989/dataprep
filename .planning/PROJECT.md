@@ -115,7 +115,7 @@ Any Talend job using the target components must produce identical results when r
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Fix engine architecture (pragmatic refactor) | Engine execution loop is 140 lines of nested logic — fixing bugs in it is harder than cleaning it up. Refactor only what blocks component work. | — Pending |
+| Fix engine architecture (pragmatic refactor) | Engine execution loop is 140 lines of nested logic — fixing bugs in it is harder than cleaning it up. Refactor only what blocks component work. | ✓ Complete (Phase 3) — 5-file decomposition (component_registry, execution_plan, output_router, executor, engine.py), 98 tests, engine.py 868→259 lines |
 | 12 priority components this milestone, all 86 for production | Fix 12 priority components + iterate + Oracle now. Remaining ~74 follow the established patterns in future milestones. All 86 needed for production readiness. | — Pending |
 | Java Bridge before component work | Java expressions used throughout tMap and other components — bridge must be reliable before component hardening | ✓ Complete (Phase 2) — full rewrite both Python + Java, schema-driven serialization, 88 tests |
 | Iterate support in this milestone | 30% of jobs use iterate — can't defer without blocking a third of production migration | — Pending |
@@ -140,4 +140,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-14 after Phase 2 completion*
+*Last updated: 2026-04-14 after Phase 3 completion*
