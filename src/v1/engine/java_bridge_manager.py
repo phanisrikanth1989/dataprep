@@ -5,6 +5,8 @@ import logging
 import socket
 from typing import Optional, List
 
+from .exceptions import JavaBridgeError
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,7 +41,7 @@ class JavaBridgeManager:
         try:
             # Find available port
             self.port = self._find_free_port()
-            logger.info(f"Starting Java bridge on port {self.port}")
+            logger.info("[OK] Starting Java bridge on port %d", self.port)
 
             # Import and initialize bridge
             from src.v1.java_bridge import JavaBridge
@@ -48,44 +50,44 @@ class JavaBridgeManager:
             self.bridge.start(port=self.port)
             self.is_running = True
 
-            logger.info(f"Java bridge started successfully on port {self.port}")
+            # Sync Python log level to Java side (D-16)
+            python_level = logger.getEffectiveLevel()
+            self.bridge.set_log_level(python_level)
+            logger.info("[OK] Java bridge started on port %d, log level synced", self.port)
 
             # Validate required libraries if specified
             if self.libraries:
-                logger.info(f"Validating {len(self.libraries)} required library(ies)...")
+                logger.info("[OK] Validating %d required library(ies)...", len(self.libraries))
                 missing_libraries = self.bridge.validate_libraries(self.libraries)
                 if missing_libraries:
                     error_msg = f"Missing required libraries: {missing_libraries}"
-                    logger.error(f"{error_msg}")
+                    logger.error("[ERROR] %s", error_msg)
                     self.bridge.stop()
                     raise RuntimeError(error_msg)
-                logger.info(f"All {len(self.libraries)} libraries are available on classpath")
+                logger.info("[OK] All %d libraries are available on classpath", len(self.libraries))
 
             # Load routines if specified
             if self.routines:
-                logger.info(f"Loading {len(self.routines)} routine(s)...")
+                logger.info("[OK] Loading %d routine(s)...", len(self.routines))
                 for routine_class in self.routines:
                     try:
                         self.bridge.load_routine(routine_class)
-                        logger.info(f"Loaded: {routine_class}")
+                        logger.info("[OK] Loaded: %s", routine_class)
                     except Exception as e:
-                        logger.error(f"Failed to load {routine_class}")
+                        logger.error("[ERROR] Failed to load %s", routine_class)
 
         except Exception as e:
-            logger.error(f"Failed to start Java bridge: {e}")
-            logger.warning("Java execution will be disabled. Components will fall back to Python execution.")
-            self.enable = False
-            self.bridge = None
-            self.is_running = False
+            logger.error("[ERROR] Java bridge failed to start: %s", e, exc_info=True)
+            raise JavaBridgeError(f"Java bridge failed to start: {e}") from e
 
     def stop(self):
         """Stop Java bridge and cleanup"""
         if self.bridge and self.is_running:
             try:
                 self.bridge.stop()
-                logger.info(f"Java bridge stopped (port {self.port})")
+                logger.info("[OK] Java bridge stopped (port %s)", self.port)
             except Exception as e:
-                logger.error(f"Error stopping Java bridge: {e}")
+                logger.error("[ERROR] Error stopping Java bridge: %s", e)
             finally:
                 self.bridge = None
                 self.is_running = False
