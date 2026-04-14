@@ -23,7 +23,7 @@ class GlobalMap:
         self._map[key] = value
         logger.debug(f"GlobalMap: Set {key} = {value}")
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str, default: Any = None) -> Optional[Any]:
         """Retrieve a value from the global map"""
         return self._map.get(key, default)
     
