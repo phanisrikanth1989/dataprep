@@ -154,6 +154,20 @@ class BaseIterateComponent(BaseComponent):
 
         return {"item": item, "index": self.current_iteration_index}
 
+    def update_iteration_stats(self, iteration_stats: dict) -> None:
+        """Accumulate stats from one iteration into component stats.
+
+        Called by the engine after each iteration completes to roll up
+        per-iteration statistics into the component's cumulative stats.
+
+        Args:
+            iteration_stats: Dict with NB_LINE, NB_LINE_OK, NB_LINE_REJECT
+                keys from the executed iteration.
+        """
+        self.stats["NB_LINE"] += iteration_stats.get("NB_LINE", 0)
+        self.stats["NB_LINE_OK"] += iteration_stats.get("NB_LINE_OK", 0)
+        self.stats["NB_LINE_REJECT"] += iteration_stats.get("NB_LINE_REJECT", 0)
+
     def finalize_iterations(self) -> None:
         """Called after all iterations complete.
 
