@@ -69,12 +69,16 @@ class JavaBridgeManager:
             # Load routines if specified
             if self.routines:
                 logger.info("[OK] Loading %d routine(s)...", len(self.routines))
+                failed_routines = []
                 for routine_class in self.routines:
                     try:
                         self.bridge.load_routine(routine_class)
                         logger.info("[OK] Loaded: %s", routine_class)
                     except Exception as e:
-                        logger.error("[ERROR] Failed to load %s", routine_class)
+                        logger.error("[ERROR] Failed to load %s: %s", routine_class, e)
+                        failed_routines.append(routine_class)
+                if failed_routines:
+                    raise JavaBridgeError(f"Failed to load routines: {failed_routines}")
 
         except Exception as e:
             logger.error("[ERROR] Java bridge failed to start: %s", e, exc_info=True)
