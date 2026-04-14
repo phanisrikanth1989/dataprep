@@ -92,9 +92,9 @@ Plans:
   5. Engine unit tests pass for both tFileInputDelimited and tFileOutputDelimited covering all implemented features
 **Plans:** 3 plans
 Plans:
-- [ ] 04-01-PLAN.md -- FileInputDelimited rewrite + exhaustive unit tests
-- [ ] 04-02-PLAN.md -- FileOutputDelimited rewrite + exhaustive unit tests
-- [ ] 04-03-PLAN.md -- Package init update + integration tests with converter JSON
+- [x] 04-01-PLAN.md -- FileInputDelimited rewrite + exhaustive unit tests
+- [x] 04-02-PLAN.md -- FileOutputDelimited rewrite + exhaustive unit tests
+- [x] 04-03-PLAN.md -- Package init update + integration tests with converter JSON
 
 ### Phase 5: tMap Component
 **Goal**: tMap correctly performs joins, applies expressions and filters, routes to multiple outputs including reject, and handles all Talend join semantics (UNIQUE_MATCH, null handling, inner join rejects)
