@@ -56,7 +56,9 @@ public final class ArrowSerializer {
             return String.class;
         }
         switch (schemaType) {
+            // Python type strings (from type_mapping.py)
             case "str":
+            case "object":
                 return String.class;
             case "int":
                 return Long.class;
@@ -68,8 +70,23 @@ public final class ArrowSerializer {
                 return Date.class;
             case "Decimal":
                 return BigDecimal.class;
-            case "object":
+            // Java type names (from bridge.py _convert_schema_to_java)
+            case "String":
                 return String.class;
+            case "Long":
+            case "Integer":
+            case "Short":
+            case "Byte":
+                return Long.class;
+            case "Double":
+            case "Float":
+                return Double.class;
+            case "Boolean":
+                return Boolean.class;
+            case "Date":
+                return Date.class;
+            case "BigDecimal":
+                return BigDecimal.class;
             default:
                 logger.warning("[JavaBridge] Unknown schema type: " + schemaType + " -- defaulting to String");
                 return String.class;
@@ -152,10 +169,11 @@ public final class ArrowSerializer {
         } else if (javaType == Boolean.class) {
             vector = new BitVector(name, allocator);
         } else if (javaType == Date.class) {
-            vector = new DateMilliVector(name, allocator);
+            // Use TimeStampNanoVector to match Python's pa.timestamp("ns")
+            vector = new TimeStampNanoVector(name, allocator);
         } else if (javaType == BigDecimal.class) {
-            // Default precision/scale -- overridden by inferDecimalPrecisionScale if data available
-            vector = new DecimalVector(name, allocator, 38, 10);
+            // Default precision/scale matching Python's PYTHON_TO_ARROW["Decimal"] = decimal128(38, 18)
+            vector = new DecimalVector(name, allocator, 38, 18);
         } else {
             // Fallback (should not happen given mapSchemaTypeToJava defaults to String)
             vector = new VarCharVector(name, allocator);
@@ -188,6 +206,30 @@ public final class ArrowSerializer {
         } else if (vector instanceof BitVector) {
             boolean boolVal = (value instanceof Boolean) ? (Boolean) value : Boolean.parseBoolean(value.toString());
             ((BitVector) vector).setSafe(index, boolVal ? 1 : 0);
+        } else if (vector instanceof TimeStampNanoVector) {
+            long nanos;
+            if (value instanceof Long) {
+                // Arrow TimeStampNanoVector.getObject often returns Long (nanos since epoch)
+                nanos = (Long) value;
+            } else if (value instanceof java.time.LocalDateTime) {
+                // Arrow 15.x TimeStampNanoVector.getObject may return LocalDateTime
+                java.time.LocalDateTime ldt = (java.time.LocalDateTime) value;
+                nanos = ldt.toInstant(java.time.ZoneOffset.UTC).getEpochSecond() * 1_000_000_000L
+                        + ldt.toInstant(java.time.ZoneOffset.UTC).getNano();
+            } else if (value instanceof Date) {
+                nanos = ((Date) value).getTime() * 1_000_000L;
+            } else if (value instanceof Number) {
+                nanos = ((Number) value).longValue();
+            } else {
+                try {
+                    nanos = Long.parseLong(value.toString());
+                } catch (NumberFormatException e) {
+                    logger.fine("[ArrowSerializer] Cannot convert " + value.getClass().getSimpleName()
+                            + " to timestamp nanos, defaulting to 0");
+                    nanos = 0;
+                }
+            }
+            ((TimeStampNanoVector) vector).setSafe(index, nanos);
         } else if (vector instanceof DateMilliVector) {
             long millis = (value instanceof Date) ? ((Date) value).getTime() : 0;
             ((DateMilliVector) vector).setSafe(index, millis);
@@ -195,6 +237,11 @@ public final class ArrowSerializer {
             BigDecimal decimal = (value instanceof BigDecimal)
                     ? (BigDecimal) value
                     : new BigDecimal(value.toString());
+            // Adjust scale to match the vector's declared scale to avoid ArithmeticException
+            int vectorScale = ((DecimalVector) vector).getScale();
+            if (decimal.scale() != vectorScale) {
+                decimal = decimal.setScale(vectorScale, java.math.RoundingMode.HALF_UP);
+            }
             ((DecimalVector) vector).setSafe(index, decimal);
         } else {
             // Fallback: try to set as VarChar

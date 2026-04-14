@@ -225,9 +225,10 @@ public class JavaBridge {
                 rowScript.setBinding(binding);
                 rowScript.run();
 
-                // Collect output values
+                // Collect output values from the output row map (not the input side)
+                Map<String, Object> outputValues = output_row.getOutputRow();
                 for (String colName : outputSchema.keySet()) {
-                    outputArrays.get(colName)[i] = output_row.get(colName);
+                    outputArrays.get(colName)[i] = outputValues.get(colName);
                 }
             } catch (Exception e) {
                 logger.severe("[JavaBridge] Error processing row " + i + ": " + e.getMessage());
