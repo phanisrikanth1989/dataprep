@@ -15,7 +15,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <arrow.version>15.0.2</arrow.version>
         <groovy.version>3.0.21</groovy.version>
-        <py4j.version>0.10.9.7</py4j.version>
+        <py4j.version>0.10.9.9</py4j.version>
     </properties>
 
     <dependencies>

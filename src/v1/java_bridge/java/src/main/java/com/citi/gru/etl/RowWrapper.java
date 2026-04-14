@@ -1,160 +1,122 @@
 package com.citi.gru.etl;
 
-import org.apache.arrow.vector.*;
-import java.util.*;
-import java.math.BigDecimal;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.logging.Logger;
 
 /**
- * Dynamic wrapper for row data to enable field access like row.field_name
- * Supports both reading from Arrow vectors (input_row) and writing to Map (output_row)
+ * Row accessor for Groovy script binding.
+ *
+ * Provides Groovy scripts access to input row data (read) and collects output
+ * values (write). Supports Groovy's propertyMissing convention so scripts can
+ * use {@code input_row.columnName} and {@code output_row.columnName = value}
+ * syntax directly.
+ *
+ * <p>Lifecycle per row iteration:
+ * <ol>
+ *   <li>Set input row via {@link #setInputRow(Map)}</li>
+ *   <li>Groovy script reads via {@link #get(String)} and writes via {@link #set(String, Object)}</li>
+ *   <li>Caller retrieves output via {@link #getOutputRow()}</li>
+ *   <li>Caller calls {@link #reset()} before next row</li>
+ * </ol>
  */
 public class RowWrapper {
 
-    private VectorSchemaRoot vectorRoot;
-    private int rowIndex;
-    private String tableName;
-    private Map<String, Object> dataMap;
-    private boolean isInputRow;
+    private static final Logger logger = Logger.getLogger(RowWrapper.class.getName());
+
+    private Map<String, Object> inputRow;
+    private Map<String, Object> outputRow;
 
     /**
-     * Constructor for input_row (reads from Arrow)
-     * @param vectorRoot Arrow vector schema root containing row data
-     * @param rowIndex Index of the row to read
-     * @param tableName Name of the table (for prefixed column lookup, e.g., "customers", "products")
+     * Construct a new RowWrapper with empty input and output maps.
      */
-    public RowWrapper(VectorSchemaRoot vectorRoot, int rowIndex, String tableName) {
-        this.vectorRoot = vectorRoot;
-        this.rowIndex = rowIndex;
-        this.tableName = tableName;
-        this.isInputRow = true;
-        this.dataMap = null;
+    public RowWrapper() {
+        this.inputRow = new HashMap<>();
+        this.outputRow = new HashMap<>();
     }
 
     /**
-     * Constructor for output_row (writes to Map)
+     * Get a value from the input row.
+     *
+     * @param columnName the column name to look up
+     * @return the value, or null if the column is not present
      */
-    public RowWrapper(Map<String, String> schema) {
-        this.dataMap = new HashMap<>();
-        this.isInputRow = false;
-        this.vectorRoot = null;
-        this.rowIndex = -1;
-
-        // Initialize all fields to null
-        for (String fieldName : schema.keySet()) {
-            dataMap.put(fieldName, null);
-        }
+    public Object get(String columnName) {
+        return inputRow.get(columnName);
     }
 
     /**
-     * Get field value - used for input_row
+     * Set a value in the output row.
+     *
+     * @param columnName the column name to set
+     * @param value the value to store
      */
-    public Object get(String fieldName) {
-        if (isInputRow) {
-            return getFromArrow(fieldName);
-        } else {
-            return dataMap.get(fieldName);
-        }
+    public void set(String columnName, Object value) {
+        outputRow.put(columnName, value);
     }
 
     /**
-     * Set field value - used for output_row
+     * Get the full input row map.
+     *
+     * @return the current input row data
      */
-    public void set(String fieldName, Object value) {
-        if (!isInputRow) {
-            dataMap.put(fieldName, value);
-        } else {
-            throw new UnsupportedOperationException("Cannot set values on input_row");
-        }
+    public Map<String, Object> getInputRow() {
+        return inputRow;
     }
 
     /**
-     * Read value from Arrow vector
-     * Implements smart column lookup with table name prefixing
+     * Replace the input row data for the next iteration.
+     *
+     * @param row the new input row data
      */
-    private Object getFromArrow(String fieldName) {
-        FieldVector vector = null;
-
-        // Strategy 1: Try "tableName.fieldName" (e.g., "customers.name")
-        if (tableName != null) {
-            String prefixedName = tableName + "." + fieldName;
-            vector = vectorRoot.getVector(prefixedName);
-        }
-
-        // Strategy 2: Fallback to original fieldName (for main table or unprefixed columns)
-        if (vector == null) {
-            vector = vectorRoot.getVector(fieldName);
-        }
-
-        if (vector == null) {
-            String attempted = (tableName != null) ?
-                tableName + "." + fieldName + " or " + fieldName :
-                fieldName;
-            throw new IllegalArgumentException("Field not found: " + attempted);
-        }
-
-        if (vector.isNull(rowIndex)) {
-            return null;
-        }
-
-        // Type-specific extraction
-        if (vector instanceof VarCharVector) {
-            return ((VarCharVector) vector).getObject(rowIndex).toString();
-        } else if (vector instanceof IntVector) {
-            return ((IntVector) vector).get(rowIndex);
-        } else if (vector instanceof BigIntVector) {
-            return ((BigIntVector) vector).get(rowIndex);
-        } else if (vector instanceof Float8Vector) {
-            return ((Float8Vector) vector).get(rowIndex);
-        } else if (vector instanceof BitVector) {
-            return ((BitVector) vector).get(rowIndex) == 1;
-        } else if (vector instanceof DateMilliVector) {
-            return new Date(((DateMilliVector) vector).get(rowIndex));
-        } else if (vector instanceof DecimalVector) {
-            return ((DecimalVector) vector).getObject(rowIndex);   // Returns BigDecimal
-        } else if (vector instanceof Decimal256Vector) {
-            return ((Decimal256Vector) vector).getObject(rowIndex);   // For large decimals
-        } else {
-            return vector.getObject(rowIndex);
-        }
+    public void setInputRow(Map<String, Object> row) {
+        this.inputRow = (row != null) ? row : new HashMap<>();
     }
 
     /**
-     * Get all data as Map (for output_row)
+     * Get all output values set by the Groovy script.
+     *
+     * @return the output row data
      */
-    public Map<String, Object> toMap() {
-        return dataMap;
+    public Map<String, Object> getOutputRow() {
+        return outputRow;
     }
 
-    // Dynamic property access support using Groovy's propertyMissing
+    /**
+     * Clear the output row for the next row iteration.
+     * Input row is not cleared -- caller must call {@link #setInputRow(Map)} explicitly.
+     */
+    public void reset() {
+        outputRow.clear();
+        logger.fine("[JavaBridge] RowWrapper reset for next row");
+    }
+
+    // ------------------------------------------------------------------
+    // Groovy propertyMissing support
+    // ------------------------------------------------------------------
+
+    /**
+     * Groovy property read: allows {@code row.columnName} syntax.
+     *
+     * @param name the property (column) name
+     * @return the value from the input row
+     */
     public Object propertyMissing(String name) {
         return get(name);
     }
 
+    /**
+     * Groovy property write: allows {@code row.columnName = value} syntax.
+     *
+     * @param name the property (column) name
+     * @param value the value to set in the output row
+     */
     public void propertyMissing(String name, Object value) {
         set(name, value);
     }
 
-    /**
-     * Proper toString() for debugging: shows all field values
-     */
     @Override
     public String toString() {
-        if (isInputRow && vectorRoot != null) {
-            StringBuilder sb = new StringBuilder();
-            sb.append("com.citi.gru.etl.RowWrapper[input_row] {");
-            List<String> fieldStrings = new ArrayList<>();
-            for (FieldVector vector : vectorRoot.getFieldVectors()) {
-                String fieldName = vector.getName();
-                Object value = get(fieldName);
-                fieldStrings.add(fieldName + "=" + String.valueOf(value));
-            }
-            sb.append(String.join(", ", fieldStrings));
-            sb.append("}");
-            return sb.toString();
-        } else if (!isInputRow && dataMap != null) {
-            return "com.citi.gru.etl.RowWrapper[output_row] " + dataMap.toString();
-        } else {
-            return "com.citi.gru.etl.RowWrapper[unknown]";
-        }
+        return "RowWrapper{inputRow=" + inputRow + ", outputRow=" + outputRow + "}";
     }
 }
