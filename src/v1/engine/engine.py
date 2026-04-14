@@ -524,7 +524,7 @@ class ETLEngine:
             return stats
 
         except Exception as e:
-            logger.error(f"Job execution failed: {e}")
+            logger.error(f"Job execution failed: {e}", exc_info=True)
 
             # Cleanup Java bridge even on error
             self._cleanup()
