@@ -479,7 +479,7 @@ class TestBaseComponentValidateSchema:
     def test_nullable_true_allows_nan(self):
         """nullable=True allows NaN in column (ENG-19 regression)."""
         df = pd.DataFrame({"val": [1.0, None, 3.0]})
-        schema = [{"name": "val", "type": "id_Integer", "nullable": True}]
+        schema = [{"name": "val", "type": "int", "nullable": True}]
         comp = ConcreteComponent("c1", {})
         result = comp.validate_schema(df, schema)
         assert result["val"].isna().sum() == 1  # NaN preserved
@@ -487,7 +487,7 @@ class TestBaseComponentValidateSchema:
     def test_nullable_false_rejects_nan(self):
         """nullable=False with NaN raises DataValidationError."""
         df = pd.DataFrame({"val": [1.0, None, 3.0]})
-        schema = [{"name": "val", "type": "id_Integer", "nullable": False}]
+        schema = [{"name": "val", "type": "int", "nullable": False}]
         comp = ConcreteComponent("c1", {})
         with pytest.raises(DataValidationError, match="not nullable"):
             comp.validate_schema(df, schema)
@@ -495,7 +495,7 @@ class TestBaseComponentValidateSchema:
     def test_integer_type_coercion(self):
         """Integer type coercion works."""
         df = pd.DataFrame({"val": ["1", "2", "3"]})
-        schema = [{"name": "val", "type": "id_Integer", "nullable": False}]
+        schema = [{"name": "val", "type": "int", "nullable": False}]
         comp = ConcreteComponent("c1", {})
         result = comp.validate_schema(df, schema)
         assert result["val"].dtype == "int64"
@@ -503,7 +503,7 @@ class TestBaseComponentValidateSchema:
     def test_string_type_passthrough(self):
         """String type passes through (object or string dtype)."""
         df = pd.DataFrame({"val": ["hello", "world"]})
-        schema = [{"name": "val", "type": "id_String", "nullable": True}]
+        schema = [{"name": "val", "type": "str", "nullable": True}]
         comp = ConcreteComponent("c1", {})
         result = comp.validate_schema(df, schema)
         # pandas 2.x may use StringDtype; both object and string are valid
@@ -512,7 +512,7 @@ class TestBaseComponentValidateSchema:
     def test_empty_dataframe_returns_empty(self):
         """Empty DataFrame returns empty DataFrame."""
         df = pd.DataFrame()
-        schema = [{"name": "val", "type": "id_Integer", "nullable": True}]
+        schema = [{"name": "val", "type": "int", "nullable": True}]
         comp = ConcreteComponent("c1", {})
         result = comp.validate_schema(df, schema)
         assert result.empty
@@ -521,8 +521,8 @@ class TestBaseComponentValidateSchema:
         """Missing column in schema is ignored (not errored)."""
         df = pd.DataFrame({"existing": [1, 2]})
         schema = [
-            {"name": "existing", "type": "id_Integer", "nullable": False},
-            {"name": "missing", "type": "id_String", "nullable": True},
+            {"name": "existing", "type": "int", "nullable": False},
+            {"name": "missing", "type": "str", "nullable": True},
         ]
         comp = ConcreteComponent("c1", {})
         result = comp.validate_schema(df, schema)
@@ -532,7 +532,7 @@ class TestBaseComponentValidateSchema:
     def test_nullable_true_integer_uses_nullable_dtype(self):
         """nullable=True integer with NaN uses pd.Int64Dtype (nullable int)."""
         df = pd.DataFrame({"val": [1.0, None, 3.0]})
-        schema = [{"name": "val", "type": "id_Integer", "nullable": True}]
+        schema = [{"name": "val", "type": "int", "nullable": True}]
         comp = ConcreteComponent("c1", {})
         result = comp.validate_schema(df, schema)
         assert result["val"].dtype == pd.Int64Dtype()
