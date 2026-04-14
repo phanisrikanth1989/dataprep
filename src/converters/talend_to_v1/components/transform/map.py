@@ -27,6 +27,7 @@ from xml.etree.ElementTree import Element
 
 from ..base import ComponentConverter, ComponentResult, TalendConnection, TalendNode
 from ..registry import REGISTRY
+from ...type_mapping import convert_type
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ def _parse_lookup(lookup_xml: Element) -> Dict[str, Any]:
             join_keys.append({
                 "lookup_column": col.get("name", ""),
                 "expression": _java_expr(col_expression),
-                "type": col.get("type", "id_String"),
+                "type": convert_type(col.get("type", "id_String")),
                 "nullable": _attr_bool(col, "nullable", default=True),
                 "operator": col_operator,
             })
@@ -159,7 +160,7 @@ def _parse_variables(
                 variables.append({
                     "name": var_name,
                     "expression": _java_expr(var_expression),
-                    "type": var_entry.get("type", "id_String"),
+                    "type": convert_type(var_entry.get("type", "id_String")),
                     "nullable": _attr_bool(var_entry, "nullable", default=True),
                 })
     return variables, var_table_name, var_table_size_state
@@ -186,7 +187,7 @@ def _parse_outputs(mapper_data: Element) -> List[Dict[str, Any]]:
         for col in output_xml.findall("./mapperTableEntries"):
             col_name = col.get("name", "")
             col_expression = col.get("expression", "").strip()
-            col_type = col.get("type", "id_String")
+            col_type = convert_type(col.get("type", "id_String"))
             col_nullable = _attr_bool(col, "nullable", default=True)
 
             # Parse length/precision as int, defaulting to -1 (sentinel for "not set")

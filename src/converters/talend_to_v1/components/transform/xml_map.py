@@ -32,6 +32,7 @@ from xml.etree.ElementTree import Element
 
 from ..base import ComponentConverter, ComponentResult, TalendConnection, TalendNode
 from ..registry import REGISTRY
+from ...type_mapping import convert_type
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ def _parse_nested_children(element: Element) -> List[Dict[str, Any]]:
     for child in element.findall("./children"):
         child_data: Dict[str, Any] = {
             "name": child.get("name", ""),
-            "type": child.get("type", "id_String"),
+            "type": convert_type(child.get("type", "id_String")),
             "xpath": child.get("xpath", ""),
             "nodeType": child.get("nodeType", ""),
             "loop": child.get("loop", "").lower() == "true",
@@ -74,7 +75,7 @@ def _parse_input_trees(node_data: Element) -> List[Dict[str, Any]]:
             node_info: Dict[str, Any] = {
                 "name": tree_node.get("name", ""),
                 "expression": tree_node.get("expression", ""),
-                "type": tree_node.get("type", "id_Document"),
+                "type": convert_type(tree_node.get("type", "id_Document")),
                 "xpath": tree_node.get("xpath", ""),
                 "children": _parse_nested_children(tree_node),
             }
@@ -100,7 +101,7 @@ def _parse_output_trees(node_data: Element) -> List[Dict[str, Any]]:
             node_info: Dict[str, Any] = {
                 "name": tree_node.get("name", ""),
                 "expression": tree_node.get("expression", ""),
-                "type": tree_node.get("type", "id_String"),
+                "type": convert_type(tree_node.get("type", "id_String")),
                 "xpath": tree_node.get("xpath", ""),
                 "children": _parse_nested_children(tree_node),
             }
@@ -336,7 +337,7 @@ def _parse_output_schema_from_xml(
         for column in metadata_node.findall("./column"):
             output_schema.append({
                 "name": column.get("name", ""),
-                "type": column.get("type", "id_String"),
+                "type": convert_type(column.get("type", "id_String")),
                 "nullable": column.get("nullable", "true").lower() == "true",
                 "key": column.get("key", "false").lower() == "true",
                 "length": int(column.get("length", -1)),

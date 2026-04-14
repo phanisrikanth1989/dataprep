@@ -74,30 +74,18 @@ class BaseComponent(ABC):
     # Memory threshold for auto-switching to streaming mode (in MB)
     MEMORY_THRESHOLD_MB = 3072
 
-    # Talend type -> pandas dtype mapping for validate_schema
+    # Python type string -> pandas dtype mapping for validate_schema.
+    # Only the 7 canonical Python type strings are supported.
+    # Talend id_* types are converted to Python types by the converter layer
+    # (src/converters/talend_to_v1/type_mapping.py) before reaching the engine.
     _TYPE_MAPPING: dict[str, str] = {
-        "id_String": "object",
-        "id_Integer": "int64",
-        "id_Long": "int64",
-        "id_Short": "int64",
-        "id_Byte": "int64",
-        "id_Float": "float64",
-        "id_Double": "float64",
-        "id_Boolean": "bool",
-        "id_Date": "datetime64[ns]",
-        "id_BigDecimal": "object",
-        "id_Character": "object",
-        "id_Object": "object",
-        # Simple type names
         "str": "object",
-        "string": "object",
         "int": "int64",
-        "long": "int64",
         "float": "float64",
-        "double": "float64",
         "bool": "bool",
-        "date": "datetime64[ns]",
-        "decimal": "object",
+        "datetime": "datetime64[ns]",
+        "Decimal": "object",
+        "object": "object",
     }
 
     def __init__(
@@ -546,7 +534,7 @@ class BaseComponent(ABC):
             if col_name not in result.columns:
                 continue
 
-            col_type = col_def.get("type", "id_String")
+            col_type = col_def.get("type", "str")
             nullable = col_def.get("nullable", True)
 
             # Check nullable constraint CORRECTLY (FIX ENG-19)
@@ -572,7 +560,7 @@ class BaseComponent(ABC):
         Args:
             df: DataFrame containing the column.
             col_name: Name of the column to coerce.
-            col_type: Talend type string (e.g. 'id_Integer', 'id_String').
+            col_type: Python type string (e.g. 'int', 'str', 'Decimal').
             nullable: Whether the column allows NULL values.
 
         Returns:
