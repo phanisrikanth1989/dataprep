@@ -32,7 +32,7 @@ Rewrite the tMap engine component from scratch with full Talend feature parity f
 - **D-10:** Benefits of hook approach: config immutability for free (deepcopy from _original_config), iterate support automatic (reset + config re-derivation), future lifecycle additions inherited.
 
 ### Join Semantics (Talend Parity -- Non-Negotiable)
-- **D-11:** MAP-01 UNIQUE_MATCH uses first-row semantics (`drop_duplicates(keep='first')`). Current code incorrectly uses `keep='last'`.
+- **D-11:** MAP-01 UNIQUE_MATCH uses last-row semantics (`drop_duplicates(keep='last')`). Research confirmed Talend's AdvancedMemoryLookup uses HashMap.put() which overwrites (last inserted wins). Official Talend docs: "only the last matching row will be output." Current engine code is correct -- preserve `keep='last'`.
 - **D-12:** MAP-02 rejectInnerJoin outputs are distinct from generic reject outputs. Track per-lookup which main rows failed inner join. Use pandas merge indicator to identify unmatched rows per lookup.
 - **D-13:** MAP-03 Null keys never match (SQL/Talend semantics). Pre-filter rows where ANY join key is null/NaN on both sides before pandas merge. Track null-key main rows for potential reject routing.
 - **D-14:** All matching modes match Talend behavior exactly: UNIQUE_MATCH (first-row), FIRST_MATCH, LAST_MATCH, ALL_MATCHES (cartesian).
