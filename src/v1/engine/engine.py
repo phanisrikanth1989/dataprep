@@ -36,10 +36,6 @@ try:
     from .components.transform import Join, PivotToColumnsDelimited, SchemaComplianceCheck
     from .components.transform import Unite, UnpivotRow, XMLMap
     from .components.transform import FilterColumns
-    # from .components.database import OracleConnection, OracleClose, OracleRollback
-    # from .components.database import OracleInput, OracleOutput, OracleRow, OracleSP
-    # from .components.database import OracleBulkExec, MSSqlConnection, MSSqlInput
-    # from .components.database import OracleCommit
     from .components.aggregate import AggregateRow, UniqueRow
     from .components.transform import AggregateSortedRow, Denormalize, Normalize, Replicate
     from .components.context import ContextLoad
@@ -189,30 +185,6 @@ class ETLEngine:
         'tSleep': SleepComponent,
         'SendMailComponent': SendMailComponent,
         'tSendMail': SendMailComponent,
-
-        # Database components
-        # 'OracleConnection': OracleConnection,
-        # 'tDBConnection': OracleConnection,
-        # 'OracleClose': OracleClose,
-        # 'tOracleClose': OracleClose,
-        # 'OracleRollback': OracleRollback,
-        # 'tOracleRollback': OracleRollback,
-        # 'OracleInput': OracleInput,
-        # 'tOracleInput': OracleInput,
-        # 'OracleOutput': OracleOutput,
-        # 'tOracleOutput': OracleOutput,
-        # 'OracleRow': OracleRow,
-        # 'tOracleRow': OracleRow,
-        # 'OracleSP': OracleSP,
-        # 'tOracleSP': OracleSP,
-        # 'OracleBulkExec': OracleBulkExec,
-        # 'tOracleBulkExec': OracleBulkExec,
-        # 'MSSqlConnection': MSSqlConnection,
-        # 'tMSSqlConnection': MSSqlConnection,
-        # 'MSSqlInput': MSSqlInput,
-        # 'tMSSqlInput': MSSqlInput,
-        # 'OracleCommit': OracleCommit,
-        # 'tOracleCommit': OracleCommit,
     }
 
     def __init__(self, job_config: Dict[str, Any]):
