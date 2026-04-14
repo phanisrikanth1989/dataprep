@@ -592,11 +592,8 @@ class FileInputDelimited(BaseComponent):
 
                 # a. CHECK_FIELDS_NUM (FILD-06)
                 if check_fields_num and expected_col_count is not None:
-                    non_empty = sum(
-                        1 for v in row_values
-                        if str(v).strip() != ""
-                    )
-                    if non_empty != expected_col_count:
+                    actual_field_count = len(row_values)
+                    if actual_field_count != expected_col_count:
                         reject_row = {
                             c: str(row_dict.get(c, "")) for c in schema_cols
                             if c in row_dict
@@ -604,7 +601,7 @@ class FileInputDelimited(BaseComponent):
                         reject_row["errorCode"] = _ERROR_FIELD_COUNT
                         reject_row["errorMessage"] = (
                             f"Field count mismatch: expected "
-                            f"{expected_col_count}, got {non_empty} "
+                            f"{expected_col_count}, got {actual_field_count} "
                             f"- Line: {line_num}"
                         )
                         chunk_reject.append(reject_row)
