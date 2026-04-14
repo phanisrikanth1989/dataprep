@@ -75,12 +75,10 @@ class BaseComponent(ABC):
     MEMORY_THRESHOLD_MB = 3072
 
     # Python type string -> pandas dtype mapping for validate_schema.
-    # Primary keys are the 7 canonical Python type strings produced by
-    # the converter layer (src/converters/talend_to_v1/type_mapping.py).
-    # Talend id_* aliases are included as a safety net for any rogue
-    # configs or test data that bypass the converter normalization.
+    # Only the 7 canonical Python type strings are supported.
+    # Talend id_* types are converted to Python types by the converter layer
+    # (src/converters/talend_to_v1/type_mapping.py) before reaching the engine.
     _TYPE_MAPPING: dict[str, str] = {
-        # Canonical Python type strings (converter output)
         "str": "object",
         "int": "int64",
         "float": "float64",
@@ -88,15 +86,6 @@ class BaseComponent(ABC):
         "datetime": "datetime64[ns]",
         "Decimal": "object",
         "object": "object",
-        # Talend id_* aliases (safety net)
-        "id_String": "object",
-        "id_Integer": "int64",
-        "id_Long": "int64",
-        "id_Float": "float64",
-        "id_Double": "float64",
-        "id_Boolean": "bool",
-        "id_Date": "datetime64[ns]",
-        "id_BigDecimal": "object",
     }
 
     def __init__(
