@@ -90,7 +90,11 @@ Plans:
   3. tFileOutputDelimited writes files with correct encoding, delimiters, append mode, header control, and splits large outputs into N-row files when configured
   4. All file I/O globalMap variables are set ({id}_FILENAME, {id}_ENCODING, {id}_FILE_NAME, FILE_EXIST_EXCEPTION)
   5. Engine unit tests pass for both tFileInputDelimited and tFileOutputDelimited covering all implemented features
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 04-01-PLAN.md -- FileInputDelimited rewrite + exhaustive unit tests
+- [ ] 04-02-PLAN.md -- FileOutputDelimited rewrite + exhaustive unit tests
+- [ ] 04-03-PLAN.md -- Package init update + integration tests with converter JSON
 
 ### Phase 5: tMap Component
 **Goal**: tMap correctly performs joins, applies expressions and filters, routes to multiple outputs including reject, and handles all Talend join semantics (UNIQUE_MATCH, null handling, inner join rejects)
@@ -192,7 +196,7 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 1. Infrastructure Bug Fixes & Project Setup | 0/7 | Planning complete | - |
 | 2. Java Bridge Reliability | 0/4 | Planning complete | - |
 | 3. Execution Loop Restructure | 4/4 | Complete    | 2026-04-14 |
-| 4. File I/O Components | 0/TBD | Not started | - |
+| 4. File I/O Components | 0/3 | Planning complete | - |
 | 5. tMap Component | 0/TBD | Not started | - |
 | 6. Transform Group A -- Aggregation, Sort, Filter | 0/TBD | Not started | - |
 | 7. Transform Group B -- Column, Join, Unite | 0/TBD | Not started | - |
