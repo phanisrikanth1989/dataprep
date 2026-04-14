@@ -69,6 +69,12 @@ class Executor:
         self._job_terminated: bool = False
         self._termination_error: ComponentExecutionError | None = None
 
+        # Subjobs queued by OnComponentOk cross-subjob triggers
+        self._component_triggered_subjobs: list[str] = []
+
+        # Track which subjobs were actually attempted (for stall detection)
+        self._attempted_subjobs: set[str] = set()
+
     # ------------------------------------------------------------------
     # Main entry point
     # ------------------------------------------------------------------
@@ -93,27 +99,46 @@ class Executor:
 
         while pending_subjobs:
             subjob_id = pending_subjobs.popleft()
+            if subjob_id in self._attempted_subjobs:
+                continue
+            self._attempted_subjobs.add(subjob_id)
             logger.info("Executing subjob: %s", subjob_id)
 
             result = self._execute_subjob(subjob_id)
 
-            # Collect triggered subjobs and append to queue
+            # Collect triggered subjobs (OnSubjobOk/Error/RunIf) and append to queue
             triggered = self._collect_triggered_subjobs(subjob_id, result)
             pending_subjobs.extend(triggered)
+
+            # Also collect any subjobs triggered by OnComponentOk during subjob execution
+            if self._component_triggered_subjobs:
+                pending_subjobs.extend(self._component_triggered_subjobs)
+                self._component_triggered_subjobs = []
 
             if self._job_terminated:
                 logger.info("Job terminated by tDie component")
                 break
 
-        # Stall detection: check if all components were executed
-        total_component_count = len(self.components)
-        if len(self.executed_components) < total_component_count and not self._job_terminated:
+        # Stall detection: check for components in attempted subjobs that never executed
+        if not self._job_terminated:
             unexecuted = set(self.components.keys()) - self.executed_components
-            diagnostics = self._build_stall_diagnostics(unexecuted)
-            raise ConfigurationError(
-                f"Runtime stall detected: {len(unexecuted)} components never executed. "
-                f"Stuck components:\n{diagnostics}"
-            )
+            # Exclude components marked as skipped
+            unexecuted = {
+                c for c in unexecuted
+                if self.execution_stats.get(c, {}).get("status") != "skipped"
+            }
+            # Only flag components in subjobs that were actually attempted
+            # (components in untriggered subjobs are not stuck, just conditional)
+            unexecuted = {
+                c for c in unexecuted
+                if self.execution_plan.component_to_subjob.get(c) in self._attempted_subjobs
+            }
+            if unexecuted:
+                diagnostics = self._build_stall_diagnostics(unexecuted)
+                raise ConfigurationError(
+                    f"Runtime stall detected: {len(unexecuted)} components never executed. "
+                    f"Stuck components:\n{diagnostics}"
+                )
 
         execution_time = time.time() - start_time
 
@@ -262,7 +287,15 @@ class Executor:
             logger.error("Component %s failed: %s", comp_id, e)
 
             # Check for tDie: exit_code attribute means job should stop (D-13)
-            if hasattr(e, "exit_code"):
+            # BaseComponent.execute() wraps _process() exceptions in a new
+            # ComponentExecutionError, so exit_code may be on the cause chain.
+            exit_code = getattr(e, "exit_code", None)
+            if exit_code is None and hasattr(e, "cause") and e.cause is not None:
+                exit_code = getattr(e.cause, "exit_code", None)
+            if exit_code is None and e.__cause__ is not None:
+                exit_code = getattr(e.__cause__, "exit_code", None)
+
+            if exit_code is not None:
                 self._job_terminated = True
                 self._termination_error = e
                 self.trigger_manager.set_component_status(comp_id, "error")
@@ -271,7 +304,7 @@ class Executor:
                 self.execution_stats[comp_id] = {
                     "status": "error",
                     "error": str(e),
-                    "exit_code": getattr(e, "exit_code", None),
+                    "exit_code": exit_code,
                 }
                 # Do NOT re-raise -- let execute_job handle via _job_terminated flag
                 return "error"
@@ -297,6 +330,9 @@ class Executor:
         OnSubjobOk triggers are NEVER checked here -- they fire in
         _collect_triggered_subjobs after the entire subjob completes.
 
+        If a triggered component is in a different subjob, that subjob
+        is queued for execution via _component_triggered_subjobs.
+
         Args:
             comp_id: The component that just completed.
             comp_result: 'success' or 'error'.
@@ -309,6 +345,18 @@ class Executor:
         triggered = self.trigger_manager.get_triggered_components(comp_id)
         if triggered:
             logger.debug("Component triggers from %s: %s", comp_id, triggered)
+            # Check if any triggered components are in different subjobs
+            comp_to_subjob = self.execution_plan.component_to_subjob
+            source_subjob = comp_to_subjob.get(comp_id)
+            for target_comp in triggered:
+                target_subjob = comp_to_subjob.get(target_comp)
+                if target_subjob and target_subjob != source_subjob:
+                    if target_subjob not in self._already_executed_subjobs():
+                        self._component_triggered_subjobs.append(target_subjob)
+                        logger.info(
+                            "OnComponentOk cross-subjob trigger: %s -> %s (subjob %s)",
+                            comp_id, target_comp, target_subjob,
+                        )
 
     def _collect_triggered_subjobs(self, subjob_id: str, subjob_result: str) -> list[str]:
         """Collect subjobs triggered after a subjob completes.
@@ -413,6 +461,19 @@ class Executor:
     # ------------------------------------------------------------------
     # Stall diagnostics
     # ------------------------------------------------------------------
+
+    def _count_accounted_components(self) -> int:
+        """Count components that are executed, skipped, or in untriggered subjobs.
+
+        Returns:
+            Number of components accounted for (not stuck).
+        """
+        accounted = set(self.executed_components)
+        # Add skipped components
+        for comp_id, stats in self.execution_stats.items():
+            if stats.get("status") == "skipped":
+                accounted.add(comp_id)
+        return len(accounted)
 
     def _build_stall_diagnostics(self, unexecuted: set[str]) -> str:
         """Build actionable stall diagnostic message.
