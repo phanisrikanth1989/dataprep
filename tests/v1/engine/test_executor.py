@@ -274,8 +274,7 @@ class TestTriggerTimingPrecision:
 
         Uses OrderTrackingComponent to verify B runs before C (s2's component).
         """
-        global _execution_order
-        _execution_order = []
+        _execution_order.clear()
 
         executor = _build_executor(
             components_config=[
@@ -299,8 +298,7 @@ class TestTriggerTimingPrecision:
 
     def test_on_component_ok_fires_after_specific_component(self):
         """OnComponentOk fires after the specific component, not after subjob."""
-        global _execution_order
-        _execution_order = []
+        _execution_order.clear()
 
         executor = _build_executor(
             components_config=[
