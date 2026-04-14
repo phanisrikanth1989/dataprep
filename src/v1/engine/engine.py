@@ -371,11 +371,6 @@ class ETLEngine:
 
         # Register subjobs with trigger manager
         for subjob_id, components in subjobs.items():
-            # Identify source components (components with no inputs)
-            source_components = [
-                comp_id for comp_id in components
-                if not self.components[comp_id].inputs
-            ]
             self.trigger_manager.register_subjob(subjob_id, components)
 
         logger.info(f"Identified {len(subjobs)} subjobs")
