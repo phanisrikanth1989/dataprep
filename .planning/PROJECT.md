@@ -51,10 +51,10 @@ Any Talend job using the target components must produce identical results when r
 - [ ] python_component — Python equivalent of tJava, standardized alongside it
 - [ ] python_row_component — Python equivalent of tJavaRow, standardized alongside it
 
-**Java Bridge:**
-- [ ] Fix data type serialization failures (identify and fix specific failing types in Arrow serialization)
-- [ ] Strengthen JAR/library loading — robust tLibraryLoad equivalent via Maven/classpath management
-- [ ] Fix bidirectional context/globalMap sync reliability
+**Java Bridge:** *(Validated in Phase 2)*
+- [x] Fix data type serialization failures — schema-driven Arrow serialization for all 12 Talend types
+- [x] Strengthen JAR/library loading — robust classpath management with Class.forName validation
+- [x] Fix bidirectional context/globalMap sync — _call_java_with_sync at every call site
 
 **Routines:**
 - [ ] Java routines — custom utility functions callable from Java expressions (like Talend routine.jar)
@@ -117,7 +117,7 @@ Any Talend job using the target components must produce identical results when r
 |----------|-----------|---------|
 | Fix engine architecture (pragmatic refactor) | Engine execution loop is 140 lines of nested logic — fixing bugs in it is harder than cleaning it up. Refactor only what blocks component work. | — Pending |
 | 12 priority components this milestone, all 86 for production | Fix 12 priority components + iterate + Oracle now. Remaining ~74 follow the established patterns in future milestones. All 86 needed for production readiness. | — Pending |
-| Java Bridge before component work | Java expressions used throughout tMap and other components — bridge must be reliable before component hardening | — Pending |
+| Java Bridge before component work | Java expressions used throughout tMap and other components — bridge must be reliable before component hardening | ✓ Complete (Phase 2) — full rewrite both Python + Java, schema-driven serialization, 88 tests |
 | Iterate support in this milestone | 30% of jobs use iterate — can't defer without blocking a third of production migration | — Pending |
 | Leave legacy complex_converter | Not blocking production work, removing it is cleanup that can happen later | — Pending |
 | Both unit and integration tests | Engine has zero tests today. Need unit tests for isolation + integration tests for confidence that converted jobs actually run. | — Pending |
@@ -140,4 +140,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-14 after initialization*
+*Last updated: 2026-04-14 after Phase 2 completion*
