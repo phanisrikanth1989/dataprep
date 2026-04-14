@@ -39,13 +39,13 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. pytest infrastructure exists (conftest.py, fixtures, markers) and core infrastructure classes (GlobalMap, ContextManager, TriggerManager) have passing unit tests
 **Plans:** 7 plans
 Plans:
-- [ ] 01-01-PLAN.md -- Project setup (pyproject.toml, pytest infrastructure)
-- [ ] 01-02-PLAN.md -- GlobalMap rewrite + exhaustive tests
-- [ ] 01-03-PLAN.md -- ContextManager rewrite + exhaustive tests
-- [ ] 01-04-PLAN.md -- TriggerManager rewrite + exceptions refinement + exhaustive tests
-- [ ] 01-05-PLAN.md -- BaseComponent + BaseIterateComponent rewrite
-- [ ] 01-06-PLAN.md -- BaseComponent exhaustive tests + engine.py minimal updates
-- [ ] 01-07-PLAN.md -- Standards docs (ENGINE_COMPONENT_PATTERN.md, ENGINE_TEST_PATTERN.md)
+- [x] 01-01-PLAN.md -- Project setup (pyproject.toml, pytest infrastructure)
+- [x] 01-02-PLAN.md -- GlobalMap rewrite + exhaustive tests
+- [x] 01-03-PLAN.md -- ContextManager rewrite + exhaustive tests
+- [x] 01-04-PLAN.md -- TriggerManager rewrite + exceptions refinement + exhaustive tests
+- [x] 01-05-PLAN.md -- BaseComponent + BaseIterateComponent rewrite
+- [x] 01-06-PLAN.md -- BaseComponent exhaustive tests + engine.py minimal updates
+- [x] 01-07-PLAN.md -- Standards docs (ENGINE_COMPONENT_PATTERN.md, ENGINE_TEST_PATTERN.md)
 
 ### Phase 2: Java Bridge Reliability
 **Goal**: The Java bridge reliably serializes all data types, syncs context/globalMap bidirectionally, and handles JVM lifecycle -- so all downstream components using Java expressions can depend on correct bridge behavior
@@ -56,7 +56,12 @@ Plans:
   2. Py4J is upgraded to 0.10.9.9 with retry-on-empty-response, eliminating intermittent bridge failures
   3. Context and globalMap sync bidirectionally at every bridge call site -- not just some code paths
   4. JAR/library loading is robust with proper classpath management, and compiled script synchronization works correctly
-**Plans**: TBD
+**Plans:** 4 plans
+Plans:
+- [ ] 02-01-PLAN.md -- Python type mapping module + bridge.py rewrite (schema-driven serialization, sync-after-every-call)
+- [ ] 02-02-PLAN.md -- Java bridge rewrite (decompose JavaBridge.java into 4 classes) + pom.xml updates
+- [ ] 02-03-PLAN.md -- JavaBridgeManager updates (fail-fast, log level) + Python unit tests (type mapping, serialization, sync)
+- [ ] 02-04-PLAN.md -- Java JAR build + integration tests (12-type round-trip, compiled script verification)
 
 ### Phase 3: Execution Loop Restructure
 **Goal**: The engine can execute multi-subjob jobs with correct component ordering, data routing between components, trigger firing after subjob completion, and stall detection
@@ -180,7 +185,7 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Infrastructure Bug Fixes & Project Setup | 0/7 | Planning complete | - |
-| 2. Java Bridge Reliability | 0/TBD | Not started | - |
+| 2. Java Bridge Reliability | 0/4 | Planning complete | - |
 | 3. Execution Loop Restructure | 0/TBD | Not started | - |
 | 4. File I/O Components | 0/TBD | Not started | - |
 | 5. tMap Component | 0/TBD | Not started | - |
