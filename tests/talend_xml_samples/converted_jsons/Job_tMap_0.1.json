@@ -328,6 +328,7 @@
         "die_on_error": true,
         "rows_buffer_size": "2000000",
         "change_hash_and_equals_for_bigdecimal": true,
+        "enable_auto_convert_type": false,
         "tstatcatcher_stats": false,
         "label": ""
       },

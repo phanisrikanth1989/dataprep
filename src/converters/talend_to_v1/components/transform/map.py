@@ -3,10 +3,11 @@
 Multi-flow data mapping with lookup joins, variable definitions, and expression-based column mappings.
 Most complex component in the v1 converter suite.
 
-Config mapping (9 flat params + nodeData structure + framework):
+Config mapping (10 flat params + nodeData structure + framework):
   DIE_ON_ERROR -> die_on_error (bool, hidden, default True)
   ROWS_BUFFER_SIZE -> rows_buffer_size (str, default "2000000")
   CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL -> change_hash_and_equals_for_bigdecimal (bool, default True)
+  ENABLE_AUTO_CONVERT_TYPE -> enable_auto_convert_type (bool, hidden, default False)
   --- nodeData (MapperData XML) ---
   inputTables -> config["inputs"] (main + lookups with join keys, matching modes)
   varTables -> config["variables"] (variable definitions)
@@ -292,6 +293,9 @@ class MapConverter(ComponentConverter):
         config["rows_buffer_size"] = self._get_str(node, "ROWS_BUFFER_SIZE", "2000000")
         config["change_hash_and_equals_for_bigdecimal"] = self._get_bool(
             node, "CHANGE_HASH_AND_EQUALS_FOR_BIGDECIMAL", True
+        )
+        config["enable_auto_convert_type"] = self._get_bool(
+            node, "ENABLE_AUTO_CONVERT_TYPE", False
         )
 
         # ---- 5. Framework parameters (ALWAYS LAST) ----
