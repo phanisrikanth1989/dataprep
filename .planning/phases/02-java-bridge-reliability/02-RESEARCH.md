@@ -517,22 +517,19 @@ Current: 1022 lines in a single file. Method audit: [VERIFIED: source read]
 | A1 | Arrow IPC format from PyArrow 23.0.1 is readable by Java Arrow 15.0.2 | Common Pitfalls | HIGH -- bridge would fail to exchange data; mitigated by Arrow's backward compat guarantee [CITED: Arrow versioning docs] |
 | A2 | tXMLMap tree metadata `type` fields (lines 49, 77, 103) should also be converted for consistency | Converter Bug Analysis | LOW -- these are stored but not directly consumed by engine; converting them improves consistency but doesn't fix a runtime bug |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Maven installation for JAR rebuild**
+1. **Maven installation for JAR rebuild** — RESOLVED: Plan 04 Task 1 checks for Maven and installs via `brew install maven` if missing.
    - What we know: Maven is not installed (`command -v mvn` returns nothing). No Maven Wrapper in the project. No `target/` directory exists.
-   - What's unclear: Whether to install Maven globally or add Maven Wrapper to the project.
-   - Recommendation: Install Maven via `brew install maven` as a prerequisite step in Wave 0. The Java bridge must be buildable.
+   - Resolution: Install Maven via `brew install maven` as a prerequisite step before JAR build.
 
-2. **BaseComponent._TYPE_MAPPING cleanup**
+2. **BaseComponent._TYPE_MAPPING cleanup** — RESOLVED: Plan 01 Task 1 Part E removes `id_*` entries from BaseComponent._TYPE_MAPPING.
    - What we know: Phase 1's BaseComponent rewrite kept both `id_*` and Python type strings in `_TYPE_MAPPING` (lines 78-101). Once all converters are fixed, the `id_*` entries become dead code.
-   - What's unclear: Should Phase 2 remove the `id_*` entries from `_TYPE_MAPPING`, or leave that for later?
-   - Recommendation: Remove them in Phase 2 alongside the converter fix. Keeping dead `id_*` entries creates confusion about which format is canonical. The converter fix (D-05a) ensures no JSON config will contain `id_*` types after re-conversion.
+   - Resolution: Remove in Phase 2 alongside the converter fix. D-05a ensures no JSON config will contain `id_*` types after re-conversion.
 
-3. **JVM startup robustness**
+3. **JVM startup robustness** — RESOLVED: Plan 01 Task 2 implements exponential backoff retry with configurable max wait and clear error on timeout.
    - What we know: Current code uses `time.sleep(2)` + retry loop in bridge.py.
-   - What's unclear: Whether to implement a ready signal (Java writes to stdout, Python reads it) or keep the retry approach.
-   - Recommendation: Keep the retry approach but improve it (exponential backoff, clear error on timeout, configurable max wait). A ready signal is cleaner but adds subprocess I/O complexity.
+   - Resolution: Keep retry approach with exponential backoff. Ready signal adds unnecessary subprocess I/O complexity.
 
 ## Environment Availability
 
