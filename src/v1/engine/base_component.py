@@ -402,50 +402,41 @@ class BaseComponent(ABC):
         return self._process(input_data)
 
     def _execute_streaming(self, input_data: pd.DataFrame) -> dict:
-        """Process data in chunks. Collects BOTH main AND reject outputs.
+        """Process data in chunks. Collects ALL named flow outputs.
 
         Fixes ENG-07/ENG-20: The old implementation only collected main chunks,
         silently dropping all reject data from streaming execution.
+        Updated to collect arbitrary named flows (not just main/reject) so
+        multi-output components like tMap work correctly in streaming mode.
 
         Args:
             input_data: Input DataFrame to chunk and process.
 
         Returns:
-            dict with 'main' and 'reject' keys containing concatenated results.
+            dict with 'main' key (always present) and any other named flow
+            keys returned by _process(), containing concatenated results.
         """
         if input_data is None:
             return self._process(None)
 
         chunk_size = self.config.get("chunk_size", 10000)
-        main_chunks: list[pd.DataFrame] = []
-        reject_chunks: list[pd.DataFrame] = []
+        flow_chunks: dict[str, list[pd.DataFrame]] = {}
 
         for start in range(0, len(input_data), chunk_size):
             chunk = input_data.iloc[start : start + chunk_size]
             chunk_result = self._process(chunk)
 
-            main_df = chunk_result.get("main")
-            if main_df is not None and not isinstance(main_df, pd.DataFrame):
-                pass  # Non-DataFrame main (e.g. None) -- skip
-            elif main_df is not None and len(main_df) > 0:
-                main_chunks.append(main_df)
+            for key, value in chunk_result.items():
+                if isinstance(value, pd.DataFrame) and len(value) > 0:
+                    flow_chunks.setdefault(key, []).append(value)
 
-            reject_df = chunk_result.get("reject")
-            if reject_df is not None and isinstance(reject_df, pd.DataFrame) and len(reject_df) > 0:
-                reject_chunks.append(reject_df)
+        result = {}
+        for key, chunks in flow_chunks.items():
+            result[key] = pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame()
 
-        result = {
-            "main": (
-                pd.concat(main_chunks, ignore_index=True)
-                if main_chunks
-                else pd.DataFrame()
-            ),
-            "reject": (
-                pd.concat(reject_chunks, ignore_index=True)
-                if reject_chunks
-                else None
-            ),
-        }
+        # Ensure 'main' always exists
+        if "main" not in result:
+            result["main"] = pd.DataFrame()
         return result
 
     # ------------------------------------------------------------------
