@@ -1,18 +1,16 @@
 # Phase 2: Java Bridge Reliability - Research
 
-**Researched:** 2026-04-14
-**Domain:** Python-Java bridge (Py4J + Apache Arrow IPC), Groovy script execution, data type serialization
+**Researched:** 2026-04-14 (re-run with corrected converter fix scope)
+**Domain:** Python-Java bridge (Py4J + Apache Arrow IPC), data type serialization, bidirectional state sync
 **Confidence:** HIGH
 
 ## Summary
 
-The Java bridge layer consists of 4 files (1,900 total lines) connecting Python ETL engine components to a JVM process for Java/Groovy expression evaluation. The architecture (Py4J for RPC, Arrow IPC for data transfer) is sound, but the implementation has six documented reliability gaps: data-inference-based serialization instead of schema-driven, missing context/globalMap sync on most call sites, no retry logic for Py4J empty responses, fragile JAR loading, print-everywhere logging, and thread safety issues with compiled script execution.
+Phase 2 rewrites the Python-Java bridge layer: `bridge.py` (591 lines), `JavaBridge.java` (1022 lines), `RowWrapper.java` (160 lines), and updates `java_bridge_manager.py` (129 lines). The current bridge has 6 documented issues: data-inference-based Arrow serialization that fails on all-null columns, missing `_sync_from_java()` on 5 of 6 call paths, 47 print/println statements instead of proper logging, Py4J version mismatch (Python 0.10.9.9 vs Java 0.10.9.7), inconsistent type handling on Java side, and no retry logic.
 
-The highest-value finding from this research is the **schema format standardization problem**. The converter outputs type strings like `"int"`, `"float"`, `"str"`, `"datetime"`, `"Decimal"` -- but these lose Talend type fidelity (id_Integer, id_Long, id_Byte, id_Short all become `"int"`). The rewritten bridge must build a comprehensive type mapping table that handles all observed schema type strings (including raw `id_*` strings from tXMLMap converter bugs) and maps them to correct Arrow types. The schema dict from component config becomes the single source of truth -- no data inference anywhere.
+Additionally, two converters (tMap and tXMLMap) have a bug where they output raw Talend `id_*` type strings instead of running them through `convert_type()`. This must be fixed as part of the schema standardization effort (D-05a). The bridge's type mapping should ONLY handle the 7 Python type strings: `str`, `int`, `float`, `bool`, `datetime`, `Decimal`, `object`. No `id_*` fallback handling in the bridge -- the converter is responsible for producing correct types.
 
-The rewrite is well-scoped: Python side replaces 590 lines of bridge.py, Java side replaces 1,022 lines of JavaBridge.java and 160 lines of RowWrapper.java. The java_bridge_manager.py (128 lines) needs targeted updates rather than a full rewrite -- its lifecycle management and port allocation are sound.
-
-**Primary recommendation:** Rewrite both sides with schema-driven serialization as the central design principle. Every bridge method that transfers data receives explicit schema. Every bridge method that calls Java syncs context/globalMap afterward. Build comprehensive type mapping table on Python side (schema string -> Arrow type) and Java side (schema string -> Java class + Arrow vector type).
+**Primary recommendation:** Full rewrite of both Python and Java sides with schema-driven serialization. Fix the tMap and tXMLMap converter bugs first (or in parallel as a separate wave), then build the bridge to accept ONLY the 7 standardized Python type strings. Re-convert affected sample JSONs after the converter fix.
 
 <user_constraints>
 ## User Constraints (from CONTEXT.md)
@@ -22,35 +20,36 @@ The rewrite is well-scoped: Python side replaces 590 lines of bridge.py, Java si
 - **D-02:** The API surface (method signatures visible to engine components) should remain similar, but internals are rebuilt from scratch with schema-driven serialization, consistent sync, proper logging, and retry logic.
 - **D-03:** `java_bridge_manager.py` disposition is Claude's discretion -- update or rewrite based on what research reveals about needed changes.
 - **D-04:** Every bridge method receives an explicit schema dict mapping column names to types. No data inference. No guessing from first non-null value. Schema is the single source of truth for Arrow type mapping.
-- **D-05:** Research phase MUST audit what format converters produce for schema in JSON configs. That format becomes THE standard schema representation across the entire application. Bridge, engine components, and all downstream code use the same schema format. This has been a pain point -- one format, everywhere.
-- **D-06:** The bridge handles the mapping from the standardized schema format to Arrow types. Components pass schema as-is from their config. Single source of truth for type mapping lives in the bridge.
+- **D-05:** Research phase MUST audit what format the talend_to_v1 converters produce for schema in JSON configs. That format becomes THE standard schema representation across the entire application.
+- **D-05a:** Fix the tXMLMap converter bug that outputs raw Talend `id_*` type strings instead of running them through `convert_type()`. Every converter must produce Python type strings (`str`, `int`, `float`, `bool`, `datetime`, `Decimal`, `object`). No exceptions, no fallbacks.
+- **D-06:** The bridge handles the mapping from the standardized schema format (7 Python type strings only) to Arrow types. No fallback handling for raw Talend `id_*` types -- the converter is responsible for producing correct types. Components pass schema as-is from their config. Single source of truth for type mapping lives in the bridge.
 - **D-07:** Full audit and rewrite of JavaBridge.java (42KB) and RowWrapper.java. Remove unused code, fix type handling on the Java side, match the new Python bridge API.
 - **D-08:** Upgrade Py4J from 0.10.9.7 to 0.10.9.9 (retry-on-empty-response fix). Both Python package and Java dependency in pom.xml.
-- **D-09:** Arrow stays at 15.0.2 on both sides. No Arrow version upgrade -- current version works, lower risk.
+- **D-09:** Arrow stays at 15.0.2 on both sides. No Arrow version upgrade.
 - **D-10:** Groovy stays at 3.0.21. No Groovy upgrade.
-- **D-11:** Fail fast with clear error. If the bridge fails (JVM crash, serialization error, timeout), raise a `JavaBridgeError` immediately. No silent fallback to Python-side expression handling. Components that need Java MUST have the bridge working.
-- **D-12:** Context/globalMap sync must happen at EVERY bridge call site -- not just `execute_java_row()`. This is fixed by design in the rewrite (every method that calls Java syncs afterward).
-- **D-13:** ASCII-only logging throughout. No emojis, unicode symbols, or non-ASCII characters in any log messages. Production target is RHEL Linux servers. Use `[OK]`, `[ERROR]`, `[WARN]` text markers.
-- **D-14:** Replace all `print()` statements with proper `logging.getLogger(__name__)` calls on Python side. Java side uses `java.util.logging` (no SLF4J/Logback -- keep dependencies minimal).
-- **D-15:** Java log messages must be clearly identifiable as coming from the Java side. Use a logger name or prefix (e.g., `[JavaBridge]`) so interleaved Python/Java logs have obvious boundaries.
-- **D-16:** Log level sync between Python and Java. Python passes its log level to Java at bridge startup. Mapping: Python `DEBUG` -> JUL `FINE`, `INFO` -> `INFO`, `WARNING` -> `WARNING`, `ERROR` -> `SEVERE`. One knob on Python side controls both. No separate Java log config needed.
-- **D-17:** JavaBridge.java (42KB single file) may be decomposed into smaller focused classes for maintainability. Research determines the right boundaries.
-- **D-18:** Unit tests for Python-side logic (schema mapping, type conversion, retry logic) with mocked Py4J gateway. No JVM required for these.
-- **D-19:** Integration tests that start a real JVM and round-trip data through the bridge end-to-end. Marked with `@pytest.mark.java` so they can be skipped on machines without JVM.
-- **D-20:** Round-trip test coverage for 12 Talend data types: String, Integer, Long, Float, Double, BigDecimal, Date, Timestamp, Boolean, Byte, Short, Character.
-- **D-21:** Subsequent component phases will add their own bridge integration tests. Phase 2 tests cover the bridge infrastructure itself.
-- **D-22:** Java 21 is available on dev machine (OpenJDK 21.0.10 via Homebrew). Java 11 is the minimum target for production.
+- **D-11:** Fail fast with clear error. If the bridge fails, raise `JavaBridgeError` immediately. No silent fallback.
+- **D-12:** Context/globalMap sync must happen at EVERY bridge call site.
+- **D-13:** ASCII-only logging throughout. No emojis, unicode symbols, or non-ASCII characters.
+- **D-14:** Replace all `print()` with proper `logging.getLogger(__name__)` on Python side. Java side uses `java.util.logging`.
+- **D-15:** Java log messages must be clearly identifiable with `[JavaBridge]` prefix.
+- **D-16:** Log level sync between Python and Java at bridge startup.
+- **D-17:** JavaBridge.java may be decomposed into smaller focused classes.
+- **D-18:** Unit tests for Python-side logic with mocked Py4J gateway.
+- **D-19:** Integration tests with real JVM, marked `@pytest.mark.java`.
+- **D-20:** Round-trip test for 12 Talend data types.
+- **D-21:** Phase 2 tests cover bridge infrastructure, not component-specific usage.
+- **D-22:** Java 21 available on dev machine; Java 11 is minimum target.
 
 ### Claude's Discretion
 - java_bridge_manager.py -- update vs rewrite based on needed changes
 - Internal method design and data structures for the rewritten bridge
 - Retry logic specifics (count, backoff, which failures trigger retry)
-- BRDG-06 (compiled script synchronization) -- implementation approach determined during research
-- BRDG-04 (JAR/library loading) -- robust classpath management approach determined during research
+- BRDG-06 (compiled script synchronization) -- implementation approach
+- BRDG-04 (JAR/library loading) -- robust classpath management approach
 
 ### Deferred Ideas (OUT OF SCOPE)
-- Arrow version upgrade (15.0.2 -> newer) -- keep stable for now
-- Groovy version upgrade -- no pressing need
+- Arrow version upgrade (15.0.2 -> newer)
+- Groovy version upgrade
 - byte[], List, Object, Document type support in Arrow serialization
 - Database connection bridge support
 </user_constraints>
@@ -60,12 +59,13 @@ The rewrite is well-scoped: Python side replaces 590 lines of bridge.py, Java si
 
 | ID | Description | Research Support |
 |----|-------------|------------------|
-| BRDG-01 | Identify and fix data type serialization failures in Arrow (date, timestamp, decimal types) | Schema audit complete. Found 7 distinct type strings in converter output (`str`, `int`, `float`, `bool`, `datetime`, `Decimal`, `object`) plus raw `id_*` types from tXMLMap. Complete type mapping table documented. Current bugs: date objects -> string, all-null columns -> string, Decimal precision inference from first value. |
-| BRDG-02 | Implement schema-driven Arrow serialization instead of data inference from first non-null value | Schema format fully audited. Column dict has keys: `name`, `type`, `nullable`, `key`, `length`, `precision`, `date_pattern`. Type string is the driver. Complete Python->Arrow and Java type mapping tables documented. |
-| BRDG-03 | Fix context/globalMap sync at every bridge call site | Audit complete. `_sync_from_java()` called in exactly 1 of 7 bridge methods (`execute_java_row`). Missing from: `execute_one_time_expression`, `execute_batch_one_time_expressions`, `execute_tmap_preprocessing`, `execute_tmap_compiled`, `compile_tmap_script`, `execute_compiled_tmap_chunked`. Components manually call `_sync_from_java()` as workaround (tMap, tJava). |
-| BRDG-04 | Strengthen JAR/library loading -- robust classpath management | Current validation is string-contains check on `java.class.path`. No dynamic classpath addition. pom.xml lacks assembly/shade plugin for uber-jar. Maven not installed on dev machine. |
-| BRDG-05 | Upgrade Py4J Python to 0.10.9.9 (retry on empty response) | Python-side already at 0.10.9.9 (verified). Java pom.xml still at 0.10.9.7. Need to update pom.xml only. Py4J 0.10.9.9 confirmed on Maven Central. |
-| BRDG-06 | Fix compiled script synchronization in Java bridge | `synchronized(compiledScript)` in parallel forEach serializes execution, negating parallelism. Compiled scripts share binding state. Fix: per-thread script cloning or sequential execution with explicit design. |
+| BRDG-01 | Fix data type serialization failures in Arrow (date, timestamp, decimal types) | Schema-driven serialization replaces data inference; type mapping module maps 7 Python types to Arrow types |
+| BRDG-02 | Implement schema-driven Arrow serialization instead of data inference | New `type_mapping.py` in bridge package; schema dict passed to every bridge method; no `_build_arrow_schema` data scanning |
+| BRDG-03 | Fix context/globalMap sync at every bridge call site | `_sync_from_java()` currently called only in `execute_java_row()`; must be added to all 5 other methods |
+| BRDG-04 | Strengthen JAR/library loading -- robust classpath management | Current `validateLibraries()` uses string-contains on classpath; needs actual class loading verification |
+| BRDG-05 | Upgrade Py4J Python to 0.10.9.9 (retry on empty response) | Python already at 0.10.9.9; pom.xml needs update from 0.10.9.7 to 0.10.9.9; rebuild JAR required |
+| BRDG-06 | Fix compiled script synchronization in Java bridge | `compiledScripts` ConcurrentHashMap exists but synchronization on script execution uses `synchronized(script)` which blocks parallel chunk processing |
+| D-05a | Fix tMap and tXMLMap converter bugs outputting raw `id_*` types | Both `map.py` and `xml_map.py` read XML attributes directly without `convert_type()`; 2 converted JSONs affected |
 </phase_requirements>
 
 ## Standard Stack
@@ -73,603 +73,516 @@ The rewrite is well-scoped: Python side replaces 590 lines of bridge.py, Java si
 ### Core
 | Library | Version | Purpose | Why Standard |
 |---------|---------|---------|--------------|
-| Py4J | 0.10.9.9 (Python + Java) | Python-Java gateway RPC | Already in use, retry-on-empty-response fix in 0.10.9.9 [VERIFIED: pip show py4j, Py4J changelog] |
-| Apache Arrow (pyarrow) | 23.0.1 (Python), 15.0.2 (Java) | Data serialization via IPC | Arrow IPC format is stable across versions [CITED: arrow.apache.org/docs/format/Versioning.html] |
-| Groovy | 3.0.21 | Dynamic script compilation/execution | Already in use, locked decision D-10 |
-| java.util.logging (JUL) | JDK built-in | Java-side logging | Locked decision D-14, no extra dependencies |
+| py4j | 0.10.9.9 | Python-Java gateway communication | Already installed on Python side; retry-on-empty-response fix; Java side needs pom.xml update from 0.10.9.7 [VERIFIED: pip3 show py4j] |
+| pyarrow | 23.0.1 (Python) / 15.0.2 (Java) | Arrow IPC data serialization | Python side has newer version; Java stays at 15.0.2 per D-09; IPC format is backward compatible [VERIFIED: pip3 show pyarrow, pom.xml] |
+| groovy | 3.0.21 | Dynamic script execution on Java side | Stays at current version per D-10 [VERIFIED: pom.xml] |
+| pytest | (installed) | Test framework | Phase 1 created test infrastructure in tests/v1/engine/ [VERIFIED: tests/v1/engine/conftest.py exists] |
 
 ### Supporting
 | Library | Version | Purpose | When to Use |
 |---------|---------|---------|-------------|
-| pytest | 9.0.2 | Test framework | Unit and integration tests [VERIFIED: pytest --version] |
-| pytest markers | N/A | `@pytest.mark.java`, `@pytest.mark.unit` | Already configured in pyproject.toml [VERIFIED: pyproject.toml] |
+| unittest.mock | stdlib | Mock Py4J gateway for unit tests | Python-side unit tests (D-18) |
+| java.util.logging | JDK | Java-side logging | Replace System.out.println per D-14/D-15 |
 
-### Alternatives Considered
-| Instead of | Could Use | Tradeoff |
-|------------|-----------|----------|
-| Py4J | gRPC + protobuf | Much higher complexity, would require full protocol redesign -- not justified |
-| Arrow IPC | JSON serialization | Orders of magnitude slower for large DataFrames, loses type fidelity |
-| Groovy | Janino | Less expressive, no dynamic property access (propertyMissing) |
-
-**Installation:**
-```bash
-# Python-side already installed. For Java:
-# Update pom.xml py4j.version from 0.10.9.7 to 0.10.9.9
-# Then rebuild JAR (requires Maven)
-```
-
-**Version verification:**
-- Py4J Python: 0.10.9.9 [VERIFIED: `pip show py4j` on 2026-04-14]
-- Py4J Java: 0.10.9.9 available on Maven Central [VERIFIED: central.sonatype.com]
-- PyArrow: 23.0.1 [VERIFIED: `python3 -c "import pyarrow; print(pyarrow.__version__)"` on 2026-04-14]
-- Arrow Java: 15.0.2 (locked, pom.xml) [VERIFIED: pom.xml]
-- Groovy: 3.0.21 (locked, pom.xml) [VERIFIED: pom.xml]
-- Pytest: 9.0.2 [VERIFIED: runtime]
+**No new dependencies required.** The rewrite uses existing libraries with version alignment.
 
 ## Architecture Patterns
 
-### Recommended Project Structure (Post-Rewrite)
+### Recommended Project Structure
+
 ```
 src/v1/java_bridge/
-  __init__.py                    # Re-exports JavaBridge
-  bridge.py                      # REWRITE: Python bridge client
-  type_mapping.py                # NEW: Schema type -> Arrow type mapping (single source of truth)
-  java/
-    pom.xml                      # UPDATE: Py4J 0.10.9.7 -> 0.10.9.9, add assembly plugin
-    src/main/java/com/citi/gru/etl/
-      JavaBridge.java            # REWRITE: Gateway entry point + method dispatch
-      ArrowSerializer.java       # NEW: Arrow IPC read/write + type mapping (extracted from JavaBridge)
-      ExpressionExecutor.java    # NEW: Groovy compile/execute logic (extracted from JavaBridge)
-      RowWrapper.java            # REWRITE: Row accessor for Arrow vectors
+    __init__.py                     # Re-exports JavaBridge
+    bridge.py                       # REWRITE: Python bridge client
+    type_mapping.py                 # NEW: Python type -> Arrow type mapping (7 types only)
+    java/
+        pom.xml                     # UPDATE: Py4J 0.10.9.7 -> 0.10.9.9
+        src/main/java/com/citi/gru/etl/
+            JavaBridge.java         # REWRITE: Main gateway + Groovy execution
+            RowWrapper.java         # REWRITE: Row accessor for Groovy scripts
+            ArrowSerializer.java    # NEW (optional): Arrow read/write utilities
+            TypeMapper.java         # NEW (optional): Schema type -> Java type mapping
+
 src/v1/engine/
-  java_bridge_manager.py         # UPDATE: Add log level passing, improve error handling
+    java_bridge_manager.py          # UPDATE: Lifecycle management, log level sync
+
+src/converters/talend_to_v1/
+    components/transform/
+        map.py                      # FIX: Add convert_type() calls (3 locations)
+        xml_map.py                  # FIX: Add convert_type() calls (4 locations in output)
+
 tests/v1/engine/
-  test_bridge_type_mapping.py    # NEW: Unit tests for schema -> Arrow type conversion
-  test_bridge_serialization.py   # NEW: Unit tests for Arrow serialization/deserialization
-  test_bridge_integration.py     # NEW: @pytest.mark.java end-to-end round-trip tests
+    test_bridge_type_mapping.py     # NEW: Unit tests for type mapping
+    test_bridge.py                  # NEW: Unit tests for bridge with mocked Py4J
+    test_bridge_integration.py      # NEW: Integration tests with real JVM (@pytest.mark.java)
 ```
 
-### Pattern 1: Schema-Driven Type Mapping (Python Side)
-**What:** Central mapping table from schema type strings to Arrow types. The bridge never inspects data values to determine types.
-**When to use:** Every bridge method that converts DataFrames to/from Arrow.
+### Pattern 1: Schema-Driven Serialization
+
+**What:** Every bridge method receives an explicit schema dict mapping column names to Python type strings. The bridge uses this schema -- not data inference -- to build Arrow schemas.
+
+**When to use:** Every method that converts DataFrames to/from Arrow bytes.
+
 **Example:**
 ```python
-# Source: Converter output analysis (7 type strings + raw id_* fallbacks)
-# Located in src/v1/java_bridge/type_mapping.py
-
-import pyarrow as pa
-
-# Schema type string -> Arrow type
-# Handles both converter output types and raw Talend id_* types
-SCHEMA_TO_ARROW: dict[str, pa.DataType] = {
-    # Converter output types (from type_mapping.py)
-    "str": pa.string(),
-    "string": pa.string(),
-    "int": pa.int64(),
-    "long": pa.int64(),
-    "float": pa.float64(),
-    "double": pa.float64(),
-    "bool": pa.bool_(),
-    "datetime": pa.timestamp("ms"),
-    "date": pa.timestamp("ms"),
-    "object": pa.string(),
-    # Decimal handled separately -- needs precision/scale from schema column
-    # Raw Talend types (from tXMLMap converter bug, must handle gracefully)
-    "id_String": pa.string(),
-    "id_Integer": pa.int32(),
-    "id_Long": pa.int64(),
-    "id_Short": pa.int16(),
-    "id_Byte": pa.int8(),
-    "id_Float": pa.float32(),
-    "id_Double": pa.float64(),
-    "id_Boolean": pa.bool_(),
-    "id_Date": pa.timestamp("ms"),
-    "id_Character": pa.string(),
-    "id_Object": pa.string(),
+# Source: Analyzed from converter output format [VERIFIED: converted JSON files]
+# Schema dict format (standardized across entire application):
+schema = {
+    "emp_id": "str",
+    "salary": "int",
+    "hire_date": "datetime",
+    "bonus": "Decimal",
+    "active": "bool"
 }
 
-def schema_to_arrow_type(col: dict) -> pa.DataType:
-    """Convert a schema column dict to an Arrow type.
+# Type mapping module (bridge/type_mapping.py):
+PYTHON_TYPE_TO_ARROW = {
+    "str": pa.string(),
+    "int": pa.int64(),
+    "float": pa.float64(),
+    "bool": pa.bool_(),
+    "datetime": pa.timestamp("ns"),
+    "Decimal": pa.decimal128(38, 18),  # Default precision; override from schema
+    "object": pa.string(),  # Fallback
+}
 
-    Args:
-        col: Schema column dict with keys: name, type, nullable,
-             key, length, precision, date_pattern.
-    Returns:
-        Arrow data type.
-    """
-    type_str = col.get("type", "str")
-
-    # Decimal needs precision/scale from schema
-    if type_str.lower() in ("decimal", "id_bigdecimal"):
-        precision = col.get("precision", 38)
-        if precision <= 0:
-            precision = 38
-        # Scale defaults to half precision or 18, whichever is smaller
-        scale = min(precision // 2, 18)
-        return pa.decimal128(precision, scale)
-
-    arrow_type = SCHEMA_TO_ARROW.get(type_str)
-    if arrow_type is None:
-        # Case-insensitive fallback
-        arrow_type = SCHEMA_TO_ARROW.get(type_str.lower(), pa.string())
-    return arrow_type
-
-
-def build_arrow_schema(columns: list[dict]) -> pa.Schema:
-    """Build Arrow schema from a list of schema column dicts."""
+def build_arrow_schema(schema_dict: dict[str, str],
+                       precision_map: dict[str, tuple[int, int]] | None = None) -> pa.Schema:
+    """Build Arrow schema from standardized Python type dict."""
     fields = []
-    for col in columns:
-        arrow_type = schema_to_arrow_type(col)
-        nullable = col.get("nullable", True)
-        fields.append(pa.field(col["name"], arrow_type, nullable=nullable))
+    for col_name, col_type in schema_dict.items():
+        if col_type == "Decimal" and precision_map and col_name in precision_map:
+            p, s = precision_map[col_name]
+            arrow_type = pa.decimal128(p, s)
+        else:
+            arrow_type = PYTHON_TYPE_TO_ARROW.get(col_type, pa.string())
+        fields.append(pa.field(col_name, arrow_type))
     return pa.schema(fields)
 ```
 
-### Pattern 2: Sync-After-Every-Call (Python Side)
-**What:** Every bridge method that calls Java MUST sync context/globalMap back afterward.
-**When to use:** Built into every public method on the bridge.
+### Pattern 2: Automatic Sync After Every Bridge Call
+
+**What:** `_sync_from_java()` is called after every method that communicates with the Java side, not just `execute_java_row()`.
+
+**When to use:** Design the bridge so sync is impossible to forget -- either call it in a `finally` block of every public method, or create a `_call_java()` wrapper.
+
 **Example:**
 ```python
-# Every public method follows this pattern:
-def execute_some_operation(self, ..., schema: list[dict]) -> ...:
-    """Execute operation X on the Java bridge."""
-    # 1. Sync Python -> Java BEFORE call
-    self._sync_to_java()
-
-    # 2. Make the Py4J call
+# Source: Design pattern for rewrite
+def _call_java_with_sync(self, java_method, *args):
+    """Call a Java method and sync state back afterward."""
     try:
-        result = self._gateway_call(...)
-    except Py4JNetworkError as e:
-        raise JavaBridgeError(f"Bridge communication failed: {e}") from e
-
-    # 3. Sync Java -> Python AFTER call
-    self._sync_from_java()
-
-    # 4. Return result
-    return result
+        result = java_method(*args)
+        return result
+    finally:
+        self._sync_from_java()
 ```
 
-### Pattern 3: Java Class Decomposition
-**What:** Split 1,022-line JavaBridge.java into focused classes.
-**When to use:** The rewrite.
-**Recommended boundaries:**
+### Pattern 3: Log Level Sync
 
-| Class | Responsibility | Lines (est.) |
-|-------|---------------|-------------|
-| `JavaBridge.java` | Gateway entry point, main(), Py4J server, method dispatch | ~100 |
-| `ArrowSerializer.java` | Read/write Arrow IPC, type mapping, vector creation | ~300 |
-| `ExpressionExecutor.java` | Groovy compile/execute, routine loading, binding setup | ~300 |
-| `RowWrapper.java` | Row accessor for Arrow vectors (simplified, no change to API) | ~120 |
+**What:** Python passes its log level to Java at bridge startup. Java uses `java.util.logging` with a consistent mapping.
 
-### Pattern 4: Java-Side Type Mapping
-**What:** Mirror the Python type mapping on the Java side for creating output Arrow vectors.
 **Example:**
-```java
-// In ArrowSerializer.java
-private static Class<?> schemaTypeToJavaClass(String schemaType) {
-    if (schemaType == null) return String.class;
-    switch (schemaType.toLowerCase()) {
-        case "str": case "string": case "id_string": case "id_character":
-            return String.class;
-        case "int": case "integer": case "id_integer":
-            return Integer.class;
-        case "long": case "id_long":
-            return Long.class;
-        case "float": case "id_float":
-            return Float.class;
-        case "double": case "id_double":
-            return Double.class;
-        case "bool": case "boolean": case "id_boolean":
-            return Boolean.class;
-        case "datetime": case "date": case "id_date":
-            return Date.class;
-        case "decimal": case "bigdecimal": case "id_bigdecimal":
-            return BigDecimal.class;
-        case "id_byte": return Byte.class;
-        case "id_short": return Short.class;
-        default: return String.class;
+```python
+# Python side (at bridge start):
+import logging
+LOG_LEVEL_MAP = {
+    logging.DEBUG: "FINE",
+    logging.INFO: "INFO",
+    logging.WARNING: "WARNING",
+    logging.ERROR: "SEVERE",
+}
+java_level = LOG_LEVEL_MAP.get(logger.getEffectiveLevel(), "INFO")
+self.java_bridge.setLogLevel(java_level)
+```
+
+### Anti-Patterns to Avoid
+- **Data inference for Arrow types:** Never scan DataFrame values to determine types. Always use the schema dict. All-null columns, mixed types, and first-value-wins are all bugs in the current code.
+- **Selective sync:** Never sync context/globalMap in only some methods. Sync after EVERY Java call.
+- **print() for logging:** 47 print/println statements exist currently (8 in bridge.py, 39 in JavaBridge.java). All must become proper logger calls. [VERIFIED: grep count]
+- **Creating new GroovyShell per operation:** The Java side currently creates `new GroovyShell()` in multiple methods. The rewrite should share/reuse shells where safe.
+- **Fallback id_* type handling in bridge:** The bridge must NOT handle raw Talend types. If an `id_*` type reaches the bridge, it is a converter bug that must be fixed at the source.
+
+## Converter Bug Analysis (D-05a)
+
+### Bug Description
+
+Two converters parse schema information directly from XML elements without calling `convert_type()`:
+
+**tMap converter (`map.py`)** -- 3 locations: [VERIFIED: grep + source read]
+1. Line 99: `"type": col.get("type", "id_String")` in `_parse_lookup()` join keys
+2. Line 162: `"type": var_entry.get("type", "id_String")` in `_parse_variables()`
+3. Line 189: `col_type = col.get("type", "id_String")` in `_parse_outputs()` columns
+
+**tXMLMap converter (`xml_map.py`)** -- locations in output data: [VERIFIED: grep + source read]
+1. Line 49: `"type": child.get("type", "id_String")` in `_parse_nested_children()` (tree metadata)
+2. Line 77: `"type": tree_node.get("type", "id_Document")` in `_parse_input_trees()` (tree metadata)
+3. Line 103: `"type": tree_node.get("type", "id_String")` in `_parse_output_trees()` (tree metadata)
+4. **Line 339:** `"type": column.get("type", "id_String")` in `_parse_output_schema_from_xml()` -- **CRITICAL: this feeds into output_schema and schema.output used by engine**
+
+Neither file imports `convert_type`. The base class `_parse_schema()` in `base.py` line 134 correctly calls `convert_type(col.type)`, but these converters bypass `_parse_schema()` by reading directly from XML elements.
+
+### Fix Approach
+
+1. Import `convert_type` from `..type_mapping` in both files
+2. Wrap each `.get("type", ...)` with `convert_type()` for fields that represent data types
+3. For tree metadata nodes (xml_map.py lines 49, 77, 103): these store Talend data types too, so convert them for consistency
+4. **NOT** to be confused with `node_type` (e.g., "ATTRIBUT", "ELEMENT") which is an XML node classification, not a data type -- those do NOT get converted
+
+### tXMLMap: Which `type` fields need conversion
+
+| Location | Field | Meaning | Needs convert_type? |
+|----------|-------|---------|---------------------|
+| Line 49 (`_parse_nested_children`) | `child.get("type", "id_String")` | Talend data type of tree node | YES -- for consistency |
+| Line 77 (`_parse_input_trees`) | `tree_node.get("type", "id_Document")` | Talend data type of input node | YES -- for consistency |
+| Line 103 (`_parse_output_trees`) | `tree_node.get("type", "id_String")` | Talend data type of output node | YES -- for consistency |
+| **Line 339** (`_parse_output_schema_from_xml`) | `column.get("type", "id_String")` | **Schema column type -- engine reads this** | **YES -- CRITICAL** |
+
+### tMap: Which `type` fields need conversion
+
+| Location | Field | Meaning | Needs convert_type? |
+|----------|-------|---------|---------------------|
+| Line 99 (`_parse_lookup`) | `col.get("type", "id_String")` | Join key type | YES |
+| Line 162 (`_parse_variables`) | `var_entry.get("type", "id_String")` | Variable type | YES |
+| Line 189 (`_parse_outputs`) | `col.get("type", "id_String")` | Output column type | YES -- CRITICAL |
+
+### Affected Converted JSONs
+
+Only 2 of 31 converted JSON files contain raw `id_*` types: [VERIFIED: grep across all 31 files]
+1. `tests/talend_xml_samples/converted_jsons/Job_tXMLMap_0.1.json` -- raw `id_String`, `id_Integer` in output_schema, schema.output, input_trees, output_trees, and downstream tLogRow_1 schema.input
+2. `tests/talend_xml_samples/converted_jsons/Job_tMap_0.1.json` -- raw `id_String`, `id_Integer` in outputs columns, join_keys, variables
+
+These must be re-converted after the converter fix. The converter source XML files are in `tests/talend_xml_samples/`.
+
+### Schema Format Standard (D-05)
+
+The standardized schema format across the entire application (verified from correctly-converted JSON files):
+
+```json
+{
+    "schema": {
+        "input": [
+            {"name": "emp_id", "type": "str", "nullable": false, "key": false},
+            {"name": "salary", "type": "int", "nullable": true, "key": false, "length": 10, "precision": 0},
+            {"name": "hire_date", "type": "datetime", "nullable": true, "key": false, "date_pattern": "%Y-%m-%d"},
+            {"name": "bonus", "type": "Decimal", "nullable": true, "key": false, "precision": 2}
+        ],
+        "output": [...]
     }
 }
 ```
 
-### Anti-Patterns to Avoid
-- **Data inference for types:** Never inspect `first_val` of a column to determine Arrow type. Always use schema.
-- **Inconsistent sync:** Never call a Java method without syncing context/globalMap before and after.
-- **Direct `print()` output:** All output through logging framework on both sides.
-- **Shared mutable compiled script:** Do not share a single compiled Groovy Script across threads with synchronized access. Either clone per-thread or execute sequentially.
-- **Hardcoded port:** Always use dynamic port allocation via `socket.bind(('', 0))`.
+**The 7 Python type strings (exhaustive):** [VERIFIED: converter type_mapping.py]
+| Python Type | Talend Sources | Arrow Type | Java Type |
+|-------------|---------------|------------|-----------|
+| `str` | id_String, id_Character | `pa.string()` | `String.class` |
+| `int` | id_Integer, id_Long, id_Short, id_Byte | `pa.int64()` | `Long.class` |
+| `float` | id_Double, id_Float | `pa.float64()` | `Double.class` |
+| `bool` | id_Boolean | `pa.bool_()` | `Boolean.class` |
+| `datetime` | id_Date | `pa.timestamp("ns")` | `Date.class` |
+| `Decimal` | id_BigDecimal | `pa.decimal128(p, s)` | `BigDecimal.class` |
+| `object` | id_Object | `pa.string()` | `String.class` |
 
-## Schema Format Standardization
+## Current Bridge API Surface (Must Preserve)
 
-### Audit Results
+The rewritten bridge must support all these operations: [VERIFIED: bridge.py source]
 
-**What converters produce** (from analysis of 30+ converted JSON files):
+| Method | Purpose | Callers | Sync Issue |
+|--------|---------|---------|------------|
+| `execute_java_row(df, code, schema)` | tJavaRow per-row execution | JavaRowComponent | Has sync (ONLY method that does) |
+| `execute_one_time_expression(expr)` | Single Java expression | tMap (variable eval) | **Missing sync** |
+| `execute_batch_one_time_expressions(exprs)` | Batch expressions | BaseComponent `{{java}}` resolution | **Missing sync** |
+| `execute_tmap_preprocessing(df, exprs, ...)` | tMap filter/join key eval | tMap engine component | **Missing sync** |
+| `execute_tmap_compiled(script, df, ...)` | tMap compiled execution | tMap engine component | **Missing sync** |
+| `compile_tmap_script(id, script, ...)` | Compile and cache tMap script | tMap engine component | N/A (no Java state change) |
+| `execute_compiled_tmap_chunked(id, df, ...)` | Execute cached script on chunks | tMap engine component | **Missing sync** |
+| `load_routine(class_name)` | Load custom Java routine | JavaBridgeManager | Missing sync |
+| `validate_libraries(libs)` | Check JAR availability | JavaBridgeManager | N/A (read-only) |
+| `set_context(key, value)` | Set context variable | BaseComponent, tMap | N/A (Python-side only) |
+| `set_global_map(key, value)` | Set globalMap variable | BaseComponent, tMap | N/A (Python-side only) |
+| `start(port)` | Start JVM and connect | JavaBridgeManager | N/A |
+| `stop()` | Stop JVM | JavaBridgeManager | N/A |
 
-Each schema column is a dict with these keys:
-```json
-{
-    "name": "column_name",          // ALWAYS present
-    "type": "str",                  // ALWAYS present -- Python type string
-    "nullable": true,               // ALWAYS present -- boolean
-    "key": false,                   // ALWAYS present -- boolean
-    "length": 50,                   // OPTIONAL -- only when >= 0
-    "precision": 2,                 // OPTIONAL -- only when >= 0
-    "date_pattern": "%Y-%m-%d"      // OPTIONAL -- only for datetime columns
-}
-```
+### Dead Code on Java Side
 
-**Observed type values:**
-| Type String | Source | Frequency | Meaning |
-|-------------|--------|-----------|---------|
-| `str` | `convert_type("id_String")` | Very common | String |
-| `int` | `convert_type("id_Integer")`, `convert_type("id_Long")`, etc. | Very common | Integer (loses Long/Byte/Short distinction) |
-| `float` | `convert_type("id_Double")`, `convert_type("id_Float")` | Common | Float/Double (loses Float vs Double distinction) |
-| `bool` | `convert_type("id_Boolean")` | Moderate | Boolean |
-| `datetime` | `convert_type("id_Date")` | Common | Date/Timestamp |
-| `Decimal` | `convert_type("id_BigDecimal")` | Rare | BigDecimal (case-sensitive!) |
-| `object` | `convert_type("id_Object")` | Rare | Generic object |
-| `id_String` | tXMLMap converter bug (skips `convert_type()`) | 2 files | Raw Talend type |
-| `id_Integer` | tXMLMap converter bug | 2 files | Raw Talend type |
-
-**Decision: Keep the converter output format as-is.** [VERIFIED: codebase analysis]
-
-Rationale:
-1. Changing the converter format would require re-converting all existing JSON configs (violates CLAUDE.md constraint: "No breaking changes: Converter JSON format must remain compatible")
-2. The bridge must handle what exists -- both Python types and raw Talend types
-3. Type fidelity loss (Long vs Integer) is acceptable because Arrow int64 handles both, and Talend itself uses int64 for most integer operations
-4. The bridge's type mapping table (Pattern 1 above) handles all observed type strings
-
-**The bridge's `type_mapping.py` becomes THE authoritative mapping from schema type strings to Arrow types, used by both Python serialization and Java deserialization.**
+| Method | Status | Evidence |
+|--------|--------|----------|
+| `executeBatchOneTimeExpressions` (without globalMap param) | DEAD CODE | Python side only calls `executeBatchOneTimeExpressionsWithGlobalMap`; this older version lacks globalMap param [VERIFIED: grep shows Python calls WithGlobalMap variant exclusively] |
 
 ## Don't Hand-Roll
 
 | Problem | Don't Build | Use Instead | Why |
 |---------|-------------|-------------|-----|
-| Arrow IPC serialization | Custom binary protocol | `pyarrow.ipc` / Arrow Java IPC | Battle-tested, handles endianness, alignment, compression |
-| Java expression evaluation | Custom parser/interpreter | Groovy `GroovyShell.parse()` + `Script.run()` | Full Java/Groovy compatibility, handles closures, imports |
-| Python-Java RPC | REST/HTTP bridge, socket protocol | Py4J | Purpose-built for Python-Java interop, handles type conversion |
-| Retry logic | Custom retry decorator | Simple retry loop (3 attempts, 100ms backoff) | Py4J 0.10.9.9 already handles empty-response retry; our retry wraps connection-level failures |
-| Uber-JAR building | Manual classpath assembly | Maven assembly plugin or shade plugin | Correctly handles dependency merging, manifest, service files |
-| Thread-local script state | Manual ThreadLocal management | Sequential execution for row processing | Groovy Script objects share class-level state, thread-local binding is insufficient |
-
-**Key insight:** The bridge is a thin coordination layer. The heavy lifting (Arrow serialization, Groovy execution, Py4J transport) is done by well-tested libraries. The rewrite's value is in correct wiring, not in replacing library functionality.
+| Arrow IPC serialization | Custom byte packing | `pa.ipc.new_stream()` / `pa.ipc.open_stream()` | Arrow IPC is a stable, versioned protocol |
+| Type mapping | Inline switch/if chains | Centralized `type_mapping.py` dict | Single source of truth, testable, reusable |
+| Groovy compilation | Per-call `new GroovyShell()` | Compile-once cache pattern (already exists, preserve) | Compilation is expensive; cache is correct pattern |
+| Port allocation | Hardcoded ports | `socket.bind(('', 0))` | Already correct pattern in java_bridge_manager.py |
 
 ## Common Pitfalls
 
-### Pitfall 1: Arrow IPC Version Mismatch
-**What goes wrong:** PyArrow 23.0.1 (Python) sends IPC data that Arrow Java 15.0.2 cannot read.
+### Pitfall 1: Arrow Version Mismatch
+**What goes wrong:** Python PyArrow 23.0.1 writes IPC streams that Java Arrow 15.0.2 cannot read.
 **Why it happens:** Newer Arrow versions may use IPC features not available in older versions.
-**How to avoid:** Arrow IPC format is backward-compatible since 1.0.0 [CITED: arrow.apache.org/docs/format/Versioning.html]. The stable IPC format (metadata version V5) is readable by all Arrow 1.0+ implementations. Both 15.0.2 and 23.0.1 are well above 1.0. No action needed as long as we don't use IPC features added after 15.0.2 (dictionary replacement, body buffer compression). Stick to basic types and no compression.
-**Warning signs:** `ArrowInvalid` or `UnsupportedOperation` exceptions during IPC read.
+**How to avoid:** Arrow IPC format is backward compatible per the spec. As long as we don't use data types introduced after Arrow 15 (all 7 types we need -- string, int64, float64, bool, timestamp, decimal128 -- are available in Arrow 15), this works. [CITED: https://arrow.apache.org/docs/format/Versioning.html]
+**Warning signs:** Java-side `ArrowStreamReader` throws `UnsupportedOperationException` or `InvalidFlatbuffer`.
 
-### Pitfall 2: Decimal Precision/Scale Mismatch Between Python and Java
-**What goes wrong:** Python sends Decimal with precision=38, scale=18. Java creates DecimalVector with precision=38, scale=2 (from first value inference). Arrow rejects the mismatch.
-**Why it happens:** Current code infers precision/scale from first non-null value independently on each side.
-**How to avoid:** Schema drives precision/scale on both sides. Schema column has `precision` field. Python's `build_arrow_schema()` and Java's `createVectorForType()` both read from the same schema.
-**Warning signs:** `ArrowBufPointer` errors, `BigDecimal scale mismatch` exceptions.
+### Pitfall 2: Decimal Precision/Scale
+**What goes wrong:** `pa.decimal128(38, 18)` default precision may not match actual data, causing overflow or truncation.
+**Why it happens:** Converter schema includes `precision` field but bridge currently ignores it, using data-inferred precision instead.
+**How to avoid:** Extract precision/scale from the schema dict's `precision` and `length` fields when `type` is `Decimal`. Fall back to (38, 18) only when schema doesn't specify.
+**Warning signs:** `ArrowInvalid: Decimal value does not fit in precision` errors.
 
-### Pitfall 3: Groovy Script Thread Safety
-**What goes wrong:** Parallel `forEach` with `synchronized(compiledScript)` serializes execution, providing zero parallelism benefit while adding synchronization overhead.
-**Why it happens:** Groovy `Script` objects store execution state (binding, variables) at instance level. Sharing one script across threads requires synchronization.
-**How to avoid:** Two options: (1) Parse the script once, clone per chunk/batch using `script.getClass().newInstance()`, or (2) Accept sequential execution for row-level processing (the compile-once benefit already provides the major performance win). Recommendation: Sequential execution. The compile-once pattern is the real performance win. Parallel row execution introduces correctness risks (shared globalMap, non-atomic updates) that outweigh throughput gains.
-**Warning signs:** `ConcurrentModificationException`, wrong values in output rows.
+### Pitfall 3: Synchronized Script Execution
+**What goes wrong:** `synchronized(compiledScript)` in `executeCompiledTMap` serializes what should be parallel execution.
+**Why it happens:** Groovy `Script` objects are not thread-safe; binding is mutable shared state.
+**How to avoid:** Either (a) create a new `Script` instance per thread by re-parsing (fast if pre-compiled class is cached), or (b) use ThreadLocal bindings, or (c) accept serialized execution for correctness (current approach works, just slower).
+**Warning signs:** Parallel processing shows no speedup; CPU utilization stays at 1 core.
 
 ### Pitfall 4: Context/GlobalMap Sync Direction
-**What goes wrong:** Java code modifies `globalMap.put("key", value)` but Python side never sees the change.
-**Why it happens:** Python and Java each have independent copies of context/globalMap dicts. Changes on one side don't automatically reflect on the other.
-**How to avoid:** Sync pattern: (1) Python -> Java before every call, (2) Java -> Python after every call. The `_sync_from_java()` + `_sync_to_java()` pair MUST bracket every Py4J call.
-**Warning signs:** globalMap variables set in tJava invisible to subsequent Python components.
+**What goes wrong:** Python-side state diverges from Java-side state after a bridge call.
+**Why it happens:** Java expressions can modify `context` and `globalMap` (e.g., `globalMap.put("key", value)`). If Python doesn't sync back, subsequent Python-side lookups get stale values.
+**How to avoid:** Always call `_sync_from_java()` after every Java call. The rewrite's wrapper pattern makes this automatic.
+**Warning signs:** `globalMap.get("tMap_1_NB_LINE")` returns None or stale value after tMap execution.
 
 ### Pitfall 5: JVM Startup Race Condition
-**What goes wrong:** Python tries to connect before JVM has started the Py4J GatewayServer.
-**Why it happens:** `subprocess.Popen` returns immediately, JVM class loading takes 1-3 seconds.
-**How to avoid:** Current retry loop with 0.5s sleep is functional. Improve by: (1) reading JVM stdout for startup marker, (2) reducing initial sleep from 2s to 0.5s, (3) using exponential backoff (0.1s, 0.2s, 0.4s, ...).
-**Warning signs:** `ConnectionRefusedError` on first attempt.
+**What goes wrong:** Python tries to connect before Java GatewayServer is ready.
+**Why it happens:** `subprocess.Popen` is non-blocking; JVM startup takes 1-3 seconds.
+**How to avoid:** Current code uses `time.sleep(2)` then retry loop -- this works but is fragile. Keep the retry approach but make it more robust (exponential backoff, clearer error on timeout).
+**Warning signs:** `ConnectionRefusedError` on first attempt; unreliable startup on slower machines.
 
-### Pitfall 6: Maven Not Installed on Dev Machine
-**What goes wrong:** Cannot rebuild Java JAR after code changes.
-**Why it happens:** Maven is not installed (`mvn` not found). No Maven wrapper (`mvnw`) in project.
-**How to avoid:** Add Maven wrapper (`mvnw` + `.mvn/` directory) to the project so builds work regardless of system Maven installation. Also need to add maven-assembly-plugin or maven-shade-plugin to pom.xml for creating the uber-JAR (`java-bridge-with-dependencies.jar`).
-**Warning signs:** `command not found: mvn`, missing target/ directory.
+### Pitfall 6: Maven Not Installed
+**What goes wrong:** Cannot rebuild the Java bridge JAR after pom.xml changes.
+**Why it happens:** Maven is not installed on the dev machine. [VERIFIED: `command -v mvn` returns nothing]
+**How to avoid:** Install Maven via `brew install maven` as a prerequisite step. The Java bridge JAR must be rebuilt after pom.xml changes (Py4J version update).
+**Warning signs:** No `target/` directory; `java_bridge_manager.py` fails to find JAR.
 
 ## Code Examples
 
-### Schema-Driven Arrow Serialization (Python -> Java)
+### Bridge Type Mapping Module (New)
+
 ```python
-# Source: Designed for rewrite based on converter output analysis
-def _dataframe_to_arrow_bytes(
-    self, df: pd.DataFrame, schema: list[dict]
-) -> bytes:
-    """Convert DataFrame to Arrow IPC bytes using explicit schema.
+# Source: Design based on converter type_mapping.py + bridge requirements
+# File: src/v1/java_bridge/type_mapping.py
 
-    Args:
-        df: Input DataFrame.
-        schema: List of column dicts from component config.
-                Each dict has: name, type, nullable, key, [length], [precision], [date_pattern].
+"""Type mapping from Python type strings to Arrow and Java types.
 
-    Returns:
-        Arrow IPC stream bytes.
-    """
-    arrow_schema = build_arrow_schema(schema)
-    table = pa.Table.from_pandas(df, schema=arrow_schema, preserve_index=False)
-    sink = pa.BufferOutputStream()
-    writer = pa.ipc.new_stream(sink, table.schema)
-    writer.write_table(table)
-    writer.close()
-    return sink.getvalue().to_pybytes()
+This is the BRIDGE-SIDE type mapping. The CONVERTER-SIDE mapping lives in
+src/converters/talend_to_v1/type_mapping.py (Talend id_* -> Python types).
+
+Only 7 Python type strings are accepted. Any other type string is a bug
+in the converter and must be fixed there, not worked around here.
+"""
+
+import pyarrow as pa
+
+# The 7 standardized Python type strings -> Arrow types
+PYTHON_TO_ARROW: dict[str, pa.DataType] = {
+    "str": pa.string(),
+    "int": pa.int64(),
+    "float": pa.float64(),
+    "bool": pa.bool_(),
+    "datetime": pa.timestamp("ns"),
+    "Decimal": pa.decimal128(38, 18),  # Default; override with schema precision
+    "object": pa.string(),
+}
+
+# The 7 standardized Python type strings -> Java type names
+# (passed to Java side for Arrow vector creation)
+PYTHON_TO_JAVA: dict[str, str] = {
+    "str": "String",
+    "int": "Long",
+    "float": "Double",
+    "bool": "Boolean",
+    "datetime": "Date",
+    "Decimal": "BigDecimal",
+    "object": "String",
+}
+
+VALID_TYPES = frozenset(PYTHON_TO_ARROW.keys())
+
+
+def validate_schema_types(schema: dict[str, str]) -> None:
+    """Raise ValueError if any schema type is not in the 7 valid types."""
+    invalid = {col: t for col, t in schema.items() if t not in VALID_TYPES}
+    if invalid:
+        raise ValueError(
+            f"Invalid type(s) in schema (raw Talend types not allowed in bridge): "
+            f"{invalid}. Valid types: {sorted(VALID_TYPES)}"
+        )
 ```
 
-### Sync Pair Pattern
+### Converter Fix (tXMLMap)
+
 ```python
-# Source: Designed for rewrite based on BRDG-03 requirement
-def _sync_to_java(self) -> None:
-    """Push current context and globalMap to Java bridge."""
-    if self._context_manager:
-        java_ctx = self._java_bridge.getContext()
-        java_ctx.clear()
-        for k, v in self._context_manager.get_all().items():
-            java_ctx.put(k, v)
+# Source: xml_map.py line 339 -- the critical fix
+# Before (bug):
+"type": column.get("type", "id_String"),
 
-    if self._global_map:
-        java_gm = self._java_bridge.getGlobalMap()
-        java_gm.clear()
-        for k, v in self._global_map.get_all().items():
-            java_gm.put(k, v)
-
-def _sync_from_java(self) -> None:
-    """Pull updated context and globalMap from Java bridge."""
-    java_context = self._java_bridge.getContext()
-    java_globalmap = self._java_bridge.getGlobalMap()
-
-    if self._context_manager:
-        for k in java_context:
-            self._context_manager.set(str(k), java_context[k])
-
-    if self._global_map:
-        for k in java_globalmap:
-            self._global_map.put(str(k), java_globalmap[k])
+# After (fix):
+from ..type_mapping import convert_type
+# ...
+"type": convert_type(column.get("type", "id_String")),
 ```
 
-### Java-Side Logging Pattern
+### Converter Fix (tMap)
+
+```python
+# Source: map.py lines 99, 162, 189 -- all need the same fix
+from ..type_mapping import convert_type
+# ...
+# Line 99: join key type
+"type": convert_type(col.get("type", "id_String")),
+# Line 162: variable type
+"type": convert_type(var_entry.get("type", "id_String")),
+# Line 189: output column type
+col_type = convert_type(col.get("type", "id_String"))
+```
+
+### Java-Side Type Mapping (Rewrite)
+
 ```java
-// Source: Designed for rewrite based on D-14, D-15, D-16
-import java.util.logging.Logger;
-import java.util.logging.Level;
-
-public class JavaBridge {
-    private static final Logger logger = Logger.getLogger("JavaBridge");
-
-    // Called by Python bridge during startup to sync log levels
-    public void setLogLevel(String pythonLevel) {
-        Level javaLevel;
-        switch (pythonLevel.toUpperCase()) {
-            case "DEBUG": javaLevel = Level.FINE; break;
-            case "INFO": javaLevel = Level.INFO; break;
-            case "WARNING": javaLevel = Level.WARNING; break;
-            case "ERROR": javaLevel = Level.SEVERE; break;
-            default: javaLevel = Level.INFO;
-        }
-        logger.setLevel(javaLevel);
-        logger.info("[JavaBridge] Log level set to " + javaLevel);
+// Source: Design for rewritten JavaBridge.java
+// Maps the 7 Python type strings (what Python sends) to Java types
+// Replaces current inferJavaTypeFromSchema which has mixed id_*/Java type names
+private static Class<?> mapSchemaTypeToJava(String schemaType) {
+    if (schemaType == null) return String.class;
+    switch (schemaType) {
+        case "str":      return String.class;
+        case "int":      return Long.class;
+        case "float":    return Double.class;
+        case "bool":     return Boolean.class;
+        case "datetime": return Date.class;
+        case "Decimal":  return BigDecimal.class;
+        case "object":   return String.class;
+        default:
+            logger.warning("Unknown schema type: " + schemaType + " -- defaulting to String");
+            return String.class;
     }
 }
 ```
 
-### Maven Assembly Plugin for Uber-JAR
-```xml
-<!-- Add to pom.xml <plugins> section -->
-<plugin>
-    <groupId>org.apache.maven.plugins</groupId>
-    <artifactId>maven-assembly-plugin</artifactId>
-    <version>3.6.0</version>
-    <configuration>
-        <archive>
-            <manifest>
-                <mainClass>com.citi.gru.etl.JavaBridge</mainClass>
-            </manifest>
-        </archive>
-        <descriptorRefs>
-            <descriptorRef>jar-with-dependencies</descriptorRef>
-        </descriptorRefs>
-        <finalName>java-bridge-with-dependencies</finalName>
-        <appendAssemblyId>false</appendAssemblyId>
-    </configuration>
-    <executions>
-        <execution>
-            <id>make-assembly</id>
-            <phase>package</phase>
-            <goals>
-                <goal>single</goal>
-            </goals>
-        </execution>
-    </executions>
-</plugin>
-```
+## Java Bridge Manager Analysis (D-03)
 
-### Maven Wrapper Setup
-```bash
-# Run once in the java/ directory to add Maven wrapper
-cd src/v1/java_bridge/java
-mvn wrapper:wrapper -Dmaven=3.9.6
-# This creates: mvnw, mvnw.cmd, .mvn/wrapper/maven-wrapper.properties
-# After this, use ./mvnw instead of mvn
-```
+The current `java_bridge_manager.py` (129 lines) is relatively clean: [VERIFIED: source read]
+
+**What works:**
+- Dynamic port allocation via `socket.bind(('', 0))` -- correct pattern
+- Context manager support (`__enter__`/`__exit__`) -- good for cleanup
+- Library validation and routine loading at startup -- correct lifecycle
+- Graceful degradation when bridge fails to start -- appropriate behavior
+
+**What needs updating:**
+- Line 76: `logger.warning("Java execution will be disabled. Components will fall back to Python execution.")` -- this contradicts D-11 (fail fast, no silent fallback). Recommendation: Make it configurable -- `die_on_error=True` raises, `die_on_error=False` degrades gracefully. The job config's `java_config.enabled` already signals intent.
+- Missing: Log level sync to Java side (D-16) -- needs `self.bridge.set_log_level(...)` call after start
+- Missing: Ready signal / improved startup robustness (currently in bridge.py `time.sleep(2)` + retry)
+
+**Recommendation:** UPDATE, not rewrite. The manager is ~60% correct. Add log level sync, update error handling policy, and integrate with the rewritten bridge API.
+
+## JavaBridge.java Decomposition Analysis (D-17)
+
+Current: 1022 lines in a single file. Method audit: [VERIFIED: source read]
+
+| Method Group | Lines (est.) | Purpose | Decompose? |
+|-------------|-------------|---------|------------|
+| Constructor + main + state | ~50 | Gateway setup, startup, context/globalMap | Keep in JavaBridge.java |
+| executeJavaRow | ~100 | tJavaRow processing | Keep (core operation) |
+| executeOneTimeExpression | ~20 | Single expression eval | Keep (small) |
+| executeBatchOneTimeExpressions | ~45 | Batch expression eval (WITHOUT globalMap) | **DELETE** (dead code) |
+| executeBatchOneTimeExpressionsWithGlobalMap | ~50 | Batch expression eval (with globalMap) | Rename to executeBatchOneTimeExpressions |
+| executeTMapPreprocessing | ~115 | tMap filter/join eval | Keep |
+| executeTMapCompiled | ~130 | tMap compiled execution | Keep |
+| compileTMapScript | ~50 | Script compilation + caching | Keep |
+| executeCompiledTMap | ~120 | Cached script execution | Keep |
+| loadRoutine / validateLibraries | ~35 | Classpath management | Keep |
+| Arrow helpers | ~130 | createOutputRootFromData, createVectorForType, setVectorValue, inferJavaTypeFromSchema, inferDecimalPrecisionScale | **EXTRACT to ArrowSerializer.java** |
+| getContext / getGlobalMap | ~10 | State accessors | Keep |
+
+**Recommendation:** Extract Arrow serialization helpers into `ArrowSerializer.java` (~130 lines). This is the clearest boundary -- Arrow read/write concerns are distinct from Groovy execution concerns. The tMap methods share the same Groovy execution pattern as the core methods; extracting them would just move code without reducing complexity. Delete the dead `executeBatchOneTimeExpressions` (without globalMap).
 
 ## State of the Art
 
 | Old Approach | Current Approach | When Changed | Impact |
 |--------------|------------------|--------------|--------|
-| Py4J 0.10.9.7 | Py4J 0.10.9.9 | Jan 2025 | Retry on empty response -- fixes intermittent bridge failures [CITED: py4j.org/changelog.html] |
-| Data inference for Arrow types | Schema-driven type mapping | This phase | Eliminates all-null column failures, mixed-type bugs, first-value-wins |
-| `print()` everywhere | `logging` (Python) + JUL (Java) | This phase | Production-grade logging with level control |
-| Manual sync in each component | Automatic sync in bridge layer | This phase | Eliminates forgotten sync bugs |
-
-**Deprecated/outdated:**
-- `_build_arrow_schema()` with first-non-null inference: Replaced by `build_arrow_schema(schema)` with explicit schema
-- `executeBatchOneTimeExpressions()` (Java): Dead code, replaced by `executeBatchOneTimeExpressionsWithGlobalMap()`
-- Direct `print()` calls in bridge code: All replaced with logging
-
-## Dead Code Audit (JavaBridge.java)
-
-| Method | Status | Action |
-|--------|--------|--------|
-| `executeBatchOneTimeExpressions()` | Dead -- not called from Python | Remove [VERIFIED: grep of bridge.py shows only `executeBatchOneTimeExpressionsWithGlobalMap` is called] |
-| `executeTMapCompiled()` | Called from `bridge.py:execute_tmap_compiled()` | Keep -- but this duplicates `compileTMapScript` + `executeCompiledTMap` flow. Consider whether both paths are needed. |
-| All other public methods | Active | Rewrite |
-
-## java_bridge_manager.py Assessment
-
-**Recommendation: Update, not rewrite.** [VERIFIED: code analysis of 128 lines]
-
-The manager's responsibilities are sound:
-- Dynamic port allocation via `socket.bind(('', 0))` -- correct
-- Bridge lifecycle (start/stop) -- correct
-- Context manager pattern (`__enter__`/`__exit__`) -- correct
-- Library validation on startup -- correct
-- Routine loading on startup -- correct
-
-**Changes needed:**
-1. Add log level passing to bridge on startup (D-16)
-2. Add `exc_info=True` to error logging for traceback visibility
-3. Remove silent fallback to Python execution on bridge failure (D-11 -- fail fast instead of `self.enable = False`)
-4. Type hints cleanup
-5. Integration with Phase 1's rewritten exceptions (`JavaBridgeError` instead of generic `RuntimeError`)
-
-Estimated: ~30 lines of changes, not a rewrite.
-
-## Compiled Script Synchronization (BRDG-06)
-
-### Current Problem
-The `compileTMapScript()` + `executeCompiledTMap()` pattern caches compiled scripts in a `ConcurrentHashMap<String, CompiledTMapScript>`. The script object itself is a Groovy `Script` instance that holds mutable state (binding, variables). When `executeCompiledTMap()` runs with `synchronized(script)`, it serializes access to the cached script.
-
-**Issues found:**
-1. Script binding is overwritten on each execution -- if two threads call `executeCompiledTMap` for the same component_id, the binding from thread B overwrites thread A's binding.
-2. The `synchronized` block covers the entire execution, including Arrow I/O -- unnecessarily long critical section.
-3. No cache invalidation -- compiled scripts persist for the lifetime of the JVM process.
-
-### Recommended Fix
-For the rewrite, handle compiled script caching as follows:
-
-1. **Cache the compiled Script class, not the instance.** Groovy compiles to a `Class<Script>`. Cache `Class<? extends Script>` and create a new instance per execution via `scriptClass.getDeclaredConstructor().newInstance()`. Each instance gets its own binding -- no synchronization needed.
-2. **Add cache invalidation.** `clearCompiledScript(componentId)` and `clearAllCompiledScripts()` methods for cleanup between iterate cycles.
-3. **Remove parallel execution from `executeJavaRow` and `executeTMapPreprocessing`.** The `synchronized(compiledScript)` pattern provides zero parallelism benefit. Use sequential iteration with compile-once optimization. The compile-once pattern (not parallelism) is the real performance win.
-
-```java
-// Cache Script CLASS, not instance
-private Map<String, Class<? extends Script>> compiledScriptClasses = new ConcurrentHashMap<>();
-
-public Map<String, byte[]> executeCompiledTMap(String componentId, byte[] arrowData, ...) {
-    Class<? extends Script> scriptClass = compiledScriptClasses.get(componentId);
-    // New instance per execution -- no thread safety concern
-    Script script = scriptClass.getDeclaredConstructor().newInstance();
-    script.setBinding(execBinding);
-    Object result = script.run();
-    // ...
-}
-```
-
-## JAR/Library Loading (BRDG-04)
-
-### Current Problem
-- `validateLibraries()` does a substring match on `System.getProperty("java.class.path")` -- fragile
-- No mechanism to dynamically add JARs at runtime
-- pom.xml has no assembly/shade plugin, so uber-JAR cannot be built
-- Maven is not installed on dev machine
-
-### Recommended Approach
-1. **Add Maven wrapper** (`mvnw`) to the Java project directory so builds work without system Maven installation
-2. **Add maven-assembly-plugin** to pom.xml to create `java-bridge-with-dependencies.jar`
-3. **Improve library validation:** Instead of classpath string matching, attempt `Class.forName()` for a known class from each library
-4. **Support dynamic classpath extension:** Accept a `lib_dir` parameter at startup. The JVM command adds all JARs in that directory to the classpath via `-cp` glob
-5. **tLibraryLoad equivalent:** When a job config specifies `libraries: [...]`, the bridge startup command includes those JARs in the classpath. No runtime classpath modification needed -- all JARs known at JVM startup time.
-
-```python
-# In bridge.py start() method
-def start(self, port: int, lib_dir: str = None, log_level: str = "INFO"):
-    """Start JVM with dynamic classpath."""
-    classpath_parts = [self._jar_path]
-    if lib_dir and os.path.isdir(lib_dir):
-        jar_files = glob.glob(os.path.join(lib_dir, "*.jar"))
-        classpath_parts.extend(jar_files)
-    classpath = os.pathsep.join(classpath_parts)
-    cmd = ["java", ..., "-cp", classpath, "com.citi.gru.etl.JavaBridge"]
-```
+| Data-inferred Arrow schema (`_build_arrow_schema`) | Schema-driven Arrow schema (type_mapping.py) | This phase | Fixes all-null columns, mixed types, first-value-wins bugs |
+| Selective `_sync_from_java` (1 of 6 methods) | Automatic sync after every call | This phase | Fixes stale context/globalMap after tMap, batch expressions |
+| print() debugging (47 statements) | Structured logging (Python logging + JUL) | This phase | Production-ready log output |
+| Py4J 0.10.9.7 (Java side) | Py4J 0.10.9.9 (both sides) | This phase | Retry on empty response fix |
+| Raw Talend id_* types in tMap/tXMLMap converters | All converters produce Python type strings | This phase (D-05a) | One type format everywhere |
+| Mixed type handling on Java side (inferJavaTypeFromSchema) | Clean 7-type mapping (mapSchemaTypeToJava) | This phase | Consistent, predictable type handling |
 
 ## Assumptions Log
 
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
-| A1 | Arrow IPC format between PyArrow 23.0.1 and Arrow Java 15.0.2 is fully compatible for basic types | Pitfall 1 | HIGH -- data transfer would fail entirely. Mitigated by stable IPC format guarantee since 1.0 and both being well above 1.0 |
-| A2 | Sequential row execution (removing parallel forEach) is acceptable performance for production workloads | Pitfall 3 / BRDG-06 | MEDIUM -- if parallelism was providing significant speedup in production, removing it could cause slowdowns. But the current synchronized pattern negates parallelism anyway. |
-| A3 | Groovy Script class can be cached and new instances created per execution via `getDeclaredConstructor().newInstance()` | BRDG-06 | LOW -- standard Java reflection pattern, Groovy scripts compile to regular Java classes |
-| A4 | Maven wrapper 3.9.6 is compatible with Java 21 and Java 11 targets | Environment | LOW -- Maven wrapper version is independent of JDK target version |
+| A1 | Arrow IPC format from PyArrow 23.0.1 is readable by Java Arrow 15.0.2 | Common Pitfalls | HIGH -- bridge would fail to exchange data; mitigated by Arrow's backward compat guarantee [CITED: Arrow versioning docs] |
+| A2 | tXMLMap tree metadata `type` fields (lines 49, 77, 103) should also be converted for consistency | Converter Bug Analysis | LOW -- these are stored but not directly consumed by engine; converting them improves consistency but doesn't fix a runtime bug |
 
 ## Open Questions
 
-1. **Arrow IPC timestamp resolution**
-   - What we know: Python sends `timestamp("ms")`, Java Arrow 15.0.2 reads it
-   - What's unclear: Does Java Arrow 15.0.2 correctly handle millisecond timestamps when PyArrow 23.0.1 may default to microsecond resolution?
-   - Recommendation: Add explicit round-trip test for timestamps as first integration test. If resolution mismatch detected, set explicit resolution when creating Arrow schema.
+1. **Maven installation for JAR rebuild**
+   - What we know: Maven is not installed (`command -v mvn` returns nothing). No Maven Wrapper in the project. No `target/` directory exists.
+   - What's unclear: Whether to install Maven globally or add Maven Wrapper to the project.
+   - Recommendation: Install Maven via `brew install maven` as a prerequisite step in Wave 0. The Java bridge must be buildable.
 
-2. **Compile-once vs execute-tmap-compiled duplication**
-   - What we know: There are two code paths: (a) `executeTMapCompiled()` compiles + executes in one call, (b) `compileTMapScript()` + `executeCompiledTMap()` separates compile and execute
-   - What's unclear: Are both code paths needed or is (a) dead code superseded by (b)?
-   - Recommendation: Check tMap component code to see which path is used. If only (b) is used, remove (a) in the rewrite. From code analysis, tMap uses path (b) (`compile_tmap_script` + `execute_compiled_tmap_chunked`). Path (a) (`execute_tmap_compiled`) appears to be the older implementation. Likely safe to remove, but verify no other callers.
+2. **BaseComponent._TYPE_MAPPING cleanup**
+   - What we know: Phase 1's BaseComponent rewrite kept both `id_*` and Python type strings in `_TYPE_MAPPING` (lines 78-101). Once all converters are fixed, the `id_*` entries become dead code.
+   - What's unclear: Should Phase 2 remove the `id_*` entries from `_TYPE_MAPPING`, or leave that for later?
+   - Recommendation: Remove them in Phase 2 alongside the converter fix. Keeping dead `id_*` entries creates confusion about which format is canonical. The converter fix (D-05a) ensures no JSON config will contain `id_*` types after re-conversion.
 
-3. **tXMLMap raw type strings**
-   - What we know: tXMLMap converter outputs raw Talend types (`id_String`, `id_Integer`) instead of Python types
-   - What's unclear: Is this a converter bug that will be fixed, or a permanent fixture?
-   - Recommendation: Bridge handles both formats defensively. Type mapping table includes all `id_*` entries. If converter is fixed later, the extra mappings are harmless.
+3. **JVM startup robustness**
+   - What we know: Current code uses `time.sleep(2)` + retry loop in bridge.py.
+   - What's unclear: Whether to implement a ready signal (Java writes to stdout, Python reads it) or keep the retry approach.
+   - Recommendation: Keep the retry approach but improve it (exponential backoff, clear error on timeout, configurable max wait). A ready signal is cleaner but adds subprocess I/O complexity.
 
 ## Environment Availability
 
 | Dependency | Required By | Available | Version | Fallback |
 |------------|------------|-----------|---------|----------|
-| Java (JDK) | JVM bridge process | Yes | OpenJDK 21.0.10 | -- |
-| Maven | Building Java JAR | **No** | -- | Add Maven wrapper (`mvnw`) to project |
-| Py4J (Python) | Python-Java gateway | Yes | 0.10.9.9 | -- |
-| PyArrow | Arrow IPC serialization | Yes | 23.0.1 | -- |
-| Pytest | Test execution | Yes | 9.0.2 | -- |
-| Homebrew | Maven installation | Yes | Available | Maven wrapper eliminates need for system Maven |
+| Java (JDK) | Bridge JVM runtime | Yes | OpenJDK 21.0.10 | -- |
+| Maven | JAR rebuild (pom.xml changes) | **NO** | -- | `brew install maven` required |
+| Python | Bridge client | Yes | 3.10+ | -- |
+| py4j (Python) | Bridge communication | Yes | 0.10.9.9 | -- |
+| pyarrow (Python) | Arrow IPC | Yes | 23.0.1 | -- |
+| pytest | Tests | Yes | (installed) | -- |
 
 **Missing dependencies with no fallback:**
-- None (Maven wrapper resolves the Maven gap)
+- **Maven**: Required to rebuild the Java bridge JAR after pom.xml changes (Py4J version upgrade). Must be installed before Java-side work begins.
 
 **Missing dependencies with fallback:**
-- Maven: Not installed, but Maven wrapper (`mvnw`) will be added to the project as part of this phase. The wrapper downloads and caches Maven automatically.
+- None
 
 ## Validation Architecture
 
 ### Test Framework
 | Property | Value |
 |----------|-------|
-| Framework | pytest 9.0.2 |
-| Config file | `pyproject.toml` (already configured by Phase 1) |
-| Quick run command | `pytest tests/v1/engine/test_bridge_type_mapping.py -x -m unit` |
-| Full suite command | `pytest tests/v1/engine/ -x` |
+| Framework | pytest (installed, Phase 1 infrastructure in place) |
+| Config file | None -- Phase 1 uses minimal conftest.py at `tests/v1/engine/conftest.py` |
+| Quick run command | `python -m pytest tests/v1/engine/test_bridge_type_mapping.py -x -q` |
+| Full suite command | `python -m pytest tests/v1/engine/ -x -q` |
 
-### Phase Requirements -> Test Map
+### Phase Requirements to Test Map
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
-| BRDG-01 | Data type serialization for 12 types | unit + integration | `pytest tests/v1/engine/test_bridge_type_mapping.py -x` | No -- Wave 0 |
-| BRDG-02 | Schema-driven Arrow serialization | unit | `pytest tests/v1/engine/test_bridge_serialization.py -x` | No -- Wave 0 |
-| BRDG-03 | Context/globalMap sync at every call site | unit | `pytest tests/v1/engine/test_bridge_sync.py -x` | No -- Wave 0 |
-| BRDG-04 | JAR/library loading robustness | integration | `pytest tests/v1/engine/test_bridge_integration.py -x -m java` | No -- Wave 0 |
-| BRDG-05 | Py4J 0.10.9.9 upgrade | integration | `pytest tests/v1/engine/test_bridge_integration.py -x -m java` | No -- Wave 0 |
-| BRDG-06 | Compiled script synchronization | unit + integration | `pytest tests/v1/engine/test_bridge_compilation.py -x` | No -- Wave 0 |
+| BRDG-01 | All 7 Python types serialize to Arrow and back | unit | `pytest tests/v1/engine/test_bridge_type_mapping.py -x` | Wave 0 |
+| BRDG-02 | Schema dict drives Arrow schema (no data inference) | unit | `pytest tests/v1/engine/test_bridge.py::TestSchemaMapping -x` | Wave 0 |
+| BRDG-03 | Context/globalMap sync after every bridge call | unit (mock) + integration | `pytest tests/v1/engine/test_bridge.py::TestSync -x` | Wave 0 |
+| BRDG-04 | JAR/library loading validates classpath | integration (@java) | `pytest tests/v1/engine/test_bridge_integration.py::TestLibraryLoading -x` | Wave 0 |
+| BRDG-05 | Py4J 0.10.9.9 on both sides | integration (@java) | `pytest tests/v1/engine/test_bridge_integration.py::TestPy4JVersion -x` | Wave 0 |
+| BRDG-06 | Compiled script cache works across chunks | integration (@java) | `pytest tests/v1/engine/test_bridge_integration.py::TestCompiledScripts -x` | Wave 0 |
+| D-05a | Converter fix: no id_* types in output | unit | `pytest tests/converters/test_map_types.py -x` | Wave 0 |
 
 ### Sampling Rate
-- **Per task commit:** `pytest tests/v1/engine/test_bridge_type_mapping.py tests/v1/engine/test_bridge_serialization.py -x -m unit`
-- **Per wave merge:** `pytest tests/v1/engine/ -x`
+- **Per task commit:** `python -m pytest tests/v1/engine/test_bridge_type_mapping.py tests/v1/engine/test_bridge.py -x -q`
+- **Per wave merge:** `python -m pytest tests/v1/engine/ -x -q`
 - **Phase gate:** Full suite green before `/gsd-verify-work`
 
 ### Wave 0 Gaps
-- [ ] `tests/v1/engine/test_bridge_type_mapping.py` -- covers BRDG-01, BRDG-02
-- [ ] `tests/v1/engine/test_bridge_serialization.py` -- covers BRDG-02
-- [ ] `tests/v1/engine/test_bridge_sync.py` -- covers BRDG-03
-- [ ] `tests/v1/engine/test_bridge_compilation.py` -- covers BRDG-06
-- [ ] `tests/v1/engine/test_bridge_integration.py` -- covers BRDG-04, BRDG-05 (requires @pytest.mark.java)
-- [ ] Maven wrapper setup -- required before Java-side integration tests can build the JAR
+- [ ] `tests/v1/engine/test_bridge_type_mapping.py` -- covers BRDG-01 (type mapping unit tests)
+- [ ] `tests/v1/engine/test_bridge.py` -- covers BRDG-02, BRDG-03 (bridge unit tests with mocked Py4J)
+- [ ] `tests/v1/engine/test_bridge_integration.py` -- covers BRDG-04, BRDG-05, BRDG-06 (JVM integration, `@pytest.mark.java`)
+- [ ] `tests/converters/test_map_types.py` -- covers D-05a (converter type fix verification)
+- [ ] Maven install: `brew install maven` -- required before Java-side changes can be tested
 
 ## Security Domain
 
@@ -677,35 +590,40 @@ def start(self, port: int, lib_dir: str = None, log_level: str = "INFO"):
 
 | ASVS Category | Applies | Standard Control |
 |---------------|---------|-----------------|
-| V2 Authentication | No | N/A -- batch ETL, no user auth |
-| V3 Session Management | No | N/A -- no sessions |
-| V4 Access Control | No | N/A -- single-user batch system |
-| V5 Input Validation | Yes | Schema-driven type validation before Arrow serialization; Groovy expressions come from trusted config files only |
-| V6 Cryptography | No | N/A -- no encryption in bridge layer |
+| V2 Authentication | No | N/A (local subprocess bridge) |
+| V3 Session Management | No | N/A |
+| V4 Access Control | No | N/A |
+| V5 Input Validation | Yes | Schema type validation (reject unknown types); expression input from trusted job configs only |
+| V6 Cryptography | No | N/A |
 
-### Known Threat Patterns for Bridge Stack
+### Known Threat Patterns for Python-Java Bridge
 
 | Pattern | STRIDE | Standard Mitigation |
 |---------|--------|---------------------|
-| Groovy code injection | Tampering | Expressions come from converter-generated JSON configs, not user input at runtime. Trust boundary is at the converter. |
-| JVM resource exhaustion | Denial of Service | `RootAllocator(Long.MAX_VALUE)` allows unbounded memory. Consider setting a memory limit. |
-| Port scanning/hijacking | Spoofing | Py4J listens on localhost only (default). Dynamic port allocation reduces predictability. |
+| Groovy code injection via job config | Tampering | Job configs are trusted input (generated by converter, not user-editable in production) |
+| JVM resource exhaustion | Denial of Service | RootAllocator with memory limit; process isolation per job |
+| Classpath manipulation | Elevation of Privilege | Validate JARs exist before adding to classpath; no dynamic classpath modification |
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- Codebase analysis: `bridge.py` (590 lines), `JavaBridge.java` (1022 lines), `RowWrapper.java` (160 lines), `java_bridge_manager.py` (128 lines)
-- Codebase analysis: 30+ converter JSON outputs in `tests/talend_xml_samples/converted_jsons/`
-- Codebase analysis: `type_mapping.py`, `components/base.py` (`_parse_schema()`)
-- Codebase analysis: `base_component.py` `_TYPE_MAPPING` and `_resolve_java_expressions()`
-- [VERIFIED: pip show py4j] -- Py4J 0.10.9.9 installed
-- [VERIFIED: pyarrow version] -- PyArrow 23.0.1 installed
-- [VERIFIED: java --version] -- OpenJDK 21.0.10
+- `src/v1/java_bridge/bridge.py` -- full source read, 591 lines [VERIFIED]
+- `src/v1/java_bridge/java/src/main/java/com/citi/gru/etl/JavaBridge.java` -- full source read, 1022 lines [VERIFIED]
+- `src/v1/java_bridge/java/src/main/java/com/citi/gru/etl/RowWrapper.java` -- full source read, 160 lines [VERIFIED]
+- `src/v1/engine/java_bridge_manager.py` -- full source read, 129 lines [VERIFIED]
+- `src/converters/talend_to_v1/type_mapping.py` -- full source read, type mapping reference [VERIFIED]
+- `src/converters/talend_to_v1/components/base.py` -- _parse_schema() with convert_type() call confirmed [VERIFIED]
+- `src/converters/talend_to_v1/components/transform/map.py` -- 3 bug locations verified via grep [VERIFIED]
+- `src/converters/talend_to_v1/components/transform/xml_map.py` -- 4 bug locations verified via grep [VERIFIED]
+- `tests/talend_xml_samples/converted_jsons/` -- 31 files scanned; 2 contain raw id_* types [VERIFIED]
+- `src/v1/java_bridge/java/pom.xml` -- Py4J 0.10.9.7, Arrow 15.0.2, Groovy 3.0.21 [VERIFIED]
+- `src/v1/engine/base_component.py` -- _TYPE_MAPPING with both id_* and Python type formats [VERIFIED]
+- Runtime checks: py4j==0.10.9.9, pyarrow==23.0.1, Java 21.0.10, Maven NOT installed [VERIFIED]
 
 ### Secondary (MEDIUM confidence)
-- [CITED: py4j.org/changelog.html] -- Py4J 0.10.9.9 changelog: "Retry Py4J on empty response"
-- [CITED: arrow.apache.org/docs/format/Versioning.html] -- Arrow IPC format stability guarantee
-- [CITED: central.sonatype.com/artifact/net.sf.py4j/py4j] -- Py4J 0.10.9.9 on Maven Central
+- [Py4J 0.10.9.9 changelog](https://www.py4j.org/changelog.html) -- "Retry Py4J on empty response" fix confirmed [CITED]
+- [Py4J 0.10.9.9 on Maven Central](https://central.sonatype.com/artifact/net.sf.py4j/py4j) -- Java JAR availability confirmed [CITED]
+- [Arrow Format Versioning](https://arrow.apache.org/docs/format/Versioning.html) -- IPC backward compatibility confirmed [CITED]
 
 ### Tertiary (LOW confidence)
 - None
@@ -713,11 +631,10 @@ def start(self, port: int, lib_dir: str = None, log_level: str = "INFO"):
 ## Metadata
 
 **Confidence breakdown:**
-- Standard stack: HIGH -- all versions verified against installed packages and registries
-- Architecture: HIGH -- based on thorough audit of all 4 source files and 30+ converter outputs
-- Pitfalls: HIGH -- identified from actual code bugs, not theoretical concerns
-- Schema standardization: HIGH -- based on exhaustive audit of all converter JSON outputs
-- BRDG-06 compiled script fix: MEDIUM -- Groovy Script class caching is standard pattern but needs integration testing
+- Standard stack: HIGH -- all versions verified via pip/pom.xml/runtime checks
+- Architecture: HIGH -- full source read of all target files; clear bug analysis
+- Pitfalls: HIGH -- based on verified code analysis, not speculation
+- Converter bug: HIGH -- exact line numbers verified with grep; affected JSONs confirmed
 
 **Research date:** 2026-04-14
-**Valid until:** 2026-05-14 (stable stack, no fast-moving dependencies)
+**Valid until:** 2026-05-14 (stable domain -- Py4J, Arrow, Groovy are mature libraries)
