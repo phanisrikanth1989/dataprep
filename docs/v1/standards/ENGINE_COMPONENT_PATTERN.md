@@ -24,11 +24,13 @@ from typing import Any, Optional
 import pandas as pd
 
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
 from ...exceptions import ConfigurationError, DataValidationError, FileOperationError
 
 logger = logging.getLogger(__name__)
 
 
+@REGISTRY.register("{ComponentName}", "t{ComponentName}")
 class {ComponentName}(BaseComponent):
     """{tComponentName} engine implementation.
 
@@ -245,20 +247,27 @@ Log levels:
 
 NEVER use `print()` in component code.
 
-### Rule 9: Register in COMPONENT_REGISTRY
+### Rule 9: Register via @REGISTRY.register() Decorator
 
-Register the component in `COMPONENT_REGISTRY` in `engine.py` with both the V1 name and the Talend alias:
+Register the component using the decorator from `component_registry.py`. Pass both the V1 name (PascalCase) and the Talend alias (with `t` prefix):
 
 ```python
-COMPONENT_REGISTRY = {
-    # V1 name          -> class
-    "FileInputDelimited": FileInputDelimited,
-    # Talend alias      -> same class
-    "tFileInputDelimited": FileInputDelimited,
-}
+from ...component_registry import REGISTRY
+
+@REGISTRY.register("FileInputDelimited", "tFileInputDelimited")
+class FileInputDelimited(BaseComponent):
+    ...
 ```
 
-Both names MUST map to the same class. The V1 name uses PascalCase without the `t` prefix.
+Both names map to the same class. Registration is triggered on import -- the component's package `__init__.py` must import the module to activate the decorator.
+
+```python
+# src/v1/engine/components/file/__init__.py
+from .file_input_delimited import FileInputDelimited   # triggers @REGISTRY.register
+from .file_output_delimited import FileOutputDelimited  # triggers @REGISTRY.register
+```
+
+The engine uses `REGISTRY.get(comp_type)` to look up component classes at runtime.
 
 ### Rule 10: Component MUST Work After reset()
 
@@ -289,14 +298,17 @@ Use `self.validate_schema(df, schema)` to validate and coerce DataFrame columns 
 - Nullable constraint enforcement (raises `DataValidationError` if violated)
 - Nullable integer support (uses `pd.Int64Dtype()` for int columns with NaN)
 
+The engine sets `self.output_schema` and `self.input_schema` on each component instance during initialization (from the job config's `schema.output` and `schema.input` arrays). Use these attributes directly -- do NOT dig into `self.config` for schema.
+
 ```python
 def _process(self, input_data=None) -> dict:
     # ... produce output_df ...
-    output_schema = self.config.get("schema", {}).get("output", [])
-    if output_schema:
-        output_df = self.validate_schema(output_df, output_schema)
+    if self.output_schema:
+        output_df = self.validate_schema(output_df, self.output_schema)
     return {"main": output_df, "reject": None}
 ```
+
+Note: `self.output_schema` and `self.input_schema` are set by the engine's `_initialize_components()`, not by BaseComponent's `__init__`. They are `list[dict]` where each dict has keys: `name`, `type`, `nullable`, `key`, `length`, `precision`, `pattern`.
 
 ### Rule 12: Module Docstring with Config Mapping
 
@@ -569,6 +581,8 @@ BaseComponent(
 | `self.stats` | `dict[str, int]` | NB_LINE, NB_LINE_OK, NB_LINE_REJECT |
 | `self.execution_mode` | `ExecutionMode` | BATCH / STREAMING / HYBRID |
 | `self.die_on_error` | `bool` | Whether errors are fatal (default True) |
+| `self.output_schema` | `list[dict]` | Output schema columns (set by engine, not BaseComponent) |
+| `self.input_schema` | `list[dict]` | Input schema columns (set by engine, not BaseComponent) |
 | `self.java_bridge` | `JavaBridge` | Set by engine if Java is enabled |
 | `self.python_routine_manager` | `PythonRoutineManager` | Set by engine if Python routines enabled |
 

@@ -356,15 +356,30 @@ def _make_component(config=None, global_map=None, context_manager=None):
     )
 ```
 
-### Rule 3: In-Memory DataFrames Only
+### Rule 3: In-Memory DataFrames (with tmp_path Exception for File Components)
 
-Test data MUST be created as in-memory `pd.DataFrame` objects. No file I/O in unit tests. No reading from fixtures files.
+Test data MUST be created as in-memory `pd.DataFrame` objects. No reading from external fixtures files.
 
 ```python
 def _make_input_df(rows=None):
     if rows is None:
         rows = [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]
     return pd.DataFrame(rows)
+```
+
+**Exception: File I/O components** (FileInputDelimited, FileOutputDelimited, etc.) inherently
+need real files. These tests use pytest's `tmp_path` fixture to create files programmatically.
+All paths use `pathlib.Path` for cross-OS compatibility. A small fixture directory at
+`tests/v1/engine/fixtures/file/` may hold pre-built files for complex cases (specific encodings).
+
+```python
+def test_reads_csv_with_semicolon_delimiter(self, tmp_path):
+    f = tmp_path / "input.csv"
+    f.write_text("a;b;c\n1;2;3\n", encoding="iso-8859-15")
+    config = {**_DEFAULT_CONFIG, "filepath": str(f), "fieldseparator": ";"}
+    comp = _make_component(config=config)
+    result = comp.execute(None)
+    assert len(result["main"]) == 1
 ```
 
 ### Rule 4: Fresh GlobalMap and ContextManager Per Test
@@ -556,7 +571,7 @@ def test_real(self):
     result = comp.execute(df)
 ```
 
-### Do NOT use file I/O in unit tests
+### Do NOT use file I/O in non-file-component unit tests
 
 ```python
 # WRONG -- depends on filesystem, slow, fragile
@@ -566,14 +581,14 @@ def test_reads_file(self):
         f.write("id,name\n1,Alice\n")
     result = comp.execute(None)
 
-# CORRECT for unit tests -- use in-memory data
+# CORRECT for non-file components -- use in-memory data
 def test_processes_data(self):
     comp = _make_component()
     df = _make_input_df()
     result = comp.execute(df)
 ```
 
-Note: File I/O components (FileInputDelimited, FileOutputDelimited) will use `tmp_path` pytest fixture for their tests. This is the ONE exception to the no-file-I/O rule.
+File I/O components use `tmp_path` instead -- see Rule 3 for the pattern.
 
 ---
 
