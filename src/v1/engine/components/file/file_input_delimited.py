@@ -409,7 +409,7 @@ class FileInputDelimited(BaseComponent):
                 if should_trim and col_name in df.columns:
                     df[col_name] = df[col_name].astype(str).str.strip()
         elif not df.empty and trim_all:
-            obj_cols = df.select_dtypes(include=["object"]).columns
+            obj_cols = df.select_dtypes(include=["object", "str"]).columns
             for col in obj_cols:
                 df[col] = df[col].astype(str).str.strip()
 
@@ -613,7 +613,7 @@ class FileInputDelimited(BaseComponent):
                 if rejected:
                     continue
 
-                # b. Type conversion (FILD-03) + c. CHECK_DATE (FILD-07)
+                # b. CHECK_DATE first (FILD-07) + c. Type conversion (FILD-03)
                 converted_row: dict[str, Any] = {}
                 for col_def in self.output_schema:
                     col_name = col_def.get("name", "")
@@ -622,34 +622,16 @@ class FileInputDelimited(BaseComponent):
 
                     raw_val = str(row_dict[col_name])
 
-                    # Type conversion
-                    try:
-                        converted_row[col_name] = self._convert_value(
-                            raw_val, col_def
-                        )
-                    except (ValueError, TypeError) as e:
-                        reject_row = {
-                            c: str(row_dict.get(c, "")) for c in schema_cols
-                            if c in row_dict
-                        }
-                        reject_row["errorCode"] = _ERROR_TYPE_CONVERSION
-                        reject_row["errorMessage"] = (
-                            f"Cannot convert '{raw_val}' to "
-                            f"{col_def.get('type', 'str')} for column "
-                            f"'{col_name}' - Line: {line_num}"
-                        )
-                        chunk_reject.append(reject_row)
-                        rejected = True
-                        break
-
-                    # Date validation
+                    # Date validation BEFORE type conversion so datetime
+                    # columns that fail pattern get DATE_FORMAT, not
+                    # TYPE_CONVERSION.
                     if (
                         check_date
-                        and not rejected
                         and col_def.get("date_pattern")
                         and col_def.get("type") == "datetime"
+                        and raw_val.strip()
                     ):
-                        if raw_val.strip() and not self._validate_date(
+                        if not self._validate_date(
                             raw_val, col_def["date_pattern"]
                         ):
                             reject_row = {
@@ -666,6 +648,26 @@ class FileInputDelimited(BaseComponent):
                             chunk_reject.append(reject_row)
                             rejected = True
                             break
+
+                    # Type conversion
+                    try:
+                        converted_row[col_name] = self._convert_value(
+                            raw_val, col_def
+                        )
+                    except (ValueError, TypeError):
+                        reject_row = {
+                            c: str(row_dict.get(c, "")) for c in schema_cols
+                            if c in row_dict
+                        }
+                        reject_row["errorCode"] = _ERROR_TYPE_CONVERSION
+                        reject_row["errorMessage"] = (
+                            f"Cannot convert '{raw_val}' to "
+                            f"{col_def.get('type', 'str')} for column "
+                            f"'{col_name}' - Line: {line_num}"
+                        )
+                        chunk_reject.append(reject_row)
+                        rejected = True
+                        break
 
                 if not rejected:
                     chunk_good.append(converted_row)
