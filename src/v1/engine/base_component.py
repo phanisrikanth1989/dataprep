@@ -421,18 +421,23 @@ class BaseComponent(ABC):
 
         chunk_size = self.config.get("chunk_size", 10000)
         flow_chunks: dict[str, list[pd.DataFrame]] = {}
+        all_flow_keys: set[str] = set()
 
         for start in range(0, len(input_data), chunk_size):
             chunk = input_data.iloc[start : start + chunk_size]
             chunk_result = self._process(chunk)
 
             for key, value in chunk_result.items():
+                all_flow_keys.add(key)
                 if isinstance(value, pd.DataFrame) and len(value) > 0:
                     flow_chunks.setdefault(key, []).append(value)
 
         result = {}
-        for key, chunks in flow_chunks.items():
-            result[key] = pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame()
+        for key in all_flow_keys:
+            if key in flow_chunks:
+                result[key] = pd.concat(flow_chunks[key], ignore_index=True)
+            else:
+                result[key] = None
 
         # Ensure 'main' always exists
         if "main" not in result:
