@@ -316,7 +316,7 @@ class TriggerManager:
                         return "0"
                     elif converter is bool:
                         return "False"
-                    elif converter is str:
+                    else:
                         return '"None"'
                 converted = converter(raw_value)
                 return repr(converted)
