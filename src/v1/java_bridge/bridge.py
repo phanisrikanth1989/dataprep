@@ -706,7 +706,9 @@ class JavaBridge:
             col_type = schema_dict[col_name]
             try:
                 if col_type == "str" or col_type == "object":
-                    coerced_df[col_name] = coerced_df[col_name].astype(str).replace("nan", None)
+                    null_mask = coerced_df[col_name].isna()
+                    coerced_df[col_name] = coerced_df[col_name].astype(str)
+                    coerced_df.loc[null_mask, col_name] = None
                 elif col_type == "int":
                     coerced_df[col_name] = pd.to_numeric(coerced_df[col_name], errors="coerce")
                 elif col_type == "float":
