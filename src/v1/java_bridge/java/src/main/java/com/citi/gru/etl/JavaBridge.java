@@ -40,7 +40,10 @@ public class JavaBridge {
 
     private static final Logger logger = Logger.getLogger(JavaBridge.class.getName());
 
-    private final BufferAllocator allocator = new RootAllocator(Long.MAX_VALUE);
+    // 4 GB limit on Arrow off-heap memory -- provides clear OOM messages instead
+    // of unbounded growth, and protects the host system if resources leak.
+    private static final long MAX_ALLOCATOR_BYTES = 4L * 1024 * 1024 * 1024;
+    private final BufferAllocator allocator = new RootAllocator(MAX_ALLOCATOR_BYTES);
     private Map<String, Object> context = new HashMap<>();
     private Map<String, Object> globalMap = new HashMap<>();
     private GroovyShell groovyShell;
