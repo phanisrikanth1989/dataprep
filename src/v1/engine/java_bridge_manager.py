@@ -33,22 +33,51 @@ class JavaBridgeManager:
         self.libraries = libraries or []
 
     def start(self):
-        """Start Java bridge with dynamic port allocation"""
+        """Start Java bridge with dynamic port allocation.
+
+        Retries port allocation up to 3 times to handle TOCTOU races where
+        another process claims the port between _find_free_port() releasing
+        the socket and the Java process binding to it.
+        """
         if not self.enable:
             logger.info("Java execution disabled")
             return
 
+        max_port_retries = 3
+        last_error = None
+
+        for attempt in range(1, max_port_retries + 1):
+            try:
+                # Find available port
+                self.port = self._find_free_port()
+                logger.info("[OK] Starting Java bridge on port %d (attempt %d/%d)", self.port, attempt, max_port_retries)
+
+                # Import and initialize bridge
+                from src.v1.java_bridge import JavaBridge
+
+                self.bridge = JavaBridge()
+                self.bridge.start(port=self.port)
+                self.is_running = True
+                break  # Success -- exit retry loop
+            except Exception as e:
+                last_error = e
+                if attempt < max_port_retries and "Address already in use" in str(e):
+                    logger.warning("[WARN] Port %d in use, retrying with new port...", self.port)
+                    # Clean up failed bridge before retry
+                    if self.bridge:
+                        try:
+                            self.bridge.stop()
+                        except Exception:
+                            pass
+                        self.bridge = None
+                    continue
+                # Not a port race or final attempt -- fall through to outer handler
+                raise
+
+        if not self.is_running:
+            raise JavaBridgeError(f"Java bridge failed to start after {max_port_retries} attempts: {last_error}") from last_error
+
         try:
-            # Find available port
-            self.port = self._find_free_port()
-            logger.info("[OK] Starting Java bridge on port %d", self.port)
-
-            # Import and initialize bridge
-            from src.v1.java_bridge import JavaBridge
-
-            self.bridge = JavaBridge()
-            self.bridge.start(port=self.port)
-            self.is_running = True
 
             # Sync Python log level to Java side (D-16)
             python_level = logger.getEffectiveLevel()
