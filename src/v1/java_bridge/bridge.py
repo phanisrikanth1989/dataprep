@@ -1,590 +1,938 @@
+"""Python-Java Bridge using Py4J and Apache Arrow.
+
+Schema-driven DataFrame serialization with automatic context/globalMap
+synchronization after every Java call. Zero print() statements -- all
+output goes through the logging module.
 """
-Python-Java Bridge using Py4J and Apache Arrow
-Handles DataFrame transfer and Java expression execution
-"""
+
+import io
+import logging
+import os
+import subprocess
+import time
+from typing import Any, Optional
 
 import pandas as pd
 import pyarrow as pa
+import pyarrow.ipc as ipc
 from py4j.java_gateway import JavaGateway, GatewayParameters
-import subprocess
-import time
-import os
-from typing import Dict, Any, Optional
+
+from .type_mapping import (
+    PYTHON_TO_JAVA,
+    build_arrow_schema,
+    extract_precision_map,
+    validate_schema_types,
+)
+
+logger = logging.getLogger(__name__)
+
+# Python logging level -> Java JUL level string
+_PYTHON_TO_JAVA_LOG_LEVEL: dict[int, str] = {
+    logging.DEBUG: "FINE",
+    logging.INFO: "INFO",
+    logging.WARNING: "WARNING",
+    logging.ERROR: "SEVERE",
+    logging.CRITICAL: "SEVERE",
+}
 
 
 class JavaBridge:
-    """Bridge between Python and Java using Py4J with Arrow for data transfer"""
+    """Bridge between Python and Java using Py4J with Arrow for data transfer.
 
-    def __init__(self):
-        self.gateway = None
-        self.java_bridge = None
-        self.java_process = None
-        self.port = None  # Will be set during start()
-        self.context = {}
-        self.global_map = {}
-        self.base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    All public methods that modify Java state automatically synchronize
+    context and globalMap back to Python via ``_sync_from_java()``.
 
-    def start(self, port: int = None):
-        """
-        Start the Java gateway process and initialize the bridge
+    Arrow schemas are built from explicit type mappings (via type_mapping.py),
+    never inferred from DataFrame data.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the bridge. Call ``start()`` to launch the JVM."""
+        self.gateway: Optional[JavaGateway] = None
+        self.java_bridge: Any = None
+        self.process: Optional[subprocess.Popen] = None
+        self.context: dict[str, Any] = {}
+        self.global_map: dict[str, Any] = {}
+        self._started: bool = False
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def start(self, port: int | None = None) -> None:
+        """Start the JVM subprocess and connect via Py4J.
+
+        Uses retry with exponential backoff (max 5 attempts starting at 0.5s).
+        Captures Java stderr for diagnostics.
 
         Args:
-            port: Port number for Py4J gateway (default: 25333, None = use default)
+            port: Py4J gateway port. Defaults to 25333 if not specified.
+
+        Raises:
+            JavaBridgeError: If the JVM fails to start or connect.
         """
+        from src.v1.engine.exceptions import JavaBridgeError
+
         if port is None:
-            port = 25333  # Default Py4J port
+            port = 25333
 
-        self.port = port
-        print(f"Starting Java gateway on port {port}...")
+        logger.info("[OK] Starting Java gateway on port %d", port)
 
-        java_dir = os.path.join(self.base_path, "java_bridge", "java")
-        classes_dir = os.path.join(java_dir, "target", "java-bridge-with-dependencies.jar")
+        jar_path = self._find_jar_path()
 
-        # Build full classpath: our classes + jar dependencies
-        full_classpath = f"{classes_dir}"
-        print(full_classpath)
-
-        # Run with classpath and Arrow JVM arguments
         cmd = [
             "java",
             "--add-opens=java.base/java.nio=ALL-UNNAMED",
             "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
             "--add-opens=java.base/java.lang=ALL-UNNAMED",
-            f"-Dpy4j.port={port}",  # Pass port to Java
-            "-cp", full_classpath,
-            "com.citi.gru.etl.JavaBridge"
+            f"-Dpy4j.port={port}",
+            "-cp", jar_path,
+            "com.citi.gru.etl.JavaBridge",
         ]
 
-        # Start Java process
-        # stdout/stderr go directly to console for debugging
-        self.java_process = subprocess.Popen(
+        java_dir = os.path.dirname(jar_path)
+
+        self.process = subprocess.Popen(
             cmd,
             cwd=java_dir,
-            stdout=None,  # Let Java stdout go to console
-            stderr=None,  # Let Java stderr go to console
-            text=True
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=False,
         )
 
-        # Wait for gateway to be ready (look for startup message or port)
-        print("Waiting for Java gateway to start...")
+        # Retry connection with exponential backoff
+        max_attempts = 5
+        delay = 0.5
 
-        # Initial delay to allow Java process to initialize
-        # This reduces connection refused errors during startup
-        time.sleep(2)
+        for attempt in range(1, max_attempts + 1):
+            time.sleep(delay)
 
-        max_wait = 30  # seconds
-        start_time = time.time()
+            if self.process.poll() is not None:
+                java_stderr = self._capture_java_stderr()
+                raise JavaBridgeError(
+                    f"Java process exited during startup (exit code {self.process.returncode})"
+                    f"\n--- Java stderr (last 20 lines) ---\n{java_stderr}"
+                )
 
-        while time.time() - start_time < max_wait:
-            # Check if process is still running
-            if self.java_process.poll() is not None:
-                raise RuntimeError(f"Java process died during startup (check console for errors)")
-
-            # Try to connect
             try:
                 self.gateway = JavaGateway(
                     gateway_parameters=GatewayParameters(
-                        port=port,  # Connect to specific port
-                        auto_convert=True
+                        port=port,
+                        auto_convert=True,
                     )
                 )
                 self.java_bridge = self.gateway.entry_point
-                # Test the connection
+                # Test connection
                 _ = self.java_bridge.getContext()
-                print(f"Java gateway started successfully on port {port}")
+                self._started = True
+
+                # Sync log level
+                java_level = _PYTHON_TO_JAVA_LOG_LEVEL.get(
+                    logger.getEffectiveLevel(), "INFO"
+                )
+                try:
+                    self.java_bridge.setLogLevel(java_level)
+                except Exception:
+                    logger.debug("setLogLevel not available on Java side -- skipping")
+
+                logger.info(
+                    "[OK] Java gateway started on port %d (attempt %d/%d)",
+                    port,
+                    attempt,
+                    max_attempts,
+                )
                 return
+
             except Exception:
-                time.sleep(0.5)
+                if attempt < max_attempts:
+                    logger.debug(
+                        "Connection attempt %d/%d failed, retrying in %.1fs",
+                        attempt,
+                        max_attempts,
+                        delay,
+                    )
+                    delay *= 2
+                else:
+                    java_stderr = self._capture_java_stderr()
+                    if self.process:
+                        self.process.kill()
+                    raise JavaBridgeError(
+                        f"Timeout connecting to Java gateway on port {port} "
+                        f"after {max_attempts} attempts"
+                        f"\n--- Java stderr (last 20 lines) ---\n{java_stderr}"
+                    )
 
-        # Timeout
-        self.java_process.kill()
-        raise RuntimeError("Timeout waiting for Java gateway to start")
+    def stop(self) -> None:
+        """Shutdown the Py4J gateway and kill the JVM subprocess."""
+        if not self._started:
+            return
 
-    def stop(self):
-        """Stop the Java gateway process"""
         if self.gateway:
             try:
                 self.gateway.shutdown()
             except Exception:
                 pass
 
-        if self.java_process:
-            self.java_process.terminate()
+        if self.process:
+            self.process.terminate()
             try:
-                self.java_process.wait(timeout=5)
+                self.process.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                self.java_process.kill()
-            print("Java gateway stopped")
+                self.process.kill()
 
-    def execute_java_row(self, df: pd.DataFrame, java_code: str,
-                        output_schema: Dict[str, str]) -> pd.DataFrame:
-        """
-        Execute tJavaRow-style code block on DataFrame
+        self._started = False
+        self.gateway = None
+        self.java_bridge = None
+        self.process = None
+        logger.info("[OK] Java gateway stopped")
+
+    # ------------------------------------------------------------------
+    # Public API -- Data execution methods
+    # ------------------------------------------------------------------
+
+    def execute_java_row(
+        self,
+        df: pd.DataFrame,
+        java_code: str,
+        output_schema: dict[str, str],
+        input_columns: list[str] | None = None,
+        output_columns: list[str] | None = None,
+        schema_columns: list[dict] | None = None,
+    ) -> pd.DataFrame:
+        """Execute tJavaRow-style code on a DataFrame.
 
         Args:
-            df: Input DataFrame (becomes input_row in Java)
-            java_code: Multi-line Java code block
-            output_schema: Dict of {column_name: type} for output
+            df: Input DataFrame.
+            java_code: Java/Groovy code block.
+            output_schema: Column name -> Python type string mapping for output.
+            input_columns: Input column names (optional).
+            output_columns: Output column names (optional).
+            schema_columns: Full schema column list for precision extraction.
 
         Returns:
-            Output DataFrame (from output_row in Java)
+            Output DataFrame.
         """
-        # Convert input to Arrow with Decimal-aware schema
-        arrow_table = pa.Table.from_pandas(df, schema=self._build_arrow_schema(df))
-        sink = pa.BufferOutputStream()
-        writer = pa.ipc.new_stream(sink, arrow_table.schema)
-        writer.write_table(arrow_table)
-        writer.close()
-        arrow_bytes = sink.getvalue().to_pybytes()
+        logger.debug("[execute_java_row] rows=%d, code_len=%d", len(df), len(java_code))
 
-        # Send to Java
-        result_bytes = self.java_bridge.executeJavaRow(
-            arrow_bytes,
-            java_code,
-            self._convert_schema_to_java(output_schema),
-            self._convert_context_to_java(),
-            self._convert_globalmap_to_java()
-        )
+        # Build schema dict from df columns for serialization
+        schema_dict = self._schema_dict_from_df_and_output(df, output_schema)
+        arrow_bytes = self._df_to_arrow_bytes(df, schema_dict, schema_columns)
 
-        # Sync back context and globalMap
-        self._sync_from_java()
+        def _call():
+            return self.java_bridge.executeJavaRow(
+                arrow_bytes,
+                java_code,
+                self._convert_schema_to_java(output_schema),
+                self.context,
+                self.global_map,
+            )
 
-        # Convert result
-        reader = pa.ipc.open_stream(pa.py_buffer(result_bytes))
-        result_table = reader.read_all()
-        return result_table.to_pandas()
+        result_bytes = self._call_java_with_sync(_call)
+
+        return self._arrow_bytes_to_df(result_bytes, output_schema)
 
     def execute_one_time_expression(self, expression: str) -> Any:
-        """
-        Execute a one-time Java expression (e.g., for component properties)
+        """Execute a single Java expression.
 
         Args:
-            expression: Java expression with context access
+            expression: Java expression string with context access.
 
         Returns:
-            Result value
+            Expression result value.
         """
-        return self.java_bridge.executeOneTimeExpression(
-            expression,
-            self._convert_context_to_java()
+        logger.debug("[execute_one_time_expression] expr=%s", expression[:80])
+
+        def _call():
+            return self.java_bridge.executeOneTimeExpression(
+                expression,
+                self.context,
+            )
+
+        return self._call_java_with_sync(_call)
+
+    def execute_batch_one_time_expressions(
+        self,
+        expressions: dict[str, str],
+    ) -> dict[str, Any]:
+        """Execute multiple Java expressions in batch.
+
+        Uses executeBatchOneTimeExpressionsWithGlobalMap (the only batch method
+        with full state access).
+
+        Args:
+            expressions: Mapping of param_name -> java_expression.
+
+        Returns:
+            Mapping of param_name -> resolved_value. Errors prefixed with {{ERROR}}.
+        """
+        logger.debug(
+            "[execute_batch_one_time_expressions] %d expression(s)", len(expressions)
         )
 
-    def execute_batch_one_time_expressions(self, expressions: Dict[str, str]) -> Dict[str, Any]:
-        """
-        Execute multiple one-time Java expressions in batch (efficient)
+        def _call():
+            return self.java_bridge.executeBatchOneTimeExpressionsWithGlobalMap(
+                expressions,
+                self.context,
+                self.global_map,
+            )
+
+        return self._call_java_with_sync(_call)
+
+    def execute_tmap_preprocessing(
+        self,
+        df: pd.DataFrame,
+        expressions: dict[str, str],
+        main_table_name: str,
+        lookup_table_names: list[str] | None = None,
+        schema: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Execute tMap preprocessing -- batch evaluate expressions on all rows.
 
         Args:
-            expressions: Dict of {param_name: java_expression}
-                         e.g., {"footer": "1 + context.count", "limit": "context.rows * 2"}
+            df: Input DataFrame.
+            expressions: Mapping of expr_id -> expression_string.
+            main_table_name: Main table name for row variable binding.
+            lookup_table_names: Lookup table names already joined.
+            schema: Column name -> type string mapping for Arrow serialization.
 
         Returns:
-            Dict of {param_name: resolved_value}
-                    Errors are returned as strings with {{ERROR}} prefix
-        """
-        # Pass both context and globalMap to Java
-        return self.java_bridge.executeBatchOneTimeExpressionsWithGlobalMap(
-            expressions,
-            self._convert_context_to_java(),
-            self.global_map  # Pass globalMap as well
-        )
-
-    def execute_tmap_preprocessing(self, df: pd.DataFrame, expressions: Dict[str, str],
-                                   main_table_name: str, lookup_table_names: list = None) -> Dict[str, Any]:
-        """
-        Execute tMap preprocessing - batch evaluate expressions on all rows
-
-        Used for evaluating filters and join key expressions during tMap preprocessing.
-        Each expression is evaluated once per row, returning an array of results.
-
-        Args:
-            df: Input DataFrame to evaluate expressions on
-            expressions: Dict of {expr_id: expression_string} to evaluate on each row
-                         e.g., {"__main_filter__": "orders.status == 'COMPLETE'",
-                                "__join_customers_0__": "orders.customer_id"}
-            main_table_name: Name of the main table (for row variable binding, e.g., "orders")
-            lookup_table_names: List of lookup table names already joined (e.g., ["customers", "products"])
-
-        Returns:
-            Dict of {expr_id: numpy_array} where array contains result for each row
-
-        Example:
-            Input: 3 rows, expressions: {"filter": "orders.status == 'COMPLETE'",
-                                          "join_key": "orders.customer_id"}
-            Output: {"filter": [True, False, True], "join_key": [101, 102, 103]}
+            Mapping of expr_id -> numpy_array of per-row results.
         """
         import numpy as np
-
-        # Convert input to Arrow with Decimal-aware schema
-        arrow_table = pa.Table.from_pandas(df, schema=self._build_arrow_schema(df))
-        sink = pa.BufferOutputStream()
-        writer = pa.ipc.new_stream(sink, arrow_table.schema)
-        writer.write_table(arrow_table)
-        writer.close()
-        arrow_bytes = sink.getvalue().to_pybytes()
-
-        # Convert lookup_table_names to Java List
         from py4j.java_collections import ListConverter
+
+        logger.debug(
+            "[execute_tmap_preprocessing] rows=%d, exprs=%d", len(df), len(expressions)
+        )
+
+        schema_dict = schema if schema else self._infer_schema_dict(df)
+        arrow_bytes = self._df_to_arrow_bytes(df, schema_dict)
+
         java_lookup_names = ListConverter().convert(
             lookup_table_names or [], self.gateway._gateway_client
         )
 
-        # Send to Java
-        result_map = self.java_bridge.executeTMapPreprocessing(
-            arrow_bytes,
-            expressions,
-            main_table_name,
-            java_lookup_names,
-            self._convert_context_to_java(),
-            self._convert_globalmap_to_java()
-        )
+        def _call():
+            return self.java_bridge.executeTMapPreprocessing(
+                arrow_bytes,
+                expressions,
+                main_table_name,
+                java_lookup_names,
+                self.context,
+                self.global_map,
+            )
 
-        # Convert Java Object[] arrays to numpy arrays
-        results = {}
+        result_map = self._call_java_with_sync(_call)
+
+        results: dict[str, Any] = {}
         for expr_id, java_array in result_map.items():
-            # Convert Java array to Python list, then to numpy array
             python_list = list(java_array) if java_array else []
             results[expr_id] = np.array(python_list)
 
         return results
 
-    def execute_tmap_compiled(self, java_script: str, df: pd.DataFrame,
-                              output_schemas: Dict[str, list],
-                              output_types: Dict[str, str],
-                              main_table_name: str = None,
-                              lookup_names: list = None) -> Dict[str, pd.DataFrame]:
-        """
-        Execute tMap outputs using COMPILED script (OPTIMIZED)
-
-        Generates and compiles entire tMap logic once, then executes in parallel.
-        Achieves stellar performance to tJavaRow (~180x rows/sec).
-
-        Args:
-            java_script: Pre-generated Java/Groovy script containing all tMap logic
-            df: Joined DataFrame (after all lookups are complete)
-            output_schemas: Dict of {output_name: [column_names...]}
-            output_types: Dict of {output_name_columnName: type_string}
-            main_table_name: Name of the main input table (e.g., "orders")
-            lookup_names: List of lookup table names (e.g., ["customers", "products"])
-
-        Returns:
-            Dict of {output_name: DataFrame} for each output
-        """
-        # Convert input to Arrow with Decimal-aware schema
-        arrow_table = pa.Table.from_pandas(df, schema=self._build_arrow_schema(df))
-        sink = pa.BufferOutputStream()
-        writer = pa.ipc.new_stream(sink, arrow_table.schema)
-        writer.write_table(arrow_table)
-        writer.close()
-        arrow_bytes = sink.getvalue().to_pybytes()
-
-        # Convert Python collections to Java collections
-        if lookup_names is None:
-            lookup_names = []
-
-        from py4j.java_collections import ListConverter, MapConverter
-
-        # Convert output_schemas: Map<String, List<String>>
-        java_output_schemas = {}
-        for output_name, col_list in output_schemas.items():
-            java_col_list = ListConverter().convert(col_list, self.gateway._gateway_client)
-            java_output_schemas[output_name] = java_col_list
-
-        # Convert output_types: Map<String, String>
-        java_output_types = output_types
-
-        # Convert lookup_names: List<String>
-        java_lookup_names = ListConverter().convert(lookup_names, self.gateway._gateway_client)
-
-        # Send to Java (returns Map<String, byte[]>)
-        result_map = self.java_bridge.executeTMapCompiled(
-            java_script,
-            arrow_bytes,
-            java_output_schemas,
-            java_output_types,
-            main_table_name or "row1",
-            java_lookup_names,
-            self._convert_context_to_java(),
-            self._convert_globalmap_to_java()
-        )
-
-        # Convert each output's Arrow bytes back to DataFrame
-        output_dfs = {}
-        for output_name, output_bytes in result_map.items():
-            if output_bytes and len(output_bytes) > 0:
-                reader = pa.ipc.open_stream(pa.py_buffer(output_bytes))
-                result_table = reader.read_all()
-                output_dfs[output_name] = result_table.to_pandas()
-            else:
-                # Empty output
-                output_dfs[output_name] = pd.DataFrame()
-
-        return output_dfs
-
-    def compile_tmap_script(self, component_id: str, java_script: str,
-                            output_schemas: Dict[str, list],
-                            output_types: Dict[str, str],
-                            main_table_name: str = None,
-                            lookup_names: list = None) -> str:
-        """
-        Compile tMap script ONCE and cache it (STEP 1 of 2)
-
-        This method compiles the tMap script and caches it in Java bridge.
-        The compiled script can then be executed multiple times on different chunks.
+    def execute_tmap_compiled(
+        self,
+        java_script: str,
+        df: pd.DataFrame,
+        output_schemas: dict[str, list],
+        output_types: dict[str, str],
+        main_table_name: str | None = None,
+        lookup_names: list[str] | None = None,
+        input_columns: list[str] | None = None,
+        output_columns: list[str] | None = None,
+        schema: dict[str, str] | None = None,
+    ) -> dict[str, pd.DataFrame]:
+        """Execute tMap outputs using a compiled Groovy script.
 
         Args:
-            component_id: Unique component ID (e.g., "tMap_1", "tMap_2")
-            java_script: Pre-generated Java/Groovy script containing all tMap logic
-            output_schemas: Dict of {output_name: [column_names...]}
-            output_types: Dict of {output_name_columnName: type_string}
-            main_table_name: Name of the main input table (e.g., "orders")
-            lookup_names: List of lookup table names (e.g., ["customers", "products"])
+            java_script: Pre-generated Java/Groovy script.
+            df: Joined DataFrame.
+            output_schemas: Mapping of output_name -> [column_names].
+            output_types: Mapping of output_name_columnName -> type_string.
+            main_table_name: Main input table name.
+            lookup_names: Lookup table names.
+            input_columns: Input column names (optional).
+            output_columns: Output column names (optional).
+            schema: Column name -> type string mapping for Arrow serialization.
 
         Returns:
-            component_id (for confirmation)
+            Mapping of output_name -> DataFrame.
         """
         from py4j.java_collections import ListConverter
 
-        # Convert Python collections to Java collections
+        logger.debug(
+            "[execute_tmap_compiled] rows=%d, outputs=%d",
+            len(df),
+            len(output_schemas),
+        )
+
+        schema_dict = schema if schema else self._infer_schema_dict(df)
+        arrow_bytes = self._df_to_arrow_bytes(df, schema_dict)
+
         if lookup_names is None:
             lookup_names = []
 
-        # Convert output_schemas: Map<String, List<String>>
         java_output_schemas = {}
         for output_name, col_list in output_schemas.items():
-            java_col_list = ListConverter().convert(col_list, self.gateway._gateway_client)
-            java_output_schemas[output_name] = java_col_list
+            java_output_schemas[output_name] = ListConverter().convert(
+                col_list, self.gateway._gateway_client
+            )
+        java_lookup_names = ListConverter().convert(
+            lookup_names, self.gateway._gateway_client
+        )
 
-        # Convert lookup_names: List<String>
-        java_lookup_names = ListConverter().convert(lookup_names, self.gateway._gateway_client)
+        def _call():
+            return self.java_bridge.executeTMapCompiled(
+                java_script,
+                arrow_bytes,
+                java_output_schemas,
+                output_types,
+                main_table_name or "row1",
+                java_lookup_names,
+                self.context,
+                self.global_map,
+            )
 
-        # Call Java compilation method
+        result_map = self._call_java_with_sync(_call)
+
+        return self._parse_output_map(result_map)
+
+    def compile_tmap_script(
+        self,
+        component_id: str,
+        java_script: str,
+        output_schemas: dict[str, list],
+        output_types: dict[str, str],
+        main_table_name: str | None = None,
+        lookup_names: list[str] | None = None,
+        input_columns: list[str] | None = None,
+        output_columns: list[str] | None = None,
+        schema: dict[str, str] | None = None,
+    ) -> str:
+        """Compile a tMap Groovy script and cache it. No sync needed.
+
+        Args:
+            component_id: Unique component ID for cache key.
+            java_script: Groovy script to compile.
+            output_schemas: Mapping of output_name -> [column_names].
+            output_types: Mapping of output_name_columnName -> type_string.
+            main_table_name: Main input table name.
+            lookup_names: Lookup table names.
+            input_columns: Input column names (optional).
+            output_columns: Output column names (optional).
+            schema: Schema dict (unused here, for API consistency).
+
+        Returns:
+            component_id confirming compilation.
+        """
+        from py4j.java_collections import ListConverter
+
+        logger.debug("[compile_tmap_script] component=%s", component_id)
+
+        if lookup_names is None:
+            lookup_names = []
+
+        java_output_schemas = {}
+        for output_name, col_list in output_schemas.items():
+            java_output_schemas[output_name] = ListConverter().convert(
+                col_list, self.gateway._gateway_client
+            )
+        java_lookup_names = ListConverter().convert(
+            lookup_names, self.gateway._gateway_client
+        )
+
+        # No sync needed -- compilation doesn't change Java state
         return self.java_bridge.compileTMapScript(
             component_id,
             java_script,
             java_output_schemas,
             output_types,
             main_table_name or "row1",
-            java_lookup_names
+            java_lookup_names,
         )
 
-    def execute_compiled_tmap_chunked(self, component_id: str, df: pd.DataFrame,
-                                      chunk_size: int = 50000) -> Dict[str, pd.DataFrame]:
-
-        """
-        Execute pre-compiled tMap script with CHUNKING (STEP 2 of 2)
-
-        This method chunks the input DataFrame and executes the pre-compiled script
-        on each chunk. This solves the 2GB Arrow byte array limit issue.
-
-        Compile ONCE + Execute MANY chunks = Massive performance gain!
+    def execute_compiled_tmap_chunked(
+        self,
+        component_id: str,
+        df: pd.DataFrame,
+        chunk_size: int = 50000,
+        input_columns: list[str] | None = None,
+        output_columns: list[str] | None = None,
+        schema: dict[str, str] | None = None,
+    ) -> dict[str, pd.DataFrame]:
+        """Execute a pre-compiled tMap script with chunking.
 
         Args:
-            component_id: Component ID used during compilation
-            df: Joined DataFrame (after all lookups are complete)
-            chunk_size: Number of rows per chunk (default: 50000)
+            component_id: Component ID used during compilation.
+            df: Joined DataFrame.
+            chunk_size: Rows per chunk (default 50000).
+            input_columns: Input column names (optional).
+            output_columns: Output column names (optional).
+            schema: Column name -> type string for Arrow serialization.
 
         Returns:
-            Dict of {output_name: DataFrame} for each output (combined from all chunks)
+            Mapping of output_name -> DataFrame (combined from all chunks).
         """
         total_rows = len(df)
-        print(f"Processing {total_rows} rows in chunks of {chunk_size}...")
+        logger.info(
+            "[execute_compiled_tmap_chunked] %d rows in chunks of %d",
+            total_rows,
+            chunk_size,
+        )
 
-        # Dictionary to accumulate results from all chunks
-        output_dfs_list = {}  # {output_name: [df_chunk1, df_chunk2, ...]}
-
-        # Process in chunks
-        num_chunks = (total_rows + chunk_size - 1) // chunk_size  # Ceiling division
+        schema_dict = schema if schema else self._infer_schema_dict(df)
+        output_dfs_list: dict[str, list[pd.DataFrame]] = {}
+        num_chunks = (total_rows + chunk_size - 1) // chunk_size
 
         for chunk_idx in range(num_chunks):
             start_idx = chunk_idx * chunk_size
             end_idx = min(start_idx + chunk_size, total_rows)
             chunk_df = df.iloc[start_idx:end_idx]
 
-            print(f"  Chunk {chunk_idx + 1}/{num_chunks}: rows {start_idx} to {end_idx} ({len(chunk_df)} rows)")
-
-            # Convert chunk to Arrow with Decimal-aware schema
-            arrow_table = pa.Table.from_pandas(chunk_df, schema=self._build_arrow_schema(df))
-            sink = pa.BufferOutputStream()
-            writer = pa.ipc.new_stream(sink, arrow_table.schema)
-            writer.write_table(arrow_table)
-            writer.close()
-            arrow_bytes = sink.getvalue().to_pybytes()
-
-            # Execute on this chunk
-            result_map = self.java_bridge.executeCompiledTMap(
-                component_id,
-                arrow_bytes,
-                self._convert_context_to_java(),
-                self._convert_globalmap_to_java()
+            logger.debug(
+                "  Chunk %d/%d: rows %d to %d (%d rows)",
+                chunk_idx + 1,
+                num_chunks,
+                start_idx,
+                end_idx,
+                len(chunk_df),
             )
 
-            # Convert each output's Arrow bytes back to DataFrame
+            arrow_bytes = self._df_to_arrow_bytes(chunk_df, schema_dict)
+
+            def _call(ab=arrow_bytes):
+                return self.java_bridge.executeCompiledTMap(
+                    component_id,
+                    ab,
+                    self.context,
+                    self.global_map,
+                )
+
+            result_map = self._call_java_with_sync(_call)
+
             for output_name, output_bytes in result_map.items():
                 if output_bytes and len(output_bytes) > 0:
-                    reader = pa.ipc.open_stream(pa.py_buffer(output_bytes))
+                    reader = ipc.open_stream(pa.py_buffer(output_bytes))
                     result_table = reader.read_all()
                     chunk_output_df = result_table.to_pandas()
-
-                    # Accumulate this chunk's output
                     if output_name not in output_dfs_list:
                         output_dfs_list[output_name] = []
                     output_dfs_list[output_name].append(chunk_output_df)
 
-        # Combine all chunks for each output
-        output_dfs = {}
+        output_dfs: dict[str, pd.DataFrame] = {}
         for output_name, df_list in output_dfs_list.items():
             if df_list:
                 output_dfs[output_name] = pd.concat(df_list, ignore_index=True)
-                print(f"  Output '{output_name}': {len(output_dfs[output_name])} total rows")
+                logger.info(
+                    "  Output '%s': %d total rows",
+                    output_name,
+                    len(output_dfs[output_name]),
+                )
             else:
                 output_dfs[output_name] = pd.DataFrame()
 
         return output_dfs
 
-    def load_routine(self, routine_class: str):
-        """Load a custom routine class into the Java context"""
-        self.java_bridge.loadRoutine(routine_class)
-
-    def validate_libraries(self, libraries: list) -> list:
-        """
-        Validate that required libraries are available on classpath
+    def load_routine(self, routine_class: str) -> None:
+        """Load a custom routine class into the Java context.
 
         Args:
-            libraries: List of JAR filenames to validate
+            routine_class: Fully qualified class name.
+        """
+        logger.debug("[load_routine] %s", routine_class)
+
+        def _call():
+            return self.java_bridge.loadRoutine(routine_class)
+
+        self._call_java_with_sync(_call)
+
+    def validate_libraries(self, libraries: list[str]) -> list[str]:
+        """Validate that required libraries are on the classpath.
+
+        No sync needed -- this is a read-only operation.
+
+        Args:
+            libraries: List of JAR filenames to validate.
 
         Returns:
-            List of missing libraries (empty if all are available)
+            List of missing libraries (empty if all available).
         """
         if not libraries:
             return []
 
-        # Convert Python List to Java List
         from py4j.java_collections import ListConverter
+
         java_list = ListConverter().convert(libraries, self.gateway._gateway_client)
-
-        # Call Java validation method
         missing = self.java_bridge.validateLibraries(java_list)
-
-        # Convert back to Python List
         return list(missing) if missing else []
 
-    def set_context(self, key: str, value: Any):
-        """Set a context variable"""
+    # ------------------------------------------------------------------
+    # Public API -- State accessors
+    # ------------------------------------------------------------------
+
+    def set_context(self, key: str, value: Any) -> None:
+        """Set a context variable on both Python and Java sides.
+
+        Args:
+            key: Context variable name.
+            value: Context variable value.
+        """
         self.context[key] = value
+        if self.java_bridge:
+            self.java_bridge.setContext(key, str(value))
 
-    def get_context(self, key: str) -> Any:
-        """Get a context variable"""
-        return self.context.get(key)
+    def set_global_map(self, key: str, value: Any) -> None:
+        """Set a globalMap variable on both Python and Java sides.
 
-    def set_global_map(self, key: str, value: Any):
-        """Set a globalMap variable"""
+        Args:
+            key: GlobalMap key.
+            value: GlobalMap value.
+        """
         self.global_map[key] = value
+        if self.java_bridge:
+            self.java_bridge.setGlobalMap(key, str(value))
 
-    def get_global_map(self, key: str) -> Any:
-        """Get a globalMap variable"""
-        return self.global_map.get(key)
+    def get_context(self) -> dict[str, Any]:
+        """Return a copy of the current context dict."""
+        return dict(self.context)
 
-    def _convert_context_to_java(self) -> Dict:
-        """Convert Python context to Java Map"""
-        # Py4J handles basic type conversion
-        return self.context
+    def get_global_map(self) -> dict[str, Any]:
+        """Return a copy of the current globalMap dict."""
+        return dict(self.global_map)
 
-    def _convert_globalmap_to_java(self) -> Dict:
-        """Convert Python globalMap to Java Map"""
-        return self.global_map
+    def set_log_level(self, level: int) -> None:
+        """Map Python log level to Java JUL level and set on Java side.
 
-    def _convert_schema_to_java(self, schema: Dict[str, str]) -> Dict:
-        """Convert Python schema dict to Java Map"""
-        return schema
-
-    def _infer_decimal_precision_scale(self, series: pd.Series) -> tuple:
+        Args:
+            level: Python logging level (e.g. logging.DEBUG).
         """
-        Infer Arrow decimal128 precision and scale from a pandas Series of Decimal values.
+        java_level = _PYTHON_TO_JAVA_LOG_LEVEL.get(level, "INFO")
+        if self.java_bridge:
+            try:
+                self.java_bridge.setLogLevel(java_level)
+                logger.debug("Java log level set to %s", java_level)
+            except Exception as e:
+                logger.warning("Failed to set Java log level: %s", e)
 
-        Scans all non-null values to find max digits-before-decimal and max digits-after-decimal.
-        Returns (precision, scale) capped at precision=38 (Arrow decimal128 limit).
-        Falls back to (38, 18) if no valid Decimal values found.
+    # ------------------------------------------------------------------
+    # Private -- Java call wrapper with sync
+    # ------------------------------------------------------------------
+
+    def _call_java_with_sync(self, java_method_call: Any) -> Any:
+        """Call a Java method and always sync context/globalMap afterward.
+
+        On Java exception, captures stderr and includes it in the error.
+
+        Args:
+            java_method_call: A callable that invokes the Java method.
+
+        Returns:
+            Result from the Java method call.
+
+        Raises:
+            JavaBridgeError: On any Java-side failure.
         """
-        from decimal import Decimal
+        from src.v1.engine.exceptions import JavaBridgeError
 
-        max_before = 0
-        max_after = 0
-        found = False
+        try:
+            result = java_method_call()
+            return result
+        except JavaBridgeError:
+            raise
+        except Exception as e:
+            java_stderr = self._capture_java_stderr()
+            error_msg = str(e)
+            if java_stderr:
+                error_msg = (
+                    f"Bridge operation failed: {error_msg}"
+                    f"\n--- Java stderr (last 20 lines) ---\n{java_stderr}"
+                )
+            raise JavaBridgeError(error_msg) from e
+        finally:
+            self._sync_from_java()
 
-        for val in series:
-            if pd.isna(val) or not isinstance(val, Decimal):
+    def _sync_from_java(self) -> None:
+        """Sync context and globalMap back from Java side.
+
+        Wraps Java calls in try/except -- sync failure should not mask
+        the original operation's result.
+        """
+        if not self.java_bridge:
+            return
+
+        try:
+            java_context = self.java_bridge.getContext()
+            java_globalmap = self.java_bridge.getGlobalMap()
+            self.context.update(java_context)
+            self.global_map.update(java_globalmap)
+        except Exception as e:
+            logger.warning("[WARN] Failed to sync state from Java: %s", e)
+
+    # ------------------------------------------------------------------
+    # Private -- Arrow serialization
+    # ------------------------------------------------------------------
+
+    def _df_to_arrow_bytes(
+        self,
+        df: pd.DataFrame,
+        schema_dict: dict[str, str],
+        schema_columns: list[dict] | None = None,
+    ) -> bytes:
+        """Convert DataFrame to Arrow IPC bytes using schema-driven types.
+
+        Args:
+            df: DataFrame to serialize.
+            schema_dict: Column name -> Python type string mapping.
+            schema_columns: Full schema column list for Decimal precision extraction.
+
+        Returns:
+            Arrow IPC stream bytes.
+        """
+        schema_dict = self._reconcile_schema_to_df(df, schema_dict)
+        validate_schema_types(schema_dict)
+
+        precision_map = None
+        if schema_columns:
+            precision_map = extract_precision_map(schema_columns)
+
+        arrow_schema = build_arrow_schema(schema_dict, precision_map)
+
+        # Coerce DataFrame columns to match expected Arrow types
+        coerced_df = df.copy()
+        for col_name in coerced_df.columns:
+            if col_name not in schema_dict:
                 continue
-            found = True
-            sign, digits, exponent = val.as_tuple()
-            num_digits = len(digits)
-            if exponent < 0:
-                after = -exponent
-                before = max(num_digits - after, 0)
-            else:
-                before = num_digits + exponent
-                after = 0
-            max_before = max(max_before, before)
-            max_after = max(max_after, after)
+            col_type = schema_dict[col_name]
+            try:
+                if col_type == "str" or col_type == "object":
+                    coerced_df[col_name] = coerced_df[col_name].astype(str).replace("nan", None)
+                elif col_type == "int":
+                    coerced_df[col_name] = pd.to_numeric(coerced_df[col_name], errors="coerce")
+                elif col_type == "float":
+                    coerced_df[col_name] = pd.to_numeric(coerced_df[col_name], errors="coerce")
+                elif col_type == "bool":
+                    coerced_df[col_name] = coerced_df[col_name].astype(bool)
+                elif col_type == "datetime":
+                    coerced_df[col_name] = pd.to_datetime(coerced_df[col_name], errors="coerce")
+                # Decimal: leave as-is, pyarrow handles conversion
+            except Exception as e:
+                logger.warning(
+                    "[WARN] Column '%s' coercion to '%s' failed: %s",
+                    col_name,
+                    col_type,
+                    e,
+                )
 
-        if not found:
-            return (38, 18)
+        arrow_table = pa.Table.from_pandas(coerced_df, schema=arrow_schema, safe=False)
+        sink = pa.BufferOutputStream()
+        writer = ipc.new_stream(sink, arrow_table.schema)
+        writer.write_table(arrow_table)
+        writer.close()
+        return sink.getvalue().to_pybytes()
 
-        precision = min(max_before + max_after, 38)
-        scale = max_after
-        # Ensure precision >= scale and at least 1
-        precision = max(precision, scale, 1)
-        return (precision, scale)
+    def _arrow_bytes_to_df(
+        self,
+        arrow_bytes: bytes,
+        schema_dict: dict[str, str] | None = None,
+    ) -> pd.DataFrame:
+        """Deserialize Arrow IPC bytes back to a DataFrame.
 
-    def _build_arrow_schema(self, df: pd.DataFrame) -> pa.Schema:
+        Args:
+            arrow_bytes: Arrow IPC stream bytes.
+            schema_dict: Optional schema for post-conversion type mapping.
+
+        Returns:
+            Deserialized DataFrame.
         """
-        Build an explicit Arrow schema from a pandas DataFrame, detecting Decimal columns.
+        reader = ipc.open_stream(pa.py_buffer(arrow_bytes))
+        result_table = reader.read_all()
+        return result_table.to_pandas()
 
-        For 'object' dtype columns, inspects the first non-null value:
-        - Decimal instance -> pa.decimal128(precision, scale) inferred from data
-        - str instance -> pa.string()
-        - other -> pa.string()
+    def _reconcile_schema_to_df(
+        self,
+        df: pd.DataFrame,
+        schema_dict: dict[str, str],
+    ) -> dict[str, str]:
+        """Reconcile schema dict against actual DataFrame columns.
+
+        For any DataFrame column NOT in schema_dict, logs a warning and
+        adds it as 'str'. For any schema_dict column NOT in DataFrame,
+        logs at DEBUG and skips it.
+
+        Args:
+            df: The DataFrame being serialized.
+            schema_dict: Column name -> type string mapping.
+
+        Returns:
+            Reconciled schema dict (may be modified in-place).
         """
-        from decimal import Decimal
+        reconciled = dict(schema_dict)
 
-        fields = []
+        for col_name in df.columns:
+            if col_name not in reconciled:
+                logger.warning(
+                    "[WARN] Column '%s' in DataFrame but missing from schema "
+                    "-- defaulting to str",
+                    col_name,
+                )
+                reconciled[col_name] = "str"
+
+        for col_name in list(reconciled.keys()):
+            if col_name not in df.columns:
+                logger.debug(
+                    "Schema column '%s' not present in DataFrame -- skipping",
+                    col_name,
+                )
+                del reconciled[col_name]
+
+        return reconciled
+
+    # ------------------------------------------------------------------
+    # Private -- Schema conversion helpers
+    # ------------------------------------------------------------------
+
+    def _convert_schema_to_java(self, schema_dict: dict[str, str]) -> dict[str, str]:
+        """Convert Python schema dict to Java HashMap with Java type names.
+
+        Args:
+            schema_dict: Column name -> Python type string mapping.
+
+        Returns:
+            Column name -> Java type name mapping.
+        """
+        return {
+            col: PYTHON_TO_JAVA.get(col_type, "String")
+            for col, col_type in schema_dict.items()
+        }
+
+    def _schema_dict_from_df_and_output(
+        self,
+        df: pd.DataFrame,
+        output_schema: dict[str, str],
+    ) -> dict[str, str]:
+        """Build a schema dict for input DF serialization.
+
+        Uses output_schema for columns that exist in it, defaults to 'str'
+        for DataFrame columns not in output_schema.
+
+        Args:
+            df: Input DataFrame.
+            output_schema: Output column name -> type mapping.
+
+        Returns:
+            Schema dict covering all DataFrame columns.
+        """
+        schema_dict: dict[str, str] = {}
+        for col in df.columns:
+            schema_dict[col] = output_schema.get(col, "str")
+        return schema_dict
+
+    def _infer_schema_dict(self, df: pd.DataFrame) -> dict[str, str]:
+        """Infer a schema dict from DataFrame dtypes.
+
+        Used as fallback when no explicit schema is provided.
+        Maps pandas dtypes to the 7 Python type strings.
+
+        Args:
+            df: DataFrame to inspect.
+
+        Returns:
+            Column name -> Python type string mapping.
+        """
+        schema_dict: dict[str, str] = {}
         for col_name in df.columns:
             pandas_dtype = str(df[col_name].dtype)
-
-            if pandas_dtype == 'object':
-                # Check first non-null value to determine actual type
-                first_val = None
-                for val in df[col_name]:
-                    if pd.notna(val):
-                        first_val = val
-                        break
-
-                if isinstance(first_val, Decimal):
-                    precision, scale = self._infer_decimal_precision_scale(df[col_name])
-                    arrow_type = pa.decimal128(precision, scale)
-                else:
-                    arrow_type = pa.string()
-
-            elif pandas_dtype.startswith('int'):
-                arrow_type = pa.int64()
-            elif pandas_dtype.startswith('float'):
-                arrow_type = pa.float64()
-            elif pandas_dtype == 'bool':
-                arrow_type = pa.bool_()
-            elif pandas_dtype.startswith('datetime64'):
-                arrow_type = pa.timestamp('ns')
+            if pandas_dtype.startswith("int"):
+                schema_dict[col_name] = "int"
+            elif pandas_dtype.startswith("float"):
+                schema_dict[col_name] = "float"
+            elif pandas_dtype == "bool":
+                schema_dict[col_name] = "bool"
+            elif pandas_dtype.startswith("datetime64"):
+                schema_dict[col_name] = "datetime"
             else:
-                arrow_type = pa.string()
+                schema_dict[col_name] = "str"
+        return schema_dict
 
-            fields.append(pa.field(col_name, arrow_type))
+    # ------------------------------------------------------------------
+    # Private -- Output parsing
+    # ------------------------------------------------------------------
 
-        return pa.schema(fields)
+    def _parse_output_map(
+        self,
+        result_map: Any,
+    ) -> dict[str, pd.DataFrame]:
+        """Parse a Java Map<String, byte[]> into output DataFrames.
 
-    def _sync_from_java(self):
-        """Sync context and globalMap back from Java after execution"""
-        # Get updated values from Java
-        java_context = self.java_bridge.getContext()
-        java_globalmap = self.java_bridge.getGlobalMap()
+        Args:
+            result_map: Java map of output_name -> Arrow IPC bytes.
 
-        # Update Python dictionaries
-        self.context.update(java_context)
-        self.global_map.update(java_globalmap)
+        Returns:
+            Mapping of output_name -> DataFrame.
+        """
+        output_dfs: dict[str, pd.DataFrame] = {}
+        for output_name, output_bytes in result_map.items():
+            if output_bytes and len(output_bytes) > 0:
+                reader = ipc.open_stream(pa.py_buffer(output_bytes))
+                result_table = reader.read_all()
+                output_dfs[output_name] = result_table.to_pandas()
+            else:
+                output_dfs[output_name] = pd.DataFrame()
+        return output_dfs
+
+    # ------------------------------------------------------------------
+    # Private -- Utility
+    # ------------------------------------------------------------------
+
+    def _find_jar_path(self) -> str:
+        """Locate the Java bridge JAR file.
+
+        Returns:
+            Absolute path to the JAR.
+
+        Raises:
+            JavaBridgeError: If the JAR is not found.
+        """
+        from src.v1.engine.exceptions import JavaBridgeError
+
+        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        jar_path = os.path.join(
+            base_path, "java_bridge", "java", "target",
+            "java-bridge-with-dependencies.jar",
+        )
+        if not os.path.exists(jar_path):
+            raise JavaBridgeError(
+                f"Java bridge JAR not found at: {jar_path}. "
+                f"Build with: cd src/v1/java_bridge/java && mvn package"
+            )
+        return jar_path
+
+    def _capture_java_stderr(self) -> str:
+        """Non-blocking read of available Java stderr output.
+
+        Returns the last 20 lines for error diagnostics.
+
+        Returns:
+            String of last 20 stderr lines, or empty string.
+        """
+        if not self.process or not self.process.stderr:
+            return ""
+
+        try:
+            # Read available bytes without blocking
+            import select
+            if hasattr(select, "select"):
+                ready, _, _ = select.select([self.process.stderr], [], [], 0.1)
+                if not ready:
+                    return ""
+
+            raw = self.process.stderr.read(65536)
+            if not raw:
+                return ""
+
+            text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
+            lines = text.strip().splitlines()
+            return "\n".join(lines[-20:])
+        except Exception:
+            return ""
