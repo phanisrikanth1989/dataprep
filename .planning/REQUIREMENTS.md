@@ -231,9 +231,13 @@ Deferred to future milestone. Tracked but not in current roadmap.
 
 ### Remaining Components
 
-- **COMP-V2-01**: All remaining ~38 engine components brought to production quality
-- **COMP-V2-02**: MSSQL database components
-- **COMP-V2-03**: Additional control components (tLoop, tParallelize, tRunJob, tPrejob, tPostjob)
+- **COMP-V2-01**: Remaining ~74 engine components brought to production quality (following patterns from this milestone)
+- **COMP-V2-02**: MSSQL database components (tMSSqlConnection, tMSSqlInput)
+- **COMP-V2-03**: Control components (tDie, tWarn, tSleep, tSendMail, tLoop, tParallelize, tRunJob, tPrejob, tPostjob)
+- **COMP-V2-04**: Remaining file components (tFileInputExcel, tFileOutputExcel, tFileInputJSON, tFileInputXML, etc.)
+- **COMP-V2-05**: Remaining transform components (tNormalize, tDenormalize, tExtract*, tXMLMap, tRowGenerator, etc.)
+- **COMP-V2-06**: Python/Swift components (PythonDataFrameComponent, SwiftTransformer, SwiftBlockFormatter)
+- **COMP-V2-07**: Additional iterate/aggregate (tForeach, tLoop, tUniqueRow, tAggregateSortedRow)
 
 ## Out of Scope
 
@@ -245,40 +249,159 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | Docker/container deployment | Linux server deployment, containerization deferred |
 | pandas 3.0 upgrade | Breaking changes (CoW, Arrow strings) require separate milestone |
 | Web service / API layer | Batch ETL system, no web interface needed |
-| Remaining 44 engine components | Follow patterns from this milestone in v2 |
+| Remaining ~74 engine components | Follow patterns established by the 12 priority components in future milestones |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ENG-01 through ENG-23 | TBD | Pending |
-| EXEC-01 through EXEC-07 | TBD | Pending |
-| FILD-01 through FILD-09 | TBD | Pending |
-| MAP-01 through MAP-07 | TBD | Pending |
-| FOLD-01 through FOLD-06 | TBD | Pending |
-| JAVA-01 through JAVA-03 | TBD | Pending |
-| JROW-01 through JROW-04 | TBD | Pending |
-| CTXL-01 through CTXL-04 | TBD | Pending |
-| AGGR-01 through AGGR-09 | TBD | Pending |
-| SORT-01 through SORT-05 | TBD | Pending |
-| FROW-01 through FROW-07 | TBD | Pending |
-| FCOL-01 through FCOL-02 | TBD | Pending |
-| JOIN-01 through JOIN-08 | TBD | Pending |
-| UNIT-01 through UNIT-02 | TBD | Pending |
-| PYCO-01 through PYCO-03 | TBD | Pending |
-| PYRO-01 through PYRO-03 | TBD | Pending |
-| ITER-01 through ITER-11 | TBD | Pending |
-| BRDG-01 through BRDG-06 | TBD | Pending |
-| ROUT-01 through ROUT-03 | TBD | Pending |
-| ORAC-01 through ORAC-05 | TBD | Pending |
-| TEST-01 through TEST-08 | TBD | Pending |
-| PERF-01 through PERF-04 | TBD | Pending |
+| ENG-01 | Phase 1 | Pending |
+| ENG-02 | Phase 1 | Pending |
+| ENG-03 | Phase 1 | Pending |
+| ENG-04 | Phase 1 | Pending |
+| ENG-05 | Phase 1 | Pending |
+| ENG-06 | Phase 1 | Pending |
+| ENG-07 | Phase 1 | Pending |
+| ENG-08 | Phase 1 | Pending |
+| ENG-09 | Phase 1 | Pending |
+| ENG-10 | Phase 1 | Pending |
+| ENG-11 | Phase 1 | Pending |
+| ENG-12 | Phase 1 | Pending |
+| ENG-13 | Phase 1 | Pending |
+| ENG-14 | Phase 1 | Pending |
+| ENG-15 | Phase 1 | Pending |
+| ENG-16 | Phase 1 | Pending |
+| ENG-17 | Phase 1 | Pending |
+| ENG-18 | Phase 1 | Pending |
+| ENG-19 | Phase 1 | Pending |
+| ENG-20 | Phase 1 | Pending |
+| ENG-21 | Phase 1 | Pending |
+| ENG-22 | Phase 1 | Pending |
+| ENG-23 | Phase 1 | Pending |
+| EXEC-01 | Phase 3 | Pending |
+| EXEC-02 | Phase 3 | Pending |
+| EXEC-03 | Phase 3 | Pending |
+| EXEC-04 | Phase 10 | Pending |
+| EXEC-05 | Phase 10 | Pending |
+| EXEC-06 | Phase 10 | Pending |
+| EXEC-07 | Phase 3 | Pending |
+| FILD-01 | Phase 4 | Pending |
+| FILD-02 | Phase 4 | Pending |
+| FILD-03 | Phase 4 | Pending |
+| FILD-04 | Phase 4 | Pending |
+| FILD-05 | Phase 4 | Pending |
+| FILD-06 | Phase 4 | Pending |
+| FILD-07 | Phase 4 | Pending |
+| FILD-08 | Phase 4 | Pending |
+| FILD-09 | Phase 4 | Pending |
+| MAP-01 | Phase 5 | Pending |
+| MAP-02 | Phase 5 | Pending |
+| MAP-03 | Phase 5 | Pending |
+| MAP-04 | Phase 5 | Pending |
+| MAP-05 | Phase 5 | Pending |
+| MAP-06 | Phase 5 | Pending |
+| MAP-07 | Phase 5 | Pending |
+| FOLD-01 | Phase 4 | Pending |
+| FOLD-02 | Phase 4 | Pending |
+| FOLD-03 | Phase 4 | Pending |
+| FOLD-04 | Phase 4 | Pending |
+| FOLD-05 | Phase 4 | Pending |
+| FOLD-06 | Phase 4 | Pending |
+| JAVA-01 | Phase 8 | Pending |
+| JAVA-02 | Phase 8 | Pending |
+| JAVA-03 | Phase 8 | Pending |
+| JROW-01 | Phase 8 | Pending |
+| JROW-02 | Phase 8 | Pending |
+| JROW-03 | Phase 8 | Pending |
+| JROW-04 | Phase 8 | Pending |
+| CTXL-01 | Phase 9 | Pending |
+| CTXL-02 | Phase 9 | Pending |
+| CTXL-03 | Phase 9 | Pending |
+| CTXL-04 | Phase 9 | Pending |
+| AGGR-01 | Phase 6 | Pending |
+| AGGR-02 | Phase 6 | Pending |
+| AGGR-03 | Phase 6 | Pending |
+| AGGR-04 | Phase 6 | Pending |
+| AGGR-05 | Phase 6 | Pending |
+| AGGR-06 | Phase 6 | Pending |
+| AGGR-07 | Phase 6 | Pending |
+| AGGR-08 | Phase 6 | Pending |
+| AGGR-09 | Phase 6 | Pending |
+| SORT-01 | Phase 6 | Pending |
+| SORT-02 | Phase 6 | Pending |
+| SORT-03 | Phase 6 | Pending |
+| SORT-04 | Phase 6 | Pending |
+| SORT-05 | Phase 6 | Pending |
+| FROW-01 | Phase 6 | Pending |
+| FROW-02 | Phase 6 | Pending |
+| FROW-03 | Phase 6 | Pending |
+| FROW-04 | Phase 6 | Pending |
+| FROW-05 | Phase 6 | Pending |
+| FROW-06 | Phase 6 | Pending |
+| FROW-07 | Phase 6 | Pending |
+| FCOL-01 | Phase 7 | Pending |
+| FCOL-02 | Phase 7 | Pending |
+| JOIN-01 | Phase 7 | Pending |
+| JOIN-02 | Phase 7 | Pending |
+| JOIN-03 | Phase 7 | Pending |
+| JOIN-04 | Phase 7 | Pending |
+| JOIN-05 | Phase 7 | Pending |
+| JOIN-06 | Phase 7 | Pending |
+| JOIN-07 | Phase 7 | Pending |
+| JOIN-08 | Phase 7 | Pending |
+| UNIT-01 | Phase 7 | Pending |
+| UNIT-02 | Phase 7 | Pending |
+| PYCO-01 | Phase 8 | Pending |
+| PYCO-02 | Phase 8 | Pending |
+| PYCO-03 | Phase 8 | Pending |
+| PYRO-01 | Phase 8 | Pending |
+| PYRO-02 | Phase 8 | Pending |
+| PYRO-03 | Phase 8 | Pending |
+| ITER-01 | Phase 10 | Pending |
+| ITER-02 | Phase 10 | Pending |
+| ITER-03 | Phase 10 | Pending |
+| ITER-04 | Phase 10 | Pending |
+| ITER-05 | Phase 10 | Pending |
+| ITER-06 | Phase 10 | Pending |
+| ITER-07 | Phase 10 | Pending |
+| ITER-08 | Phase 10 | Pending |
+| ITER-09 | Phase 10 | Pending |
+| ITER-10 | Phase 10 | Pending |
+| ITER-11 | Phase 10 | Pending |
+| BRDG-01 | Phase 2 | Pending |
+| BRDG-02 | Phase 2 | Pending |
+| BRDG-03 | Phase 2 | Pending |
+| BRDG-04 | Phase 2 | Pending |
+| BRDG-05 | Phase 2 | Pending |
+| BRDG-06 | Phase 2 | Pending |
+| ROUT-01 | Phase 9 | Pending |
+| ROUT-02 | Phase 9 | Pending |
+| ROUT-03 | Phase 9 | Pending |
+| ORAC-01 | Phase 11 | Pending |
+| ORAC-02 | Phase 11 | Pending |
+| ORAC-03 | Phase 11 | Pending |
+| ORAC-04 | Phase 11 | Pending |
+| ORAC-05 | Phase 11 | Pending |
+| TEST-01 | Phase 1 | Pending |
+| TEST-02 | Phase 1 | Pending |
+| TEST-03 | Phase 4, 5 | Pending |
+| TEST-04 | Phase 10 | Pending |
+| TEST-05 | Phase 12 | Pending |
+| TEST-06 | Phase 12 | Pending |
+| TEST-07 | Phase 8 | Pending |
+| TEST-08 | Phase 6 | Pending |
+| PERF-01 | Phase 3 | Pending |
+| PERF-02 | Phase 8 | Pending |
+| PERF-03 | Phase 12 | Pending |
+| PERF-04 | Phase 12 | Pending |
 
 **Coverage:**
 - v1 requirements: 118 total
-- Mapped to phases: 0 (pending roadmap creation)
-- Unmapped: 118 ⚠️
+- Mapped to phases: 118
+- Unmapped: 0
+
+**Note:** TEST-03 covers unit tests for target components and is split across Phase 4 (file I/O tests) and Phase 5 (tMap tests). All other requirements map to exactly one phase.
 
 ---
 *Requirements defined: 2026-04-14*
-*Last updated: 2026-04-14 after initial definition*
+*Last updated: 2026-04-14 after roadmap revision (10 phases -> 12 phases)*

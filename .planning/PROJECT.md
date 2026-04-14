@@ -12,7 +12,7 @@ Any Talend job using the target components must produce identical results when r
 
 ### Validated
 
-- ✓ Converter pipeline (XML → JSON) for all 81 component types — existing (Phases 6-13)
+- ✓ Converter pipeline (XML → JSON) for all 81 component types — existing (Python and swift componemts skipped for converter)
 - ✓ Converter registry pattern with decorator-based auto-registration — existing
 - ✓ Converter ABC (ComponentConverter) with standardized interface — existing
 - ✓ Per-component converter tests with comprehensive coverage — existing
@@ -71,7 +71,7 @@ Any Talend job using the target components must produce identical results when r
 - [ ] Fix or implement Oracle connection, input, output, and related components
 
 **Testing:**
-- [ ] Engine unit tests for all target components
+- [ ] Engine unit tests for all target components (12 priority + iterate + Oracle)
 - [ ] Engine unit tests for core infrastructure (GlobalMap, ContextManager, TriggerManager, JavaBridgeManager)
 - [ ] Integration tests using real .item samples from tests/talend_xml_samples/
 
@@ -87,8 +87,7 @@ Any Talend job using the target components must produce identical results when r
 ### Out of Scope
 
 - Removing the legacy complex_converter — not blocking, defer to later cleanup
-- Components beyond the 12 targets + iterate + Oracle — will follow this milestone's patterns
-- Database components beyond Oracle (MSSQL etc.) — defer to future milestone
+- Remaining ~74 engine components beyond the 12 targets — follow patterns from this milestone in future milestones
 - UI job designer frontend — separate concern
 - Distributed/parallel execution — single-threaded is fine for now
 - Docker/container deployment — Linux server deployment, containerization later
@@ -117,8 +116,8 @@ Any Talend job using the target components must produce identical results when r
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Fix engine architecture (pragmatic refactor) | Engine execution loop is 140 lines of nested logic — fixing bugs in it is harder than cleaning it up. Refactor only what blocks component work. | — Pending |
-| Standardize 12 components as blueprint | These components appear in most jobs. Getting them right creates the pattern for the remaining ~38 engine components. | — Pending |
-| Add 6 transform components (manager request) | tAggregateRow, tSortRow, tFilterRow, tFilterColumns, tJoin, tUnite added to milestone scope per management directive | — Pending |
+| 12 priority components this milestone, all 86 for production | Fix 12 priority components + iterate + Oracle now. Remaining ~74 follow the established patterns in future milestones. All 86 needed for production readiness. | — Pending |
+| Java Bridge before component work | Java expressions used throughout tMap and other components — bridge must be reliable before component hardening | — Pending |
 | Iterate support in this milestone | 30% of jobs use iterate — can't defer without blocking a third of production migration | — Pending |
 | Leave legacy complex_converter | Not blocking production work, removing it is cleanup that can happen later | — Pending |
 | Both unit and integration tests | Engine has zero tests today. Need unit tests for isolation + integration tests for confidence that converted jobs actually run. | — Pending |
