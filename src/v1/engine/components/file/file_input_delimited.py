@@ -597,8 +597,14 @@ class FileInputDelimited(BaseComponent):
                 rejected = False
 
                 # a. CHECK_FIELDS_NUM (FILD-06)
+                # pandas pads short rows with "" (keep_default_na=False),
+                # so len(row_values) always equals column count.
+                # Detect short rows by stripping trailing empty strings.
                 if check_fields_num and expected_col_count is not None:
-                    actual_field_count = len(row_values)
+                    stripped = row_values.copy()
+                    while stripped and str(stripped[-1]).strip() == "":
+                        stripped.pop()
+                    actual_field_count = len(stripped)
                     if actual_field_count != expected_col_count:
                         reject_row = {
                             c: str(row_dict.get(c, "")) for c in schema_cols
