@@ -325,7 +325,7 @@ class TriggerManager:
                     return "0"
                 elif converter is bool:
                     return "False"
-                elif converter is str:
+                else:
                     return repr(str(raw_value))
 
         return _CAST_PATTERN.sub(_cast_replacer, condition)
