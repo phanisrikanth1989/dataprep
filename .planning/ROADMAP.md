@@ -12,8 +12,8 @@ This roadmap takes the partially-working Python ETL engine from its current brok
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Infrastructure Bug Fixes & Project Setup** - Fix all P0/P1 cross-cutting bugs in base classes, config alignment, and project setup so components can build on a stable foundation
-- [ ] **Phase 2: Java Bridge Reliability** - Fix Arrow serialization, Py4J stability, and context/globalMap sync so all downstream components can depend on reliable Java expression evaluation
+- [x] **Phase 1: Infrastructure Bug Fixes & Project Setup** - Fix all P0/P1 cross-cutting bugs in base classes, config alignment, and project setup so components can build on a stable foundation (completed 2026-04-14)
+- [x] **Phase 2: Java Bridge Reliability** - Fix Arrow serialization, Py4J stability, and context/globalMap sync so all downstream components can depend on reliable Java expression evaluation (completed 2026-04-14)
 - [x] **Phase 3: Execution Loop Restructure** - Decompose the monolithic execution loop into testable units with correct subjob tracking, trigger timing, and data flow routing (completed 2026-04-14)
 - [ ] **Phase 4: File I/O Components** - Deliver tFileInputDelimited and tFileOutputDelimited with full Talend feature parity
 - [ ] **Phase 5: tMap Component** - Deliver tMap with correct join semantics, reject routing, and expression handling
