@@ -208,7 +208,7 @@ public class JavaBridge {
                     Map<String, Object> inputRowMap = new HashMap<>();
                     for (FieldVector vec : inputRoot.getFieldVectors()) {
                         String fieldName = vec.getName();
-                        inputRowMap.put(fieldName, vec.isNull(i) ? null : vec.getObject(i));
+                        inputRowMap.put(fieldName, extractTypedValue(vec, i));
                     }
 
                     RowWrapper input_row = new RowWrapper();
@@ -733,8 +733,42 @@ public class JavaBridge {
     }
 
     /**
+     * Extract a properly-typed Java value from an Arrow vector at the given row.
+     * Converts Arrow implementation types to standard Java types for Groovy compatibility.
+     * VarChar returns String (not Text), numeric types return primitives.
+     *
+     * Reference: Pre-Phase-2 RowWrapper.getFromArrow() at commit f15cc36.
+     */
+    private static Object extractTypedValue(FieldVector vec, int rowIndex) {
+        if (vec.isNull(rowIndex)) {
+            return null;
+        }
+        if (vec instanceof VarCharVector) {
+            return ((VarCharVector) vec).getObject(rowIndex).toString();
+        } else if (vec instanceof BigIntVector) {
+            return ((BigIntVector) vec).get(rowIndex);
+        } else if (vec instanceof IntVector) {
+            return ((IntVector) vec).get(rowIndex);
+        } else if (vec instanceof Float8Vector) {
+            return ((Float8Vector) vec).get(rowIndex);
+        } else if (vec instanceof BitVector) {
+            return ((BitVector) vec).get(rowIndex) == 1;
+        } else if (vec instanceof TimeStampNanoVector) {
+            long nanos = ((TimeStampNanoVector) vec).get(rowIndex);
+            return new java.util.Date(nanos / 1_000_000);
+        } else if (vec instanceof DecimalVector) {
+            return ((DecimalVector) vec).getObject(rowIndex);
+        } else if (vec instanceof Decimal256Vector) {
+            return ((Decimal256Vector) vec).getObject(rowIndex);
+        } else {
+            return vec.getObject(rowIndex).toString();
+        }
+    }
+
+    /**
      * Build a RowWrapper that reads column values from Arrow vectors at a given row index.
      * Column lookup supports both "tableName.colName" and plain "colName" conventions.
+     * Uses {@link #extractTypedValue(FieldVector, int)} for proper Java type conversion.
      */
     private RowWrapper buildArrowRowWrapper(VectorSchemaRoot root, int rowIndex, String tableName) {
         RowWrapper wrapper = new RowWrapper();
@@ -742,7 +776,7 @@ public class JavaBridge {
 
         for (FieldVector vec : root.getFieldVectors()) {
             String fieldName = vec.getName();
-            Object value = vec.isNull(rowIndex) ? null : vec.getObject(rowIndex);
+            Object value = extractTypedValue(vec, rowIndex);
 
             // Store under plain name
             rowMap.put(fieldName, value);
