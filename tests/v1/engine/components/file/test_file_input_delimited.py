@@ -919,3 +919,103 @@ class TestVectorizedFastPath:
         assert reject is not None
         assert len(reject) == 1
         assert reject.iloc[0]["errorCode"] == _ERROR_TYPE_CONVERSION
+
+
+@pytest.mark.unit
+class TestRowSeparator:
+    """row_separator / csv_row_separator wired into read paths."""
+
+    def test_standard_newline_default(self, tmp_path):
+        """Default \\n row separator reads normally."""
+        filepath = _write_file(tmp_path, "nl.csv", "1;Alice;10.5\n2;Bob;20.0\n")
+        config = {**_DEFAULT_CONFIG, "filepath": filepath, "row_separator": "\\n"}
+        comp = _make_component(config=config)
+        result = comp.execute(None)
+        assert len(result["main"]) == 2
+
+    def test_pipe_row_separator(self, tmp_path):
+        """Non-standard row separator '|' splits rows correctly."""
+        content = "1;Alice;10.5|2;Bob;20.0|3;Charlie;30.0"
+        filepath = _write_file(tmp_path, "pipe.csv", content)
+        config = {**_DEFAULT_CONFIG, "filepath": filepath, "row_separator": "|"}
+        comp = _make_component(config=config)
+        result = comp.execute(None)
+        assert len(result["main"]) == 3
+        assert result["main"].iloc[1]["name"] == "Bob"
+
+    def test_multichar_row_separator(self, tmp_path):
+        """Multi-char row separator '||' splits rows correctly."""
+        content = "1;Alice;10.5||2;Bob;20.0||3;Charlie;30.0"
+        filepath = _write_file(tmp_path, "multi.csv", content)
+        config = {**_DEFAULT_CONFIG, "filepath": filepath, "row_separator": "||"}
+        comp = _make_component(config=config)
+        result = comp.execute(None)
+        assert len(result["main"]) == 3
+
+    def test_custom_row_separator_with_header_skip(self, tmp_path):
+        """Non-standard row separator respects header_rows."""
+        content = "HEADER_LINE|1;Alice;10.5|2;Bob;20.0"
+        filepath = _write_file(tmp_path, "hdr.csv", content)
+        config = {
+            **_DEFAULT_CONFIG,
+            "filepath": filepath,
+            "row_separator": "|",
+            "header_rows": 1,
+        }
+        comp = _make_component(config=config)
+        result = comp.execute(None)
+        assert len(result["main"]) == 2
+
+    def test_custom_row_separator_with_footer_skip(self, tmp_path):
+        """Non-standard row separator respects footer_rows."""
+        content = "1;Alice;10.5|2;Bob;20.0|FOOTER"
+        filepath = _write_file(tmp_path, "ftr.csv", content)
+        config = {
+            **_DEFAULT_CONFIG,
+            "filepath": filepath,
+            "row_separator": "|",
+            "footer_rows": 1,
+        }
+        comp = _make_component(config=config)
+        result = comp.execute(None)
+        assert len(result["main"]) == 2
+
+    def test_csv_mode_custom_row_separator(self, tmp_path):
+        """csv_option=True with non-standard csv_row_separator."""
+        content = '1;"Alice";10.5|2;"Bob";20.0|3;"Charlie";30.0'
+        filepath = _write_file(tmp_path, "csvpipe.csv", content)
+        config = {
+            **_DEFAULT_CONFIG,
+            "filepath": filepath,
+            "csv_option": True,
+            "csv_row_separator": "|",
+        }
+        comp = _make_component(config=config)
+        result = comp.execute(None)
+        assert len(result["main"]) == 3
+        assert result["main"].iloc[0]["name"] == "Alice"
+
+    def test_csv_mode_standard_separator_unchanged(self, tmp_path):
+        """csv_option=True with standard \\n still works via native path."""
+        filepath = _write_file(
+            tmp_path, "csvstd.csv", '1;"Alice";10.5\n2;"Bob";20.0\n'
+        )
+        config = {
+            **_DEFAULT_CONFIG,
+            "filepath": filepath,
+            "csv_option": True,
+            "csv_row_separator": "\\n",
+        }
+        comp = _make_component(config=config)
+        result = comp.execute(None)
+        assert len(result["main"]) == 2
+        assert result["main"].iloc[0]["name"] == "Alice"
+
+    def test_trailing_separator_no_extra_row(self, tmp_path):
+        """Trailing row separator does not produce phantom empty row."""
+        content = "1;Alice;10.5|2;Bob;20.0|"
+        filepath = _write_file(tmp_path, "trail.csv", content)
+        config = {**_DEFAULT_CONFIG, "filepath": filepath, "row_separator": "|"}
+        comp = _make_component(config=config)
+        result = comp.execute(None)
+        assert len(result["main"]) == 2
