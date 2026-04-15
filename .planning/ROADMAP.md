@@ -141,7 +141,11 @@ Plans:
   3. Join key comparison is type-aware (int/float/string) -- not string-cast everything
   4. LEFT_OUTER_JOIN unmatched rows have proper NaN-filled lookup columns (no column misalignment)
   5. Existing LOAD_ONCE tests and all other tMap tests still pass (no regression)
-**Plans:** 0/0 plans complete
+**Plans:** 2 plans
+
+Plans:
+- [ ] 05.2-01-PLAN.md -- Fix all 4 RELOAD_AT_EACH_ROW bugs in map.py + regression verification
+- [ ] 05.2-02-PLAN.md -- Comprehensive unit tests (10-15 new) + @pytest.mark.java integration test
 
 ### Phase 6: Transform Group A -- Aggregation, Sort, Filter
 **Goal**: The three most complex transform components (tAggregateRow, tSortRow, tFilterRow) produce correct results matching Talend behavior, with all P0/P1 bugs fixed and full operator/function support
@@ -233,7 +237,7 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 4. File I/O Components | 0/3 | Planning complete | - |
 | 5. tMap Component | 0/3 | Planning complete | - |
 | 5.1. Java Bridge tMap Fix | 0/2 | Planning complete | - |
-| 5.2. tMap RELOAD_AT_EACH_ROW Fix | 0/TBD | Not started | - |
+| 5.2. tMap RELOAD_AT_EACH_ROW Fix | 0/2 | Planning complete | - |
 | 6. Transform Group A -- Aggregation, Sort, Filter | 0/TBD | Not started | - |
 | 7. Transform Group B -- Column, Join, Unite | 0/TBD | Not started | - |
 | 8. Code Components | 0/TBD | Not started | - |
