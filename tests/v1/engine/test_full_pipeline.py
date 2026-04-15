@@ -7,11 +7,8 @@ TestFullPipeline: No Java bridge needed -- uses simple column reference joins (p
 TestTMapJavaExpressionPipeline: Requires live JVM -- tests compiled Groovy expressions
     (string concat, ternary, cross-table lookups) through the real Java bridge.
 """
-import json
 import logging
-import os
 from pathlib import Path
-import tempfile
 
 import pandas as pd
 import pytest
