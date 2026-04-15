@@ -123,10 +123,11 @@ Plans:
   2. Compiled tMap scripts can create RowWrappers per row and access column values with correct Java types (string concat, comparisons, ternary all work)
   3. Real .item file pipeline (Job_tMap_0.1 with employees + country lookup) runs end-to-end: read CSV -> tMap join with Java expressions (string concat, ternary conditional) -> write CSV
   4. All 86 existing tMap unit tests + 11 integration tests still pass
-**Plans:** 0 plans
+**Plans:** 2 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 05.1 to break down)
+- [ ] 05.1-01-PLAN.md -- Fix JavaBridge.java extractTypedValue + bridge integration tests
+- [ ] 05.1-02-PLAN.md -- Full pipeline test (employees + country_lookup CSVs) + regression gate
 
 ### Phase 6: Transform Group A -- Aggregation, Sort, Filter
 **Goal**: The three most complex transform components (tAggregateRow, tSortRow, tFilterRow) produce correct results matching Talend behavior, with all P0/P1 bugs fixed and full operator/function support
@@ -217,6 +218,7 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 3. Execution Loop Restructure | 4/4 | Complete    | 2026-04-14 |
 | 4. File I/O Components | 0/3 | Planning complete | - |
 | 5. tMap Component | 0/3 | Planning complete | - |
+| 5.1. Java Bridge tMap Fix | 0/2 | Planning complete | - |
 | 6. Transform Group A -- Aggregation, Sort, Filter | 0/TBD | Not started | - |
 | 7. Transform Group B -- Column, Join, Unite | 0/TBD | Not started | - |
 | 8. Code Components | 0/TBD | Not started | - |
