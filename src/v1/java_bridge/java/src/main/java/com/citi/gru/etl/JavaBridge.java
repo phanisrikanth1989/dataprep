@@ -764,6 +764,12 @@ public class JavaBridge {
             return ((IntVector) vec).get(rowIndex);
         } else if (vec instanceof Float8Vector) {
             return ((Float8Vector) vec).get(rowIndex);
+        } else if (vec instanceof Float4Vector) {
+            return ((Float4Vector) vec).get(rowIndex);
+        } else if (vec instanceof SmallIntVector) {
+            return ((SmallIntVector) vec).get(rowIndex);
+        } else if (vec instanceof TinyIntVector) {
+            return ((TinyIntVector) vec).get(rowIndex);
         } else if (vec instanceof BitVector) {
             return ((BitVector) vec).get(rowIndex) == 1;
         } else if (vec instanceof TimeStampNanoVector) {
