@@ -141,11 +141,11 @@ Plans:
   3. Join key comparison is type-aware (int/float/string) -- not string-cast everything
   4. LEFT_OUTER_JOIN unmatched rows have proper NaN-filled lookup columns (no column misalignment)
   5. Existing LOAD_ONCE tests and all other tMap tests still pass (no regression)
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 
 Plans:
-- [ ] 05.2-01-PLAN.md -- Fix all 4 RELOAD_AT_EACH_ROW bugs in map.py + regression verification
-- [ ] 05.2-02-PLAN.md -- Comprehensive unit tests (10-15 new) + @pytest.mark.java integration test
+- [x] 05.2-01-PLAN.md -- Fix all 4 RELOAD_AT_EACH_ROW bugs in map.py + regression verification
+- [x] 05.2-02-PLAN.md -- Comprehensive unit tests (10-15 new) + @pytest.mark.java integration test
 
 ### Phase 6: Transform Group A -- Aggregation, Sort, Filter
 **Goal**: The three most complex transform components (tAggregateRow, tSortRow, tFilterRow) produce correct results matching Talend behavior, with all P0/P1 bugs fixed and full operator/function support
