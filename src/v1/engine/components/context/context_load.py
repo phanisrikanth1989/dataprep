@@ -71,19 +71,21 @@ class ContextLoad(BaseComponent):
         Raises:
             ConfigurationError: If a policy value is not in the allowed set.
         """
-        load_new = self.config.get("load_new_variable", "WARNING")
+        load_new = str(self.config.get("load_new_variable", "WARNING")).upper()
         if load_new not in _VALID_POLICIES:
             raise ConfigurationError(
                 f"[{self.id}] Invalid load_new_variable '{load_new}'. "
                 f"Must be one of: {sorted(_VALID_POLICIES)}"
             )
+        self.config["load_new_variable"] = load_new
 
-        not_load_old = self.config.get("not_load_old_variable", "WARNING")
+        not_load_old = str(self.config.get("not_load_old_variable", "WARNING")).upper()
         if not_load_old not in _VALID_POLICIES:
             raise ConfigurationError(
                 f"[{self.id}] Invalid not_load_old_variable '{not_load_old}'. "
                 f"Must be one of: {sorted(_VALID_POLICIES)}"
             )
+        self.config["not_load_old_variable"] = not_load_old
 
     # ------------------------------------------------------------------
     # Core Processing
