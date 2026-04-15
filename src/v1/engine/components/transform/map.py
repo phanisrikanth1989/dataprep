@@ -1748,7 +1748,9 @@ class Map(BaseComponent):
             if left_dtype == right_dtype:
                 continue
 
-            # str -> numeric
+            # Auto-conversion strategy: when types mismatch between str and
+            # numeric, always convert str -> numeric (matches Talend BigDecimal
+            # coercion).  No numeric -> str branch needed.
             if _is_string_like(left_dtype) and _safe_issubdtype(right_dtype, np.number):
                 main_df[left_key] = pd.to_numeric(
                     main_df[left_key], errors="coerce"
@@ -1757,11 +1759,6 @@ class Map(BaseComponent):
                 lookup_df[right_key] = pd.to_numeric(
                     lookup_df[right_key], errors="coerce"
                 )
-            # numeric -> str
-            elif _safe_issubdtype(left_dtype, np.number) and _is_string_like(right_dtype):
-                main_df[left_key] = main_df[left_key].astype(str)
-            elif _safe_issubdtype(right_dtype, np.number) and _is_string_like(left_dtype):
-                lookup_df[right_key] = lookup_df[right_key].astype(str)
             # int <-> float
             elif _safe_issubdtype(left_dtype, np.integer) and _safe_issubdtype(right_dtype, np.floating):
                 main_df[left_key] = main_df[left_key].astype(float)
