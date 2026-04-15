@@ -158,10 +158,10 @@ Plans:
   4. Engine unit tests pass for tAggregateRow, tSortRow, and tFilterRow covering all implemented features
 **Plans:** 4 plans
 Plans:
-- [ ] 06-01-PLAN.md -- AggregateRow rewrite (converter fix + engine component)
-- [ ] 06-02-PLAN.md -- SortRow rewrite
-- [ ] 06-03-PLAN.md -- FilterRows rewrite
-- [ ] 06-04-PLAN.md -- Combined test suites for all three components
+- [x] 06-01-PLAN.md -- AggregateRow rewrite (converter fix + engine component)
+- [x] 06-02-PLAN.md -- SortRow rewrite
+- [x] 06-03-PLAN.md -- FilterRows rewrite
+- [x] 06-04-PLAN.md -- Combined test suites for all three components
 
 ### Phase 7: Transform Group B -- Column, Join, Unite
 **Goal**: tFilterColumns, tJoin, and tUnite produce correct results -- tFilterColumns and tUnite (already functionally Green) get test coverage, and tJoin gets targeted bug fixes for case-insensitive joins, reject output, and null semantics
