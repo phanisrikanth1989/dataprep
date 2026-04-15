@@ -199,8 +199,8 @@ Plans:
   4. Routines referenced by job configs are auto-discovered and loaded at job startup
 **Plans:** 2 plans
 Plans:
-- [ ] 09-01-PLAN.md -- tContextLoad rewrite with full policy support + exhaustive tests
-- [ ] 09-02-PLAN.md -- Java/Python routine loading enhancements + tests
+- [x] 09-01-PLAN.md -- tContextLoad rewrite with full policy support + exhaustive tests
+- [x] 09-02-PLAN.md -- Java/Python routine loading enhancements + tests
 
 ### Phase 10: Iterate Support
 **Goal**: The 30% of production jobs that use iterate patterns execute correctly -- tFlowToIterate converts rows to globalMap variables, tFileList/tFileExist iterate over files, and downstream subjobs re-execute per iteration item
