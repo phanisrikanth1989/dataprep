@@ -279,16 +279,19 @@ class Map(BaseComponent):
                 joined_lookup_names.append(lookup_name)
                 continue
 
-            # Apply lookup filter
+            # Read lookup mode BEFORE filter application
+            lookup_mode = lookup_config.get("lookup_mode", _LOAD_ONCE)
+
+            # Apply lookup filter (skip for RELOAD -- per-row loop needs full lookup)
             if (lookup_config.get("activate_filter")
-                    and lookup_config.get("filter")):
+                    and lookup_config.get("filter")
+                    and lookup_mode != _RELOAD_AT_EACH_ROW):
                 lookup_df = self._apply_filter(
                     lookup_df, lookup_config["filter"],
                     lookup_name, joined_lookup_names
                 )
 
             # Route to appropriate join handler
-            lookup_mode = lookup_config.get("lookup_mode", _LOAD_ONCE)
 
             if lookup_mode == _RELOAD_AT_EACH_ROW:
                 joined_df, rejects = self._join_reload_per_row(
@@ -431,6 +434,163 @@ class Map(BaseComponent):
             return filtered
 
         return df
+
+    def _apply_filter_per_row(
+        self,
+        lookup_df: pd.DataFrame,
+        filter_expr: str,
+        lookup_name: str,
+        main_row: pd.Series,
+        main_name: str,
+    ) -> pd.DataFrame:
+        """Apply filter expression with main row values substituted.
+
+        For RELOAD_AT_EACH_ROW: replaces main table column references
+        (e.g., row1.region) with the actual main row values before
+        evaluating the filter against the lookup DataFrame.
+
+        Addresses review concern: None/NaN main row values are substituted
+        as Python None literals. If evaluation raises TypeError (e.g.,
+        None > 5), the filter returns an empty DataFrame (no match) rather
+        than crashing -- consistent with Talend's null-never-matches
+        semantics.
+
+        Args:
+            lookup_df: Full unfiltered lookup DataFrame.
+            filter_expr: Filter expression (may have {{java}} prefix).
+            lookup_name: Name of the lookup table.
+            main_row: Current main row (pd.Series).
+            main_name: Main table name (e.g., "row1").
+
+        Returns:
+            Filtered lookup DataFrame (rows matching the filter).
+        """
+        resolved_expr = self._substitute_row_refs(
+            self._strip_java_marker(filter_expr),
+            main_row,
+            main_name,
+        )
+
+        # Null-safe evaluation: if the resolved expression contains
+        # a None literal from a NaN/null main row value, the downstream
+        # evaluation may raise TypeError (e.g., None > 5). In that case,
+        # return empty DataFrame (null never matches per MAP-03 semantics).
+        try:
+            return self._apply_filter(
+                lookup_df, resolved_expr, lookup_name, []
+            )
+        except (TypeError, ValueError) as exc:
+            logger.debug(
+                f"[{self.id}] Per-row filter raised {type(exc).__name__} "
+                f"(likely null main value in comparison): {exc}. "
+                f"Treating as no match."
+            )
+            return lookup_df.iloc[0:0]
+
+    @staticmethod
+    def _find_quoted_ranges(expr: str) -> list[tuple[int, int]]:
+        """Find all ranges in expr that are inside quoted strings.
+
+        Handles both single and double quotes. Escaped quotes within
+        strings are handled (e.g., 'it\\'s' or "he said \\"hi\\"").
+
+        Args:
+            expr: Expression string.
+
+        Returns:
+            List of (start, end) tuples marking quoted regions.
+        """
+        ranges = []
+        i = 0
+        while i < len(expr):
+            if expr[i] in ('"', "'"):
+                quote_char = expr[i]
+                start = i
+                i += 1
+                while i < len(expr):
+                    if expr[i] == '\\':
+                        i += 2  # Skip escaped character
+                        continue
+                    if expr[i] == quote_char:
+                        i += 1
+                        break
+                    i += 1
+                ranges.append((start, i))
+            else:
+                i += 1
+        return ranges
+
+    def _substitute_row_refs(
+        self,
+        expr: str,
+        row: pd.Series,
+        table_name: str,
+    ) -> str:
+        """Replace table.column references for a specific table with literal values.
+
+        For RELOAD_AT_EACH_ROW per-row filter evaluation. Replaces references
+        like row1.region with the actual value from the current main row,
+        leaving lookup table references intact for downstream evaluation.
+
+        Addresses review concern: This method is quote-aware -- it will NOT
+        replace table.column patterns that appear inside string literals
+        (e.g., the "row1.label" inside '"Look at row1.label"' is left alone).
+
+        Args:
+            expr: Expression string (e.g., 'row1.region == row2.region').
+            row: Row data (pd.Series) to substitute values from.
+            table_name: Table name to match (e.g., "row1").
+
+        Returns:
+            Expression with matched table references replaced by Python literals.
+            References inside quoted strings are left untouched.
+        """
+        # Pre-compute quoted ranges to avoid substituting inside string literals
+        quoted_ranges = self._find_quoted_ranges(expr)
+
+        def _in_quoted_region(start: int, end: int) -> bool:
+            """Check if a match span falls inside any quoted string."""
+            for q_start, q_end in quoted_ranges:
+                if start >= q_start and end <= q_end:
+                    return True
+            return False
+
+        def _replace_ref(match):
+            # Skip matches inside quoted strings (addresses review concern
+            # about regex brittleness with string literals)
+            if _in_quoted_region(match.start(), match.end()):
+                return match.group(0)
+
+            table = match.group(1)
+            column = match.group(2)
+            if table != table_name:
+                return match.group(0)  # Not our table, leave as-is
+
+            # Try to find column in the row (supports prefixed and plain names)
+            col_name = None
+            prefixed = f"{table}.{column}"
+            if prefixed in row.index:
+                col_name = prefixed
+            elif column in row.index:
+                col_name = column
+            if col_name is None:
+                return match.group(0)  # Column not found, leave as-is
+
+            val = row[col_name]
+            # Null/NaN -> substitute as Python None literal
+            # Downstream _apply_filter_per_row handles TypeError from
+            # None comparisons (addresses review concern about NaN handling)
+            if pd.isna(val):
+                return "None"
+            if isinstance(val, str):
+                escaped = val.replace("\\", "\\\\").replace('"', '\\"')
+                return f'"{escaped}"'
+            if isinstance(val, (bool, np.bool_)):
+                return "True" if val else "False"
+            # Numeric types: int, float, numpy numeric
+            return repr(val)
+
+        return _ROW_REF_PATTERN.sub(_replace_ref, expr)
 
     # ------------------------------------------------------------------
     # Join Classification and Routing
@@ -797,6 +957,7 @@ class Map(BaseComponent):
         result_rows = []
         reject_rows = []
         key_cols = [jk["lookup_column"] for jk in join_keys]
+        main_name = self.config["inputs"]["main"]["name"]
         # Compute prefixed column names for the empty-result fallback without
         # copying the full DataFrame (prefix is also applied per-row inside loop).
         lookup_prefixed_cols = [
@@ -808,15 +969,14 @@ class Map(BaseComponent):
             # Set globalMap variables from main row
             if self.global_map:
                 for col in joined_df.columns:
-                    self.global_map.put(f"row.{col}", main_row[col])
+                    self.global_map.put(f"{main_name}.{col}", main_row[col])
 
-            # Re-filter lookup
+            # Re-filter lookup with main row context
             if (lookup_config.get("activate_filter")
                     and lookup_config.get("filter")):
-                main_name = self.config["inputs"]["main"]["name"]
-                filtered = self._apply_filter(
+                filtered = self._apply_filter_per_row(
                     lookup_df, lookup_config["filter"],
-                    lookup_name, []
+                    lookup_name, main_row, main_name,
                 )
             else:
                 filtered = lookup_df
@@ -854,7 +1014,7 @@ class Map(BaseComponent):
                     if pd.isna(main_val) or pd.isna(lookup_val):
                         key_match = False
                         break
-                    if str(main_val) != str(lookup_val):
+                    if not self._values_equal(main_val, lookup_val):
                         key_match = False
                         break
 
@@ -869,7 +1029,14 @@ class Map(BaseComponent):
                 if join_mode == "INNER_JOIN":
                     reject_rows.append(main_row)
                 else:
-                    result_rows.append(main_row)
+                    # Build combined row with NaN-filled lookup columns.
+                    # Uses lookup_prefixed_cols to ensure column order matches
+                    # the lookup schema exactly (addresses review suggestion
+                    # about column alignment verification).
+                    combined = main_row.copy()
+                    for col in lookup_prefixed_cols:
+                        combined[col] = np.nan
+                    result_rows.append(combined)
 
         # Build result DataFrames
         if result_rows:
@@ -1690,6 +1857,48 @@ class Map(BaseComponent):
             return var_name
 
         return None
+
+    def _values_equal(self, a: Any, b: Any) -> bool:
+        """Type-aware value comparison for join keys.
+
+        Numeric types compared as numbers (int 1 == float 1.0).
+        When one side is a string that looks numeric and the other is
+        numeric, attempts safe cast before comparison.
+        Non-numeric compared as strings. Null/NaN handled by caller.
+
+        Note: float promotion may lose precision for very large 64-bit
+        integers (>2^53). This is a known limitation -- ETL join keys
+        rarely use integers that large. (Addresses LOW review concern
+        about float precision.)
+
+        Args:
+            a: First value (assumed non-null by caller).
+            b: Second value (assumed non-null by caller).
+
+        Returns:
+            True if values are equal under type-aware comparison.
+        """
+        a_numeric = isinstance(a, (int, float, np.integer, np.floating))
+        b_numeric = isinstance(b, (int, float, np.integer, np.floating))
+
+        if a_numeric and b_numeric:
+            return float(a) == float(b)
+
+        # One numeric, one string: try safe cast of string to numeric
+        # (addresses review suggestion for string-to-numeric edge case)
+        if a_numeric and isinstance(b, str):
+            try:
+                return float(a) == float(b)
+            except (ValueError, TypeError):
+                return False
+        if b_numeric and isinstance(a, str):
+            try:
+                return float(a) == float(b)
+            except (ValueError, TypeError):
+                return False
+
+        # Both non-numeric: string comparison
+        return str(a) == str(b)
 
     def _prefilter_null_keys(
         self, df: pd.DataFrame, key_columns: list[str]
