@@ -1014,17 +1014,58 @@ class TestAutoConvertType:
 class TestReloadAtEachRow:
     """MAP-08: RELOAD_AT_EACH_ROW per-row lookup re-filter."""
 
-    def test_reload_re_filters_lookup_per_row(self):
-        """Different main rows get different lookup subsets."""
+    def test_reload_basic_key_matching(self):
+        """Basic key matching works in RELOAD_AT_EACH_ROW mode."""
         config = copy.deepcopy(_DEFAULT_CONFIG)
         config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
         comp = _make_component(config=config)
         result = comp.execute(_make_input_dict())
         out = result["out1"]
-        # Basic matching still works in reload mode
+        # Key A matches, B matches, C has no match (LEFT OUTER keeps it)
+        assert len(out) == 3
         a_row = out[out["id"] == 1]
         assert len(a_row) == 1
         assert a_row.iloc[0]["label"] == "Alpha"
+
+    def test_reload_left_outer_join_keeps_unmatched(self):
+        """LEFT_OUTER_JOIN: unmatched main rows kept with NaN lookup columns."""
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
+        config["inputs"]["lookups"][0]["join_mode"] = "LEFT_OUTER_JOIN"
+        comp = _make_component(config=config)
+        result = comp.execute(_make_input_dict())
+        out = result["out1"]
+        # Main row id=3 (key=C) has no lookup match
+        assert len(out) == 3
+        c_row = out[out["id"] == 3]
+        assert len(c_row) == 1
+        # label column should exist (from lookup) but be NaN for unmatched
+        assert "label" in out.columns
+
+    def test_reload_inner_join_rejects_unmatched(self):
+        """INNER_JOIN: unmatched main rows become rejects."""
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
+        config["inputs"]["lookups"][0]["join_mode"] = "INNER_JOIN"
+        # Add inner_join_reject output
+        config["outputs"].append({
+            "name": "reject1",
+            "is_reject": False,
+            "inner_join_reject": True,
+            "filter": "",
+            "activate_filter": False,
+            "columns": [
+                {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+                {"name": "key", "expression": "{{java}}row1.key", "type": "str", "nullable": True},
+            ],
+            "catch_output_reject": False,
+        })
+        comp = _make_component(config=config)
+        result = comp.execute(_make_input_dict())
+        out = result["out1"]
+        # Only A and B match, C is rejected
+        assert len(out) == 2
+        assert set(out["id"].tolist()) == {1, 2}
 
     def test_reload_with_load_once_uses_cached(self):
         """LOAD_ONCE does NOT re-filter per row (standard behavior)."""
@@ -1034,6 +1075,37 @@ class TestReloadAtEachRow:
         result = comp.execute(_make_input_dict())
         out = result["out1"]
         assert len(out) == 3  # All main rows present
+
+    def test_reload_numeric_key_matching(self):
+        """Numeric join keys match correctly in RELOAD_AT_EACH_ROW."""
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
+        config["inputs"]["lookups"][0]["join_keys"] = [{
+            "lookup_column": "dept_id",
+            "expression": "{{java}}row1.dept_id",
+            "type": "int",
+            "nullable": False,
+            "operator": "=",
+        }]
+        config["outputs"][0]["columns"] = [
+            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+            {"name": "dept_name", "expression": "{{java}}row2.dept_name", "type": "str", "nullable": True},
+        ]
+        main_df = pd.DataFrame({
+            "id": [1, 2, 3],
+            "dept_id": [10, 20, 10],
+            "val": [100, 200, 300],
+        })
+        lookup_df = pd.DataFrame({
+            "dept_id": [10, 20, 30],
+            "dept_name": ["Engineering", "Sales", "HR"],
+        })
+        comp = _make_component(config=config)
+        result = comp.execute(_make_input_dict(main_df=main_df, lookup_df=lookup_df))
+        out = result["out1"]
+        assert len(out) == 3
+        eng_rows = out[out["dept_name"] == "Engineering"]
+        assert len(eng_rows) == 2  # id=1 and id=3 both in dept 10
 
     def test_reload_warns_for_large_datasets(self, caplog):
         """Warning logged when main > 10K and lookup > 10K."""
@@ -1053,6 +1125,18 @@ class TestReloadAtEachRow:
         with caplog.at_level(logging.WARNING):
             result = comp.execute(_make_input_dict(main_df=main_df, lookup_df=lookup_df))
         assert any("RELOAD_AT_EACH_ROW" in r.message for r in caplog.records)
+
+    def test_reload_logs_row_count(self, caplog):
+        """RELOAD_AT_EACH_ROW join logs the result row count."""
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
+        comp = _make_component(config=config)
+        with caplog.at_level(logging.INFO):
+            result = comp.execute(_make_input_dict())
+        assert any(
+            "RELOAD_AT_EACH_ROW join" in r.message and "row2" in r.message
+            for r in caplog.records
+        )
 
 
 @pytest.mark.unit

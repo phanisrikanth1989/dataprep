@@ -17,6 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Execution Loop Restructure** - Decompose the monolithic execution loop into testable units with correct subjob tracking, trigger timing, and data flow routing (completed 2026-04-14)
 - [ ] **Phase 4: File I/O Components** - Deliver tFileInputDelimited and tFileOutputDelimited with full Talend feature parity
 - [ ] **Phase 5: tMap Component** - Deliver tMap with correct join semantics, reject routing, and expression handling
+- [ ] **Phase 5.2: tMap RELOAD_AT_EACH_ROW Fix** (INSERTED) - Fix per-row dynamic lookup filtering to match Talend behavior
 - [ ] **Phase 6: Transform Group A -- Aggregation, Sort, Filter** - Deliver tAggregateRow, tSortRow, and tFilterRow with correct Talend behavior for the hardest transform bugs
 - [ ] **Phase 7: Transform Group B -- Column, Join, Unite** - Deliver tFilterColumns, tJoin, and tUnite (two already functionally Green, tJoin has targeted fixes)
 - [ ] **Phase 8: Code Components** - Deliver tJava, tJavaRow, python_component, and python_row_component with correct Talend semantics
@@ -129,6 +130,19 @@ Plans:
 - [x] 05.1-01-PLAN.md -- Fix JavaBridge.java extractTypedValue + bridge integration tests
 - [x] 05.1-02-PLAN.md -- Full pipeline test (employees + country_lookup CSVs) + regression gate
 
+### Phase 05.2: tMap RELOAD_AT_EACH_ROW Fix (INSERTED)
+
+**Goal**: Fix RELOAD_AT_EACH_ROW lookup mode in tMap to match Talend behavior. The current implementation has a working skeleton but 4 bugs prevent it from functioning correctly for real Talend jobs that use per-row dynamic lookup filtering.
+**Depends on**: Phase 5, Phase 5.1
+**Requirements**: MAP-08
+**Success Criteria** (what must be TRUE):
+  1. Lookup filter is NOT pre-applied before RELOAD_AT_EACH_ROW routing -- per-row loop receives the full unfiltered lookup
+  2. Per-row filter expression can reference main row values via globalMap (e.g., filter lookup by current main row's region)
+  3. Join key comparison is type-aware (int/float/string) -- not string-cast everything
+  4. LEFT_OUTER_JOIN unmatched rows have proper NaN-filled lookup columns (no column misalignment)
+  5. Existing LOAD_ONCE tests and all other tMap tests still pass (no regression)
+**Plans:** 0/0 plans complete
+
 ### Phase 6: Transform Group A -- Aggregation, Sort, Filter
 **Goal**: The three most complex transform components (tAggregateRow, tSortRow, tFilterRow) produce correct results matching Talend behavior, with all P0/P1 bugs fixed and full operator/function support
 **Depends on**: Phase 3
@@ -219,6 +233,7 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 4. File I/O Components | 0/3 | Planning complete | - |
 | 5. tMap Component | 0/3 | Planning complete | - |
 | 5.1. Java Bridge tMap Fix | 0/2 | Planning complete | - |
+| 5.2. tMap RELOAD_AT_EACH_ROW Fix | 0/TBD | Not started | - |
 | 6. Transform Group A -- Aggregation, Sort, Filter | 0/TBD | Not started | - |
 | 7. Transform Group B -- Column, Join, Unite | 0/TBD | Not started | - |
 | 8. Code Components | 0/TBD | Not started | - |
