@@ -728,16 +728,19 @@ class Map(BaseComponent):
 
         rejects = None
         if join_mode == "INNER_JOIN":
-            # Find main rows that didn't match
-            matched_main_idx = matched.index.intersection(
-                joined_df.index
+            # After cross join, matched has a new RangeIndex (0..N*M-1) that
+            # does NOT correspond to joined_df's index.  Compare on column
+            # values to find which original main rows got at least one match.
+            main_cols = list(joined_df.columns)
+            matched_main_rows = matched[main_cols].drop_duplicates()
+            joined_with_flag = joined_df.merge(
+                matched_main_rows.assign(__matched__=True),
+                on=main_cols,
+                how="left",
             )
-            # Use original main index tracking
-            unmatched = joined_df.loc[
-                ~joined_df.index.isin(
-                    matched[joined_df.columns].drop_duplicates().index
-                )
-            ]
+            unmatched = joined_with_flag[
+                joined_with_flag["__matched__"].isna()
+            ].drop(columns=["__matched__"])
             if not unmatched.empty:
                 rejects = unmatched.copy()
 
