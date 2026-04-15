@@ -173,8 +173,8 @@ Plans:
   3. All three components set appropriate globalMap variables and handle edge cases (empty inputs, mismatched schemas)
 **Plans:** 2 plans
 Plans:
-- [ ] 07-01-PLAN.md -- tJoin full rewrite (8 bugs, reject_schema engine fix)
-- [ ] 07-02-PLAN.md -- FilterColumns + Unite rewrites + all tests (Join, FilterColumns, Unite)
+- [x] 07-01-PLAN.md -- tJoin full rewrite (8 bugs, reject_schema engine fix)
+- [x] 07-02-PLAN.md -- FilterColumns + Unite rewrites + all tests (Join, FilterColumns, Unite)
 
 ### Phase 8: Code Components
 **Goal**: tJava, tJavaRow, python_component, and python_row_component all execute code with correct Talend semantics, proper import support, and secure execution
