@@ -39,7 +39,7 @@ Any Talend job using the target components must produce identical results when r
 - [x] tFileOutputDelimited — full Talend feature parity (encoding, delimiters, append, headers, schema) *(Phase 4)*
 - [ ] tJava — full Talend feature parity (Java code execution, imports, context access)
 - [ ] tJavaRow — full Talend feature parity (per-row Java execution, input/output column access)
-- [ ] tContextLoad — full Talend feature parity (load context from flow, file, key-value parsing)
+- [x] tContextLoad — full Talend feature parity (load context from flow, policy control, type preservation) *(Phase 9)*
 - [x] tAggregateRow — full rewrite with 12+ aggregation functions, Decimal precision, ignore_null, population_std_dev *(Phase 6)*
 - [x] tSortRow — full rewrite with num/alpha/date sort types via pandas key=, simplified to batch-only *(Phase 6)*
 - [x] tFilterRow — full rewrite with 15-operator function map (no eval), 8 FUNCTION pre-transforms *(Phase 6)*
@@ -56,9 +56,9 @@ Any Talend job using the target components must produce identical results when r
 - [x] Strengthen JAR/library loading — robust classpath management with Class.forName validation
 - [x] Fix bidirectional context/globalMap sync — _call_java_with_sync at every call site
 
-**Routines:**
-- [ ] Java routines — custom utility functions callable from Java expressions (like Talend routine.jar)
-- [ ] Python routines — custom utility functions callable from Python expressions and components
+**Routines:** *(Validated in Phase 9)*
+- [x] Java routines — classpath extension for routine JARs, callable from Java expressions via bridge *(Phase 9)*
+- [x] Python routines — PythonRoutineManager with subdirectory scanning, namespace access, fail-fast discovery *(Phase 9)*
 
 **Iterate Support:**
 - [ ] tFlowToIterate — engine implementation with proper downstream subjob re-execution
