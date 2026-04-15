@@ -1,315 +1,359 @@
-"""
-FilterRows - Filters rows based on conditions or advanced Java expressions.
+"""Engine component for FilterRows (tFilterRow / tFilterRows).
 
-Talend equivalent: tFilterRow, tFilterRows
+Filters rows based on structured conditions or advanced Java expressions.
+Matching rows go to main output; non-matching rows go to reject output.
+
+Config keys consumed (6 total):
+  conditions    (list[dict], default [])  -- filter conditions [{column, function, operator, value}]
+  logical_op    (str, default "&&")       -- combine conditions: "&&" (AND) or "||" (OR)
+  use_advanced  (bool, default False)     -- use advanced_cond Java expression instead of conditions
+  advanced_cond (str, default "")         -- Java expression (must contain {{java}} marker)
+  tstatcatcher_stats (bool, default False) -- framework
+  label         (str, default "")          -- framework
 """
 import logging
-from typing import Any, Dict, List, Optional
+import re
+from typing import Optional
 
 import pandas as pd
 
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
+from ...exceptions import ConfigurationError, ExpressionError
 
 logger = logging.getLogger(__name__)
 
+# ------------------------------------------------------------------
+# Operator Map (D-05, D-06, FROW-01, FROW-02)
+# ------------------------------------------------------------------
+# All 15 Talend operators -- operator-function map, no AST, pure vectorized pandas.
 
+_OPERATOR_MAP = {
+    "==":           lambda col, val: col == val,
+    "!=":           lambda col, val: col != val,
+    ">":            lambda col, val: col > val,
+    "<":            lambda col, val: col < val,
+    ">=":           lambda col, val: col >= val,
+    "<=":           lambda col, val: col <= val,
+    "MATCHES":      lambda col, val: col.astype(str).str.fullmatch(str(val), na=False),
+    "CONTAINS":     lambda col, val: col.astype(str).str.contains(str(val), regex=False, na=False),
+    "NOT_CONTAINS": lambda col, val: ~col.astype(str).str.contains(str(val), regex=False, na=False),
+    "STARTS_WITH":  lambda col, val: col.astype(str).str.startswith(str(val), na=False),
+    "ENDS_WITH":    lambda col, val: col.astype(str).str.endswith(str(val), na=False),
+    "IS_NULL":      lambda col, val: col.isna(),
+    "IS_NOT_NULL":  lambda col, val: col.notna(),
+    "LENGTH_LT":    lambda col, val: col.astype(str).str.len() < int(val),
+    "LENGTH_GT":    lambda col, val: col.astype(str).str.len() > int(val),
+}
+
+# ------------------------------------------------------------------
+# FUNCTION Pre-transform Map (D-07, FROW-03)
+# ------------------------------------------------------------------
+
+_FUNCTION_MAP = {
+    "":       lambda col: col,
+    "LOWER":  lambda col: col.astype(str).str.lower(),
+    "UPPER":  lambda col: col.astype(str).str.upper(),
+    "LENGTH": lambda col: col.astype(str).str.len(),
+    "TRIM":   lambda col: col.astype(str).str.strip(),
+    "LTRIM":  lambda col: col.astype(str).str.lstrip(),
+    "RTRIM":  lambda col: col.astype(str).str.rstrip(),
+}
+
+# ------------------------------------------------------------------
+# Logical Operator Normalization (Pitfall 6)
+# ------------------------------------------------------------------
+
+_LOGICAL_OP_MAP = {"&&": "AND", "||": "OR", "AND": "AND", "OR": "OR"}
+
+
+# ------------------------------------------------------------------
+# Module-level Helpers
+# ------------------------------------------------------------------
+
+def _apply_function(col: pd.Series, func_str: str) -> pd.Series:
+    """Apply FUNCTION pre-transform to column values before operator comparison."""
+    if not func_str:
+        return col
+    func_upper = func_str.upper().strip()
+    if func_upper in _FUNCTION_MAP:
+        return _FUNCTION_MAP[func_upper](col)
+    # Handle LEFT(n) and RIGHT(n) with argument parsing
+    left_match = re.match(r"LEFT\((\d+)\)", func_upper)
+    if left_match:
+        n = int(left_match.group(1))
+        return col.astype(str).str[:n]
+    right_match = re.match(r"RIGHT\((\d+)\)", func_upper)
+    if right_match:
+        n = int(right_match.group(1))
+        return col.astype(str).str[-n:]
+    logger.warning("Unknown FUNCTION pre-transform: %r, returning column as-is", func_str)
+    return col
+
+
+def _compare(col: pd.Series, operator: str, value: str) -> pd.Series:
+    """Apply operator to column with type-aware coercion.
+
+    For comparison operators (==, !=, >, <, >=, <=):
+    - Attempt numeric coercion on both column and value
+    - If both are numeric, compare as numbers
+    - Otherwise fall back to string comparison
+
+    For string operators (MATCHES, CONTAINS, etc.):
+    - Always use string comparison
+
+    For null operators (IS_NULL, IS_NOT_NULL):
+    - No coercion needed
+
+    Args:
+        col: Column data (possibly pre-transformed by _apply_function).
+        operator: One of the 15 supported operators.
+        value: Comparison value from condition config.
+
+    Returns:
+        Boolean Series mask.
+
+    Raises:
+        ExpressionError: If operator is not in _OPERATOR_MAP.
+    """
+    if operator not in _OPERATOR_MAP:
+        raise ExpressionError(f"Unsupported operator: {operator!r}")
+
+    # Null operators -- no value needed
+    if operator in ("IS_NULL", "IS_NOT_NULL"):
+        return _OPERATOR_MAP[operator](col, value)
+
+    # Comparison operators -- try numeric first (FROW-04)
+    if operator in ("==", "!=", ">", "<", ">=", "<="):
+        numeric_col = pd.to_numeric(col, errors="coerce")
+        try:
+            numeric_val = float(value)
+        except (ValueError, TypeError):
+            numeric_val = None
+        if numeric_val is not None and numeric_col.notna().any():
+            return _OPERATOR_MAP[operator](numeric_col, numeric_val)
+        # Fall back to string comparison
+        return _OPERATOR_MAP[operator](col.astype(str), str(value))
+
+    # String operators -- use string values
+    return _OPERATOR_MAP[operator](col, value)
+
+
+# ------------------------------------------------------------------
+# Component
+# ------------------------------------------------------------------
+
+@REGISTRY.register("FilterRows", "tFilterRow", "tFilterRows")
 class FilterRows(BaseComponent):
-    """
-    Filters rows based on specified conditions or advanced Java expressions.
+    """tFilterRow / tFilterRows engine implementation.
 
-    Equivalent to Talend's tFilterRow/tFilterRows component.
+    Filters rows based on structured conditions or advanced Java expressions.
+    Matching rows go to main output; non-matching rows go to reject output.
 
-    Configuration:
-        conditions (list): List of filter conditions (dicts with column, operator, value). Default: []
-        logical_operator (str): Logical operator to combine conditions ('AND'/'OR'). Default: 'AND'
-        use_advanced (bool): If True, use advanced_condition (Java expression). Default: False
-        advanced_condition (str): Java-like filter expression (marked with {{java}}). Default: ''
-
-    Inputs:
-        main: DataFrame to filter
-
-    Outputs:
-        main: Filtered DataFrame (rows matching conditions)
-        reject: DataFrame of rejected rows (not matching conditions)
-
-    Statistics:
-        NB_LINE: Total rows processed
-        NB_LINE_OK: Rows accepted (passed filter)
-        NB_LINE_REJECT: Rows rejected (failed filter)
-
-    Example configuration:
-        {
-            "conditions": [
-                {"column": "status", "operator": "==", "value": "ACTIVE"}
-            ],
-            "logical_operator": "AND",
-            "use_advanced": False
-        }
-
-    Notes:
-        - Supports both simple conditions and advanced Java expressions
-        - Context variables in values are automatically resolved
-        - Logical operators support both Java style (&&, ||) and Python style (AND, OR)
+    Config keys:
+        conditions: List of filter conditions [{column, function, operator, value}]
+        logical_op: Combine conditions with "&&" (AND) or "||" (OR)
+        use_advanced: Use advanced_cond Java expression instead of conditions
+        advanced_cond: Java expression for advanced filtering
     """
 
-    # Class constants
-    DEFAULT_LOGICAL_OPERATOR = 'AND'
-    SUPPORTED_OPERATORS = ['==', '!=', '>', '<', '>=', '<=']
-    LOGICAL_OPERATOR_MAPPING = {
-        '&&': 'AND',
-        '||': 'OR',
-        'AND': 'AND',
-        'OR': 'OR'
-    }
+    # ------------------------------------------------------------------
+    # Configuration Validation
+    # ------------------------------------------------------------------
 
-    def _validate_config(self) -> List[str]:
-        """Validate component configuration."""
-        errors = []
-
-        use_advanced = self.config.get('use_advanced', False)
-
-        if use_advanced:
-            # Advanced mode validation
-            if not self.config.get('advanced_condition'):
-                errors.append("Missing required config: 'advanced_condition' when use_advanced is True")
-        else:
-            # Simple conditions validation
-            conditions = self.config.get('conditions', [])
-            if not conditions or not isinstance(conditions, list):
-                errors.append("Config 'conditions' must be a non-empty list when use_advanced is False")
-            else:
-                for i, condition in enumerate(conditions):
-                    if not isinstance(condition, dict):
-                        errors.append(f"Condition {i} must be a dictionary")
-                        continue
-
-                    if 'column' not in condition:
-                        errors.append(f"Condition {i} missing required field: 'column'")
-                    if 'operator' not in condition:
-                        errors.append(f"Condition {i} missing required field: 'operator'")
-                    elif condition['operator'] not in self.SUPPORTED_OPERATORS:
-                        errors.append(f"Condition {i} has unsupported operator: {condition['operator']}. "
-                                      f"Supported: {', '.join(self.SUPPORTED_OPERATORS)}")
-                    if 'value' not in condition:
-                        errors.append(f"Condition {i} missing required field: 'value'")
-
-        # Logical operator validation
-        logical_op = self.config.get('logical_operator', self.DEFAULT_LOGICAL_OPERATOR)
-        if logical_op not in self.LOGICAL_OPERATOR_MAPPING:
-            errors.append(f"Config 'logical_operator' must be one of: {', '.join(self.LOGICAL_OPERATOR_MAPPING.keys())}")
-
-        return errors
-
-    def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
-        """
-        Process input data by filtering rows based on conditions.
-
-        Args:
-            input_data: Input DataFrame. If None or empty, returns empty result.
-
-        Returns:
-            Dictionary containing:
-                - 'main': DataFrame with accepted rows
-                - 'reject': DataFrame with rejected rows
-                - 'stats': Execution statistics
+    def _validate_config(self) -> None:
+        """Validate component configuration.
 
         Raises:
-            Exception: If filtering operation fails
+            ConfigurationError: If configuration is invalid.
         """
-        print(f"[FilterRows] {self.id} config: {self.config}")
-        print(f"[FilterRows] input_data shape: {getattr(input_data, 'shape', None)}")
-        print(f"[FilterRows] input_data columns: {input_data.columns.tolist() if input_data is not None else None}")
-        if input_data is not None:
-            print(f"[FilterRows] First 3 rows:\n{input_data.head(3)}")
+        use_advanced = self.config.get("use_advanced", False)
 
-        logger.debug(f"[{self.id}] Starting filter processing with input shape: {getattr(input_data, 'shape', None)}")
+        if use_advanced:
+            advanced_cond = self.config.get("advanced_cond", "")
+            if not advanced_cond:
+                raise ConfigurationError(
+                    f"[{self.id}] Missing 'advanced_cond' when use_advanced is True"
+                )
+        else:
+            conditions = self.config.get("conditions", [])
+            if not isinstance(conditions, list):
+                raise ConfigurationError(
+                    f"[{self.id}] 'conditions' must be a list"
+                )
+            for i, cond in enumerate(conditions):
+                if not isinstance(cond, dict):
+                    raise ConfigurationError(
+                        f"[{self.id}] Condition {i} must be a dictionary"
+                    )
+                if "column" not in cond:
+                    raise ConfigurationError(
+                        f"[{self.id}] Condition {i} missing required key 'column'"
+                    )
+                if "operator" not in cond:
+                    raise ConfigurationError(
+                        f"[{self.id}] Condition {i} missing required key 'operator'"
+                    )
+                op = cond["operator"]
+                if op not in _OPERATOR_MAP:
+                    raise ConfigurationError(
+                        f"[{self.id}] Condition {i} has unsupported operator: {op!r}. "
+                        f"Supported: {sorted(_OPERATOR_MAP.keys())}"
+                    )
 
-        # Handle empty input
+    # ------------------------------------------------------------------
+    # Core Processing
+    # ------------------------------------------------------------------
+
+    def _process(self, input_data: Optional[pd.DataFrame] = None) -> dict:
+        """Filter rows based on conditions or advanced expression.
+
+        Args:
+            input_data: Input DataFrame from upstream component.
+
+        Returns:
+            dict with 'main' (matching rows) and 'reject' (non-matching rows).
+        """
+        # Early return for empty input
         if input_data is None or input_data.empty:
-            logger.warning(f"[{self.id}] Empty input received")
-            self._update_stats(0, 0, 0)
-            print(f"[FilterRows] Empty input, returning empty DataFrames.")
-            return {'main': pd.DataFrame(), 'reject': pd.DataFrame()}
+            return {"main": input_data, "reject": None}
 
-        rows_in = len(input_data)
-        logger.info(f"[{self.id}] Processing started: {rows_in} rows")
+        use_advanced = self.config.get("use_advanced", False)
 
-        try:
-            # Get configuration with defaults
-            use_advanced = self.config.get('use_advanced', False)
-            advanced_condition = self.config.get('advanced_condition', '')
-            conditions = self.config.get('conditions', [])
-            logical_operator = self.config.get('logical_operator', self.DEFAULT_LOGICAL_OPERATOR).upper()
+        if use_advanced:
+            mask = self._handle_advanced(input_data)
+        else:
+            mask = self._handle_simple(input_data)
 
-            print(f"[FilterRows] use_advanced: {use_advanced}, logical_operator: {logical_operator}, conditions: {conditions}, advanced_condition: "
-                  f"{advanced_condition}")
+        # Split into main and reject
+        main_df = input_data[mask].copy()
+        reject_df = input_data[~mask].copy()
 
-            # Map Talend logical operators to Python
-            logical_operator = self.LOGICAL_OPERATOR_MAPPING.get(logical_operator, self.DEFAULT_LOGICAL_OPERATOR)
-            if logical_operator != self.config.get('logical_operator', self.DEFAULT_LOGICAL_OPERATOR):
-                print(f"[FilterRows] Mapped logical operator to: {logical_operator}")
+        self._update_stats(len(input_data), len(main_df), len(reject_df))
+        logger.info(
+            f"[{self.id}] Filtered {len(input_data)} rows: "
+            f"{len(main_df)} passed, {len(reject_df)} rejected"
+        )
 
-            # Process based on mode
-            if use_advanced and advanced_condition:
-                mask = self._process_advanced_condition(input_data, advanced_condition)
-            else:
-                mask = self._process_simple_conditions(input_data, conditions, logical_operator)
+        # Schema validation on output
+        output_schema = getattr(self, "output_schema", None)
+        if output_schema:
+            main_df = self.validate_schema(main_df, output_schema)
 
-            # Split data based on mask
-            accepted = input_data[mask].copy()
-            rejected = input_data[~mask].copy()
+        return {
+            "main": main_df,
+            "reject": reject_df if not reject_df.empty else None,
+        }
 
-            rows_out = len(accepted)
-            rows_rejected = len(rejected)
+    # ------------------------------------------------------------------
+    # Simple Conditions
+    # ------------------------------------------------------------------
 
-            print(f"[FilterRows] Accepted shape: {accepted.shape}, Rejected shape: {rejected.shape}")
-
-            # Update statistics
-            self._update_stats(rows_in, rows_out, rows_rejected)
-            logger.info(f"[{self.id}] Processing complete: "
-                        f"in={rows_in}, out={rows_out}, rejected={rows_rejected}")
-
-            return {'main': accepted, 'reject': rejected}
-
-        except Exception as e:
-            logger.error(f"[{self.id}] Processing failed: {e}")
-            print(f"[FilterRows] Error during filtering: {e}")
-            raise
-
-    def _process_advanced_condition(self, input_data: pd.DataFrame, advanced_condition: str) -> pd.Series:
-        """
-        Process advanced Java-like condition.
+    def _handle_simple(self, df: pd.DataFrame) -> pd.Series:
+        """Evaluate structured conditions and return boolean mask.
 
         Args:
-            input_data: Input DataFrame
-            advanced_condition: Java expression to evaluate
+            df: Input DataFrame.
 
         Returns:
-            Boolean mask Series
+            Boolean Series mask (True = row passes filter).
         """
-        logger.debug(f"[{self.id}] Using advanced condition: {advanced_condition}")
-        expr = advanced_condition.replace('{{java}}', '').strip()
-        expr = expr.replace('input_row.', '')
-        print(f"[FilterRows] Evaluating advanced condition: {expr}")
-
-        mask = input_data.apply(lambda row: eval(expr, {}, row.to_dict()), axis=1)
-        print(f"[FilterRows] Advanced mask: {mask.tolist()}")
-        return mask
-
-    def _process_simple_conditions(self, input_data: pd.DataFrame, conditions: List[Dict],
-                                   logical_operator: str) -> pd.Series:
-        """
-        Process simple column-operator-value conditions.
-
-        Args:
-            input_data: Input DataFrame
-            conditions: List of condition dictionaries
-            logical_operator: 'AND' or 'OR'
-
-        Returns:
-            Boolean mask Series
-        """
-        logger.debug(f"[{self.id}] Using simple conditions: {conditions} with logical_operator: {logical_operator}")
+        conditions = self.config.get("conditions", [])
+        logical_op_raw = self.config.get("logical_op", "&&")
+        logical_op = _LOGICAL_OP_MAP.get(logical_op_raw, "AND")
 
         if not conditions:
-            return pd.Series([True] * len(input_data))
+            logger.warning(f"[{self.id}] No conditions specified, passing all rows")
+            return pd.Series(True, index=df.index)
 
         masks = []
-        print(f"[FilterRows] Unique values in '{conditions[0]['column']}': {input_data[conditions[0]['column']].unique()}")
-
         for cond in conditions:
-            mask = self._evaluate_single_condition(input_data, cond)
-            masks.append(mask)
+            col_name = cond.get("column", "")
+            func_str = cond.get("function", "")
+            operator = cond.get("operator", "==")
+            value = cond.get("value", "")
+
+            if col_name not in df.columns:
+                logger.warning(
+                    f"[{self.id}] Column {col_name!r} not found in input, "
+                    f"condition evaluates to False"
+                )
+                masks.append(pd.Series(False, index=df.index))
+                continue
+
+            # Apply FUNCTION pre-transform (D-07, FROW-03)
+            col = _apply_function(df[col_name], func_str)
+
+            # Apply operator with type-aware comparison (D-05, FROW-04)
+            cond_mask = _compare(col, operator, value)
+            masks.append(cond_mask)
 
         # Combine masks with logical operator
-        if len(masks) == 1:
-            final_mask = masks[0]
-        elif logical_operator == 'AND':
-            final_mask = masks[0]
+        if logical_op == "AND":
+            combined = masks[0]
             for m in masks[1:]:
-                final_mask = final_mask & m
-        elif logical_operator == 'OR':
-            final_mask = masks[0]
+                combined = combined & m
+        else:  # OR
+            combined = masks[0]
             for m in masks[1:]:
-                final_mask = final_mask | m
-        else:
-            logger.warning(f"[{self.id}] Unknown logical operator '{logical_operator}', defaulting to AND")
-            print(f"[FilterRows] Unknown logical operator '{logical_operator}', defaulting to AND.")
-            final_mask = masks[0]
-            for m in masks[1:]:
-                final_mask = final_mask & m
+                combined = combined | m
 
-        print(f"[FilterRows] Final mask: {final_mask.toList()}")
-        return final_mask
+        return combined
 
-    def _evaluate_single_condition(self, input_data: pd.DataFrame, condition: Dict[str, Any]) -> pd.Series:
-        """
-        Evaluate a single condition against the DataFrame.
+    # ------------------------------------------------------------------
+    # Advanced Condition (Java Bridge Delegation)
+    # ------------------------------------------------------------------
+
+    def _handle_advanced(self, df: pd.DataFrame) -> pd.Series:
+        """Evaluate advanced Java expression and return boolean mask.
 
         Args:
-            input_data: Input DataFrame
-            condition: Dictionary with 'column', 'operator', 'value'
+            df: Input DataFrame.
 
         Returns:
-            Boolean mask Series for this condition
+            Boolean Series mask (True = row passes filter).
         """
-        col = condition.get('column')
-        op = condition.get('operator')
-        val = condition.get('value')
+        advanced_cond = self.config.get("advanced_cond", "")
+        if not advanced_cond:
+            logger.warning(
+                f"[{self.id}] use_advanced=True but advanced_cond is empty, "
+                f"passing all rows"
+            )
+            return pd.Series(True, index=df.index)
 
-        # Resolve context variables in the value before comparison
-        if isinstance(val, str) and self.context_manager:
-            val = self.context_manager.resolve_string(val)
+        return self._evaluate_advanced(df, advanced_cond)
 
-        # Strip quotes and whitespace from value
-        if isinstance(val, str):
-            val = val.strip().strip("'").strip("'")
+    def _evaluate_advanced(self, df: pd.DataFrame, expression: str) -> pd.Series:
+        """Evaluate an advanced filter expression. Returns boolean Series.
 
-        print(f"[FilterRows] Condition: column={col}, operator={op}, value={val}")
+        If the expression was resolved by the Java bridge during
+        _resolve_expressions(), it should be a boolean result. Otherwise,
+        log a warning and pass all rows.
 
-        if col not in input_data.columns:
-            logger.warning(f"[{self.id}] Column '{col}' not found in input data")
-            print(f"[FilterRows] Column '{col}' not found in input data.")
-            return pd.Series([False] * len(input_data))
-
-        # Use .astype(str).str.strip() for robust comparison
-        col_data = input_data[col].astype(str).str.strip()
-        val_stripped = str(val).strip()
-
-        # Apply operator
-        if op == '==':
-            mask = col_data == val_stripped
-        elif op == '!=':
-            mask = col_data != val_stripped
-        elif op == '>':
-            mask = col_data > val_stripped
-        elif op == '<':
-            mask = col_data < val_stripped
-        elif op == '>=':
-            mask = col_data >= val_stripped
-        elif op == '<=':
-            mask = col_data <= val_stripped
-        else:
-            logger.warning(f"[{self.id}] Unsupported operator '{op}'")
-            print(f"[FilterRows] Unsupported operator '{op}'.")
-            mask = pd.Series([False] * len(input_data))
-
-        # Print comparison for each row with repr
-        for idx, v in enumerate(col_data):
-            print(f"[FilterRows] Row {idx}: {col}={repr(v)} == {repr(val_stripped)} -> {v == val_stripped}")
-        print(f"[FilterRows] Mask for condition: {mask.tolist()}")
-
-        return mask
-
-    def validate_config(self) -> bool:
-        """
-        Legacy validation method for backward compatibility.
+        Args:
+            df: Input DataFrame.
+            expression: Resolved (or unresolved) expression string.
 
         Returns:
-            True if configuration is valid, False otherwise
+            Boolean Series mask.
         """
-        errors = self._validate_config()
-        if errors:
-            for error in errors:
-                logger.error(f"[{self.id}] {error}")
-        return len(errors) == 0
+        expr_lower = expression.strip().lower()
+        if expr_lower in ("true", "1"):
+            return pd.Series(True, index=df.index)
+        if expr_lower in ("false", "0"):
+            return pd.Series(False, index=df.index)
+
+        # If still contains {{java}} marker, bridge was not available
+        if "{{java}}" in expression:
+            logger.warning(
+                f"[{self.id}] Advanced condition contains unresolved {{java}} "
+                f"marker, Java bridge not available. Passing all rows."
+            )
+            return pd.Series(True, index=df.index)
+
+        # Expression was resolved but is not a simple boolean
+        logger.warning(
+            f"[{self.id}] Advanced condition resolved to non-boolean value: "
+            f"{expression!r}. Passing all rows."
+        )
+        return pd.Series(True, index=df.index)
