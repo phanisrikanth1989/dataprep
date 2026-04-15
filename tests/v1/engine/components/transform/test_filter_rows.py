@@ -1,0 +1,704 @@
+"""Tests for FilterRows (tFilterRow / tFilterRows engine implementation)."""
+import inspect
+
+import pytest
+import numpy as np
+import pandas as pd
+
+from src.v1.engine.components.transform.filter_rows import FilterRows
+from src.v1.engine.component_registry import REGISTRY
+from src.v1.engine.context_manager import ContextManager
+from src.v1.engine.exceptions import ConfigurationError
+from src.v1.engine.global_map import GlobalMap
+
+
+# ------------------------------------------------------------------
+# Test Helpers
+# ------------------------------------------------------------------
+
+_DEFAULT_CONFIG = {
+    "component_type": "FilterRows",
+    "logical_op": "&&",
+    "use_advanced": False,
+    "advanced_cond": "",
+    "conditions": [
+        {"column": "age", "function": "", "operator": ">=", "value": "25"},
+    ],
+}
+
+
+def _make_component(config=None, global_map=None, schema=None):
+    """Create a FilterRows with test defaults."""
+    gm = global_map if global_map is not None else GlobalMap()
+    cm = ContextManager()
+    comp = FilterRows(
+        component_id="tFilter_1",
+        config=config or dict(_DEFAULT_CONFIG),
+        global_map=gm,
+        context_manager=cm,
+    )
+    comp.output_schema = schema
+    return comp
+
+
+def _sample_df():
+    """Standard test DataFrame for filtering."""
+    return pd.DataFrame({
+        "name": ["Alice", "Bob", "Charlie", "Diana", "Eve"],
+        "age": [25, 30, 35, 20, 28],
+        "salary": [50000.0, 60000.0, 45000.0, 55000.0, 70000.0],
+        "city": ["New York", "Boston", "New York", "Chicago", "Boston"],
+    })
+
+
+# ------------------------------------------------------------------
+# TestValidation
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestValidation:
+    """Validate that config errors are caught before processing."""
+
+    def test_invalid_operator(self):
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "age", "function": "", "operator": "INVALID_OP", "value": "25"},
+        ]
+        comp = _make_component(config=config)
+        with pytest.raises(ConfigurationError, match="operator"):
+            comp.execute(_sample_df())
+
+    def test_missing_column_in_condition(self):
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"function": "", "operator": "==", "value": "25"},
+        ]
+        comp = _make_component(config=config)
+        with pytest.raises(ConfigurationError, match="column"):
+            comp.execute(_sample_df())
+
+    def test_use_advanced_empty_expression(self):
+        config = dict(_DEFAULT_CONFIG)
+        config["use_advanced"] = True
+        config["advanced_cond"] = ""
+        comp = _make_component(config=config)
+        with pytest.raises(ConfigurationError, match="advanced_cond"):
+            comp.execute(_sample_df())
+
+
+# ------------------------------------------------------------------
+# TestComparisonOperators -- covers FROW-02
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestComparisonOperators:
+    """Comparison operator tests (==, !=, >, <, >=, <=)."""
+
+    def test_equal(self):
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "age", "function": "", "operator": "==", "value": "25"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert len(result["main"]) == 1
+        assert result["main"]["name"].iloc[0] == "Alice"
+
+    def test_not_equal(self):
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "age", "function": "", "operator": "!=", "value": "25"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert len(result["main"]) == 4
+        assert "Alice" not in result["main"]["name"].tolist()
+
+    def test_greater_than(self):
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "age", "function": "", "operator": ">", "value": "28"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert len(result["main"]) == 2  # Bob(30), Charlie(35)
+
+    def test_less_than(self):
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "age", "function": "", "operator": "<", "value": "25"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert len(result["main"]) == 1
+        assert result["main"]["name"].iloc[0] == "Diana"
+
+    def test_greater_equal(self):
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "age", "function": "", "operator": ">=", "value": "28"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert len(result["main"]) == 3  # Bob(30), Charlie(35), Eve(28)
+
+    def test_less_equal(self):
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "age", "function": "", "operator": "<=", "value": "25"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert len(result["main"]) == 2  # Alice(25), Diana(20)
+
+
+# ------------------------------------------------------------------
+# TestStringOperators -- covers FROW-02
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestStringOperators:
+    """String operator tests (MATCHES, CONTAINS, NOT_CONTAINS, STARTS_WITH, ENDS_WITH)."""
+
+    def test_matches_regex(self):
+        """MATCHES with regex pattern uses fullmatch (not partial)."""
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "name", "function": "", "operator": "MATCHES", "value": "A.*"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        names = result["main"]["name"].tolist()
+        assert names == ["Alice"]
+
+    def test_matches_rejects_partial(self):
+        """'Alice' does NOT match pattern 'Ali' (fullmatch semantics)."""
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "name", "function": "", "operator": "MATCHES", "value": "Ali"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert len(result["main"]) == 0  # fullmatch: "Ali" != "Alice"
+
+    def test_contains(self):
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "city", "function": "", "operator": "CONTAINS", "value": "York"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        cities = result["main"]["city"].tolist()
+        assert all("York" in c for c in cities)
+        assert len(result["main"]) == 2  # New York appears twice
+
+    def test_not_contains(self):
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "city", "function": "", "operator": "NOT_CONTAINS", "value": "York"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert len(result["main"]) == 3  # Boston x2 + Chicago
+
+    def test_starts_with(self):
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "city", "function": "", "operator": "STARTS_WITH", "value": "New"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert len(result["main"]) == 2
+
+    def test_ends_with(self):
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "city", "function": "", "operator": "ENDS_WITH", "value": "ton"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert len(result["main"]) == 2  # Boston x2
+
+
+# ------------------------------------------------------------------
+# TestNullOperators -- covers FROW-02
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestNullOperators:
+    """Null operator tests (IS_NULL, IS_NOT_NULL)."""
+
+    def _df_with_nulls(self):
+        return pd.DataFrame({
+            "name": ["Alice", None, "Charlie", "Diana", np.nan],
+            "age": [25, 30, np.nan, 20, 28],
+        })
+
+    def test_is_null(self):
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "name", "function": "", "operator": "IS_NULL", "value": ""},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(self._df_with_nulls())
+        assert len(result["main"]) == 2  # None and NaN
+
+    def test_is_not_null(self):
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "name", "function": "", "operator": "IS_NOT_NULL", "value": ""},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(self._df_with_nulls())
+        assert len(result["main"]) == 3
+
+
+# ------------------------------------------------------------------
+# TestLengthOperators -- covers FROW-02
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestLengthOperators:
+    """Length operator tests (LENGTH_LT, LENGTH_GT)."""
+
+    def test_length_lt(self):
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "name", "function": "", "operator": "LENGTH_LT", "value": "4"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        names = result["main"]["name"].tolist()
+        assert names == ["Bob", "Eve"]  # length 3
+
+    def test_length_gt(self):
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "name", "function": "", "operator": "LENGTH_GT", "value": "4"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        names = result["main"]["name"].tolist()
+        assert names == ["Alice", "Charlie", "Diana"]  # length > 4
+
+
+# ------------------------------------------------------------------
+# TestFunctionPreTransforms -- covers FROW-03
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestFunctionPreTransforms:
+    """FUNCTION pre-transform applied before operator comparison."""
+
+    def test_lower_function(self):
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "name", "function": "LOWER", "operator": "==", "value": "alice"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert len(result["main"]) == 1
+        assert result["main"]["name"].iloc[0] == "Alice"
+
+    def test_upper_function(self):
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "name", "function": "UPPER", "operator": "==", "value": "ALICE"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert len(result["main"]) == 1
+        assert result["main"]["name"].iloc[0] == "Alice"
+
+    def test_length_function(self):
+        """LENGTH pre-transform returns string length as numeric."""
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "name", "function": "LENGTH", "operator": "==", "value": "3"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        names = result["main"]["name"].tolist()
+        assert names == ["Bob", "Eve"]
+
+    def test_trim_function(self):
+        df = pd.DataFrame({"val": [" Alice ", " Bob", "Charlie "]})
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "val", "function": "TRIM", "operator": "==", "value": "Alice"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(df)
+        assert len(result["main"]) == 1
+
+    def test_ltrim_function(self):
+        df = pd.DataFrame({"val": [" Alice", " Bob"]})
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "val", "function": "LTRIM", "operator": "STARTS_WITH", "value": "Ali"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(df)
+        assert len(result["main"]) == 1
+
+    def test_rtrim_function(self):
+        df = pd.DataFrame({"val": ["Alice ", "Bob "]})
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "val", "function": "RTRIM", "operator": "ENDS_WITH", "value": "ce"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(df)
+        assert len(result["main"]) == 1
+
+    def test_left_function(self):
+        """LEFT(3) takes first 3 characters."""
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "name", "function": "LEFT(3)", "operator": "==", "value": "Ali"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert len(result["main"]) == 1
+        assert result["main"]["name"].iloc[0] == "Alice"
+
+    def test_right_function(self):
+        """RIGHT(2) takes last 2 characters."""
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "name", "function": "RIGHT(2)", "operator": "==", "value": "ob"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert len(result["main"]) == 1
+        assert result["main"]["name"].iloc[0] == "Bob"
+
+    def test_empty_function(self):
+        """Empty string function is no-op."""
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "name", "function": "", "operator": "==", "value": "Alice"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert len(result["main"]) == 1
+
+
+# ------------------------------------------------------------------
+# TestTypeAwareComparison -- covers FROW-04
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestTypeAwareComparison:
+    """Type-aware comparison for numeric vs string columns."""
+
+    def test_numeric_comparison_not_string(self):
+        """FROW-04: salary > 1000 works correctly even though value is string '1000'."""
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "salary", "function": "", "operator": ">", "value": "1000"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert len(result["main"]) == 5  # all salaries > 1000
+
+    def test_string_numbers_compared_as_numbers(self):
+        """'9' is NOT greater than '10' when compared numerically."""
+        df = pd.DataFrame({"val": ["9", "10", "2", "100"]})
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "val", "function": "", "operator": ">", "value": "5"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(df)
+        vals = result["main"]["val"].tolist()
+        # Numeric comparison: 9 > 5, 10 > 5, 100 > 5 but 2 is not > 5
+        assert len(result["main"]) == 3
+        assert "2" not in vals
+
+    def test_string_fallback_for_non_numeric(self):
+        """Non-numeric columns fall back to string comparison."""
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "name", "function": "", "operator": "==", "value": "Alice"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert len(result["main"]) == 1
+
+
+# ------------------------------------------------------------------
+# TestLogicalOperators
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestLogicalOperators:
+    """Logical operator tests (&&, ||, AND, OR)."""
+
+    def test_and_conditions(self):
+        config = dict(_DEFAULT_CONFIG)
+        config["logical_op"] = "&&"
+        config["conditions"] = [
+            {"column": "age", "function": "", "operator": ">=", "value": "25"},
+            {"column": "salary", "function": "", "operator": ">", "value": "50000"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        # age >= 25: Alice(25), Bob(30), Charlie(35), Eve(28)
+        # salary > 50000: Bob(60000), Diana(55000), Eve(70000)
+        # AND: Bob(30,60000), Eve(28,70000)
+        assert len(result["main"]) == 2
+
+    def test_or_conditions(self):
+        config = dict(_DEFAULT_CONFIG)
+        config["logical_op"] = "||"
+        config["conditions"] = [
+            {"column": "name", "function": "", "operator": "==", "value": "Alice"},
+            {"column": "name", "function": "", "operator": "==", "value": "Bob"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert len(result["main"]) == 2
+
+    def test_and_string_accepted(self):
+        """logical_op: 'AND' also works."""
+        config = dict(_DEFAULT_CONFIG)
+        config["logical_op"] = "AND"
+        config["conditions"] = [
+            {"column": "age", "function": "", "operator": ">=", "value": "25"},
+            {"column": "age", "function": "", "operator": "<=", "value": "30"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        # 25 <= age <= 30: Alice(25), Bob(30), Eve(28)
+        assert len(result["main"]) == 3
+
+    def test_or_string_accepted(self):
+        """logical_op: 'OR' also works."""
+        config = dict(_DEFAULT_CONFIG)
+        config["logical_op"] = "OR"
+        config["conditions"] = [
+            {"column": "age", "function": "", "operator": "<", "value": "22"},
+            {"column": "age", "function": "", "operator": ">", "value": "34"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        # age < 22: Diana(20); age > 34: Charlie(35)
+        assert len(result["main"]) == 2
+
+    def test_multiple_conditions_and(self):
+        """3 conditions combined with AND."""
+        config = dict(_DEFAULT_CONFIG)
+        config["logical_op"] = "&&"
+        config["conditions"] = [
+            {"column": "age", "function": "", "operator": ">=", "value": "25"},
+            {"column": "salary", "function": "", "operator": ">=", "value": "50000"},
+            {"column": "city", "function": "", "operator": "==", "value": "Boston"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        # age >= 25 AND salary >= 50000 AND city == Boston
+        # Bob(30, 60000, Boston), Eve(28, 70000, Boston)
+        assert len(result["main"]) == 2
+
+
+# ------------------------------------------------------------------
+# TestRejectFlow
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestRejectFlow:
+    """Reject output stream behavior."""
+
+    def test_reject_contains_non_matching_rows(self):
+        comp = _make_component()
+        result = comp.execute(_sample_df())
+        # Default: age >= 25 -> pass: Alice(25), Bob(30), Charlie(35), Eve(28)
+        # reject: Diana(20)
+        assert result["reject"] is not None
+        assert len(result["reject"]) == 1
+        assert result["reject"]["name"].iloc[0] == "Diana"
+
+    def test_reject_none_when_all_pass(self):
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "age", "function": "", "operator": ">=", "value": "0"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert result["reject"] is None
+
+    def test_main_plus_reject_equals_input(self):
+        comp = _make_component()
+        result = comp.execute(_sample_df())
+        main_len = len(result["main"])
+        reject_len = len(result["reject"]) if result["reject"] is not None else 0
+        assert main_len + reject_len == 5
+
+
+# ------------------------------------------------------------------
+# TestNoEval -- covers FROW-01, FROW-05, FROW-06
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestNoEval:
+    """Source code quality checks: no eval, no tolist, vectorized ops."""
+
+    def test_no_eval_in_source(self):
+        """FROW-01: verify filter_rows.py source code does not contain 'eval('."""
+        source = inspect.getsource(FilterRows)
+        assert "eval(" not in source, "FilterRows must not use eval()"
+
+    def test_no_tolist_in_source(self):
+        """FROW-05: verify source does not contain '.toList()' or '.tolist()'."""
+        source = inspect.getsource(FilterRows)
+        assert ".toList()" not in source
+        assert ".tolist()" not in source
+
+    def test_vectorized_operation(self):
+        """FROW-06: large DataFrame filtered efficiently (not row-by-row)."""
+        df = pd.DataFrame({
+            "name": [f"person_{i}" for i in range(10000)],
+            "age": list(range(10000)),
+            "salary": [50000.0 + i for i in range(10000)],
+            "city": ["Boston"] * 10000,
+        })
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "age", "function": "", "operator": ">=", "value": "5000"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(df)
+        assert len(result["main"]) == 5000
+
+
+# ------------------------------------------------------------------
+# TestConfigKeys -- covers D-04
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestConfigKeys:
+    """Config key naming compliance."""
+
+    def test_reads_logical_op_not_logical_operator(self):
+        """Component reads 'logical_op' key."""
+        config = dict(_DEFAULT_CONFIG)
+        config["logical_op"] = "||"
+        config["conditions"] = [
+            {"column": "name", "function": "", "operator": "==", "value": "Alice"},
+            {"column": "name", "function": "", "operator": "==", "value": "Bob"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert len(result["main"]) == 2  # OR: Alice or Bob
+
+    def test_reads_advanced_cond_not_advanced_condition(self):
+        """Component reads 'advanced_cond' key."""
+        config = dict(_DEFAULT_CONFIG)
+        config["use_advanced"] = True
+        config["advanced_cond"] = "true"  # simple boolean expression
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert len(result["main"]) == 5  # all rows pass
+
+
+# ------------------------------------------------------------------
+# TestEdgeCases
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestEdgeCases:
+    """Edge cases for empty data, single row, missing columns."""
+
+    def test_empty_input(self):
+        comp = _make_component()
+        result = comp.execute(pd.DataFrame())
+        # Empty dataframe input returns the empty dataframe as-is
+        main = result["main"]
+        assert main is not None and main.empty
+        assert result["reject"] is None
+
+    def test_none_input(self):
+        comp = _make_component()
+        result = comp.execute(None)
+        assert result["main"] is None
+        assert result["reject"] is None
+
+    def test_single_row_passes(self):
+        df = pd.DataFrame({"name": ["Alice"], "age": [25], "salary": [50000.0], "city": ["NYC"]})
+        comp = _make_component()
+        result = comp.execute(df)
+        assert len(result["main"]) == 1
+
+    def test_single_row_rejects(self):
+        df = pd.DataFrame({"name": ["Diana"], "age": [20], "salary": [55000.0], "city": ["Chicago"]})
+        comp = _make_component()
+        result = comp.execute(df)
+        assert len(result["main"]) == 0
+
+    def test_missing_column_evaluates_false(self):
+        """Condition on non-existent column evaluates to False."""
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "nonexistent", "function": "", "operator": "==", "value": "x"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert len(result["main"]) == 0  # all rows fail
+
+    def test_no_conditions(self):
+        """Empty conditions list passes all rows."""
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = []
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert len(result["main"]) == 5
+
+    def test_stats_updated(self):
+        gm = GlobalMap()
+        comp = _make_component(global_map=gm)
+        comp.execute(_sample_df())
+        # _process calls _update_stats(5, 4, 1), base adds _update_stats_from_result(4 main, 1 reject)
+        # NB_LINE = 5 + 5 = 10, NB_LINE_OK = 4 + 4 = 8, NB_LINE_REJECT = 1 + 1 = 2
+        assert gm.get_nb_line("tFilter_1") == 10
+        assert gm.get_nb_line_ok("tFilter_1") == 8
+        assert gm.get_nb_line_reject("tFilter_1") == 2
+
+
+# ------------------------------------------------------------------
+# TestRegistration -- covers FROW-07
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestRegistration:
+    """Component registry registration and source quality."""
+
+    def test_registered_as_filter_rows(self):
+        cls = REGISTRY.get("FilterRows")
+        assert cls is FilterRows
+
+    def test_registered_as_t_filter_row(self):
+        cls = REGISTRY.get("tFilterRow")
+        assert cls is FilterRows
+
+    def test_registered_as_t_filter_rows(self):
+        cls = REGISTRY.get("tFilterRows")
+        assert cls is FilterRows
+
+    def test_no_print_in_source(self):
+        """FROW-07: verify source does not contain 'print('."""
+        source = inspect.getsource(FilterRows)
+        assert "print(" not in source, "FilterRows must not use print()"
