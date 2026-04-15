@@ -197,7 +197,10 @@ Plans:
   2. Java routines are callable from Java expressions executed via the bridge, matching Talend's routine.jar behavior
   3. Python routines load via PythonRoutineManager and are callable from Python expressions and components
   4. Routines referenced by job configs are auto-discovered and loaded at job startup
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 09-01-PLAN.md -- tContextLoad rewrite with full policy support + exhaustive tests
+- [ ] 09-02-PLAN.md -- Java/Python routine loading enhancements + tests
 
 ### Phase 10: Iterate Support
 **Goal**: The 30% of production jobs that use iterate patterns execute correctly -- tFlowToIterate converts rows to globalMap variables, tFileList/tFileExist iterate over files, and downstream subjobs re-execute per iteration item
@@ -250,7 +253,7 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 6. Transform Group A -- Aggregation, Sort, Filter | 4/4 | Complete | 2026-04-15 |
 | 7. Transform Group B -- Column, Join, Unite | 2/2 | Complete | 2026-04-15 |
 | 8. Code Components | 0/TBD | Not started | - |
-| 9. tContextLoad & Routines | 0/TBD | Not started | - |
+| 9. tContextLoad & Routines | 0/2 | Planned | - |
 | 10. Iterate Support | 0/TBD | Not started | - |
 | 11. Oracle Components | 0/TBD | Not started | - |
 | 12. Integration Testing & Performance | 0/TBD | Not started | - |
