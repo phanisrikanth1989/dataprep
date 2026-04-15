@@ -43,21 +43,28 @@ class ETLEngine:
         if java_config.get('enabled', False):
             routines = java_config.get('routines', [])
             libraries = java_config.get('libraries', [])
-            self.java_bridge_manager = JavaBridgeManager(enable=True, routines=routines, libraries=libraries)
+            routine_jars = java_config.get('routine_jars', [])
+            self.java_bridge_manager = JavaBridgeManager(
+                enable=True, routines=routines, libraries=libraries, routine_jars=routine_jars
+            )
             try:
                 self.java_bridge_manager.start()
             except Exception:
                 self.java_bridge_manager.stop()
                 raise
-            logger.info(f"Java bridge initialized with {len(routines)} routines and {len(libraries)} libraries")
+            logger.info("Java bridge initialized with %d routines, %d libraries, %d routine JARs",
+                        len(routines), len(libraries), len(routine_jars))
 
         # Python routine manager
         self.python_routine_manager = None
         python_config = self.job_config.get('python_config', {})
         if python_config.get('enabled', False):
             routines_dir = python_config.get('routines_dir', 'src/python_routines')
-            self.python_routine_manager = PythonRoutineManager(routines_dir)
-            logger.info(f"Python routine manager initialized from {routines_dir}")
+            required_routines = python_config.get('routines', [])
+            self.python_routine_manager = PythonRoutineManager(
+                routines_dir, required_routines=required_routines or None
+            )
+            logger.info("Python routine manager initialized from %s", routines_dir)
 
         # Core services
         self.job_name = self.job_config.get('job_name', 'unnamed_job')
