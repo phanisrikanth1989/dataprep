@@ -146,6 +146,7 @@ class BaseComponent(ABC):
             ComponentExecutionError: If _process() or other step fails.
         """
         self.status = ComponentStatus.RUNNING
+        self._stats_set_by_component = False
         start_time = time.time()
 
         try:
@@ -161,16 +162,19 @@ class BaseComponent(ABC):
             # Step 4: Read die_on_error from resolved config
             self.die_on_error = self.config.get("die_on_error", True)
 
-            # Step 5: Select execution mode
+            # Step 5: Capture input row count for NB_LINE (Talend convention)
+            self._input_row_count = self._count_input_rows(input_data)
+
+            # Step 6: Select execution mode
             mode = self._select_mode(input_data)
 
-            # Step 6: Execute based on mode
+            # Step 7: Execute based on mode
             if mode == ExecutionMode.STREAMING:
                 result = self._execute_streaming(input_data)
             else:
                 result = self._execute_batch(input_data)
 
-            # Step 7: Update stats and globalMap
+            # Step 8: Update stats and globalMap
             self._update_stats_from_result(result)
             self._update_global_map()
 
@@ -452,12 +456,40 @@ class BaseComponent(ABC):
         """Return default stats dict with zeroed counters."""
         return {"NB_LINE": 0, "NB_LINE_OK": 0, "NB_LINE_REJECT": 0}
 
+    @staticmethod
+    def _count_input_rows(input_data) -> int:
+        """Count rows in input_data (DataFrame, dict of DataFrames, or None)."""
+        if input_data is None:
+            return 0
+        if isinstance(input_data, pd.DataFrame):
+            return len(input_data)
+        if isinstance(input_data, dict):
+            # Multiple inputs -- sum all DataFrames
+            total = 0
+            for v in input_data.values():
+                if isinstance(v, pd.DataFrame):
+                    total += len(v)
+            return total
+        return 0
+
     def _update_stats_from_result(self, result: dict) -> None:
-        """Update stats from _process result. Uses += for streaming accumulation.
+        """Update stats from _process result.
+
+        Talend convention:
+          NB_LINE        = rows read (input) for transforms; rows produced for sources
+          NB_LINE_OK     = rows produced on main output
+          NB_LINE_REJECT = rows produced on reject output
+
+        If a component already set stats via _update_stats() inside _process(),
+        this method is a no-op to avoid double-counting.
 
         Args:
             result: Dict returned by _process() or _execute_streaming().
         """
+        # If component already set stats manually, respect those values
+        if self._stats_set_by_component:
+            return
+
         main_df = result.get("main")
         reject_df = result.get("reject")
         main_count = (
@@ -470,21 +502,27 @@ class BaseComponent(ABC):
             if reject_df is not None and isinstance(reject_df, pd.DataFrame) and not reject_df.empty
             else 0
         )
-        self.stats["NB_LINE"] += main_count + reject_count
+        # Source components (no input) use output count for NB_LINE
+        input_rows = getattr(self, "_input_row_count", 0)
+        if input_rows > 0:
+            self.stats["NB_LINE"] += input_rows
+        else:
+            self.stats["NB_LINE"] += main_count + reject_count
         self.stats["NB_LINE_OK"] += main_count
         self.stats["NB_LINE_REJECT"] += reject_count
 
     def _update_stats(self, rows_read: int = 0, rows_ok: int = 0, rows_reject: int = 0) -> None:
         """Helper to manually update statistics.
 
-        Provided for subclasses that need direct stat updates (e.g., components
-        that don't return DataFrames from _process()).
+        When called from _process(), marks stats as component-managed so that
+        _update_stats_from_result() will not double-count.
 
         Args:
             rows_read: Total rows read/processed.
             rows_ok: Rows that passed successfully.
             rows_reject: Rows that were rejected.
         """
+        self._stats_set_by_component = True
         self.stats["NB_LINE"] += rows_read
         self.stats["NB_LINE_OK"] += rows_ok
         self.stats["NB_LINE_REJECT"] += rows_reject
