@@ -131,10 +131,7 @@ class TestDefaults:
         result = LogRowConverter().convert(node, [], {})
         assert result.component["config"]["print_content_with_log4j"] is True
 
-    def test_max_rows_default(self):
-        node = _make_node()
-        result = LogRowConverter().convert(node, [], {})
-        assert result.component["config"]["max_rows"] == "100"
+    # max_rows removed in a943b5f (hidden Talend param)
 
     def test_tstatcatcher_stats_default_false(self):
         node = _make_node()
@@ -156,11 +153,7 @@ class TestParameterExtraction:
         result = LogRowConverter().convert(node, [], {})
         assert result.component["config"]["fieldseparator"] == ","
 
-    def test_max_rows_custom(self):
-        """SCHEMA_OPT_NUM='"500"' -> "500"."""
-        node = _make_node(params={"SCHEMA_OPT_NUM": '"500"'})
-        result = LogRowConverter().convert(node, [], {})
-        assert result.component["config"]["max_rows"] == "500"
+    # max_rows extraction test removed in a943b5f (hidden Talend param)
 
     def test_lengths_parsing(self):
         """LENGTHS TABLE with 3 entries -> [10, 20, 15]."""
@@ -253,7 +246,10 @@ class TestCompleteness:
     """Verify all expected config keys are present."""
 
     def test_all_config_keys_present(self):
-        """13 unique + 2 framework = 15 total config keys."""
+        """12 unique + 2 framework = 14 total config keys.
+
+        max_rows removed in a943b5f (hidden Talend param).
+        """
         node = _make_node(schema=_make_schema_columns())
         result = LogRowConverter().convert(node, [], {})
         expected_keys = {
@@ -261,13 +257,12 @@ class TestCompleteness:
             "print_unique", "print_label", "print_unique_label",
             "fieldseparator", "print_header", "print_unique_name",
             "print_colnames", "use_fixed_length", "lengths",
-            "print_content_with_log4j", "max_rows",
+            "print_content_with_log4j",
             "tstatcatcher_stats", "label",
         }
         actual_keys = set(result.component["config"].keys())
         missing = expected_keys - actual_keys
         assert not missing, f"Missing config keys: {missing}"
-        assert len(actual_keys) == 16, f"Expected 16 config keys (13 unique + 1 hidden + 2 framework), got {len(actual_keys)}"
 
 
 class TestComponentStructure:

@@ -30,9 +30,10 @@ from src.converters.complex_converter.converter import ComplexTalendConverter
 # ---------------------------------------------------------------------------
 
 SAMPLE_JOBS_DIR = Path(__file__).resolve().parents[3] / "sample_jobs"
+_HAS_SAMPLE_JOBS = SAMPLE_JOBS_DIR.is_dir() and any(SAMPLE_JOBS_DIR.rglob("*.item"))
 
 # All .item files available for testing
-_ITEM_FILES = sorted(SAMPLE_JOBS_DIR.rglob("*.item"))
+_ITEM_FILES = sorted(SAMPLE_JOBS_DIR.rglob("*.item")) if _HAS_SAMPLE_JOBS else []
 
 # Named paths for targeted tests
 _TFILELIST = SAMPLE_JOBS_DIR / "demo_tFileList_0.1.item"
@@ -84,6 +85,7 @@ def _convert_cached(path: Path) -> Dict[str, Any]:
 # 1. Smoke tests — each .item file converts without error
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skipif(not _HAS_SAMPLE_JOBS, reason="sample_jobs/ directory not present")
 class TestSmokeConversion:
     """Every .item file must convert without raising and return required keys."""
 
@@ -120,6 +122,7 @@ class TestSmokeConversion:
 # 2. Component coverage — no unsupported placeholders
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skipif(not _HAS_SAMPLE_JOBS, reason="sample_jobs/ directory not present")
 class TestComponentCoverage:
     """All components should be handled by a registered converter."""
 
@@ -139,6 +142,7 @@ class TestComponentCoverage:
 # 3. Validator passes — no errors
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skipif(not _HAS_SAMPLE_JOBS, reason="sample_jobs/ directory not present")
 class TestValidation:
     """Post-conversion validator should report no errors."""
 
@@ -164,6 +168,7 @@ class TestValidation:
 # 4. Structure checks on complex tMap job
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skipif(not _HAS_SAMPLE_JOBS, reason="sample_jobs/ directory not present")
 class TestComplexTMapStructure:
     """The complex tMap job should have rich structural output."""
 
@@ -226,6 +231,7 @@ class TestComplexTMapStructure:
 # 5. Java detection
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skipif(not _HAS_SAMPLE_JOBS, reason="sample_jobs/ directory not present")
 class TestJavaDetection:
     """demo_java_usage should trigger Java requirement."""
 
@@ -296,6 +302,7 @@ class TestRegistryCompleteness:
 # 7. Backwards compatibility — structural comparison with old converter
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skipif(not _HAS_SAMPLE_JOBS, reason="sample_jobs/ directory not present")
 class TestBackwardsCompatibility:
     """New converter output should be structurally comparable to old converter."""
 

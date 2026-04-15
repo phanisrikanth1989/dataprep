@@ -66,11 +66,7 @@ class TestDefaults:
         result = ForeachConverter().convert(node, [], {})
         assert result.component["config"]["values"] == []
 
-    def test_connection_format_default_row(self):
-        """connection_format defaults to 'row' when absent."""
-        node = _make_node()
-        result = ForeachConverter().convert(node, [], {})
-        assert result.component["config"]["connection_format"] == "row"
+    # connection_format removed from converter in a943b5f
 
     def test_tstatcatcher_stats_default_false(self):
         """tstatcatcher_stats defaults to False when absent."""
@@ -88,11 +84,7 @@ class TestDefaults:
 class TestParameterExtraction:
     """Verify each parameter is correctly extracted from XML params."""
 
-    def test_connection_format_extracted(self):
-        """CONNECTION_FORMAT is extracted and unquoted."""
-        node = _make_node(params={"CONNECTION_FORMAT": '"iterate"'})
-        result = ForeachConverter().convert(node, [], {})
-        assert result.component["config"]["connection_format"] == "iterate"
+    # connection_format removed from converter in a943b5f
 
 
 class TestTableParsing:
@@ -232,8 +224,9 @@ class TestCompleteness:
         """All expected config keys exist in result.component['config']."""
         node = _make_node(schema=_make_schema_columns())
         result = ForeachConverter().convert(node, [], {})
+        # connection_format removed from converter in a943b5f
         expected_keys = {
-            "values", "connection_format",
+            "values",
             "tstatcatcher_stats", "label",
         }
         actual_keys = set(result.component["config"].keys())
@@ -241,11 +234,4 @@ class TestCompleteness:
         assert not missing, f"Missing config keys: {missing}"
 
 
-class TestPhantomParams:
-    """Verify phantom params are handled correctly."""
-
-    def test_connection_format_documented(self):
-        """CONNECTION_FORMAT is extracted (present in .item files) even though not in _java.xml."""
-        node = _make_node(params={"CONNECTION_FORMAT": '"iterate"'})
-        result = ForeachConverter().convert(node, [], {})
-        assert result.component["config"]["connection_format"] == "iterate"
+    # TestPhantomParams removed -- connection_format removed from converter in a943b5f

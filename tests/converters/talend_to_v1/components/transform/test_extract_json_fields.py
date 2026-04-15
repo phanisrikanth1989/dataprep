@@ -121,10 +121,7 @@ class TestDefaults:
         result = ExtractJSONFieldsConverter().convert(node, [], {})
         assert result.component["config"]["die_on_error"] is False
 
-    def test_schema_opt_num_default(self):
-        node = _make_node()
-        result = ExtractJSONFieldsConverter().convert(node, [], {})
-        assert result.component["config"]["schema_opt_num"] == "100"
+    # schema_opt_num removed from converter in a943b5f
 
     def test_encoding_default(self):
         node = _make_node()
@@ -136,15 +133,9 @@ class TestDefaults:
         result = ExtractJSONFieldsConverter().convert(node, [], {})
         assert result.component["config"]["use_loop_as_root"] is True
 
-    def test_split_list_default_true(self):
-        node = _make_node()
-        result = ExtractJSONFieldsConverter().convert(node, [], {})
-        assert result.component["config"]["split_list"] is True
+    # split_list removed from converter in a943b5f
 
-    def test_jdk_version_default(self):
-        node = _make_node()
-        result = ExtractJSONFieldsConverter().convert(node, [], {})
-        assert result.component["config"]["jdk_version"] == "JDK_8"
+    # jdk_version removed from converter in a943b5f
 
     def test_tstatcatcher_stats_default_false(self):
         node = _make_node()
@@ -195,20 +186,7 @@ class TestParameterExtraction:
         result = ExtractJSONFieldsConverter().convert(node, [], {})
         assert result.component["config"]["use_loop_as_root"] is False
 
-    def test_split_list_false(self):
-        node = _make_node(params={"SPLIT_LIST": "false"})
-        result = ExtractJSONFieldsConverter().convert(node, [], {})
-        assert result.component["config"]["split_list"] is False
-
-    def test_jdk_version_custom(self):
-        node = _make_node(params={"JDK_VERSION": '"JDK_11"'})
-        result = ExtractJSONFieldsConverter().convert(node, [], {})
-        assert result.component["config"]["jdk_version"] == "JDK_11"
-
-    def test_schema_opt_num_custom(self):
-        node = _make_node(params={"SCHEMA_OPT_NUM": '"50"'})
-        result = ExtractJSONFieldsConverter().convert(node, [], {})
-        assert result.component["config"]["schema_opt_num"] == "50"
+    # split_list, jdk_version, schema_opt_num removed from converter in a943b5f
 
     def test_mapping_jsonpath_parsing(self):
         """MAPPING_4_JSONPATH TABLE entries parsed into list of dicts with query."""
@@ -338,20 +316,22 @@ class TestCompleteness:
     """Verify all expected config keys are present."""
 
     def test_all_config_keys_present(self):
-        """Config must have 13 unique + 2 framework = 15 config keys."""
+        """Config must have 10 unique + 2 framework = 12 config keys.
+
+        Note: schema_opt_num, split_list, jdk_version removed from converter in a943b5f.
+        """
         node = _make_node(schema=_make_schema_columns())
         result = ExtractJSONFieldsConverter().convert(node, [], {})
         expected_keys = {
             "read_by", "json_path_version", "jsonfield", "loop_query",
             "json_loop_query", "mapping", "mapping_4_jsonpath", "die_on_error",
-            "schema_opt_num", "encoding", "use_loop_as_root", "split_list",
-            "jdk_version",
+            "encoding", "use_loop_as_root",
             "tstatcatcher_stats", "label",
         }
         actual_keys = set(result.component["config"].keys())
         missing = expected_keys - actual_keys
         assert not missing, f"Missing config keys: {missing}"
-        assert len(result.component["config"]) == 15
+        assert len(result.component["config"]) == 12
 
 
 class TestComponentStructure:

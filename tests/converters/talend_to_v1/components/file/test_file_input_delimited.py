@@ -226,29 +226,6 @@ class TestDefaults:
         result = FileInputDelimitedConverter().convert(node, [], {})
         assert result.component["config"]["enable_decode"] is False
 
-    def test_temp_dir_default(self):
-        """TEMP_DIR defaults to empty string."""
-        node = _make_node()
-        result = FileInputDelimitedConverter().convert(node, [], {})
-        assert result.component["config"]["temp_dir"] == ""
-
-    def test_destination_default(self):
-        """DESTINATION defaults to empty string."""
-        node = _make_node()
-        result = FileInputDelimitedConverter().convert(node, [], {})
-        assert result.component["config"]["destination"] == ""
-
-    def test_use_header_as_is_default(self):
-        """USE_HEADER_AS_IS defaults to False."""
-        node = _make_node()
-        result = FileInputDelimitedConverter().convert(node, [], {})
-        assert result.component["config"]["use_header_as_is"] is False
-
-    def test_schema_opt_num_default(self):
-        """SCHEMA_OPT_NUM defaults to 100."""
-        node = _make_node()
-        result = FileInputDelimitedConverter().convert(node, [], {})
-        assert result.component["config"]["schema_opt_num"] == 100
 
 
 class TestParameterExtraction:
@@ -326,17 +303,6 @@ class TestParameterExtraction:
         result = FileInputDelimitedConverter().convert(node, [], {})
         assert result.component["config"]["text_enclosure"] == '\\"'
 
-    def test_temp_dir_extracted(self):
-        """Quoted TEMP_DIR value is extracted."""
-        node = _make_node(params={"TEMP_DIR": '"/tmp"'})
-        result = FileInputDelimitedConverter().convert(node, [], {})
-        assert result.component["config"]["temp_dir"] == "/tmp"
-
-    def test_schema_opt_num_extracted(self):
-        """SCHEMA_OPT_NUM integer value is extracted."""
-        node = _make_node(params={"SCHEMA_OPT_NUM": "200"})
-        result = FileInputDelimitedConverter().convert(node, [], {})
-        assert result.component["config"]["schema_opt_num"] == 200
 
 
 class TestTrimSelectTable:
@@ -536,8 +502,7 @@ class TestCompleteness:
             "split_record", "enable_decode",
             # TABLE params
             "trim_select", "decode_cols",
-            # Additional advanced params
-            "temp_dir", "destination", "use_header_as_is", "schema_opt_num",
+            # Hidden params (temp_dir, destination, use_header_as_is, schema_opt_num) removed in a943b5f
             # Framework
             "tstatcatcher_stats", "label",
         }

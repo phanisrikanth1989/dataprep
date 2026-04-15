@@ -1459,30 +1459,19 @@ class TestParallelExecution:
 class TestCompiledScriptGeneration:
     """Test compiled script generation (internal)."""
 
-    def test_parallel_script_uses_parallel_stream(self):
-        """Parallel mode generates IntStream.parallel().forEach()."""
+    def test_script_uses_plain_for_loop(self):
+        """Script uses plain for-loop (not IntStream) for Groovy binding access."""
         config = copy.deepcopy(_DEFAULT_CONFIG)
-        config["parallel_execution"] = True
         comp = _make_component(config=config)
         comp.config = copy.deepcopy(comp._original_config)
         script = comp._build_compiled_script(
             comp.config["outputs"], comp.config.get("variables", []),
             "row1", ["row2"]
         )
-        assert "parallel()" in script
-
-    def test_sequential_script_uses_foreach(self):
-        """Sequential mode generates IntStream.forEach() without parallel."""
-        config = copy.deepcopy(_DEFAULT_CONFIG)
-        config["parallel_execution"] = False
-        comp = _make_component(config=config)
-        comp.config = copy.deepcopy(comp._original_config)
-        script = comp._build_compiled_script(
-            comp.config["outputs"], comp.config.get("variables", []),
-            "row1", ["row2"]
-        )
+        assert "for (int i = 0; i < rowCount; i++)" in script
+        # Old IntStream patterns no longer used (Groovy can't access bindings in lambdas)
         assert "parallel()" not in script
-        assert "forEach(i -> {" in script
+        assert "forEach(i -> {" not in script
 
     def test_catch_output_generates_try_catch(self):
         """catch_output_reject=True generates try/catch block."""
@@ -1510,8 +1499,8 @@ class TestCompiledScriptGeneration:
         assert "errorMap" in script
         assert '__errors__' in script
 
-    def test_script_uses_noarg_rowwrapper_constructor(self):
-        """Generated script uses RowWrapper() no-arg constructor, not 3-arg."""
+    def test_script_uses_build_row_wrapper_closure(self):
+        """Script creates RowWrappers via buildRowWrapper() closure, not constructors."""
         config = copy.deepcopy(_DEFAULT_CONFIG)
         comp = _make_component(config=config)
         comp.config = copy.deepcopy(comp._original_config)
@@ -1519,31 +1508,14 @@ class TestCompiledScriptGeneration:
             comp.config["outputs"], comp.config.get("variables", []),
             "row1", ["row2"]
         )
-        # Must use no-arg constructor
-        assert "new RowWrapper();" in script
-        # Must NOT use the old 3-arg constructor pattern
+        # Must use buildRowWrapper closure (delegates to JavaBridge.buildArrowRowWrapper)
+        assert 'buildRowWrapper(inputRoot, i, "row1")' in script
+        assert 'buildRowWrapper(inputRoot, i, "row2")' in script
+        # Must NOT use old patterns (no-arg constructor or 3-arg constructor)
+        assert "new RowWrapper();" not in script
         assert "new RowWrapper(inputRoot" not in script
-        # Must build row map from field vectors
-        assert "fieldVectors" in script
-        assert "setInputRow(" in script
-
-    def test_script_builds_row_maps_from_arrow_vectors(self):
-        """Script reads Arrow field vectors and builds HashMap per row."""
-        config = copy.deepcopy(_DEFAULT_CONFIG)
-        comp = _make_component(config=config)
-        comp.config = copy.deepcopy(comp._original_config)
-        script = comp._build_compiled_script(
-            comp.config["outputs"], comp.config.get("variables", []),
-            "row1", ["row2"]
-        )
-        # Field vectors extracted once outside loop
-        assert "def fieldVectors = inputRoot.getFieldVectors();" in script
-        # Each table gets its own map
-        assert "row1_map" in script
-        assert "row2_map" in script
-        # Unprefixed column name support
-        assert 'fn.startsWith("row1.")' in script
-        assert 'fn.startsWith("row2.")' in script
+        # No manual fieldVectors extraction -- buildRowWrapper handles it internally
+        assert "def fieldVectors" not in script
 
     def test_output_types_keyed_per_column(self):
         """_build_output_schema produces per-column type keys."""

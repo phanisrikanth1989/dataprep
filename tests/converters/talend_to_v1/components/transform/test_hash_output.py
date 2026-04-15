@@ -93,10 +93,7 @@ class TestDefaults:
         result = HashOutputConverter().convert(node, [], {})
         assert result.component["config"]["append"] is True
 
-    def test_hash_key_from_input_connector_default_false(self):
-        node = _make_node()
-        result = HashOutputConverter().convert(node, [], {})
-        assert result.component["config"]["hash_key_from_input_connector"] is False
+    # hash_key_from_input_connector removed in a943b5f (hidden Talend param)
 
     def test_tstatcatcher_stats_default_false(self):
         node = _make_node()
@@ -161,10 +158,7 @@ class TestParameterExtraction:
         result = HashOutputConverter().convert(node, [], {})
         assert result.component["config"]["append"] is False
 
-    def test_hash_key_from_input_connector_true(self):
-        node = _make_node(params={"HASH_KEY_FROM_INPUT_CONNECTOR": "true"})
-        result = HashOutputConverter().convert(node, [], {})
-        assert result.component["config"]["hash_key_from_input_connector"] is True
+    # hash_key_from_input_connector extraction test removed in a943b5f (hidden Talend param)
 
     def test_tstatcatcher_stats_true(self):
         node = _make_node(params={"TSTATCATCHER_STATS": "true"})
@@ -268,7 +262,8 @@ class TestNeedsReview:
 
 
 # ------------------------------------------------------------------
-# Completeness (10 config keys: 8 unique + 2 framework)
+# Completeness (9 config keys: 7 unique + 2 framework)
+# hash_key_from_input_connector removed in a943b5f (hidden Talend param)
 # ------------------------------------------------------------------
 
 class TestCompleteness:
@@ -280,7 +275,6 @@ class TestCompleteness:
         expected_keys = {
             "link_with", "list", "data_write_model", "base_file_path",
             "memory_heap_max_size", "keys_management", "append",
-            "hash_key_from_input_connector",
             "tstatcatcher_stats", "label",
         }
         actual_keys = set(result.component["config"].keys())
@@ -293,7 +287,6 @@ class TestCompleteness:
         expected_keys = {
             "link_with", "list", "data_write_model", "base_file_path",
             "memory_heap_max_size", "keys_management", "append",
-            "hash_key_from_input_connector",
             "tstatcatcher_stats", "label",
         }
         actual_keys = set(result.component["config"].keys())

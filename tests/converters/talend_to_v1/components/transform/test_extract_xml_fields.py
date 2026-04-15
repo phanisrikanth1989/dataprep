@@ -75,15 +75,7 @@ class TestDefaults:
         result = ExtractXMLFieldConverter().convert(node, [], {})
         assert result.component["config"]["xmlfield"] == ""
 
-    def test_use_items_default_false(self):
-        node = _make_node()
-        result = ExtractXMLFieldConverter().convert(node, [], {})
-        assert result.component["config"]["use_items"] is False
-
-    def test_loop_query_base_default_empty(self):
-        node = _make_node()
-        result = ExtractXMLFieldConverter().convert(node, [], {})
-        assert result.component["config"]["loop_query_base"] == ""
+    # use_items, loop_query_base removed in a943b5f (hidden Talend params)
 
     def test_loop_query_default(self):
         node = _make_node()
@@ -105,25 +97,7 @@ class TestDefaults:
         result = ExtractXMLFieldConverter().convert(node, [], {})
         assert result.component["config"]["die_on_error"] is False
 
-    def test_use_xml_field_default_false(self):
-        node = _make_node()
-        result = ExtractXMLFieldConverter().convert(node, [], {})
-        assert result.component["config"]["use_xml_field"] is False
-
-    def test_xml_text_default_empty(self):
-        node = _make_node()
-        result = ExtractXMLFieldConverter().convert(node, [], {})
-        assert result.component["config"]["xml_text"] == ""
-
-    def test_xml_prefix_default_empty(self):
-        node = _make_node()
-        result = ExtractXMLFieldConverter().convert(node, [], {})
-        assert result.component["config"]["xml_prefix"] == ""
-
-    def test_schema_opt_num_default(self):
-        node = _make_node()
-        result = ExtractXMLFieldConverter().convert(node, [], {})
-        assert result.component["config"]["schema_opt_num"] == "100"
+    # use_xml_field, xml_text, xml_prefix, schema_opt_num removed in a943b5f (hidden Talend params)
 
     def test_ignore_ns_default_false(self):
         node = _make_node()
@@ -173,35 +147,8 @@ class TestParameterExtraction:
         result = ExtractXMLFieldConverter().convert(node, [], {})
         assert result.component["config"]["limit"] == "1000"
 
-    def test_use_items_true(self):
-        node = _make_node(params={"USE_ITEMS": "true"})
-        result = ExtractXMLFieldConverter().convert(node, [], {})
-        assert result.component["config"]["use_items"] is True
-
-    def test_use_xml_field_true(self):
-        node = _make_node(params={"USE_XML_FIELD": "true"})
-        result = ExtractXMLFieldConverter().convert(node, [], {})
-        assert result.component["config"]["use_xml_field"] is True
-
-    def test_loop_query_base_custom(self):
-        node = _make_node(params={"LOOP_QUERY_BASE": '"/root"'})
-        result = ExtractXMLFieldConverter().convert(node, [], {})
-        assert result.component["config"]["loop_query_base"] == "/root"
-
-    def test_xml_text_custom(self):
-        node = _make_node(params={"XML_TEXT": '"<root>data</root>"'})
-        result = ExtractXMLFieldConverter().convert(node, [], {})
-        assert result.component["config"]["xml_text"] == "<root>data</root>"
-
-    def test_xml_prefix_custom(self):
-        node = _make_node(params={"XML_PREFIX": '"ns1"'})
-        result = ExtractXMLFieldConverter().convert(node, [], {})
-        assert result.component["config"]["xml_prefix"] == "ns1"
-
-    def test_schema_opt_num_custom(self):
-        node = _make_node(params={"SCHEMA_OPT_NUM": '"200"'})
-        result = ExtractXMLFieldConverter().convert(node, [], {})
-        assert result.component["config"]["schema_opt_num"] == "200"
+    # use_items, use_xml_field, loop_query_base, xml_text, xml_prefix,
+    # schema_opt_num extraction tests removed in a943b5f (hidden Talend params)
 
     def test_ignore_ns_true(self):
         node = _make_node(params={"IGNORE_NS": "true"})
@@ -335,13 +282,16 @@ class TestCompleteness:
     """Verify all expected config keys are present."""
 
     def test_all_config_keys_present(self):
-        """Config dict has all 14 keys (12 unique + 2 framework)."""
+        """Config dict has all 8 keys (6 unique + 2 framework).
+
+        Keys removed in a943b5f: use_items, loop_query_base, use_xml_field,
+        xml_text, xml_prefix, schema_opt_num
+        """
         node = _make_node(schema=_make_schema_columns())
         result = ExtractXMLFieldConverter().convert(node, [], {})
         expected_keys = {
-            "xmlfield", "use_items", "loop_query_base", "loop_query",
-            "mapping", "limit", "die_on_error", "use_xml_field",
-            "xml_text", "xml_prefix", "schema_opt_num", "ignore_ns",
+            "xmlfield", "loop_query",
+            "mapping", "limit", "die_on_error", "ignore_ns",
             "tstatcatcher_stats", "label",
         }
         actual_keys = set(result.component["config"].keys())

@@ -73,12 +73,6 @@ class TestDefaults:
         result = FlowToIterateConverter().convert(node, [], {})
         assert result.component["config"]["map_entries"] == []
 
-    def test_connection_format_default_row(self):
-        """connection_format defaults to 'row' when absent."""
-        node = _make_node()
-        result = FlowToIterateConverter().convert(node, [], {})
-        assert result.component["config"]["connection_format"] == "row"
-
     def test_tstatcatcher_stats_default_false(self):
         """tstatcatcher_stats defaults to False when absent."""
         node = _make_node()
@@ -101,11 +95,6 @@ class TestParameterExtraction:
         result = FlowToIterateConverter().convert(node, [], {})
         assert result.component["config"]["default_map"] is False
 
-    def test_connection_format_extracted(self):
-        """CONNECTION_FORMAT is extracted and unquoted."""
-        node = _make_node(params={"CONNECTION_FORMAT": '"iterate"'})
-        result = FlowToIterateConverter().convert(node, [], {})
-        assert result.component["config"]["connection_format"] == "iterate"
 
 
 class TestTableParsing:
@@ -258,7 +247,8 @@ class TestCompleteness:
         node = _make_node(schema=_make_schema_columns())
         result = FlowToIterateConverter().convert(node, [], {})
         expected_keys = {
-            "default_map", "map_entries", "connection_format",
+            # connection_format removed as hidden param in a943b5f
+            "default_map", "map_entries",
             "tstatcatcher_stats", "label",
         }
         actual_keys = set(result.component["config"].keys())
@@ -267,10 +257,8 @@ class TestCompleteness:
 
 
 class TestPhantomParams:
-    """Verify phantom params are handled correctly."""
+    """Verify phantom params are handled correctly.
 
-    def test_connection_format_documented_as_phantom(self):
-        """CONNECTION_FORMAT is extracted (present in .item files) even though not in _java.xml."""
-        node = _make_node(params={"CONNECTION_FORMAT": '"iterate"'})
-        result = FlowToIterateConverter().convert(node, [], {})
-        assert result.component["config"]["connection_format"] == "iterate"
+    Note: CONNECTION_FORMAT was removed as a hidden param in a943b5f.
+    """
+    pass

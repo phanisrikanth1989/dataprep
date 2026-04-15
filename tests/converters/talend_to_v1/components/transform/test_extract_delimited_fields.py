@@ -106,10 +106,7 @@ class TestDefaults:
         result = ExtractDelimitedFieldsConverter().convert(node, [], {})
         assert result.component["config"]["check_date"] is False
 
-    def test_schema_opt_num_default(self):
-        node = _make_node()
-        result = ExtractDelimitedFieldsConverter().convert(node, [], {})
-        assert result.component["config"]["schema_opt_num"] == "100"
+    # schema_opt_num removed from converter in a943b5f
 
     def test_tstatcatcher_stats_default_false(self):
         node = _make_node()
@@ -135,10 +132,7 @@ class TestParameterExtraction:
         result = ExtractDelimitedFieldsConverter().convert(node, [], {})
         assert result.component["config"]["fieldseparator"] == ","
 
-    def test_schema_opt_num_custom(self):
-        node = _make_node(params={"SCHEMA_OPT_NUM": '"50"'})
-        result = ExtractDelimitedFieldsConverter().convert(node, [], {})
-        assert result.component["config"]["schema_opt_num"] == "50"
+    # schema_opt_num removed from converter in a943b5f
 
     def test_ignore_source_null_false(self):
         node = _make_node(params={"IGNORE_SOURCE_NULL": "false"})
@@ -251,19 +245,22 @@ class TestCompleteness:
     """Verify all expected config keys are present."""
 
     def test_all_config_keys_present(self):
-        """Config must have 11 unique + 2 framework = 13 config keys."""
+        """Config must have 10 unique + 2 framework = 12 config keys.
+
+        Note: schema_opt_num removed from converter in a943b5f.
+        """
         node = _make_node(schema=_make_schema_columns())
         result = ExtractDelimitedFieldsConverter().convert(node, [], {})
         expected_keys = {
             "field", "ignore_source_null", "fieldseparator", "die_on_error",
             "advanced_separator", "thousands_separator", "decimal_separator",
-            "trim", "check_fields_num", "check_date", "schema_opt_num",
+            "trim", "check_fields_num", "check_date",
             "tstatcatcher_stats", "label",
         }
         actual_keys = set(result.component["config"].keys())
         missing = expected_keys - actual_keys
         assert not missing, f"Missing config keys: {missing}"
-        assert len(result.component["config"]) == 13
+        assert len(result.component["config"]) == 12
 
 
 class TestComponentStructure:
