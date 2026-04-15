@@ -1559,7 +1559,7 @@ class Map(BaseComponent):
         Returns:
             True if expression has no row-data references.
         """
-        stripped = self._strip_java_marker(expr).strip()
+        stripped = expr.strip()  # Already stripped of {{java}} by caller
 
         # Find all table.column patterns
         row_ref_pattern = re.compile(
