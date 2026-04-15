@@ -1,544 +1,408 @@
-"""
-AggregateRow - Aggregate data rows with group by and various functions.
+"""Engine component for AggregateRow (tAggregateRow).
 
-Talend equivalent: tAggregateRow
+Groups input rows by specified columns and applies aggregation functions.
+
+Config keys consumed (8 total):
+  groupbys                (list[dict], default [])   -- group-by column mappings [{output_column, input_column}]
+  operations              (list[dict], default [])   -- aggregation operations [{output_column, function, input_column, ignore_null}]
+  list_delimiter          (str, default ",")          -- delimiter for list/list_object aggregation
+  use_financial_precision (bool, default True)        -- use Decimal arithmetic for numeric aggregations
+  check_type_overflow     (bool, default False)       -- deferred
+  check_ulp               (bool, default False)       -- deferred
+  tstatcatcher_stats      (bool, default False)       -- framework
+  label                   (str, default "")           -- framework
 """
 import logging
-from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from decimal import Decimal, InvalidOperation
+from typing import Any, Optional
 
+import numpy as np
 import pandas as pd
 
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
+from ...exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
+# ------------------------------------------------------------------
+# Supported aggregation functions (allowlist for config validation)
+# ------------------------------------------------------------------
+_SUPPORTED_FUNCTIONS = frozenset({
+    "count", "min", "max", "avg", "sum", "first", "last",
+    "list", "list_object", "count_distinct", "std",
+    "population_std_dev", "median", "variance", "union",
+})
 
+
+# ------------------------------------------------------------------
+# Decimal precision helpers
+# ------------------------------------------------------------------
+
+def _to_decimal(val: Any) -> Optional[Decimal]:
+    """Convert a value to Decimal, returning None for NaN/None."""
+    if val is None or (isinstance(val, float) and np.isnan(val)):
+        return None
+    try:
+        return Decimal(str(val))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _decimal_sum(series: pd.Series) -> Decimal:
+    """Sum a series using Decimal arithmetic, skipping NaN."""
+    total = Decimal("0")
+    for val in series:
+        d = _to_decimal(val)
+        if d is not None:
+            total += d
+    return total
+
+
+def _decimal_mean(series: pd.Series) -> Optional[Decimal]:
+    """Mean of a series using Decimal arithmetic, skipping NaN."""
+    total = Decimal("0")
+    count = 0
+    for val in series:
+        d = _to_decimal(val)
+        if d is not None:
+            total += d
+            count += 1
+    if count == 0:
+        return None
+    return total / Decimal(str(count))
+
+
+def _decimal_std(series: pd.Series, ddof: int = 1) -> Optional[Decimal]:
+    """Standard deviation using Decimal arithmetic.
+
+    Args:
+        series: Input series.
+        ddof: Delta degrees of freedom. 1 for sample std, 0 for population std.
+
+    Returns:
+        Decimal std or None if insufficient data.
+    """
+    mean = _decimal_mean(series)
+    if mean is None:
+        return None
+    sq_diffs = []
+    for val in series:
+        d = _to_decimal(val)
+        if d is not None:
+            sq_diffs.append((d - mean) ** 2)
+    n = len(sq_diffs)
+    if n <= ddof:
+        return None
+    variance = sum(sq_diffs, Decimal("0")) / Decimal(str(n - ddof))
+    # Decimal sqrt via float conversion (sufficient precision for ETL)
+    return Decimal(str(float(variance) ** 0.5))
+
+
+# ------------------------------------------------------------------
+# Aggregation function builder
+# ------------------------------------------------------------------
+
+def _build_agg_func(
+    func_name: str,
+    ignore_null: bool,
+    list_delimiter: str,
+    use_financial_precision: bool,
+) -> Any:
+    """Return a callable (or string) for pandas groupby aggregation.
+
+    Args:
+        func_name: Canonical aggregation function name.
+        ignore_null: When True, skip NaN in aggregation. When False, propagate NaN.
+        list_delimiter: Delimiter for list/list_object/union functions.
+        use_financial_precision: When True, use Decimal arithmetic for numeric ops.
+
+    Returns:
+        A callable suitable for pd.NamedAgg aggfunc parameter.
+    """
+    skipna = ignore_null
+
+    if func_name == "count":
+        # count always counts non-null values
+        return "count"
+
+    if func_name == "count_distinct":
+        return lambda x: x.nunique()
+
+    if func_name == "first":
+        return "first"
+
+    if func_name == "last":
+        return "last"
+
+    if func_name in ("list", "list_object", "union"):
+        if func_name == "union":
+            logger.warning("'union' function treated as list aggregation -- no distinct Talend engine behavior")
+        if ignore_null:
+            return lambda x: list_delimiter.join(x.dropna().astype(str))
+        else:
+            return lambda x: list_delimiter.join(x.astype(str))
+
+    if func_name == "median":
+        if use_financial_precision:
+            # For median, convert to float since Decimal median is complex
+            return lambda x: x.dropna().astype(float).median() if skipna else x.astype(float).median()
+        return lambda x: x.median(skipna=skipna)
+
+    # Numeric aggregation functions
+    if use_financial_precision:
+        if func_name == "sum":
+            return lambda x: _decimal_sum(x) if skipna else (
+                None if x.isna().any() else _decimal_sum(x)
+            )
+        if func_name == "avg":
+            return lambda x: _decimal_mean(x) if skipna else (
+                None if x.isna().any() else _decimal_mean(x)
+            )
+        if func_name == "std":
+            return lambda x: _decimal_std(x, ddof=1) if skipna else (
+                None if x.isna().any() else _decimal_std(x, ddof=1)
+            )
+        if func_name == "population_std_dev":
+            return lambda x: _decimal_std(x, ddof=0) if skipna else (
+                None if x.isna().any() else _decimal_std(x, ddof=0)
+            )
+        if func_name == "variance":
+            # Decimal variance
+            def _dec_var(x):
+                mean = _decimal_mean(x)
+                if mean is None:
+                    return None
+                sq_diffs = []
+                for val in x:
+                    d = _to_decimal(val)
+                    if d is not None:
+                        sq_diffs.append((d - mean) ** 2)
+                n = len(sq_diffs)
+                if n <= 1:
+                    return None
+                return sum(sq_diffs, Decimal("0")) / Decimal(str(n - 1))
+            return lambda x: _dec_var(x) if skipna else (
+                None if x.isna().any() else _dec_var(x)
+            )
+        if func_name == "min":
+            return lambda x: x.min(skipna=skipna)
+        if func_name == "max":
+            return lambda x: x.max(skipna=skipna)
+
+    # Non-financial-precision numeric functions
+    if func_name == "sum":
+        return lambda x: x.sum(skipna=skipna)
+    if func_name == "avg":
+        return lambda x: x.mean(skipna=skipna)
+    if func_name == "min":
+        return lambda x: x.min(skipna=skipna)
+    if func_name == "max":
+        return lambda x: x.max(skipna=skipna)
+    if func_name == "std":
+        return lambda x: x.std(ddof=1, skipna=skipna)
+    if func_name == "population_std_dev":
+        return lambda x: x.std(ddof=0, skipna=skipna)
+    if func_name == "variance":
+        return lambda x: x.var(ddof=1, skipna=skipna)
+
+    # Fallback -- unknown function, default to sum
+    logger.warning("Unknown aggregation function '%s', defaulting to sum", func_name)
+    return lambda x: x.sum(skipna=skipna)
+
+
+# ------------------------------------------------------------------
+# Component
+# ------------------------------------------------------------------
+
+@REGISTRY.register("AggregateRow", "tAggregateRow")
 class AggregateRow(BaseComponent):
-    """
-    Aggregate rows with group by and various aggregation functions.
+    """tAggregateRow engine implementation.
 
-    Supports grouping by multiple columns and applying various aggregation
-    functions like sum, count, average, min, max, etc. Handles Decimal
-    precision for financial calculations and supports custom aggregations.
+    Groups input rows by specified columns and applies aggregation
+    functions (count, sum, avg, min, max, first, last, list, std,
+    population_std_dev, median, variance, count_distinct, union).
 
-    Configuration:
-        group_by (List[str]): Columns to group by. Default: []
-        operations (List[Dict]): Aggregation operations to perform. Default: []
-            Each operation dict contains:
-                - input_column (str): Source column name
-                - output_column (str): Target column name (defaults to input_column)
-                - function (str): Aggregation function (sum, count, avg, min, max, etc.)
-                - delimiter (str): For concat operations. Default: ","
-
-    Inputs:
-        main: Input DataFrame to aggregate
-
-    Outputs:
-        main: Aggregated DataFrame with grouped results
-
-    Statistics:
-        NB_LINE: Total rows processed
-        NB_LINE_OK: Rows successfully aggregated
-        NB_LINE_REJECT: Rejected rows (always 0)
-
-Example configuration:
-        {
-            "group_by": ["department", "region"],
-            "operations": [
-                {
-                    "input_column": "amount",
-                    "output_column": "total_amount",
-                    "function": "sum"
-                },
-                {
-                    "input_column": "employee_id",
-                    "output_column": "employee_count",
-                    "function": "count_distinct"
-                }
-            ]
-        }
-
-    Notes:
-        - Preserves Decimal precision for financial calculations
-        - Supports custom concatenation with configurable delimiters
-        - Missing group_by columns are filtered out automatically
-        - Returns single row aggregate if no group_by specified
+    Config keys:
+        groupbys: Group-by column mappings [{output_column, input_column}].
+        operations: Aggregation operations [{output_column, function, input_column, ignore_null}].
+        list_delimiter: Delimiter for list/list_object aggregation.
+        use_financial_precision: Use Decimal arithmetic for numeric aggregations.
     """
 
-    # Class constants
-    DEFAULT_OPERATIONS = []
-    DEFAULT_GROUP_BY = []
-    DEFAULT_DELIMITER = ","
+    # ------------------------------------------------------------------
+    # Configuration Validation
+    # ------------------------------------------------------------------
 
-    SUPPORTED_FUNCTIONS = [
-        'sum', 'count', 'count_distinct', 'avg', 'mean', 'min', 'max',
-        'first', 'last', 'std', 'stddev', 'var', 'variance', 'median',
-        'list', 'concat', 'concatenate'
-    ]
+    def _validate_config(self) -> None:
+        """Validate component configuration.
 
-    def _validate_config(self) -> List[str]:
+        Raises:
+            ConfigurationError: If configuration is invalid.
         """
-        Validate component configuration.
-
-        Returns:
-            List of error messages (empty if valid)
-        """
-        errors = []
-
-        # Validate group_by
-        group_by = self.config.get('group_by', self.DEFAULT_GROUP_BY)
-        if not isinstance(group_by, list):
-            errors.append("Config 'group_by' must be a list")
-
-        # Validate operations
-        operations = self.config.get('operations', self.DEFAULT_OPERATIONS)
+        operations = self.config.get("operations", [])
         if not isinstance(operations, list):
-            errors.append("Config 'operations' must be a list")
-        else:
-            for i, op in enumerate(operations):
-                if not isinstance(op, dict):
-                    errors.append(f"Operation {i} must be a dictionary")
-                    continue
+            raise ConfigurationError(
+                f"[{self.id}] 'operations' must be a list, got {type(operations).__name__}"
+            )
 
-                function = op.get('function', 'sum').lower()
-                if function not in self.SUPPORTED_FUNCTIONS:
-                    errors.append(f"Operation {i}: Unknown function '{function}'. "
-                                f"Supported: {', '.join(self.SUPPORTED_FUNCTIONS)}")
+        for i, op in enumerate(operations):
+            if not isinstance(op, dict):
+                raise ConfigurationError(
+                    f"[{self.id}] Operation {i} must be a dict, got {type(op).__name__}"
+                )
+            if "function" not in op:
+                raise ConfigurationError(
+                    f"[{self.id}] Operation {i} missing required key 'function'"
+                )
+            if "input_column" not in op:
+                raise ConfigurationError(
+                    f"[{self.id}] Operation {i} missing required key 'input_column'"
+                )
+            func = op["function"].lower() if isinstance(op["function"], str) else op["function"]
+            if func not in _SUPPORTED_FUNCTIONS:
+                raise ConfigurationError(
+                    f"[{self.id}] Operation {i} has unsupported function '{func}'. "
+                    f"Supported: {sorted(_SUPPORTED_FUNCTIONS)}"
+                )
 
-                # Warn about missing input_column for non-count operations
-                if function != 'count' and not op.get('input_column'):
-                    errors.append(f"Operation {i}: Missing 'input_column' for function '{function}'")
+    # ------------------------------------------------------------------
+    # Core Processing
+    # ------------------------------------------------------------------
 
-        return errors
-
-    def _process(self,input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
-        """
-        Perform aggregation operations on input data.
+    def _process(self, input_data: Optional[pd.DataFrame] = None) -> dict:
+        """Aggregate input data by group columns and operations.
 
         Args:
-            input_data: Input DataFrame to aggregate
+            input_data: Input DataFrame from upstream component.
 
         Returns:
-            Dictionary containing:
-                - 'main': Aggregated DataFrame
-                - 'stats': Execution statistics
+            dict with 'main' (aggregated DataFrame) and 'reject' (None).
         """
-        # Handle empty input
         if input_data is None or input_data.empty:
-            logger.warning(f"[{self.id}] Empty input received")
-            self._update_stats(0, 0, 0)
-            return {'main': pd.DataFrame()}
+            return {"main": pd.DataFrame(), "reject": None}
 
-        rows_in = len(input_data)
-        logger.info(f"[{self.id}] Processing started: {rows_in} rows")
+        # Read config (resolved by BaseComponent)
+        groupbys = self.config.get("groupbys", [])
+        operations = self.config.get("operations", [])
+        list_delimiter = self.config.get("list_delimiter", ",")
+        use_financial_precision = self.config.get("use_financial_precision", True)
 
-        # Log input details
-        logger.info(f"[{self.id}] Input shape: {input_data.shape}")
-        logger.info(f"[{self.id}] Input columns: {input_data.columns.tolist()}")
+        group_input_cols = [g["input_column"] for g in groupbys]
+        group_output_cols = [g["output_column"] for g in groupbys]
 
-        # Add diagnostic logging for sum operations
-        operations = self.config.get('operations', self.DEFAULT_OPERATIONS)
-        sum_operations = [op for op in operations if op.get('function', '').lower() == 'sum']
-        if sum_operations:
-            logger.info(f"[{self.id}] Found {len(sum_operations)} sum operations. Diagnosing...")
-            for i, op in enumerate(sum_operations):
-                input_col = op.get('input_column')
-                if input_col and input_col in input_data.columns:
-                    logger.info(f"[{self.id}] Sum operation {i+1}: column '{input_col}'")
-                    logger.info(f"[{self.id}] Data type: {input_data[input_col].dtype}")
-                    logger.info(f"[{self.id}] Sample values: {input_data[input_col].head(5).tolist()}")
-                    logger.info(f"[{self.id}] Non-null values: {input_data[input_col].count()}")
+        logger.info(
+            f"[{self.id}] Aggregating {len(input_data)} rows with "
+            f"{len(operations)} operations, {len(groupbys)} group-by columns"
+        )
 
-                    # Test if values can be summed directly
-                    try:
-                        test_sum = input_data[input_col].sum()
-                        logger.info(f"[{self.id}] Direct sum test: {test_sum}")
-                    except Exception as e:
-                        logger.error(f"[{self.id}] Direct sum test failed: {str(e)}")
-
-        try:
-            # Get configuration with defaults
-            group_by = self.config.get('group_by', self.DEFAULT_GROUP_BY)
-
-            # Log configuration
-            logger.info(f"[{self.id}] Group by columns: {group_by}")
-            logger.info(f"[{self.id}] Operations: {operations}")
-
-            # Perform aggregation
-            if not group_by:
-                result_df = self._aggregate_all(input_data, operations)
-            else:
-                result_df = self._aggregate_grouped(input_data, group_by, operations)
-
-            # Final verification for sum columns
-            if sum_operations:
-                logger.info(f"[{self.id}] ===== SUM OPERATIONS FINAL VERIFICATION =====")
-                for op in sum_operations:
-                    output_col = op.get('output_column', op.get('input_column'))
-                    if output_col in result_df.columns:
-                        values = result_df[output_col].tolist()
-                        logger.info(f"[{self.id}] Sum column '{output_col}': {values}")
-                        logger.info(f"[{self.id}] Sum column '{output_col}' non-null count: {result_df[output_col].count()}")
-                    else:
-                        logger.error(f"[{self.id}] Sum column '{output_col}' MISSING from final result!")
-
-            # Ensure all columns present in output (Talend-like behavior)
-            result_df = self._ensure_output_columns(result_df, input_data, group_by)
-
-            # Calculate statistics
-            rows_out = len(result_df)
-            self._update_stats(rows_in, rows_out, 0)
-
-            # Log completion
-            logger.info(f"[{self.id}] Processing complete: "
-                f"in={rows_in}, out={rows_out}, rejected=0")
-            logger.info(f"[{self.id}] Output shape: {result_df.shape}")
-            logger.info(f"[{self.id}] Output columns: {result_df.columns.tolist()}")
-
-            return {'main': result_df}
-
-        except Exception as e:
-            logger.error(f"[{self.id}] Aggregation failed: {str(e)}")
-            from ...base_component import ComponentExecutionError
-            raise ComponentExecutionError(self.id,f"Aggregation failed: {str(e)}", e) from e
-
-    def _aggregate_all(self,df: pd.DataFrame,operations: List[Dict]) -> pd.DataFrame:
-        """
-        Aggregate all rows without grouping.
-
-        Args:
-            df: Input DataFrame
-            operations: List of aggregation operations
-
-        Returns:
-            Single-row DataFrame with aggregated results
-        """
-        result = {}
-
+        # Build aggregation specs
+        agg_specs = {}
+        op_output_order = []
         for op in operations:
-            input_col = op.get('input_column')
-            output_col = op.get('output_column', input_col)
-            function = op.get('function', 'sum').lower()
+            output_col = op.get("output_column", op["input_column"])
+            input_col = op["input_column"]
+            func = op["function"].lower() if isinstance(op["function"], str) else op["function"]
+            ignore_null = op.get("ignore_null", True)
 
-            if input_col and input_col in df.columns:
-                result[output_col] = self._apply_agg_function(df[input_col],function,op)
-            elif function == 'count':
-                # Count all rows
-                result[output_col] = len(df)
+            agg_func = _build_agg_func(func, ignore_null, list_delimiter, use_financial_precision)
+            agg_specs[output_col] = (input_col, agg_func)
+            op_output_order.append(output_col)
 
-        return pd.DataFrame([result])
-
-    def _ensure_output_columns(self,result_df: pd.DataFrame,input_df: pd.DataFrame,
-                               group_by: List[str]) -> pd.DataFrame:
-        """
-        Ensure all operation columns are present in output and all input columns are included.
-        Columns not in operations or group_by will have empty/null data.
-
-        Args:
-            result_df: Current result DataFrame with aggregation results
-            input_df: Original input DataFrame
-            group_by: Group by columns
-
-        Returns:
-            DataFrame with all operation columns populated and all input columns present
-        """
-        operations = self.config.get('operations', self.DEFAULT_OPERATIONS)
-        valid_group_by = [col for col in group_by if col in input_df.columns]
-
-        logger.info(f"[{self.id}] Ensuring output columns - "
-                    f"Current result columns: {result_df.columns.tolist()}")
-
-        # Track all operation output columns that should have computed values
-        operation_output_columns = set()
-        operation_input_columns = set()
-        for op in operations:
-            output_col = op.get('output_column', op.get('input_column'))
-            input_col = op.get('input_column')
-            if output_col:
-                operation_output_columns.add(output_col)
-            if input_col:
-                operation_input_columns.add(input_col)
-
-        logger.info(f"[{self.id}] Expected operation output columns: {list(operation_output_columns)}")
-
-        # Determine which columns should have meaningful data vs empty data
-        meaningful_columns = (set(valid_group_by) | operation_output_columns| operation_input_columns)
-
-        # Verify all operation columns exist and have data
-        for col in operation_output_columns:
-            if col not in result_df.columns:
-                logger.error(f"[{self.id}] MISSING operation column '{col}' from aggregation result!")
-                result_df[col] = None
-            else:
-                non_null_count = result_df[col].count()
-                if non_null_count == 0:
-                    logger.error(f"[{self.id}] Operation column '{col}' exists but has no values!")
-                else:
-                    logger.info(f"[{self.id}] ✓ Operation column '{col}' has {non_null_count} values")
-
-        # Add missing input columns with appropriate data handling
-        for col in input_df.columns:
-            if col not in result_df.columns:
-                if col in meaningful_columns:
-                    # This column is used in operations or grouping - add representative values
-                    if valid_group_by and col in operation_input_columns:
-                        try:
-                            first_values = (input_df.groupby(valid_group_by)[col].first().reset_index())
-                            result_df = result_df.merge(first_values,on=valid_group_by,how='left')
-                            logger.info(f"[{self.id}] Added operation input column '{col}' with representative values")
-                        except Exception as e:
-                            logger.warning(f"[{self.id}] Could not add column '{col}': {str(e)}")
-                            result_df[col] = None
-                else:
-                    # Group by column should already be present, but add if missing
-                    if col in valid_group_by:
-                        logger.warning(f"[{self.id}] Group by column '{col}' missing - "
-                                       f"this should not happen")
-                        result_df[col] = None
-            else:
-                # This column is NOT used in operations or grouping - set to empty/null
-                result_df[col] = None
-                logger.info(f"[{self.id}] Added non-operation column '{col}' with empty data (not in operations or group_by)")
-
-        # Reorder columns: group by columns first, then input columns, then operation columns
-        final_columns = []
-
-        # Add group by columns first
-        for col in valid_group_by:
-            if col in result_df.columns:
-                final_columns.append(col)
-
-        # Add other input columns (maintain original order)
-        for col in input_df.columns:
-            if col in result_df.columns and col not in final_columns:
-                final_columns.append(col)
-
-        # Add operation columns that aren't in input
-        for col in operation_output_columns:
-            if col in result_df.columns and col not in final_columns:
-                final_columns.append(col)
-
-        # Add any remaining columns
-        for col in result_df.columns:
-            if col not in final_columns:
-                final_columns.append(col)
-
-        result_df = result_df[final_columns]
-
-        logger.info(f"[{self.id}] Final output columns: {final_columns}")
-        logger.info(f"[{self.id}] Final result shape: {result_df.shape}")
-
-        # Final verification of all operations
-        for i, op in enumerate(operations):
-            output_col = op.get('output_column', op.get('input_column'))
-            function = op.get('function', '').lower()
-
-            if output_col and output_col in result_df.columns:
-                values = result_df[output_col].tolist()
-                non_null_count = result_df[output_col].count()
-                logger.info(f"[{self.id}] FINAL CHECK - Operation {i+1} ({function}): '{output_col}' = {values} ({non_null_count} values)")
-            else:
-                logger.error(f"[{self.id}] FINAL CHECK - Operation {i+1} ({function}): '{output_col}' MISSING!")
-
-        return result_df
-
-    def _is_decimal_column(self, series: pd.Series) -> bool:
-        """
-        Check if a series contains Decimal objects.
-
-        Args:
-            series: Pandas Series to check
-
-        Returns:
-            True if series contains Decimal objects
-        """
-        if len(series) == 0:
-            return False
-        # Check first non-null value
-        for val in series:
-            if pd.notna(val):
-                return isinstance(val, Decimal)
-        return False
-
-    def _apply_agg_function(self, series: pd.Series, function: str, op: Dict) -> Any:
-        """
-        Apply aggregation function to a series.
-
-        Args:
-            series: Pandas Series to aggregate
-            function: Aggregation function name
-            op: Operation configuration dictionary
-
-        Returns:
-            Aggregated value
-        """
-        if function == 'sum':
-            # Special handling for Decimal columns to preserve precision
-            if len(series) > 0 and isinstance(series.iloc[0], Decimal):
-                return sum(series.dropna(), Decimal('0'))
-            return series.sum()
-        elif function in ['avg', 'mean']:
-            return series.mean()
-        elif function == 'min':
-            return series.min()
-        elif function == 'max':
-            return series.max()
-        elif function == 'count':
-            return series.count()
-        elif function == 'count_distinct':
-            return series.nunique()
-        elif function == 'first':
-            return series.iloc[0] if len(series) > 0 else None
-        elif function == 'last':
-            return series.iloc[-1] if len(series) > 0 else None
-        elif function in ['std', 'stddev']:
-            return series.std()
-        elif function in ['var', 'variance']:
-            return series.var()
-        elif function == 'median':
-            return series.median()
-        elif function == 'list':
-            return series.tolist()
-        elif function in ['concat', 'concatenate']:
-            delimiter = op.get('delimiter', self.DEFAULT_DELIMITER)
-            return delimiter.join(series.astype(str))
+        # Perform aggregation
+        if group_input_cols:
+            result = self._grouped_aggregation(
+                input_data, group_input_cols, agg_specs
+            )
+            # Rename groupby columns from input_column to output_column
+            rename_map = {
+                g["input_column"]: g["output_column"]
+                for g in groupbys
+                if g["input_column"] != g["output_column"]
+            }
+            if rename_map:
+                result = result.rename(columns=rename_map)
         else:
-            return series.sum()  # Default to sum
+            result = self._global_aggregation(input_data, agg_specs)
 
-    def _aggregate_grouped(self, df: pd.DataFrame, group_by: List[str],
-                           operations: List[Dict]) -> pd.DataFrame:
-        """
-        Aggregate rows with grouping - operation results populate input columns directly.
+        # Ensure column ordering: group outputs first, then operation outputs
+        ordered_cols = []
+        for col in group_output_cols:
+            if col in result.columns and col not in ordered_cols:
+                ordered_cols.append(col)
+        for col in op_output_order:
+            if col in result.columns and col not in ordered_cols:
+                ordered_cols.append(col)
+        # Add any remaining columns (shouldn't happen, but safety)
+        for col in result.columns:
+            if col not in ordered_cols:
+                ordered_cols.append(col)
+        result = result[ordered_cols]
+
+        # Schema validation (output_schema is set by engine, not BaseComponent)
+        if getattr(self, "output_schema", None):
+            result = self.validate_schema(result, self.output_schema)
+
+        # Stats
+        rows_in = len(input_data)
+        rows_out = len(result)
+        self._update_stats(rows_in, rows_out, 0)
+
+        logger.debug(
+            f"[{self.id}] Result: {rows_out} rows, columns: {list(result.columns)}"
+        )
+
+        return {"main": result, "reject": None}
+
+    # ------------------------------------------------------------------
+    # Aggregation helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _grouped_aggregation(
+        df: pd.DataFrame,
+        group_cols: list[str],
+        agg_specs: dict[str, tuple],
+    ) -> pd.DataFrame:
+        """Perform single-pass grouped aggregation.
 
         Args:
-            df: Input DataFrame
-            group_by: List of columns to group by
-            operations: List of aggregation operations
+            df: Input DataFrame.
+            group_cols: Columns to group by.
+            agg_specs: Mapping of output_col -> (input_col, agg_func).
 
         Returns:
-            Aggregated DataFrame with grouped results in original columns
+            Aggregated DataFrame with group columns and operation results.
         """
-        # Filter group_by columns that exist
-        valid_group_by = [col for col in group_by if col in df.columns]
+        named_aggs = {
+            out_col: pd.NamedAgg(column=spec[0], aggfunc=spec[1])
+            for out_col, spec in agg_specs.items()
+        }
+        return (
+            df.groupby(group_cols, sort=False)
+            .agg(**named_aggs)
+            .reset_index()
+        )
 
-        if not valid_group_by:
-            logger.warning(f"[{self.id}] No valid group by columns found")
-            return self._aggregate_all(df, operations)
+    @staticmethod
+    def _global_aggregation(
+        df: pd.DataFrame,
+        agg_specs: dict[str, tuple],
+    ) -> pd.DataFrame:
+        """Aggregate entire DataFrame without grouping (single result row).
 
-        logger.info(f"[{self.id}] Starting aggregation with {len(operations)} operations")
-        logger.info(f"[{self.id}] Group by columns: {valid_group_by}")
+        Args:
+            df: Input DataFrame.
+            agg_specs: Mapping of output_col -> (input_col, agg_func).
 
-        # Start with grouped data (just the groups)
-        result_df = df[valid_group_by].drop_duplicates().reset_index(drop=True)
-        logger.info(f"[{self.id}] Base result shape: {result_df.shape}, columns: {result_df.columns.tolist()}")
-
-        # Process each operation individually - populate results into input columns
-        for i, op in enumerate(operations):
-            input_col = op.get('input_column')
-            # Use input_column as output_column unless specifically overridden
-            output_col = op.get('output_column', input_col)
-            function = op.get('function', 'sum').lower()
-
-            logger.info(f"[{self.id}] Processing operation {i+1}: '{input_col}' -> '{output_col}' ({function})")
-
-            # Skip if no input column for non-count operations
-            if not input_col and function != 'count':
-                logger.warning(f"[{self.id}] Skipping operation {i}: no input column for {function}")
-                continue
-
-        # Skip if input column doesn't exist (except for count)
-            if input_col and input_col not in df.columns:
-                logger.warning(f"[{self.id}] Skipping operation {i}: column '{input_col}' not found")
-                continue
-
-            try:
-                # Process each operation type
-                if function == 'sum':
-                    agg_result = df.groupby(valid_group_by)[input_col].sum().reset_index()
-                    # Keep original column name for the aggregated values
-                    target_col = input_col
-
-                elif function == 'count':
-                    if input_col:
-                        agg_result = df.groupby(valid_group_by)[input_col].count().reset_index()
-                        target_col = input_col
-                    else:
-                        # Count rows in each group - use output_col if specified
-                        agg_result = df.groupby(valid_group_by).size().reset_index(name=output_col)
-                        target_col = output_col
-
-                elif function == 'count_distinct':
-                    agg_result = df.groupby(valid_group_by)[input_col].nunique().reset_index()
-                    target_col = input_col
-
-                elif function in ['avg', 'mean']:
-                    agg_result = df.groupby(valid_group_by)[input_col].mean().reset_index()
-                    target_col = input_col
-
-                elif function == 'min':
-                    agg_result = df.groupby(valid_group_by)[input_col].min().reset_index()
-                    target_col = input_col
-
-                elif function == 'max':
-                    agg_result = df.groupby(valid_group_by)[input_col].max().reset_index()
-                    target_col = input_col
-
-                elif function in ['std', 'stddev']:
-                    agg_result = df.groupby(valid_group_by)[input_col].std().reset_index()
-                    target_col = input_col
-
-                elif function in ['var', 'variance']:
-                    agg_result = df.groupby(valid_group_by)[input_col].var().reset_index()
-                    target_col = input_col
-                
-                elif function == 'median':
-                    agg_result = df.groupby(valid_group_by)[input_col].median().reset_index()
-                    target_col = input_col
-
-                elif function == 'first':
-                    agg_result = df.groupby(valid_group_by)[input_col].first().reset_index()
-                    target_col = input_col
-
-                elif function == 'last':
-                    agg_result = df.groupby(valid_group_by)[input_col].last().reset_index()
-                    target_col = input_col
-
-                elif function == 'list':
-                    agg_result = df.groupby(valid_group_by)[input_col].apply(list).reset_index()
-                    target_col = input_col
-
-                elif function in ['concat', 'concatenate']:
-                    delimiter = op.get('delimiter', self.DEFAULT_DELIMITER)
-                    agg_result = df.groupby(valid_group_by)[input_col].apply(
-                        lambda x: delimiter.join(x.astype(str))
-                    ).reset_index()
-                    target_col = input_col
-
-                else:
-                    # Default to sum for unknown functions
-                    logger.warning(f"[{self.id}] Unknown function '{function}', defaulting to sum")
-                    agg_result = df.groupby(valid_group_by)[input_col].sum().reset_index()
-                    target_col = input_col
-
-                # Merge the aggregation result into the main result
-                result_df = result_df.merge(agg_result, on=valid_group_by, how='left')
-
-                # Verify the column was added
-                if target_col in result_df.columns:
-                    values = result_df[target_col].tolist()
-                    logger.info(f"[{self.id}] ✓ Added operation column '{target_col}': {values}")
-                else:
-                    logger.error(f"[{self.id}] ✗ Failed to add operation column '{target_col}'")
-
-            except Exception as e:
-                logger.error(f"[{self.id}] Error processing operation {i+1}: {str(e)}")
-                # Add empty column to ensure it exists
-                target_col = input_col if input_col else output_col
-                result_df[target_col] = None
-
-        logger.info(f"[{self.id}] Completed all operations. Final result shape: {result_df.shape}")
-        logger.info(f"[{self.id}] Final result columns: {result_df.columns.tolist()}")
-
-        return result_df
-        
+        Returns:
+            Single-row DataFrame with aggregation results.
+        """
+        result_row = {}
+        for out_col, (in_col, agg_func) in agg_specs.items():
+            if callable(agg_func):
+                result_row[out_col] = agg_func(df[in_col])
+            else:
+                # String agg func name (e.g. "count", "first", "last")
+                result_row[out_col] = getattr(df[in_col], agg_func)()
+        return pd.DataFrame([result_row])
