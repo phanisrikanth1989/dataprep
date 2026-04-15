@@ -174,6 +174,9 @@ class BaseComponent(ABC):
             else:
                 result = self._execute_batch(input_data)
 
+            # Step 7b: Enforce output schema column order
+            result = self._enforce_schema_column_order(result)
+
             # Step 8: Update stats and globalMap
             self._update_stats_from_result(result)
             self._update_global_map()
@@ -532,6 +535,53 @@ class BaseComponent(ABC):
         if self.global_map:
             for stat_name, stat_value in self.stats.items():
                 self.global_map.put_component_stat(self.id, stat_name, stat_value)
+
+    # ------------------------------------------------------------------
+    # Output Column Ordering
+    # ------------------------------------------------------------------
+
+    def _enforce_schema_column_order(self, result: dict) -> dict:
+        """Reorder output DataFrame columns to match the output schema.
+
+        The output schema is the authoritative source for column order.
+        Components may produce columns in any order internally; this method
+        ensures the final output matches the schema contract.
+
+        Applies to the 'main' key in the result dict. Only reorders if
+        output_schema is defined and the DataFrame has columns.
+
+        Args:
+            result: The dict returned by _process().
+
+        Returns:
+            The same dict with 'main' DataFrame columns reordered.
+        """
+        output_schema = getattr(self, "output_schema", None)
+        if not output_schema:
+            return result
+
+        main_df = result.get("main")
+        if main_df is None or not isinstance(main_df, pd.DataFrame) or main_df.empty:
+            return result
+
+        # Build ordered column list from schema
+        schema_cols = [
+            col["name"] for col in output_schema
+            if isinstance(col, dict) and "name" in col
+        ]
+        if not schema_cols:
+            return result
+
+        # Keep only columns present in the DataFrame, in schema order.
+        # Append any extra columns not in schema at the end (safety).
+        ordered = [c for c in schema_cols if c in main_df.columns]
+        extra = [c for c in main_df.columns if c not in ordered]
+        final_order = ordered + extra
+
+        if final_order != list(main_df.columns):
+            result["main"] = main_df[final_order]
+
+        return result
 
     # ------------------------------------------------------------------
     # Schema Validation
