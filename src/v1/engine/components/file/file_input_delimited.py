@@ -43,7 +43,7 @@ import pandas as pd
 
 from ...base_component import BaseComponent
 from ...component_registry import REGISTRY
-from ...exceptions import ConfigurationError, FileOperationError
+from ...exceptions import ConfigurationError, DataValidationError, FileOperationError
 
 logger = logging.getLogger(__name__)
 
@@ -551,7 +551,7 @@ class FileInputDelimited(BaseComponent):
             mapped = series.map(mapping)
             if mapped.isna().any():
                 # Unmapped values found -- force fallback to per-row conversion
-                raise ValueError("Unmapped bool values found")
+                raise DataValidationError("Unmapped bool values found")
             return mapped
         elif col_type == "datetime":
             return pd.to_datetime(series, errors="raise")
@@ -746,7 +746,7 @@ class FileInputDelimited(BaseComponent):
         if stripped == "":
             if col_schema.get("nullable", True):
                 return None
-            raise ValueError(f"Empty value for non-nullable column")
+            raise DataValidationError(f"Empty value for non-nullable column")
 
         if col_type in ("int", "long"):
             return int(float(stripped))
@@ -758,7 +758,7 @@ class FileInputDelimited(BaseComponent):
                 return True
             elif lower in ("false", "0", "no"):
                 return False
-            raise ValueError(f"Cannot convert '{value}' to bool")
+            raise DataValidationError(f"Cannot convert '{value}' to bool")
         elif col_type == "datetime":
             pattern = col_schema.get("date_pattern", "")
             if pattern:
