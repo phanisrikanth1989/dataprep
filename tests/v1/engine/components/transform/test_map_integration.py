@@ -23,6 +23,11 @@ _CONVERTED_JSONS_DIR = Path(__file__).resolve().parents[4] / (
 )
 
 _SAMPLE_JSON = _CONVERTED_JSONS_DIR / "Job_tMap_0.1.json"
+_SAMPLE_EXISTS = _SAMPLE_JSON.exists()
+
+pytestmark = pytest.mark.skipif(
+    not _SAMPLE_EXISTS, reason="Sample JSON not found"
+)
 
 
 # ------------------------------------------------------------------
