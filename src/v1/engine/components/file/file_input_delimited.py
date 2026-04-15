@@ -36,6 +36,7 @@ import logging
 import os
 from collections import deque
 from datetime import datetime
+from io import StringIO
 from pathlib import Path
 from typing import Any, Optional
 
@@ -57,6 +58,10 @@ _ERROR_DATE_FORMAT = "DATE_FORMAT"
 
 # Rows per validation chunk to limit peak memory during row-level validation.
 _VALIDATION_CHUNK_SIZE = 50000
+
+# Row separators that Python/pandas handle natively via universal newline.
+# Anything else requires raw-read + manual split to match Talend behaviour.
+_STANDARD_ROW_SEPARATORS = {"\n", "\r\n", "\r"}
 
 # Deferred feature flags and their descriptions (D-21).
 _DEFERRED_FEATURES = {
@@ -175,6 +180,7 @@ class FileInputDelimited(BaseComponent):
             df = self._read_csv_mode(
                 filepath=str(resolved_path),
                 field_separator=field_separator,
+                row_separator=csv_row_separator,
                 encoding=encoding,
                 header_rows=header_rows,
                 footer_rows=footer_rows,
@@ -186,6 +192,7 @@ class FileInputDelimited(BaseComponent):
             df = self._read_standard_mode(
                 filepath=str(resolved_path),
                 field_separator=field_separator,
+                row_separator=row_separator,
                 encoding=encoding,
                 header_rows=header_rows,
                 footer_rows=footer_rows,
@@ -248,6 +255,7 @@ class FileInputDelimited(BaseComponent):
         self,
         filepath: str,
         field_separator: str,
+        row_separator: str,
         encoding: str,
         header_rows: int,
         footer_rows: int,
@@ -258,6 +266,7 @@ class FileInputDelimited(BaseComponent):
         Args:
             filepath: Resolved file path.
             field_separator: Field delimiter.
+            row_separator: Row delimiter (unescaped).
             encoding: File encoding.
             header_rows: Number of header rows to skip.
             footer_rows: Number of footer rows to skip.
@@ -266,6 +275,49 @@ class FileInputDelimited(BaseComponent):
         Returns:
             DataFrame with all columns as string dtype.
         """
+        # ---- Non-standard row separator: raw read + manual split ----
+        if row_separator not in _STANDARD_ROW_SEPARATORS:
+            try:
+                with open(filepath, "r", encoding=encoding) as f:
+                    content = f.read()
+            except Exception as e:
+                raise FileOperationError(
+                    f"[{self.id}] Failed to read file '{filepath}': {e}"
+                ) from e
+
+            lines = content.split(row_separator)
+            # Trailing split artifact
+            if lines and lines[-1] == "":
+                lines.pop()
+            if header_rows > 0:
+                lines = lines[header_rows:]
+            if footer_rows > 0 and lines:
+                lines = lines[:-footer_rows] if footer_rows < len(lines) else []
+
+            if not lines:
+                return pd.DataFrame(
+                    columns=schema_cols or []
+                ).astype(str)
+
+            reassembled = "\n".join(lines)
+            read_params_custom: dict[str, Any] = {
+                "filepath_or_buffer": StringIO(reassembled),
+                "sep": field_separator,
+                "header": None,
+                "quoting": csv.QUOTE_NONE,
+                "dtype": str,
+                "keep_default_na": False,
+            }
+            if schema_cols:
+                read_params_custom["names"] = schema_cols
+            try:
+                return pd.read_csv(**read_params_custom)
+            except Exception as e:
+                raise FileOperationError(
+                    f"[{self.id}] Failed to parse file '{filepath}': {e}"
+                ) from e
+
+        # ---- Standard row separator: pandas handles natively ----
         read_params: dict[str, Any] = {
             "filepath_or_buffer": filepath,
             "sep": field_separator,
@@ -297,6 +349,7 @@ class FileInputDelimited(BaseComponent):
         self,
         filepath: str,
         field_separator: str,
+        row_separator: str,
         encoding: str,
         header_rows: int,
         footer_rows: int,
@@ -312,6 +365,7 @@ class FileInputDelimited(BaseComponent):
         Args:
             filepath: Resolved file path.
             field_separator: Field delimiter.
+            row_separator: Row delimiter (unescaped).
             encoding: File encoding.
             header_rows: Number of header rows to skip.
             footer_rows: Number of footer rows to skip.
@@ -322,6 +376,59 @@ class FileInputDelimited(BaseComponent):
         Returns:
             DataFrame with all columns as string dtype.
         """
+        # ---- Non-standard row separator: raw read + manual split ----
+        if row_separator not in _STANDARD_ROW_SEPARATORS:
+            try:
+                with open(filepath, "r", encoding=encoding) as f:
+                    content = f.read()
+            except FileNotFoundError as e:
+                raise FileOperationError(
+                    f"[{self.id}] File not found: '{filepath}'"
+                ) from e
+            except Exception as e:
+                raise FileOperationError(
+                    f"[{self.id}] Failed to read file '{filepath}': {e}"
+                ) from e
+
+            lines = content.split(row_separator)
+            # Trailing split artifact
+            if lines and lines[-1] == "":
+                lines.pop()
+            if header_rows > 0:
+                lines = lines[header_rows:]
+            if footer_rows > 0 and lines:
+                lines = lines[:-footer_rows] if footer_rows < len(lines) else []
+
+            if not lines:
+                return pd.DataFrame(columns=schema_cols or []).astype(str)
+
+            # Configure csv.reader for RFC4180
+            reader_kwargs: dict[str, Any] = {
+                "delimiter": field_separator,
+                "quotechar": text_enclosure,
+            }
+            if escape_char == text_enclosure:
+                reader_kwargs["doublequote"] = True
+            else:
+                reader_kwargs["escapechar"] = escape_char
+                reader_kwargs["doublequote"] = False
+
+            rows = list(csv.reader(lines, **reader_kwargs))
+
+            if not rows:
+                return pd.DataFrame(columns=schema_cols or []).astype(str)
+
+            df = pd.DataFrame(rows, dtype=str)
+            if schema_cols and len(df.columns) == len(schema_cols):
+                df.columns = schema_cols
+            elif schema_cols:
+                logger.warning(
+                    f"[{self.id}] Schema expects {len(schema_cols)} columns "
+                    f"but file has {len(df.columns)} columns per row"
+                )
+            return df
+
+        # ---- Standard row separator: native line handling ----
         try:
             with open(filepath, "r", encoding=encoding, newline="") as f:
                 # Configure csv.reader for RFC4180
