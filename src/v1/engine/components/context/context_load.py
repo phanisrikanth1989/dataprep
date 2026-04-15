@@ -127,15 +127,16 @@ class ContextLoad(BaseComponent):
                     f"columns, got: {list(input_data.columns)}"
                 )
 
-            # Vectorized extraction
-            keys = input_data["key"].astype(str).str.strip()
+            # Vectorized extraction -- fillna before astype to avoid
+            # pandas NaN propagation through str operations
+            keys = input_data["key"].fillna("").astype(str).str.strip()
             values = input_data["value"]
             has_type = "type" in input_data.columns
             if has_type:
                 types = input_data["type"]
 
             for i in range(len(input_data)):
-                key = keys.iloc[i]
+                key = str(keys.iloc[i]).strip()
 
                 # Skip empty keys
                 if not key:
