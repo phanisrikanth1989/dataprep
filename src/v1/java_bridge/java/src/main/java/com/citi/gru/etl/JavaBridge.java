@@ -761,7 +761,8 @@ public class JavaBridge {
         } else if (vec instanceof Decimal256Vector) {
             return ((Decimal256Vector) vec).getObject(rowIndex);
         } else {
-            return vec.getObject(rowIndex).toString();
+            Object raw = vec.getObject(rowIndex);
+            return raw != null ? raw.toString() : null;
         }
     }
 
