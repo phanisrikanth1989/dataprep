@@ -177,7 +177,10 @@ public class JavaBridge {
         ByteArrayInputStream inputStream = new ByteArrayInputStream(arrowData);
         try (ArrowStreamReader reader = new ArrowStreamReader(inputStream, allocator)) {
             VectorSchemaRoot inputRoot = reader.getVectorSchemaRoot();
-            reader.loadNextBatch();
+            boolean loaded = reader.loadNextBatch();
+            if (!loaded) {
+                logger.warning("[JavaBridge] No batch loaded from Arrow stream -- input may be empty or corrupt");
+            }
 
             int rowCount = inputRoot.getRowCount();
 
@@ -359,7 +362,10 @@ public class JavaBridge {
         ByteArrayInputStream inputStream = new ByteArrayInputStream(arrowData);
         try (ArrowStreamReader reader = new ArrowStreamReader(inputStream, allocator)) {
             VectorSchemaRoot inputRoot = reader.getVectorSchemaRoot();
-            reader.loadNextBatch();
+            boolean loaded = reader.loadNextBatch();
+            if (!loaded) {
+                logger.warning("[JavaBridge] No batch loaded from Arrow stream -- input may be empty or corrupt");
+            }
 
             int rowCount = inputRoot.getRowCount();
             logger.info("[JavaBridge] tMap preprocessing: " + rowCount + " rows, " + expressions.size() + " expressions");
@@ -458,7 +464,10 @@ public class JavaBridge {
         ByteArrayInputStream inputStream = new ByteArrayInputStream(arrowData);
         try (ArrowStreamReader reader = new ArrowStreamReader(inputStream, allocator)) {
             VectorSchemaRoot inputRoot = reader.getVectorSchemaRoot();
-            reader.loadNextBatch();
+            boolean loaded = reader.loadNextBatch();
+            if (!loaded) {
+                logger.warning("[JavaBridge] No batch loaded from Arrow stream -- input may be empty or corrupt");
+            }
 
             int rowCount = inputRoot.getRowCount();
             logger.info("[JavaBridge] tMap compiled: " + rowCount + " rows, " + outputSchemas.size() + " outputs");
@@ -561,7 +570,10 @@ public class JavaBridge {
         ByteArrayInputStream inputStream = new ByteArrayInputStream(arrowData);
         try (ArrowStreamReader reader = new ArrowStreamReader(inputStream, allocator)) {
             VectorSchemaRoot inputRoot = reader.getVectorSchemaRoot();
-            reader.loadNextBatch();
+            boolean loaded = reader.loadNextBatch();
+            if (!loaded) {
+                logger.warning("[JavaBridge] No batch loaded from Arrow stream -- input may be empty or corrupt");
+            }
 
             int rowCount = inputRoot.getRowCount();
             logger.info("[JavaBridge] Executing compiled " + componentId + ": " + rowCount + " rows");
