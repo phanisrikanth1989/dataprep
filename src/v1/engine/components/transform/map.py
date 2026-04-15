@@ -479,7 +479,7 @@ class Map(BaseComponent):
             return self._apply_filter(
                 lookup_df, resolved_expr, lookup_name, []
             )
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, ComponentExecutionError) as exc:
             logger.debug(
                 f"[{self.id}] Per-row filter raised {type(exc).__name__} "
                 f"(likely null main value in comparison): {exc}. "

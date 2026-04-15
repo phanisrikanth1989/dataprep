@@ -1138,6 +1138,692 @@ class TestReloadAtEachRow:
             for r in caplog.records
         )
 
+    # ------------------------------------------------------------------
+    # Bug 1 regression: no pre-filter for RELOAD_AT_EACH_ROW
+    # ------------------------------------------------------------------
+
+    def test_reload_no_prefilter_applied(self):
+        """Bug 1: RELOAD_AT_EACH_ROW must receive unfiltered lookup.
+
+        A filter like 'row2.active' (boolean column ref) would eliminate
+        inactive rows if pre-applied. RELOAD_AT_EACH_ROW should still see
+        all lookup rows, with per-row filtering applied inside the loop.
+        """
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
+        config["inputs"]["lookups"][0]["activate_filter"] = True
+        # Boolean column filter -- simple column ref that _apply_filter handles.
+        # If pre-applied, only active=True rows survive. If NOT pre-applied
+        # (correct), the per-row loop sees ALL lookup rows and applies filter
+        # per-row, so key="B" (active=True) matches but key="A" (active=False)
+        # also shows up as unmatched in LEFT_OUTER_JOIN (not rejected).
+        config["inputs"]["lookups"][0]["filter"] = "{{java}}row2.active"
+        config["inputs"]["lookups"][0]["join_mode"] = "LEFT_OUTER_JOIN"
+        config["outputs"][0]["columns"] = [
+            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+            {"name": "key", "expression": "{{java}}row1.key", "type": "str", "nullable": True},
+            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+        ]
+        main_df = pd.DataFrame([
+            {"id": 1, "key": "A", "val": 100},
+            {"id": 2, "key": "B", "val": 200},
+        ])
+        lookup_df = pd.DataFrame([
+            {"key": "A", "label": "Alpha", "active": False},
+            {"key": "B", "label": "Beta", "active": True},
+        ])
+        comp = _make_component(config=config)
+        result = comp.execute(_make_input_dict(main_df=main_df, lookup_df=lookup_df))
+        out = result["out1"]
+        # Key B should match (active=True after per-row filter)
+        b_row = out[out["id"] == 2]
+        assert len(b_row) == 1
+        assert b_row.iloc[0]["label"] == "Beta"
+        # Key A: per-row filter removes inactive, so LEFT_OUTER gives NaN label
+        # If pre-filter were applied (bug), key A might not appear at all
+        a_row = out[out["id"] == 1]
+        assert len(a_row) == 1
+        # All main rows should be present in LEFT_OUTER output
+        assert len(out) == 2
+
+    # ------------------------------------------------------------------
+    # Bug 2 regression: per-row filter with main row context
+    # ------------------------------------------------------------------
+
+    def test_reload_per_row_filter_by_main_column(self):
+        """Bug 2: Filter resolves main row values per-row.
+
+        Main rows have region US/EU/US. Lookup rows have region column.
+        Filter: row1.region == row2.region. Each main row should only
+        match lookups with the same region.
+
+        Uses a mock bridge that evaluates simple comparison expressions.
+        """
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
+        config["inputs"]["lookups"][0]["activate_filter"] = True
+        config["inputs"]["lookups"][0]["filter"] = "{{java}}row1.region == row2.region"
+        config["inputs"]["lookups"][0]["join_keys"] = [{
+            "lookup_column": "key",
+            "expression": "{{java}}row1.key",
+            "type": "str",
+            "nullable": False,
+            "operator": "=",
+        }]
+        config["inputs"]["lookups"][0]["join_mode"] = "LEFT_OUTER_JOIN"
+        config["outputs"][0]["columns"] = [
+            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+            {"name": "region", "expression": "{{java}}row1.region", "type": "str", "nullable": True},
+            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+        ]
+        main_df = pd.DataFrame([
+            {"id": 1, "key": "A", "region": "US", "val": 100},
+            {"id": 2, "key": "B", "region": "EU", "val": 200},
+            {"id": 3, "key": "C", "region": "US", "val": 300},
+        ])
+        lookup_df = pd.DataFrame([
+            {"key": "A", "label": "Alpha", "region": "US"},
+            {"key": "B", "label": "Beta", "region": "EU"},
+            {"key": "C", "label": "Gamma", "region": "EU"},  # C is EU, not US
+        ])
+
+        class _MockBridge:
+            """Mock bridge that evaluates simple comparison expressions."""
+            def execute_tmap_preprocessing(self, df, expressions, main_table_name,
+                                           lookup_table_names=None, schema=None):
+                results = {}
+                for expr_id, expr_str in expressions.items():
+                    # Handle simple equality: "value" == table.column
+                    if "==" in expr_str:
+                        parts = expr_str.split("==")
+                        left = parts[0].strip().strip('"').strip("'")
+                        right = parts[1].strip()
+                        # Find column in df
+                        col_name = None
+                        for c in df.columns:
+                            if right.endswith(c) or right == c:
+                                col_name = c
+                                break
+                        if col_name is not None:
+                            results[expr_id] = (df[col_name].astype(str) == left).values
+                        else:
+                            results[expr_id] = np.array([False] * len(df))
+                    else:
+                        results[expr_id] = np.array([True] * len(df))
+                return results
+
+        comp = _make_component(config=config, java_bridge=_MockBridge())
+        result = comp.execute(_make_input_dict(main_df=main_df, lookup_df=lookup_df))
+        out = result["out1"]
+        # Row 1 (region=US, key=A): lookup A is region=US -> matches
+        r1 = out[out["id"] == 1]
+        assert len(r1) == 1
+        assert r1.iloc[0]["label"] == "Alpha"
+        # Row 2 (region=EU, key=B): lookup B is region=EU -> matches
+        r2 = out[out["id"] == 2]
+        assert len(r2) == 1
+        assert r2.iloc[0]["label"] == "Beta"
+        # Row 3 (region=US, key=C): lookup C is region=EU -> filter removes it
+        # LEFT_OUTER: row 3 appears with NaN label
+        r3 = out[out["id"] == 3]
+        assert len(r3) == 1
+        assert pd.isna(r3.iloc[0]["label"])
+
+    def test_reload_per_row_filter_numeric_comparison(self):
+        """Bug 2: Per-row filter with numeric comparison.
+
+        Filter: row1.threshold <= row2.score. Each main row has a different
+        threshold; only lookups with score >= threshold should match.
+        """
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
+        config["inputs"]["lookups"][0]["activate_filter"] = True
+        config["inputs"]["lookups"][0]["filter"] = "{{java}}row1.threshold <= row2.score"
+        config["inputs"]["lookups"][0]["join_keys"] = [{
+            "lookup_column": "key",
+            "expression": "{{java}}row1.key",
+            "type": "str",
+            "nullable": False,
+            "operator": "=",
+        }]
+        config["inputs"]["lookups"][0]["join_mode"] = "LEFT_OUTER_JOIN"
+        config["outputs"][0]["columns"] = [
+            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+        ]
+        main_df = pd.DataFrame([
+            {"id": 1, "key": "A", "threshold": 50, "val": 100},
+            {"id": 2, "key": "B", "threshold": 90, "val": 200},
+        ])
+        lookup_df = pd.DataFrame([
+            {"key": "A", "label": "Alpha", "score": 80},
+            {"key": "B", "label": "Beta", "score": 70},
+        ])
+
+        class _MockBridgeNumeric:
+            """Mock bridge that evaluates <= comparisons."""
+            def execute_tmap_preprocessing(self, df, expressions, main_table_name,
+                                           lookup_table_names=None, schema=None):
+                results = {}
+                for expr_id, expr_str in expressions.items():
+                    if "<=" in expr_str:
+                        parts = expr_str.split("<=")
+                        left_val = parts[0].strip()
+                        right_col = parts[1].strip()
+                        try:
+                            left_num = float(left_val)
+                        except ValueError:
+                            results[expr_id] = np.array([False] * len(df))
+                            continue
+                        col_name = None
+                        for c in df.columns:
+                            if right_col.endswith(c) or right_col == c:
+                                col_name = c
+                                break
+                        if col_name is not None:
+                            results[expr_id] = (left_num <= df[col_name].astype(float)).values
+                        else:
+                            results[expr_id] = np.array([False] * len(df))
+                    else:
+                        results[expr_id] = np.array([True] * len(df))
+                return results
+
+        comp = _make_component(config=config, java_bridge=_MockBridgeNumeric())
+        result = comp.execute(_make_input_dict(main_df=main_df, lookup_df=lookup_df))
+        out = result["out1"]
+        # Row 1 (threshold=50, key=A): lookup A has score=80 >= 50 -> matches
+        r1 = out[out["id"] == 1]
+        assert len(r1) == 1
+        assert r1.iloc[0]["label"] == "Alpha"
+        # Row 2 (threshold=90, key=B): lookup B has score=70 < 90 -> no match
+        # LEFT_OUTER: row 2 appears with NaN label
+        r2 = out[out["id"] == 2]
+        assert len(r2) == 1
+        assert pd.isna(r2.iloc[0]["label"])
+
+    def test_reload_per_row_filter_empty_result(self):
+        """Bug 2: Per-row filter eliminates all lookups for a main row.
+
+        LEFT_OUTER_JOIN: main row appears with NaN lookup columns.
+        """
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
+        config["inputs"]["lookups"][0]["activate_filter"] = True
+        config["inputs"]["lookups"][0]["filter"] = "{{java}}row2.active"
+        config["inputs"]["lookups"][0]["join_mode"] = "LEFT_OUTER_JOIN"
+        config["outputs"][0]["columns"] = [
+            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+            {"name": "key", "expression": "{{java}}row1.key", "type": "str", "nullable": True},
+            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+        ]
+        main_df = pd.DataFrame([
+            {"id": 1, "key": "A", "val": 100},
+        ])
+        # All lookup rows have active=False -> filter eliminates all
+        lookup_df = pd.DataFrame([
+            {"key": "A", "label": "Alpha", "active": False},
+            {"key": "B", "label": "Beta", "active": False},
+        ])
+        comp = _make_component(config=config)
+        result = comp.execute(_make_input_dict(main_df=main_df, lookup_df=lookup_df))
+        out = result["out1"]
+        # LEFT_OUTER: main row preserved with NaN lookup columns
+        assert len(out) == 1
+        assert out.iloc[0]["id"] == 1
+        assert pd.isna(out.iloc[0]["label"])
+
+    def test_reload_per_row_filter_globalmap_set(self):
+        """Bug 2: GlobalMap contains {main_name}.{col} keys after per-row loop.
+
+        After processing all main rows, globalMap should have entries
+        matching the last main row's values.
+        """
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
+        config["outputs"][0]["columns"] = [
+            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+            {"name": "key", "expression": "{{java}}row1.key", "type": "str", "nullable": True},
+            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+        ]
+        main_df = pd.DataFrame([
+            {"id": 1, "key": "A", "val": 100},
+            {"id": 2, "key": "B", "val": 200},
+            {"id": 3, "key": "C", "val": 300},
+        ])
+        gm = GlobalMap()
+        comp = _make_component(config=config, global_map=gm)
+        comp.execute(_make_input_dict(main_df=main_df))
+        # globalMap should have row1.{col} entries from the LAST main row
+        assert gm.get("row1.key") == "C"
+        assert gm.get("row1.id") == 3
+        assert gm.get("row1.val") == 300
+
+    # ------------------------------------------------------------------
+    # Bug 3 regression: type-aware key comparison
+    # ------------------------------------------------------------------
+
+    def test_reload_int_float_key_match(self):
+        """Bug 3: int(1) matches float(1.0) via _values_equal.
+
+        String comparison would fail: str(1) = "1" != str(1.0) = "1.0".
+        Type-aware comparison: float(1) == float(1.0) -> True.
+        """
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
+        config["inputs"]["lookups"][0]["join_keys"] = [{
+            "lookup_column": "key",
+            "expression": "{{java}}row1.key",
+            "type": "int",
+            "nullable": False,
+            "operator": "=",
+        }]
+        config["outputs"][0]["columns"] = [
+            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+        ]
+        main_df = pd.DataFrame({"id": [1, 2], "key": [1, 2], "val": [100, 200]})
+        # Force float dtype on lookup key
+        lookup_df = pd.DataFrame({"key": [1.0, 2.0], "label": ["Alpha", "Beta"]})
+        assert main_df["key"].dtype != lookup_df["key"].dtype  # int vs float
+        comp = _make_component(config=config)
+        result = comp.execute(_make_input_dict(main_df=main_df, lookup_df=lookup_df))
+        out = result["out1"]
+        assert len(out) == 2
+        r1 = out[out["id"] == 1]
+        assert r1.iloc[0]["label"] == "Alpha"
+        r2 = out[out["id"] == 2]
+        assert r2.iloc[0]["label"] == "Beta"
+
+    def test_reload_string_numeric_key_safe_cast(self):
+        """Review hardening: string "42" matches int 42 via safe numeric cast.
+
+        _values_equal tries float conversion when one side is string and
+        other is numeric.
+        """
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
+        config["inputs"]["lookups"][0]["join_keys"] = [{
+            "lookup_column": "key",
+            "expression": "{{java}}row1.key",
+            "type": "str",
+            "nullable": False,
+            "operator": "=",
+        }]
+        config["outputs"][0]["columns"] = [
+            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+        ]
+        main_df = pd.DataFrame({"id": [1], "key": ["42"], "val": [100]})
+        lookup_df = pd.DataFrame({"key": [42], "label": ["Answer"]})
+        comp = _make_component(config=config)
+        result = comp.execute(_make_input_dict(main_df=main_df, lookup_df=lookup_df))
+        out = result["out1"]
+        assert len(out) == 1
+        assert out.iloc[0]["label"] == "Answer"
+
+    def test_reload_mixed_type_multikey(self):
+        """Bug 3: Multi-column key with mixed types (int+str). Both must match."""
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
+        config["inputs"]["lookups"][0]["join_keys"] = [
+            {
+                "lookup_column": "dept_id",
+                "expression": "{{java}}row1.dept_id",
+                "type": "int",
+                "nullable": False,
+                "operator": "=",
+            },
+            {
+                "lookup_column": "region",
+                "expression": "{{java}}row1.region",
+                "type": "str",
+                "nullable": False,
+                "operator": "=",
+            },
+        ]
+        config["outputs"][0]["columns"] = [
+            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+            {"name": "dept_name", "expression": "{{java}}row2.dept_name", "type": "str", "nullable": True},
+        ]
+        main_df = pd.DataFrame({
+            "id": [1, 2],
+            "dept_id": [10, 20],
+            "region": ["US", "EU"],
+            "val": [100, 200],
+        })
+        lookup_df = pd.DataFrame({
+            "dept_id": [10.0, 20.0, 10.0],  # float to test int/float match
+            "region": ["US", "EU", "EU"],
+            "dept_name": ["Eng-US", "Sales-EU", "Eng-EU"],
+        })
+        comp = _make_component(config=config)
+        result = comp.execute(_make_input_dict(main_df=main_df, lookup_df=lookup_df))
+        out = result["out1"]
+        assert len(out) == 2
+        r1 = out[out["id"] == 1]
+        assert r1.iloc[0]["dept_name"] == "Eng-US"  # dept_id=10 + region=US
+        r2 = out[out["id"] == 2]
+        assert r2.iloc[0]["dept_name"] == "Sales-EU"  # dept_id=20 + region=EU
+
+    # ------------------------------------------------------------------
+    # Bug 4 regression: NaN-filled columns on unmatched rows
+    # ------------------------------------------------------------------
+
+    def test_reload_left_outer_unmatched_has_nan_columns(self):
+        """Bug 4: Unmatched rows have NaN lookup columns, not missing columns.
+
+        LEFT_OUTER_JOIN with unmatched rows must produce a DataFrame where
+        ALL rows (matched and unmatched) have the same column set. Lookup
+        columns on unmatched rows must be NaN.
+        """
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
+        config["inputs"]["lookups"][0]["join_mode"] = "LEFT_OUTER_JOIN"
+        config["outputs"][0]["columns"] = [
+            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+            {"name": "key", "expression": "{{java}}row1.key", "type": "str", "nullable": True},
+            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+        ]
+        main_df = pd.DataFrame([
+            {"id": 1, "key": "A", "val": 100},
+            {"id": 2, "key": "B", "val": 200},
+            {"id": 3, "key": "X", "val": 300},  # no match
+        ])
+        lookup_df = pd.DataFrame([
+            {"key": "A", "label": "Alpha"},
+            {"key": "B", "label": "Beta"},
+        ])
+        comp = _make_component(config=config)
+        result = comp.execute(_make_input_dict(main_df=main_df, lookup_df=lookup_df))
+        out = result["out1"]
+        assert len(out) == 3
+        # Unmatched row (key=X) should have NaN label, not missing column
+        x_row = out[out["id"] == 3]
+        assert len(x_row) == 1
+        assert pd.isna(x_row.iloc[0]["label"])
+        # Lookup columns present on all rows
+        assert "label" in out.columns
+
+    def test_reload_left_outer_column_order_consistent(self):
+        """Bug 4: All rows have identical column set regardless of match status.
+
+        Build a result with mixed matched/unmatched rows. The output
+        DataFrame must have consistent columns (no surprise or missing cols).
+        """
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
+        config["inputs"]["lookups"][0]["join_mode"] = "LEFT_OUTER_JOIN"
+        config["outputs"][0]["columns"] = [
+            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+            {"name": "key", "expression": "{{java}}row1.key", "type": "str", "nullable": True},
+            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+            {"name": "score", "expression": "{{java}}row2.score", "type": "int", "nullable": True},
+        ]
+        main_df = pd.DataFrame([
+            {"id": 1, "key": "A", "val": 100},
+            {"id": 2, "key": "X", "val": 200},  # no match
+            {"id": 3, "key": "B", "val": 300},
+            {"id": 4, "key": "Y", "val": 400},  # no match
+        ])
+        lookup_df = pd.DataFrame([
+            {"key": "A", "label": "Alpha", "score": 90},
+            {"key": "B", "label": "Beta", "score": 85},
+        ])
+        comp = _make_component(config=config)
+        result = comp.execute(_make_input_dict(main_df=main_df, lookup_df=lookup_df))
+        out = result["out1"]
+        assert len(out) == 4
+        # All rows should have identical columns
+        expected_cols = {"id", "key", "label", "score"}
+        assert set(out.columns) == expected_cols
+        # Verify NaN on unmatched rows
+        x_row = out[out["id"] == 2]
+        assert pd.isna(x_row.iloc[0]["label"])
+        assert pd.isna(x_row.iloc[0]["score"])
+
+    # ------------------------------------------------------------------
+    # Review hardening tests
+    # ------------------------------------------------------------------
+
+    def test_reload_per_row_filter_quoted_string_not_substituted(self):
+        """Review hardening: table.column inside quotes is NOT substituted.
+
+        Filter: row1.key == "row1.key" -- the quoted "row1.key" must remain
+        as a literal string, not be replaced with the actual key value.
+        After substitution: "A" == "row1.key" which is False for all rows.
+        """
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
+        config["inputs"]["lookups"][0]["activate_filter"] = True
+        config["inputs"]["lookups"][0]["filter"] = '{{java}}row1.key == "row1.key"'
+        config["inputs"]["lookups"][0]["join_mode"] = "LEFT_OUTER_JOIN"
+        config["outputs"][0]["columns"] = [
+            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+            {"name": "key", "expression": "{{java}}row1.key", "type": "str", "nullable": True},
+            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+        ]
+        main_df = pd.DataFrame([
+            {"id": 1, "key": "A", "val": 100},
+        ])
+        lookup_df = pd.DataFrame([
+            {"key": "A", "label": "Alpha"},
+        ])
+
+        class _MockBridgeQuoteTest:
+            """Mock bridge that evaluates == comparisons for quoted test."""
+            def execute_tmap_preprocessing(self, df, expressions, main_table_name,
+                                           lookup_table_names=None, schema=None):
+                results = {}
+                for expr_id, expr_str in expressions.items():
+                    if "==" in expr_str:
+                        parts = expr_str.split("==")
+                        left = parts[0].strip().strip('"').strip("'")
+                        right = parts[1].strip().strip('"').strip("'")
+                        # Both should be literal strings after substitution
+                        # "A" == "row1.key" -> "A" != "row1.key" -> False
+                        results[expr_id] = np.array([left == right] * len(df))
+                    else:
+                        results[expr_id] = np.array([True] * len(df))
+                return results
+
+        comp = _make_component(config=config, java_bridge=_MockBridgeQuoteTest())
+        result = comp.execute(_make_input_dict(main_df=main_df, lookup_df=lookup_df))
+        out = result["out1"]
+        # Filter "A" == "row1.key" is False (quote-aware: inner "row1.key" NOT
+        # substituted). LEFT_OUTER: row 1 appears with NaN label.
+        assert len(out) == 1
+        assert pd.isna(out.iloc[0]["label"])
+
+    def test_reload_per_row_filter_null_main_value_no_crash(self):
+        """Review hardening: NaN main value in filter does not crash.
+
+        When a main row has NaN in the column referenced by the filter,
+        _substitute_row_refs replaces it with 'None'. The downstream
+        evaluation may raise TypeError. _apply_filter_per_row catches it
+        and returns empty DataFrame (no match).
+        """
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
+        config["inputs"]["lookups"][0]["activate_filter"] = True
+        config["inputs"]["lookups"][0]["filter"] = "{{java}}row1.threshold > row2.score"
+        config["inputs"]["lookups"][0]["join_keys"] = [{
+            "lookup_column": "key",
+            "expression": "{{java}}row1.key",
+            "type": "str",
+            "nullable": False,
+            "operator": "=",
+        }]
+        config["inputs"]["lookups"][0]["join_mode"] = "LEFT_OUTER_JOIN"
+        config["outputs"][0]["columns"] = [
+            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+        ]
+        main_df = pd.DataFrame({
+            "id": [1, 2],
+            "key": ["A", "B"],
+            "threshold": [50.0, np.nan],  # Row 2 has NaN threshold
+            "val": [100, 200],
+        })
+        lookup_df = pd.DataFrame([
+            {"key": "A", "label": "Alpha", "score": 30},
+            {"key": "B", "label": "Beta", "score": 30},
+        ])
+
+        class _MockBridgeNullSafe:
+            """Mock bridge that handles None in expressions."""
+            def execute_tmap_preprocessing(self, df, expressions, main_table_name,
+                                           lookup_table_names=None, schema=None):
+                results = {}
+                for expr_id, expr_str in expressions.items():
+                    if "None" in expr_str:
+                        # None > anything raises TypeError -- simulate it
+                        raise TypeError("'>' not supported between NoneType and int")
+                    if ">" in expr_str:
+                        parts = expr_str.split(">")
+                        left_val = parts[0].strip()
+                        right_col = parts[1].strip()
+                        try:
+                            left_num = float(left_val)
+                        except ValueError:
+                            results[expr_id] = np.array([False] * len(df))
+                            continue
+                        col_name = None
+                        for c in df.columns:
+                            if right_col.endswith(c) or right_col == c:
+                                col_name = c
+                                break
+                        if col_name:
+                            results[expr_id] = (left_num > df[col_name].astype(float)).values
+                        else:
+                            results[expr_id] = np.array([False] * len(df))
+                    else:
+                        results[expr_id] = np.array([True] * len(df))
+                return results
+
+        comp = _make_component(config=config, java_bridge=_MockBridgeNullSafe())
+        # This should NOT raise -- _apply_filter_per_row catches TypeError
+        result = comp.execute(_make_input_dict(main_df=main_df, lookup_df=lookup_df))
+        out = result["out1"]
+        # Row 1 (threshold=50, key=A): 50 > 30 -> True, Alpha matches
+        r1 = out[out["id"] == 1]
+        assert len(r1) == 1
+        assert r1.iloc[0]["label"] == "Alpha"
+        # Row 2 (threshold=NaN): null substituted -> TypeError caught -> no match
+        # LEFT_OUTER: appears with NaN label
+        r2 = out[out["id"] == 2]
+        assert len(r2) == 1
+        assert pd.isna(r2.iloc[0]["label"])
+
+    # ------------------------------------------------------------------
+    # Edge cases
+    # ------------------------------------------------------------------
+
+    def test_reload_all_matches_mode(self):
+        """Edge case: RELOAD_AT_EACH_ROW with ALL_MATCHES.
+
+        A main row can match multiple lookup rows. ALL_MATCHES does not
+        break after first match.
+        """
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
+        config["inputs"]["lookups"][0]["matching_mode"] = "ALL_MATCHES"
+        config["inputs"]["lookups"][0]["join_keys"] = [{
+            "lookup_column": "dept",
+            "expression": "{{java}}row1.dept",
+            "type": "str",
+            "nullable": False,
+            "operator": "=",
+        }]
+        config["inputs"]["lookups"][0]["join_mode"] = "LEFT_OUTER_JOIN"
+        config["outputs"][0]["columns"] = [
+            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+        ]
+        main_df = pd.DataFrame([
+            {"id": 1, "dept": "Eng", "val": 100},
+        ])
+        lookup_df = pd.DataFrame([
+            {"dept": "Eng", "label": "Senior"},
+            {"dept": "Eng", "label": "Junior"},
+            {"dept": "Sales", "label": "Manager"},
+        ])
+        comp = _make_component(config=config)
+        result = comp.execute(_make_input_dict(main_df=main_df, lookup_df=lookup_df))
+        out = result["out1"]
+        # Main row 1 should match both Eng lookups
+        assert len(out) == 2
+        labels = sorted(out["label"].tolist())
+        assert labels == ["Junior", "Senior"]
+
+    def test_reload_per_row_filter_string_with_quotes(self):
+        """Edge case: Main row value contains double quote character.
+
+        _substitute_row_refs should escape it correctly so the filter
+        expression remains valid.
+        """
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
+        config["inputs"]["lookups"][0]["activate_filter"] = True
+        config["inputs"]["lookups"][0]["filter"] = "{{java}}row1.name == row2.name"
+        config["inputs"]["lookups"][0]["join_keys"] = [{
+            "lookup_column": "key",
+            "expression": "{{java}}row1.key",
+            "type": "str",
+            "nullable": False,
+            "operator": "=",
+        }]
+        config["inputs"]["lookups"][0]["join_mode"] = "LEFT_OUTER_JOIN"
+        config["outputs"][0]["columns"] = [
+            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+        ]
+        # Main row value has a double-quote character
+        main_df = pd.DataFrame([
+            {"id": 1, "key": "A", "name": 'O"Brien', "val": 100},
+        ])
+        lookup_df = pd.DataFrame([
+            {"key": "A", "label": "Alpha", "name": 'O"Brien'},
+        ])
+
+        class _MockBridgeEscapeTest:
+            """Mock bridge that evaluates escaped string comparisons."""
+            def execute_tmap_preprocessing(self, df, expressions, main_table_name,
+                                           lookup_table_names=None, schema=None):
+                results = {}
+                for expr_id, expr_str in expressions.items():
+                    if "==" in expr_str:
+                        # After substitution: "O\"Brien" == row2.name
+                        # The mock evaluates by parsing left side as a Python literal
+                        parts = expr_str.split("==", 1)
+                        left_raw = parts[0].strip()
+                        right = parts[1].strip()
+                        # Try to eval left as a Python string literal
+                        try:
+                            left_val = eval(left_raw)  # noqa: S307 -- test only
+                        except Exception:
+                            results[expr_id] = np.array([False] * len(df))
+                            continue
+                        col_name = None
+                        for c in df.columns:
+                            if right.endswith(c) or right == c:
+                                col_name = c
+                                break
+                        if col_name:
+                            results[expr_id] = (df[col_name].astype(str) == str(left_val)).values
+                        else:
+                            results[expr_id] = np.array([False] * len(df))
+                    else:
+                        results[expr_id] = np.array([True] * len(df))
+                return results
+
+        comp = _make_component(config=config, java_bridge=_MockBridgeEscapeTest())
+        result = comp.execute(_make_input_dict(main_df=main_df, lookup_df=lookup_df))
+        out = result["out1"]
+        # Filter should match: O"Brien == O"Brien
+        r1 = out[out["id"] == 1]
+        assert len(r1) == 1
+        assert r1.iloc[0]["label"] == "Alpha"
+
 
 @pytest.mark.unit
 class TestGlobalMapVariables:
