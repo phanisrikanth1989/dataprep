@@ -47,12 +47,12 @@ _FUNCTION_MAP: Dict[str, str] = {
     "first": "first",
     "last": "last",
     "list": "list",
-    "list_object": "list",              # engine has no list_object -- map to list
+    "list_object": "list_object",       # preserved -- engine implements as delimited string
     "distinct": "count_distinct",       # CONV-AGG-001: Talend distinct = count distinct
     "count_distinct": "count_distinct",
     "std_dev": "std",                   # CONV-AGG-002: Talend XML name -> engine std
     "standard_deviation": "std",        # alias -> engine std
-    "population_std_dev": "std",        # lossy: population (ddof=0) -> sample (ddof=1)
+    "population_std_dev": "population_std_dev",  # preserved -- engine handles ddof=0
     "union": "union",                   # passthrough -- no engine support
     "variance": "variance",
     "median": "median",
@@ -70,15 +70,9 @@ def _normalise_function(raw: str, warnings: Optional[List[str]] = None) -> str:
 
     if warnings is not None:
         if lowered == "list_object":
-            warnings.append(
-                "function 'list_object' mapped to 'list' -- "
-                "object references are not preserved"
-            )
+            pass  # no warning needed -- engine implements list_object as delimited string
         elif lowered == "population_std_dev":
-            warnings.append(
-                "function 'population_std_dev' mapped to 'std' (sample std) -- "
-                "population std (ddof=0) differs from sample std (ddof=1)"
-            )
+            pass  # no warning needed -- engine handles population_std_dev directly
         elif lowered == "union":
             warnings.append(
                 "function 'union' has no engine equivalent -- "
