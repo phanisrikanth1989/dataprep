@@ -1,13 +1,16 @@
-"""Full pipeline integration test: tFileInputDelimited → tMap → tFileOutputDelimited.
+"""Full pipeline integration test: tFileInputDelimited -> tMap -> tFileOutputDelimited.
 
 Validates that the three core Talend components work together through the
 actual engine execution loop (ExecutionPlan, OutputRouter, Executor).
 
-No Java bridge needed -- uses simple column reference joins (pandas path).
+TestFullPipeline: No Java bridge needed -- uses simple column reference joins (pandas path).
+TestTMapJavaExpressionPipeline: Requires live JVM -- tests compiled Groovy expressions
+    (string concat, ternary, cross-table lookups) through the real Java bridge.
 """
 import json
 import logging
 import os
+from pathlib import Path
 import tempfile
 
 import pandas as pd
@@ -497,6 +500,359 @@ class TestFullPipeline:
         print(f"\nRejected: {len(rejected)} rows")
         print(rejected.to_string(index=False))
         print("=============================================\n")
+
+
+@pytest.mark.java
+@pytest.mark.integration
+class TestTMapJavaExpressionPipeline:
+    """End-to-end pipeline with Java expressions through real JVM bridge.
+
+    Verifies the extractTypedValue fix (Phase 5.1) by running a complete
+    pipeline: CSV read -> tMap with compiled Groovy expressions -> CSV write.
+
+    Expressions tested:
+      - String concatenation: row1.first_name + " " + row1.last_name
+      - Ternary conditional: row1.salary >= 75000 ? "Senior" : "Junior"
+      - Cross-table lookups: countries.country_name, countries.region
+      - Simple column ref: row1.department, row1.salary
+
+    Uses fixture CSVs at tests/v1/engine/fixtures/pipeline/:
+      - employees.csv (7 rows, semicolon-delimited)
+      - country_lookup.csv (8 rows, semicolon-delimited)
+    """
+
+    FIXTURES_DIR = Path(__file__).parent / "fixtures" / "pipeline"
+
+    def _build_java_pipeline_config(self, employees_path, lookup_path, output_path):
+        """Build a job config for tMap with Java expressions.
+
+        Pipeline:
+            tFileInputDelimited_1 (employees.csv, ";") -> row1
+            tFileInputDelimited_2 (country_lookup.csv, ";") -> countries
+            tMap_1:
+              main: row1
+              lookup: countries (LEFT_OUTER_JOIN on country_code)
+              out1 columns:
+                full_name = row1.first_name + " " + row1.last_name  (string concat)
+                department = row1.department  (simple ref)
+                salary = row1.salary  (numeric passthrough)
+                country_name = countries.country_name  (cross-table)
+                region = countries.region  (cross-table)
+                salary_grade = row1.salary >= 75000 ? "Senior" : "Junior"  (ternary)
+            tFileOutputDelimited_1 (output.csv, ",")
+        """
+        return {
+            "job_name": "test_java_expression_pipeline",
+            "java_config": {"enabled": True, "routines": []},
+            "context": {},
+            "components": [
+                {
+                    "id": "tFileInputDelimited_1",
+                    "type": "tFileInputDelimited",
+                    "config": {
+                        "filepath": employees_path,
+                        "fieldseparator": ";",
+                        "encoding": "UTF-8",
+                        "header_rows": 1,
+                        "footer_rows": 0,
+                        "limit": 0,
+                        "remove_empty_row": True,
+                        "csv_option": False,
+                        "die_on_error": True,
+                        "check_fields_num": False,
+                        "check_date": False,
+                        "schema": [
+                            {"name": "id", "type": "int", "nullable": False},
+                            {"name": "first_name", "type": "str", "nullable": False},
+                            {"name": "last_name", "type": "str", "nullable": False},
+                            {"name": "department", "type": "str", "nullable": False},
+                            {"name": "salary", "type": "float", "nullable": False},
+                            {"name": "country_code", "type": "str", "nullable": False},
+                        ],
+                    },
+                    "inputs": [],
+                    "outputs": ["row1"],
+                    "schema": {
+                        "output": [
+                            {"name": "id", "type": "int", "nullable": False},
+                            {"name": "first_name", "type": "str", "nullable": False},
+                            {"name": "last_name", "type": "str", "nullable": False},
+                            {"name": "department", "type": "str", "nullable": False},
+                            {"name": "salary", "type": "float", "nullable": False},
+                            {"name": "country_code", "type": "str", "nullable": False},
+                        ],
+                    },
+                    "subjob_id": "subjob_1",
+                    "is_subjob_start": True,
+                },
+                {
+                    "id": "tFileInputDelimited_2",
+                    "type": "tFileInputDelimited",
+                    "config": {
+                        "filepath": lookup_path,
+                        "fieldseparator": ";",
+                        "encoding": "UTF-8",
+                        "header_rows": 1,
+                        "footer_rows": 0,
+                        "limit": 0,
+                        "remove_empty_row": True,
+                        "csv_option": False,
+                        "die_on_error": True,
+                        "check_fields_num": False,
+                        "check_date": False,
+                        "schema": [
+                            {"name": "country_code", "type": "str", "nullable": False},
+                            {"name": "country_name", "type": "str", "nullable": False},
+                            {"name": "region", "type": "str", "nullable": False},
+                        ],
+                    },
+                    "inputs": [],
+                    "outputs": ["countries"],
+                    "schema": {
+                        "output": [
+                            {"name": "country_code", "type": "str", "nullable": False},
+                            {"name": "country_name", "type": "str", "nullable": False},
+                            {"name": "region", "type": "str", "nullable": False},
+                        ],
+                    },
+                    "subjob_id": "subjob_1",
+                    "is_subjob_start": False,
+                },
+                {
+                    "id": "tMap_1",
+                    "type": "tMap",
+                    "config": {
+                        "inputs": {
+                            "main": {
+                                "name": "row1",
+                                "filter": "",
+                                "activate_filter": False,
+                                "matching_mode": "UNIQUE_MATCH",
+                                "lookup_mode": "LOAD_ONCE",
+                            },
+                            "lookups": [
+                                {
+                                    "name": "countries",
+                                    "matching_mode": "UNIQUE_MATCH",
+                                    "lookup_mode": "LOAD_ONCE",
+                                    "filter": "",
+                                    "activate_filter": False,
+                                    "join_keys": [
+                                        {
+                                            "lookup_column": "country_code",
+                                            "expression": "{{java}}row1.country_code",
+                                            "type": "str",
+                                            "nullable": False,
+                                        }
+                                    ],
+                                    "join_mode": "LEFT_OUTER_JOIN",
+                                }
+                            ],
+                        },
+                        "variables": [],
+                        "outputs": [
+                            {
+                                "name": "out1",
+                                "is_reject": False,
+                                "inner_join_reject": False,
+                                "filter": "",
+                                "activate_filter": False,
+                                "catch_output_reject": False,
+                                "columns": [
+                                    {
+                                        "name": "full_name",
+                                        "expression": '{{java}}row1.first_name + " " + row1.last_name',
+                                        "type": "str",
+                                        "nullable": False,
+                                    },
+                                    {
+                                        "name": "department",
+                                        "expression": "{{java}}row1.department",
+                                        "type": "str",
+                                        "nullable": False,
+                                    },
+                                    {
+                                        "name": "salary",
+                                        "expression": "{{java}}row1.salary",
+                                        "type": "float",
+                                        "nullable": False,
+                                    },
+                                    {
+                                        "name": "country_name",
+                                        "expression": "{{java}}countries.country_name",
+                                        "type": "str",
+                                        "nullable": True,
+                                    },
+                                    {
+                                        "name": "region",
+                                        "expression": "{{java}}countries.region",
+                                        "type": "str",
+                                        "nullable": True,
+                                    },
+                                    {
+                                        "name": "salary_grade",
+                                        "expression": '{{java}}row1.salary >= 75000 ? "Senior" : "Junior"',
+                                        "type": "str",
+                                        "nullable": False,
+                                    },
+                                ],
+                            }
+                        ],
+                        "die_on_error": True,
+                    },
+                    "inputs": ["row1", "countries"],
+                    "outputs": ["out1"],
+                    "schema": {},
+                    "subjob_id": "subjob_1",
+                    "is_subjob_start": False,
+                },
+                {
+                    "id": "tFileOutputDelimited_1",
+                    "type": "tFileOutputDelimited",
+                    "config": {
+                        "filepath": output_path,
+                        "fieldseparator": ",",
+                        "encoding": "UTF-8",
+                        "include_header": True,
+                        "append": False,
+                        "csv_option": False,
+                        "die_on_error": True,
+                        "create_directory": True,
+                        "file_exist_exception": False,
+                        "schema": [
+                            {"name": "full_name", "type": "str", "nullable": False},
+                            {"name": "department", "type": "str", "nullable": False},
+                            {"name": "salary", "type": "float", "nullable": False},
+                            {"name": "country_name", "type": "str", "nullable": True},
+                            {"name": "region", "type": "str", "nullable": True},
+                            {"name": "salary_grade", "type": "str", "nullable": False},
+                        ],
+                    },
+                    "inputs": ["out1"],
+                    "outputs": [],
+                    "schema": {
+                        "output": [
+                            {"name": "full_name", "type": "str", "nullable": False},
+                            {"name": "department", "type": "str", "nullable": False},
+                            {"name": "salary", "type": "float", "nullable": False},
+                            {"name": "country_name", "type": "str", "nullable": True},
+                            {"name": "region", "type": "str", "nullable": True},
+                            {"name": "salary_grade", "type": "str", "nullable": False},
+                        ],
+                    },
+                    "subjob_id": "subjob_1",
+                    "is_subjob_start": False,
+                },
+            ],
+            "flows": [
+                {"name": "row1", "from": "tFileInputDelimited_1", "to": "tMap_1", "type": "flow"},
+                {"name": "countries", "from": "tFileInputDelimited_2", "to": "tMap_1", "type": "flow"},
+                {"name": "out1", "from": "tMap_1", "to": "tFileOutputDelimited_1", "type": "flow"},
+            ],
+            "triggers": [],
+            "subjobs": {
+                "subjob_1": [
+                    "tFileInputDelimited_1",
+                    "tFileInputDelimited_2",
+                    "tMap_1",
+                    "tFileOutputDelimited_1",
+                ],
+            },
+        }
+
+    def test_java_expression_pipeline(self, tmp_path):
+        """Full pipeline: employees + countries -> tMap with Java expressions -> enriched CSV.
+
+        Validates D-07: real pipeline with string concat, ternary, and cross-table
+        lookups through the live JVM bridge with compiled Groovy scripts.
+        """
+        employees_csv = str(self.FIXTURES_DIR / "employees.csv")
+        lookup_csv = str(self.FIXTURES_DIR / "country_lookup.csv")
+        output_csv = tmp_path / "output" / "enriched_employees.csv"
+
+        config = self._build_java_pipeline_config(
+            employees_csv, lookup_csv, str(output_csv)
+        )
+        engine = ETLEngine(config)
+        stats = engine.execute()
+
+        # Verify execution succeeded
+        assert stats.get("status") != "error", f"Job failed: {stats.get('error')}"
+        assert output_csv.exists(), "Output file not created"
+
+        # Read output
+        result = pd.read_csv(str(output_csv))
+        logger.info(f"Java expression pipeline output:\n{result.to_string()}")
+
+        # -- Row count: all 7 employees (LEFT_OUTER_JOIN keeps all) --
+        assert len(result) == 7, f"Expected 7 rows, got {len(result)}"
+
+        # -- Column check --
+        expected_cols = {"full_name", "department", "salary", "country_name", "region", "salary_grade"}
+        assert set(result.columns) == expected_cols, f"Columns: {list(result.columns)}"
+
+        # -- String concatenation (THE BUG that Phase 5.1 fixes) --
+        full_names = result["full_name"].tolist()
+        expected_names = [
+            "John Smith", "Jane Doe", "Pierre Dupont", "Hans Mueller",
+            "Maria Garcia", "Yuki Tanaka", "Li Wei",
+        ]
+        assert sorted(full_names) == sorted(expected_names), (
+            f"String concat failed. Expected {expected_names}, got {full_names}"
+        )
+
+        # -- Ternary conditional (THE BUG that Phase 5.1 fixes) --
+        # Senior: salary >= 75000 -> John(85000), Pierre(90000), Maria(78000), Li(95000)
+        # Junior: salary < 75000  -> Jane(65000), Hans(55000), Yuki(72000)
+        grades = dict(zip(result["full_name"], result["salary_grade"]))
+        assert grades["John Smith"] == "Senior", f"John should be Senior, got {grades['John Smith']}"
+        assert grades["Jane Doe"] == "Junior", f"Jane should be Junior, got {grades['Jane Doe']}"
+        assert grades["Pierre Dupont"] == "Senior", f"Pierre should be Senior, got {grades['Pierre Dupont']}"
+        assert grades["Hans Mueller"] == "Junior", f"Hans should be Junior, got {grades['Hans Mueller']}"
+        assert grades["Maria Garcia"] == "Senior", f"Maria should be Senior, got {grades['Maria Garcia']}"
+        assert grades["Yuki Tanaka"] == "Junior", f"Yuki should be Junior, got {grades['Yuki Tanaka']}"
+        assert grades["Li Wei"] == "Senior", f"Li should be Senior, got {grades['Li Wei']}"
+
+        # -- Cross-table lookups (country_name and region from lookup table) --
+        countries = dict(zip(result["full_name"], result["country_name"]))
+        assert countries["John Smith"] == "United States"
+        assert countries["Jane Doe"] == "United Kingdom"
+        assert countries["Pierre Dupont"] == "France"
+        assert countries["Hans Mueller"] == "Germany"
+        assert countries["Maria Garcia"] == "Spain"
+        assert countries["Yuki Tanaka"] == "Japan"
+        assert countries["Li Wei"] == "China"
+
+        regions = dict(zip(result["full_name"], result["region"]))
+        assert regions["John Smith"] == "Americas"
+        assert regions["Jane Doe"] == "Europe"
+        assert regions["Pierre Dupont"] == "Europe"
+        assert regions["Hans Mueller"] == "Europe"
+        assert regions["Maria Garcia"] == "Europe"
+        assert regions["Yuki Tanaka"] == "Asia"
+        assert regions["Li Wei"] == "Asia"
+
+        # -- Department passthrough --
+        depts = dict(zip(result["full_name"], result["department"]))
+        assert depts["John Smith"] == "Engineering"
+        assert depts["Jane Doe"] == "Marketing"
+        assert depts["Li Wei"] == "Sales"
+
+        # -- Salary numeric passthrough --
+        salaries = dict(zip(result["full_name"], result["salary"]))
+        assert salaries["John Smith"] == 85000.0
+        assert salaries["Jane Doe"] == 65000.0
+        assert salaries["Li Wei"] == 95000.0
+
+        print("\n=== JAVA EXPRESSION PIPELINE SUCCESS ===")
+        print(f"Employees read: 7 (semicolon-delimited)")
+        print(f"Countries read: 8 (semicolon-delimited)")
+        print(f"Enriched output: {len(result)} rows")
+        print(f"String concat: {len([n for n in full_names if ' ' in n])}/7 have spaces")
+        print(f"Ternary: {len([g for g in grades.values() if g == 'Senior'])} Senior, "
+              f"{len([g for g in grades.values() if g == 'Junior'])} Junior")
+        print(result.to_string(index=False))
+        print("=========================================\n")
 
 
 if __name__ == "__main__":
