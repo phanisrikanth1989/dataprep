@@ -154,6 +154,11 @@ class FileOutputDelimited(BaseComponent):
                 f"Set file_exist_exception=false or append=true to allow writing."
             )
 
+        # ---- Validate input against output schema ----
+        output_schema = getattr(self, "output_schema", None)
+        if input_data is not None and not input_data.empty and output_schema:
+            input_data = self.validate_schema(input_data, output_schema)
+
         # ---- Handle empty input ----
         if input_data is None or input_data.empty:
             return self._handle_empty_input(
