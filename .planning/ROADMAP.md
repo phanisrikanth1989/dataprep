@@ -113,6 +113,21 @@ Plans:
 - [x] 05-02-PLAN.md -- Exhaustive unit test suite (60-100 tests)
 - [x] 05-03-PLAN.md -- Converter update for MAP-06 + integration tests
 
+### Phase 05.1: Java Bridge tMap Fix (INSERTED)
+
+**Goal**: Fix the Java bridge compiled script execution for tMap. Phase 2's rewrite broke RowWrapper Arrow type conversion (returns raw Arrow Text objects instead of Java Strings) and removed the 3-arg constructor that compiled tMap scripts depended on. Restore proper type-specific extraction, ensure compiled scripts work with correct Java types, verify with real .item file pipeline.
+**Depends on**: Phase 5
+**Requirements**: BRDG-06
+**Success Criteria** (what must be TRUE):
+  1. buildArrowRowWrapper (or RowWrapper constructor) converts Arrow VarChar to Java String, IntVector to int, Float8Vector to double, etc. -- not raw Arrow objects
+  2. Compiled tMap scripts can create RowWrappers per row and access column values with correct Java types (string concat, comparisons, ternary all work)
+  3. Real .item file pipeline (Job_tMap_0.1 with employees + country lookup) runs end-to-end: read CSV -> tMap join with Java expressions (string concat, ternary conditional) -> write CSV
+  4. All 86 existing tMap unit tests + 11 integration tests still pass
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 05.1 to break down)
+
 ### Phase 6: Transform Group A -- Aggregation, Sort, Filter
 **Goal**: The three most complex transform components (tAggregateRow, tSortRow, tFilterRow) produce correct results matching Talend behavior, with all P0/P1 bugs fixed and full operator/function support
 **Depends on**: Phase 3

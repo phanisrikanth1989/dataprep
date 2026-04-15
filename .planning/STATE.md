@@ -69,6 +69,10 @@ Recent decisions affecting current work:
 - Transform components split: Group A (complex bugs) in Phase 6, Group B (lighter/Green) in Phase 7
 - 30% of jobs need iterate support -- Phase 10 is high priority after execution loop
 
+### Roadmap Evolution
+
+- Phase 05.1 inserted after Phase 5: Java Bridge tMap Fix (URGENT) -- Phase 2 rewrite broke RowWrapper Arrow type conversion and compiled tMap script execution. Must fix before Phase 6+.
+
 ### Pending Todos
 
 None yet.
