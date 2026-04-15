@@ -254,13 +254,13 @@ class TestFullPipeline:
         gm = stats.get("global_map", {})
         logger.info(f"GlobalMap stats: {gm}")
 
-        print("\n=== PIPELINE SUCCESS ===")
-        print(f"Orders read: 5")
-        print(f"Customers read: 3")
-        print(f"Enriched output: {len(result)} rows")
-        print(f"Output file: {output_csv}")
-        print(result.to_string(index=False))
-        print("========================\n")
+        logger.info("=== PIPELINE SUCCESS ===")
+        logger.info("Orders read: 5")
+        logger.info("Customers read: 3")
+        logger.info(f"Enriched output: {len(result)} rows")
+        logger.info(f"Output file: {output_csv}")
+        logger.info(result.to_string(index=False))
+        logger.info("========================")
 
     def test_inner_join_with_reject(self, tmp_path):
         """Pipeline with inner join -- unmatched orders route to reject."""
@@ -491,12 +491,12 @@ class TestFullPipeline:
         assert rejected.iloc[0]["order_id"] == 3
         assert rejected.iloc[0]["customer_id"] == 999
 
-        print("\n=== INNER JOIN + REJECT PIPELINE SUCCESS ===")
-        print(f"Matched: {len(matched)} rows")
-        print(matched.to_string(index=False))
-        print(f"\nRejected: {len(rejected)} rows")
-        print(rejected.to_string(index=False))
-        print("=============================================\n")
+        logger.info("=== INNER JOIN + REJECT PIPELINE SUCCESS ===")
+        logger.info(f"Matched: {len(matched)} rows")
+        logger.info(matched.to_string(index=False))
+        logger.info(f"Rejected: {len(rejected)} rows")
+        logger.info(rejected.to_string(index=False))
+        logger.info("=============================================")
 
 
 @pytest.mark.java
@@ -841,15 +841,15 @@ class TestTMapJavaExpressionPipeline:
         assert salaries["Jane Doe"] == 65000.0
         assert salaries["Li Wei"] == 95000.0
 
-        print("\n=== JAVA EXPRESSION PIPELINE SUCCESS ===")
-        print(f"Employees read: 7 (semicolon-delimited)")
-        print(f"Countries read: 8 (semicolon-delimited)")
-        print(f"Enriched output: {len(result)} rows")
-        print(f"String concat: {len([n for n in full_names if ' ' in n])}/7 have spaces")
-        print(f"Ternary: {len([g for g in grades.values() if g == 'Senior'])} Senior, "
-              f"{len([g for g in grades.values() if g == 'Junior'])} Junior")
-        print(result.to_string(index=False))
-        print("=========================================\n")
+        logger.info("=== JAVA EXPRESSION PIPELINE SUCCESS ===")
+        logger.info("Employees read: 7 (semicolon-delimited)")
+        logger.info("Countries read: 8 (semicolon-delimited)")
+        logger.info(f"Enriched output: {len(result)} rows")
+        logger.info(f"String concat: {len([n for n in full_names if ' ' in n])}/7 have spaces")
+        logger.info(f"Ternary: {len([g for g in grades.values() if g == 'Senior'])} Senior, "
+                     f"{len([g for g in grades.values() if g == 'Junior'])} Junior")
+        logger.info(result.to_string(index=False))
+        logger.info("=========================================")
 
 
 if __name__ == "__main__":
