@@ -382,7 +382,8 @@ public class JavaBridge {
                     Script compiled = compileShell.parse(expression);
                     compiledExprClasses.put(exprId, compiled.getClass());
                 } catch (Exception e) {
-                    logger.severe("[JavaBridge] Error compiling expression '" + exprId + "': " + e.getMessage());
+                    logger.warning("[JavaBridge] Failed to compile expression '" + exprId
+                            + "' -- all rows will return null: " + e.getMessage());
                 }
             }
 
