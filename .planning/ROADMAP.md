@@ -153,10 +153,15 @@ Plans:
 **Requirements**: AGGR-01, AGGR-02, AGGR-03, AGGR-04, AGGR-05, AGGR-06, AGGR-07, AGGR-08, AGGR-09, SORT-01, SORT-02, SORT-03, SORT-04, SORT-05, FROW-01, FROW-02, FROW-03, FROW-04, FROW-05, FROW-06, FROW-07, TEST-08
 **Success Criteria** (what must be TRUE):
   1. tAggregateRow correctly groups data, applies all aggregation functions (including list_object, union, population_std_dev), respects ignore_null and output_column config, and handles Decimal types correctly
-  2. tFilterRow uses AST-based expression parsing (no eval()), supports all 14+ Talend operators and FUNCTION pre-transforms (LOWER, UPPER, LENGTH, TRIM), and handles string coercion correctly
-  3. tSortRow distinguishes numeric/alphabetic/date sort types, external sort works correctly for large datasets, and streaming mode does not defeat the purpose by loading all data
+  2. tFilterRow uses operator-function map (no eval()), supports all 14+ Talend operators and FUNCTION pre-transforms (LOWER, UPPER, LENGTH, TRIM, LTRIM, RTRIM, LEFT, RIGHT), and handles type-aware comparison correctly
+  3. tSortRow distinguishes numeric/alphabetic/date sort types via pandas sort_values(key=), simplified to batch-only sort
   4. Engine unit tests pass for tAggregateRow, tSortRow, and tFilterRow covering all implemented features
-**Plans**: TBD
+**Plans:** 4 plans
+Plans:
+- [ ] 06-01-PLAN.md -- AggregateRow rewrite (converter fix + engine component)
+- [ ] 06-02-PLAN.md -- SortRow rewrite
+- [ ] 06-03-PLAN.md -- FilterRows rewrite
+- [ ] 06-04-PLAN.md -- Combined test suites for all three components
 
 ### Phase 7: Transform Group B -- Column, Join, Unite
 **Goal**: tFilterColumns, tJoin, and tUnite produce correct results -- tFilterColumns and tUnite (already functionally Green) get test coverage, and tJoin gets targeted bug fixes for case-insensitive joins, reject output, and null semantics
@@ -238,7 +243,7 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 5. tMap Component | 0/3 | Planning complete | - |
 | 5.1. Java Bridge tMap Fix | 0/2 | Planning complete | - |
 | 5.2. tMap RELOAD_AT_EACH_ROW Fix | 0/2 | Planning complete | - |
-| 6. Transform Group A -- Aggregation, Sort, Filter | 0/TBD | Not started | - |
+| 6. Transform Group A -- Aggregation, Sort, Filter | 0/4 | Planning complete | - |
 | 7. Transform Group B -- Column, Join, Unite | 0/TBD | Not started | - |
 | 8. Code Components | 0/TBD | Not started | - |
 | 9. tContextLoad & Routines | 0/TBD | Not started | - |
