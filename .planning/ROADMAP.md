@@ -171,7 +171,10 @@ Plans:
   1. tJoin performs case-insensitive joins without corrupting original data, correctly computes reject output, supports INCLUDE_LOOKUP toggle, and null keys never match
   2. tFilterColumns and tUnite have engine unit tests confirming their existing Green functionality works correctly with the restructured engine
   3. All three components set appropriate globalMap variables and handle edge cases (empty inputs, mismatched schemas)
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 07-01-PLAN.md -- tJoin full rewrite (8 bugs, reject_schema engine fix)
+- [ ] 07-02-PLAN.md -- FilterColumns + Unite rewrites + all tests (Join, FilterColumns, Unite)
 
 ### Phase 8: Code Components
 **Goal**: tJava, tJavaRow, python_component, and python_row_component all execute code with correct Talend semantics, proper import support, and secure execution
@@ -244,7 +247,7 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 5.1. Java Bridge tMap Fix | 0/2 | Planning complete | - |
 | 5.2. tMap RELOAD_AT_EACH_ROW Fix | 0/2 | Planning complete | - |
 | 6. Transform Group A -- Aggregation, Sort, Filter | 0/4 | Planning complete | - |
-| 7. Transform Group B -- Column, Join, Unite | 0/TBD | Not started | - |
+| 7. Transform Group B -- Column, Join, Unite | 0/2 | Planning complete | - |
 | 8. Code Components | 0/TBD | Not started | - |
 | 9. tContextLoad & Routines | 0/TBD | Not started | - |
 | 10. Iterate Support | 0/TBD | Not started | - |
