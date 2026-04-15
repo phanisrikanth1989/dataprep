@@ -532,3 +532,201 @@ class TestLifecycle:
         # Second stop should be a no-op
         b.stop()
         assert b._started is False
+
+
+# ------------------------------------------------------------------
+# TestTMapCompiledExpressions (Phase 5.1 -- Arrow type extraction fix)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.java
+@pytest.mark.integration
+class TestTMapCompiledExpressions:
+    """Test compiled tMap scripts with expressions that require proper Java types.
+
+    These tests exercise the extractTypedValue fix in JavaBridge.buildArrowRowWrapper().
+    Before the fix, VarChar columns returned Arrow Text objects instead of Java Strings,
+    causing Groovy's + operator to hang indefinitely.
+    """
+
+    def test_string_concatenation(self, bridge):
+        """String concat via compiled tMap -- the exact bug scenario (D-01).
+
+        Before fix: row1.first_name + " " + row1.last_name causes infinite hang
+        because VarCharVector.getObject() returns Arrow Text, not java.lang.String.
+        After fix: extractTypedValue converts to String, concat works normally.
+        """
+        script = """
+import java.util.*;
+import com.citi.gru.etl.RowWrapper;
+Object[][] out1_data = new Object[rowCount][1];
+int out1_count = 0;
+for (int i = 0; i < rowCount; i++) {
+    RowWrapper row1 = buildRowWrapper(inputRoot, i, "row1");
+    out1_data[out1_count] = new Object[]{ row1.first_name + " " + row1.last_name };
+    out1_count++;
+}
+Map<String, Map<String, Object>> results = new HashMap<>();
+Map<String, Object> out1_result = new HashMap<>();
+out1_result.put("data", out1_data);
+out1_result.put("count", out1_count);
+results.put("out1", out1_result);
+return results;
+"""
+        bridge.compile_tmap_script(
+            "test_string_concat",
+            script,
+            output_schemas={"out1": ["full_name"]},
+            output_types={"out1_full_name": "str"},
+            main_table_name="row1",
+            lookup_names=[],
+        )
+
+        df = pd.DataFrame({
+            "row1.first_name": ["John", "Jane"],
+            "row1.last_name": ["Smith", "Doe"],
+        })
+        result = bridge.execute_compiled_tmap_chunked(
+            "test_string_concat", df,
+            schema={"row1.first_name": "str", "row1.last_name": "str"},
+        )
+        assert "out1" in result
+        assert list(result["out1"]["full_name"]) == ["John Smith", "Jane Doe"]
+
+    def test_ternary_expression(self, bridge):
+        """Ternary conditional -- salary grade from numeric comparison.
+
+        Tests that numeric values from Arrow (Float8Vector -> double) work
+        correctly in Groovy ternary expressions with Number casting.
+        """
+        script = """
+import java.util.*;
+import com.citi.gru.etl.RowWrapper;
+Object[][] out1_data = new Object[rowCount][1];
+int out1_count = 0;
+for (int i = 0; i < rowCount; i++) {
+    RowWrapper row1 = buildRowWrapper(inputRoot, i, "row1");
+    Object salary = row1.salary;
+    out1_data[out1_count] = new Object[]{
+        ((Number)salary).doubleValue() >= 75000 ? "Senior" : "Junior"
+    };
+    out1_count++;
+}
+Map<String, Map<String, Object>> results = new HashMap<>();
+Map<String, Object> out1_result = new HashMap<>();
+out1_result.put("data", out1_data);
+out1_result.put("count", out1_count);
+results.put("out1", out1_result);
+return results;
+"""
+        bridge.compile_tmap_script(
+            "test_ternary",
+            script,
+            output_schemas={"out1": ["grade"]},
+            output_types={"out1_grade": "str"},
+            main_table_name="row1",
+            lookup_names=[],
+        )
+
+        df = pd.DataFrame({"row1.salary": [85000.0, 65000.0, 90000.0]})
+        result = bridge.execute_compiled_tmap_chunked(
+            "test_ternary", df,
+            schema={"row1.salary": "float"},
+        )
+        assert "out1" in result
+        assert list(result["out1"]["grade"]) == ["Senior", "Junior", "Senior"]
+
+    def test_cross_table_lookup_expression(self, bridge):
+        """Cross-table column access combining main + lookup table values.
+
+        Tests that buildRowWrapper correctly creates separate RowWrappers
+        for main and lookup tables, both with proper String type extraction.
+        """
+        script = """
+import java.util.*;
+import com.citi.gru.etl.RowWrapper;
+Object[][] out1_data = new Object[rowCount][1];
+int out1_count = 0;
+for (int i = 0; i < rowCount; i++) {
+    RowWrapper row1 = buildRowWrapper(inputRoot, i, "row1");
+    RowWrapper countries = buildRowWrapper(inputRoot, i, "countries");
+    out1_data[out1_count] = new Object[]{
+        row1.first_name + " from " + countries.country_name
+    };
+    out1_count++;
+}
+Map<String, Map<String, Object>> results = new HashMap<>();
+Map<String, Object> out1_result = new HashMap<>();
+out1_result.put("data", out1_data);
+out1_result.put("count", out1_count);
+results.put("out1", out1_result);
+return results;
+"""
+        bridge.compile_tmap_script(
+            "test_cross_table",
+            script,
+            output_schemas={"out1": ["description"]},
+            output_types={"out1_description": "str"},
+            main_table_name="row1",
+            lookup_names=["countries"],
+        )
+
+        df = pd.DataFrame({
+            "row1.first_name": ["John", "Jane"],
+            "countries.country_name": ["USA", "UK"],
+        })
+        result = bridge.execute_compiled_tmap_chunked(
+            "test_cross_table", df,
+            schema={
+                "row1.first_name": "str",
+                "countries.country_name": "str",
+            },
+        )
+        assert "out1" in result
+        assert list(result["out1"]["description"]) == [
+            "John from USA", "Jane from UK"
+        ]
+
+    def test_null_handling_in_expressions(self, bridge):
+        """Null-safe string concatenation with null check in Groovy.
+
+        Tests that null values from Arrow (isNull check in extractTypedValue)
+        are properly handled in Groovy null-safe expressions.
+        """
+        script = """
+import java.util.*;
+import com.citi.gru.etl.RowWrapper;
+Object[][] out1_data = new Object[rowCount][1];
+int out1_count = 0;
+for (int i = 0; i < rowCount; i++) {
+    RowWrapper row1 = buildRowWrapper(inputRoot, i, "row1");
+    String firstName = row1.first_name != null ? (String)row1.first_name : "Unknown";
+    out1_data[out1_count] = new Object[]{ firstName + " " + row1.last_name };
+    out1_count++;
+}
+Map<String, Map<String, Object>> results = new HashMap<>();
+Map<String, Object> out1_result = new HashMap<>();
+out1_result.put("data", out1_data);
+out1_result.put("count", out1_count);
+results.put("out1", out1_result);
+return results;
+"""
+        bridge.compile_tmap_script(
+            "test_null_handling",
+            script,
+            output_schemas={"out1": ["full_name"]},
+            output_types={"out1_full_name": "str"},
+            main_table_name="row1",
+            lookup_names=[],
+        )
+
+        df = pd.DataFrame({
+            "row1.first_name": ["John", None],
+            "row1.last_name": ["Smith", "Doe"],
+        })
+        result = bridge.execute_compiled_tmap_chunked(
+            "test_null_handling", df,
+            schema={"row1.first_name": "str", "row1.last_name": "str"},
+        )
+        assert "out1" in result
+        assert list(result["out1"]["full_name"]) == ["John Smith", "Unknown Doe"]
