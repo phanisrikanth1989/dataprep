@@ -22,6 +22,26 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class RoutineNamespace:
+    """Namespace object that allows routines.RoutineName.method() access pattern."""
+
+    def __init__(self, routines: Dict[str, Any]):
+        self._routines = routines
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith('_'):
+            raise AttributeError(name)
+        routine = self._routines.get(name)
+        if routine is None:
+            raise AttributeError(
+                f"No routine named '{name}'. Available: {list(self._routines.keys())}"
+            )
+        return routine
+
+    def __repr__(self) -> str:
+        return f"RoutineNamespace({list(self._routines.keys())})"
+
+
 class PythonRoutineManager:
     """
     Manages loading and access to custom Python routines
@@ -34,23 +54,34 @@ class PythonRoutineManager:
         routines: Dictionary mapping routine names to loaded modules
     """
 
-    def __init__(self, routines_dir: str):
+    def __init__(self, routines_dir: str, required_routines: list[str] | None = None):
         """
         Initialize the routine manager
 
         Args:
             routines_dir: Path to directory containing Python routine files
+            required_routines: Optional list of routine names that must be present.
+                If any are missing after loading, raises RuntimeError.
         """
         self.routines_dir = routines_dir
         self.routines: Dict[str, Any] = {}
+        self._namespace: Optional[RoutineNamespace] = None
 
         # Ensure directory exists
         if not os.path.exists(routines_dir):
-            logger.warning(f"Python routines directory not found: {routines_dir}")
-            return
+            logger.warning("Python routines directory not found: %s", routines_dir)
+        else:
+            # Load all routines
+            self._load_routines()
 
-        # Load all routines
-        self._load_routines()
+        # Fail fast if required routines are missing
+        if required_routines:
+            missing = [r for r in required_routines if r not in self.routines]
+            if missing:
+                raise RuntimeError(
+                    f"Missing required Python routines: {missing}. "
+                    f"Available: {list(self.routines.keys())}"
+                )
 
     def _load_routines(self):
         """
@@ -86,10 +117,30 @@ class PythonRoutineManager:
                 class_name = self._to_class_name(routine_name)
                 self.routines[class_name] = module
 
-                logger.info(f"Loaded: {class_name}")
+                logger.info("Loaded: %s", class_name)
 
             except Exception as e:
-                logger.error(f"Failed to load {routine_name}: {e}")
+                logger.error("Failed to load %s: %s", routine_name, e)
+
+        # Scan subdirectories for organized routine packages
+        for subdir in sorted(routines_path.iterdir()):
+            if subdir.is_dir() and not subdir.name.startswith('_'):
+                for py_file in sorted(subdir.glob("*.py")):
+                    if py_file.name.startswith('_'):
+                        continue
+                    routine_name = py_file.stem
+                    try:
+                        module = self._load_module(py_file)
+                        # Use qualified name: subdir.ClassName
+                        class_name = self._to_class_name(routine_name)
+                        qualified_name = f"{subdir.name}.{class_name}"
+                        # Also register under short name if no collision
+                        if class_name not in self.routines:
+                            self.routines[class_name] = module
+                        self.routines[qualified_name] = module
+                        logger.info("Loaded: %s (from %s/)", qualified_name, subdir.name)
+                    except Exception as e:
+                        logger.error("Failed to load %s/%s: %s", subdir.name, routine_name, e)
 
     def _load_module(self, file_path: Path):
         """
@@ -148,6 +199,16 @@ class PythonRoutineManager:
             Dictionary mapping routine names to module objects
         """
         return self.routines.copy()
+
+    def get_namespace(self) -> RoutineNamespace:
+        """Get a namespace object for routines.RoutineName.method() access pattern.
+
+        Returns:
+            RoutineNamespace allowing attribute-based access to loaded routines.
+        """
+        if self._namespace is None:
+            self._namespace = RoutineNamespace(self.routines)
+        return self._namespace
 
     def reload_routine(self, name: str):
         """

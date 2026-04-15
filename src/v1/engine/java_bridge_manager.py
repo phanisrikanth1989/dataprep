@@ -16,7 +16,8 @@ class JavaBridgeManager:
     Each job gets its own Java process to ensure isolation.
     """
 
-    def __init__(self, enable: bool = True, routines: Optional[List[str]] = None, libraries: Optional[List[str]] = None):
+    def __init__(self, enable: bool = True, routines: Optional[List[str]] = None,
+                 libraries: Optional[List[str]] = None, routine_jars: Optional[List[str]] = None):
         """
         Initialize Java bridge manager
 
@@ -24,6 +25,7 @@ class JavaBridgeManager:
             enable: Whether to enable Java execution
             routines: List of routine class names to load (e.g., ['routines.StringUtils', 'routines.DateUtil'])
             libraries: List of required JAR files (e.g., ['commons-lang3-3.14.0.jar', 'gson-2.8.9.jar'])
+            routine_jars: List of JAR file paths or directories to add to JVM classpath
         """
         self.enable = enable
         self.bridge = None
@@ -31,6 +33,7 @@ class JavaBridgeManager:
         self.port = None
         self.routines = routines or []
         self.libraries = libraries or []
+        self.routine_jars = routine_jars or []
 
     def start(self):
         """Start Java bridge with dynamic port allocation.
@@ -56,7 +59,7 @@ class JavaBridgeManager:
                 from src.v1.java_bridge import JavaBridge
 
                 self.bridge = JavaBridge()
-                self.bridge.start(port=self.port)
+                self.bridge.start(port=self.port, routine_jars=self.routine_jars)
                 self.is_running = True
                 break  # Success -- exit retry loop
             except Exception as e:

@@ -10,6 +10,7 @@ import logging
 import os
 import subprocess
 import time
+from pathlib import Path
 from typing import Any, Optional
 
 import pandas as pd
@@ -59,7 +60,7 @@ class JavaBridge:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def start(self, port: int | None = None) -> None:
+    def start(self, port: int | None = None, routine_jars: list[str] | None = None) -> None:
         """Start the JVM subprocess and connect via Py4J.
 
         Uses retry with exponential backoff (max 5 attempts starting at 0.5s).
@@ -67,6 +68,8 @@ class JavaBridge:
 
         Args:
             port: Py4J gateway port. Defaults to 25333 if not specified.
+            routine_jars: Optional list of JAR file paths or directories to add
+                to the JVM classpath. Directories are scanned for *.jar files.
 
         Raises:
             JavaBridgeError: If the JVM fails to start or connect.
@@ -80,13 +83,33 @@ class JavaBridge:
 
         jar_path = self._find_jar_path()
 
+        # Build classpath from bridge JAR plus optional routine JARs
+        classpath_entries = [jar_path]
+        if routine_jars:
+            for jar in routine_jars:
+                jar_resolved = str(Path(jar).resolve())
+                if os.path.isfile(jar_resolved):
+                    classpath_entries.append(jar_resolved)
+                    logger.info("[OK] Added routine JAR to classpath: %s", jar_resolved)
+                elif os.path.isdir(jar_resolved):
+                    # Directory mode: add all .jar files within
+                    dir_jars = sorted(Path(jar_resolved).glob("*.jar"))
+                    for dj in dir_jars:
+                        classpath_entries.append(str(dj))
+                        logger.info("[OK] Added routine JAR to classpath: %s", dj)
+                    if not dir_jars:
+                        logger.warning("[WARN] No JAR files found in directory: %s", jar_resolved)
+                else:
+                    logger.warning("[WARN] Routine JAR path not found: %s", jar)
+        classpath = os.pathsep.join(classpath_entries)
+
         cmd = [
             "java",
             "--add-opens=java.base/java.nio=ALL-UNNAMED",
             "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
             "--add-opens=java.base/java.lang=ALL-UNNAMED",
             f"-Dpy4j.port={port}",
-            "-cp", jar_path,
+            "-cp", classpath,
             "com.citi.gru.etl.JavaBridge",
         ]
 
