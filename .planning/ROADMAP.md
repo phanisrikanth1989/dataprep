@@ -15,11 +15,12 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Infrastructure Bug Fixes & Project Setup** - Fix all P0/P1 cross-cutting bugs in base classes, config alignment, and project setup so components can build on a stable foundation (completed 2026-04-14)
 - [x] **Phase 2: Java Bridge Reliability** - Fix Arrow serialization, Py4J stability, and context/globalMap sync so all downstream components can depend on reliable Java expression evaluation (completed 2026-04-14)
 - [x] **Phase 3: Execution Loop Restructure** - Decompose the monolithic execution loop into testable units with correct subjob tracking, trigger timing, and data flow routing (completed 2026-04-14)
-- [ ] **Phase 4: File I/O Components** - Deliver tFileInputDelimited and tFileOutputDelimited with full Talend feature parity
-- [ ] **Phase 5: tMap Component** - Deliver tMap with correct join semantics, reject routing, and expression handling
-- [ ] **Phase 5.2: tMap RELOAD_AT_EACH_ROW Fix** (INSERTED) - Fix per-row dynamic lookup filtering to match Talend behavior
-- [ ] **Phase 6: Transform Group A -- Aggregation, Sort, Filter** - Deliver tAggregateRow, tSortRow, and tFilterRow with correct Talend behavior for the hardest transform bugs
-- [ ] **Phase 7: Transform Group B -- Column, Join, Unite** - Deliver tFilterColumns, tJoin, and tUnite (two already functionally Green, tJoin has targeted fixes)
+- [x] **Phase 4: File I/O Components** - Deliver tFileInputDelimited and tFileOutputDelimited with full Talend feature parity (completed 2026-04-15)
+- [x] **Phase 5: tMap Component** - Deliver tMap with correct join semantics, reject routing, and expression handling (completed 2026-04-15)
+- [x] **Phase 5.1: Java Bridge tMap Fix** (INSERTED) - Fix Arrow type conversion and compiled tMap script execution (completed 2026-04-15)
+- [x] **Phase 5.2: tMap RELOAD_AT_EACH_ROW Fix** (INSERTED) - Fix per-row dynamic lookup filtering to match Talend behavior (completed 2026-04-15)
+- [x] **Phase 6: Transform Group A -- Aggregation, Sort, Filter** - Deliver tAggregateRow, tSortRow, and tFilterRow with correct Talend behavior for the hardest transform bugs (completed 2026-04-15)
+- [x] **Phase 7: Transform Group B -- Column, Join, Unite** - Deliver tFilterColumns, tJoin, and tUnite (two already functionally Green, tJoin has targeted fixes) (completed 2026-04-15)
 - [ ] **Phase 8: Code Components** - Deliver tJava, tJavaRow, python_component, and python_row_component with correct Talend semantics
 - [ ] **Phase 9: tContextLoad & Routines** - Deliver tContextLoad with full policy support and Java/Python routine infrastructure
 - [ ] **Phase 10: Iterate Support** - Deliver tFlowToIterate, tFileList, tFileExist and the engine iterate execution loop
@@ -239,15 +240,15 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Infrastructure Bug Fixes & Project Setup | 0/7 | Planning complete | - |
-| 2. Java Bridge Reliability | 0/4 | Planning complete | - |
-| 3. Execution Loop Restructure | 4/4 | Complete    | 2026-04-14 |
-| 4. File I/O Components | 0/3 | Planning complete | - |
-| 5. tMap Component | 0/3 | Planning complete | - |
-| 5.1. Java Bridge tMap Fix | 0/2 | Planning complete | - |
-| 5.2. tMap RELOAD_AT_EACH_ROW Fix | 0/2 | Planning complete | - |
-| 6. Transform Group A -- Aggregation, Sort, Filter | 0/4 | Planning complete | - |
-| 7. Transform Group B -- Column, Join, Unite | 0/2 | Planning complete | - |
+| 1. Infrastructure Bug Fixes & Project Setup | 7/7 | Complete | 2026-04-14 |
+| 2. Java Bridge Reliability | 4/4 | Complete | 2026-04-14 |
+| 3. Execution Loop Restructure | 4/4 | Complete | 2026-04-14 |
+| 4. File I/O Components | 3/3 | Complete | 2026-04-15 |
+| 5. tMap Component | 3/3 | Complete | 2026-04-15 |
+| 5.1. Java Bridge tMap Fix | 2/2 | Complete | 2026-04-15 |
+| 5.2. tMap RELOAD_AT_EACH_ROW Fix | 2/2 | Complete | 2026-04-15 |
+| 6. Transform Group A -- Aggregation, Sort, Filter | 4/4 | Complete | 2026-04-15 |
+| 7. Transform Group B -- Column, Join, Unite | 2/2 | Complete | 2026-04-15 |
 | 8. Code Components | 0/TBD | Not started | - |
 | 9. tContextLoad & Routines | 0/TBD | Not started | - |
 | 10. Iterate Support | 0/TBD | Not started | - |

@@ -25,13 +25,13 @@ Any Talend job using the target components must produce identical results when r
 ### Active
 
 **Engine Core:**
-- [ ] Fix all cross-cutting P0-P3 bugs in base_component.py, global_map.py, context_manager.py, trigger_manager.py, engine.py
-- [ ] Fix engine execution loop — subjob tracking, trigger firing, input dependency resolution, data flow routing
-- [ ] Fix streaming mode — reject data silently dropped, chunk processing incomplete
-- [ ] Standardize engine component template — BaseComponent pattern that becomes the blueprint for all components
-- [ ] Replace all print() debug statements with proper logger usage across engine components
-- [ ] Replace generic exceptions with custom exception hierarchy (ETLError, ConfigurationError, etc.)
-- [ ] Discover and fix issues the audit reports missed
+- [x] Fix all cross-cutting P0-P3 bugs in base_component.py, global_map.py, context_manager.py, trigger_manager.py, engine.py *(Phase 1)*
+- [x] Fix engine execution loop — subjob tracking, trigger firing, input dependency resolution, data flow routing *(Phase 3)*
+- [x] Fix streaming mode — reject data silently dropped, chunk processing incomplete *(Phase 1)*
+- [x] Standardize engine component template — BaseComponent pattern that becomes the blueprint for all components *(Phase 1)*
+- [x] Replace all print() debug statements with proper logger usage across engine components *(Phase 1)*
+- [x] Replace generic exceptions with custom exception hierarchy (ETLError, ConfigurationError, etc.) *(Phase 1)*
+- [x] Discover and fix issues the audit reports missed *(Phase 1)*
 
 **Target Components (Talend feature parity):**
 - [x] tFileInputDelimited — full Talend feature parity (encoding, delimiters, headers, footers, schema, reject flow) *(Phase 4)*
@@ -40,12 +40,12 @@ Any Talend job using the target components must produce identical results when r
 - [ ] tJava — full Talend feature parity (Java code execution, imports, context access)
 - [ ] tJavaRow — full Talend feature parity (per-row Java execution, input/output column access)
 - [ ] tContextLoad — full Talend feature parity (load context from flow, file, key-value parsing)
-- [ ] tAggregateRow — fix _ensure_output_columns bug, missing functions, ignore_null, output_column
-- [ ] tSortRow — sort type distinction (num/alpha/date), streaming fix, engine key alignment
-- [ ] tFilterRow — replace eval() with safe expression parser, expand operator support (14+ operators)
-- [ ] tFilterColumns — engine unit tests (already functionally Green)
-- [ ] tJoin — fix case-insensitive join corruption, reject schema, INCLUDE_LOOKUP toggle
-- [ ] tUnite — engine unit tests (already functionally Green)
+- [x] tAggregateRow — full rewrite with 12+ aggregation functions, Decimal precision, ignore_null, population_std_dev *(Phase 6)*
+- [x] tSortRow — full rewrite with num/alpha/date sort types via pandas key=, simplified to batch-only *(Phase 6)*
+- [x] tFilterRow — full rewrite with 15-operator function map (no eval), 8 FUNCTION pre-transforms *(Phase 6)*
+- [x] tFilterColumns — full rewrite to schema-based filtering, 15 unit tests *(Phase 7)*
+- [x] tJoin — full rewrite fixing P0 corruption, null semantics, reject, INCLUDE_LOOKUP, 35 unit tests *(Phase 7)*
+- [x] tUnite — full rewrite to UNION-only concat, 18 unit tests *(Phase 7)*
 
 **Python Equivalents:**
 - [ ] python_component — Python equivalent of tJava, standardized alongside it
