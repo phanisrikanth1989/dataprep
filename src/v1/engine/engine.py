@@ -114,6 +114,7 @@ class ETLEngine:
             component.outputs = comp_config.get('outputs', [])
             component.input_schema = comp_config.get('schema', {}).get('input', [])
             component.output_schema = comp_config.get('schema', {}).get('output', [])
+            component.reject_schema = comp_config.get('schema', {}).get('reject', [])
             if self.java_bridge_manager:
                 component.java_bridge = self.java_bridge_manager.bridge
             if self.python_routine_manager:
