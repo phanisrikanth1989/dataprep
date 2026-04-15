@@ -15,6 +15,7 @@ from .exceptions import ETLError
 from .java_bridge_manager import JavaBridgeManager
 from .python_routine_manager import PythonRoutineManager
 from .component_registry import REGISTRY
+from . import components as _components  # noqa: F401 -- triggers decorator registration
 from .execution_plan import ExecutionPlan
 from .output_router import OutputRouter
 from .executor import Executor

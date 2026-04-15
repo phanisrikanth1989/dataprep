@@ -1334,14 +1334,24 @@ class Map(BaseComponent):
     ) -> str:
         """Generate Groovy script for compiled tMap execution.
 
-        Parallel execution is thread-safe because:
-        - Var HashMap is local to each lambda iteration (not shared)
-        - Output indices use AtomicInteger.getAndIncrement() (unique per thread)
-        - Error tracking uses ConcurrentHashMap (thread-safe)
-        - RowWrapper reads from Arrow table by index (read-only, no mutation)
+        MUST match the format expected by JavaBridge.compileTMapScript() and
+        executeTMapCompiled(). The bridge injects these binding variables:
+          - inputRoot       (VectorSchemaRoot)
+          - rowCount        (int)
+          - buildRowWrapper (Closure) -- calls JavaBridge.buildArrowRowWrapper()
+          - context         (Map)
+          - globalMap       (Map)
 
-        Parallelism is configurable via 'parallel_execution' config key
-        (default: True). Set to False for sequential processing if needed.
+        The script must return Map<String, Map<String, Object>> where each
+        output entry contains:
+          "data"  -> Object[][] (row-major, data[row][col])
+          "count" -> int (actual row count written)
+
+        RowWrappers are created via buildRowWrapper(inputRoot, i, tableName)
+        -- a Groovy closure injected by buildTMapBinding that delegates to
+        JavaBridge.buildArrowRowWrapper(). This keeps Arrow vector reading
+        in Java (Phase 2 design) while giving scripts clean row access via
+        Groovy's propertyMissing (row1.columnName).
 
         Args:
             outputs: Output config list.
@@ -1350,71 +1360,137 @@ class Map(BaseComponent):
             lookup_names: Lookup table names.
 
         Returns:
-            Groovy script string.
+            Groovy script string matching bridge API contract.
         """
-        lines = []
+        die_on_error = self.config.get("die_on_error", True)
 
-        # Output struct definitions
-        for output in outputs:
-            if output.get("is_reject") or output.get("inner_join_reject"):
-                continue
+        lines: list[str] = []
+
+        # Imports (no concurrent/stream -- using Groovy for-loop, not Java lambdas)
+        lines.append("import java.util.*;")
+        lines.append("import com.citi.gru.etl.RowWrapper;")
+        lines.append("")
+
+        # Pre-allocate output arrays and counters for each non-reject output
+        active_outputs = [
+            o for o in outputs
+            if not o.get("is_reject") and not o.get("inner_join_reject")
+        ]
+        for output in active_outputs:
             out_name = output["name"]
-            cols = output["columns"]
-            lines.append(f"// Output: {out_name}")
+            num_cols = len(output["columns"])
+            lines.append(f"Object[][] {out_name}_data = new Object[rowCount][{num_cols}];")
+            lines.append(f"int {out_name}_count = 0;")
 
-        # Check if any output has catch_output_reject
+        # Error tracking (if die_on_error=false or catch_output_reject)
         has_catch = any(o.get("catch_output_reject") for o in outputs)
+        if not die_on_error or has_catch:
+            lines.append("int errorCount = 0;")
+            lines.append("Map<Integer, String> errorMap = new HashMap<>();")
+        lines.append("")
 
-        # Parallel vs sequential execution (configurable, default: parallel)
-        use_parallel = self.config.get(
-            "parallel_execution", _DEFAULT_PARALLEL_EXECUTION
-        )
-        if use_parallel:
-            lines.append("IntStream.range(0, rowCount).parallel().forEach(i -> {")
-        else:
-            lines.append("IntStream.range(0, rowCount).forEach(i -> {")
-        lines.append("    Map<String, Object> Var = new HashMap<>();")
+        # Main processing loop -- uses Groovy for-loop (not IntStream.forEach).
+        # Java lambdas in IntStream.forEach cannot access Groovy binding
+        # variables (buildRowWrapper, inputRoot, etc.) -- this is a known
+        # Groovy/Java interop limitation. Plain for-loop has full binding access.
+        lines.append("for (int i = 0; i < rowCount; i++) {")
+        lines.append("    try {")
 
-        # Variable evaluation (in order, supports dependency chains)
-        for var in variables:
-            var_name = var.get("name", "")
-            var_expr = var.get("expression", "")
-            if var_expr:
-                expr = self._strip_java_marker(var_expr)
-                lines.append(f'    Var.put("{var_name}", {expr});')
+        # Build RowWrappers using the bridge-injected buildRowWrapper closure.
+        # This delegates to JavaBridge.buildArrowRowWrapper() which handles
+        # Arrow vector reading, table-name prefixed column lookup, and type
+        # extraction -- keeping all Arrow complexity in Java (Phase 2 design).
+        lines.append(f"        RowWrapper {main_name} = buildRowWrapper(inputRoot, i, \"{main_name}\");")
+        for lk_name in lookup_names:
+            lines.append(f"        RowWrapper {lk_name} = buildRowWrapper(inputRoot, i, \"{lk_name}\");")
+        lines.append("")
+
+        # Variable evaluation (sequential, supports dependency chains)
+        if variables:
+            lines.append("        Map<String, Object> Var = new HashMap<>();")
+            for var in variables:
+                var_name = var.get("name", "")
+                var_expr = var.get("expression", "")
+                if var_expr:
+                    expr = self._strip_java_marker(var_expr)
+                    if not expr or expr.strip() == "":
+                        expr = "null"
+                    lines.append(f'        Var.put("{var_name}", {expr});')
+            lines.append("")
 
         # Output expression evaluation
-        if has_catch:
-            lines.append("    try {")
-            indent = "        "
-        else:
-            indent = "    "
-
-        for output in outputs:
-            if output.get("is_reject") or output.get("inner_join_reject"):
-                continue
+        lines.append("        // Evaluate outputs")
+        for output in active_outputs:
             out_name = output["name"]
-            for col in output["columns"]:
-                col_name = col["name"]
+            num_cols = len(output["columns"])
+            filter_expr = output.get("filter", "")
+            activate_filter = output.get("activate_filter", False)
+
+            # Output filter
+            if activate_filter and filter_expr:
+                clean_filter = self._strip_java_marker(filter_expr)
+                lines.append(f"        if ({clean_filter}) {{")
+                indent = "            "
+            else:
+                lines.append("        {")
+                indent = "            "
+
+            # Pre-evaluate all columns into temp array
+            lines.append(f"{indent}Object[] {out_name}_row = new Object[{num_cols}];")
+            for col_idx, col in enumerate(output["columns"]):
                 col_expr = col.get("expression", "")
                 expr = self._strip_java_marker(col_expr)
-                lines.append(
-                    f'{indent}outputRow("{out_name}", "{col_name}", i, {expr});'
-                )
+                if not expr or expr.strip() == "":
+                    expr = "null"
+                lines.append(f"{indent}{out_name}_row[{col_idx}] = {expr};")
 
-        if has_catch:
-            lines.append("    } catch (Exception e) {")
-            lines.append('        errorRow(i, e.getMessage());')
-            lines.append("    }")
+            # Commit to output array
+            lines.append(f"{indent}int {out_name}_idx = {out_name}_count++;")
+            lines.append(f"{indent}{out_name}_data[{out_name}_idx] = {out_name}_row;")
+            lines.append("        }")
+            lines.append("")
 
-        lines.append("});")
+        # Error handling
+        lines.append("    } catch (Exception e) {")
+        if die_on_error and not has_catch:
+            lines.append('        throw new RuntimeException("Error at row " + i + ": " + (e.getMessage() != null ? e.getMessage() : e.toString()), e);')
+        else:
+            lines.append("        errorCount++;")
+            lines.append('        errorMap.put(i, e.getMessage() != null ? e.getMessage() : e.toString());')
+        lines.append("    }")
+        lines.append("}")
+        lines.append("")
+
+        # Return results map
+        lines.append("Map<String, Map<String, Object>> results = new HashMap<>();")
+        for output in active_outputs:
+            out_name = output["name"]
+            lines.append(f'Map<String, Object> {out_name}_result = new HashMap<>();')
+            lines.append(f'{out_name}_result.put("data", {out_name}_data);')
+            lines.append(f'{out_name}_result.put("count", {out_name}_count);')
+            lines.append(f'results.put("{out_name}", {out_name}_result);')
+
+        if not die_on_error or has_catch:
+            lines.append('Map<String, Object> errorInfo = new HashMap<>();')
+            lines.append('errorInfo.put("count", errorCount);')
+            lines.append('errorInfo.put("indices", new java.util.ArrayList<>(errorMap.keySet()));')
+            lines.append('errorInfo.put("messages", errorMap);')
+            lines.append('results.put("__errors__", errorInfo);')
+
+        lines.append("return results;")
 
         return "\n".join(lines)
 
     def _build_output_schema(
         self, outputs: list[dict]
     ) -> tuple[dict[str, list], dict[str, str]]:
-        """Build output_schemas and output_types for compile call.
+        """Build output_schemas and output_types for compile/execute calls.
+
+        output_schemas: {output_name: [col_name, ...]}
+        output_types:   {output_name + "_" + col_name: python_type_str}
+
+        The output_types format is required by JavaBridge.convertTMapOutputsToArrow()
+        which looks up types as outputTypes.get(outputName + "_" + colName).
 
         Args:
             outputs: Output config list.
@@ -1429,13 +1505,11 @@ class Map(BaseComponent):
             out_name = output["name"]
             cols = output["columns"]
             output_schemas[out_name] = [c["name"] for c in cols]
-            output_types[out_name] = "normal"
-            if output.get("is_reject"):
-                output_types[out_name] = "reject"
-            elif output.get("inner_join_reject"):
-                output_types[out_name] = "inner_join_reject"
-            elif output.get("catch_output_reject"):
-                output_types[out_name] = "catch_reject"
+            for col in cols:
+                col_name = col["name"]
+                col_type = col.get("type", "str")
+                type_key = f"{out_name}_{col_name}"
+                output_types[type_key] = col_type
 
         return output_schemas, output_types
 
@@ -1704,8 +1778,9 @@ class Map(BaseComponent):
         """
         renamed = {}
         for col in lookup_df.columns:
-            if not col.startswith(f"{lookup_name}."):
-                renamed[col] = f"{lookup_name}.{col}"
+            col_str = str(col)
+            if not col_str.startswith(f"{lookup_name}."):
+                renamed[col] = f"{lookup_name}.{col_str}"
         if renamed:
             return lookup_df.rename(columns=renamed)
         return lookup_df

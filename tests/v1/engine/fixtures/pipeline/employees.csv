@@ -1,0 +1,8 @@
+id;first_name;last_name;department;salary;country_code
+1;John;Smith;Engineering;85000;US
+2;Jane;Doe;Marketing;65000;UK
+3;Pierre;Dupont;Engineering;90000;FR
+4;Hans;Mueller;Sales;55000;DE
+5;Maria;Garcia;Engineering;78000;ES
+6;Yuki;Tanaka;Marketing;72000;JP
+7;Li;Wei;Sales;95000;CN

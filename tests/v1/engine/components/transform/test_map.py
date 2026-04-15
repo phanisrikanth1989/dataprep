@@ -1506,4 +1506,56 @@ class TestCompiledScriptGeneration:
         )
         assert "try {" in script
         assert "catch (Exception e)" in script
-        assert "errorRow" in script
+        assert "errorCount" in script
+        assert "errorMap" in script
+        assert '__errors__' in script
+
+    def test_script_uses_noarg_rowwrapper_constructor(self):
+        """Generated script uses RowWrapper() no-arg constructor, not 3-arg."""
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        comp = _make_component(config=config)
+        comp.config = copy.deepcopy(comp._original_config)
+        script = comp._build_compiled_script(
+            comp.config["outputs"], comp.config.get("variables", []),
+            "row1", ["row2"]
+        )
+        # Must use no-arg constructor
+        assert "new RowWrapper();" in script
+        # Must NOT use the old 3-arg constructor pattern
+        assert "new RowWrapper(inputRoot" not in script
+        # Must build row map from field vectors
+        assert "fieldVectors" in script
+        assert "setInputRow(" in script
+
+    def test_script_builds_row_maps_from_arrow_vectors(self):
+        """Script reads Arrow field vectors and builds HashMap per row."""
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        comp = _make_component(config=config)
+        comp.config = copy.deepcopy(comp._original_config)
+        script = comp._build_compiled_script(
+            comp.config["outputs"], comp.config.get("variables", []),
+            "row1", ["row2"]
+        )
+        # Field vectors extracted once outside loop
+        assert "def fieldVectors = inputRoot.getFieldVectors();" in script
+        # Each table gets its own map
+        assert "row1_map" in script
+        assert "row2_map" in script
+        # Unprefixed column name support
+        assert 'fn.startsWith("row1.")' in script
+        assert 'fn.startsWith("row2.")' in script
+
+    def test_output_types_keyed_per_column(self):
+        """_build_output_schema produces per-column type keys."""
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        comp = _make_component(config=config)
+        comp.config = copy.deepcopy(comp._original_config)
+        _, output_types = comp._build_output_schema(comp.config["outputs"])
+        # Keys should be "outputName_colName", not just "outputName"
+        assert "out1" not in output_types  # old broken format
+        assert "out1_id" in output_types
+        assert output_types["out1_id"] == "int"
+        assert "out1_val" in output_types
+        assert output_types["out1_val"] == "int"
+        assert "out1_label" in output_types
+        assert output_types["out1_label"] == "str"

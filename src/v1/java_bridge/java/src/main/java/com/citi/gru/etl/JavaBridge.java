@@ -712,6 +712,22 @@ public class JavaBridge {
         binding.setVariable("allocator", allocator);
         binding.setVariable("outputSchemas", outputSchemas);
         binding.setVariable("outputTypes", outputTypes);
+
+        // Expose buildArrowRowWrapper as a Groovy-callable closure so compiled
+        // tMap scripts can create RowWrappers without direct Arrow vector access.
+        // Usage in script: RowWrapper row1 = buildRowWrapper(inputRoot, i, "row1")
+        binding.setVariable("buildRowWrapper",
+            new groovy.lang.Closure<RowWrapper>(this) {
+                @Override
+                public RowWrapper call(Object... args) {
+                    VectorSchemaRoot root = (VectorSchemaRoot) args[0];
+                    int rowIdx = ((Number) args[1]).intValue();
+                    String tblName = (String) args[2];
+                    return buildArrowRowWrapper(root, rowIdx, tblName);
+                }
+            }
+        );
+
         addRoutinesToBinding(binding);
         return binding;
     }
