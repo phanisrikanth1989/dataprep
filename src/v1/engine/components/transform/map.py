@@ -1258,9 +1258,10 @@ class Map(BaseComponent):
             if output_cfg.get("catch_output_reject"):
                 out_name = output_cfg["name"]
                 if isinstance(error_df, pd.DataFrame):
-                    if "errorMessage" not in error_df.columns:
-                        error_df["errorMessage"] = "Expression evaluation error"
-                    result[out_name] = error_df
+                    output_df = error_df.copy()
+                    if "errorMessage" not in output_df.columns:
+                        output_df["errorMessage"] = "Expression evaluation error"
+                    result[out_name] = output_df
                     logger.info(
                         f"[{self.id}] Routed {len(error_df)} error rows "
                         f"to catch output '{out_name}'"
