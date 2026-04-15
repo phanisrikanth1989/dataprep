@@ -30,6 +30,11 @@ logger = logging.getLogger(__name__)
 # Pattern to detect simple column references: table.column
 _SIMPLE_COLUMN_RE = re.compile(r'^([a-zA-Z_]\w*)\.([a-zA-Z_]\w*)$')
 
+# Pattern to detect table.column references in expressions (non-anchored)
+_ROW_REF_PATTERN = re.compile(
+    r'\b([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)\b'
+)
+
 # Matching modes
 _UNIQUE_MATCH = "UNIQUE_MATCH"
 _FIRST_MATCH = "FIRST_MATCH"
@@ -1568,10 +1573,7 @@ class Map(BaseComponent):
         stripped = expr.strip()  # Already stripped of {{java}} by caller
 
         # Find all table.column patterns
-        row_ref_pattern = re.compile(
-            r'\b([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)\b'
-        )
-        matches = row_ref_pattern.findall(stripped)
+        matches = _ROW_REF_PATTERN.findall(stripped)
 
         # Filter out context.* and globalMap.* references
         row_references = [
