@@ -792,7 +792,12 @@ class Map(BaseComponent):
         result_rows = []
         reject_rows = []
         key_cols = [jk["lookup_column"] for jk in join_keys]
-        lookup_prefixed = self._prefix_lookup_columns(lookup_df, lookup_name)
+        # Compute prefixed column names for the empty-result fallback without
+        # copying the full DataFrame (prefix is also applied per-row inside loop).
+        lookup_prefixed_cols = [
+            col if col.startswith(f"{lookup_name}.") else f"{lookup_name}.{col}"
+            for col in lookup_df.columns
+        ]
 
         for idx, main_row in joined_df.iterrows():
             # Set globalMap variables from main row
@@ -866,7 +871,7 @@ class Map(BaseComponent):
             result_df = pd.DataFrame(result_rows).reset_index(drop=True)
         else:
             result_df = pd.DataFrame(
-                columns=list(joined_df.columns) + list(lookup_prefixed.columns)
+                columns=list(joined_df.columns) + lookup_prefixed_cols
             )
 
         rejects = None
