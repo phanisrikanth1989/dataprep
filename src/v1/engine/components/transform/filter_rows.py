@@ -51,13 +51,16 @@ _OPERATOR_MAP = {
 # ------------------------------------------------------------------
 
 _FUNCTION_MAP = {
-    "":       lambda col: col,
-    "LOWER":  lambda col: col.astype(str).str.lower(),
-    "UPPER":  lambda col: col.astype(str).str.upper(),
-    "LENGTH": lambda col: col.astype(str).str.len(),
-    "TRIM":   lambda col: col.astype(str).str.strip(),
-    "LTRIM":  lambda col: col.astype(str).str.lstrip(),
-    "RTRIM":  lambda col: col.astype(str).str.rstrip(),
+    "":            lambda col: col,
+    "LOWER":       lambda col: col.astype(str).str.lower(),
+    "UPPER":       lambda col: col.astype(str).str.upper(),
+    "LOWER_FIRST": lambda col: col.astype(str).str[0].str.lower(),
+    "UPPER_FIRST": lambda col: col.astype(str).str[0].str.upper(),
+    "LENGTH":      lambda col: col.astype(str).str.len(),
+    "TRIM":        lambda col: col.astype(str).str.strip(),
+    "LTRIM":       lambda col: col.astype(str).str.lstrip(),
+    "RTRIM":       lambda col: col.astype(str).str.rstrip(),
+    "ABS":         lambda col: pd.to_numeric(col, errors="coerce").abs(),
 }
 
 # ------------------------------------------------------------------

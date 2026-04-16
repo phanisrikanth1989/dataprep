@@ -33,6 +33,67 @@ _CONDITION_GROUP_SIZE = len(_CONDITION_FIELDS)
 
 
 # ------------------------------------------------------------------
+# Talend FUNCTION Java template -> engine keyword translation
+# ------------------------------------------------------------------
+# Talend stores FUNCTION as Java code templates. The engine expects
+# simple keywords (LOWER, UPPER, etc.). This map translates known
+# Talend templates to engine-compatible function names.
+#
+# Detection is done by matching distinctive substrings in the Java
+# template, ordered from most specific to least specific.
+
+_FUNCTION_TEMPLATE_PATTERNS: List[tuple] = [
+    # String functions -- more specific patterns MUST come before generic ones
+    (".toLowerCase().charAt(0)",    "LOWER_FIRST"),
+    (".toUpperCase().charAt(0)",    "UPPER_FIRST"),
+    (".toLowerCase()",              "LOWER"),
+    (".toUpperCase()",              "UPPER"),
+    (".trim().compareTo(",          "TRIM"),
+    ('replaceAll("^\\\\s+","")',    "LTRIM"),
+    ("replaceAll(\"^\\\\s+\",\"\")", "LTRIM"),
+    ('replaceAll("\\\\s+$","")',    "RTRIM"),
+    ("replaceAll(\"\\\\s+$\",\"\")", "RTRIM"),
+    (".length()",                   "LENGTH"),
+    # Numeric functions (int/float/double)
+    ("Math.abs(",                   "ABS"),
+    # BigDecimal absolute value
+    (".abs().compareTo(",           "ABS"),
+]
+
+
+def _translate_function(raw_function: str) -> str:
+    """Translate a Talend FUNCTION Java template to an engine keyword.
+
+    Args:
+        raw_function: The raw FUNCTION value from the Talend XML.
+            May be empty, a simple keyword, or a full Java template.
+
+    Returns:
+        Engine-compatible function keyword (e.g. "LOWER", "ABS", "")
+        or the original string if no translation is found.
+    """
+    if not raw_function:
+        return ""
+
+    # Already a simple keyword (e.g. manually edited JSON)
+    upper = raw_function.upper().strip()
+    if upper in ("", "LOWER", "UPPER", "LOWER_FIRST", "UPPER_FIRST", "LENGTH", "TRIM", "LTRIM", "RTRIM", "ABS"):
+        return upper
+
+    # Match against known Talend Java template patterns
+    for pattern, keyword in _FUNCTION_TEMPLATE_PATTERNS:
+        if pattern in raw_function:
+            return keyword
+
+    # Unrecognized — return as-is and let engine handle/warn
+    logger.warning(
+        "Unrecognized tFilterRow FUNCTION template, passing through: %r",
+        raw_function,
+    )
+    return raw_function
+
+
+# ------------------------------------------------------------------
 # CONDITIONS TABLE parser
 # ------------------------------------------------------------------
 def _parse_conditions(raw: Any) -> List[Dict[str, str]]:
@@ -68,7 +129,7 @@ def _parse_conditions(raw: Any) -> List[Dict[str, str]]:
             if ref == "INPUT_COLUMN":
                 row["column"] = val.strip('"')
             elif ref == "FUNCTION":
-                row["function"] = val.strip('"')
+                row["function"] = _translate_function(val.strip('"'))
             elif ref == "OPERATOR":
                 row["operator"] = val.strip('"')
             elif ref == "RVALUE":

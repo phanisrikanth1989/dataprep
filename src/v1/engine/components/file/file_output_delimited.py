@@ -166,6 +166,7 @@ class FileOutputDelimited(BaseComponent):
                 resolved_path, encoding, fieldseparator,
                 include_header, delete_empty_file, os_line_separator,
                 csv_option, csvrowseparator, row_separator,
+                input_data,
             )
 
         # ---- Determine effective line separator ----
@@ -219,6 +220,7 @@ class FileOutputDelimited(BaseComponent):
         csv_option: bool,
         csvrowseparator: str,
         row_separator: str,
+        input_data: Optional[pd.DataFrame] = None,
     ) -> dict:
         """Handle empty or None input data.
 
@@ -232,6 +234,7 @@ class FileOutputDelimited(BaseComponent):
             csv_option: Whether CSV mode is enabled.
             csvrowseparator: CSV row separator value.
             row_separator: Row separator string.
+            input_data: The empty DataFrame (may have column names), or None.
 
         Returns:
             dict with 'main' (None or empty DataFrame) and 'reject' (None).
@@ -249,8 +252,12 @@ class FileOutputDelimited(BaseComponent):
         field_sep = _unescape_separator(fieldseparator)
 
         if include_header:
-            # Determine header columns from output_schema or input DataFrame
-            columns = self._get_header_columns()
+            # Use DataFrame columns first (empty DF retains column names),
+            # fall back to schema attributes
+            if input_data is not None and len(input_data.columns) > 0:
+                columns = input_data.columns.tolist()
+            else:
+                columns = self._get_header_columns()
             if columns:
                 header_line = field_sep.join(columns) + effective_line_sep
                 resolved_path.write_text(header_line, encoding=encoding)
@@ -551,12 +558,9 @@ class FileOutputDelimited(BaseComponent):
         if hasattr(self, "output_schema") and self.output_schema:
             return [col["name"] for col in self.output_schema]
 
-        # Try input schema from config
-        schema = self.config.get("schema", {})
-        if isinstance(schema, dict):
-            input_schema = schema.get("input", [])
-            if input_schema:
-                return [col["name"] for col in input_schema]
+        # Try input_schema (set by engine)
+        if hasattr(self, "input_schema") and self.input_schema:
+            return [col["name"] for col in self.input_schema]
 
         return []
 
