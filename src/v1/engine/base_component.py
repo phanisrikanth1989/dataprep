@@ -544,20 +544,24 @@ class BaseComponent(ABC):
     # ------------------------------------------------------------------
 
     def _enforce_schema_column_order(self, result: dict) -> dict:
-        """Reorder output DataFrame columns to match the output schema.
+        """Reorder output DataFrame columns to match the output/reject schema.
 
         The output schema is the authoritative source for column order.
         Components may produce columns in any order internally; this method
         ensures the final output matches the schema contract.
 
-        Applies to the 'main' key in the result dict. Only reorders if
-        output_schema is defined and the DataFrame has columns.
+        Also enforces column order on the 'reject' DataFrame
+        using reject_schema. Previously only 'main' was reordered.
+
+        Applies to:
+          - 'main' key using output_schema
+          - 'reject' key using reject_schema
 
         Args:
             result: The dict returned by _process().
 
         Returns:
-            The same dict with 'main' DataFrame columns reordered.
+            The same dict with DataFrame columns reordered.
         """
         output_schema = getattr(self, "output_schema", None)
         if not output_schema:
@@ -608,6 +612,48 @@ class BaseComponent(ABC):
         if final_order != list(main_df.columns):
             result["main"] = main_df[final_order]
 
+        # Also enforce column order on reject flow using reject_schema
+        reject_schema = getattr(self, "reject_schema", None)
+        reject_df = result.get("reject")
+        if (
+            reject_schema
+            and reject_df is not None
+            and isinstance(reject_df, pd.DataFrame)
+            and not reject_df.empty
+        ):
+            reject_cols = [
+                col["name"] for col in reject_schema
+                if isinstance(col, dict) and "name" in col
+            ]
+            if reject_cols:
+                # Add missing columns with type-appropriate defaults
+                reject_missing = [c for c in reject_cols if c not in reject_df.columns]
+                if reject_missing:
+                    reject_by_name = {
+                        col["name"]: col for col in reject_schema
+                        if isinstance(col, dict) and "name" in col
+                    }
+                    for col in reject_missing:
+                        col_def = reject_by_name.get(col, {})
+                        col_type = col_def.get("type", "str")
+                        nullable = col_def.get("nullable", True)
+                        if nullable:
+                            reject_df[col] = pd.NA
+                        elif col_type == "str":
+                            reject_df[col] = ""
+                        elif col_type in ("int", "float", "Decimal"):
+                            reject_df[col] = 0
+                        elif col_type == "bool":
+                            reject_df[col] = False
+                        else:
+                            reject_df[col] = ""
+
+                r_ordered = [c for c in reject_cols if c in reject_df.columns]
+                r_extra = [c for c in reject_df.columns if c not in r_ordered]
+                r_final = r_ordered + r_extra
+                if r_final != list(reject_df.columns):
+                    result["reject"] = reject_df[r_final]
+
         return result
 
     # ------------------------------------------------------------------
@@ -615,28 +661,38 @@ class BaseComponent(ABC):
     # ------------------------------------------------------------------
 
     def _apply_output_schema_validation(self, result: dict) -> dict:
-        """Apply validate_schema to the 'main' DataFrame using output_schema.
+        """Apply validate_schema to 'main' and 'reject' DataFrames.
 
         Called automatically by execute() after _process(). This ensures
-        type coercion and precision formatting are applied consistently
-        for all components without requiring each to call validate_schema
-        manually.
+        type coercion, string length truncation, and precision formatting
+        are applied consistently for all components without requiring each
+        to call validate_schema manually.
+
+        Also validates 'reject' DataFrame against reject_schema.
+        Previously only 'main' was validated — reject DataFrames skipped
+        precision, type coercion, length truncation, and missing-column
+        enforcement.
 
         Args:
             result: The dict returned by _process().
 
         Returns:
-            The same dict with 'main' DataFrame validated against output_schema.
+            The same dict with DataFrames validated against their schemas.
         """
+        # Validate main output
         output_schema = getattr(self, "output_schema", None)
-        if not output_schema:
-            return result
+        if output_schema:
+            main_df = result.get("main")
+            if main_df is not None and isinstance(main_df, pd.DataFrame) and not main_df.empty:
+                result["main"] = self.validate_schema(main_df, output_schema)
 
-        main_df = result.get("main")
-        if main_df is None or not isinstance(main_df, pd.DataFrame) or main_df.empty:
-            return result
+        # Validate reject output
+        reject_schema = getattr(self, "reject_schema", None)
+        if reject_schema:
+            reject_df = result.get("reject")
+            if reject_df is not None and isinstance(reject_df, pd.DataFrame) and not reject_df.empty:
+                result["reject"] = self.validate_schema(reject_df, reject_schema)
 
-        result["main"] = self.validate_schema(main_df, output_schema)
         return result
 
     # ------------------------------------------------------------------
@@ -685,6 +741,16 @@ class BaseComponent(ABC):
 
             # Type coercion
             result = self._coerce_column_type(result, col_name, col_type, nullable)
+
+            # Enforce string length truncation
+            # Talend truncates string values exceeding schema-defined length.
+            # Engine must do the same to match Talend output.
+            col_length = col_def.get("length")
+            if col_length is not None and col_type == "str":
+                col_length = int(col_length)
+                result[col_name] = result[col_name].apply(
+                    lambda v: v[:col_length] if isinstance(v, str) and len(v) > col_length else v
+                )
 
             # Apply precision for Decimal columns
             precision = col_def.get("precision")
