@@ -177,6 +177,9 @@ class BaseComponent(ABC):
             # Step 7b: Enforce output schema column order
             result = self._enforce_schema_column_order(result)
 
+            # Step 7c: Validate and coerce output against output_schema
+            result = self._apply_output_schema_validation(result)
+
             # Step 8: Update stats and globalMap
             self._update_stats_from_result(result)
             self._update_global_map()
@@ -584,6 +587,35 @@ class BaseComponent(ABC):
         return result
 
     # ------------------------------------------------------------------
+    # Output Schema Validation (applied automatically by execute())
+    # ------------------------------------------------------------------
+
+    def _apply_output_schema_validation(self, result: dict) -> dict:
+        """Apply validate_schema to the 'main' DataFrame using output_schema.
+
+        Called automatically by execute() after _process(). This ensures
+        type coercion and precision formatting are applied consistently
+        for all components without requiring each to call validate_schema
+        manually.
+
+        Args:
+            result: The dict returned by _process().
+
+        Returns:
+            The same dict with 'main' DataFrame validated against output_schema.
+        """
+        output_schema = getattr(self, "output_schema", None)
+        if not output_schema:
+            return result
+
+        main_df = result.get("main")
+        if main_df is None or not isinstance(main_df, pd.DataFrame) or main_df.empty:
+            return result
+
+        result["main"] = self.validate_schema(main_df, output_schema)
+        return result
+
+    # ------------------------------------------------------------------
     # Schema Validation
     # ------------------------------------------------------------------
 
@@ -630,7 +662,44 @@ class BaseComponent(ABC):
             # Type coercion
             result = self._coerce_column_type(result, col_name, col_type, nullable)
 
+            # Apply precision for Decimal columns
+            precision = col_def.get("precision")
+            if precision is not None and col_type == "Decimal":
+                result = self._apply_decimal_precision(result, col_name, precision)
+
         return result
+
+    @staticmethod
+    def _apply_decimal_precision(
+        df: pd.DataFrame,
+        col_name: str,
+        precision: int,
+    ) -> pd.DataFrame:
+        """Round Decimal column values to the specified number of decimal places.
+
+        Args:
+            df: DataFrame containing the column.
+            col_name: Name of the Decimal column.
+            precision: Number of decimal places.
+
+        Returns:
+            DataFrame with the column values quantized.
+        """
+        from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+
+        quantize_str = Decimal(10) ** -precision  # e.g. Decimal('0.0001') for precision=4
+
+        def _quantize(val):
+            if val is None or (isinstance(val, float) and pd.isna(val)):
+                return val
+            try:
+                d = val if isinstance(val, Decimal) else Decimal(str(val))
+                return d.quantize(quantize_str, rounding=ROUND_HALF_UP)
+            except (InvalidOperation, ValueError):
+                return val
+
+        df[col_name] = df[col_name].apply(_quantize)
+        return df
 
     def _coerce_column_type(
         self,
