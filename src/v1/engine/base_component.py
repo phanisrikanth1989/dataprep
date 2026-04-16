@@ -575,8 +575,32 @@ class BaseComponent(ABC):
         if not schema_cols:
             return result
 
-        # Keep only columns present in the DataFrame, in schema order.
-        # Append any extra columns not in schema at the end (safety).
+        # Add any schema columns missing from DataFrame as empty/default
+        # (Talend always outputs all schema columns, even if empty).
+        # Use type-appropriate defaults for non-nullable columns to avoid
+        # validation errors downstream.
+        missing = [c for c in schema_cols if c not in main_df.columns]
+        if missing:
+            schema_by_name = {
+                col["name"]: col for col in output_schema
+                if isinstance(col, dict) and "name" in col
+            }
+            for col in missing:
+                col_def = schema_by_name.get(col, {})
+                col_type = col_def.get("type", "str")
+                nullable = col_def.get("nullable", True)
+                if nullable:
+                    main_df[col] = pd.NA
+                elif col_type == "str":
+                    main_df[col] = ""
+                elif col_type in ("int", "float", "Decimal"):
+                    main_df[col] = 0
+                elif col_type == "bool":
+                    main_df[col] = False
+                else:
+                    main_df[col] = ""
+
+        # Reorder: schema columns first, then any extras not in schema (safety).
         ordered = [c for c in schema_cols if c in main_df.columns]
         extra = [c for c in main_df.columns if c not in ordered]
         final_order = ordered + extra
