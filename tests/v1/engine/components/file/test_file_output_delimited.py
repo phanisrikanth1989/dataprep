@@ -745,3 +745,207 @@ class TestIterateReexecution:
         comp.execute(df)
 
         assert comp._original_config == original_snapshot
+
+
+# ------------------------------------------------------------------
+# TestMultiCharDelimiter
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestMultiCharDelimiter:
+    """Multi-character field separator support (raw mode fallback)."""
+
+    def test_pipe_semicolon_delimiter(self, tmp_path):
+        """Two-char delimiter '|;' writes via raw mode."""
+        filepath = str(tmp_path / "output.csv")
+        config = {
+            **_DEFAULT_CONFIG, "filepath": filepath,
+            "fieldseparator": "|;", "file_exist_exception": False,
+        }
+        comp = _make_component(config=config)
+        comp.execute(_make_input_df())
+        content = open(filepath, encoding="ISO-8859-15").read()
+        lines = content.splitlines()
+        assert len(lines) == 3
+        assert "|;" in lines[0]
+
+    def test_multichar_delimiter_with_header(self, tmp_path):
+        """Multi-char delimiter writes header correctly."""
+        filepath = str(tmp_path / "output.csv")
+        config = {
+            **_DEFAULT_CONFIG, "filepath": filepath,
+            "fieldseparator": "|;", "include_header": True,
+            "file_exist_exception": False,
+        }
+        comp = _make_component(config=config)
+        comp.execute(_make_input_df())
+        content = open(filepath, encoding="ISO-8859-15").read()
+        lines = content.splitlines()
+        assert len(lines) == 4  # 1 header + 3 data
+        assert "id|;name|;value" in lines[0]
+
+    def test_multichar_delimiter_with_csv_option(self, tmp_path):
+        """Multi-char delimiter + csv_option=True encloses all fields."""
+        filepath = str(tmp_path / "output.csv")
+        config = {
+            **_DEFAULT_CONFIG, "filepath": filepath,
+            "fieldseparator": "|;", "csv_option": True,
+            "file_exist_exception": False,
+        }
+        comp = _make_component(config=config)
+        df = pd.DataFrame([{"id": 1, "name": "Alice", "value": 100.0}])
+        comp.execute(df)
+        content = open(filepath, encoding="ISO-8859-15").read()
+        # Every field enclosed in double quotes
+        assert '"1"|;"Alice"|;"100.0"' in content
+
+    def test_multichar_delimiter_csv_escapes_enclosure_in_value(self, tmp_path):
+        """Multi-char delimiter + csv_option escapes enclosure chars in values."""
+        filepath = str(tmp_path / "output.csv")
+        config = {
+            **_DEFAULT_CONFIG, "filepath": filepath,
+            "fieldseparator": "|;", "csv_option": True,
+            "file_exist_exception": False,
+        }
+        comp = _make_component(config=config)
+        df = pd.DataFrame([{"id": 1, "name": 'Alice "The Great"', "value": 100.0}])
+        comp.execute(df)
+        content = open(filepath, encoding="ISO-8859-15").read()
+        # Doubled quotes for escaping
+        assert '""The Great""' in content
+
+    def test_multichar_delimiter_split_mode(self, tmp_path):
+        """Multi-char delimiter works with split output."""
+        filepath = str(tmp_path / "output.csv")
+        config = {
+            **_DEFAULT_CONFIG, "filepath": filepath,
+            "fieldseparator": "|;", "split": True, "split_every": "2",
+            "file_exist_exception": False,
+        }
+        comp = _make_component(config=config)
+        comp.execute(_make_input_df())
+        file0 = open(str(tmp_path / "output0.csv"), encoding="ISO-8859-15").read()
+        file1 = open(str(tmp_path / "output1.csv"), encoding="ISO-8859-15").read()
+        assert "|;" in file0
+        assert "|;" in file1
+        assert len(file0.splitlines()) == 2
+        assert len(file1.splitlines()) == 1
+
+    def test_multichar_delimiter_append_mode(self, tmp_path):
+        """Multi-char delimiter works in append mode."""
+        filepath = str(tmp_path / "output.csv")
+        config = {
+            **_DEFAULT_CONFIG, "filepath": filepath,
+            "fieldseparator": "|;", "append": True,
+            "file_exist_exception": False,
+        }
+        comp1 = _make_component(config=config)
+        comp1.execute(_make_input_df([{"id": 1, "name": "Alice", "value": 100.0}]))
+        comp2 = _make_component(config=config)
+        comp2.execute(_make_input_df([{"id": 2, "name": "Bob", "value": 200.0}]))
+        content = open(filepath, encoding="ISO-8859-15").read()
+        lines = content.splitlines()
+        assert len(lines) == 2
+        assert "|;" in lines[0]
+        assert "|;" in lines[1]
+
+
+# ------------------------------------------------------------------
+# TestCsvOptionQuoteAll
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCsvOptionQuoteAll:
+    """csv_option=True encloses ALL fields (QUOTE_ALL), not just those with special chars."""
+
+    def test_all_fields_enclosed(self, tmp_path):
+        """Every field gets enclosed even without special chars."""
+        filepath = str(tmp_path / "output.csv")
+        config = {
+            **_DEFAULT_CONFIG, "filepath": filepath, "csv_option": True,
+            "file_exist_exception": False,
+        }
+        comp = _make_component(config=config)
+        df = pd.DataFrame([{"id": 1, "name": "Alice", "value": 100.0}])
+        comp.execute(df)
+        content = open(filepath, encoding="ISO-8859-15").read()
+        first_line = content.splitlines()[0]
+        # All fields enclosed
+        assert first_line.startswith('"')
+        assert '";"' in first_line
+
+    def test_csv_option_escapes_double_quotes_in_value(self, tmp_path):
+        """Enclosure chars inside values are doubled."""
+        filepath = str(tmp_path / "output.csv")
+        config = {
+            **_DEFAULT_CONFIG, "filepath": filepath, "csv_option": True,
+            "file_exist_exception": False,
+        }
+        comp = _make_component(config=config)
+        df = pd.DataFrame([{"id": 1, "name": 'Say "Hello"', "value": 100.0}])
+        comp.execute(df)
+        content = open(filepath, encoding="ISO-8859-15").read()
+        assert '""Hello""' in content
+
+    def test_csv_option_with_custom_enclosure_quotes_all(self, tmp_path):
+        """Custom text_enclosure still encloses all fields."""
+        filepath = str(tmp_path / "output.csv")
+        config = {
+            **_DEFAULT_CONFIG, "filepath": filepath, "csv_option": True,
+            "text_enclosure": "'", "escape_char": "'",
+            "file_exist_exception": False,
+        }
+        comp = _make_component(config=config)
+        df = pd.DataFrame([{"id": 1, "name": "Alice", "value": 100.0}])
+        comp.execute(df)
+        content = open(filepath, encoding="ISO-8859-15").read()
+        first_line = content.splitlines()[0]
+        assert first_line.startswith("'")
+        assert "';'" in first_line
+
+    def test_csv_option_false_no_enclosure(self, tmp_path):
+        """csv_option=False: plain fields have no enclosure."""
+        filepath = str(tmp_path / "output.csv")
+        config = {
+            **_DEFAULT_CONFIG, "filepath": filepath, "csv_option": False,
+            "file_exist_exception": False,
+        }
+        comp = _make_component(config=config)
+        df = pd.DataFrame([{"id": 1, "name": "Alice", "value": 100.0}])
+        comp.execute(df)
+        content = open(filepath, encoding="ISO-8859-15").read()
+        assert '"' not in content
+
+
+# ------------------------------------------------------------------
+# TestAdvancedSeparatorDeferred
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestAdvancedSeparatorDeferred:
+    """advanced_separator logs warning when enabled."""
+
+    def test_advanced_separator_logs_warning(self, tmp_path, caplog):
+        filepath = str(tmp_path / "output.csv")
+        config = {
+            **_DEFAULT_CONFIG, "filepath": filepath,
+            "advanced_separator": True, "file_exist_exception": False,
+        }
+        comp = _make_component(config=config)
+        with caplog.at_level("WARNING"):
+            comp.execute(_make_input_df())
+        assert any("advanced_separator" in r.message for r in caplog.records)
+
+    def test_advanced_separator_false_no_warning(self, tmp_path, caplog):
+        filepath = str(tmp_path / "output.csv")
+        config = {
+            **_DEFAULT_CONFIG, "filepath": filepath,
+            "advanced_separator": False, "file_exist_exception": False,
+        }
+        comp = _make_component(config=config)
+        with caplog.at_level("WARNING"):
+            comp.execute(_make_input_df())
+        assert not any("advanced_separator" in r.message for r in caplog.records)

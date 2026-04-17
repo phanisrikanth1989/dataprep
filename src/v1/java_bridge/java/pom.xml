@@ -45,7 +45,21 @@
             <artifactId>py4j</artifactId>
             <version>${py4j.version}</version>
         </dependency>
+
+        <!-- Talend routines.system (from Talend Open Studio) -->
+        <dependency>
+            <groupId>org.example.recon_etl.code</groupId>
+            <artifactId>routines</artifactId>
+            <version>8.0.1</version>
+        </dependency>
     </dependencies>
+
+    <repositories>
+        <repository>
+            <id>talend-local</id>
+            <url>file:///C:/Softwares/TOS_DI-20211109_1610-V8.0.1/TOS_DI-20211109_1610-V8.0.1/configuration/.m2/repository</url>
+        </repository>
+    </repositories>
 
     <build>
         <finalName>java-bridge</finalName>

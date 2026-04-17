@@ -45,8 +45,8 @@ class ContextLoadConverter(ComponentConverter):
         # ---- 1. Core parameters ----
 
         # ---- 2. CLOSED_LIST parameters ----
-        load_new_variable = self._get_str(node, "LOAD_NEW_VARIABLE", default="WARNING")
-        not_load_old_variable = self._get_str(node, "NOT_LOAD_OLD_VARIABLE", default="WARNING")
+        load_new_variable = self._get_str(node, "LOAD_NEW_VARIABLE", default="WARNING").upper()
+        not_load_old_variable = self._get_str(node, "NOT_LOAD_OLD_VARIABLE", default="WARNING").upper()
 
         # ---- 3. CHECK parameters ----
         print_operations = self._get_bool(node, "PRINT_OPERATIONS")

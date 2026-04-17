@@ -51,6 +51,7 @@ _DEFERRED_FEATURES = {
     "usestream": "OutputStream mode",
     "row_mode": "per-row flush mode",
     "flushonrow": "flush-on-row buffering",
+    "advanced_separator": "Advanced numeric separators",
 }
 
 # CSV row separator closed-list mapping
@@ -165,6 +166,7 @@ class FileOutputDelimited(BaseComponent):
                 resolved_path, encoding, fieldseparator,
                 include_header, delete_empty_file, os_line_separator,
                 csv_option, csvrowseparator, row_separator,
+                input_data,
             )
 
         # ---- Determine effective line separator ----
@@ -218,6 +220,7 @@ class FileOutputDelimited(BaseComponent):
         csv_option: bool,
         csvrowseparator: str,
         row_separator: str,
+        input_data: Optional[pd.DataFrame] = None,
     ) -> dict:
         """Handle empty or None input data.
 
@@ -231,6 +234,7 @@ class FileOutputDelimited(BaseComponent):
             csv_option: Whether CSV mode is enabled.
             csvrowseparator: CSV row separator value.
             row_separator: Row separator string.
+            input_data: The empty DataFrame (may have column names), or None.
 
         Returns:
             dict with 'main' (None or empty DataFrame) and 'reject' (None).
@@ -248,8 +252,12 @@ class FileOutputDelimited(BaseComponent):
         field_sep = _unescape_separator(fieldseparator)
 
         if include_header:
-            # Determine header columns from output_schema or input DataFrame
-            columns = self._get_header_columns()
+            # Use DataFrame columns first (empty DF retains column names),
+            # fall back to schema attributes
+            if input_data is not None and len(input_data.columns) > 0:
+                columns = input_data.columns.tolist()
+            else:
+                columns = self._get_header_columns()
             if columns:
                 header_line = field_sep.join(columns) + effective_line_sep
                 resolved_path.write_text(header_line, encoding=encoding)
@@ -305,7 +313,16 @@ class FileOutputDelimited(BaseComponent):
         mode = "a" if append else "w"
 
         try:
-            if csv_option:
+            if len(field_sep) > 1:
+                # Multi-char delimiter: pandas and csv module only accept
+                # single-char delimiters. Fall back to manual row joining
+                # to match Talend's raw string concatenation behaviour.
+                self._write_raw_mode(
+                    df, filepath, field_sep, line_sep, encoding,
+                    include_header, csv_option, text_enclosure,
+                    escape_char, mode,
+                )
+            elif csv_option:
                 self._write_csv_mode(
                     df, filepath, field_sep, line_sep, encoding,
                     include_header, text_enclosure, escape_char, mode,
@@ -364,13 +381,85 @@ class FileOutputDelimited(BaseComponent):
                 quotechar=text_enclosure,
                 escapechar=esc,
                 doublequote=doublequote,
-                quoting=csv.QUOTE_MINIMAL,
+                quoting=csv.QUOTE_ALL,
                 lineterminator=line_sep,
             )
             if include_header:
                 writer.writerow(list(df.columns))
             for row in df.itertuples(index=False, name=None):
                 writer.writerow(row)
+
+    def _write_raw_mode(
+        self,
+        df: pd.DataFrame,
+        filepath: str,
+        field_sep: str,
+        line_sep: str,
+        encoding: str,
+        include_header: bool,
+        csv_option: bool,
+        text_enclosure: str,
+        escape_char: str,
+        mode: str,
+    ) -> None:
+        """Write DataFrame with manual row joining for multi-char delimiters.
+
+        Used when field_sep is longer than 1 character, since both
+        pandas to_csv and csv.writer only accept single-char delimiters.
+        Matches Talend's raw string concatenation behaviour.
+
+        Args:
+            df: DataFrame to write.
+            filepath: Output file path.
+            field_sep: Field delimiter (may be multi-char).
+            line_sep: Line separator string.
+            encoding: File encoding.
+            include_header: Whether to write header row.
+            csv_option: Whether to apply CSV quoting.
+            text_enclosure: Quote character for CSV quoting.
+            escape_char: Escape character for CSV quoting.
+            mode: File open mode ('w' or 'a').
+        """
+        with open(filepath, mode, encoding=encoding, newline="") as f:
+            if include_header:
+                f.write(field_sep.join(str(c) for c in df.columns))
+                f.write(line_sep)
+
+            for row in df.itertuples(index=False, name=None):
+                if csv_option:
+                    values = [
+                        self._enclose_field(str(v), text_enclosure, escape_char)
+                        for v in row
+                    ]
+                else:
+                    values = [str(v) for v in row]
+                f.write(field_sep.join(values))
+                f.write(line_sep)
+
+    @staticmethod
+    def _enclose_field(value: str, text_enclosure: str, escape_char: str) -> str:
+        """Enclose a field value in text_enclosure (QUOTE_ALL).
+
+        Talend csv_option=true always wraps every field. Any occurrence of
+        the enclosure character inside the value is escaped first.
+
+        Args:
+            value: Field value string.
+            text_enclosure: Quote character.
+            escape_char: Escape character.
+
+        Returns:
+            Enclosed field string.
+        """
+        if escape_char == text_enclosure:
+            escaped = value.replace(
+                text_enclosure, text_enclosure + text_enclosure
+            )
+        else:
+            escaped = value.replace(
+                text_enclosure, escape_char + text_enclosure
+            )
+        return text_enclosure + escaped + text_enclosure
 
     def _write_split(
         self,
@@ -469,12 +558,9 @@ class FileOutputDelimited(BaseComponent):
         if hasattr(self, "output_schema") and self.output_schema:
             return [col["name"] for col in self.output_schema]
 
-        # Try input schema from config
-        schema = self.config.get("schema", {})
-        if isinstance(schema, dict):
-            input_schema = schema.get("input", [])
-            if input_schema:
-                return [col["name"] for col in input_schema]
+        # Try input_schema (set by engine)
+        if hasattr(self, "input_schema") and self.input_schema:
+            return [col["name"] for col in self.input_schema]
 
         return []
 

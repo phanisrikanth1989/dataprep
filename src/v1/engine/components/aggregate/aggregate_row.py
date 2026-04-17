@@ -186,9 +186,21 @@ def _build_agg_func(
                 None if x.isna().any() else _dec_var(x)
             )
         if func_name == "min":
-            return lambda x: x.min(skipna=skipna)
+            def _dec_min(x):
+                vals = [_to_decimal(v) for v in x]
+                vals = [v for v in vals if v is not None]
+                return min(vals) if vals else None
+            return lambda x: _dec_min(x) if skipna else (
+                None if x.isna().any() else _dec_min(x)
+            )
         if func_name == "max":
-            return lambda x: x.max(skipna=skipna)
+            def _dec_max(x):
+                vals = [_to_decimal(v) for v in x]
+                vals = [v for v in vals if v is not None]
+                return max(vals) if vals else None
+            return lambda x: _dec_max(x) if skipna else (
+                None if x.isna().any() else _dec_max(x)
+            )
 
     # Non-financial-precision numeric functions
     if func_name == "sum":
@@ -379,7 +391,7 @@ class AggregateRow(BaseComponent):
             for out_col, spec in agg_specs.items()
         }
         return (
-            df.groupby(group_cols, sort=False)
+            df.groupby(group_cols, sort=True)
             .agg(**named_aggs)
             .reset_index()
         )

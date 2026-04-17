@@ -146,6 +146,7 @@ class BaseComponent(ABC):
             ComponentExecutionError: If _process() or other step fails.
         """
         self.status = ComponentStatus.RUNNING
+        self._stats_set_by_component = False
         start_time = time.time()
 
         try:
@@ -161,16 +162,25 @@ class BaseComponent(ABC):
             # Step 4: Read die_on_error from resolved config
             self.die_on_error = self.config.get("die_on_error", True)
 
-            # Step 5: Select execution mode
+            # Step 5: Capture input row count for NB_LINE (Talend convention)
+            self._input_row_count = self._count_input_rows(input_data)
+
+            # Step 6: Select execution mode
             mode = self._select_mode(input_data)
 
-            # Step 6: Execute based on mode
+            # Step 7: Execute based on mode
             if mode == ExecutionMode.STREAMING:
                 result = self._execute_streaming(input_data)
             else:
                 result = self._execute_batch(input_data)
 
-            # Step 7: Update stats and globalMap
+            # Step 7b: Enforce output schema column order
+            result = self._enforce_schema_column_order(result)
+
+            # Step 7c: Validate and coerce output against output_schema
+            result = self._apply_output_schema_validation(result)
+
+            # Step 8: Update stats and globalMap
             self._update_stats_from_result(result)
             self._update_global_map()
 
@@ -452,12 +462,40 @@ class BaseComponent(ABC):
         """Return default stats dict with zeroed counters."""
         return {"NB_LINE": 0, "NB_LINE_OK": 0, "NB_LINE_REJECT": 0}
 
+    @staticmethod
+    def _count_input_rows(input_data) -> int:
+        """Count rows in input_data (DataFrame, dict of DataFrames, or None)."""
+        if input_data is None:
+            return 0
+        if isinstance(input_data, pd.DataFrame):
+            return len(input_data)
+        if isinstance(input_data, dict):
+            # Multiple inputs -- sum all DataFrames
+            total = 0
+            for v in input_data.values():
+                if isinstance(v, pd.DataFrame):
+                    total += len(v)
+            return total
+        return 0
+
     def _update_stats_from_result(self, result: dict) -> None:
-        """Update stats from _process result. Uses += for streaming accumulation.
+        """Update stats from _process result.
+
+        Talend convention:
+          NB_LINE        = rows read (input) for transforms; rows produced for sources
+          NB_LINE_OK     = rows produced on main output
+          NB_LINE_REJECT = rows produced on reject output
+
+        If a component already set stats via _update_stats() inside _process(),
+        this method is a no-op to avoid double-counting.
 
         Args:
             result: Dict returned by _process() or _execute_streaming().
         """
+        # If component already set stats manually, respect those values
+        if self._stats_set_by_component:
+            return
+
         main_df = result.get("main")
         reject_df = result.get("reject")
         main_count = (
@@ -470,21 +508,27 @@ class BaseComponent(ABC):
             if reject_df is not None and isinstance(reject_df, pd.DataFrame) and not reject_df.empty
             else 0
         )
-        self.stats["NB_LINE"] += main_count + reject_count
+        # Source components (no input) use output count for NB_LINE
+        input_rows = getattr(self, "_input_row_count", 0)
+        if input_rows > 0:
+            self.stats["NB_LINE"] += input_rows
+        else:
+            self.stats["NB_LINE"] += main_count + reject_count
         self.stats["NB_LINE_OK"] += main_count
         self.stats["NB_LINE_REJECT"] += reject_count
 
     def _update_stats(self, rows_read: int = 0, rows_ok: int = 0, rows_reject: int = 0) -> None:
         """Helper to manually update statistics.
 
-        Provided for subclasses that need direct stat updates (e.g., components
-        that don't return DataFrames from _process()).
+        When called from _process(), marks stats as component-managed so that
+        _update_stats_from_result() will not double-count.
 
         Args:
             rows_read: Total rows read/processed.
             rows_ok: Rows that passed successfully.
             rows_reject: Rows that were rejected.
         """
+        self._stats_set_by_component = True
         self.stats["NB_LINE"] += rows_read
         self.stats["NB_LINE_OK"] += rows_ok
         self.stats["NB_LINE_REJECT"] += rows_reject
@@ -494,6 +538,162 @@ class BaseComponent(ABC):
         if self.global_map:
             for stat_name, stat_value in self.stats.items():
                 self.global_map.put_component_stat(self.id, stat_name, stat_value)
+
+    # ------------------------------------------------------------------
+    # Output Column Ordering
+    # ------------------------------------------------------------------
+
+    def _enforce_schema_column_order(self, result: dict) -> dict:
+        """Reorder output DataFrame columns to match the output/reject schema.
+
+        The output schema is the authoritative source for column order.
+        Components may produce columns in any order internally; this method
+        ensures the final output matches the schema contract.
+
+        Also enforces column order on the 'reject' DataFrame
+        using reject_schema. Previously only 'main' was reordered.
+
+        Applies to:
+          - 'main' key using output_schema
+          - 'reject' key using reject_schema
+
+        Args:
+            result: The dict returned by _process().
+
+        Returns:
+            The same dict with DataFrame columns reordered.
+        """
+        output_schema = getattr(self, "output_schema", None)
+        if not output_schema:
+            return result
+
+        main_df = result.get("main")
+        if main_df is None or not isinstance(main_df, pd.DataFrame) or main_df.empty:
+            return result
+
+        # Build ordered column list from schema
+        schema_cols = [
+            col["name"] for col in output_schema
+            if isinstance(col, dict) and "name" in col
+        ]
+        if not schema_cols:
+            return result
+
+        # Add any schema columns missing from DataFrame as empty/default
+        # (Talend always outputs all schema columns, even if empty).
+        # Use type-appropriate defaults for non-nullable columns to avoid
+        # validation errors downstream.
+        missing = [c for c in schema_cols if c not in main_df.columns]
+        if missing:
+            schema_by_name = {
+                col["name"]: col for col in output_schema
+                if isinstance(col, dict) and "name" in col
+            }
+            for col in missing:
+                col_def = schema_by_name.get(col, {})
+                col_type = col_def.get("type", "str")
+                nullable = col_def.get("nullable", True)
+                if nullable:
+                    main_df[col] = pd.NA
+                elif col_type == "str":
+                    main_df[col] = ""
+                elif col_type in ("int", "float", "Decimal"):
+                    main_df[col] = 0
+                elif col_type == "bool":
+                    main_df[col] = False
+                else:
+                    main_df[col] = ""
+
+        # Reorder: schema columns first, then any extras not in schema (safety).
+        ordered = [c for c in schema_cols if c in main_df.columns]
+        extra = [c for c in main_df.columns if c not in ordered]
+        final_order = ordered + extra
+
+        if final_order != list(main_df.columns):
+            result["main"] = main_df[final_order]
+
+        # Also enforce column order on reject flow using reject_schema
+        reject_schema = getattr(self, "reject_schema", None)
+        reject_df = result.get("reject")
+        if (
+            reject_schema
+            and reject_df is not None
+            and isinstance(reject_df, pd.DataFrame)
+            and not reject_df.empty
+        ):
+            reject_cols = [
+                col["name"] for col in reject_schema
+                if isinstance(col, dict) and "name" in col
+            ]
+            if reject_cols:
+                # Add missing columns with type-appropriate defaults
+                reject_missing = [c for c in reject_cols if c not in reject_df.columns]
+                if reject_missing:
+                    reject_by_name = {
+                        col["name"]: col for col in reject_schema
+                        if isinstance(col, dict) and "name" in col
+                    }
+                    for col in reject_missing:
+                        col_def = reject_by_name.get(col, {})
+                        col_type = col_def.get("type", "str")
+                        nullable = col_def.get("nullable", True)
+                        if nullable:
+                            reject_df[col] = pd.NA
+                        elif col_type == "str":
+                            reject_df[col] = ""
+                        elif col_type in ("int", "float", "Decimal"):
+                            reject_df[col] = 0
+                        elif col_type == "bool":
+                            reject_df[col] = False
+                        else:
+                            reject_df[col] = ""
+
+                r_ordered = [c for c in reject_cols if c in reject_df.columns]
+                r_extra = [c for c in reject_df.columns if c not in r_ordered]
+                r_final = r_ordered + r_extra
+                if r_final != list(reject_df.columns):
+                    result["reject"] = reject_df[r_final]
+
+        return result
+
+    # ------------------------------------------------------------------
+    # Output Schema Validation (applied automatically by execute())
+    # ------------------------------------------------------------------
+
+    def _apply_output_schema_validation(self, result: dict) -> dict:
+        """Apply validate_schema to 'main' and 'reject' DataFrames.
+
+        Called automatically by execute() after _process(). This ensures
+        type coercion, string length truncation, and precision formatting
+        are applied consistently for all components without requiring each
+        to call validate_schema manually.
+
+        Also validates 'reject' DataFrame against reject_schema.
+        Previously only 'main' was validated — reject DataFrames skipped
+        precision, type coercion, length truncation, and missing-column
+        enforcement.
+
+        Args:
+            result: The dict returned by _process().
+
+        Returns:
+            The same dict with DataFrames validated against their schemas.
+        """
+        # Validate main output
+        output_schema = getattr(self, "output_schema", None)
+        if output_schema:
+            main_df = result.get("main")
+            if main_df is not None and isinstance(main_df, pd.DataFrame) and not main_df.empty:
+                result["main"] = self.validate_schema(main_df, output_schema)
+
+        # Validate reject output
+        reject_schema = getattr(self, "reject_schema", None)
+        if reject_schema:
+            reject_df = result.get("reject")
+            if reject_df is not None and isinstance(reject_df, pd.DataFrame) and not reject_df.empty:
+                result["reject"] = self.validate_schema(reject_df, reject_schema)
+
+        return result
 
     # ------------------------------------------------------------------
     # Schema Validation
@@ -542,7 +742,54 @@ class BaseComponent(ABC):
             # Type coercion
             result = self._coerce_column_type(result, col_name, col_type, nullable)
 
+            # Enforce string length truncation
+            # Talend truncates string values exceeding schema-defined length.
+            # Engine must do the same to match Talend output.
+            col_length = col_def.get("length")
+            if col_length is not None and col_type == "str":
+                col_length = int(col_length)
+                result[col_name] = result[col_name].apply(
+                    lambda v: v[:col_length] if isinstance(v, str) and len(v) > col_length else v
+                )
+
+            # Apply precision for Decimal columns
+            precision = col_def.get("precision")
+            if precision is not None and col_type == "Decimal":
+                result = self._apply_decimal_precision(result, col_name, precision)
+
         return result
+
+    @staticmethod
+    def _apply_decimal_precision(
+        df: pd.DataFrame,
+        col_name: str,
+        precision: int,
+    ) -> pd.DataFrame:
+        """Round Decimal column values to the specified number of decimal places.
+
+        Args:
+            df: DataFrame containing the column.
+            col_name: Name of the Decimal column.
+            precision: Number of decimal places.
+
+        Returns:
+            DataFrame with the column values quantized.
+        """
+        from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+
+        quantize_str = Decimal(10) ** -precision  # e.g. Decimal('0.0001') for precision=4
+
+        def _quantize(val):
+            if val is None or (isinstance(val, float) and pd.isna(val)):
+                return val
+            try:
+                d = val if isinstance(val, Decimal) else Decimal(str(val))
+                return d.quantize(quantize_str, rounding=ROUND_HALF_UP)
+            except (InvalidOperation, ValueError):
+                return val
+
+        df[col_name] = df[col_name].apply(_quantize)
+        return df
 
     def _coerce_column_type(
         self,

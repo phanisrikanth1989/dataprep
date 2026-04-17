@@ -51,13 +51,16 @@ _OPERATOR_MAP = {
 # ------------------------------------------------------------------
 
 _FUNCTION_MAP = {
-    "":       lambda col: col,
-    "LOWER":  lambda col: col.astype(str).str.lower(),
-    "UPPER":  lambda col: col.astype(str).str.upper(),
-    "LENGTH": lambda col: col.astype(str).str.len(),
-    "TRIM":   lambda col: col.astype(str).str.strip(),
-    "LTRIM":  lambda col: col.astype(str).str.lstrip(),
-    "RTRIM":  lambda col: col.astype(str).str.rstrip(),
+    "":            lambda col: col,
+    "LOWER":       lambda col: col.astype(str).str.lower(),
+    "UPPER":       lambda col: col.astype(str).str.upper(),
+    "LOWER_FIRST": lambda col: col.astype(str).str[0].str.lower(),
+    "UPPER_FIRST": lambda col: col.astype(str).str[0].str.upper(),
+    "LENGTH":      lambda col: col.astype(str).str.len(),
+    "TRIM":        lambda col: col.astype(str).str.strip(),
+    "LTRIM":       lambda col: col.astype(str).str.lstrip(),
+    "RTRIM":       lambda col: col.astype(str).str.rstrip(),
+    "ABS":         lambda col: pd.to_numeric(col, errors="coerce").abs(),
 }
 
 # ------------------------------------------------------------------
@@ -221,7 +224,10 @@ class FilterRows(BaseComponent):
         use_advanced = self.config.get("use_advanced", False)
 
         if use_advanced:
-            mask = self._handle_advanced(input_data)
+            # Both advanced condition AND simple conditions are applied (ANDed)
+            advanced_mask = self._handle_advanced(input_data)
+            simple_mask = self._handle_simple(input_data)
+            mask = advanced_mask & simple_mask
         else:
             mask = self._handle_simple(input_data)
 
@@ -304,8 +310,31 @@ class FilterRows(BaseComponent):
     # Advanced Condition (Java Bridge Delegation)
     # ------------------------------------------------------------------
 
+    def _resolve_java_expressions(self) -> None:
+        """Override to skip advanced_cond from one-time batch resolution.
+
+        advanced_cond needs per-row evaluation via execute_tmap_preprocessing,
+        not one-time resolution via execute_batch_one_time_expressions (which
+        has no row binding). All other config {{java}} markers are handled by
+        the parent.
+        """
+        advanced_cond = self.config.get("advanced_cond", "")
+        # Temporarily clear so base class skips it
+        if advanced_cond:
+            self.config["advanced_cond"] = ""
+        try:
+            super()._resolve_java_expressions()
+        finally:
+            # Restore original value regardless
+            if advanced_cond:
+                self.config["advanced_cond"] = advanced_cond
+
     def _handle_advanced(self, df: pd.DataFrame) -> pd.Series:
-        """Evaluate advanced Java expression and return boolean mask.
+        """Evaluate advanced Java expression per-row and return boolean mask.
+
+        Uses execute_tmap_preprocessing which binds each row as
+        `<input_flow_name>` (e.g. row1) so expressions like `row1.age > 10`
+        work natively. Falls back to passing all rows if bridge unavailable.
 
         Args:
             df: Input DataFrame.
@@ -313,6 +342,8 @@ class FilterRows(BaseComponent):
         Returns:
             Boolean Series mask (True = row passes filter).
         """
+        import numpy as np
+
         advanced_cond = self.config.get("advanced_cond", "")
         if not advanced_cond:
             logger.warning(
@@ -321,39 +352,60 @@ class FilterRows(BaseComponent):
             )
             return pd.Series(True, index=df.index)
 
-        return self._evaluate_advanced(df, advanced_cond)
+        # Strip {{java}} marker if present
+        expression = advanced_cond[8:] if advanced_cond.startswith("{{java}}") else advanced_cond
 
-    def _evaluate_advanced(self, df: pd.DataFrame, expression: str) -> pd.Series:
-        """Evaluate an advanced filter expression. Returns boolean Series.
-
-        If the expression was resolved by the Java bridge during
-        _resolve_expressions(), it should be a boolean result. Otherwise,
-        log a warning and pass all rows.
-
-        Args:
-            df: Input DataFrame.
-            expression: Resolved (or unresolved) expression string.
-
-        Returns:
-            Boolean Series mask.
-        """
-        expr_lower = expression.strip().lower()
-        if expr_lower in ("true", "1"):
-            return pd.Series(True, index=df.index)
-        if expr_lower in ("false", "0"):
-            return pd.Series(False, index=df.index)
-
-        # If still contains {{java}} marker, bridge was not available
-        if "{{java}}" in expression:
+        if not self.java_bridge:
             logger.warning(
-                f"[{self.id}] Advanced condition contains unresolved {{java}} "
-                f"marker, Java bridge not available. Passing all rows."
+                f"[{self.id}] Advanced condition requires Java bridge but none "
+                f"available. Passing all rows."
             )
             return pd.Series(True, index=df.index)
 
-        # Expression was resolved but is not a simple boolean
-        logger.warning(
-            f"[{self.id}] Advanced condition resolved to non-boolean value: "
-            f"{expression!r}. Passing all rows."
-        )
-        return pd.Series(True, index=df.index)
+        # Determine main table name from input flow (e.g. "row1")
+        main_table_name = self.inputs[0] if self.inputs else "row1"
+
+        # Normalize "input_row." -> actual flow name so both styles work.
+        # Talend uses the flow name (row1); users may also write input_row.
+        if "input_row." in expression:
+            expression = expression.replace("input_row.", f"{main_table_name}.")
+            logger.debug(
+                f"[{self.id}] Rewrote 'input_row' -> '{main_table_name}' in advanced_cond"
+            )
+
+        try:
+            # Map pandas dtypes to engine type strings expected by bridge
+            _DTYPE_MAP = {
+                "int64": "int", "int32": "int", "int16": "int", "int8": "int",
+                "float64": "float", "float32": "float",
+                "bool": "bool",
+                "datetime64[ns]": "datetime",
+                "object": "str",
+            }
+            schema = {
+                col: _DTYPE_MAP.get(str(df[col].dtype), "str")
+                for col in df.columns
+            }
+            results = self.java_bridge.execute_tmap_preprocessing(
+                df,
+                {"_filter": expression},
+                main_table_name=main_table_name,
+                schema=schema,
+            )
+            per_row = results.get("_filter", np.array([]))
+            if len(per_row) != len(df):
+                logger.warning(
+                    f"[{self.id}] Advanced condition result length mismatch "
+                    f"({len(per_row)} vs {len(df)}). Passing all rows."
+                )
+                return pd.Series(True, index=df.index)
+            # Convert to boolean: treat None/null as False
+            bool_mask = pd.array(
+                [bool(v) if v is not None else False for v in per_row],
+                dtype="boolean",
+            ).fillna(False)
+            return pd.Series(bool_mask.to_numpy(dtype=bool), index=df.index)
+        except Exception as e:
+            raise ExpressionError(
+                f"[{self.id}] Error in Java expression at advanced_cond: {e}"
+            ) from e
