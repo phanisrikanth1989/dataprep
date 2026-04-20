@@ -146,7 +146,7 @@ def _compare(col: pd.Series, operator: str, value: str) -> pd.Series:
 # Component
 # ------------------------------------------------------------------
 
-@REGISTRY.register("FilterRows", "tFilterRow", "tFilterRows")
+@REGISTRY.register("FilterRows", "FilterRow", "tFilterRow", "tFilterRows")
 class FilterRows(BaseComponent):
     """tFilterRow / tFilterRows engine implementation.
 
