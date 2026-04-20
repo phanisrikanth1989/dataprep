@@ -5,8 +5,10 @@ __pycache__/
 *.pyd
 *.class
 *.lst
+*.json
 .claude/
 .gemini/
+
 # Maven build artifacts
 src/v1/java_bridge/java/target/
 src/v1/java_bridge/java/dependency-reduced-pom.xml
