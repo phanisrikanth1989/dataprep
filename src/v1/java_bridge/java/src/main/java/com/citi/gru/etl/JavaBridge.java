@@ -21,19 +21,22 @@ import java.util.logging.Logger;
 /**
  * Java bridge server for executing Java/Groovy expressions on Arrow data.
  *
- * <p>Communicates with the Python engine via Py4J. Receives Arrow-serialized
+ * <p>
+ * Communicates with the Python engine via Py4J. Receives Arrow-serialized
  * DataFrames, executes Groovy scripts per-row or in batch, and returns
  * Arrow-serialized results. Context and globalMap are synchronised
  * bi-directionally with the Python side at every call boundary.
  *
- * <p>Key design choices (Phase 2 rewrite):
+ * <p>
+ * Key design choices (Phase 2 rewrite):
  * <ul>
- *   <li>All Arrow vector operations delegate to {@link ArrowSerializer}</li>
- *   <li>Compiled tMap scripts cache the Script <b>class</b>, not the instance,
- *       so each execution creates a fresh instance with its own Binding
- *       (fixes BRDG-06 -- no synchronized(script) bottleneck)</li>
- *   <li>All logging via java.util.logging with {@code [JavaBridge]} prefix (D-14, D-15)</li>
- *   <li>Zero println statements -- all output via java.util.logging</li>
+ * <li>All Arrow vector operations delegate to {@link ArrowSerializer}</li>
+ * <li>Compiled tMap scripts cache the Script <b>class</b>, not the instance,
+ * so each execution creates a fresh instance with its own Binding
+ * (fixes BRDG-06 -- no synchronized(script) bottleneck)</li>
+ * <li>All logging via java.util.logging with {@code [JavaBridge]} prefix (D-14,
+ * D-15)</li>
+ * <li>Zero println statements -- all output via java.util.logging</li>
  * </ul>
  */
 public class JavaBridge {
@@ -52,7 +55,8 @@ public class JavaBridge {
     /**
      * Cache of compiled tMap Script *classes* keyed by component ID.
      *
-     * <p>BRDG-06 fix: we cache the Class, not the Script instance. Each
+     * <p>
+     * BRDG-06 fix: we cache the Class, not the Script instance. Each
      * execution instantiates a new Script from the cached class, giving it
      * its own Binding. This eliminates the need for {@code synchronized(script)}
      * and allows truly parallel chunk execution.
@@ -75,10 +79,10 @@ public class JavaBridge {
         final List<String> lookupNames;
 
         CachedTMapMeta(Class<? extends Script> scriptClass,
-                       Map<String, List<String>> outputSchemas,
-                       Map<String, String> outputTypes,
-                       String mainTableName,
-                       List<String> lookupNames) {
+                Map<String, List<String>> outputSchemas,
+                Map<String, String> outputTypes,
+                String mainTableName,
+                List<String> lookupNames) {
             this.scriptClass = scriptClass;
             this.outputSchemas = outputSchemas;
             this.outputTypes = outputTypes;
@@ -167,9 +171,9 @@ public class JavaBridge {
      * @return Arrow IPC bytes containing the output DataFrame
      */
     public byte[] executeJavaRow(byte[] arrowData, String javaCode,
-                                 Map<String, String> outputSchema,
-                                 Map<String, Object> contextVars,
-                                 Map<String, Object> globalMapVars) throws Exception {
+            Map<String, String> outputSchema,
+            Map<String, Object> contextVars,
+            Map<String, Object> globalMapVars) throws Exception {
 
         this.context.putAll(contextVars);
         this.globalMap.putAll(globalMapVars);
@@ -246,7 +250,8 @@ public class JavaBridge {
             logger.info("[JavaBridge] executeJavaRow: processed " + rowCount + " rows in " + execTime + " ms");
 
             // Create output Arrow data via ArrowSerializer
-            try (VectorSchemaRoot outputRoot = ArrowSerializer.createOutputRootFromData(allocator, outputArrays, outputSchema)) {
+            try (VectorSchemaRoot outputRoot = ArrowSerializer.createOutputRootFromData(allocator, outputArrays,
+                    outputSchema)) {
                 ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
                 ArrowStreamWriter writer = new ArrowStreamWriter(outputRoot, null, outputStream);
                 writer.start();
@@ -283,11 +288,12 @@ public class JavaBridge {
     /**
      * Evaluate multiple Groovy expressions in batch with context and globalMap.
      *
-     * <p>Renamed from {@code executeBatchOneTimeExpressionsWithGlobalMap} --
+     * <p>
+     * Renamed from {@code executeBatchOneTimeExpressionsWithGlobalMap} --
      * the dead-code variant without globalMap has been removed.
      *
-     * @param expressions  map of {key: expressionString}
-     * @param contextVars  context variables to merge
+     * @param expressions   map of {key: expressionString}
+     * @param contextVars   context variables to merge
      * @param globalMapVars globalMap variables to merge
      * @return map of {key: resultValue}; errors stored as "{{ERROR}}message"
      */
@@ -368,7 +374,8 @@ public class JavaBridge {
             }
 
             int rowCount = inputRoot.getRowCount();
-            logger.info("[JavaBridge] tMap preprocessing: " + rowCount + " rows, " + expressions.size() + " expressions");
+            logger.info(
+                    "[JavaBridge] tMap preprocessing: " + rowCount + " rows, " + expressions.size() + " expressions");
 
             // Compile all expressions once
             logger.fine("[JavaBridge] Compiling " + expressions.size() + " expressions");
@@ -419,7 +426,8 @@ public class JavaBridge {
                         Object result = instance.run();
                         results.get(exprId)[i] = result;
                     } catch (Exception e) {
-                        logger.fine("[JavaBridge] Error evaluating '" + exprId + "' at row " + i + ": " + e.getMessage());
+                        logger.fine(
+                                "[JavaBridge] Error evaluating '" + exprId + "' at row " + i + ": " + e.getMessage());
                         results.get(exprId)[i] = null;
                     }
                 }
@@ -496,12 +504,13 @@ public class JavaBridge {
      * Compile a tMap script and cache the Script CLASS for repeated execution.
      * (Step 1 of the compile-once execute-many pattern.)
      *
-     * <p>BRDG-06 fix: caches {@code script.getClass()} rather than the Script
+     * <p>
+     * BRDG-06 fix: caches {@code script.getClass()} rather than the Script
      * instance. Each {@link #executeCompiledTMap} call creates a new instance
      * from the cached class with its own Binding -- no synchronized block needed.
      *
-     * @param componentId  unique component ID (e.g. "tMap_1")
-     * @param javaScript   Groovy source for the tMap logic
+     * @param componentId   unique component ID (e.g. "tMap_1")
+     * @param javaScript    Groovy source for the tMap logic
      * @param outputSchemas {outputName: [columnNames]}
      * @param outputTypes   {outputName_columnName: pythonTypeString}
      * @param mainTableName main input table name
@@ -546,9 +555,9 @@ public class JavaBridge {
      * Execute a previously compiled tMap script on a chunk of data.
      * (Step 2 of the compile-once execute-many pattern.)
      *
-     * @param componentId  component ID used during compilation
-     * @param arrowData    joined DataFrame chunk as Arrow IPC bytes
-     * @param contextVars  context variables
+     * @param componentId   component ID used during compilation
+     * @param arrowData     joined DataFrame chunk as Arrow IPC bytes
+     * @param contextVars   context variables
      * @param globalMapVars globalMap variables
      * @return {outputName: arrowBytes}
      */
@@ -579,7 +588,8 @@ public class JavaBridge {
             int rowCount = inputRoot.getRowCount();
             logger.info("[JavaBridge] Executing compiled " + componentId + ": " + rowCount + " rows");
 
-            // Create a FRESH Script instance from the cached class (BRDG-06 -- no synchronization)
+            // Create a FRESH Script instance from the cached class (BRDG-06 -- no
+            // synchronization)
             Script scriptInstance = meta.scriptClass.getDeclaredConstructor().newInstance();
 
             Binding execBinding = buildTMapBinding(inputRoot, rowCount, meta.mainTableName,
@@ -630,7 +640,8 @@ public class JavaBridge {
     /**
      * Validate that required libraries are available.
      *
-     * <p>BRDG-04 fix: instead of string-contains on classpath, checks actual
+     * <p>
+     * BRDG-04 fix: instead of string-contains on classpath, checks actual
      * file existence for each library path AND attempts {@code Class.forName()}
      * for known entry-point classes.
      *
@@ -712,9 +723,9 @@ public class JavaBridge {
      * Build a Groovy Binding pre-populated with tMap execution variables.
      */
     private Binding buildTMapBinding(VectorSchemaRoot inputRoot, int rowCount,
-                                     String mainTableName, List<String> lookupNames,
-                                     Map<String, List<String>> outputSchemas,
-                                     Map<String, String> outputTypes) {
+            String mainTableName, List<String> lookupNames,
+            Map<String, List<String>> outputSchemas,
+            Map<String, String> outputTypes) {
         Binding binding = new Binding();
         binding.setVariable("inputRoot", inputRoot);
         binding.setVariable("rowCount", rowCount);
@@ -730,16 +741,15 @@ public class JavaBridge {
         // tMap scripts can create RowWrappers without direct Arrow vector access.
         // Usage in script: RowWrapper row1 = buildRowWrapper(inputRoot, i, "row1")
         binding.setVariable("buildRowWrapper",
-            new groovy.lang.Closure<RowWrapper>(this) {
-                @Override
-                public RowWrapper call(Object... args) {
-                    VectorSchemaRoot root = (VectorSchemaRoot) args[0];
-                    int rowIdx = ((Number) args[1]).intValue();
-                    String tblName = (String) args[2];
-                    return buildArrowRowWrapper(root, rowIdx, tblName);
-                }
-            }
-        );
+                new groovy.lang.Closure<RowWrapper>(this) {
+                    @Override
+                    public RowWrapper call(Object... args) {
+                        VectorSchemaRoot root = (VectorSchemaRoot) args[0];
+                        int rowIdx = ((Number) args[1]).intValue();
+                        String tblName = (String) args[2];
+                        return buildArrowRowWrapper(root, rowIdx, tblName);
+                    }
+                });
 
         addRoutinesToBinding(binding);
         return binding;
@@ -747,7 +757,8 @@ public class JavaBridge {
 
     /**
      * Extract a properly-typed Java value from an Arrow vector at the given row.
-     * Converts Arrow implementation types to standard Java types for Groovy compatibility.
+     * Converts Arrow implementation types to standard Java types for Groovy
+     * compatibility.
      * VarChar returns String (not Text), numeric types return primitives.
      *
      * Reference: Pre-Phase-2 RowWrapper.getFromArrow() at commit f15cc36.
@@ -786,9 +797,12 @@ public class JavaBridge {
     }
 
     /**
-     * Build a RowWrapper that reads column values from Arrow vectors at a given row index.
-     * Column lookup supports both "tableName.colName" and plain "colName" conventions.
-     * Uses {@link #extractTypedValue(FieldVector, int)} for proper Java type conversion.
+     * Build a RowWrapper that reads column values from Arrow vectors at a given row
+     * index.
+     * Column lookup supports both "tableName.colName" and plain "colName"
+     * conventions.
+     * Uses {@link #extractTypedValue(FieldVector, int)} for proper Java type
+     * conversion.
      */
     private RowWrapper buildArrowRowWrapper(VectorSchemaRoot root, int rowIndex, String tableName) {
         RowWrapper wrapper = new RowWrapper();
@@ -838,16 +852,20 @@ public class JavaBridge {
             logger.fine("[JavaBridge] Output '" + outputName + "': " + count + " rows, "
                     + columnNames.size() + " columns");
 
-            // Build schema map for this output
-            Map<String, String> schema = new HashMap<>();
+            // Build schema map for this output.
+            // Use LinkedHashMap so downstream Arrow serialization preserves
+            // the declared column order from outputSchemas (HashMap would
+            // randomize column order in the resulting DataFrame).
+            Map<String, String> schema = new LinkedHashMap<>();
             for (String colName : columnNames) {
                 String typeKey = outputName + "_" + colName;
                 String colType = outputTypes.get(typeKey);
                 schema.put(colName, colType);
             }
 
-            // Convert Object[][] to column-oriented Object[]
-            Map<String, Object[]> columnData = new HashMap<>();
+            // Convert Object[][] to column-oriented Object[] (LinkedHashMap
+            // for the same column-order reason as above).
+            Map<String, Object[]> columnData = new LinkedHashMap<>();
             for (int colIdx = 0; colIdx < columnNames.size(); colIdx++) {
                 String colName = columnNames.get(colIdx);
                 Object[] colValues = new Object[count];
@@ -858,7 +876,8 @@ public class JavaBridge {
             }
 
             // Create Arrow output via ArrowSerializer
-            try (VectorSchemaRoot outputRoot = ArrowSerializer.createOutputRootFromData(allocator, columnData, schema)) {
+            try (VectorSchemaRoot outputRoot = ArrowSerializer.createOutputRootFromData(allocator, columnData,
+                    schema)) {
                 ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
                 ArrowStreamWriter writer = new ArrowStreamWriter(outputRoot, null, outputStream);
                 writer.start();
@@ -878,7 +897,8 @@ public class JavaBridge {
     /**
      * Start the Py4J Gateway server.
      *
-     * @param args JVM system property {@code py4j.port} controls the listen port (default 25333)
+     * @param args JVM system property {@code py4j.port} controls the listen port
+     *             (default 25333)
      */
     public static void main(String[] args) {
         int port = Integer.parseInt(System.getProperty("py4j.port", "25333"));
