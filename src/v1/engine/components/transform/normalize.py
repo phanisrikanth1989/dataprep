@@ -11,11 +11,13 @@ from typing import Any, Dict, List, Optional, Union
 import pandas as pd
 
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
 from ...exceptions import ConfigurationError, ComponentExecutionError
 
 logger = logging.getLogger(__name__)
 
 
+@REGISTRY.register("Normalize", "tNormalize")
 class Normalize(BaseComponent):
     """
     Normalize data by splitting a column into multiple rows based on a delimiter.
