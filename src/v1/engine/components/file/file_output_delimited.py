@@ -160,6 +160,14 @@ class FileOutputDelimited(BaseComponent):
         if input_data is not None and not input_data.empty and output_schema:
             input_data = self.validate_schema(input_data, output_schema)
 
+        # ---- Apply per-column date_pattern from input schema ----
+        # Talend writes datetime columns using the SimpleDateFormat pattern
+        # declared on the output component's schema. The converter has
+        # already translated Java tokens (e.g. yyyyMMdd) to Python strftime
+        # tokens (e.g. %Y%m%d), so we just call .dt.strftime here.
+        if input_data is not None and not input_data.empty:
+            input_data = self._apply_date_patterns(input_data)
+
         # ---- Handle empty input ----
         if input_data is None or input_data.empty:
             return self._handle_empty_input(
@@ -204,6 +212,54 @@ class FileOutputDelimited(BaseComponent):
         )
 
         return {"main": input_data, "reject": None}
+
+    # ------------------------------------------------------------------
+    # Date Pattern Formatting
+    # ------------------------------------------------------------------
+
+    def _apply_date_patterns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Format datetime columns according to per-column ``date_pattern``.
+
+        Walks ``self.input_schema`` (set by the engine from the component's
+        ``schema.input``) and, for each column declared as a datetime with a
+        ``date_pattern``, converts the column to a string formatted with
+        that pattern. NaT values become empty strings to match Talend.
+
+        Returns the (possibly modified) DataFrame; the original is not
+        mutated.
+        """
+        schema = getattr(self, "input_schema", None) or []
+        if not schema:
+            return df
+
+        modified = False
+        new_df = df
+        for col in schema:
+            if not isinstance(col, dict):
+                continue
+            name = col.get("name")
+            if not name or name not in df.columns:
+                continue
+            col_type = (col.get("type") or "").lower()
+            pattern = col.get("date_pattern") or ""
+            if not pattern or col_type not in ("date", "datetime"):
+                continue
+            series = df[name]
+            if not pd.api.types.is_datetime64_any_dtype(series):
+                try:
+                    series = pd.to_datetime(series, errors="coerce")
+                except Exception:  # pragma: no cover - defensive
+                    logger.warning(
+                        f"[{self.id}] Column '{name}' could not be coerced "
+                        f"to datetime; skipping date_pattern formatting."
+                    )
+                    continue
+            if not modified:
+                new_df = df.copy()
+                modified = True
+            formatted = series.dt.strftime(pattern)
+            new_df[name] = formatted.where(series.notna(), "")
+        return new_df
 
     # ------------------------------------------------------------------
     # Empty Input Handling

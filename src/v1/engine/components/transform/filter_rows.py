@@ -235,6 +235,12 @@ class FilterRows(BaseComponent):
         main_df = input_data[mask].copy()
         reject_df = input_data[~mask].copy()
 
+        # Talend's tFilterRow REJECT flow has an extra `errorMessage` column
+        # holding the failed condition expression. Match that behaviour so
+        # downstream components (and the converter's REJECT schema) line up.
+        if not reject_df.empty:
+            reject_df["errorMessage"] = self._build_reject_error_message()
+
         self._update_stats(len(input_data), len(main_df), len(reject_df))
         logger.info(
             f"[{self.id}] Filtered {len(input_data)} rows: "
@@ -254,6 +260,33 @@ class FilterRows(BaseComponent):
     # ------------------------------------------------------------------
     # Simple Conditions
     # ------------------------------------------------------------------
+
+    def _build_reject_error_message(self) -> str:
+        """Build a human-readable error message for rejected rows.
+
+        Mirrors Talend's tFilterRow REJECT flow which carries an
+        `errorMessage` column describing the failed condition.
+        """
+        use_advanced = self.config.get("use_advanced", False)
+        advanced_cond = self.config.get("advanced_cond", "")
+        conditions = self.config.get("conditions", [])
+        logical_op_raw = self.config.get("logical_op", "&&")
+        logical_op = _LOGICAL_OP_MAP.get(logical_op_raw, "AND")
+
+        parts = []
+        if use_advanced and advanced_cond:
+            expr = advanced_cond[8:] if advanced_cond.startswith("{{java}}") else advanced_cond
+            parts.append(expr)
+        if conditions:
+            joiner = " && " if logical_op == "AND" else " || "
+            simple = joiner.join(
+                f"{c.get('column','')} {c.get('operator','')} {c.get('value','')}".strip()
+                for c in conditions
+            )
+            if simple:
+                parts.append(simple)
+        expr_str = " && ".join(p for p in parts if p) or "filter condition"
+        return f"The row does not match the filter: {expr_str}"
 
     def _handle_simple(self, df: pd.DataFrame) -> pd.Series:
         """Evaluate structured conditions and return boolean mask.

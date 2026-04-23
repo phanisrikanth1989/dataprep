@@ -293,7 +293,16 @@ class TalendToV1Converter:
             if not isinstance(from_schema, dict) or not isinstance(to_schema, dict):
                 continue
 
-            upstream_output = from_schema.get("output")
+            # Prefer per-connector schema (e.g. FILTER vs REJECT for tFilterRow)
+            # so reject paths receive their distinct columns (errorMessage, etc.).
+            upstream_output = None
+            outputs_map = from_schema.get("outputs")
+            if isinstance(outputs_map, dict):
+                connector_key = (flow.get("type") or "").upper()
+                upstream_output = outputs_map.get(connector_key)
+
+            if upstream_output is None:
+                upstream_output = from_schema.get("output")
             if upstream_output is None:
                 continue
 

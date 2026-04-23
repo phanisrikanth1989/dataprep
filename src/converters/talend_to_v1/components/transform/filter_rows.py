@@ -171,8 +171,23 @@ class FilterRowsConverter(ComponentConverter):
         config["label"] = self._get_str(node, "LABEL", "")
 
         # ---- 4. Schema (transform passthrough) ----
-        schema_cols = self._parse_schema(node)
-        schema = {"input": schema_cols, "output": schema_cols}
+        # tFilterRow has up to three connector schemas in the XML:
+        #   FLOW   -- inherited input layout (fallback)
+        #   FILTER -- rows that pass the condition (same columns as input)
+        #   REJECT -- rows that fail, with an extra `errorMessage` column
+        # Emit a per-connector `outputs` map so downstream components on the
+        # REJECT path receive the errorMessage column via schema propagation.
+        flow_cols = self._parse_schema(node, connector="FLOW")
+        filter_cols = self._parse_schema(node, connector="FILTER") or flow_cols
+        reject_cols = self._parse_schema(node, connector="REJECT") or flow_cols
+        schema = {
+            "input": flow_cols,
+            "output": filter_cols,
+            "outputs": {
+                "FILTER": filter_cols,
+                "REJECT": reject_cols,
+            },
+        }
 
         # ---- 5. Engine gap needs_review entries ----
         _engine_gap_keys = [
