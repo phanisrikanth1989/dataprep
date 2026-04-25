@@ -122,6 +122,11 @@ class ETLEngine:
             component.input_schema = comp_config.get('schema', {}).get('input', [])
             component.output_schema = comp_config.get('schema', {}).get('output', [])
             component.reject_schema = comp_config.get('schema', {}).get('reject', [])
+            # ENG-CR-04 CONSUMER: per-flow schema map for multi-input components (tMap, etc.)
+            # Populated by converter _propagate_input_schemas (Phase 7.1 producer fix).
+            # Multi-input components read component.schema_inputs_map[flow_name] for
+            # the per-connector schema; falls back gracefully if not present (old configs).
+            component.schema_inputs_map = comp_config.get('schema', {}).get('inputs', {})
             if self.java_bridge_manager:
                 component.java_bridge = self.java_bridge_manager.bridge
             if self.python_routine_manager:

@@ -141,6 +141,42 @@ class Map(BaseComponent):
         self.stats["NB_LINE_REJECT"] += reject_rows
 
     # ------------------------------------------------------------------
+    # Per-flow Schema Access (ENG-CR-04 CONSUMER)
+    # ------------------------------------------------------------------
+
+    def _schema_for_flow(self, flow_name: str) -> Optional[list]:
+        """Return per-flow schema from schema_inputs_map[flow_name] when present.
+
+        Falls back to self.input_schema (legacy single-map) for back-compat
+        with non-multi-input components or pre-Phase-7.1 configs.
+
+        ENG-CR-04 CONSUMER side (Phase 7.1, REVIEWS.md HIGH gap).
+
+        The converter producer fix (same plan, Task 4) writes
+        comp_config["schema"]["inputs"][flow_name] = list_of_column_dicts.
+        The engine initialization (engine.py) sets
+        component.schema_inputs_map = comp_config["schema"].get("inputs", {}).
+        This method reads from schema_inputs_map, not from self.config["inputs"]
+        (which is the join config, not the schema map).
+
+        Args:
+            flow_name: The flow/connector name (e.g. "row1", "row2", "main_flow").
+
+        Returns:
+            List of column dicts for the flow, or self.input_schema for back-compat.
+        """
+        schema_inputs_map = getattr(self, "schema_inputs_map", None)
+        if isinstance(schema_inputs_map, dict) and flow_name in schema_inputs_map:
+            flow_schema = schema_inputs_map[flow_name]
+            if isinstance(flow_schema, list):
+                return flow_schema
+            # Tolerate nested {"schema": [...]} format
+            if isinstance(flow_schema, dict) and "schema" in flow_schema:
+                return flow_schema["schema"]
+        # Back-compat: legacy single-map behavior (pre-7.1 or single-input components)
+        return getattr(self, "input_schema", None)
+
+    # ------------------------------------------------------------------
     # Configuration Validation
     # ------------------------------------------------------------------
 
