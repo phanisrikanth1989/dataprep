@@ -1019,3 +1019,110 @@ class TestRowSeparator:
         comp = _make_component(config=config)
         result = comp.execute(None)
         assert len(result["main"]) == 2
+
+
+@pytest.mark.unit
+class TestRejectFlowCR03WR04:
+    """CR-03 / WR-04 targeted tests (Task 2 RED, Task 3/4 GREEN)."""
+
+    def test_unmapped_bool_routes_to_reject(self, tmp_path):
+        """CR-03: bool column with unmapped values routes to reject, not crash.
+
+        "yes"/"no" are recognised by _convert_value but NOT by _vectorized_convert's
+        mapping dict (which only maps to True/False) before the fix.
+        After the fix, DataValidationError -> ValueError so the per-row fallback catches
+        it and routes bad rows to reject instead of propagating the exception.
+        """
+        # Row 1: valid bool (true/false)
+        # Row 2: unmapped bool value ("maybe") -- must go to reject
+        # Row 3: valid bool (True/False)
+        content = "1;true\n2;maybe\n3;false\n"
+        filepath = _write_file(tmp_path, "bool_test.csv", content)
+        schema = [
+            {"name": "id", "type": "int", "nullable": False},
+            {"name": "flag", "type": "bool", "nullable": True},
+        ]
+        config = {
+            **_DEFAULT_CONFIG,
+            "filepath": filepath,
+            "fieldseparator": ";",
+        }
+        comp = _make_component(config=config, schema=schema)
+        # Must NOT raise -- bad rows must go to reject
+        result = comp.execute(None)
+        reject = result.get("reject")
+        assert reject is not None, "Unmapped bool rows must route to reject, not crash"
+        assert len(reject) >= 1, "At least the 'maybe' row should be rejected"
+        # Valid rows go to main
+        assert len(result["main"]) >= 1, "Valid rows must reach main"
+
+    def test_reject_indices_reset(self, tmp_path):
+        """WR-04: main and reject DataFrames from fast path have reset indices (0..N-1).
+
+        When multiple rows fail type conversion, the surviving main DataFrame
+        must have a reset index (no gaps), and the reject DataFrame must also
+        have a contiguous 0-based index.
+
+        Before the fix: result = result[good_mask].copy() mid-loop leaves stale
+        indices in `result`. The returned main df may have non-contiguous index
+        (e.g. [1, 2] instead of [0, 1]).
+        """
+        # Row 0 (id=bad): int column fails -> reject
+        # Row 1 (id=bad): int column fails -> reject
+        # Row 2: fully valid -> main
+        content = "bad_int;Alice;10.5\nanother_bad;Bob;20.0\n3;Charlie;30.0\n"
+        filepath = _write_file(tmp_path, "multi_row_fail.csv", content)
+        config = {
+            **_DEFAULT_CONFIG,
+            "filepath": filepath,
+            "fieldseparator": ";",
+        }
+        comp = _make_component(config=config)
+        result = comp.execute(None)
+        reject = result.get("reject")
+        main = result["main"]
+        assert reject is not None, "Expected 2 rejected rows"
+        assert len(reject) == 2
+        assert len(main) == 1
+        # Main index must be reset: [0] not [2]
+        assert list(main.index) == list(range(len(main))), (
+            f"Main DataFrame index must be reset 0..N-1, got: {list(main.index)}"
+        )
+        # Reject index must be reset: [0, 1]
+        assert list(reject.index) == list(range(len(reject))), (
+            f"Reject DataFrame index must be reset 0..N-1, got: {list(reject.index)}"
+        )
+
+
+@pytest.mark.unit
+class TestSchema:
+    """WR-06: one-time warning when output_schema is None."""
+
+    def test_no_schema_warns(self, tmp_path, caplog):
+        """WR-06: component logs a WARNING containing 'No output_schema' when schema is None.
+
+        The warning must appear exactly once (one-shot flag) and the main DF
+        must contain all-string columns.
+        """
+        filepath = _write_file(tmp_path, "noschema.csv", "1;Alice;10.5\n2;Bob;20.0\n")
+        config = {**_DEFAULT_CONFIG, "filepath": filepath}
+        comp = _make_component(config=config, schema=None)
+        comp.output_schema = None
+
+        with caplog.at_level(logging.WARNING):
+            result = comp.execute(None)
+
+        # Warning must be present
+        warning_msgs = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        no_schema_warnings = [m for m in warning_msgs if "No output_schema" in str(m)]
+        assert len(no_schema_warnings) >= 1, (
+            f"Expected at least one WARNING containing 'No output_schema', got: {warning_msgs}"
+        )
+
+        # Main DF must have all-string columns
+        assert "main" in result
+        assert len(result["main"]) == 2
+        for col in result["main"].columns:
+            assert result["main"][col].dtype == object, (
+                f"Column '{col}' should be object/str dtype without schema"
+            )
