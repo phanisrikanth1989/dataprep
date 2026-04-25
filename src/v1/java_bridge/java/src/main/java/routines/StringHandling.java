@@ -588,13 +588,15 @@ public class StringHandling {
         int defaultStart = 1;
         int defaultOccurrence = 1;
         Integer result = 0;
-        
-        if (isVacant(string) || isVacant(search_value)|| Math.abs(defaultStart) >= string.length()) {
-            return null;
-        }
 
+        // WR-15 fix: assign user-supplied start BEFORE the bounds check so the guard
+        // uses the actual requested position, not the hardcoded default of 1.
         if (start != null && start != 0) {
             defaultStart = start;
+        }
+
+        if (isVacant(string) || isVacant(search_value) || Math.abs(defaultStart) >= string.length()) {
+            return null;
         }
         if (occurrence != null) {
             if (occurrence <= 0) {
@@ -657,12 +659,14 @@ public class StringHandling {
         int defaultStart = 1;
         int defaultOccurrence = 1;
 
+        // WR-15 fix: assign user-supplied start BEFORE the bounds check (byte[] overload).
+        if (start != null && start != 0) {
+            defaultStart = start;
+        }
+
         // binary string comparison
         if (string == null || search_value == null || Math.abs(defaultStart) >= string.length) {
             return null;
-        }
-        if (start != null && start != 0) {
-            defaultStart = start;
         }
         int max = string.length - 1;
 
