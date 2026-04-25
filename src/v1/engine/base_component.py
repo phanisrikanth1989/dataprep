@@ -13,14 +13,32 @@ Fixes applied:
 - ENG-17: Named flow routing -- _process() returns dict with arbitrary keys
 - ENG-19: validate_schema nullable logic corrected (nullable=True allows NaN, not fills with 0)
 - NEW-03: Fixed __repr__ missing opening paren
+
+Phase 7.1 fixes:
+- CR-01: Reject schema validated with relaxed nullability (deepcopy + force nullable=True)
+- CR-02: _apply_decimal_precision coerces string precision to int before use
+- WR-01/G-01: Missing datetime columns filled with pd.NaT (nullable) or pd.Timestamp(0) (non-nullable)
+- WR-02: Missing columns use pd.Series construction to preserve dtype on empty DataFrames
+- WR-03: Removed empty-DataFrame early-exit guards in _enforce_schema_column_order and
+  _apply_output_schema_validation so empty results still get column order + schema validation
+- G-02: Decimal columns without precision coerced to Decimal objects in _coerce_column_type
+- G-03: Float columns with declared precision get rounded to that precision
+- G-04: date_pattern attribute used for datetime parsing; Talend default chain -> ISO 8601 -> inference
+- G-05/D-11: die_on_error=False routes schema-violating rows to reject with errorCode=SCHEMA_VIOLATION
+- G-10/D-12: _execute_streaming runs schema validation per chunk, not after concatenation
+- G-12/D-10: treat_empty_as_null per-column attribute (default True for numeric/datetime/Decimal,
+  False for str) controls empty-string-to-null coercion
+- D-21: User columns named errorMessage or errorCode renamed to *_user with warning log
 """
 import copy
 import logging
 import time
 from abc import ABC, abstractmethod
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from enum import Enum
 from typing import Any, Optional
 
+import numpy as np
 import pandas as pd
 
 from .exceptions import (
@@ -49,6 +67,51 @@ class ComponentStatus(Enum):
     SKIPPED = "skipped"
 
 
+# Java-style date pattern tokens -> strptime tokens
+_JAVA_DATE_TOKENS = {
+    "yyyy": "%Y",
+    "yy": "%y",
+    "MM": "%m",
+    "dd": "%d",
+    "HH": "%H",
+    "hh": "%I",
+    "mm": "%M",
+    "ss": "%S",
+    "SSS": "%f",
+}
+
+# Talend default datetime parse chain (tried in order when no date_pattern specified)
+_TALEND_DEFAULT_DATE_FORMATS = [
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d",
+    "%d/%m/%Y",
+]
+
+# Column types that default treat_empty_as_null=True
+_NUMERIC_LIKE_TYPES = {"int", "float", "bool", "datetime", "Decimal"}
+
+# Reserved reject-flow column names
+_RESERVED_REJECT_COLS = {"errorCode", "errorMessage"}
+
+
+def _java_pattern_to_strptime(java_pattern: str) -> str:
+    """Convert a Java SimpleDateFormat pattern to a Python strptime format string.
+
+    Handles the tokens used in Talend schemas: yyyy, MM, dd, HH, hh, mm, ss, SSS.
+
+    Args:
+        java_pattern: Java date pattern (e.g. "dd/MM/yyyy HH:mm:ss").
+
+    Returns:
+        Python strptime format string (e.g. "%d/%m/%Y %H:%M:%S").
+    """
+    result = java_pattern
+    # Replace longest tokens first to avoid partial replacement (e.g. MM before M)
+    for token in sorted(_JAVA_DATE_TOKENS, key=len, reverse=True):
+        result = result.replace(token, _JAVA_DATE_TOKENS[token])
+    return result
+
+
 class BaseComponent(ABC):
     """Base class for all ETL engine components.
 
@@ -63,12 +126,20 @@ class BaseComponent(ABC):
         4. Read die_on_error from resolved config
         5. _select_mode() -- auto-select BATCH/STREAMING
         6. _execute_batch() or _execute_streaming() -> calls _process()
-        7. _update_stats_from_result() + _update_global_map()
+        7b. _enforce_schema_column_order() -- per-flow column ordering + missing-col fill
+        7c. _apply_output_schema_validation() -- type coercion, precision, length, reject routing
+        8. _update_stats_from_result() + _update_global_map()
 
     Config Immutability (ENG-09/ENG-21):
         ``_original_config`` is deepcopied at construction and NEVER mutated.
         ``config`` is re-derived from ``_original_config`` at the start of every
         ``execute()`` call, so iterate re-execution always starts clean.
+
+    Schema Validation Contract (Phase 7.1):
+        Subclasses MUST NOT call validate_schema() inside _process(). The base class
+        runs validation automatically in step 7c (_apply_output_schema_validation) AFTER
+        _process returns. Calling it inside _process double-validates and races with
+        _enforce_schema_column_order's missing-column fill.
     """
 
     # Memory threshold for auto-switching to streaming mode (in MB)
@@ -173,12 +244,10 @@ class BaseComponent(ABC):
                 result = self._execute_streaming(input_data)
             else:
                 result = self._execute_batch(input_data)
-
-            # Step 7b: Enforce output schema column order
-            result = self._enforce_schema_column_order(result)
-
-            # Step 7c: Validate and coerce output against output_schema
-            result = self._apply_output_schema_validation(result)
+                # Step 7b: Enforce output schema column order
+                result = self._enforce_schema_column_order(result)
+                # Step 7c: Validate and coerce output against output_schema
+                result = self._apply_output_schema_validation(result)
 
             # Step 8: Update stats and globalMap
             self._update_stats_from_result(result)
@@ -235,6 +304,11 @@ class BaseComponent(ABC):
                 - ``main``: output DataFrame (or None)
                 - ``reject``: rejected rows DataFrame (or None)
                 - any other named flow keys for multi-output components
+
+        Note:
+            Subclasses MUST NOT call self.validate_schema() inside _process().
+            The base class runs validation automatically in step 7c
+            (_apply_output_schema_validation) AFTER _process returns.
         """
         ...
 
@@ -412,12 +486,13 @@ class BaseComponent(ABC):
         return self._process(input_data)
 
     def _execute_streaming(self, input_data: pd.DataFrame) -> dict:
-        """Process data in chunks. Collects ALL named flow outputs.
+        """Process data in chunks. Runs schema validation per chunk (G-10/D-12).
 
-        Fixes ENG-07/ENG-20: The old implementation only collected main chunks,
-        silently dropping all reject data from streaming execution.
-        Updated to collect arbitrary named flows (not just main/reject) so
-        multi-output components like tMap work correctly in streaming mode.
+        Per-chunk validation keeps memory bounded and routes reject rows correctly
+        from each chunk. Schema validation (steps 7b/7c) runs inside the chunk loop,
+        NOT after the final concat.
+
+        Also collects ALL named flow outputs (ENG-07/ENG-20 fix).
 
         Args:
             input_data: Input DataFrame to chunk and process.
@@ -434,8 +509,12 @@ class BaseComponent(ABC):
         all_flow_keys: set[str] = set()
 
         for start in range(0, len(input_data), chunk_size):
-            chunk = input_data.iloc[start : start + chunk_size]
+            chunk = input_data.iloc[start: start + chunk_size].copy()
             chunk_result = self._process(chunk)
+
+            # Apply schema validation per chunk (G-10/D-12 fix)
+            chunk_result = self._enforce_schema_column_order(chunk_result)
+            chunk_result = self._apply_output_schema_validation(chunk_result)
 
             for key, value in chunk_result.items():
                 all_flow_keys.add(key)
@@ -550,12 +629,13 @@ class BaseComponent(ABC):
         Components may produce columns in any order internally; this method
         ensures the final output matches the schema contract.
 
-        Also enforces column order on the 'reject' DataFrame
-        using reject_schema. Previously only 'main' was reordered.
+        Also enforces column order on the 'reject' DataFrame using reject_schema.
+        Applies to empty DataFrames (WR-03 fix: no empty early-exit guard).
 
-        Applies to:
-          - 'main' key using output_schema
-          - 'reject' key using reject_schema
+        Phase 7.1 fixes (WR-01, WR-02, WR-03):
+            - Missing datetime columns: pd.NaT (nullable) or pd.Timestamp(0) (non-nullable)
+            - Missing columns use pd.Series construction so dtype is preserved on empty frames
+            - No early-exit for empty DataFrames -- ordering applies cheaply to empty
 
         Args:
             result: The dict returned by _process().
@@ -568,7 +648,8 @@ class BaseComponent(ABC):
             return result
 
         main_df = result.get("main")
-        if main_df is None or not isinstance(main_df, pd.DataFrame) or main_df.empty:
+        # WR-03 fix: removed `or main_df.empty` early-exit so empty DFs get column fill
+        if main_df is None or not isinstance(main_df, pd.DataFrame):
             return result
 
         # Build ordered column list from schema
@@ -579,10 +660,8 @@ class BaseComponent(ABC):
         if not schema_cols:
             return result
 
-        # Add any schema columns missing from DataFrame as empty/default
-        # (Talend always outputs all schema columns, even if empty).
-        # Use type-appropriate defaults for non-nullable columns to avoid
-        # validation errors downstream.
+        # Add any schema columns missing from DataFrame as type-appropriate defaults.
+        # WR-01/WR-02: use pd.Series construction so dtype is correct on empty DFs.
         missing = [c for c in schema_cols if c not in main_df.columns]
         if missing:
             schema_by_name = {
@@ -591,18 +670,7 @@ class BaseComponent(ABC):
             }
             for col in missing:
                 col_def = schema_by_name.get(col, {})
-                col_type = col_def.get("type", "str")
-                nullable = col_def.get("nullable", True)
-                if nullable:
-                    main_df[col] = pd.NA
-                elif col_type == "str":
-                    main_df[col] = ""
-                elif col_type in ("int", "float", "Decimal"):
-                    main_df[col] = 0
-                elif col_type == "bool":
-                    main_df[col] = False
-                else:
-                    main_df[col] = ""
+                main_df[col] = self._make_default_series(col_def, len(main_df))
 
         # Reorder: schema columns first, then any extras not in schema (safety).
         ordered = [c for c in schema_cols if c in main_df.columns]
@@ -611,6 +679,8 @@ class BaseComponent(ABC):
 
         if final_order != list(main_df.columns):
             result["main"] = main_df[final_order]
+        else:
+            result["main"] = main_df
 
         # Also enforce column order on reject flow using reject_schema
         reject_schema = getattr(self, "reject_schema", None)
@@ -619,14 +689,13 @@ class BaseComponent(ABC):
             reject_schema
             and reject_df is not None
             and isinstance(reject_df, pd.DataFrame)
-            and not reject_df.empty
         ):
+            # WR-03 fix: no empty guard -- apply ordering even to empty reject DataFrames
             reject_cols = [
                 col["name"] for col in reject_schema
                 if isinstance(col, dict) and "name" in col
             ]
             if reject_cols:
-                # Add missing columns with type-appropriate defaults
                 reject_missing = [c for c in reject_cols if c not in reject_df.columns]
                 if reject_missing:
                     reject_by_name = {
@@ -635,26 +704,72 @@ class BaseComponent(ABC):
                     }
                     for col in reject_missing:
                         col_def = reject_by_name.get(col, {})
-                        col_type = col_def.get("type", "str")
-                        nullable = col_def.get("nullable", True)
-                        if nullable:
-                            reject_df[col] = pd.NA
-                        elif col_type == "str":
-                            reject_df[col] = ""
-                        elif col_type in ("int", "float", "Decimal"):
-                            reject_df[col] = 0
-                        elif col_type == "bool":
-                            reject_df[col] = False
-                        else:
-                            reject_df[col] = ""
+                        reject_df[col] = self._make_default_series(col_def, len(reject_df))
 
                 r_ordered = [c for c in reject_cols if c in reject_df.columns]
                 r_extra = [c for c in reject_df.columns if c not in r_ordered]
                 r_final = r_ordered + r_extra
                 if r_final != list(reject_df.columns):
                     result["reject"] = reject_df[r_final]
+                else:
+                    result["reject"] = reject_df
 
         return result
+
+    @staticmethod
+    def _make_default_series(col_def: dict, length: int) -> pd.Series:
+        """Create a type-appropriate default Series for a missing schema column.
+
+        Uses pd.Series construction (not scalar broadcast) so that dtype is
+        preserved even on empty DataFrames (WR-02 fix).
+
+        Phase 7.1 WR-01/G-01: datetime columns use pd.NaT (nullable) or
+        pd.Timestamp(0) (non-nullable) instead of pd.NA/"".
+
+        Args:
+            col_def: Column definition dict with 'type', 'nullable' keys.
+            length: Number of rows (0 for empty DataFrames).
+
+        Returns:
+            pd.Series with the correct dtype and default values.
+        """
+        col_type = col_def.get("type", "str")
+        nullable = col_def.get("nullable", True)
+
+        if col_type == "datetime":
+            if nullable:
+                return pd.Series([pd.NaT] * length, dtype="datetime64[ns]")
+            else:
+                return pd.Series([pd.Timestamp(0)] * length, dtype="datetime64[ns]")
+        elif col_type == "int":
+            if nullable:
+                return pd.Series([pd.NA] * length, dtype="Int64")
+            else:
+                return pd.Series([0] * length, dtype="int64")
+        elif col_type == "float":
+            if nullable:
+                return pd.Series([np.nan] * length, dtype="float64")
+            else:
+                return pd.Series([0.0] * length, dtype="float64")
+        elif col_type == "bool":
+            if nullable:
+                return pd.Series([pd.NA] * length, dtype="boolean")
+            else:
+                return pd.Series([False] * length, dtype="bool")
+        elif col_type == "str":
+            if nullable:
+                return pd.Series([pd.NA] * length, dtype="string")
+            else:
+                return pd.Series([""] * length, dtype="string")
+        elif col_type == "Decimal":
+            default_val = pd.NA if nullable else Decimal("0")
+            return pd.Series([default_val] * length, dtype="object")
+        else:
+            # Unknown type: nullable -> NA, non-nullable -> empty string
+            if nullable:
+                return pd.Series([pd.NA] * length, dtype="object")
+            else:
+                return pd.Series([""] * length, dtype="object")
 
     # ------------------------------------------------------------------
     # Output Schema Validation (applied automatically by execute())
@@ -668,10 +783,13 @@ class BaseComponent(ABC):
         are applied consistently for all components without requiring each
         to call validate_schema manually.
 
-        Also validates 'reject' DataFrame against reject_schema.
-        Previously only 'main' was validated — reject DataFrames skipped
-        precision, type coercion, length truncation, and missing-column
-        enforcement.
+        Phase 7.1 fixes:
+            - CR-01: reject DataFrame validated with all-nullable schema (deepcopy + force True)
+            - WR-03: no empty-DataFrame early-exit; validation applies to empty DFs
+            - G-05/D-11: when die_on_error=False, schema violations route to reject
+              instead of raising DataValidationError
+            - D-21: user columns named errorMessage/errorCode renamed to *_user before
+              the engine attaches its own reject diagnostic columns
 
         Args:
             result: The dict returned by _process().
@@ -679,20 +797,191 @@ class BaseComponent(ABC):
         Returns:
             The same dict with DataFrames validated against their schemas.
         """
+        # D-21: rename reserved column names in user data before any validation
+        result = self._rename_reserved_reject_columns(result)
+
+        die_on_error = getattr(self, "die_on_error", True)
+
         # Validate main output
         output_schema = getattr(self, "output_schema", None)
         if output_schema:
             main_df = result.get("main")
-            if main_df is not None and isinstance(main_df, pd.DataFrame) and not main_df.empty:
-                result["main"] = self.validate_schema(main_df, output_schema)
+            if main_df is not None and isinstance(main_df, pd.DataFrame):
+                # WR-03 fix: removed `not main_df.empty` guard
+                if die_on_error:
+                    result["main"] = self.validate_schema(main_df, output_schema)
+                else:
+                    # G-05/D-11: route violations to reject instead of raising
+                    result = self._validate_with_reject_routing(
+                        result, main_df, output_schema
+                    )
 
         # Validate reject output
+        # CR-01 fix: deepcopy reject_schema and force all columns nullable=True
         reject_schema = getattr(self, "reject_schema", None)
         if reject_schema:
             reject_df = result.get("reject")
-            if reject_df is not None and isinstance(reject_df, pd.DataFrame) and not reject_df.empty:
-                result["reject"] = self.validate_schema(reject_df, reject_schema)
+            if reject_df is not None and isinstance(reject_df, pd.DataFrame):
+                # WR-03 fix: removed `not reject_df.empty` guard
+                # CR-01 fix: relax nullability on reject to avoid crashing on rejected NULLs
+                reject_schema_relaxed = copy.deepcopy(reject_schema)
+                for col_def in reject_schema_relaxed:
+                    col_def["nullable"] = True
+                result["reject"] = self.validate_schema(reject_df, reject_schema_relaxed)
 
+        return result
+
+    def _rename_reserved_reject_columns(self, result: dict) -> dict:
+        """Rename user-defined columns that collide with engine reject column names.
+
+        D-21: The engine reserves 'errorCode' and 'errorMessage' for reject flow
+        diagnostics. If user data contains columns with these names, they are renamed
+        to '{name}_user' with a warning log. This prevents silent data overwrites
+        when the engine attaches its own reject diagnostic columns.
+
+        Args:
+            result: The result dict (modified in-place for main/reject DataFrames).
+
+        Returns:
+            The result dict with renamed columns.
+        """
+        for flow_key in ("main", "reject"):
+            df = result.get(flow_key)
+            if df is None or not isinstance(df, pd.DataFrame):
+                continue
+            renames = {}
+            for reserved_col in _RESERVED_REJECT_COLS:
+                if reserved_col in df.columns:
+                    new_name = f"{reserved_col}_user"
+                    renames[reserved_col] = new_name
+                    logger.warning(
+                        f"[{self.id}] Input had reserved column '{reserved_col}'; "
+                        f"renamed to '{new_name}'"
+                    )
+            if renames:
+                result[flow_key] = df.rename(columns=renames)
+        return result
+
+    def _validate_with_reject_routing(
+        self,
+        result: dict,
+        main_df: pd.DataFrame,
+        output_schema: list[dict],
+    ) -> dict:
+        """Validate main DataFrame and route violations to reject (die_on_error=False).
+
+        For each schema column, checks nullable constraint and type coercion. Rows
+        that violate constraints are removed from main and appended to reject with:
+            - errorCode: "SCHEMA_VIOLATION"
+            - errorMessage: "Column '<name>': <reason>"
+
+        Violation reasons:
+            - "non-nullable column has null"
+            - "type coercion failed: <value>"
+            - "length exceeded: <actual> > <schema_length>"
+
+        Args:
+            result: The result dict (modified in place).
+            main_df: The main output DataFrame to validate.
+            output_schema: Schema column definitions.
+
+        Returns:
+            Updated result dict with valid rows in main, violated rows in reject.
+        """
+        violation_indices: dict[int, str] = {}  # index -> first violation reason
+
+        working_df = main_df.copy()
+
+        for col_def in output_schema:
+            col_name = col_def.get("name")
+            if col_name is None or col_name not in working_df.columns:
+                continue
+
+            col_type = col_def.get("type", "str")
+            nullable = col_def.get("nullable", True)
+            col_length = col_def.get("length")
+            precision = col_def.get("precision")
+
+            # Check nullable constraint
+            if not nullable:
+                null_mask = working_df[col_name].isna()
+                for idx in working_df.index[null_mask]:
+                    if idx not in violation_indices:
+                        violation_indices[idx] = (
+                            f"Column '{col_name}': non-nullable column has null"
+                        )
+
+            # Apply treat_empty_as_null before coercion
+            default_treat_empty = col_type in _NUMERIC_LIKE_TYPES
+            treat_empty = col_def.get("treat_empty_as_null", default_treat_empty)
+            working_df = self._apply_treat_empty(working_df, col_name, col_type, treat_empty)
+
+            # Type coercion (best-effort; record failures)
+            working_df = self._coerce_column_type(working_df, col_def)
+
+            # String length check
+            if col_length is not None and col_type == "str":
+                col_length_int = int(col_length)
+                for idx in working_df.index:
+                    if idx in violation_indices:
+                        continue
+                    val = working_df.at[idx, col_name]
+                    if isinstance(val, str) and len(val) > col_length_int:
+                        violation_indices[idx] = (
+                            f"Column '{col_name}': length exceeded: "
+                            f"{len(val)} > {col_length_int}"
+                        )
+
+            # Float precision rounding
+            if precision is not None and col_type == "float":
+                try:
+                    precision_int = int(precision)
+                    working_df[col_name] = working_df[col_name].round(precision_int)
+                except (TypeError, ValueError):
+                    pass
+
+            # Decimal precision
+            if precision is not None and col_type == "Decimal":
+                working_df = self._apply_decimal_precision(
+                    working_df, col_name, precision
+                )
+
+        if not violation_indices:
+            # Apply string truncation and other non-violation coercions and return
+            for col_def in output_schema:
+                col_name = col_def.get("name")
+                col_length = col_def.get("length")
+                col_type = col_def.get("type", "str")
+                if col_name and col_length is not None and col_type == "str" and col_name in working_df.columns:
+                    col_length_int = int(col_length)
+                    working_df[col_name] = working_df[col_name].apply(
+                        lambda v: v[:col_length_int] if isinstance(v, str) and len(v) > col_length_int else v
+                    )
+            result["main"] = working_df
+            return result
+
+        # Split valid and violating rows
+        bad_idx = set(violation_indices.keys())
+        good_mask = ~working_df.index.isin(bad_idx)
+        valid_df = working_df[good_mask].reset_index(drop=True)
+
+        # Build reject rows from original data (preserve raw values)
+        rejected_rows = main_df.loc[list(bad_idx)].copy().reset_index(drop=True)
+        rejected_rows["errorCode"] = "SCHEMA_VIOLATION"
+        rejected_rows["errorMessage"] = [
+            violation_indices[idx] for idx in sorted(bad_idx)
+        ]
+
+        # Merge with existing reject
+        existing_reject = result.get("reject")
+        if existing_reject is not None and isinstance(existing_reject, pd.DataFrame) and len(existing_reject) > 0:
+            result["reject"] = pd.concat(
+                [existing_reject, rejected_rows], ignore_index=True
+            )
+        else:
+            result["reject"] = rejected_rows
+
+        result["main"] = valid_df
         return result
 
     # ------------------------------------------------------------------
@@ -710,21 +999,31 @@ class BaseComponent(ABC):
         For integer columns with NaN values and ``nullable=True``, uses
         ``pd.Int64Dtype()`` (nullable integer) instead of ``fillna(0).astype(int64)``.
 
+        Phase 7.1 additions (G-02, G-03, G-04, G-12):
+            - Decimal columns without precision coerced to Decimal objects
+            - Float columns with precision get rounded
+            - date_pattern attribute used for datetime parsing
+            - treat_empty_as_null per-column attribute applied before coercion
+
         Args:
             df: Input DataFrame.
             schema: List of column defs with keys: name, type, nullable,
-                length, precision, key.
+                length, precision, date_pattern, treat_empty_as_null.
 
         Returns:
             DataFrame with validated/coerced types.
 
         Raises:
-            DataValidationError: If a non-nullable column contains NULL values.
+            DataValidationError: If a non-nullable column contains NULL values
+                (only when die_on_error=True or called directly).
         """
-        if not schema or df is None or df.empty:
+        if not schema:
+            return df
+        if df is None:
             return df
 
         result = df.copy()
+
         for col_def in schema:
             col_name = col_def.get("name")
             if col_name not in result.columns:
@@ -733,18 +1032,22 @@ class BaseComponent(ABC):
             col_type = col_def.get("type", "str")
             nullable = col_def.get("nullable", True)
 
+            # Apply treat_empty_as_null before coercion (G-12/D-10)
+            default_treat_empty = col_type in _NUMERIC_LIKE_TYPES
+            treat_empty = col_def.get("treat_empty_as_null", default_treat_empty)
+            result = self._apply_treat_empty(result, col_name, col_type, treat_empty)
+
             # Check nullable constraint CORRECTLY (FIX ENG-19)
             if not nullable and result[col_name].isna().any():
                 raise DataValidationError(
                     f"Column '{col_name}' has NULL values but is not nullable"
                 )
 
-            # Type coercion
-            result = self._coerce_column_type(result, col_name, col_type, nullable)
+            # Type coercion (G-02, G-04 fixes in _coerce_column_type)
+            result = self._coerce_column_type(result, col_def)
 
             # Enforce string length truncation
             # Talend truncates string values exceeding schema-defined length.
-            # Engine must do the same to match Talend output.
             col_length = col_def.get("length")
             if col_length is not None and col_type == "str":
                 col_length = int(col_length)
@@ -752,36 +1055,133 @@ class BaseComponent(ABC):
                     lambda v: v[:col_length] if isinstance(v, str) and len(v) > col_length else v
                 )
 
-            # Apply precision for Decimal columns
+            # Apply precision for Decimal columns (CR-02 fix in _apply_decimal_precision)
             precision = col_def.get("precision")
             if precision is not None and col_type == "Decimal":
                 result = self._apply_decimal_precision(result, col_name, precision)
 
+            # G-03: Apply precision for float columns
+            if precision is not None and col_type == "float":
+                try:
+                    precision_int = int(precision)
+                    result[col_name] = result[col_name].round(precision_int)
+                except (TypeError, ValueError) as exc:
+                    logger.warning(
+                        f"[{self.id}] Invalid precision {precision!r} for float column "
+                        f"'{col_name}'; skipping rounding: {exc}"
+                    )
+
         return result
+
+    @staticmethod
+    def _apply_treat_empty(
+        df: pd.DataFrame,
+        col_name: str,
+        col_type: str,
+        treat_empty: bool,
+    ) -> pd.DataFrame:
+        """Apply treat_empty_as_null logic for a single column.
+
+        G-12/D-10: Controls whether empty strings are coerced to null before
+        type coercion.
+
+        For string columns:
+            - treat_empty=True: "" -> pd.NA
+            - treat_empty=False (default): "" stays as ""
+
+        For numeric/datetime/Decimal columns:
+            - treat_empty=True (default): "" will be coerced to NaN by pd.to_numeric/to_datetime
+            - treat_empty=False: DataValidationError raised if "" present
+              (non-string type cannot meaningfully represent "")
+
+        Args:
+            df: DataFrame containing the column.
+            col_name: Column name.
+            col_type: Column type string.
+            treat_empty: Whether to treat "" as null.
+
+        Returns:
+            DataFrame with empty-string handling applied.
+
+        Raises:
+            DataValidationError: If treat_empty=False on a numeric column that has "" values.
+        """
+        if col_name not in df.columns:
+            return df
+
+        col = df[col_name]
+
+        # Find cells that are exactly the empty string
+        # Use len(col) check first to avoid unnecessary work on empty series
+        if len(col) == 0:
+            return df
+
+        try:
+            has_empty = col.apply(
+                lambda v: isinstance(v, str) and v == ""
+            ).astype(bool).any()
+        except Exception:
+            # If apply/any fails (e.g. complex dtype), skip treatment
+            return df
+
+        if not has_empty:
+            return df
+
+        if col_type == "str":
+            if treat_empty:
+                df = df.copy()
+                df[col_name] = col.apply(
+                    lambda v: pd.NA if (isinstance(v, str) and v == "") else v
+                )
+        else:
+            # numeric/datetime/Decimal: empty string has no valid representation
+            if not treat_empty:
+                raise DataValidationError(
+                    f"Column '{col_name}' has empty strings but treat_empty_as_null=false "
+                    f"on a non-string column (type '{col_type}')"
+                )
+            # treat_empty=True (default for numeric): leave "" for pd.to_numeric to coerce to NaN
+
+        return df
 
     @staticmethod
     def _apply_decimal_precision(
         df: pd.DataFrame,
         col_name: str,
-        precision: int,
+        precision,
     ) -> pd.DataFrame:
         """Round Decimal column values to the specified number of decimal places.
+
+        CR-02 fix: coerce string precision to int before use (JSON configs send strings).
 
         Args:
             df: DataFrame containing the column.
             col_name: Name of the Decimal column.
-            precision: Number of decimal places.
+            precision: Number of decimal places (int or str -- coerced to int).
 
         Returns:
             DataFrame with the column values quantized.
         """
-        from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+        # CR-02 fix: coerce string precision to int
+        try:
+            precision = int(precision)
+        except (TypeError, ValueError):
+            logger.warning(
+                f"Invalid precision {precision!r} for column '{col_name}'; "
+                f"skipping precision application"
+            )
+            return df
 
         quantize_str = Decimal(10) ** -precision  # e.g. Decimal('0.0001') for precision=4
 
         def _quantize(val):
             if val is None or (isinstance(val, float) and pd.isna(val)):
                 return val
+            try:
+                if pd.isna(val):
+                    return val
+            except (TypeError, ValueError):
+                pass
             try:
                 d = val if isinstance(val, Decimal) else Decimal(str(val))
                 return d.quantize(quantize_str, rounding=ROUND_HALF_UP)
@@ -794,45 +1194,129 @@ class BaseComponent(ABC):
     def _coerce_column_type(
         self,
         df: pd.DataFrame,
-        col_name: str,
-        col_type: str,
-        nullable: bool,
+        col_def: dict,
     ) -> pd.DataFrame:
         """Coerce a single column to the target pandas type.
 
+        Phase 7.1 additions:
+            - G-02: Decimal columns get values coerced to Decimal objects (not just object dtype)
+            - G-04: date_pattern attribute drives format-aware datetime parsing with Talend
+              default chain -> ISO 8601 -> inference fallback
+
+        Datetime parsing chain (G-04):
+            1. If date_pattern is set: convert Java pattern to strptime, parse with that format
+            2. Else try Talend defaults in order: "%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y"
+            3. Else ISO 8601 via pd.to_datetime(infer_datetime_format=True, errors="coerce")
+            4. Else inference fallback (current behavior, last resort)
+
         Args:
             df: DataFrame containing the column.
-            col_name: Name of the column to coerce.
-            col_type: Python type string (e.g. 'int', 'str', 'Decimal').
-            nullable: Whether the column allows NULL values.
+            col_def: Column definition dict with 'name', 'type', 'nullable', 'date_pattern', etc.
 
         Returns:
             DataFrame with the column coerced (modified in place on the copy).
         """
+        col_name = col_def.get("name")
+        if col_name not in df.columns:
+            return df
+
+        col_type = col_def.get("type", "str")
+        nullable = col_def.get("nullable", True)
+        date_pattern = col_def.get("date_pattern")
+
         pandas_type = self._TYPE_MAPPING.get(col_type, "object")
 
         try:
             if pandas_type == "datetime64[ns]":
-                df[col_name] = pd.to_datetime(df[col_name], errors="coerce")
+                df[col_name] = self._parse_datetime_column(
+                    df[col_name], date_pattern
+                )
+
             elif pandas_type == "int64":
                 df[col_name] = pd.to_numeric(df[col_name], errors="coerce")
-                if nullable and df[col_name].isna().any():
-                    # Use nullable integer type to preserve NaN
+                if nullable:
+                    # Always use nullable Int64 for nullable int columns (preserves NaN,
+                    # and on empty DataFrames isna().any() is False but dtype must still be Int64)
                     df[col_name] = df[col_name].astype(pd.Int64Dtype())
                 else:
                     df[col_name] = df[col_name].astype("int64")
+
             elif pandas_type == "float64":
                 df[col_name] = pd.to_numeric(df[col_name], errors="coerce")
+
             elif pandas_type == "bool":
                 df[col_name] = df[col_name].astype("bool")
-            # object type: no conversion needed
+
+            elif col_type == "Decimal":
+                # G-02 fix: coerce to Decimal objects (not just leave as object/string)
+                def _to_decimal(v):
+                    if v is None:
+                        return pd.NA
+                    try:
+                        if pd.isna(v):
+                            return pd.NA
+                    except (TypeError, ValueError):
+                        pass
+                    if isinstance(v, Decimal):
+                        return v
+                    try:
+                        return Decimal(str(v))
+                    except (InvalidOperation, ValueError):
+                        return v
+
+                df[col_name] = df[col_name].apply(_to_decimal)
+
+            # str type (object) and unknown types: no conversion needed
+
         except Exception as e:
             logger.warning(
                 f"[{self.id}] Failed to convert column '{col_name}' "
-                f"to type '{pandas_type}': {e}"
+                f"to type '{col_type}': {e}"
             )
 
         return df
+
+    @staticmethod
+    def _parse_datetime_column(series: pd.Series, date_pattern: Optional[str]) -> pd.Series:
+        """Parse a datetime column using the Talend date parsing chain.
+
+        G-04 fix: date_pattern attribute from schema drives format-aware parsing.
+
+        Parsing chain:
+            1. If date_pattern (Java format): convert to strptime, try pd.to_datetime with format
+            2. Else try Talend default formats in order (avoid false-NaT results)
+            3. Else ISO 8601 with pd.to_datetime inference
+            4. Fallback: pd.to_datetime inference (last resort)
+
+        Args:
+            series: The column Series to parse.
+            date_pattern: Java-style date pattern from schema (e.g. "dd/MM/yyyy"), or None.
+
+        Returns:
+            Parsed datetime Series with dtype datetime64[ns].
+        """
+        # Step 1: Explicit date_pattern from schema
+        if date_pattern:
+            strptime_fmt = _java_pattern_to_strptime(date_pattern)
+            parsed = pd.to_datetime(series, format=strptime_fmt, errors="coerce")
+            # If this produced some valid dates, use it
+            if parsed.notna().any() or series.isna().all():
+                return parsed
+
+        # Step 2: Try Talend default date formats in order
+        for fmt in _TALEND_DEFAULT_DATE_FORMATS:
+            try:
+                parsed = pd.to_datetime(series, format=fmt, errors="coerce")
+                # A format wins if it parses all non-null values successfully
+                non_null_mask = series.notna() & (series != "")
+                if non_null_mask.any() and parsed[non_null_mask].notna().all():
+                    return parsed
+            except Exception:
+                continue
+
+        # Step 3: ISO 8601 / pandas inference (infer_datetime_format removed in pandas 3.x)
+        parsed = pd.to_datetime(series, errors="coerce")
+        return parsed
 
     # ------------------------------------------------------------------
     # Reset (Iterate Support)
