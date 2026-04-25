@@ -1133,6 +1133,7 @@ class BaseComponent(ABC):
         if col_type == "str":
             if treat_empty:
                 df = df.copy()
+                col = df[col_name]          # refresh after copy to avoid stale reference
                 df[col_name] = col.apply(
                     lambda v: pd.NA if (isinstance(v, str) and v == "") else v
                 )
