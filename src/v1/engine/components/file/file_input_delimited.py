@@ -217,15 +217,11 @@ class FileInputDelimited(BaseComponent):
         # ---- 8. Remove empty rows ----
         if remove_empty_row:
             df = df.dropna(how="all")
-            # Also drop rows where all columns are empty string
-            mask = df.apply(
-                lambda row: not all(
-                    str(v).strip() == "" for v in row
-                ),
-                axis=1,
-            )
-            if not mask.empty:
-                df = df[mask].reset_index(drop=True)
+            # WR-03 fix: vectorized all-empty-string check (avoids O(rows*cols)
+            # Python-level per-row loop). Replace blank/whitespace-only strings
+            # with NA, then keep rows where at least one value is non-NA.
+            str_df = df.astype(str).replace(r"^\s*$", pd.NA, regex=True)
+            df = df[str_df.notna().any(axis=1)].reset_index(drop=True)
 
         # ---- 9. Apply TRIMSELECT / trim_all (D-11) ----
         df = self._apply_trim(df, trim_all, trim_select)
