@@ -195,8 +195,8 @@ Plans:
   9. No regressions in already-passing tests for Phases 1, 4, 5, 5.1, 5.2, 6, 7, 9
 **Plans:** 8 plans
 Plans:
-- [ ] 07.1-01-PLAN.md -- BaseComponent rewrite (schema validation, ordering, datetime/Decimal/float precision, die_on_error reject routing, per-chunk streaming, treat_empty_as_null) -- Wave 1
-- [ ] 07.1-02-PLAN.md -- Maven pom.xml fix + vendored routines-system JAR + Apache 2.0 sign-off -- Wave 1
+- [x] 07.1-01-PLAN.md -- BaseComponent rewrite (schema validation, ordering, datetime/Decimal/float precision, die_on_error reject routing, per-chunk streaming, treat_empty_as_null) -- Wave 1
+- [x] 07.1-02-PLAN.md -- Maven pom.xml fix + vendored routines-system JAR + Apache 2.0 sign-off -- Wave 1
 - [ ] 07.1-03-PLAN.md -- file_output_delimited rewrite (multi-char sep, passthrough integrity, escape, JSON bool, CSV header) -- Wave 2
 - [ ] 07.1-04-PLAN.md -- file_input_delimited patch (DataValidationError leak, _fast_path reject indices, no-schema warning) -- Wave 2
 - [ ] 07.1-05-PLAN.md -- filter_rows engine + converter patch + folded ENG-CR-04 multi-input schema propagation -- Wave 2
