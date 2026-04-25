@@ -690,6 +690,10 @@ class BaseComponent(ABC):
             and reject_df is not None
             and isinstance(reject_df, pd.DataFrame)
         ):
+            # WR-02 fix: take a working copy before any mutation so that CoW
+            # column assignments are captured and result["reject"] is always
+            # written back with the final state.
+            reject_df = reject_df.copy()
             # WR-03 fix: no empty guard -- apply ordering even to empty reject DataFrames
             reject_cols = [
                 col["name"] for col in reject_schema
@@ -709,10 +713,9 @@ class BaseComponent(ABC):
                 r_ordered = [c for c in reject_cols if c in reject_df.columns]
                 r_extra = [c for c in reject_df.columns if c not in r_ordered]
                 r_final = r_ordered + r_extra
-                if r_final != list(reject_df.columns):
-                    result["reject"] = reject_df[r_final]
-                else:
-                    result["reject"] = reject_df
+                result["reject"] = reject_df[r_final]
+            else:
+                result["reject"] = reject_df
 
         return result
 
