@@ -969,10 +969,13 @@ class BaseComponent(ABC):
         valid_df = working_df[good_mask].reset_index(drop=True)
 
         # Build reject rows from original data (preserve raw values)
-        rejected_rows = main_df.loc[list(bad_idx)].copy().reset_index(drop=True)
+        # WR-01 fix: use sorted order for both row selection and message lookup
+        # so errorMessage aligns correctly with each rejected row.
+        bad_idx_sorted = sorted(bad_idx)
+        rejected_rows = main_df.loc[bad_idx_sorted].copy().reset_index(drop=True)
         rejected_rows["errorCode"] = "SCHEMA_VIOLATION"
         rejected_rows["errorMessage"] = [
-            violation_indices[idx] for idx in sorted(bad_idx)
+            violation_indices[idx] for idx in bad_idx_sorted
         ]
 
         # Merge with existing reject
