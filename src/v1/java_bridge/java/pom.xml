@@ -46,6 +46,14 @@
             <version>${py4j.version}</version>
         </dependency>
 
+        <!-- JUnit 5 — first test framework in this codebase; added for 07.1-08 routine tests -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.10.2</version>
+            <scope>test</scope>
+        </dependency>
+
         <!--
           NOTE: The Talend routines.system.* dependency (org.example.recon_etl.code:routines:8.0.1)
           has been REMOVED. It was only available from a Windows-absolute local Maven repo path
@@ -106,6 +114,13 @@
                         </configuration>
                     </execution>
                 </executions>
+            </plugin>
+
+            <!-- Surefire 3.x required for JUnit 5 (Jupiter) test discovery -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
             </plugin>
 
             <plugin>
