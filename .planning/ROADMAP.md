@@ -197,12 +197,12 @@ Plans:
 Plans:
 - [x] 07.1-01-PLAN.md -- BaseComponent rewrite (schema validation, ordering, datetime/Decimal/float precision, die_on_error reject routing, per-chunk streaming, treat_empty_as_null) -- Wave 1
 - [x] 07.1-02-PLAN.md -- Maven pom.xml fix + vendored routines-system JAR + Apache 2.0 sign-off -- Wave 1
-- [ ] 07.1-03-PLAN.md -- file_output_delimited rewrite (multi-char sep, passthrough integrity, escape, JSON bool, CSV header) -- Wave 2
-- [ ] 07.1-04-PLAN.md -- file_input_delimited patch (DataValidationError leak, _fast_path reject indices, no-schema warning) -- Wave 2
-- [ ] 07.1-05-PLAN.md -- filter_rows engine + converter patch + folded ENG-CR-04 multi-input schema propagation -- Wave 2
-- [ ] 07.1-06-PLAN.md -- aggregate_row patch (list_object as Python list, union dedupe, median precision warn, sort preserve order; WR-10 documented WRONG) -- Wave 2
-- [ ] 07.1-07-PLAN.md -- normalize.py rewrite (vectorized, ConfigurationError, Talend ordering discard->trim->dedupe, trailing-only discard) -- Wave 2
-- [ ] 07.1-08-PLAN.md -- Java routines patches (WR-15 INSTR bounds, WR-16 Float.valueOf, CR-08 partial parseDate; CR-07/WR-14/IN-01 documented WRONG with regression guards) -- Wave 2
+- [x] 07.1-03-PLAN.md -- file_output_delimited rewrite (multi-char sep, passthrough integrity, escape, JSON bool, CSV header) -- Wave 2
+- [x] 07.1-04-PLAN.md -- file_input_delimited patch (DataValidationError leak, _fast_path reject indices, no-schema warning) -- Wave 2
+- [x] 07.1-05-PLAN.md -- filter_rows engine + converter patch + folded ENG-CR-04 multi-input schema propagation -- Wave 2
+- [x] 07.1-06-PLAN.md -- aggregate_row patch (list_object as Python list, union dedupe, median precision warn, sort preserve order; WR-10 documented WRONG) -- Wave 2
+- [x] 07.1-07-PLAN.md -- normalize.py rewrite (vectorized, ConfigurationError, Talend ordering discard->trim->dedupe, trailing-only discard) -- Wave 2
+- [x] 07.1-08-PLAN.md -- Java routines patches (WR-15 INSTR bounds, WR-16 Float.valueOf, CR-08 partial parseDate; CR-07/WR-14/IN-01 documented WRONG with regression guards) -- Wave 2
 
 ### Phase 8: Code Components
 **Goal**: tJava, tJavaRow, python_component, and python_row_component all execute code with correct Talend semantics, proper import support, and secure execution
