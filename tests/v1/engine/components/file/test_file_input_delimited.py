@@ -1119,10 +1119,17 @@ class TestSchema:
             f"Expected at least one WARNING containing 'No output_schema', got: {warning_msgs}"
         )
 
-        # Main DF must have all-string columns
+        # Main DF must have all-string columns (object or Arrow StringDtype in pandas 3.0)
         assert "main" in result
         assert len(result["main"]) == 2
         for col in result["main"].columns:
-            assert result["main"][col].dtype == object, (
-                f"Column '{col}' should be object/str dtype without schema"
+            dtype = result["main"][col].dtype
+            is_string_dtype = (
+                dtype == object
+                or str(dtype) in ("string", "str")
+                or hasattr(dtype, "na_value")  # pandas 3.0 StringDtype
+                or pd.api.types.is_string_dtype(dtype)
+            )
+            assert is_string_dtype, (
+                f"Column '{col}' should be string-like dtype without schema, got {dtype}"
             )

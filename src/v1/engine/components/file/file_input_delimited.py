@@ -567,7 +567,14 @@ class FileInputDelimited(BaseComponent):
             return df, None
 
         if not self.output_schema:
-            # No schema -- return as-is, no validation possible
+            # No schema -- return as-is, no validation possible.
+            # WR-06: emit a one-time warning so users know type coercion is skipped.
+            if not getattr(self, "_warned_no_schema", False):
+                logger.warning(
+                    f"[{self.id}] No output_schema configured; emitting all-string columns. "
+                    f"Downstream type-aware operations may misbehave."
+                )
+                self._warned_no_schema = True
             return df, None
 
         if not needs_row_validation:
