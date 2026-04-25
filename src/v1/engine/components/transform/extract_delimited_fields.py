@@ -258,14 +258,4 @@ class ExtractDelimitedFields(BaseComponent):
         logger.info(f"[{self.id}] Processing complete: "
                      f"in={rows_in}, out={rows_out}, rejected={rows_rejected}")
 
-        # Validate schema for output
-        if schema:
-            main_df = self.validate_schema(main_df, schema)
-            # Ensure column order and presence matches output schema exactly
-            schema_cols = [col['name'] for col in schema]
-            for col in schema_cols:
-                if col not in main_df.columns:
-                    main_df[col] = None
-            main_df = main_df[schema_cols]
-
         return {'main': main_df, 'reject': reject_df}
