@@ -123,7 +123,9 @@ def _build_agg_func(
     skipna = ignore_null
 
     if func_name == "count":
-        # count always counts non-null values
+        # WR-10 verified WRONG per RESEARCH.md: count = non-null count regardless of
+        # ignore_null. Matches SQL convention and Talend docs ("calculates the
+        # number of rows" -- no null-inclusion clause). DO NOT change to "size".
         return "count"
 
     if func_name == "count_distinct":
@@ -135,18 +137,50 @@ def _build_agg_func(
     if func_name == "last":
         return "last"
 
-    if func_name in ("list", "list_object", "union"):
-        if func_name == "union":
-            logger.warning("'union' function treated as list aggregation -- no distinct Talend engine behavior")
+    if func_name == "list":
+        # list: collect all values (preserving duplicates) and join with delimiter
         if ignore_null:
             return lambda x: list_delimiter.join(x.dropna().astype(str))
-        else:
-            return lambda x: list_delimiter.join(x.astype(str))
+        return lambda x: list_delimiter.join(x.astype(str))
+
+    if func_name == "list_object":
+        # CR-05 (supersedes Phase 6 D-09): Talend list (object) returns
+        # java.util.List<Object>; Python equivalent is a Python list.
+        # list_delimiter does NOT apply per Talaxie tAggregateRow_messages.properties:
+        #   LIST_DELIMITER.NAME=Delimiter (only for list operation)
+        if ignore_null:
+            return lambda x: x.dropna().tolist()
+        return lambda x: x.tolist()
+
+    if func_name == "union":
+        # CR-05-bis: distinct + sorted + joined. Talend union aggregator collects
+        # unique values; Python equivalent: sorted(set(...)).
+        # WR-10 verified WRONG per RESEARCH.md: count = non-null count regardless of
+        # ignore_null. Matches SQL convention and Talend docs ("calculates the
+        # number of rows" -- no null-inclusion clause). DO NOT change to "size".
+        if ignore_null:
+            return lambda x: list_delimiter.join(sorted(set(x.dropna().astype(str))))
+        return lambda x: list_delimiter.join(sorted(set(x.astype(str))))
 
     if func_name == "median":
         if use_financial_precision:
-            # For median, convert to float since Decimal median is complex
-            return lambda x: x.dropna().astype(float).median() if skipna else x.astype(float).median()
+            # WR-09 fix: Decimal median is genuinely complex; fall back to float median
+            # but warn once per execute() so operators are aware of precision loss.
+            # A mutable sentinel list is used so the closure can suppress duplicates
+            # even when pandas calls the lambda multiple times (once per group).
+            _warned = [False]
+
+            def _median_warn(x, _w=_warned):
+                if not _w[0]:
+                    logger.warning(
+                        "median with use_financial_precision: Decimal median not directly "
+                        "supported; falling back to float median (precision loss may occur "
+                        "for very large or very precise Decimal values)"
+                    )
+                    _w[0] = True
+                return x.dropna().astype(float).median() if skipna else x.astype(float).median()
+
+            return _median_warn
         return lambda x: x.median(skipna=skipna)
 
     # Numeric aggregation functions
@@ -390,8 +424,10 @@ class AggregateRow(BaseComponent):
             out_col: pd.NamedAgg(column=spec[0], aggfunc=spec[1])
             for out_col, spec in agg_specs.items()
         }
+        # WR-11 fix: sort=False preserves first-seen group order (Talend LinkedHashMap
+        # insertion order behavior). sort=True was alphabetizing output by group key.
         return (
-            df.groupby(group_cols, sort=True)
+            df.groupby(group_cols, sort=False)
             .agg(**named_aggs)
             .reset_index()
         )
