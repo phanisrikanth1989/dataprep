@@ -601,9 +601,6 @@ class SwiftBlockFormatter(BaseComponent):
                 logger.error(f"Component {self.id}: pipe_fields: {self.pipe_fields}")
                 raise
 
-            # Apply data type conversions based on output schema if available
-            if hasattr(self, 'output_schema') and self.output_schema:
-                df = self.validate_schema(df, self.output_schema)
         else:
             # Empty DataFrame with correct columns
             df = pd.DataFrame(columns=self.pipe_fields)
