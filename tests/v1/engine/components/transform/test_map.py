@@ -2301,3 +2301,81 @@ class TestCompiledScriptGeneration:
         assert output_types["out1_val"] == "int"
         assert "out1_label" in output_types
         assert output_types["out1_label"] == "str"
+
+
+# ------------------------------------------------------------------
+# TestMultiInputSchemas -- ENG-CR-04 CONSUMER: per-flow schema access
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestMultiInputSchemas:
+    """ENG-CR-04 CONSUMER: tMap reads per-input schema from config['schema']['inputs']
+    when available, falling back to self.input_schema for back-compat.
+    """
+
+    def test_multi_input_uses_per_input_schemas(self):
+        """tMap with 2 inputs (main + lookup) resolves each flow's schema independently.
+
+        ENG-CR-04 CONSUMER side (REVIEWS.md HIGH gap): after the converter produces
+        schema.inputs[flow_name] per-flow schema, tMap must read each flow's schema
+        from its own key rather than using the last-write-wins legacy input_schema.
+
+        Test: build a Map component with schema_inputs_map set (as the engine would do
+        after the ENG-CR-04 producer fix in converter.py). Verify that _schema_for_flow()
+        returns the correct schema for each flow name.
+        """
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        comp = _make_component(config=config)
+
+        # Simulate what the engine sets after ENG-CR-04 producer fix (engine.py)
+        main_schema = [
+            {"name": "id", "type": "int", "nullable": True},
+            {"name": "val", "type": "int", "nullable": True},
+        ]
+        lookup_schema = [
+            {"name": "key", "type": "str", "nullable": True},
+            {"name": "label", "type": "str", "nullable": True},
+        ]
+
+        # Engine sets schema_inputs_map on component from comp_config["schema"]["inputs"]
+        comp.schema_inputs_map = {
+            "row1": main_schema,
+            "row2": lookup_schema,
+        }
+        # Legacy fallback still available
+        comp.input_schema = main_schema  # legacy single-map
+
+        # _schema_for_flow must return the correct schema per flow
+        row1_schema = comp._schema_for_flow("row1")
+        row2_schema = comp._schema_for_flow("row2")
+        unknown_schema = comp._schema_for_flow("nonexistent")
+
+        assert row1_schema == main_schema, (
+            f"row1 schema mismatch: {row1_schema!r} != {main_schema!r}"
+        )
+        assert row2_schema == lookup_schema, (
+            f"row2 schema mismatch: {row2_schema!r} != {lookup_schema!r}"
+        )
+        # Unknown flow name falls back to legacy self.input_schema
+        assert unknown_schema == main_schema, (
+            f"Fallback for unknown flow should be self.input_schema: {unknown_schema!r}"
+        )
+
+    def test_schema_for_flow_fallback_without_schema_inputs_map(self):
+        """When schema_inputs_map is not set (old configs), fallback to self.input_schema.
+
+        Back-compat: pre-Phase-7.1 configs don't have schema.inputs; the helper
+        must gracefully fall back to self.input_schema (legacy single-map).
+        """
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        comp = _make_component(config=config)
+
+        legacy_schema = [{"name": "id", "type": "int", "nullable": True}]
+        comp.input_schema = legacy_schema
+        # Do NOT set comp.schema_inputs_map -- simulates old config
+
+        result = comp._schema_for_flow("row1")
+        assert result == legacy_schema, (
+            f"Expected legacy fallback schema, got: {result!r}"
+        )

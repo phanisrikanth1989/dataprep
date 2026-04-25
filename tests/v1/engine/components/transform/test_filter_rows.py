@@ -1,5 +1,6 @@
 """Tests for FilterRows (tFilterRow / tFilterRows engine implementation)."""
 import inspect
+from unittest.mock import patch
 
 import pytest
 import numpy as np
@@ -670,11 +671,12 @@ class TestEdgeCases:
         gm = GlobalMap()
         comp = _make_component(global_map=gm)
         comp.execute(_sample_df())
-        # _process calls _update_stats(5, 4, 1), base adds _update_stats_from_result(4 main, 1 reject)
-        # NB_LINE = 5 + 5 = 10, NB_LINE_OK = 4 + 4 = 8, NB_LINE_REJECT = 1 + 1 = 2
-        assert gm.get_nb_line("tFilter_1") == 10
-        assert gm.get_nb_line_ok("tFilter_1") == 8
-        assert gm.get_nb_line_reject("tFilter_1") == 2
+        # BaseComponent (7.1-01) owns stats. filter_rows does NOT call _update_stats manually.
+        # Base _update_stats_from_result: NB_LINE = input_rows=5, NB_LINE_OK=4, NB_LINE_REJECT=1
+        # (Diana age=20 fails age>=25 condition -> reject)
+        assert gm.get_nb_line("tFilter_1") == 5
+        assert gm.get_nb_line_ok("tFilter_1") == 4
+        assert gm.get_nb_line_reject("tFilter_1") == 1
 
 
 # ------------------------------------------------------------------
@@ -702,3 +704,233 @@ class TestRegistration:
         """FROW-07: verify source does not contain 'print('."""
         source = inspect.getsource(FilterRows)
         assert "print(" not in source, "FilterRows must not use print()"
+
+
+# ------------------------------------------------------------------
+# TestLifecycle -- ENG-CR-05: no double validate_schema
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestLifecycle:
+    """ENG-CR-05: filter_rows must not call validate_schema inside _process."""
+
+    def test_no_double_validate(self):
+        """validate_schema must be called at most once -- by BaseComponent, not by _process.
+
+        ENG-CR-05: filter_rows._process used to call self.validate_schema manually.
+        With BaseComponent owning schema validation (7.1-01), _process must NOT call it.
+        """
+        call_count = {"count": 0}
+        original = FilterRows.validate_schema
+
+        def counting_validate(self_inner, df, schema):
+            call_count["count"] += 1
+            return df
+
+        comp = _make_component()
+        with patch.object(FilterRows, "validate_schema", counting_validate):
+            comp.execute(_sample_df())
+
+        # BaseComponent calls validate_schema at most once (in _apply_output_schema_validation)
+        # filter_rows._process must NOT call it directly
+        assert call_count["count"] <= 1, (
+            f"validate_schema called {call_count['count']} times; expected at most 1 "
+            "(BaseComponent owns validation, not _process)"
+        )
+
+
+# ------------------------------------------------------------------
+# TestIterateReexecution -- ENG-CR-07: advanced_cond preserved across executes
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestIterateReexecution:
+    """ENG-CR-07: advanced_cond config preserved after _resolve_java_expressions."""
+
+    def test_advanced_cond_preserved_across_executes(self):
+        """advanced_cond must remain unchanged after execute() (config snapshot/restore).
+
+        ENG-CR-07: the old code cleared advanced_cond to "" during
+        _resolve_java_expressions, which mutated self.config. With the new
+        pop+restore pattern, the _original_config is never mutated and
+        self.config is re-derived at each execute() from _original_config.
+        """
+        config = dict(_DEFAULT_CONFIG)
+        config["use_advanced"] = True
+        config["advanced_cond"] = "{{java}}row1.age > 10"
+        config["conditions"] = []
+        comp = _make_component(config=config)
+
+        # Snapshot value before first execute
+        original_cond = config["advanced_cond"]
+
+        # Execute twice
+        comp.execute(_sample_df())
+        cond_after_first = comp._original_config.get("advanced_cond")
+
+        comp.execute(_sample_df())
+        cond_after_second = comp._original_config.get("advanced_cond")
+
+        assert cond_after_first == original_cond, (
+            f"advanced_cond mutated after first execute: {cond_after_first!r} != {original_cond!r}"
+        )
+        assert cond_after_second == original_cond, (
+            f"advanced_cond mutated after second execute: {cond_after_second!r} != {original_cond!r}"
+        )
+
+
+# ------------------------------------------------------------------
+# TestComparison -- WR-07/ENG-IN-03: numeric path when value parses as numeric
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestComparison:
+    """WR-07/ENG-IN-03: numeric comparison always used when config value parses as numeric."""
+
+    def test_numeric_value_string_column(self):
+        """Numeric value triggers numeric comparison even on string-typed columns.
+
+        WR-07: config value="10.0", column has string values "10","20".
+        Old code had notna().any() guard that prevented numeric path when
+        ALL column values are non-numeric strings. This caused "10" == "10.0"
+        to fail with string comparison ("10" != "10.0").
+
+        Fix: if value parses as numeric, always try numeric comparison.
+        """
+        df = pd.DataFrame({"val": ["10", "20", "30"]})
+        config = dict(_DEFAULT_CONFIG)
+        config["conditions"] = [
+            {"column": "val", "function": "", "operator": "==", "value": "10.0"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(df)
+        # "10" == 10.0 numerically -> matches
+        assert len(result["main"]) == 1
+        assert result["main"]["val"].iloc[0] == "10"
+
+
+# ------------------------------------------------------------------
+# TestStandalone -- WR-08: no AttributeError when inputs not set by engine
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestStandalone:
+    """WR-08: component usable without engine wiring (no self.inputs attribute)."""
+
+    def test_no_engine_inputs_attribute(self):
+        """Instantiate FilterRows directly (no engine), call execute with advanced_cond.
+
+        WR-08: self.inputs accessed without getattr guard in _handle_advanced.
+        Without engine wiring, self.inputs is not set -> AttributeError.
+        Fix: use getattr(self, 'inputs', None) with fallback to 'row1'.
+        """
+        config = {
+            "component_type": "FilterRows",
+            "logical_op": "&&",
+            "use_advanced": True,
+            "advanced_cond": "{{java}}row1.age > 10",
+            "conditions": [],
+        }
+        comp = FilterRows(
+            component_id="tFilter_standalone",
+            config=config,
+            global_map=GlobalMap(),
+            context_manager=ContextManager(),
+        )
+        # Do NOT set comp.inputs -- this simulates standalone use without engine
+        # Should not raise AttributeError (WR-08 fix: getattr guard)
+        try:
+            comp.execute(_sample_df())
+        except AttributeError as e:
+            pytest.fail(f"AttributeError raised when inputs not set: {e}")
+        except Exception:
+            # Other exceptions (bridge not available, etc.) are acceptable
+            pass
+
+
+# ------------------------------------------------------------------
+# TestRejectMessage -- ENG-WR-07: java marker stripped with removeprefix
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestRejectMessage:
+    """ENG-WR-07: {{java}} prefix removed correctly in reject errorMessage."""
+
+    def test_java_marker_stripped_correctly(self):
+        """Reject errorMessage contains expression WITHOUT the {{java}} prefix.
+
+        ENG-WR-07: the old code used advanced_cond[8:] (fixed-index slice).
+        Fix: use removeprefix('{{java}}') which is correct even if marker
+        length changes, and is Python 3.9+ idiomatic.
+        """
+        config = dict(_DEFAULT_CONFIG)
+        config["use_advanced"] = True
+        config["advanced_cond"] = "{{java}}row1.age > 5"
+        config["conditions"] = []
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+
+        reject = result.get("reject")
+        if reject is not None and not reject.empty:
+            error_msg = reject["errorMessage"].iloc[0]
+            # Must NOT contain the {{java}} prefix
+            assert "{{java}}" not in error_msg, (
+                f"errorMessage contains {{java}} marker: {error_msg!r}"
+            )
+            # Must contain the expression body
+            assert "row1.age > 5" in error_msg
+
+
+# ------------------------------------------------------------------
+# TestRejectFlow (ENG-WR-06) -- errorMessage_user from BaseComponent
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestRejectFlowUserColumn:
+    """ENG-WR-06: user column 'errorMessage' renamed to 'errorMessage_user' by BaseComponent."""
+
+    def test_user_errormessage_renamed(self):
+        """When input has a user column 'errorMessage', reject renames it to '_user'.
+
+        ENG-WR-06: engine's reject flow reserves 'errorMessage' for diagnostics.
+        If user data has a column of the same name, BaseComponent (7.1-01) renames
+        the user column to 'errorMessage_user' (D-21). filter_rows must NOT add
+        its own collision logic -- this is BaseComponent's responsibility.
+        """
+        df = pd.DataFrame({
+            "age": [25, 20, 30],
+            "errorMessage": ["user_msg_A", "user_msg_B", "user_msg_C"],
+        })
+        config = {
+            "component_type": "FilterRows",
+            "logical_op": "&&",
+            "use_advanced": False,
+            "advanced_cond": "",
+            "conditions": [
+                {"column": "age", "function": "", "operator": ">=", "value": "25"},
+            ],
+        }
+        comp = FilterRows(
+            component_id="tFilter_em",
+            config=config,
+            global_map=GlobalMap(),
+            context_manager=ContextManager(),
+        )
+        result = comp.execute(df)
+
+        reject = result.get("reject")
+        assert reject is not None, "Expected a reject DataFrame (age=20 row fails)"
+        assert not reject.empty
+
+        # User data preserved under 'errorMessage_user'
+        assert "errorMessage_user" in reject.columns, (
+            "BaseComponent (7.1-01) should rename user 'errorMessage' to 'errorMessage_user'"
+        )
+        # Engine diagnostic under 'errorMessage'
+        assert "errorMessage" in reject.columns

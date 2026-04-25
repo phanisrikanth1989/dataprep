@@ -683,3 +683,145 @@ class TestFullPipeline:
 
         finally:
             os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# 9. Schema propagation -- ENG-CR-04 PRODUCER and ENG-WR-09
+# ---------------------------------------------------------------------------
+
+class TestSchemaPropagation:
+    """ENG-CR-04 PRODUCER: _propagate_input_schemas writes per-flow inputs map.
+    ENG-WR-09: outputs lookup is case-tolerant (normalized to uppercase).
+    """
+
+    def test_multi_input_per_flow_schema(self):
+        """2-input flow graph: each flow's schema appears under to_schema['inputs'].
+
+        ENG-CR-04 PRODUCER: _propagate_input_schemas used to overwrite
+        to_schema['input'] for the last flow, losing earlier schema.
+        Fix: write to_schema['inputs'][flow_name] = schema for each flow,
+        preserving ALL per-flow schemas. Legacy to_schema['input'] still
+        set (last-write-wins is OK for single-input back-compat).
+        """
+        src1_schema_cols = [{"name": "col_a", "type": "int"}, {"name": "col_b", "type": "str"}]
+        src2_schema_cols = [{"name": "col_x", "type": "float"}, {"name": "col_y", "type": "str"}]
+
+        src1 = {
+            "id": "SRC1",
+            "schema": {
+                "output": src1_schema_cols,
+                "outputs": {"FLOW": src1_schema_cols},
+            },
+        }
+        src2 = {
+            "id": "SRC2",
+            "schema": {
+                "output": src2_schema_cols,
+                "outputs": {"FLOW": src2_schema_cols},
+            },
+        }
+        # tMap-style multi-input target with empty input as marker
+        target = {
+            "id": "TARGET",
+            "schema": {
+                "input": [],
+            },
+        }
+
+        components_map = {"SRC1": src1, "SRC2": src2, "TARGET": target}
+        flows = [
+            {"name": "main_flow", "from": "SRC1", "to": "TARGET", "type": "flow"},
+            {"name": "lookup_flow", "from": "SRC2", "to": "TARGET", "type": "flow"},
+        ]
+
+        TalendToV1Converter._propagate_input_schemas(components_map, flows)
+
+        target_schema = components_map["TARGET"]["schema"]
+
+        # Each flow has its own schema in the inputs map (ENG-CR-04 fix)
+        assert "inputs" in target_schema, "Expected 'inputs' map in target schema"
+        assert "main_flow" in target_schema["inputs"], "Expected 'main_flow' in inputs"
+        assert "lookup_flow" in target_schema["inputs"], "Expected 'lookup_flow' in inputs"
+
+        assert target_schema["inputs"]["main_flow"] == src1_schema_cols, (
+            f"main_flow schema wrong: {target_schema['inputs']['main_flow']}"
+        )
+        assert target_schema["inputs"]["lookup_flow"] == src2_schema_cols, (
+            f"lookup_flow schema wrong: {target_schema['inputs']['lookup_flow']}"
+        )
+
+        # Legacy single 'input' still set for back-compat (last-write-wins is documented)
+        assert "input" in target_schema, "Legacy 'input' key should still be set"
+
+    def test_case_tolerant_outputs_lookup(self):
+        """Lowercase outputs keys match uppercase flow type via normalized lookup.
+
+        ENG-WR-09: outputs_map may have lowercase keys (e.g. {"filter": [...]}) while
+        the flow type after .upper() is "FILTER". Without normalization, the lookup fails
+        and the upstream output is not found. Fix: normalize both outputs_map keys and
+        the connector_key to uppercase before lookup.
+        """
+        filter_cols = [{"name": "id", "type": "int"}]
+        src = {
+            "id": "SRC",
+            "schema": {
+                # lowercase keys in outputs (as if manually written or lower-cased elsewhere)
+                "outputs": {"filter": filter_cols},
+                "output": filter_cols,
+            },
+        }
+        target = {
+            "id": "TARGET",
+            "schema": {"input": []},
+        }
+        components_map = {"SRC": src, "TARGET": target}
+        # flow type is lowercase "filter" (as _parse_flows produces)
+        flows = [{"name": "filter_row", "from": "SRC", "to": "TARGET", "type": "filter"}]
+
+        TalendToV1Converter._propagate_input_schemas(components_map, flows)
+
+        target_schema = components_map["TARGET"]["schema"]
+        # Should find the schema via case-tolerant lookup
+        assert "inputs" in target_schema, "inputs map should be populated even with lowercase outputs key"
+        assert "filter_row" in target_schema["inputs"], "filter_row flow should be in inputs"
+        assert target_schema["inputs"]["filter_row"] == filter_cols
+
+
+# ---------------------------------------------------------------------------
+# 10. Converter filter_rows needs_review -- ENG-WR-08
+# ---------------------------------------------------------------------------
+
+class TestNeedsReview:
+    """ENG-WR-08: converter filter_rows must not claim 'engine uses eval()'."""
+
+    def _make_filter_node(self, params=None):
+        from src.converters.talend_to_v1.components.base import TalendNode
+        return TalendNode(
+            component_id="fr_test",
+            component_type="tFilterRow",
+            params=params or {"USE_ADVANCED": "true", "ADVANCED_COND": '"row1.age > 5"'},
+            schema={},
+            position={"x": 0, "y": 0},
+            raw_xml=None,
+        )
+
+    def test_no_eval_claim(self):
+        """needs_review must NOT contain 'eval()' claims about the engine.
+
+        ENG-WR-08: the old converter asserted "engine uses eval() for advanced conditions".
+        This is FALSE -- the engine uses the Java bridge (execute_tmap_preprocessing).
+        Fix: remove the false claim from needs_review entries.
+        """
+        from src.converters.talend_to_v1.components.transform.filter_rows import (
+            FilterRowsConverter,
+        )
+        node = self._make_filter_node()
+        result = FilterRowsConverter().convert(node, [], {})
+
+        eval_claims = [
+            entry for entry in result.needs_review
+            if "eval()" in str(entry.get("issue", ""))
+        ]
+        assert len(eval_claims) == 0, (
+            f"Found false eval() claims in needs_review: {eval_claims}"
+        )
