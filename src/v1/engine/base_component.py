@@ -835,31 +835,34 @@ class BaseComponent(ABC):
         """Rename user-defined columns that collide with engine reject column names.
 
         D-21: The engine reserves 'errorCode' and 'errorMessage' for reject flow
-        diagnostics. If user data contains columns with these names, they are renamed
-        to '{name}_user' with a warning log. This prevents silent data overwrites
-        when the engine attaches its own reject diagnostic columns.
+        diagnostics. If user data contains columns with these names IN THE MAIN FLOW,
+        they are renamed to '{name}_user' with a warning log. This prevents silent data
+        overwrites when the engine attaches its own reject diagnostic columns.
+
+        Only applies to the 'main' flow. The reject flow is the engine's domain and
+        components are expected to add 'errorCode'/'errorMessage' there legitimately.
 
         Args:
-            result: The result dict (modified in-place for main/reject DataFrames).
+            result: The result dict (modified in-place for main DataFrame).
 
         Returns:
-            The result dict with renamed columns.
+            The result dict with renamed columns in the main flow.
         """
-        for flow_key in ("main", "reject"):
-            df = result.get(flow_key)
-            if df is None or not isinstance(df, pd.DataFrame):
-                continue
-            renames = {}
-            for reserved_col in _RESERVED_REJECT_COLS:
-                if reserved_col in df.columns:
-                    new_name = f"{reserved_col}_user"
-                    renames[reserved_col] = new_name
-                    logger.warning(
-                        f"[{self.id}] Input had reserved column '{reserved_col}'; "
-                        f"renamed to '{new_name}'"
-                    )
-            if renames:
-                result[flow_key] = df.rename(columns=renames)
+        main_df = result.get("main")
+        if main_df is None or not isinstance(main_df, pd.DataFrame):
+            return result
+
+        renames = {}
+        for reserved_col in _RESERVED_REJECT_COLS:
+            if reserved_col in main_df.columns:
+                new_name = f"{reserved_col}_user"
+                renames[reserved_col] = new_name
+                logger.warning(
+                    f"[{self.id}] Input had reserved column '{reserved_col}'; "
+                    f"renamed to '{new_name}'"
+                )
+        if renames:
+            result["main"] = main_df.rename(columns=renames)
         return result
 
     def _validate_with_reject_routing(
