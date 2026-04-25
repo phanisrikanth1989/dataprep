@@ -294,11 +294,6 @@ class FileInputPositional(BaseComponent):
             # Replace NaN in string columns with empty string
             string_columns = df.select_dtypes(include=['object']).columns
             df[string_columns] = df[string_columns].fillna('')
-            # Validate schema
-            if self.output_schema:
-                logger.debug(f"[{self.id}] Validating schema")
-                df = self.validate_schema(df, self.output_schema)
-
             # Advanced separator: convert thousands/decimal if needed
             if advanced_separator:
                 logger.debug(f"[{self.id}] Applying advanced separators")
