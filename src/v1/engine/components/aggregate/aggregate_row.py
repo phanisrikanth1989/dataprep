@@ -385,9 +385,10 @@ class AggregateRow(BaseComponent):
                 ordered_cols.append(col)
         result = result[ordered_cols]
 
-        # Schema validation (output_schema is set by engine, not BaseComponent)
-        if getattr(self, "output_schema", None):
-            result = self.validate_schema(result, self.output_schema)
+        # NOTE: Do NOT call self.validate_schema() here.
+        # BaseComponent.execute() runs _apply_output_schema_validation (step 7c)
+        # automatically after _process() returns. Calling it here violates the
+        # lifecycle contract and causes double-validation (CR-02 fix).
 
         # Stats
         rows_in = len(input_data)
