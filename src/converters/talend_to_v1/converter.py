@@ -272,9 +272,17 @@ class TalendToV1Converter:
         """Set each target component's schema.input from its upstream
         component's schema.output, using the flow connection graph.
 
-        For components with multiple incoming flows, the input schema is
-        set from the first FLOW-type connection (primary data path).
-        Source components (no incoming flows) are left unchanged.
+        Phase 7.1 fixes (ENG-CR-04, ENG-WR-09):
+        - ENG-CR-04: per-flow inputs map written for multi-input components.
+          Each flow's upstream schema is recorded under
+          to_schema["inputs"][flow_name] so tMap and future multi-input
+          components can read distinct schemas per connector.
+          Legacy to_schema["input"] is still updated for back-compat
+          (last-write-wins is OK because single-input targets only see
+          one flow, and multi-input targets MUST read from inputs[flow_name]).
+        - ENG-WR-09: outputs_map keys and connector_key are both normalized
+          to uppercase before lookup so e.g. {"filter": [...]} matches
+          connector type "FILTER".
         """
         for flow in flows:
             from_id = flow["from"]
@@ -295,11 +303,14 @@ class TalendToV1Converter:
 
             # Prefer per-connector schema (e.g. FILTER vs REJECT for tFilterRow)
             # so reject paths receive their distinct columns (errorMessage, etc.).
+            # ENG-WR-09: normalize both outputs_map keys and connector_key to uppercase
+            # so lowercase keys (e.g. {"filter": [...]}) match uppercase flow types.
             upstream_output = None
             outputs_map = from_schema.get("outputs")
             if isinstance(outputs_map, dict):
+                norm_map = {str(k).upper(): v for k, v in outputs_map.items()}
                 connector_key = (flow.get("type") or "").upper()
-                upstream_output = outputs_map.get(connector_key)
+                upstream_output = norm_map.get(connector_key)
 
             if upstream_output is None:
                 upstream_output = from_schema.get("output")
@@ -311,14 +322,22 @@ class TalendToV1Converter:
             if "input" not in to_schema:
                 continue
 
-            # Only overwrite if the target has incoming data (non-source)
-            # Sources have input=[] by design and no incoming flows,
-            # so they won't appear as a flow target anyway.
+            # ENG-CR-04 fix: per-flow inputs map for multi-input components (tMap, etc.)
+            # Record each flow's schema under its own key so consumers can retrieve
+            # distinct schemas per connector (avoids last-write-wins overwrite).
+            inputs_map = to_schema.setdefault("inputs", {})
+            flow_name = flow.get("name") or from_id
+            inputs_map[flow_name] = list(upstream_output)
+
+            # Preserve legacy single 'input' for back-compat single-input components.
+            # Last-write-wins is OK because:
+            # (a) single-input targets only see one flow,
+            # (b) multi-input targets MUST read from inputs[flow_name] going forward.
             to_schema["input"] = list(upstream_output)
 
             logger.debug(
-                "Schema propagation: %s.output -> %s.input (%d columns)",
-                from_id, to_id, len(upstream_output),
+                "Schema propagation: %s.output -> %s.input[%s] (%d columns)",
+                from_id, to_id, flow_name, len(upstream_output),
             )
 
     # ------------------------------------------------------------------
