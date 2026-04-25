@@ -46,24 +46,68 @@
             <version>${py4j.version}</version>
         </dependency>
 
-        <!-- Talend routines.system (from Talend Open Studio) -->
-        <dependency>
-            <groupId>org.example.recon_etl.code</groupId>
-            <artifactId>routines</artifactId>
-            <version>8.0.1</version>
-        </dependency>
+        <!--
+          NOTE: The Talend routines.system.* dependency (org.example.recon_etl.code:routines:8.0.1)
+          has been REMOVED. It was only available from a Windows-absolute local Maven repo path
+          (file:///C:/Softwares/...) which is inaccessible on Mac/Linux.
+
+          The four routines.system.* helper classes (RandomUtils, FastDateParser, LocaleProvider,
+          TalendTimestampWithTZ) are now vendored as source files under:
+            lib/talend-routines-system/routines/system/
+
+          See the build-helper-maven-plugin configuration below which adds that directory as an
+          additional source root. The vendored sources compile into the shade JAR alongside
+          the existing routines.* classes.
+
+          License: Apache 2.0. See lib/LICENSE-talend-routines-system.txt.
+          Sign-off: .planning/phases/07.1-manager-audit-and-basecomponent-fixes/07.1-02-LICENSE-SIGNOFF.md
+        -->
     </dependencies>
 
-    <repositories>
-        <repository>
-            <id>talend-local</id>
-            <url>file:///C:/Softwares/TOS_DI-20211109_1610-V8.0.1/TOS_DI-20211109_1610-V8.0.1/configuration/.m2/repository</url>
-        </repository>
-    </repositories>
+    <!--
+      NOTE: The <repositories> block pointing to the Windows-absolute local Maven repo has been
+      REMOVED. That path (file:///C:/Softwares/TOS_DI-20211109_1610-V8.0.1/.../repository) is
+      only accessible on the original developer's Windows machine. All dependencies now come from
+      Maven Central or vendored sources compiled in-tree.
+
+      Fix for CR-04: Windows-absolute file:/// URL replaced with portable vendored source strategy.
+      Strategy ordering per 07.1-REVIEWS.md HIGH: Talaxie source fetch PRIMARY on Mac/Linux;
+      Windows local Maven repo FALLBACK only when explicitly accessible (always false on Mac/Linux).
+    -->
 
     <build>
         <finalName>java-bridge</finalName>
         <plugins>
+
+            <!--
+              Vendored Talend Open Studio 8.0.1 routines.system.* source files.
+              License: Apache 2.0. See lib/LICENSE-talend-routines-system.txt.
+              Sign-off: .planning/phases/07.1-manager-audit-and-basecomponent-fixes/07.1-02-LICENSE-SIGNOFF.md
+              These classes are NOT in Maven Central; vendoring sources is the portable option.
+              To update: re-fetch or re-implement from Talaxie tdi-studio-se main branch.
+              Strategy ordering per 07.1-REVIEWS.md HIGH: Talaxie source fetch is PRIMARY on Mac/Linux;
+              Windows local Maven repo is FALLBACK only when explicitly accessible.
+            -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>add-talend-routines-system-source</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>${project.basedir}/lib/talend-routines-system</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
