@@ -292,23 +292,81 @@ def _process(self, input_data=None) -> dict:
 
 ### Rule 11: Schema Validation
 
-Use `self.validate_schema(df, schema)` to validate and coerce DataFrame columns to match the component's output schema. The method handles:
+BaseComponent runs schema validation automatically in step 7c (`_apply_output_schema_validation`) AFTER `_process()` returns. Subclasses MUST NOT call `self.validate_schema(...)` inside `_process()`.
 
+**Rule 11 addendum (Phase 7.1):**
+Subclasses MUST NOT call self.validate_schema inside `_process()`. The base class
+runs validation automatically in step 7c (`_apply_output_schema_validation`) AFTER
+`_process` returns. Calling it inside `_process` double-validates and races with
+`_enforce_schema_column_order`'s missing-column fill.
+
+`validate_schema` handles:
 - Type coercion (Talend types to pandas dtypes)
-- Nullable constraint enforcement (raises `DataValidationError` if violated)
+- Nullable constraint enforcement (raises `DataValidationError` if violated, or routes to reject if `die_on_error=False`)
 - Nullable integer support (uses `pd.Int64Dtype()` for int columns with NaN)
+- Decimal coercion to `Decimal` objects
+- Float precision rounding
+- Date pattern parsing (Java patterns + Talend default chain)
+- `treat_empty_as_null` per-column semantics
 
 The engine sets `self.output_schema` and `self.input_schema` on each component instance during initialization (from the job config's `schema.output` and `schema.input` arrays). Use these attributes directly -- do NOT dig into `self.config` for schema.
 
 ```python
 def _process(self, input_data=None) -> dict:
     # ... produce output_df ...
-    if self.output_schema:
-        output_df = self.validate_schema(output_df, self.output_schema)
+    # DO NOT call self.validate_schema() here -- BaseComponent does it automatically
     return {"main": output_df, "reject": None}
 ```
 
-Note: `self.output_schema` and `self.input_schema` are set by the engine's `_initialize_components()`, not by BaseComponent's `__init__`. They are `list[dict]` where each dict has keys: `name`, `type`, `nullable`, `key`, `length`, `precision`, `pattern`.
+Note: `self.output_schema` and `self.input_schema` are set by the engine's `_initialize_components()`, not by BaseComponent's `__init__`. They are `list[dict]` where each dict has keys: `name`, `type`, `nullable`, `key`, `length`, `precision`, `date_pattern`, `treat_empty_as_null`.
+
+---
+
+## Schema Attributes -> treat_empty_as_null
+
+New per-column schema attribute (Phase 7.1 D-10).
+
+Default value:
+- `True` for: `int`, `float`, `bool`, `datetime`, `Decimal` columns
+- `False` for: `str` columns
+
+Effect:
+- String columns: if `True`, `""` coerces to `pd.NA`; if `False` (default), `""` stays as `""`.
+- Numeric/datetime/Decimal columns: if `True` (default), `""` coerces to NaN/NaT/NA;
+  if `False`, raises `DataValidationError` when `""` is encountered.
+
+Talend parity: Talend `tFileInputDelimited` reads `""` as `""` for string columns by default,
+and as null/NaN for numeric/datetime/Decimal columns.
+
+Schema example:
+```json
+{
+  "name": "description",
+  "type": "str",
+  "nullable": true,
+  "treat_empty_as_null": false
+}
+```
+
+---
+
+## die_on_error Semantics
+
+Phase 7.1 D-11. When `die_on_error=False` (config key, default `True`), schema violations route to the
+reject flow with:
+- `errorCode = "SCHEMA_VIOLATION"`
+- `errorMessage = "Column '<name>': <reason>"`
+
+When `die_on_error=True` (default), schema violations raise `DataValidationError`.
+
+Violation reasons:
+- `"non-nullable column has null"` -- NULL in a non-nullable column
+- `"type coercion failed: <value>"` -- value cannot be coerced to the declared type
+- `"length exceeded: <actual> > <schema_length>"` -- string value exceeds declared length
+
+Reserved column names: components MUST NOT add user columns named `errorMessage`
+or `errorCode`. If such columns exist on input, they are renamed to `*_user` with a
+warning before the engine attaches its own reject diagnostic columns.
 
 ### Rule 12: Module Docstring with Config Mapping
 
