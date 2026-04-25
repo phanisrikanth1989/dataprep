@@ -21,7 +21,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 5.2: tMap RELOAD_AT_EACH_ROW Fix** (INSERTED) - Fix per-row dynamic lookup filtering to match Talend behavior (completed 2026-04-15)
 - [x] **Phase 6: Transform Group A -- Aggregation, Sort, Filter** - Deliver tAggregateRow, tSortRow, and tFilterRow with correct Talend behavior for the hardest transform bugs (completed 2026-04-15)
 - [x] **Phase 7: Transform Group B -- Column, Join, Unite** - Deliver tFilterColumns, tJoin, and tUnite (two already functionally Green, tJoin has targeted fixes) (completed 2026-04-15)
-- [ ] **Phase 7.1: Manager Audit & BaseComponent Fixes** (INSERTED) - Fix 48 regressions and BaseComponent gaps surfaced by the manager-commit audit (REVIEW.md, REVIEW-engine.md, REVIEW-javabridge.md, TRIAGE.md) before Phase 8
+- [x] **Phase 7.1: Manager Audit & BaseComponent Fixes** (INSERTED) - Fix 48 regressions and BaseComponent gaps surfaced by the manager-commit audit (REVIEW.md, REVIEW-engine.md, REVIEW-javabridge.md, TRIAGE.md) before Phase 8 (completed 2026-04-25)
 - [ ] **Phase 8: Code Components** - Deliver tJava, tJavaRow, python_component, and python_row_component with correct Talend semantics
 - [x] **Phase 9: tContextLoad & Routines** - Deliver tContextLoad with full policy support and Java/Python routine infrastructure
 - [ ] **Phase 10: Iterate Support** - Deliver tFlowToIterate, tFileList, tFileExist and the engine iterate execution loop
@@ -193,7 +193,7 @@ Plans:
   7. Java bridge JAR builds successfully on Mac/Linux: pom.xml uses portable Maven repo path (resolves CR-04)
   8. Converter orchestrator's _propagate_input_schemas works for multi-input components like tMap (case-correct connector lookup) (resolves ENG-CR-04)
   9. No regressions in already-passing tests for Phases 1, 4, 5, 5.1, 5.2, 6, 7, 9
-**Plans:** 8 plans
+**Plans:** 8/8 plans complete
 Plans:
 - [x] 07.1-01-PLAN.md -- BaseComponent rewrite (schema validation, ordering, datetime/Decimal/float precision, die_on_error reject routing, per-chunk streaming, treat_empty_as_null) -- Wave 1
 - [x] 07.1-02-PLAN.md -- Maven pom.xml fix + vendored routines-system JAR + Apache 2.0 sign-off -- Wave 1
