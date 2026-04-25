@@ -1216,7 +1216,8 @@ class BaseComponent(ABC):
         Datetime parsing chain (G-04):
             1. If date_pattern is set: convert Java pattern to strptime, parse with that format
             2. Else try Talend defaults in order: "%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y"
-            3. Else ISO 8601 via pd.to_datetime(infer_datetime_format=True, errors="coerce")
+            3. Else ISO 8601 / pandas inference via pd.to_datetime(errors="coerce")
+               (infer_datetime_format was removed in pandas 2.0+)
             4. Else inference fallback (current behavior, last resort)
 
         Args:
