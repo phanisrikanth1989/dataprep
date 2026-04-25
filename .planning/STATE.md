@@ -89,6 +89,12 @@ None yet.
 
 None yet.
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260425-uid | Rule 11 cleanup + manual-component authoring guide | 2026-04-25 | e4e5881 | [260425-uid-fix-rule-11-contract-violations-stale-te](./quick/260425-uid-fix-rule-11-contract-violations-stale-te/) |
+
 ## Session Continuity
 
 Last session: 2026-04-15T11:22:30.071Z
