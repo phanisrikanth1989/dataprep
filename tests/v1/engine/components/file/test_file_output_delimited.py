@@ -559,13 +559,15 @@ class TestEmptyInputHeaderOnly:
         assert os.path.getsize(filepath) == 0
 
     def test_empty_input_header_uses_input_schema(self, tmp_path):
+        # WR-17 fix: set comp.input_schema directly (the engine sets this attribute,
+        # not config["schema"]). The component reads self.input_schema, not config.
         filepath = str(tmp_path / "output.csv")
         config = {
             **_DEFAULT_CONFIG, "filepath": filepath, "include_header": True,
             "file_exist_exception": False,
-            "schema": {"input": [{"name": "x", "type": "int"}, {"name": "y", "type": "str"}], "output": []},
         }
         comp = _make_component(config=config)
+        comp.input_schema = [{"name": "x", "type": "int"}, {"name": "y", "type": "str"}]
         comp.execute(pd.DataFrame())
         content = open(filepath, encoding="ISO-8859-15").read()
         lines = content.splitlines()
@@ -949,3 +951,203 @@ class TestAdvancedSeparatorDeferred:
         with caplog.at_level("WARNING"):
             comp.execute(_make_input_df())
         assert not any("advanced_separator" in r.message for r in caplog.records)
+
+
+# ------------------------------------------------------------------
+# TestPassthrough (CR-09 / ENG-CR-06 / ENG-WR-04)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestPassthrough:
+    """Sink passthrough contract: input DataFrame returned unmutated as main."""
+
+    def test_input_returned_unmutated(self, tmp_path):
+        """CR-09 / ENG-CR-06: returned main has original (un-truncated) values.
+
+        Pass a DataFrame whose string column values are longer than the declared
+        output_schema length. The written file should have truncated values but
+        the returned main must carry the ORIGINAL untruncated values.
+        """
+        filepath = str(tmp_path / "output.csv")
+        config = {**_DEFAULT_CONFIG, "filepath": filepath, "file_exist_exception": False}
+        comp = _make_component(config=config)
+        # Output schema with a tight length constraint
+        comp.output_schema = [
+            {"name": "id", "type": "int", "nullable": True},
+            {"name": "name", "type": "str", "length": 3, "nullable": True},
+        ]
+        df = pd.DataFrame([
+            {"id": 1, "name": "Alice"},
+            {"id": 2, "name": "Bob"},
+            {"id": 3, "name": "Charlie"},
+        ])
+        original_values = list(df["name"])
+        result = comp.execute(df)
+        # Returned main must have original values, not truncated ones
+        returned_values = list(result["main"]["name"])
+        assert returned_values == original_values, (
+            f"Passthrough mutated: original={original_values}, returned={returned_values}"
+        )
+
+    def test_date_patterns_dont_mutate_input(self, tmp_path):
+        """ENG-WR-04: _apply_date_patterns must not alter original input_data.
+
+        Input has a datetime column; output_schema has date_pattern. The
+        written file has formatted strings. The returned main keeps datetime dtype.
+        """
+        filepath = str(tmp_path / "output.csv")
+        config = {**_DEFAULT_CONFIG, "filepath": filepath, "file_exist_exception": False}
+        comp = _make_component(config=config)
+        comp.input_schema = [
+            {"name": "dt", "type": "datetime", "date_pattern": "%Y-%m-%d"},
+        ]
+        df = pd.DataFrame({"dt": pd.to_datetime(["2024-01-15", "2024-06-30"])})
+        original_dtype = df["dt"].dtype
+        result = comp.execute(df)
+        returned_dtype = result["main"]["dt"].dtype
+        assert pd.api.types.is_datetime64_any_dtype(returned_dtype), (
+            f"date_patterns mutated dtype: original={original_dtype}, "
+            f"returned={returned_dtype}"
+        )
+
+
+# ------------------------------------------------------------------
+# TestMultiCharSepValidation (CR-06)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestMultiCharSepValidation:
+    """CR-06: multi-character field_sep without csv_option raises ConfigurationError."""
+
+    def test_multichar_sep_no_csv_raises(self, tmp_path):
+        """Multi-char field_sep + csv_option=False must raise ConfigurationError."""
+        filepath = str(tmp_path / "output.csv")
+        config = {
+            **_DEFAULT_CONFIG, "filepath": filepath,
+            "fieldseparator": "||", "csv_option": False,
+            "file_exist_exception": False,
+        }
+        comp = _make_component(config=config)
+        with pytest.raises((ConfigurationError, ComponentExecutionError)):
+            comp.execute(_make_input_df())
+
+    def test_multichar_sep_with_csv_ok(self, tmp_path):
+        """Multi-char field_sep + csv_option=True is allowed (raw mode handles it)."""
+        filepath = str(tmp_path / "output.csv")
+        config = {
+            **_DEFAULT_CONFIG, "filepath": filepath,
+            "fieldseparator": "||", "csv_option": True,
+            "file_exist_exception": False,
+        }
+        comp = _make_component(config=config)
+        # Should not raise -- csv_option=True allows multi-char via raw mode
+        result = comp.execute(_make_input_df())
+        assert result["main"] is not None
+
+
+# ------------------------------------------------------------------
+# TestEscape (ENG-WR-05)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestEscape:
+    """ENG-WR-05: non-CSV branch preserves literal backslashes in field values."""
+
+    def test_backslash_field_preserved(self, tmp_path):
+        """Non-CSV mode must NOT escape backslashes in field values (escapechar=None)."""
+        filepath = str(tmp_path / "output.csv")
+        config = {
+            **_DEFAULT_CONFIG, "filepath": filepath, "csv_option": False,
+            "file_exist_exception": False, "os_line_separator": False,
+            "row_separator": "\\n",
+        }
+        comp = _make_component(config=config)
+        df = pd.DataFrame([{"id": 1, "path": "C:\\Users\\Alice"}])
+        comp.execute(df)
+        raw = open(filepath, encoding="ISO-8859-15").read()
+        # One backslash per occurrence, not doubled
+        assert "C:\\Users\\Alice" in raw, (
+            f"Backslash was escaped (doubled) in output. Got: {raw!r}"
+        )
+
+
+# ------------------------------------------------------------------
+# TestBoolCoercion (ENG-WR-11)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestBoolCoercion:
+    """ENG-WR-11: JSON bool string values coerced correctly via _bool helper."""
+
+    def test_json_string_true_routes_csv_mode(self, tmp_path):
+        """csv_option='true' (string) must route to CSV quoting mode."""
+        filepath = str(tmp_path / "output.csv")
+        config = {
+            **_DEFAULT_CONFIG, "filepath": filepath,
+            "csv_option": "true",  # JSON string, not bool
+            "file_exist_exception": False,
+        }
+        comp = _make_component(config=config)
+        df = pd.DataFrame([{"id": 1, "name": "Alice"}])
+        comp.execute(df)
+        content = open(filepath, encoding="ISO-8859-15").read()
+        # CSV mode encloses all fields in quotes
+        assert '"' in content, "csv_option='true' string should activate CSV quoting mode"
+
+    def test_json_string_false_no_spurious_deferred_warning(self, tmp_path, caplog):
+        """split='false' (string) must NOT trigger deferred-feature warning.
+
+        Python's 'if "false":' evaluates as truthy. _bool("false") must return False.
+        """
+        filepath = str(tmp_path / "output.csv")
+        config = {
+            **_DEFAULT_CONFIG, "filepath": filepath,
+            "compress": "false",  # JSON string "false" -- must NOT warn
+            "file_exist_exception": False,
+        }
+        comp = _make_component(config=config)
+        with caplog.at_level("WARNING"):
+            comp.execute(_make_input_df())
+        deferred_warns = [r for r in caplog.records if "compress" in r.message]
+        assert not deferred_warns, (
+            f"compress='false' string triggered spurious warning: "
+            f"{[r.message for r in deferred_warns]}"
+        )
+
+
+# ------------------------------------------------------------------
+# TestEmptyInputCsvHeader (ENG-IN-04)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestEmptyInputCsvHeader:
+    """ENG-IN-04: empty input + csv_option=True + include_header uses _enclose_field."""
+
+    def test_csv_header_quoted(self, tmp_path):
+        """Empty input + include_header=True + csv_option=True -> header fields quoted."""
+        filepath = str(tmp_path / "output.csv")
+        config = {
+            **_DEFAULT_CONFIG, "filepath": filepath,
+            "include_header": True, "csv_option": True,
+            "text_enclosure": '"', "escape_char": '"',
+            "file_exist_exception": False,
+            "os_line_separator": False, "csvrowseparator": "LF",
+        }
+        comp = _make_component(config=config)
+        comp.output_schema = [
+            {"name": "id", "type": "int"},
+            {"name": "name", "type": "str"},
+        ]
+        comp.execute(pd.DataFrame())
+        content = open(filepath, encoding="ISO-8859-15").read()
+        lines = content.splitlines()
+        assert len(lines) == 1, f"Expected 1 header line, got {len(lines)}: {lines}"
+        # Header fields should be enclosed in double quotes
+        assert '"id"' in lines[0] or lines[0].startswith('"'), (
+            f"Header not quoted in CSV mode: {lines[0]!r}"
+        )
