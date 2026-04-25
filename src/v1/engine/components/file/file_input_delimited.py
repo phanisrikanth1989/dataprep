@@ -590,6 +590,11 @@ class FileInputDelimited(BaseComponent):
         Attempts column-wide conversion. If a column fails, falls back to
         per-row conversion for that column only, routing failures to reject.
 
+        WR-04 fix: collects all bad row indices first across all columns,
+        drops once at the end, and resets index on both result and reject
+        DataFrames. The original df is used for reject row capture
+        (pre-conversion values, per Phase 4 D-06).
+
         Args:
             df: Input DataFrame (string dtype).
 
@@ -599,45 +604,74 @@ class FileInputDelimited(BaseComponent):
         if not self.output_schema:
             return df, None
 
-        result = df.copy()
+        # Build a dict of {col_name: converted_series} for successful columns,
+        # so we can apply them all at once after identifying bad rows. This
+        # avoids .at-assignment into Arrow-backed string columns (pandas 3.0).
+        converted_cols: dict[str, pd.Series] = {}
+        bad_indices: set[int] = set()
         reject_rows: list[dict] = []
 
         for col_def in self.output_schema:
             col_name = col_def.get("name", "")
             col_type = col_def.get("type", "str")
 
-            if col_name not in result.columns or col_type == "str":
+            if col_name not in df.columns or col_type == "str":
                 continue
 
             try:
-                result[col_name] = self._vectorized_convert(
-                    result[col_name], col_type
+                converted_cols[col_name] = self._vectorized_convert(
+                    df[col_name], col_type
                 )
             except (ValueError, TypeError):
-                # Fall back to per-row conversion for this column
-                good_mask = pd.Series(True, index=result.index)
-                for idx in result.index:
-                    val = result.at[idx, col_name]
+                # Fall back to per-row conversion for this column.
+                # Convert values individually; track failures as bad indices.
+                good_converted: dict[int, Any] = {}
+                for idx in df.index:
+                    if idx in bad_indices:
+                        # Row already rejected by an earlier column -- skip
+                        continue
+                    val = df.at[idx, col_name]
                     try:
-                        self._convert_value(str(val), col_def)
-                    except (ValueError, TypeError):
-                        good_mask[idx] = False
-                        row_dict = {
-                            c: str(result.at[idx, c]) for c in result.columns
-                        }
+                        good_converted[idx] = self._convert_value(str(val), col_def)
+                    except (ValueError, TypeError) as e:
+                        bad_indices.add(idx)
+                        # Capture row values from ORIGINAL df (pre-conversion)
+                        # so reject rows have raw strings, not partial conversions.
+                        row_dict = df.loc[idx].to_dict()
                         row_dict["errorCode"] = _ERROR_TYPE_CONVERSION
                         row_dict["errorMessage"] = (
-                            f"Cannot convert '{val}' to {col_type} for "
-                            f"column '{col_name}' - Line: {idx + 1}"
+                            f"Column '{col_name}': {e}"
                         )
                         reject_rows.append(row_dict)
 
-                # Keep only good rows for continued processing
-                bad_indices = ~good_mask
-                if bad_indices.any():
-                    result = result[good_mask].copy()
+                # Build the converted series from per-row successes
+                # (bad rows get their original string value; they'll be dropped)
+                if good_converted:
+                    values = []
+                    for idx in df.index:
+                        if idx in good_converted:
+                            values.append(good_converted[idx])
+                        elif idx in bad_indices:
+                            values.append(None)
+                        else:
+                            values.append(df.at[idx, col_name])
+                    converted_cols[col_name] = pd.Series(
+                        values, index=df.index, name=col_name
+                    )
+
+        # Build result from original df + converted columns
+        result = df.copy()
+        for col_name, col_series in converted_cols.items():
+            result[col_name] = col_series
+
+        # Drop bad rows once + reset index (WR-04 fix)
+        if bad_indices:
+            result = result.drop(index=list(bad_indices)).reset_index(drop=True)
 
         reject_df = pd.DataFrame(reject_rows) if reject_rows else None
+        if reject_df is not None:
+            reject_df = reject_df.reset_index(drop=True)
+
         return result, reject_df
 
     @staticmethod
