@@ -126,7 +126,4 @@ class SortRow(BaseComponent):
             f"[{self.id}] Sorted {rows} rows by {len(valid_criteria)} criteria"
         )
 
-        if getattr(self, "output_schema", None):
-            result = self.validate_schema(result, self.output_schema)
-
         return {"main": result, "reject": None}
