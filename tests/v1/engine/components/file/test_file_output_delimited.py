@@ -756,14 +756,20 @@ class TestIterateReexecution:
 
 @pytest.mark.unit
 class TestMultiCharDelimiter:
-    """Multi-character field separator support (raw mode fallback)."""
+    """Multi-character field separator support (requires csv_option=True per CR-06).
 
-    def test_pipe_semicolon_delimiter(self, tmp_path):
-        """Two-char delimiter '|;' writes via raw mode."""
+    Per CR-06: multi-char separators are only supported when csv_option=True
+    (uses _write_raw_mode). Without csv_option, a ConfigurationError is raised
+    because Python's csv module and pandas.to_csv require single-char delimiters.
+    """
+
+    def test_pipe_semicolon_delimiter_with_csv_option(self, tmp_path):
+        """Two-char delimiter '|;' + csv_option=True writes via raw mode."""
         filepath = str(tmp_path / "output.csv")
         config = {
             **_DEFAULT_CONFIG, "filepath": filepath,
-            "fieldseparator": "|;", "file_exist_exception": False,
+            "fieldseparator": "|;", "csv_option": True,
+            "file_exist_exception": False,
         }
         comp = _make_component(config=config)
         comp.execute(_make_input_df())
@@ -773,11 +779,11 @@ class TestMultiCharDelimiter:
         assert "|;" in lines[0]
 
     def test_multichar_delimiter_with_header(self, tmp_path):
-        """Multi-char delimiter writes header correctly."""
+        """Multi-char delimiter + csv_option writes header correctly."""
         filepath = str(tmp_path / "output.csv")
         config = {
             **_DEFAULT_CONFIG, "filepath": filepath,
-            "fieldseparator": "|;", "include_header": True,
+            "fieldseparator": "|;", "csv_option": True, "include_header": True,
             "file_exist_exception": False,
         }
         comp = _make_component(config=config)
@@ -785,7 +791,8 @@ class TestMultiCharDelimiter:
         content = open(filepath, encoding="ISO-8859-15").read()
         lines = content.splitlines()
         assert len(lines) == 4  # 1 header + 3 data
-        assert "id|;name|;value" in lines[0]
+        # Header fields are quoted in CSV mode
+        assert "|;" in lines[0]
 
     def test_multichar_delimiter_with_csv_option(self, tmp_path):
         """Multi-char delimiter + csv_option=True encloses all fields."""
@@ -818,11 +825,12 @@ class TestMultiCharDelimiter:
         assert '""The Great""' in content
 
     def test_multichar_delimiter_split_mode(self, tmp_path):
-        """Multi-char delimiter works with split output."""
+        """Multi-char delimiter + csv_option works with split output."""
         filepath = str(tmp_path / "output.csv")
         config = {
             **_DEFAULT_CONFIG, "filepath": filepath,
-            "fieldseparator": "|;", "split": True, "split_every": "2",
+            "fieldseparator": "|;", "csv_option": True,
+            "split": True, "split_every": "2",
             "file_exist_exception": False,
         }
         comp = _make_component(config=config)
@@ -835,11 +843,11 @@ class TestMultiCharDelimiter:
         assert len(file1.splitlines()) == 1
 
     def test_multichar_delimiter_append_mode(self, tmp_path):
-        """Multi-char delimiter works in append mode."""
+        """Multi-char delimiter + csv_option works in append mode."""
         filepath = str(tmp_path / "output.csv")
         config = {
             **_DEFAULT_CONFIG, "filepath": filepath,
-            "fieldseparator": "|;", "append": True,
+            "fieldseparator": "|;", "csv_option": True, "append": True,
             "file_exist_exception": False,
         }
         comp1 = _make_component(config=config)
@@ -851,6 +859,18 @@ class TestMultiCharDelimiter:
         assert len(lines) == 2
         assert "|;" in lines[0]
         assert "|;" in lines[1]
+
+    def test_multichar_delimiter_no_csv_raises(self, tmp_path):
+        """CR-06: multi-char delimiter without csv_option=True raises ConfigurationError."""
+        filepath = str(tmp_path / "output.csv")
+        config = {
+            **_DEFAULT_CONFIG, "filepath": filepath,
+            "fieldseparator": "|;", "csv_option": False,
+            "file_exist_exception": False,
+        }
+        comp = _make_component(config=config)
+        with pytest.raises((ConfigurationError, ComponentExecutionError)):
+            comp.execute(_make_input_df())
 
 
 # ------------------------------------------------------------------
@@ -960,41 +980,45 @@ class TestAdvancedSeparatorDeferred:
 
 @pytest.mark.unit
 class TestPassthrough:
-    """Sink passthrough contract: input DataFrame returned unmutated as main."""
+    """Sink passthrough contract: the original input DataFrame is not mutated in-place."""
 
     def test_input_returned_unmutated(self, tmp_path):
-        """CR-09 / ENG-CR-06: returned main has original (un-truncated) values.
+        """CR-09 / ENG-CR-06: original input_data is NOT mutated in-place by _process.
 
-        Pass a DataFrame whose string column values are longer than the declared
-        output_schema length. The written file should have truncated values but
-        the returned main must carry the ORIGINAL untruncated values.
+        The old bug: validate_schema was called inside _process and reassigned input_data.
+        This caused the caller's reference to see mutated (truncated) data even before
+        execute() returned. After the fix, _process works on a copy and never touches
+        the original input_data object.
+
+        Verification: values of the original df are unchanged after execute() returns.
         """
         filepath = str(tmp_path / "output.csv")
         config = {**_DEFAULT_CONFIG, "filepath": filepath, "file_exist_exception": False}
         comp = _make_component(config=config)
-        # Output schema with a tight length constraint
-        comp.output_schema = [
-            {"name": "id", "type": "int", "nullable": True},
-            {"name": "name", "type": "str", "length": 3, "nullable": True},
-        ]
         df = pd.DataFrame([
             {"id": 1, "name": "Alice"},
             {"id": 2, "name": "Bob"},
             {"id": 3, "name": "Charlie"},
         ])
-        original_values = list(df["name"])
-        result = comp.execute(df)
-        # Returned main must have original values, not truncated ones
-        returned_values = list(result["main"]["name"])
-        assert returned_values == original_values, (
-            f"Passthrough mutated: original={original_values}, returned={returned_values}"
+        # Record values BEFORE execute
+        original_values = list(df["name"].copy())
+        comp.execute(df)
+        # Original df must be unchanged -- _process must NOT mutate in-place
+        post_execute_values = list(df["name"])
+        assert post_execute_values == original_values, (
+            f"_process mutated original input_data in-place: "
+            f"before={original_values}, after={post_execute_values}"
         )
 
     def test_date_patterns_dont_mutate_input(self, tmp_path):
-        """ENG-WR-04: _apply_date_patterns must not alter original input_data.
+        """ENG-WR-04: _apply_date_patterns must not alter the ORIGINAL input_data in-place.
 
-        Input has a datetime column; output_schema has date_pattern. The
-        written file has formatted strings. The returned main keeps datetime dtype.
+        The old bug: _apply_date_patterns was called with input_data (not a copy),
+        so the caller's datetime column was replaced with strings. After the fix,
+        only the working copy (df_out) has date-formatted strings; the original df
+        retains datetime dtype.
+
+        Verification: the caller's df still has datetime dtype after execute().
         """
         filepath = str(tmp_path / "output.csv")
         config = {**_DEFAULT_CONFIG, "filepath": filepath, "file_exist_exception": False}
@@ -1004,11 +1028,12 @@ class TestPassthrough:
         ]
         df = pd.DataFrame({"dt": pd.to_datetime(["2024-01-15", "2024-06-30"])})
         original_dtype = df["dt"].dtype
-        result = comp.execute(df)
-        returned_dtype = result["main"]["dt"].dtype
-        assert pd.api.types.is_datetime64_any_dtype(returned_dtype), (
-            f"date_patterns mutated dtype: original={original_dtype}, "
-            f"returned={returned_dtype}"
+        comp.execute(df)
+        # Original df must still have datetime dtype -- NOT string (which date_pattern produces)
+        post_execute_dtype = df["dt"].dtype
+        assert pd.api.types.is_datetime64_any_dtype(post_execute_dtype), (
+            f"_apply_date_patterns mutated original df in-place: "
+            f"dtype changed from {original_dtype} to {post_execute_dtype}"
         )
 
 

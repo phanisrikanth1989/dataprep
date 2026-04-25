@@ -2,7 +2,7 @@
 
 Writes DataFrame data to delimited text files with configurable formatting,
 encoding, and output options. Sink component -- receives input data and writes
-to disk.
+to disk. Returns original input DataFrame as 'main' (passthrough contract).
 
 Config keys consumed (25 total):
   filepath            (str, required)        -- output file path
@@ -30,6 +30,14 @@ Config keys consumed (25 total):
   thousands_separator (str, default ",")     -- [DEFERRED] thousands grouping
   decimal_separator   (str, default ".")     -- [DEFERRED] decimal point
   streamname          (str, default "outputStream") -- [DEFERRED] stream variable name
+
+Phase 7.1 fixes applied:
+- CR-06: multi-char fieldseparator without csv_option raises ConfigurationError
+- CR-09 / ENG-CR-06: working copy used for file write; original input_data returned as main
+- ENG-WR-04: _apply_date_patterns receives working copy only; original never mutated
+- ENG-WR-05: non-CSV branch uses escapechar=None (Talend raw concatenation)
+- ENG-WR-11: all bool config flags parsed via _bool() helper (handles JSON 'true'/'false')
+- ENG-IN-04: empty-input CSV-mode header uses _enclose_field per column
 """
 import csv
 import logging
@@ -71,6 +79,10 @@ class FileOutputDelimited(BaseComponent):
     directory creation. Supports Talend-compatible defaults and
     FILE_EXIST_EXCEPTION safety check.
 
+    This is a sink component: input_data is written to disk and then
+    returned UNCHANGED as 'main'. The write path operates on a copy
+    to preserve passthrough integrity (CR-09 / ENG-CR-06).
+
     Config keys:
         filepath: Output file path (required).
         fieldseparator: Field delimiter (default ";").
@@ -81,7 +93,35 @@ class FileOutputDelimited(BaseComponent):
         split: Split output into multiple files (default False).
         split_every: Rows per split file (default "1000").
         file_exist_exception: Raise if file exists (default True).
+
+    Note on non-CSV escaping (ENG-WR-05 / T-7.1-03-02):
+        Non-CSV mode uses escapechar=None, matching Talend's raw string
+        concatenation. If a value contains the field separator, the output
+        will be ambiguous -- this is the caller's responsibility, matching
+        Talend tFileOutputDelimited non-CSV behavior.
     """
+
+    # ------------------------------------------------------------------
+    # Bool helper (ENG-WR-11)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _bool(v: Any) -> bool:
+        """Coerce a config value to bool, handling JSON string 'true'/'false'.
+
+        JSON configs may carry boolean values as the strings "true" or "false"
+        rather than Python True/False. Python's built-in bool("false") == True,
+        which causes silent mis-routing. This helper normalises both forms.
+
+        Args:
+            v: Config value -- may be bool, int, or string.
+
+        Returns:
+            True if v is truthy and not the string literal 'false'/'0'/'no'.
+        """
+        if isinstance(v, str):
+            return v.strip().lower() in ("true", "1", "yes")
+        return bool(v)
 
     # ------------------------------------------------------------------
     # Configuration Validation
@@ -91,11 +131,29 @@ class FileOutputDelimited(BaseComponent):
         """Validate component configuration.
 
         Raises:
-            ConfigurationError: If filepath is missing.
+            ConfigurationError: If filepath is missing or if multi-character
+                fieldseparator is used without csv_option=True.
         """
         if not self.config.get("filepath"):
             raise ConfigurationError(
                 f"[{self.id}] Missing required config key 'filepath'"
+            )
+
+        # CR-06: multi-char delimiter is unsupported in non-CSV raw mode.
+        # Python's csv module and pandas.to_csv both require single-char sep.
+        # csv_option=True routes through _write_raw_mode which handles multi-char.
+        # IMPORTANT: check the EFFECTIVE (unescaped) separator length, NOT the raw config
+        # string. "\\t" in config unescapes to "\t" (1 char, valid); "|;" stays "|;" (2 chars,
+        # invalid without csv_option).
+        field_sep_raw = self.config.get("fieldseparator", ";")
+        field_sep_effective = _unescape_separator(field_sep_raw)
+        csv_option = self._bool(self.config.get("csv_option", False))
+        if len(field_sep_effective) > 1 and not csv_option:
+            raise ConfigurationError(
+                f"[{self.id}] Multi-character fieldseparator '{field_sep_raw}' "
+                f"(effective: '{field_sep_effective}') is unsupported in non-CSV mode "
+                f"(Python csv module limitation). Use a single-character separator "
+                f"or set csv_option=true."
             )
 
     # ------------------------------------------------------------------
@@ -103,39 +161,46 @@ class FileOutputDelimited(BaseComponent):
     # ------------------------------------------------------------------
 
     def _process(self, input_data: Optional[pd.DataFrame] = None) -> dict:
-        """Write DataFrame to delimited file(s).
+        """Write DataFrame to delimited file(s) and pass through original input.
+
+        Sink contract: the ORIGINAL input_data is returned as 'main' unchanged.
+        All file writing operates on a working copy (df_out). This preserves
+        passthrough integrity for downstream components that continue processing
+        after this sink.
 
         Args:
             input_data: Input DataFrame from upstream component, or None.
 
         Returns:
-            dict with 'main' (pass-through of input) and 'reject' (None).
+            dict with 'main' (original input_data, unchanged) and 'reject' (None).
 
         Raises:
             FileOperationError: If file write fails or file exists when
                 file_exist_exception is True.
         """
-        # ---- Read config values ----
+        # ---- Coerce all bool flags first (ENG-WR-11) ----
+        csv_option = self._bool(self.config.get("csv_option", False))
+        include_header = self._bool(self.config.get("include_header", False))
+        append = self._bool(self.config.get("append", False))
+        create_directory = self._bool(self.config.get("create_directory", True))
+        split = self._bool(self.config.get("split", False))
+        delete_empty_file = self._bool(self.config.get("delete_empty_file", False))
+        file_exist_exception = self._bool(self.config.get("file_exist_exception", True))
+        os_line_separator = self._bool(self.config.get("os_line_separator", True))
+
+        # ---- Read non-bool config values ----
         filepath = self.config.get("filepath", "")
         fieldseparator = self.config.get("fieldseparator", ";")
         row_separator = self.config.get("row_separator", "\\n")
         encoding = self.config.get("encoding", "ISO-8859-15")
-        include_header = self.config.get("include_header", False)
-        append = self.config.get("append", False)
-        csv_option = self.config.get("csv_option", False)
         escape_char = self.config.get("escape_char", '"')
         text_enclosure = self.config.get("text_enclosure", '"')
-        os_line_separator = self.config.get("os_line_separator", True)
         csvrowseparator = self.config.get("csvrowseparator", "LF")
-        create_directory = self.config.get("create_directory", True)
-        split = self.config.get("split", False)
         split_every = self.config.get("split_every", "1000")
-        delete_empty_file = self.config.get("delete_empty_file", False)
-        file_exist_exception = self.config.get("file_exist_exception", True)
 
-        # ---- Warn on deferred features ----
+        # ---- Warn on deferred features (ENG-WR-11: use _bool) ----
         for flag, description in _DEFERRED_FEATURES.items():
-            if self.config.get(flag, False):
+            if self._bool(self.config.get(flag, False)):
                 logger.warning(
                     f"[{self.id}] {description} ('{flag}') is not yet "
                     f"implemented. Config flag will be ignored."
@@ -155,27 +220,39 @@ class FileOutputDelimited(BaseComponent):
                 f"Set file_exist_exception=false or append=true to allow writing."
             )
 
-        # ---- Validate input against output schema ----
-        output_schema = getattr(self, "output_schema", None)
-        if input_data is not None and not input_data.empty and output_schema:
-            input_data = self.validate_schema(input_data, output_schema)
-
-        # ---- Apply per-column date_pattern from input schema ----
-        # Talend writes datetime columns using the SimpleDateFormat pattern
-        # declared on the output component's schema. The converter has
-        # already translated Java tokens (e.g. yyyyMMdd) to Python strftime
-        # tokens (e.g. %Y%m%d), so we just call .dt.strftime here.
+        # ---- Build working copy for file write; original passes through (CR-09) ----
+        # input_data is NEVER modified. df_out is the copy we write to disk.
         if input_data is not None and not input_data.empty:
-            input_data = self._apply_date_patterns(input_data)
+            df_out = input_data.copy()
+            # Apply date pattern formatting on the copy only (ENG-WR-04).
+            # _apply_date_patterns receives a copy and returns the same copy with
+            # datetime columns replaced by formatted strings. original is untouched.
+            df_out = self._apply_date_patterns(df_out)
+        else:
+            df_out = input_data if input_data is not None else pd.DataFrame()
 
         # ---- Handle empty input ----
-        if input_data is None or input_data.empty:
-            return self._handle_empty_input(
-                resolved_path, encoding, fieldseparator,
-                include_header, delete_empty_file, os_line_separator,
-                csv_option, csvrowseparator, row_separator,
-                input_data,
+        if df_out is None or df_out.empty:
+            self._handle_empty_input(
+                resolved_path=resolved_path,
+                encoding=encoding,
+                fieldseparator=fieldseparator,
+                include_header=include_header,
+                delete_empty_file=delete_empty_file,
+                os_line_separator=os_line_separator,
+                csv_option=csv_option,
+                csvrowseparator=csvrowseparator,
+                row_separator=row_separator,
+                text_enclosure=text_enclosure,
+                escape_char=escape_char,
+                input_data=input_data,
             )
+            # Set globalMap variables
+            if self.global_map:
+                self.global_map.put(f"{self.id}_FILE_NAME", str(resolved_path))
+                self.global_map.put(f"{self.id}_NB_LINE", 0)
+            # CR-09: return ORIGINAL input_data, not df_out
+            return {"main": input_data, "reject": None}
 
         # ---- Determine effective line separator ----
         effective_line_sep = self._resolve_line_separator(
@@ -189,18 +266,18 @@ class FileOutputDelimited(BaseComponent):
         if split:
             rows_per_file = _safe_int(split_every, 1000)
             total_written = self._write_split(
-                input_data, filepath, rows_per_file, field_sep,
+                df_out, filepath, rows_per_file, field_sep,
                 effective_line_sep, encoding, include_header, csv_option,
                 text_enclosure, escape_char, append,
             )
         else:
             # ---- Write single file ----
             self._write_file(
-                input_data, str(resolved_path), field_sep,
+                df_out, str(resolved_path), field_sep,
                 effective_line_sep, encoding, include_header, csv_option,
                 text_enclosure, escape_char, append,
             )
-            total_written = len(input_data)
+            total_written = len(df_out)
 
         # ---- Set globalMap variables ----
         if self.global_map:
@@ -211,6 +288,7 @@ class FileOutputDelimited(BaseComponent):
             f"[{self.id}] Write complete: {total_written} rows to '{filepath}'"
         )
 
+        # CR-09 fix: return ORIGINAL input_data, NOT df_out (which has date-formatted cols)
         return {"main": input_data, "reject": None}
 
     # ------------------------------------------------------------------
@@ -220,20 +298,22 @@ class FileOutputDelimited(BaseComponent):
     def _apply_date_patterns(self, df: pd.DataFrame) -> pd.DataFrame:
         """Format datetime columns according to per-column ``date_pattern``.
 
-        Walks ``self.input_schema`` (set by the engine from the component's
-        ``schema.input``) and, for each column declared as a datetime with a
-        ``date_pattern``, converts the column to a string formatted with
-        that pattern. NaT values become empty strings to match Talend.
+        Mutates the passed DataFrame in place (callers MUST pass a copy).
+        Walks ``self.input_schema`` and, for each column declared as a
+        datetime with a ``date_pattern``, converts the column to a string
+        formatted with that pattern. NaT values become empty strings to
+        match Talend.
 
-        Returns the (possibly modified) DataFrame; the original is not
-        mutated.
+        Args:
+            df: Working copy DataFrame to format in place.
+
+        Returns:
+            The same DataFrame with datetime columns replaced by formatted strings.
         """
         schema = getattr(self, "input_schema", None) or []
         if not schema:
             return df
 
-        modified = False
-        new_df = df
         for col in schema:
             if not isinstance(col, dict):
                 continue
@@ -254,12 +334,9 @@ class FileOutputDelimited(BaseComponent):
                         f"to datetime; skipping date_pattern formatting."
                     )
                     continue
-            if not modified:
-                new_df = df.copy()
-                modified = True
             formatted = series.dt.strftime(pattern)
-            new_df[name] = formatted.where(series.notna(), "")
-        return new_df
+            df[name] = formatted.where(series.notna(), "")
+        return df
 
     # ------------------------------------------------------------------
     # Empty Input Handling
@@ -276,31 +353,34 @@ class FileOutputDelimited(BaseComponent):
         csv_option: bool,
         csvrowseparator: str,
         row_separator: str,
+        text_enclosure: str,
+        escape_char: str,
         input_data: Optional[pd.DataFrame] = None,
-    ) -> dict:
+    ) -> None:
         """Handle empty or None input data.
+
+        Writes header-only file (or empty file) as appropriate. Does NOT
+        return a result dict -- caller is responsible for return value.
 
         Args:
             resolved_path: Resolved output file path.
             encoding: File encoding.
             fieldseparator: Field delimiter.
             include_header: Whether to write header row.
-            delete_empty_file: Whether to delete empty file.
+            delete_empty_file: Whether to delete file if no data.
             os_line_separator: Whether to use OS line separator.
-            csv_option: Whether CSV mode is enabled.
+            csv_option: Whether CSV mode is enabled (ENG-IN-04).
             csvrowseparator: CSV row separator value.
             row_separator: Row separator string.
+            text_enclosure: Quote character for CSV mode (ENG-IN-04).
+            escape_char: Escape character for CSV mode (ENG-IN-04).
             input_data: The empty DataFrame (may have column names), or None.
-
-        Returns:
-            dict with 'main' (None or empty DataFrame) and 'reject' (None).
         """
         if delete_empty_file:
-            # Do not create file; delete if exists
             if resolved_path.exists():
                 resolved_path.unlink()
                 logger.info(f"[{self.id}] Deleted empty file: '{resolved_path}'")
-            return {"main": None, "reject": None}
+            return
 
         effective_line_sep = self._resolve_line_separator(
             os_line_separator, csv_option, csvrowseparator, row_separator
@@ -315,7 +395,15 @@ class FileOutputDelimited(BaseComponent):
             else:
                 columns = self._get_header_columns()
             if columns:
-                header_line = field_sep.join(columns) + effective_line_sep
+                # ENG-IN-04: apply _enclose_field in CSV mode
+                if csv_option:
+                    header_fields = [
+                        self._enclose_field(str(c), text_enclosure, escape_char)
+                        for c in columns
+                    ]
+                else:
+                    header_fields = [str(c) for c in columns]
+                header_line = field_sep.join(header_fields) + effective_line_sep
                 resolved_path.write_text(header_line, encoding=encoding)
                 logger.info(
                     f"[{self.id}] Wrote header-only file with "
@@ -327,13 +415,6 @@ class FileOutputDelimited(BaseComponent):
         else:
             # Write empty file (0 bytes)
             resolved_path.write_bytes(b"")
-
-        # Set globalMap variables
-        if self.global_map:
-            self.global_map.put(f"{self.id}_FILE_NAME", str(resolved_path))
-            self.global_map.put(f"{self.id}_NB_LINE", 0)
-
-        return {"main": None, "reject": None}
 
     # ------------------------------------------------------------------
     # File Writing
@@ -355,9 +436,9 @@ class FileOutputDelimited(BaseComponent):
         """Write DataFrame to a single delimited file.
 
         Args:
-            df: DataFrame to write.
+            df: Working copy DataFrame to write (callers MUST pass a copy).
             filepath: Output file path.
-            field_sep: Field delimiter character.
+            field_sep: Field delimiter character (already unescaped).
             line_sep: Line separator string.
             encoding: File encoding.
             include_header: Whether to write header row.
@@ -369,21 +450,35 @@ class FileOutputDelimited(BaseComponent):
         mode = "a" if append else "w"
 
         try:
-            if len(field_sep) > 1:
-                # Multi-char delimiter: pandas and csv module only accept
-                # single-char delimiters. Fall back to manual row joining
-                # to match Talend's raw string concatenation behaviour.
-                self._write_raw_mode(
-                    df, filepath, field_sep, line_sep, encoding,
-                    include_header, csv_option, text_enclosure,
-                    escape_char, mode,
-                )
-            elif csv_option:
-                self._write_csv_mode(
-                    df, filepath, field_sep, line_sep, encoding,
-                    include_header, text_enclosure, escape_char, mode,
-                )
+            if len(field_sep) > 1 or csv_option:
+                # Multi-char delimiter OR CSV quoting: use raw mode.
+                # Note: for single-char + csv_option, _write_csv_mode handles quoting
+                # via Python csv.writer. For multi-char, we use raw mode since csv
+                # module only accepts single-char delimiters.
+                if csv_option:
+                    if len(field_sep) > 1:
+                        self._write_raw_mode(
+                            df, filepath, field_sep, line_sep, encoding,
+                            include_header, csv_option, text_enclosure,
+                            escape_char, mode,
+                        )
+                    else:
+                        self._write_csv_mode(
+                            df, filepath, field_sep, line_sep, encoding,
+                            include_header, text_enclosure, escape_char, mode,
+                        )
+                else:
+                    # multi-char + non-csv: raw mode without quoting
+                    self._write_raw_mode(
+                        df, filepath, field_sep, line_sep, encoding,
+                        include_header, csv_option, text_enclosure,
+                        escape_char, mode,
+                    )
             else:
+                # Single-char delimiter, non-CSV: use pandas to_csv
+                # ENG-WR-05: escapechar=None -- do NOT escape backslashes.
+                # Talend's non-CSV mode is raw string concatenation; backslash-
+                # bearing values must pass through without modification.
                 df.to_csv(
                     filepath,
                     sep=field_sep,
@@ -393,7 +488,7 @@ class FileOutputDelimited(BaseComponent):
                     quoting=csv.QUOTE_NONE,
                     lineterminator=line_sep,
                     mode=mode,
-                    escapechar="\\",
+                    escapechar=None,  # ENG-WR-05: no escape -- match Talend raw mode
                 )
         except FileOperationError:
             raise
@@ -478,7 +573,14 @@ class FileOutputDelimited(BaseComponent):
         """
         with open(filepath, mode, encoding=encoding, newline="") as f:
             if include_header:
-                f.write(field_sep.join(str(c) for c in df.columns))
+                if csv_option:
+                    header_fields = [
+                        self._enclose_field(str(c), text_enclosure, escape_char)
+                        for c in df.columns
+                    ]
+                else:
+                    header_fields = [str(c) for c in df.columns]
+                f.write(field_sep.join(header_fields))
                 f.write(line_sep)
 
             for row in df.itertuples(index=False, name=None):
