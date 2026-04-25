@@ -190,16 +190,11 @@ class FilterRowsConverter(ComponentConverter):
         }
 
         # ---- 5. Engine gap needs_review entries ----
-        _engine_gap_keys = [
-            ("conditions.function", "Engine does not support FUNCTION pre-transforms on conditions"),
-            ("advanced_cond", "Engine uses eval() for advanced conditions -- security risk, limited operator support"),
-        ]
-        for key, detail in _engine_gap_keys:
-            needs_review.append({
-                "issue": f"Engine gap for '{key}' -- {detail}",
-                "component": node.component_id,
-                "severity": "engine_gap",
-            })
+        # ENG-WR-08: removed the stale "engine uses eval()" claim (FALSE as of Phase 6).
+        # The engine uses java_bridge.execute_tmap_preprocessing for advanced_cond evaluation.
+        # Also removed the "no FUNCTION support" claim -- the engine has _FUNCTION_MAP
+        # supporting LOWER/UPPER/TRIM/LTRIM/RTRIM/ABS/LENGTH/LEFT/RIGHT.
+        # No current engine gaps require needs_review entries for this component.
 
         # ---- 6. Build component wrapper ----
         component = self._build_component_dict(
