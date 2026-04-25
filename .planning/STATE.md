@@ -78,6 +78,7 @@ Recent decisions affecting current work:
 ### Roadmap Evolution
 
 - Phase 05.1 inserted after Phase 5: Java Bridge tMap Fix (URGENT) -- Phase 2 rewrite broke RowWrapper Arrow type conversion and compiled tMap script execution. Must fix before Phase 6+.
+- Phase 07.1 inserted after Phase 7: Manager Audit & BaseComponent Fixes (URGENT) -- Manager-commit audit (range 52dbada..f0f6351, 19 commits, 28 files) surfaced 48 in-scope regressions and gaps including BaseComponent crashes (CR-01, CR-02), Phase 4 file I/O regressions (CR-03, CR-06, CR-09), Phase 6 AggregateRow Talend-parity violations (CR-05), broken Java build on Mac/Linux (CR-04 pom.xml), and a not-production-ready new Normalize component. API findings (27) skipped per direction. See .planning/review/TRIAGE.md for the full triage matrix and .planning/review/manager-commits-REVIEW*.md for evidence. Must complete before Phase 8.
 
 ### Pending Todos
 

@@ -21,6 +21,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 5.2: tMap RELOAD_AT_EACH_ROW Fix** (INSERTED) - Fix per-row dynamic lookup filtering to match Talend behavior (completed 2026-04-15)
 - [x] **Phase 6: Transform Group A -- Aggregation, Sort, Filter** - Deliver tAggregateRow, tSortRow, and tFilterRow with correct Talend behavior for the hardest transform bugs (completed 2026-04-15)
 - [x] **Phase 7: Transform Group B -- Column, Join, Unite** - Deliver tFilterColumns, tJoin, and tUnite (two already functionally Green, tJoin has targeted fixes) (completed 2026-04-15)
+- [ ] **Phase 7.1: Manager Audit & BaseComponent Fixes** (INSERTED) - Fix 48 regressions and BaseComponent gaps surfaced by the manager-commit audit (REVIEW.md, REVIEW-engine.md, REVIEW-javabridge.md, TRIAGE.md) before Phase 8
 - [ ] **Phase 8: Code Components** - Deliver tJava, tJavaRow, python_component, and python_row_component with correct Talend semantics
 - [x] **Phase 9: tContextLoad & Routines** - Deliver tContextLoad with full policy support and Java/Python routine infrastructure
 - [ ] **Phase 10: Iterate Support** - Deliver tFlowToIterate, tFileList, tFileExist and the engine iterate execution loop
@@ -176,6 +177,23 @@ Plans:
 Plans:
 - [x] 07-01-PLAN.md -- tJoin full rewrite (8 bugs, reject_schema engine fix)
 - [x] 07-02-PLAN.md -- FilterColumns + Unite rewrites + all tests (Join, FilterColumns, Unite)
+
+### Phase 07.1: Manager Audit & BaseComponent Fixes (INSERTED)
+
+**Goal**: BaseComponent and downstream components produce correct, Talend-compatible output after fixing 48 regressions and gaps surfaced by the out-of-band audit of manager commits (range 52dbada..f0f6351, 19 commits, 28 files), and the Java bridge JAR builds successfully on Mac/Linux. This phase exists because manager commits landed outside the GSD workflow and introduced regressions in already-shipped phases (Phase 1 BaseComponent, Phase 4 file I/O, Phase 6 aggregate, Phase 7 filter_rows) plus a build blocker. Phase 8 must NOT start until these are resolved -- code components inherit BaseComponent's behavior.
+**Depends on**: Phase 1, Phase 4, Phase 6, Phase 7
+**Requirements**: AUDIT-7.1 (umbrella -- see .planning/review/TRIAGE.md for the 48 in-scope items mapped to fix areas)
+**Success Criteria** (what must be TRUE):
+  1. BaseComponent's schema validation, column ordering, type coercion (datetime/Decimal/float/string with precision), reject flow, and die_on_error contract are correct -- no crashes on valid configs, no silent data loss (resolves CR-01, CR-02, WR-01/02/03, G-01..G-05, G-10, G-12)
+  2. Phase 4 file I/O (FileInputDelimited, FileOutputDelimited) handles multi-char delimiters, escape characters, empty-output-with-header, date_patterns, and reject flow correctly without silent data mutation (resolves CR-03, CR-06, CR-09, ENG-CR-06, WR-04, WR-06, WR-17, ENG-WR-04/05/11, ENG-IN-04)
+  3. Phase 6 AggregateRow operators match Talend semantics: list_object returns list, count honors ignore_null=False, sort preserves input order, median preserves financial precision (resolves CR-05, WR-09/10/11)
+  4. Phase 7 FilterRows lifecycle invariants are restored: no manual validate_schema bypass, no config mutation mid-execute, errorMessage column does not collide with user columns (resolves WR-07/08, ENG-CR-05/07, ENG-WR-06/07/08)
+  5. New Normalize component is vectorized, contract-correct (raises ConfigurationError, not returns list), and Talend-parity for discard_trailing_empty_str / dedupe / trim semantics (resolves ENG-CR-01/02/03, ENG-WR-01/02/03/10)
+  6. Talend Java routines (Numeric.INT, TalendDate.parseDate, StringHandling.LEN/INSTR, Mathematical.CHAR) match Talend semantics for null handling, parse-error wrapping, and type coercion (resolves CR-07, CR-08, WR-14/15, IN-01)
+  7. Java bridge JAR builds successfully on Mac/Linux: pom.xml uses portable Maven repo path (resolves CR-04)
+  8. Converter orchestrator's _propagate_input_schemas works for multi-input components like tMap (case-correct connector lookup) (resolves ENG-CR-04)
+  9. No regressions in already-passing tests for Phases 1, 4, 5, 5.1, 5.2, 6, 7, 9
+**Plans:** TBD (estimated ~8 plans, one per fix area; see .planning/review/TRIAGE.md sub-area summary)
 
 ### Phase 8: Code Components
 **Goal**: tJava, tJavaRow, python_component, and python_row_component all execute code with correct Talend semantics, proper import support, and secure execution
