@@ -240,11 +240,22 @@ class FileInputDelimited(BaseComponent):
             needs_row_validation=needs_row_validation,
         )
 
-        # ---- 11. Schema validation on good rows ----
-        if self.output_schema and not main_df.empty:
-            main_df = self.validate_schema(main_df, self.output_schema)
+        # ---- 11. die_on_error boundary re-wrap (CR-03) ----
+        # Per-row coercion errors are now caught internally and accumulated into
+        # reject_df. When die_on_error=True, convert them to a typed
+        # DataValidationError so the engine's exception contract is preserved.
+        if die_on_error and reject_df is not None and len(reject_df) > 0:
+            first_err = reject_df.iloc[0].get("errorMessage", "unknown") if hasattr(reject_df.iloc[0], "get") else str(reject_df.iloc[0])
+            raise DataValidationError(
+                f"[{self.id}] Schema/coercion failed for {len(reject_df)} row(s); "
+                f"first error: {first_err}"
+            )
 
         # ---- 12. Return result ----
+        # NOTE: BaseComponent._apply_output_schema_validation runs AFTER _process
+        # returns and handles schema validation per the 7.1-01 contract.
+        # Do NOT call self.validate_schema() here (Components MUST NOT call it
+        # manually -- BaseComponent owns that step, see 7.1-CONTEXT.md D-01).
         return {"main": main_df, "reject": reject_df}
 
     # ------------------------------------------------------------------
@@ -657,8 +668,10 @@ class FileInputDelimited(BaseComponent):
             }
             mapped = series.map(mapping)
             if mapped.isna().any():
-                # Unmapped values found -- force fallback to per-row conversion
-                raise DataValidationError("Unmapped bool values found")
+                # Unmapped values found -- force fallback to per-row conversion.
+                # Raise ValueError (not DataValidationError) so the per-row
+                # fallback's except (ValueError, TypeError) can catch it (CR-03).
+                raise ValueError("Unmapped bool values found")
             return mapped
         elif col_type == "datetime":
             return pd.to_datetime(series, errors="raise")
@@ -853,7 +866,9 @@ class FileInputDelimited(BaseComponent):
         if stripped == "":
             if col_schema.get("nullable", True):
                 return None
-            raise DataValidationError(f"Empty value for non-nullable column")
+            # Raise ValueError (not DataValidationError) so the per-row
+            # fallback's except (ValueError, TypeError) catches it (CR-03).
+            raise ValueError(f"Empty value for non-nullable column")
 
         if col_type in ("int", "long"):
             return int(float(stripped))
@@ -865,7 +880,9 @@ class FileInputDelimited(BaseComponent):
                 return True
             elif lower in ("false", "0", "no"):
                 return False
-            raise DataValidationError(f"Cannot convert '{value}' to bool")
+            # Raise ValueError (not DataValidationError) so the per-row
+            # fallback's except (ValueError, TypeError) catches it (CR-03).
+            raise ValueError(f"Cannot convert '{value}' to bool")
         elif col_type == "datetime":
             pattern = col_schema.get("date_pattern", "")
             if pattern:
