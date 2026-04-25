@@ -896,12 +896,16 @@ class TestRejectFlowUserColumn:
     """ENG-WR-06: user column 'errorMessage' renamed to 'errorMessage_user' by BaseComponent."""
 
     def test_user_errormessage_renamed(self):
-        """When input has a user column 'errorMessage', reject renames it to '_user'.
+        """When input has a user column 'errorMessage', main flow renames it to '_user'.
 
-        ENG-WR-06: engine's reject flow reserves 'errorMessage' for diagnostics.
-        If user data has a column of the same name, BaseComponent (7.1-01) renames
-        the user column to 'errorMessage_user' (D-21). filter_rows must NOT add
-        its own collision logic -- this is BaseComponent's responsibility.
+        ENG-WR-06: engine reserves 'errorMessage' for reject diagnostics.
+        D-21: BaseComponent (7.1-01) renames user columns that collide with reserved
+        names in the MAIN flow. filter_rows must NOT add its own collision logic
+        -- this is BaseComponent's responsibility.
+
+        In the main flow: user 'errorMessage' -> 'errorMessage_user'.
+        In the reject flow: filter_rows adds engine diagnostic 'errorMessage';
+          the original user value is superseded (single-column names, expected behavior).
         """
         df = pd.DataFrame({
             "age": [25, 20, 30],
@@ -924,13 +928,17 @@ class TestRejectFlowUserColumn:
         )
         result = comp.execute(df)
 
+        # Main flow: user 'errorMessage' renamed to 'errorMessage_user' by BaseComponent D-21
+        main = result.get("main")
+        assert main is not None
+        assert "errorMessage_user" in main.columns, (
+            "BaseComponent D-21 should rename user 'errorMessage' to 'errorMessage_user' in main flow"
+        )
+
+        # Reject flow: engine diagnostic 'errorMessage' present
         reject = result.get("reject")
         assert reject is not None, "Expected a reject DataFrame (age=20 row fails)"
         assert not reject.empty
-
-        # User data preserved under 'errorMessage_user'
-        assert "errorMessage_user" in reject.columns, (
-            "BaseComponent (7.1-01) should rename user 'errorMessage' to 'errorMessage_user'"
+        assert "errorMessage" in reject.columns, (
+            "Reject flow should have engine 'errorMessage' diagnostic column"
         )
-        # Engine diagnostic under 'errorMessage'
-        assert "errorMessage" in reject.columns

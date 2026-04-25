@@ -15,6 +15,7 @@ import logging
 import re
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 
 from ...base_component import BaseComponent
@@ -126,14 +127,18 @@ def _compare(col: pd.Series, operator: str, value: str) -> pd.Series:
     if operator in ("IS_NULL", "IS_NOT_NULL"):
         return _OPERATOR_MAP[operator](col, value)
 
-    # Comparison operators -- try numeric first (FROW-04)
+    # Comparison operators -- try numeric first (FROW-04, WR-07/ENG-IN-03)
+    # When the config value parses as numeric, ALWAYS compare numerically.
+    # Non-numeric column values coerce to NaN which produces False (consistent
+    # with Talend null-never-matches semantics). The old notna().any() guard
+    # prevented numeric path for all-string columns even when value was numeric.
     if operator in ("==", "!=", ">", "<", ">=", "<="):
         numeric_col = pd.to_numeric(col, errors="coerce")
         try:
             numeric_val = float(value)
         except (ValueError, TypeError):
             numeric_val = None
-        if numeric_val is not None and numeric_col.notna().any():
+        if numeric_val is not None:
             return _OPERATOR_MAP[operator](numeric_col, numeric_val)
         # Fall back to string comparison
         return _OPERATOR_MAP[operator](col.astype(str), str(value))
@@ -224,10 +229,9 @@ class FilterRows(BaseComponent):
         use_advanced = self.config.get("use_advanced", False)
 
         if use_advanced:
-            # Both advanced condition AND simple conditions are applied (ANDed)
-            advanced_mask = self._handle_advanced(input_data)
-            simple_mask = self._handle_simple(input_data)
-            mask = advanced_mask & simple_mask
+            # Talend parity: when use_advanced=True, ONLY the advanced expression
+            # is applied. Simple conditions are ignored (the UI grays them out).
+            mask = self._handle_advanced(input_data)
         else:
             mask = self._handle_simple(input_data)
 
@@ -238,19 +242,20 @@ class FilterRows(BaseComponent):
         # Talend's tFilterRow REJECT flow has an extra `errorMessage` column
         # holding the failed condition expression. Match that behaviour so
         # downstream components (and the converter's REJECT schema) line up.
+        # NOTE: BaseComponent (7.1-01, D-21) handles any collision between this
+        # engine-managed errorMessage and a user column of the same name by
+        # renaming the user column to errorMessage_user. No collision check needed here.
         if not reject_df.empty:
             reject_df["errorMessage"] = self._build_reject_error_message()
 
-        self._update_stats(len(input_data), len(main_df), len(reject_df))
         logger.info(
             f"[{self.id}] Filtered {len(input_data)} rows: "
             f"{len(main_df)} passed, {len(reject_df)} rejected"
         )
 
-        # Schema validation on output
-        output_schema = getattr(self, "output_schema", None)
-        if output_schema:
-            main_df = self.validate_schema(main_df, output_schema)
+        # ENG-CR-05: do NOT call self.validate_schema here.
+        # BaseComponent.execute() step 7c (_apply_output_schema_validation) owns schema
+        # validation. Calling it here would double-validate and violate lifecycle ownership.
 
         return {
             "main": main_df,
@@ -275,7 +280,8 @@ class FilterRows(BaseComponent):
 
         parts = []
         if use_advanced and advanced_cond:
-            expr = advanced_cond[8:] if advanced_cond.startswith("{{java}}") else advanced_cond
+            # ENG-WR-07: use removeprefix (Python 3.9+) instead of fixed-index slice [8:]
+            expr = advanced_cond.removeprefix("{{java}}")
             parts.append(expr)
         if conditions:
             joiner = " && " if logical_op == "AND" else " || "
@@ -350,17 +356,21 @@ class FilterRows(BaseComponent):
         not one-time resolution via execute_batch_one_time_expressions (which
         has no row binding). All other config {{java}} markers are handled by
         the parent.
+
+        ENG-CR-07 fix: symmetric pop+restore pattern (per Phase 1 D-14
+        config-immutability). Only pops if advanced_cond contains the {{java}}
+        marker so non-Java configs are untouched.
         """
         advanced_cond = self.config.get("advanced_cond", "")
-        # Temporarily clear so base class skips it
-        if advanced_cond:
-            self.config["advanced_cond"] = ""
-        try:
+        if advanced_cond and "{{java}}" in advanced_cond:
+            # Pop so base class skips it; restore in finally for immutability
+            original = self.config.pop("advanced_cond")
+            try:
+                super()._resolve_java_expressions()
+            finally:
+                self.config["advanced_cond"] = original
+        else:
             super()._resolve_java_expressions()
-        finally:
-            # Restore original value regardless
-            if advanced_cond:
-                self.config["advanced_cond"] = advanced_cond
 
     def _handle_advanced(self, df: pd.DataFrame) -> pd.Series:
         """Evaluate advanced Java expression per-row and return boolean mask.
@@ -375,8 +385,6 @@ class FilterRows(BaseComponent):
         Returns:
             Boolean Series mask (True = row passes filter).
         """
-        import numpy as np
-
         advanced_cond = self.config.get("advanced_cond", "")
         if not advanced_cond:
             logger.warning(
@@ -385,8 +393,8 @@ class FilterRows(BaseComponent):
             )
             return pd.Series(True, index=df.index)
 
-        # Strip {{java}} marker if present
-        expression = advanced_cond[8:] if advanced_cond.startswith("{{java}}") else advanced_cond
+        # Strip {{java}} marker if present (ENG-WR-07: use removeprefix)
+        expression = advanced_cond.removeprefix("{{java}}")
 
         if not self.java_bridge:
             logger.warning(
@@ -396,7 +404,10 @@ class FilterRows(BaseComponent):
             return pd.Series(True, index=df.index)
 
         # Determine main table name from input flow (e.g. "row1")
-        main_table_name = self.inputs[0] if self.inputs else "row1"
+        # WR-08: guard with getattr -- self.inputs is set by engine but may be absent
+        # when component is instantiated standalone (e.g. in tests without engine wiring).
+        inputs_attr = getattr(self, "inputs", None)
+        main_table_name = inputs_attr[0] if inputs_attr else "row1"
 
         # Normalize "input_row." -> actual flow name so both styles work.
         # Talend uses the flow name (row1); users may also write input_row.
