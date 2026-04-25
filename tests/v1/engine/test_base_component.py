@@ -934,3 +934,472 @@ class TestBaseComponentInit:
         """Initial stats are all zero."""
         comp = ConcreteComponent("c1", {})
         assert comp.stats == {"NB_LINE": 0, "NB_LINE_OK": 0, "NB_LINE_REJECT": 0}
+
+
+# ==============================================================================
+# Phase 7.1 Tests: New BaseComponent Contract
+# ==============================================================================
+
+# ------------------------------------------------------------------
+# Shared helper: configurable _TestComponent
+# ------------------------------------------------------------------
+
+
+class _ProcessReturnComponent(BaseComponent):
+    """A test component whose _process() returns whatever dict you pass in.
+
+    Usage:
+        comp = _ProcessReturnComponent("c1", {}, process_result={"main": df})
+        comp.execute(input_df)
+    """
+
+    def __init__(self, component_id, config, process_result=None, global_map=None,
+                 context_manager=None):
+        super().__init__(component_id, config, global_map=global_map,
+                         context_manager=context_manager)
+        self._process_result = process_result or {"main": pd.DataFrame(), "reject": None}
+
+    def _validate_config(self) -> None:
+        pass
+
+    def _process(self, input_data=None) -> dict:
+        return self._process_result
+
+
+class _PassthroughComponent(BaseComponent):
+    """Component that passes input_data through unchanged as main."""
+
+    def _validate_config(self) -> None:
+        pass
+
+    def _process(self, input_data=None) -> dict:
+        return {"main": input_data, "reject": None}
+
+
+# ------------------------------------------------------------------
+# Tests: Reject schema relaxed nullability (CR-01)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestRejectFlow:
+    """Reject flow: nullability relaxed on validation, user column rename (CR-01, D-21)."""
+
+    def test_validate_schema_relaxes_nullability_on_reject(self):
+        """CR-01: reject_df with non-nullable Decimal col having NaN validates without error.
+
+        A reject row is a row that failed validation -- it commonly has NULLs in columns
+        that are non-nullable (that is exactly why it was rejected). validate_schema must
+        NOT raise DataValidationError when called on a reject DataFrame.
+        """
+        comp = ConcreteComponent("c1", {})
+        # Attach a reject_schema with a non-nullable Decimal column
+        comp.reject_schema = [
+            {"name": "amount", "type": "Decimal", "nullable": False},
+            {"name": "errorCode", "type": "str", "nullable": True},
+        ]
+        # Build a reject_df that has NaN in the non-nullable column (typical reject row)
+        import pandas as pd
+        reject_df = pd.DataFrame({"amount": [None], "errorCode": ["SCHEMA_VIOLATION"]})
+        # Simulate what _apply_output_schema_validation does to the reject flow
+        # After the fix: this must NOT raise DataValidationError
+        result = {"main": pd.DataFrame(), "reject": reject_df}
+        # If CR-01 is fixed, the following does not raise
+        result = comp._apply_output_schema_validation(result)
+        assert result["reject"] is not None
+
+    def test_user_errormessage_renamed(self):
+        """D-21: user input column named 'errorMessage' is renamed to 'errorMessage_user'.
+
+        The engine reserves 'errorMessage' and 'errorCode' for its own reject diagnostics.
+        If user data has a column with that name, it must be renamed before the engine
+        attaches its own columns, so there is no silent collision.
+        """
+        import logging
+        comp = _PassthroughComponent("c1", {})
+        # Input has a user column literally named "errorMessage"
+        user_df = pd.DataFrame({
+            "id": [1, 2],
+            "errorMessage": ["msg1", "msg2"],
+            "amount": [10.0, 20.0],
+        })
+        # Execute and check that result has errorMessage_user, not errorMessage
+        result = comp.execute(user_df)
+        main = result.get("main")
+        assert main is not None
+        # After fix: column renamed to errorMessage_user
+        assert "errorMessage_user" in main.columns
+        assert "errorMessage" not in main.columns or (
+            "errorMessage_user" in main.columns
+        )
+
+    def test_schema_violation_routes_reject_on_die_on_error_false(self):
+        """G-05/D-11: when die_on_error=False, schema-violating rows go to reject with errorCode.
+
+        Component has a non-nullable int column. Input has a NULL in that column.
+        With die_on_error=False: the violating row should be in result["reject"] with
+        errorCode="SCHEMA_VIOLATION", not in result["main"], and no exception raised.
+        """
+        comp = _PassthroughComponent("c1", {"die_on_error": False})
+        comp.output_schema = [
+            {"name": "id", "type": "int", "nullable": False},
+            {"name": "name", "type": "str", "nullable": True},
+        ]
+        df = pd.DataFrame({"id": [1, None, 3], "name": ["a", "b", "c"]})
+        result = comp.execute(df)
+        # No exception raised
+        # After fix: row with NULL in non-nullable id goes to reject
+        reject = result.get("reject")
+        assert reject is not None and len(reject) > 0
+        assert "errorCode" in reject.columns
+        assert reject["errorCode"].iloc[0] == "SCHEMA_VIOLATION"
+        # Main should only have the valid rows
+        main = result.get("main")
+        assert main is not None
+        assert len(main) == 2
+
+    def test_die_on_error_true_raises(self):
+        """G-05/D-11: when die_on_error=True, schema violation raises DataValidationError."""
+        from src.v1.engine.exceptions import DataValidationError, ComponentExecutionError
+        comp = _PassthroughComponent("c1", {"die_on_error": True})
+        comp.output_schema = [
+            {"name": "id", "type": "int", "nullable": False},
+        ]
+        df = pd.DataFrame({"id": [1, None, 3]})
+        # die_on_error=True: DataValidationError raised (wrapped in ComponentExecutionError)
+        with pytest.raises((DataValidationError, ComponentExecutionError)):
+            comp.execute(df)
+
+
+# ------------------------------------------------------------------
+# Tests: Schema handling edge cases (CR-02, WR-01, WR-02, WR-03, G-02, G-03)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestSchemaHandling:
+    """Schema validation: decimal precision, datetime defaults, empty DataFrames."""
+
+    def test_decimal_string_precision(self):
+        """CR-02: string precision value from JSON config does not crash _apply_decimal_precision.
+
+        JSON configs often have "precision": "4" (string). The fix must coerce to int.
+        """
+        from decimal import Decimal
+        comp = ConcreteComponent("c1", {})
+        df = pd.DataFrame({"amount": [Decimal("123.456789")]})
+        # precision="4" as string (simulates JSON-loaded config)
+        result = comp._apply_decimal_precision(df.copy(), "amount", "4")
+        # Should not crash; should produce a value rounded to 4 decimal places
+        assert result is not None
+        val = result["amount"].iloc[0]
+        assert val == Decimal("123.4568")
+
+    def test_datetime_default_nullable_true(self):
+        """WR-01/G-01: missing datetime column with nullable=True filled with pd.NaT."""
+        comp = _PassthroughComponent("c1", {})
+        comp.output_schema = [
+            {"name": "id", "type": "int", "nullable": False},
+            {"name": "created_at", "type": "datetime", "nullable": True},
+        ]
+        df = pd.DataFrame({"id": [1, 2, 3]})  # missing created_at
+        result = comp.execute(df)
+        main = result["main"]
+        assert "created_at" in main.columns
+        # All values must be NaT (not string, not pd.NA object)
+        assert main["created_at"].isna().all()
+        assert str(main["created_at"].dtype) == "datetime64[ns]"
+
+    def test_datetime_default_nullable_false(self):
+        """WR-01/G-01: missing datetime column with nullable=False filled with pd.Timestamp(0)."""
+        comp = _PassthroughComponent("c1", {})
+        comp.output_schema = [
+            {"name": "id", "type": "int", "nullable": False},
+            {"name": "created_at", "type": "datetime", "nullable": False},
+        ]
+        df = pd.DataFrame({"id": [1, 2, 3]})  # missing created_at
+        result = comp.execute(df)
+        main = result["main"]
+        assert "created_at" in main.columns
+        # All values should be Timestamp(0) (Unix epoch)
+        assert (main["created_at"] == pd.Timestamp(0)).all()
+
+    def test_empty_df_dtype_preserved(self):
+        """WR-02: empty DataFrame + missing int nullable column produces Int64 dtype, not object."""
+        comp = _PassthroughComponent("c1", {})
+        comp.output_schema = [
+            {"name": "id", "type": "int", "nullable": True},
+        ]
+        empty_df = pd.DataFrame()  # completely empty
+        result = comp.execute(empty_df)
+        main = result["main"]
+        assert "id" in main.columns
+        # Must be Int64, not object
+        assert main["id"].dtype == pd.Int64Dtype()
+
+    def test_empty_result_runs_validation(self):
+        """WR-03: empty result DataFrames still get column-order enforcement.
+
+        When _process returns an empty DataFrame, _enforce_schema_column_order
+        must still add missing schema columns and reorder.
+        """
+        comp = _PassthroughComponent("c1", {})
+        comp.output_schema = [
+            {"name": "id", "type": "int", "nullable": True},
+            {"name": "name", "type": "str", "nullable": True},
+        ]
+        empty_df = pd.DataFrame()
+        result = comp.execute(empty_df)
+        main = result["main"]
+        # Both schema columns must be present on empty result
+        assert "id" in main.columns
+        assert "name" in main.columns
+
+    def test_decimal_no_precision_coerced(self):
+        """G-02: Decimal column without precision still gets values converted to Decimal objects.
+
+        Previously, if no precision was specified, strings stayed as strings.
+        """
+        from decimal import Decimal
+        comp = _PassthroughComponent("c1", {})
+        comp.output_schema = [
+            {"name": "amount", "type": "Decimal", "nullable": True},
+            # no precision specified
+        ]
+        df = pd.DataFrame({"amount": ["123.45", "67.89"]})
+        result = comp.execute(df)
+        main = result["main"]
+        val = main["amount"].iloc[0]
+        # After fix: value must be a Decimal object, not a string
+        assert isinstance(val, Decimal), f"Expected Decimal, got {type(val)}: {val}"
+
+    def test_float_precision_rounded(self):
+        """G-03: float column with precision=2 gets rounded to 2 decimal places."""
+        comp = _PassthroughComponent("c1", {})
+        comp.output_schema = [
+            {"name": "score", "type": "float", "nullable": True, "precision": 2},
+        ]
+        df = pd.DataFrame({"score": [1.23456, 9.87654]})
+        result = comp.execute(df)
+        main = result["main"]
+        assert abs(main["score"].iloc[0] - 1.23) < 1e-6
+        assert abs(main["score"].iloc[1] - 9.88) < 1e-6
+
+
+# ------------------------------------------------------------------
+# Tests: date_pattern parsing (G-04)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestDatePattern:
+    """Datetime column parsing respects date_pattern -> Talend defaults -> ISO 8601 -> inference."""
+
+    def test_explicit_pattern(self):
+        """G-04: explicit date_pattern='dd/MM/yyyy' parses '25/04/2026' correctly."""
+        comp = _PassthroughComponent("c1", {})
+        comp.output_schema = [
+            {"name": "date_col", "type": "datetime", "nullable": True,
+             "date_pattern": "dd/MM/yyyy"},
+        ]
+        df = pd.DataFrame({"date_col": ["25/04/2026", "01/01/2000"]})
+        result = comp.execute(df)
+        main = result["main"]
+        assert not main["date_col"].isna().any()
+        assert main["date_col"].iloc[0] == pd.Timestamp("2026-04-25")
+        assert main["date_col"].iloc[1] == pd.Timestamp("2000-01-01")
+
+    def test_talend_default_chain(self):
+        """G-04: column without date_pattern parses 'yyyy-MM-dd' formatted value."""
+        comp = _PassthroughComponent("c1", {})
+        comp.output_schema = [
+            {"name": "date_col", "type": "datetime", "nullable": True},
+            # no date_pattern
+        ]
+        df = pd.DataFrame({"date_col": ["2026-04-25", "2000-01-01"]})
+        result = comp.execute(df)
+        main = result["main"]
+        assert not main["date_col"].isna().any()
+        assert main["date_col"].iloc[0] == pd.Timestamp("2026-04-25")
+
+    def test_inference_fallback(self):
+        """G-04: unrecognized format that requires inference still parses via pd.to_datetime."""
+        comp = _PassthroughComponent("c1", {})
+        comp.output_schema = [
+            {"name": "date_col", "type": "datetime", "nullable": True},
+        ]
+        # "April 25, 2026" is not in Talend default chain; pd.to_datetime infers it
+        df = pd.DataFrame({"date_col": ["April 25, 2026"]})
+        result = comp.execute(df)
+        main = result["main"]
+        assert main["date_col"].iloc[0] == pd.Timestamp("2026-04-25")
+
+
+# ------------------------------------------------------------------
+# Tests: die_on_error reject routing (G-05/D-11)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestDieOnError:
+    """die_on_error=False routes schema violations to reject; True raises."""
+
+    def test_schema_violation_routes_reject(self):
+        """G-05/D-11: non-nullable null with die_on_error=False routes row to reject.
+
+        The main flow should have the valid rows; reject should have the bad row.
+        """
+        comp = _PassthroughComponent("c1", {"die_on_error": False})
+        comp.output_schema = [
+            {"name": "id", "type": "int", "nullable": False},
+            {"name": "name", "type": "str", "nullable": True},
+        ]
+        df = pd.DataFrame({"id": [1, None, 3], "name": ["a", "b", "c"]})
+        result = comp.execute(df)
+        reject = result.get("reject")
+        main = result.get("main")
+        assert reject is not None and len(reject) == 1
+        assert main is not None and len(main) == 2
+        assert "errorCode" in reject.columns
+        assert reject["errorCode"].iloc[0] == "SCHEMA_VIOLATION"
+        assert "errorMessage" in reject.columns
+
+    def test_die_on_error_true_raises(self):
+        """G-05/D-11: non-nullable null with die_on_error=True raises exception."""
+        from src.v1.engine.exceptions import DataValidationError, ComponentExecutionError
+        comp = _PassthroughComponent("c1", {"die_on_error": True})
+        comp.output_schema = [
+            {"name": "id", "type": "int", "nullable": False},
+        ]
+        df = pd.DataFrame({"id": [1, None, 3]})
+        with pytest.raises((DataValidationError, ComponentExecutionError)):
+            comp.execute(df)
+
+
+# ------------------------------------------------------------------
+# Tests: Streaming per-chunk validation (G-10/D-12)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestStreaming:
+    """Streaming validates per chunk, not after concat; memory is bounded."""
+
+    def test_per_chunk_validation(self):
+        """G-10/D-12: schema validation runs per chunk; bad row in chunk 2 routes to reject.
+
+        With chunk_size=3 and 6 rows where row index 4 (chunk 2) has a NULL
+        in a non-nullable column, that single bad row ends up in reject and
+        all 5 good rows remain in main.
+        """
+        comp = _PassthroughComponent(
+            "c1",
+            {"die_on_error": False, "execution_mode": "streaming", "chunk_size": 3}
+        )
+        comp.output_schema = [
+            {"name": "id", "type": "int", "nullable": False},
+            {"name": "name", "type": "str", "nullable": True},
+        ]
+        # Row at index 3 (second chunk) has NULL id
+        df = pd.DataFrame({
+            "id": [1, 2, 3, None, 5, 6],
+            "name": ["a", "b", "c", "d", "e", "f"],
+        })
+        result = comp.execute(df)
+        reject = result.get("reject")
+        main = result.get("main")
+        # Exactly 1 bad row (the None id)
+        assert reject is not None and len(reject) == 1
+        assert main is not None and len(main) == 5
+        assert "errorCode" in reject.columns
+        assert reject["errorCode"].iloc[0] == "SCHEMA_VIOLATION"
+
+    def test_streaming_memory_bounded(self):
+        """G-10: _apply_output_schema_validation called once per chunk (not once after concat).
+
+        With 1000 rows and chunk_size=100, schema validation should be called 10 times
+        (once per chunk), not once at the end.
+        """
+        from unittest.mock import patch, call
+        comp = _PassthroughComponent(
+            "c1",
+            {"die_on_error": False, "execution_mode": "streaming", "chunk_size": 100}
+        )
+        comp.output_schema = [
+            {"name": "id", "type": "int", "nullable": True},
+        ]
+        df = pd.DataFrame({"id": range(1000)})
+        call_count = []
+
+        original_apply = comp._apply_output_schema_validation
+
+        def counting_apply(result):
+            call_count.append(1)
+            return original_apply(result)
+
+        with patch.object(comp, "_apply_output_schema_validation",
+                          side_effect=counting_apply):
+            comp.execute(df)
+
+        # Should have been called once per chunk (10 chunks of 100)
+        assert len(call_count) == 10, (
+            f"Expected 10 calls (one per chunk), got {len(call_count)}"
+        )
+
+
+# ------------------------------------------------------------------
+# Tests: treat_empty_as_null per-column attribute (G-12/D-10)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestEmptyVsNull:
+    """treat_empty_as_null per-column attribute: str default=False, numeric default=True."""
+
+    def test_string_empty_preserved(self):
+        """G-12/D-10: str column with treat_empty_as_null=False (default) keeps '' as ''.
+
+        Talend reads "" from a CSV string column and keeps it as an empty string,
+        not null. The default for string columns is treat_empty_as_null=False.
+        """
+        comp = _PassthroughComponent("c1", {})
+        comp.output_schema = [
+            {"name": "name", "type": "str", "nullable": True},
+            # no treat_empty_as_null -> defaults to False for str
+        ]
+        df = pd.DataFrame({"name": ["alice", "", "bob"]})
+        result = comp.execute(df)
+        main = result["main"]
+        # Empty string must survive as "" not become NaN/NA
+        assert main["name"].iloc[1] == ""
+
+    def test_numeric_empty_to_null(self):
+        """G-12/D-10: int column with treat_empty_as_null=True (default for numeric) coerces '' to NaN.
+
+        Talend reads "" from a CSV int column and coerces to null.
+        The default for numeric columns is treat_empty_as_null=True.
+        """
+        comp = _PassthroughComponent("c1", {})
+        comp.output_schema = [
+            {"name": "id", "type": "int", "nullable": True},
+            # no treat_empty_as_null -> defaults to True for int
+        ]
+        # Simulate empty string arriving (e.g. from CSV read as str)
+        df = pd.DataFrame({"id": [1, "", 3]})
+        result = comp.execute(df)
+        main = result["main"]
+        # Empty string must become NaN (null) for numeric column
+        assert pd.isna(main["id"].iloc[1])
+
+    def test_string_explicit_treat_as_null(self):
+        """G-12/D-10: str column with treat_empty_as_null=True explicitly converts '' to pd.NA."""
+        comp = _PassthroughComponent("c1", {})
+        comp.output_schema = [
+            {"name": "name", "type": "str", "nullable": True,
+             "treat_empty_as_null": True},
+        ]
+        df = pd.DataFrame({"name": ["alice", "", "bob"]})
+        result = comp.execute(df)
+        main = result["main"]
+        # Empty string must become NA when treat_empty_as_null=True
+        assert pd.isna(main["name"].iloc[1])
