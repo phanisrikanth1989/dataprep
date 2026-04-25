@@ -370,10 +370,11 @@ class TestEdgeCases:
         gm = GlobalMap()
         comp = _make_component(global_map=gm)
         comp.execute(_sample_df())
-        # _process calls _update_stats(4, 4, 0), base adds _update_stats_from_result(4 main, 0 reject)
-        # NB_LINE = 4 + 4 = 8, NB_LINE_OK = 4 + 4 = 8
-        assert gm.get_nb_line("tSort_1") == 8
-        assert gm.get_nb_line_ok("tSort_1") == 8
+        # _process calls _update_stats(4, 4, 0); _stats_set_by_component=True so
+        # _update_stats_from_result is a no-op (post-07.1 contract: no double-count)
+        # NB_LINE = 4, NB_LINE_OK = 4
+        assert gm.get_nb_line("tSort_1") == 4
+        assert gm.get_nb_line_ok("tSort_1") == 4
 
 
 # ------------------------------------------------------------------

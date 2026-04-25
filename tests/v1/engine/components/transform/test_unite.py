@@ -204,9 +204,10 @@ class TestEdgeCases:
         df1 = pd.DataFrame({"x": [1, 2]})
         df2 = pd.DataFrame({"x": [3]})
         comp.execute({"row1": df1, "row2": df2})
-        # _process calls _update_stats(3, 3, 0) + _update_stats_from_result adds (3 main, 0 reject)
-        # NB_LINE = 3 + 3 = 6
-        assert gm.get_nb_line("tUnite_1") == 6
+        # _process calls _update_stats(3, 3, 0); _stats_set_by_component=True so
+        # _update_stats_from_result is a no-op (post-07.1 contract: no double-count)
+        # NB_LINE = 3
+        assert gm.get_nb_line("tUnite_1") == 3
 
     def test_no_execute_override(self):
         """Verify Unite does NOT have a custom execute() method (D-12)."""

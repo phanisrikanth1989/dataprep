@@ -85,16 +85,28 @@ class TestSchemaFiltering:
         result = comp.execute(_sample_df())
         assert list(result["main"].columns) == ["a", "b", "c", "d"]
 
-    def test_schema_column_not_in_input(self):
-        """Schema includes column 'z' not in input -- output has [a, b] only."""
+    def test_schema_column_not_in_input(self, caplog):
+        """Schema includes column 'z' not in input -- base class fills it with null.
+
+        Post-07.1 contract: _enforce_schema_column_order (step 7b) adds missing
+        schema columns as null-filled Series. FilterColumns._process logs a warning
+        for the missing columns.
+        """
+        import logging
         schema = [
             {"name": "a", "type": "int", "nullable": True},
             {"name": "b", "type": "int", "nullable": True},
             {"name": "z", "type": "str", "nullable": True},
         ]
         comp = _make_component(output_schema=schema)
-        result = comp.execute(_sample_df())
-        assert list(result["main"].columns) == ["a", "b"]
+        with caplog.at_level(logging.WARNING):
+            result = comp.execute(_sample_df())
+        # Base class _enforce_schema_column_order fills missing 'z' with null
+        assert list(result["main"].columns) == ["a", "b", "z"]
+        # 'z' column is null-filled (NaN/NA/None) for all rows
+        assert result["main"]["z"].isna().all()
+        # FilterColumns._process warns about missing schema columns
+        assert any("z" in msg for msg in caplog.messages)
 
     def test_no_schema_passthrough(self):
         """FCOL-02: output_schema is None -> input returned as-is."""
@@ -178,10 +190,11 @@ class TestEdgeCases:
         schema = [{"name": "a", "type": "int", "nullable": True}]
         comp = _make_component(global_map=gm, output_schema=schema)
         comp.execute(_sample_df())
-        # _process calls _update_stats(2, 2, 0) + _update_stats_from_result adds (2 main, 0 reject)
-        # NB_LINE = 2 + 2 = 4, NB_LINE_OK = 2 + 2 = 4
-        assert gm.get_nb_line("tFilterColumns_1") == 4
-        assert gm.get_nb_line_ok("tFilterColumns_1") == 4
+        # _process calls _update_stats(2, 2, 0); _stats_set_by_component=True so
+        # _update_stats_from_result is a no-op (post-07.1 contract: no double-count)
+        # NB_LINE = 2, NB_LINE_OK = 2
+        assert gm.get_nb_line("tFilterColumns_1") == 2
+        assert gm.get_nb_line_ok("tFilterColumns_1") == 2
 
     def test_all_rows_preserved(self):
         """Column filter does not remove rows -- row count same."""
