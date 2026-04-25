@@ -354,18 +354,18 @@ class TalendToV1Converter:
         visited: Set[str] = set()
         subjob_counter = 1
 
-        # Build adjacency lists (undirected)
+        # Build bidirectional adjacency lists so DFS visits all connected nodes
+        # without an O(N*E) reverse-edge scan per node (WR-04 fix).
         connections: Dict[str, List[str]] = {}
         for flow in flows:
             from_comp = flow["from"]
             to_comp = flow["to"]
+            connections.setdefault(from_comp, []).append(to_comp)
+            connections.setdefault(to_comp, []).append(from_comp)  # reverse edge
 
-            if from_comp not in connections:
-                connections[from_comp] = []
-            connections[from_comp].append(to_comp)
-
-            if to_comp not in connections:
-                connections[to_comp] = []
+        # Ensure every component has an entry even if it has no flows
+        for comp_id in components_map:
+            connections.setdefault(comp_id, [])
 
         # Find connected components via DFS
         for comp_id in components_map:
@@ -383,16 +383,10 @@ class TalendToV1Converter:
                 visited.add(current)
                 subjob_components.append(current)
 
-                # Forward edges
-                if current in connections:
-                    for neighbor in connections[current]:
-                        if neighbor not in visited:
-                            stack.append(neighbor)
-
-                # Reverse edges
-                for from_comp, to_comps in connections.items():
-                    if current in to_comps and from_comp not in visited:
-                        stack.append(from_comp)
+                # All neighbors (forward + reverse already included in adjacency list)
+                for neighbor in connections.get(current, []):
+                    if neighbor not in visited:
+                        stack.append(neighbor)
 
             if subjob_components:
                 subjob_id = f"subjob_{subjob_counter}"
