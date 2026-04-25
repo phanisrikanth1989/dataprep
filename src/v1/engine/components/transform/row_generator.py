@@ -171,8 +171,6 @@ class RowGenerator(BaseComponent):
         reject_df = pd.DataFrame(rejects, columns=columns) if rejects else pd.DataFrame(columns=columns)
         print(f"[RowGenerator] DataFrame shape: {df.shape}")
         print(f"[RowGenerator] Reject DataFrame shape: {reject_df.shape}")
-        df = self.validate_schema(df, output_schema)
-        reject_df = self.validate_schema(reject_df, output_schema)
         self._update_stats(rows_read=nb_rows, rows_ok=len(df), rows_reject=len(reject_df))
         print(f"[RowGenerator] Finished row generation for component: {self.id}")
         return {'main': df, 'reject': reject_df}
