@@ -109,7 +109,9 @@ public class Numeric {
      */
     public static Float convertImpliedDecimalFormat(String format, String toConvert) {
         BigDecimal decimal = Numeric.convertString2BigDecimal(format,toConvert);
-        return new Float(decimal.doubleValue());
+        // WR-16 fix: new Float(double) was deprecated in Java 9 and removed in Java 17+.
+        // Float.valueOf((float) ...) is the canonical non-deprecated replacement.
+        return Float.valueOf((float) decimal.doubleValue());
     }
 
     public static BigDecimal convertString2BigDecimal(String format, String toConvert) {
