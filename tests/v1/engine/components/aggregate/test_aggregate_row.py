@@ -384,7 +384,11 @@ class TestSpecialFunctions:
         assert "," in a_list
 
     def test_list_object_aggregation(self):
-        """D-09: list_object produces comma-separated string."""
+        """CR-05 (supersedes Phase 6 D-09): list_object produces Python list, NOT a delimited string.
+
+        Talaxie tAggregateRow_messages.properties: LIST_DELIMITER.NAME=Delimiter (only for list operation)
+        list_delimiter does NOT apply to list_object; list_object returns a Python list.
+        """
         config = dict(_DEFAULT_CONFIG)
         config["operations"] = [
             {"output_column": "products", "function": "list_object", "input_column": "product", "ignore_null": True},
@@ -393,8 +397,7 @@ class TestSpecialFunctions:
         result = comp.execute(_sample_df())
         main = result["main"]
         a_list = main.loc[main["dept"] == "A", "products"].iloc[0]
-        assert isinstance(a_list, str)
-        assert "," in a_list
+        assert isinstance(a_list, list), f"Expected list, got {type(a_list).__name__}: {a_list!r}"
 
     def test_list_custom_delimiter(self):
         config = dict(_DEFAULT_CONFIG)
@@ -461,8 +464,13 @@ class TestSpecialFunctions:
         assert a_sample == pytest.approx(70.710678, rel=1e-3)
         assert a_pop != a_sample  # they must differ
 
-    def test_union_same_as_list(self):
-        """Union behaves like list aggregation (logs warning)."""
+    def test_union_deduplicates(self):
+        """CR-05-bis: union deduplicates and sorts distinct values before joining.
+
+        Unlike list (which preserves duplicates), union produces sorted unique values.
+        Sample data: dept A has products [x, y], B has [x, y, z].
+        No duplicates in _sample_df, so union = sorted(set(...)) = same as sorted list.
+        """
         config = dict(_DEFAULT_CONFIG)
         config["operations"] = [
             {"output_column": "products", "function": "union", "input_column": "product", "ignore_null": True},
@@ -471,8 +479,9 @@ class TestSpecialFunctions:
         result = comp.execute(_sample_df())
         main = result["main"]
         a_union = main.loc[main["dept"] == "A", "products"].iloc[0]
-        assert isinstance(a_union, str)
-        assert "," in a_union
+        assert isinstance(a_union, str), f"Expected str, got {type(a_union).__name__}: {a_union!r}"
+        # sorted distinct values for A: [x, y] -> "x,y"
+        assert a_union == "x,y"
 
 
 # ------------------------------------------------------------------
@@ -597,11 +606,245 @@ class TestEdgeCases:
         gm = GlobalMap()
         comp = _make_component(global_map=gm)
         comp.execute(_sample_df())
-        # Stats accumulate from both _process (5 in, 2 out) and base _update_stats_from_result (2 main rows)
-        # NB_LINE = 5 (from _process) + 2 (from base) = 7
-        # NB_LINE_OK = 2 (from _process) + 2 (from base) = 4
-        assert gm.get_nb_line("tAgg_1") == 7
-        assert gm.get_nb_line_ok("tAgg_1") == 4
+        # Phase 7.1-01 BaseComponent contract: when _update_stats() is called from
+        # _process(), _stats_set_by_component=True so _update_stats_from_result() skips.
+        # NB_LINE = 5 (input rows, set by _process)
+        # NB_LINE_OK = 2 (output groups, set by _process)
+        assert gm.get_nb_line("tAgg_1") == 5
+        assert gm.get_nb_line_ok("tAgg_1") == 2
+
+
+# ------------------------------------------------------------------
+# TestListObject -- covers CR-05 (supersedes Phase 6 D-09)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestListObject:
+    """list_object returns Python list, NOT delimited string.
+
+    CR-05: Talaxie tAggregateRow_messages.properties:
+    LIST_DELIMITER.NAME=Delimiter (only for list operation)
+    list_delimiter does NOT apply to list_object.
+    Phase 6 D-09 was wrong; this test enforces the corrected behavior.
+    """
+
+    def test_returns_list(self):
+        """list_object produces a Python list, not a delimited string."""
+        config = dict(_DEFAULT_CONFIG)
+        config["groupbys"] = [{"output_column": "grp", "input_column": "group_col"}]
+        config["operations"] = [
+            {"output_column": "items", "function": "list_object", "input_column": "value", "ignore_null": True},
+        ]
+        df = pd.DataFrame({
+            "group_col": ["g1", "g1", "g1", "g1"],
+            "value": ["a", "b", "a", "c"],
+        })
+        comp = _make_component(config=config)
+        result = comp.execute(df)
+        main = result["main"]
+        items = main.loc[main["grp"] == "g1", "items"].iloc[0]
+        assert isinstance(items, list), f"Expected list, got {type(items).__name__}: {items!r}"
+        assert items == ["a", "b", "a", "c"]
+
+    def test_ignore_null_drops_na(self):
+        """list_object with ignore_null=True drops NaN values from list."""
+        config = dict(_DEFAULT_CONFIG)
+        config["groupbys"] = [{"output_column": "grp", "input_column": "group_col"}]
+        config["operations"] = [
+            {"output_column": "items", "function": "list_object", "input_column": "value", "ignore_null": True},
+        ]
+        df = pd.DataFrame({
+            "group_col": ["g1", "g1", "g1", "g1"],
+            "value": ["a", "b", np.nan, "c"],
+        })
+        comp = _make_component(config=config)
+        result = comp.execute(df)
+        main = result["main"]
+        items = main.loc[main["grp"] == "g1", "items"].iloc[0]
+        assert isinstance(items, list), f"Expected list, got {type(items).__name__}: {items!r}"
+        assert items == ["a", "b", "c"]
+        assert len(items) == 3  # NaN dropped
+
+
+# ------------------------------------------------------------------
+# TestUnion -- covers CR-05-bis
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestUnion:
+    """union deduplicates, sorts, then joins with list_delimiter.
+
+    CR-05-bis: Talend union aggregator collects distinct values.
+    Unlike list (which preserves duplicates), union produces sorted unique values.
+    """
+
+    def test_distinct_join(self):
+        """union deduplicates and sorts before joining with delimiter."""
+        config = dict(_DEFAULT_CONFIG)
+        config["groupbys"] = [{"output_column": "grp", "input_column": "group_col"}]
+        config["list_delimiter"] = ","
+        config["operations"] = [
+            {"output_column": "items", "function": "union", "input_column": "value", "ignore_null": True},
+        ]
+        df = pd.DataFrame({
+            "group_col": ["g1", "g1", "g1", "g1"],
+            "value": ["a", "b", "a", "c"],
+        })
+        comp = _make_component(config=config)
+        result = comp.execute(df)
+        main = result["main"]
+        items = main.loc[main["grp"] == "g1", "items"].iloc[0]
+        assert isinstance(items, str), f"Expected str, got {type(items).__name__}: {items!r}"
+        assert items == "a,b,c"  # sorted distinct values, joined
+
+    def test_dedupe_with_nulls(self):
+        """union with ignore_null=True drops NaN before deduplicating."""
+        config = dict(_DEFAULT_CONFIG)
+        config["groupbys"] = [{"output_column": "grp", "input_column": "group_col"}]
+        config["list_delimiter"] = ","
+        config["operations"] = [
+            {"output_column": "items", "function": "union", "input_column": "value", "ignore_null": True},
+        ]
+        df = pd.DataFrame({
+            "group_col": ["g1", "g1", "g1", "g1"],
+            "value": [1.0, 2.0, 1.0, np.nan],
+        })
+        comp = _make_component(config=config)
+        result = comp.execute(df)
+        main = result["main"]
+        items = main.loc[main["grp"] == "g1", "items"].iloc[0]
+        assert isinstance(items, str), f"Expected str, got {type(items).__name__}: {items!r}"
+        assert items == "1.0,2.0"  # NaN dropped, sorted distinct, joined
+
+
+# ------------------------------------------------------------------
+# TestMedian -- covers WR-09
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestMedian:
+    """median with use_financial_precision warns once when falling back to float.
+
+    WR-09: Decimal median is genuinely complex. Engine falls back to float median.
+    For regulatory/financial use cases with use_financial_precision=True, the
+    precision loss must be visible to operators via a logged warning.
+    """
+
+    def test_decimal_warns_once(self, caplog):
+        """median + use_financial_precision=True logs exactly one warning per execute()."""
+        import logging
+        config = dict(_DEFAULT_CONFIG)
+        config["use_financial_precision"] = True
+        config["groupbys"] = []
+        config["operations"] = [
+            {"output_column": "med", "function": "median", "input_column": "amount", "ignore_null": True},
+        ]
+        df = pd.DataFrame({"amount": [100.0, 200.0, 150.0]})
+        comp = _make_component(config=config)
+
+        with caplog.at_level(logging.WARNING, logger="src.v1.engine.components.aggregate.aggregate_row"):
+            result = comp.execute(df)
+
+        # Warning must fire exactly once per execute()
+        warn_records = [r for r in caplog.records if "median" in r.message.lower() and "precision" in r.message.lower()]
+        assert len(warn_records) == 1, (
+            f"Expected exactly 1 warning about median+precision, got {len(warn_records)}: "
+            f"{[r.message for r in warn_records]}"
+        )
+
+        # Result must still be computed (not None)
+        main = result["main"]
+        med = main["med"].iloc[0]
+        assert med is not None
+        assert not (isinstance(med, float) and np.isnan(med))
+        assert med == pytest.approx(150.0)
+
+
+# ------------------------------------------------------------------
+# TestOrdering -- covers WR-11
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestOrdering:
+    """groupby sort=False preserves input-order (first-seen) group ordering.
+
+    WR-11: Talend tAggregateRow uses LinkedHashMap internally, which preserves
+    insertion order (first-seen group ordering). groupby(sort=True) alphabetizes
+    output by group key, breaking job output ordering for downstream components.
+    Fix: groupby(sort=False).
+    """
+
+    def test_input_order_preserved(self):
+        """Groups appear in input-first-seen order, not alphabetical order."""
+        config = dict(_DEFAULT_CONFIG)
+        config["groupbys"] = [{"output_column": "grp", "input_column": "group_col"}]
+        config["operations"] = [
+            {"output_column": "total", "function": "sum", "input_column": "val", "ignore_null": True},
+        ]
+        # Input order: c, a, b (NOT alphabetical a, b, c)
+        df = pd.DataFrame({
+            "group_col": ["c", "c", "a", "a", "b", "b"],
+            "val": [10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+        })
+        comp = _make_component(config=config)
+        result = comp.execute(df)
+        main = result["main"]
+        # Expected: c first, then a, then b (input first-seen order)
+        assert list(main["grp"]) == ["c", "a", "b"], (
+            f"Expected input-order grouping [c, a, b], got {list(main['grp'])!r}"
+        )
+        assert main.loc[main["grp"] == "c", "total"].iloc[0] == 30.0
+        assert main.loc[main["grp"] == "a", "total"].iloc[0] == 70.0
+        assert main.loc[main["grp"] == "b", "total"].iloc[0] == 110.0
+
+
+# ------------------------------------------------------------------
+# TestCountIgnoreNull -- covers WR-10 regression guard
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCountIgnoreNull:
+    """Regression guard: count = non-null count regardless of ignore_null.
+
+    WR-10 WRONG finding (per RESEARCH.md verdict): The audit claimed count +
+    ignore_null=False should count all rows including nulls. This is incorrect.
+
+    SQL convention: COUNT(col) = non-null count regardless of any null-handling flag.
+    Talend docs (help.qlik.com/talend tAggregateRow): "count = counts the number
+    of rows" -- no specification of null inclusion under ignore_null=False.
+
+    No public Talend job-runtime source available to verify alternative behavior.
+    Current behavior (count = non-null) matches SQL convention and is kept.
+    This test is a regression guard so future audits do not re-flag this as a bug.
+    """
+
+    def test_count_ignores_null_regardless(self):
+        """count returns non-null count even when ignore_null=False.
+
+        WR-10 REGRESSION GUARD: DO NOT change this to return 3 (all rows).
+        See RESEARCH.md verdict and 07.1-06-SUMMARY.md WRONG findings table.
+        Talend docs: help.qlik.com/talend tAggregateRow
+        """
+        config = dict(_DEFAULT_CONFIG)
+        config["groupbys"] = []
+        config["operations"] = [
+            {"output_column": "cnt", "function": "count", "input_column": "value", "ignore_null": False},
+        ]
+        df = pd.DataFrame({"value": [1.0, np.nan, 2.0]})
+        comp = _make_component(config=config)
+        result = comp.execute(df)
+        main = result["main"]
+        cnt = main["cnt"].iloc[0]
+        # count = non-null count = 2, NOT 3 (WR-10 WRONG finding)
+        assert cnt == 2, (
+            f"count should return non-null count (2), not all-rows count (3). "
+            f"Got {cnt!r}. See WR-10 REGRESSION GUARD docstring."
+        )
 
 
 # ------------------------------------------------------------------
