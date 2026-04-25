@@ -307,9 +307,7 @@ public class Mathematical {
         return a % b;
     }
 
-    public static void main(String[] args) {
-        Mathematical.MOD(3, 2);
-    }
+    // IN-02: leftover developer test main() deleted. Mathematical is a pure utility class.
 
     /**
      * Returns the arithmetic additive inverse of the value of the argument.
