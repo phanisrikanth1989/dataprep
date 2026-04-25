@@ -492,7 +492,12 @@ public class TalendDate {
         try {
             date = sdf.parse(string);
         } catch (ParseException e) {
-            throw new RuntimeException(pattern + " can't support the date!"); //$NON-NLS-1$
+            // CR-08 partial fix: include input string + pattern in error message and preserve cause.
+            // Exception type remains RuntimeException for Talend parity (upstream wraps identically).
+            throw new RuntimeException(
+                "parseDate failed for input '" + string + "' with pattern '" + pattern + "': " + e.getMessage(),
+                e
+            ); //$NON-NLS-1$
         }
         String dateString = sdf.format(addDate(date, nb, dateType));
 
@@ -956,7 +961,12 @@ public class TalendDate {
                 return d;
             }
         } catch (ParseException e) {
-            throw new RuntimeException(e);
+            // CR-08 partial fix: include input + pattern in error message and preserve cause.
+            // Exception type remains RuntimeException for Talend parity.
+            throw new RuntimeException(
+                "parseDate failed for input '" + stringDate + "' with pattern '" + pattern + "': " + e.getMessage(),
+                e
+            );
         }
     }
 
@@ -1041,7 +1051,12 @@ public class TalendDate {
                 return d;
             }
         } catch (ParseException e) {
-            throw new RuntimeException(e);
+            // CR-08 partial fix: include input + pattern in error message and preserve cause.
+            // Exception type remains RuntimeException for Talend parity.
+            throw new RuntimeException(
+                "parseDate failed for input '" + stringDate + "' with pattern '" + pattern + "': " + e.getMessage(),
+                e
+            );
         }
     }
 
@@ -1074,7 +1089,12 @@ public class TalendDate {
         try {
             return FastDateParser.getInstance(pattern, LocaleProvider.getLocale(languageOrCountyCode)).parse(stringDate);
         } catch (ParseException e) {
-            throw new RuntimeException(e);
+            // CR-08 partial fix: include input + pattern in error message and preserve cause.
+            // Exception type remains RuntimeException for Talend parity.
+            throw new RuntimeException(
+                "parseDate failed for input '" + stringDate + "' with pattern '" + pattern + "': " + e.getMessage(),
+                e
+            );
         }
     }
 
