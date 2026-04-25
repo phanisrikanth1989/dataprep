@@ -262,12 +262,6 @@ class ExtractXMLField(BaseComponent):
             main_df = pd.DataFrame(main_output)
             reject_df = pd.DataFrame(reject_output)
 
-            # Apply schema validation if configured
-            if output_schema:
-                main_df = self.validate_schema(main_df, output_schema)
-            if reject_schema:
-                reject_df = self.validate_schema(reject_df, reject_schema)
-
             # Update statistics and log completion
             self._update_stats(rows_read, rows_ok, rows_reject)
             logger.info(f"[{self.id}] Processing complete: "
