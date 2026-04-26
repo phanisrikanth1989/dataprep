@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: ready_to_plan
-stopped_at: Phase 9 context gathered (auto mode)
-last_updated: "2026-04-25T15:06:04.285Z"
-last_activity: 2026-04-25 -- Phase 07.1 execution started
+stopped_at: Phase 7.1 complete -- ready for Phase 8 (Code Components)
+last_updated: "2026-04-26T00:00:00.000Z"
+last_activity: 2026-04-25 -- Phase 7.1 verified complete (1093 pytest passing, mvn BUILD SUCCESS)
 progress:
   total_phases: 15
   completed_phases: 11
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-14)
 
 **Core value:** Any Talend job using the target components must produce identical results when run through the Python engine
-**Current focus:** Phase 07.1 — manager-audit-and-basecomponent-fixes
+**Current focus:** Phase 08 — code-components (tJava, tJavaRow, python_component, python_row_component)
 
 ## Current Position
 
-Phase: 09
-Plan: Not started
+Phase: 08
+Plan: Not started (CONTEXT.md missing -- discuss-phase recommended before plan)
 Status: Ready to plan
 Last activity: 2026-04-25
 
-Progress: [██████░░░░] 64% (9/14 phases complete)
+Progress: [███████░░░] 73% (11/15 phases complete -- 1, 2, 3, 4, 5, 5.1, 5.2, 6, 7, 7.1, 9)
 
 ## Performance Metrics
 
@@ -75,6 +75,9 @@ Recent decisions affecting current work:
 - OnSubjobOk trigger timing fix (ENG-10) is prerequisite for execution loop restructure in Phase 3
 - Transform components split: Group A (complex bugs) in Phase 6, Group B (lighter/Green) in Phase 7
 - 30% of jobs need iterate support -- Phase 10 is high priority after execution loop
+- Apache 2.0 redistribution sign-off accepted for vendored routines.system.* files (Phase 7.1)
+- CR-07/WR-14/IN-01 byte-identical to upstream Talend OpenDAS -- DO NOT fix, Talend parity (Phase 7.1)
+- MANUAL_COMPONENT_AUTHORING.md enforces Rule 11 contract -- Phase 8 plans must reference it for new components
 
 ### Roadmap Evolution
 
@@ -87,7 +90,10 @@ None yet.
 
 ### Blockers/Concerns
 
-None yet.
+Non-blocking human verification carried from Phase 7.1 (do when convenient, not gating Phase 8):
+- Linux/RHEL `mvn package` build (only Darwin verified)
+- tNormalize combined-flags vs golden Talend job output
+- FileOutputDelimited datetime default format vs Talend reference
 
 ### Quick Tasks Completed
 
@@ -97,6 +103,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-15T11:22:30.071Z
-Stopped at: Phase 9 context gathered (auto mode)
-Resume with: /gsd-autonomous --from 8
+Last session: 2026-04-26 (resumed for housekeeping after Phase 7.1 close)
+Stopped at: Phase 7.1 closed cleanly (commit 8aac6da). Tree clean, origin synced. Stale .continue-here files (5.1/5.2) and consumed HANDOFF.json deleted.
+Resume with: /gsd-discuss-phase 8  (CONTEXT.md missing; discuss recommended before plan)
