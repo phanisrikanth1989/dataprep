@@ -605,13 +605,27 @@ class TestConfigKeys:
         assert len(result["main"]) == 2  # OR: Alice or Bob
 
     def test_reads_advanced_cond_not_advanced_condition(self):
-        """Component reads 'advanced_cond' key."""
+        """Component reads 'advanced_cond' key and applies it."""
         config = dict(_DEFAULT_CONFIG)
         config["use_advanced"] = True
         config["advanced_cond"] = "true"  # simple boolean expression
+        config["conditions"] = []
         comp = _make_component(config=config)
         result = comp.execute(_sample_df())
         assert len(result["main"]) == 5  # all rows pass
+
+    def test_advanced_and_simple_conditions_both_apply(self):
+        """When both are present in JSON, rows must satisfy advanced and simple filters."""
+        config = dict(_DEFAULT_CONFIG)
+        config["use_advanced"] = True
+        config["advanced_cond"] = "true"
+        config["conditions"] = [
+            {"column": "age", "function": "", "operator": "!=", "value": "20"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        assert len(result["main"]) == 4
+        assert "Diana" not in result["main"]["name"].tolist()
 
 
 # ------------------------------------------------------------------

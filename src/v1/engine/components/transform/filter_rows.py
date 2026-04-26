@@ -4,10 +4,10 @@ Filters rows based on structured conditions or advanced Java expressions.
 Matching rows go to main output; non-matching rows go to reject output.
 
 Config keys consumed (6 total):
-  conditions    (list[dict], default [])  -- filter conditions [{column, function, operator, value}]
-  logical_op    (str, default "&&")       -- combine conditions: "&&" (AND) or "||" (OR)
-  use_advanced  (bool, default False)     -- use advanced_cond Java expression instead of conditions
-  advanced_cond (str, default "")         -- Java expression (must contain {{java}} marker)
+    conditions    (list[dict], default [])  -- filter conditions [{column, function, operator, value}]
+    logical_op    (str, default "&&")       -- combine simple conditions: "&&" (AND) or "||" (OR)
+    use_advanced  (bool, default False)     -- apply advanced_cond Java expression when provided
+    advanced_cond (str, default "")         -- Java expression (must contain {{java}} marker)
   tstatcatcher_stats (bool, default False) -- framework
   label         (str, default "")          -- framework
 """
@@ -160,8 +160,8 @@ class FilterRows(BaseComponent):
 
     Config keys:
         conditions: List of filter conditions [{column, function, operator, value}]
-        logical_op: Combine conditions with "&&" (AND) or "||" (OR)
-        use_advanced: Use advanced_cond Java expression instead of conditions
+        logical_op: Combine simple conditions with "&&" (AND) or "||" (OR)
+        use_advanced: Apply advanced_cond Java expression when provided
         advanced_cond: Java expression for advanced filtering
     """
 
@@ -228,12 +228,14 @@ class FilterRows(BaseComponent):
 
         use_advanced = self.config.get("use_advanced", False)
 
+        simple_mask = self._handle_simple(input_data)
+
         if use_advanced:
-            # Talend parity: when use_advanced=True, ONLY the advanced expression
-            # is applied. Simple conditions are ignored (the UI grays them out).
-            mask = self._handle_advanced(input_data)
+            # JSON contract: if advanced mode is enabled and simple conditions are
+            # still present in the config, a row must satisfy BOTH filters.
+            mask = self._handle_advanced(input_data) & simple_mask
         else:
-            mask = self._handle_simple(input_data)
+            mask = simple_mask
 
         # Split into main and reject
         main_df = input_data[mask].copy()
