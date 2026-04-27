@@ -18,7 +18,9 @@ from .python_component import PythonComponent
 from .python_dataframe_component import PythonDataFrameComponent
 from .python_row_component import PythonRowComponent
 from .replicate import Replicate
+from .replace import Replace
 from .row_generator import RowGenerator
+from .sample_row import SampleRow
 from .schema_compliance_check import SchemaComplianceCheck
 from .sort_row import SortRow
 from .swift_block_formatter import SwiftBlockFormatter
@@ -47,7 +49,9 @@ __all__ = [
     'PythonDataFrameComponent',
     'PythonRowComponent',
     'Replicate',
+    'Replace',
     'RowGenerator',
+    'SampleRow',
     'SchemaComplianceCheck',
     'SortRow',
     'SwiftBlockFormatter',

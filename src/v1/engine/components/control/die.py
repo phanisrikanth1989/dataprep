@@ -1,205 +1,162 @@
-"""
-Die - Stop job execution with error message and optional exit code.
+"""Engine component for Die (tDie).
 
-Talend equivalent: tDie
+Terminates job execution with a priority-rated error message and exit code.
+
+Config keys consumed (6 total):
+  message             (str, default "the end is near")   -- termination message
+  code                (int | str, default "4")            -- error code
+  priority            (int | str, default "5")            -- log level 1-6
+  exit_jvm            (bool, default False)               -- accepted; not supported
+  tstatcatcher_stats  (bool, default False)               -- framework param
+  label               (str, default "")                   -- framework param
 """
 import logging
 import re
-import sys
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
 import pandas as pd
 
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
 from ...exceptions import ComponentExecutionError, ConfigurationError
 
 logger = logging.getLogger(__name__)
 
+_GLOBALMAP_PATTERN = re.compile(r'\(\(\w+\)globalMap\.get\("(\w+)"\)\)')
 
+
+@REGISTRY.register("Die", "tDie")
 class Die(BaseComponent):
-    """
-    Stop job execution with an error message and optional exit code.
+    """tDie engine implementation.
 
-    This component terminates the job execution with a specified error message,
-    exit code, and priority level. It's used for controlled error handling
-    and job termination based on specific conditions.
+    Always raises ComponentExecutionError (with exit_code attribute) to
+    terminate the job. Statistics count all input rows as rejected.
 
-    Configuration:
-        message (str): Error message to display. Supports context variable resolution. Default: "Job execution stopped"
-        code (int): Error code for logging purposes. Default: 1
-        priority (int): Log priority level (1=trace, 2=debug, 3=info, 4=warn, 5=error, 6=fatal). Default: 5
-        exit_code (int): Job exit code. Default: 1
-
-    Inputs:
-        main: Optional input DataFrame (rows will be counted as rejected)
-
-    Outputs:
-        None: This component terminates job execution
-
-    Statistics:
-        NB_LINE: Number of input rows (or 1 if no input)
-        NB_LINE_OK: Always 0 (no successful processing)
-        NB_LINE_REJECT: Equal to NB_LINE (all rows rejected when job dies)
-
-    Example configuration:
-        {
-            "message": "Critical error in job: ${context.error_details}",
-            "code": 500,
-            "priority": 5,
-            "exit_code": 1
-        }
-
-    Notes:
-        - Message supports context variable resolution with ${context.var} syntax
-        - Message supports globalMap variable resolution with ((Integer)globalMap.get("key")) syntax
-        - Component always raises ComponentExecutionError to terminate job
-        - Exit code is attached to exception for engine handling
+    Config keys:
+        message: Error message (context vars resolved by base; globalMap refs
+                 resolved here).
+        code: Error code logged before termination (default 4).
+        priority: Log level 1=TRACE…6=FATAL (default 5=ERROR).
+        exit_jvm: Accepted from converter but not actionable (JVM exit not
+                  supported in Python engine).
     """
 
-    # Priority level constants
-    PRIORITY_TRACE = 1
-    PRIORITY_DEBUG = 2
-    PRIORITY_INFO = 3
-    PRIORITY_WARN = 4
-    PRIORITY_ERROR = 5
-    PRIORITY_FATAL = 6
+    # ------------------------------------------------------------------
+    # Configuration Validation
+    # ------------------------------------------------------------------
 
-    def _validate_config(self) -> List[str]:
+    def _validate_config(self) -> None:
+        """Raise ConfigurationError for invalid message, code, priority, or exit_code.
+
+        Called on unresolved config. All numeric values may arrive as strings
+        from the converter.
         """
-        Validate component configuration.
+        if "message" in self.config and self.config["message"] is not None:
+            if not isinstance(self.config["message"], str):
+                raise ConfigurationError(
+                    f"[{self.id}] Config 'message' must be a string"
+                )
 
-        Returns:
-            List of error messages (empty if valid)
+        if "code" in self.config:
+            try:
+                int(self.config["code"])
+            except (ValueError, TypeError):
+                raise ConfigurationError(
+                    f"[{self.id}] Config 'code' must be an integer; got '{self.config['code']}'"
+                )
+
+        if "priority" in self.config:
+            try:
+                p = int(self.config["priority"])
+            except (ValueError, TypeError):
+                raise ConfigurationError(
+                    f"[{self.id}] Config 'priority' must be an integer 1-6; "
+                    f"got '{self.config['priority']}'"
+                )
+            if p not in range(1, 7):
+                raise ConfigurationError(
+                    f"[{self.id}] Config 'priority' must be between 1 and 6; got {p}"
+                )
+
+        if "exit_code" in self.config:
+            try:
+                int(self.config["exit_code"])
+            except (ValueError, TypeError):
+                raise ConfigurationError(
+                    f"[{self.id}] Config 'exit_code' must be an integer; "
+                    f"got '{self.config['exit_code']}'"
+                )
+
+    # ------------------------------------------------------------------
+    # Core Processing
+    # ------------------------------------------------------------------
+
+    def _process(self, input_data: Optional[pd.DataFrame] = None) -> dict:
+        """Count rows, log message, then raise ComponentExecutionError.
+
+        This component never returns -- it always raises. _update_stats() is
+        called manually because auto-counting requires a return value.
         """
-        errors = []
+        message = self.config.get("message", "the end is near")
+        code = int(self.config.get("code", 4))
+        priority = int(self.config.get("priority", 5))
+        exit_code = int(self.config.get("exit_code", 1))
 
-        # Optional field validation with more robust type checking
-        if 'code' in self.config:
-            code = self.config['code']
-            if not isinstance(code, int):
-                try:
-                    # Allow string representation of integers
-                    int(code)
-                except (ValueError, TypeError):
-                    errors.append("Config 'code' must be an integer or integer string")
+        # Resolve globalMap variable references (context already resolved by base)
+        resolved_message = _resolve_globalmap_vars(message, self.global_map)
 
-        if 'priority' in self.config:
-            priority = self.config['priority']
-            if isinstance(priority, str) and priority.isdigit():
-                priority = int(priority)
-            if not isinstance(priority, int) or priority < 1 or priority > 6:
-                errors.append("Config 'priority' must be an integer between 1 and 6")
+        # Log at configured priority level
+        _log_at_priority(self.id, code, resolved_message, priority)
 
-        if 'exit_code' in self.config:
-            exit_code = self.config['exit_code']
-            if not isinstance(exit_code, int):
-                try:
-                    # Allow string representation of integers
-                    int(exit_code)
-                except (ValueError, TypeError):
-                    errors.append("Config 'exit_code' must be an integer or integer string")
+        # Record error state in GlobalMap
+        if self.global_map:
+            self.global_map.put(f"{self.id}_MESSAGE", resolved_message)
+            self.global_map.put(f"{self.id}_CODE", code)
+            self.global_map.put(f"{self.id}_PRIORITY", priority)
+            self.global_map.put(f"{self.id}_EXIT_CODE", exit_code)
+            self.global_map.put("JOB_ERROR_MESSAGE", resolved_message)
+            self.global_map.put("JOB_EXIT_CODE", exit_code)
 
-        if 'message' in self.config:
-            message = self.config['message']
-            if message is not None and not isinstance(message, str):
-                errors.append("Config 'message' must be a string or None")
+        # Count stats manually -- Die raises before base can auto-count
+        rows = len(input_data) if input_data is not None and not input_data.empty else 1
+        self._update_stats(rows, 0, rows)
+        # Push stats to GlobalMap now -- base class _update_global_map() runs
+        # only after _process() returns, but Die always raises, so we do it here.
+        self._update_global_map()
 
-        return errors
+        error = ComponentExecutionError(
+            self.id,
+            f"Job terminated by tDie: {resolved_message} (exit code: {exit_code})",
+        )
+        error.exit_code = exit_code
+        raise error
 
-    def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
-        """
-        Process input and terminate job execution with error.
 
-        Args:
-            input_data: Optional input DataFrame (rows counted as rejected)
+# ------------------------------------------------------------------
+# Module-level helpers
+# ------------------------------------------------------------------
 
-        Returns:
-            Does not return - raises ComponentExecutionError
+def _resolve_globalmap_vars(message: str, global_map) -> str:
+    """Replace ``((Type)globalMap.get("key"))`` patterns with GlobalMap values."""
+    if not isinstance(message, str) or global_map is None:
+        return str(message) if message is not None else ""
 
-        Raises:
-            ComponentExecutionError: Always raised to terminate job execution
-        """
-        logger.info(f"[{self.id}] Processing started: terminating job execution")
+    def _replace(match: re.Match) -> str:
+        return str(global_map.get(match.group(1), 0))
 
-        try:
-            # Get configuration with defaults
-            message = self.config.get('message', 'Job execution stopped')
-            code = self.config.get('code', 1)
-            priority = self.config.get('priority', self.PRIORITY_ERROR)
-            exit_code = self.config.get('exit_code', 1)
+    return _GLOBALMAP_PATTERN.sub(_replace, message)
 
-            # Resolve context variables in message
-            if self.context_manager and isinstance(message, str):
-                message = self.context_manager.resolve_string(message)
 
-            # Resolve globalMap variables in message
-            if self.global_map and isinstance(message, str):
-                message = self._resolve_global_map_variables(message)
-
-            # Log based on priority level
-            log_message = f"[{self.id}] Code {code}: {message}"
-
-            if priority <= self.PRIORITY_INFO:
-                logger.info(log_message)
-            elif priority == self.PRIORITY_WARN:
-                logger.warning(log_message)
-            elif priority == self.PRIORITY_ERROR:
-                logger.error(log_message)
-            else:  # PRIORITY_FATAL or higher
-                logger.critical(log_message)
-
-            # Store information in global map for error handling
-            if self.global_map:
-                self.global_map.put(f"{self.id}_MESSAGE", message)
-                self.global_map.put(f"{self.id}_CODE", code)
-                self.global_map.put(f"{self.id}_PRIORITY", priority)
-                self.global_map.put(f"{self.id}_EXIT_CODE", exit_code)
-                self.global_map.put("JOB_ERROR_MESSAGE", message)
-                self.global_map.put("JOB_EXIT_CODE", exit_code)
-
-            # Update statistics before terminating
-            if input_data is not None and not input_data.empty:
-                rows = len(input_data)
-                self._update_stats(rows, 0, rows)  # All rows are "rejected"
-                logger.info(f"[{self.id}] Processed {rows} rows before termination")
-            else:
-                self._update_stats(1, 0, 1)  # Count as 1 execution with rejection
-                logger.info(f"[{self.id}] No input data - terminating job")
-
-            # Raise exception to terminate job execution
-            error = ComponentExecutionError(
-                self.id,
-                f"Job terminated: {message} (exit code: {exit_code})"
-            )
-            error.exit_code = exit_code  # Attach exit code for engine handling
-            raise error
-
-        except ComponentExecutionError:
-            # Re-raise our termination exception
-            raise
-        except Exception as e:
-            logger.error(f"[{self.id}] Unexpected error during termination: {e}")
-            raise ComponentExecutionError(self.id, f"Die component failed: {e}", e) from e
-
-    def _resolve_global_map_variables(self, message: str) -> str:
-        """
-        Resolve globalMap variable references in message.
-
-        Args:
-            message: Message string potentially containing globalMap references
-
-        Returns:
-            Message with globalMap variables resolved
-        """
-        if not self.global_map:
-            return message
-
-        # Pattern for globalMap.get() calls
-        pattern = r'\(\(Integer\)globalMap\.get\("(\w+)"\)\)'
-
-        def replace_func(match):
-            key = match.group(1)
-            value = self.global_map.get(key, 0)
-            return str(value)
-
-        return re.sub(pattern, replace_func, message)
+def _log_at_priority(component_id: str, code: int, message: str, priority: int) -> None:
+    """Log message at the Python log level matching Talend priority 1-6."""
+    log_message = f"[{component_id}] Code {code}: {message}"
+    if priority <= 2:
+        logger.debug(log_message)
+    elif priority == 3:
+        logger.info(log_message)
+    elif priority == 4:
+        logger.warning(log_message)
+    elif priority == 5:
+        logger.error(log_message)
+    else:  # 6 = FATAL
+        logger.critical(log_message)
