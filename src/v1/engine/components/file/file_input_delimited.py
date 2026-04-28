@@ -168,6 +168,16 @@ class FileInputDelimited(BaseComponent):
         row_separator = self._unescape_separator(row_separator)
         csv_row_separator = self._unescape_separator(csv_row_separator)
 
+        # Talend behavior: csv_option=True with multi-char delimiter -> use first char only.
+        # Python's csv.reader requires a single-char delimiter; Talend silently truncates.
+        # Standard (non-CSV) mode: pandas supports multi-char via Python engine -- no truncation.
+        if csv_option and len(field_separator) > 1:
+            logger.warning(
+                f"[{self.id}] Multi-character fieldseparator '{field_separator}' with csv_option=True: "
+                f"using first character '{field_separator[0]}' (Talend behavior)"
+            )
+            field_separator = field_separator[0]
+
         # ---- 6. Read file ----
         schema_cols = (
             [col["name"] for col in self.output_schema]

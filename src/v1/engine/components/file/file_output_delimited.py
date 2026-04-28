@@ -32,7 +32,7 @@ Config keys consumed (25 total):
   streamname          (str, default "outputStream") -- [DEFERRED] stream variable name
 
 Phase 7.1 fixes applied:
-- CR-06: multi-char fieldseparator without csv_option raises ConfigurationError
+- CR-06: multi-char + csv_option=True silently uses first char (Talend behavior); context vars deferred to _process
 - CR-09 / ENG-CR-06: working copy used for file write; original input_data returned as main
 - ENG-WR-04: _apply_date_patterns receives working copy only; original never mutated
 - ENG-WR-05: non-CSV branch uses escapechar=None (Talend raw concatenation)
@@ -131,29 +131,17 @@ class FileOutputDelimited(BaseComponent):
         """Validate component configuration.
 
         Raises:
-            ConfigurationError: If filepath is missing or if multi-character
-                fieldseparator is used without csv_option=True.
+            ConfigurationError: If filepath is missing.
+
+        Note:
+            Multi-character fieldseparator validation is intentionally deferred
+            to _process() after context variable resolution.  Validating here
+            would incorrectly measure unresolved context references such as
+            ``context.OP_DELIMITER`` as multi-character strings.
         """
         if not self.config.get("filepath"):
             raise ConfigurationError(
                 f"[{self.id}] Missing required config key 'filepath'"
-            )
-
-        # CR-06: multi-char delimiter is unsupported in non-CSV raw mode.
-        # Python's csv module and pandas.to_csv both require single-char sep.
-        # csv_option=True routes through _write_raw_mode which handles multi-char.
-        # IMPORTANT: check the EFFECTIVE (unescaped) separator length, NOT the raw config
-        # string. "\\t" in config unescapes to "\t" (1 char, valid); "|;" stays "|;" (2 chars,
-        # invalid without csv_option).
-        field_sep_raw = self.config.get("fieldseparator", ";")
-        field_sep_effective = _unescape_separator(field_sep_raw)
-        csv_option = self._bool(self.config.get("csv_option", False))
-        if len(field_sep_effective) > 1 and not csv_option:
-            raise ConfigurationError(
-                f"[{self.id}] Multi-character fieldseparator '{field_sep_raw}' "
-                f"(effective: '{field_sep_effective}') is unsupported in non-CSV mode "
-                f"(Python csv module limitation). Use a single-character separator "
-                f"or set csv_option=true."
             )
 
     # ------------------------------------------------------------------
@@ -261,6 +249,15 @@ class FileOutputDelimited(BaseComponent):
 
         # ---- Unescape field separator ----
         field_sep = _unescape_separator(fieldseparator)
+        # Talend behavior: csv_option=True with multi-char delimiter → use first character only.
+        # Python's csv module requires a single-char delimiter; Talend silently truncates.
+        # Non-CSV raw mode supports multi-char natively via manual concatenation.
+        if csv_option and len(field_sep) > 1:
+            logger.warning(
+                f"[{self.id}] Multi-character fieldseparator '{field_sep}' with csv_option=True: "
+                f"using first character '{field_sep[0]}' (Talend behavior)"
+            )
+            field_sep = field_sep[0]
 
         # ---- SPLIT mode ----
         if split:
@@ -386,6 +383,8 @@ class FileOutputDelimited(BaseComponent):
             os_line_separator, csv_option, csvrowseparator, row_separator
         )
         field_sep = _unescape_separator(fieldseparator)
+        if csv_option and len(field_sep) > 1:
+            field_sep = field_sep[0]
 
         if include_header:
             # Use DataFrame columns first (empty DF retains column names),
@@ -450,32 +449,23 @@ class FileOutputDelimited(BaseComponent):
         mode = "a" if append else "w"
 
         try:
-            if len(field_sep) > 1 or csv_option:
-                # Multi-char delimiter OR CSV quoting: use raw mode.
-                # Note: for single-char + csv_option, _write_csv_mode handles quoting
-                # via Python csv.writer. For multi-char, we use raw mode since csv
-                # module only accepts single-char delimiters.
-                if csv_option:
-                    if len(field_sep) > 1:
-                        self._write_raw_mode(
-                            df, filepath, field_sep, line_sep, encoding,
-                            include_header, csv_option, text_enclosure,
-                            escape_char, mode,
-                        )
-                    else:
-                        self._write_csv_mode(
-                            df, filepath, field_sep, line_sep, encoding,
-                            include_header, text_enclosure, escape_char, mode,
-                        )
-                else:
-                    # multi-char + non-csv: raw mode without quoting
-                    self._write_raw_mode(
-                        df, filepath, field_sep, line_sep, encoding,
-                        include_header, csv_option, text_enclosure,
-                        escape_char, mode,
-                    )
+            if csv_option:
+                # CSV quoting mode: field_sep is guaranteed single-char here
+                # (multi-char was pre-truncated to first char in _process/_handle_empty_input).
+                self._write_csv_mode(
+                    df, filepath, field_sep, line_sep, encoding,
+                    include_header, text_enclosure, escape_char, mode,
+                )
+            elif len(field_sep) > 1:
+                # Multi-char delimiter, non-CSV: raw concatenation mode.
+                # Python csv module only accepts single-char; raw mode handles multi-char.
+                self._write_raw_mode(
+                    df, filepath, field_sep, line_sep, encoding,
+                    include_header, csv_option, text_enclosure,
+                    escape_char, mode,
+                )
             else:
-                # Single-char delimiter, non-CSV: use pandas to_csv
+                # Single-char delimiter, non-CSV: use pandas to_csv.
                 # ENG-WR-05: escapechar=None -- do NOT escape backslashes.
                 # Talend's non-CSV mode is raw string concatenation; backslash-
                 # bearing values must pass through without modification.
