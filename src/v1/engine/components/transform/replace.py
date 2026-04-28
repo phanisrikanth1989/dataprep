@@ -287,12 +287,15 @@ class Replace(BaseComponent):
     # ------------------------------------------------------------------
 
     def _apply_advanced_mode(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Apply advanced_subst rules (per-row column lookup) to the DataFrame.
+        """Apply advanced_subst rules to the DataFrame.
 
-        For each rule, replaces occurrences of the value in ``search_column``
-        within ``input_column`` with the value from ``replace_column``,
-        evaluated per row.  Talend parity: uses literal string replacement
-        (no regex), case-sensitive.
+        In Talend's advanced mode, ``search_column`` holds a **regex pattern**
+        and ``replace_column`` holds the **literal replacement string** — they
+        are NOT DataFrame column references despite the misleading XML tag names
+        (``SEARCH_COLUMN`` / ``REPLACE_COLUMN``) captured by the converter.
+
+        Each rule applies ``re.sub(search_pattern, replace_string, value)``
+        to every cell in ``input_column``.
 
         Args:
             df: Input DataFrame (already a copy).
@@ -304,26 +307,36 @@ class Replace(BaseComponent):
 
         for rule in advanced_subst:
             input_col = rule["input_column"]
-            search_col = rule["search_column"]
-            replace_col = rule["replace_column"]
+            search_pattern = rule["search_column"]    # regex pattern, NOT a column name
+            replace_str = rule["replace_column"]       # replacement string, NOT a column name
 
-            missing = [c for c in (input_col, search_col, replace_col) if c not in df.columns]
-            if missing:
+            if input_col not in df.columns:
                 logger.warning(
-                    f"[{self.id}] Advanced subst: column(s) {missing} not found; skipping rule"
+                    f"[{self.id}] Advanced subst: column '{input_col}' not found; skipping rule"
                 )
                 continue
 
+            # Unescape Java string escaping (converter stores \\w+ from "\w+" in XML)
+            try:
+                search_pattern = search_pattern.encode("utf-8").decode("unicode_escape")
+            except (UnicodeDecodeError, ValueError):
+                pass  # use pattern as-is if decode fails
+
+            try:
+                compiled = re.compile(search_pattern)
+            except re.error as exc:
+                raise ConfigurationError(
+                    f"[{self.id}] Advanced subst: invalid regex pattern {search_pattern!r}: {exc}"
+                ) from exc
+
             logger.debug(
                 f"[{self.id}] Advanced subst: replace in '{input_col}' "
-                f"using search='{search_col}', replace='{replace_col}'"
+                f"pattern={search_pattern!r} -> replace={replace_str!r}"
             )
-            # Per-row literal replacement -- Talend does not apply regex here
-            df[input_col] = df.apply(
-                lambda row: str(row[input_col]).replace(
-                    str(row[search_col]), str(row[replace_col])
-                ),
-                axis=1,
+            df[input_col] = (
+                df[input_col]
+                .astype(str)
+                .str.replace(compiled, replace_str, regex=True)
             )
 
         return df
