@@ -50,6 +50,13 @@ class FileInputRaw(BaseComponent):
         Returns:
             List of error messages (empty if valid)
         """
+        # Group B verdict (Phase 07.2): KEEP. Converter at
+        # src/converters/talend_to_v1/components/file/file_input_raw.py:25-79
+        # extracts 8 params (filename, as_string, as_bytearray, as_inputstream,
+        # encoding, die_on_error, tstatcatcher_stats, label) and does NOT extract
+        # any LIMIT field. The isinstance() checks below are shape-only and
+        # comply with Rule 12. CONTEXT.md decision B reference to "limit
+        # at lines 80-81" is stale and does not apply to this engine file.
         errors = []
 
         if 'filename' not in self.config:
