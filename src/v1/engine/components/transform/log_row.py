@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from ...base_component import BaseComponent
+from ...exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
@@ -69,22 +70,17 @@ class LogRow(BaseComponent):
         """
         Validate component configuration.
 
+        Note:
+            max_rows numeric validation is intentionally deferred to
+            _process() after context variable resolution. Validating here
+            would crash with ValueError on legitimate ${context.MAX_ROWS}
+            references. See file_output_delimited.py (CR-06 / quick task
+            260429-hc2) for the same pattern.
+
         Returns:
-            List of error messages (empty if valid)
+            List of error messages (empty if valid).
         """
-        errors = []
-
-        # Validate max_rows if provided
-        max_rows_param = self.config.get('max_rows') or self.config.get('SCHEMA_OPT_NUM')
-        if max_rows_param is not None:
-            try:
-                max_rows_val = int(max_rows_param)
-                if max_rows_val < 0:
-                    errors.append("Config 'max_rows' must be non-negative")
-            except (ValueError, TypeError):
-                errors.append("Config 'max_rows' must be an integer")
-
-        return errors
+        return []
 
     def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
         """Process input data and log to console."""
@@ -103,8 +99,18 @@ class LogRow(BaseComponent):
         print_header = self._get_boolean_config(['print_header', 'PRINT_HEADER', 'print_column_names', 'PRINT_COLUMN_NAMES'], True)
 
         field_separator = self.config.get('field_separator') or self.config.get('FIELDSEPARATOR', self.DEFAULT_FIELD_SEPARATOR)
+        # max_rows validated post-resolution -- see _validate_config note.
         max_rows_param = self.config.get('max_rows') or self.config.get('SCHEMA_OPT_NUM', self.DEFAULT_MAX_ROWS)
-        max_rows = int(max_rows_param)
+        try:
+            max_rows = int(max_rows_param)
+        except (ValueError, TypeError) as e:
+            raise ConfigurationError(
+                f"[{self.id}] Config 'max_rows' must be an integer"
+            ) from e
+        if max_rows < 0:
+            raise ConfigurationError(
+                f"[{self.id}] Config 'max_rows' must be non-negative"
+            )
 
         # Limit rows to print
         df_to_print = input_data.head(max_rows)
