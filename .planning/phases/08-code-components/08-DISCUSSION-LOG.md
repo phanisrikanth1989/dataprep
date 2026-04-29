@@ -73,6 +73,14 @@ For each area, Claude picked the recommended choice based on prior context (PROJ
 
 All decisions were captured at the recommended-default level. No "Other" / "you decide" branches required.
 
+## Auto-Resolved -- Pre-Plan Open Questions (revision 1, 2026-04-29)
+
+The following ambiguities were surfaced by RESEARCH.md after CONTEXT.md was written. They were pre-resolved at planning time before any executor work, and are recorded here for the audit trail. Both choices are reflected in the locked plans (08-01..06) and the in-place CONTEXT.md edits.
+
+- **Q1 (D-26 supersession):** RESEARCH.md Pitfall #1 verified that `ContextManager.SKIP_RESOLUTION_KEYS` (`src/v1/engine/context_manager.py:37-41`, ENG-18) explicitly excludes `python_code`, `java_code`, and `imports` from ${context.X} resolution. CONTEXT.md D-26 ("java_code and python_code may themselves contain ${context.X} references that resolve to substring values") is therefore INCORRECT. Resolution: code bodies pass through verbatim; user code reads context programmatically -- via the `context['VAR_NAME']` dict in the Python exec namespace, and via the bridge's bidirectional sync (`globalMap` Groovy binding) for Java. D-26 is superseded; the supersession is recorded in each plan's module docstring and called out load-bearingly in 08-PHASE-SUMMARY.md (Plan 06).
+
+- **Q2 (JROW-02 REJECT semantics):** Pre-resolved as **Option A (batch-level reject for `java_row_component`)** per researcher recommendation in RESEARCH.md Pitfall #2 + Open Question 1. The existing `JavaBridge.executeJavaRow` (`JavaBridge.java:209-247`) is all-or-nothing -- on any per-row exception it throws `RuntimeException("Error processing row N", cause)` and the whole batch fails. Per D-19 the bridge protocol is locked for Phase 8. Trade-off acknowledged: Talend's native tJavaRow has no REJECT flow at all, so the Phase 8 reject contract is a DataPrep enhancement that we ship in v1 with REDUCED FIDELITY for the Java side (entire batch -> reject when bridge raises); full per-row fidelity for tJavaRow is deferred to a future bridge-protocol phase that adds an `executeJavaRowWithReject` variant. Per-row REJECT is preserved for `python_row_component` (no bridge constraint). CONTEXT.md D-14 has been updated in place to document this per-component divergence.
+
 ## Deferred Ideas Captured
 
 - R / Groovy / arbitrary-language code components -- separate phase if ever needed

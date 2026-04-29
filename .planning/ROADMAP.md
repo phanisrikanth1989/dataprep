@@ -227,7 +227,15 @@ Plans:
   2. python_component and python_row_component mirror tJava/tJavaRow patterns, use secure execution namespace (no os/sys), and python_row_component uses compiled code execution (compile once, exec per row)
   3. Duplicated _get_context_dict() is consolidated into BaseComponent or shared mixin
   4. Engine unit tests pass for all four code components
-**Plans**: TBD
+**Plans:** 6 plans
+
+Plans:
+- [ ] 08-01-PLAN.md -- CodeComponentMixin extraction + java_component.py rewrite (one-shot tJava with imports prepend) -- Wave 1
+- [ ] 08-02-PLAN.md -- python_component.py rewrite (one-shot tPython with D-11 secure namespace) -- Wave 1
+- [ ] 08-03-PLAN.md -- java_row_component.py rewrite (per-row tJavaRow with batch-level REJECT, Q2 Option A) -- Wave 2
+- [ ] 08-04-PLAN.md -- python_row_component.py rewrite (per-row tPythonRow with compile-once + per-row REJECT) -- Wave 2
+- [ ] 08-05-PLAN.md -- java_bridge fixture wiring + engine-level smoke tests + checkpoint -- Wave 3
+- [ ] 08-06-PLAN.md -- 08-PHASE-SUMMARY + ROADMAP/STATE close-out (records D-26 supersession + Q2 Option A) -- Wave 4
 
 ### Phase 9: tContextLoad & Routines
 **Goal**: Jobs can dynamically load context variables from data flows with full policy control, and custom Java/Python routines are discoverable and callable from expressions
