@@ -84,53 +84,23 @@ class FileInputPositional(BaseComponent):
 
         Returns:
             List of error messages (empty if valid)
+
+        Note:
+            Pattern parsing and header_rows / footer_rows / limit numeric
+            validation are intentionally deferred to _process() after
+            context variable resolution. Validating here would crash with
+            ValueError on legitimate ${context.WIDTHS}, ${context.ROWS},
+            or ${context.LIMIT} references. See file_output_delimited.py
+            (CR-06 / quick task 260429-hc2) for the same pattern.
         """
         errors = []
 
-        # Required fields
+        # Required fields -- key-presence and shape only
         if 'filepath' not in self.config or not self.config.get('filepath', '').strip():
             errors.append("Missing required config: 'filepath'")
 
         if 'pattern' not in self.config or not self.config.get('pattern', '').strip():
             errors.append("Missing required config: 'pattern'")
-        else:
-            # Validate pattern format
-            pattern = self.config['pattern']
-            try:
-                widths = [int(x.strip()) for x in pattern.split(',') if x.strip()]
-                if not widths:
-                    errors.append("Config 'pattern' cannot be empty")
-                elif any(w <= 0 for w in widths):
-                    errors.append("Config 'pattern' must contain positive integers")
-            except ValueError:
-                errors.append(f"Config 'pattern' must be comma-separated integers, got: {pattern}")
-
-        # Optional field validation
-        if 'header_rows' in self.config:
-            try:
-                header_rows = int(self.config['header_rows'])
-                if header_rows < 0:
-                    errors.append("Config 'header_rows' must be non-negative")
-            except (ValueError, TypeError):
-                errors.append("Config 'header_rows' must be an integer")
-
-        if 'footer_rows' in self.config:
-            try:
-                footer_rows = int(self.config['footer_rows'])
-                if footer_rows < 0:
-                    errors.append("Config 'footer_rows' must be non-negative")
-            except (ValueError, TypeError):
-                errors.append("Config 'footer_rows' must be an integer")
-
-        if 'limit' in self.config:
-            limit = self.config['limit']
-            if limit and str(limit).strip():
-                try:
-                    limit_val = int(limit)
-                    if limit_val <= 0:
-                        errors.append("Config 'limit' must be positive")
-                except ValueError:
-                    errors.append("Config 'limit' must be an integer")
 
         return errors
 
@@ -202,8 +172,31 @@ class FileInputPositional(BaseComponent):
         remove_empty_row = self.config.get('remove_empty_row', self.DEFAULT_REMOVE_EMPTY_ROWS)
         trim_all = self.config.get('trim_all', self.DEFAULT_TRIM_ALL)
         encoding = self.config.get('encoding', self.DEFAULT_ENCODING)
-        header_rows = int(self.config.get('header_rows', self.DEFAULT_HEADER_ROWS))
-        footer_rows = int(self.config.get('footer_rows', self.DEFAULT_FOOTER_ROWS))
+        # Numeric / pattern fields validated post-resolution -- see _validate_config note.
+        header_rows_raw = self.config.get('header_rows', self.DEFAULT_HEADER_ROWS)
+        try:
+            header_rows = int(header_rows_raw)
+        except (ValueError, TypeError) as e:
+            raise ConfigurationError(
+                f"[{self.id}] Config 'header_rows' must be an integer"
+            ) from e
+        if header_rows < 0:
+            raise ConfigurationError(
+                f"[{self.id}] Config 'header_rows' must be non-negative"
+            )
+
+        footer_rows_raw = self.config.get('footer_rows', self.DEFAULT_FOOTER_ROWS)
+        try:
+            footer_rows = int(footer_rows_raw)
+        except (ValueError, TypeError) as e:
+            raise ConfigurationError(
+                f"[{self.id}] Config 'footer_rows' must be an integer"
+            ) from e
+        if footer_rows < 0:
+            raise ConfigurationError(
+                f"[{self.id}] Config 'footer_rows' must be non-negative"
+            )
+
         limit = self.config.get('limit', '')
         die_on_error = self.config.get('die_on_error', self.DEFAULT_DIE_ON_ERROR)
         advanced_separator = self.config.get('advanced_separator', self.DEFAULT_ADVANCED_SEPARATOR)
@@ -214,14 +207,20 @@ class FileInputPositional(BaseComponent):
 
         logger.info(f"[{self.id}] Processing started: reading file {filepath}")
 
-        # Parse limit
+        # Parse limit (deferred from _validate_config -- may resolve from ${context.LIMIT})
         nrows = None
         if limit and str(limit).strip():
             try:
                 nrows = int(limit)
-                logger.debug(f"[{self.id}] Row limit set: {nrows}")
-            except ValueError:
-                logger.warning(f"[{self.id}] Invalid limit value: {limit}, ignoring")
+            except (ValueError, TypeError) as e:
+                raise ConfigurationError(
+                    f"[{self.id}] Config 'limit' must be an integer"
+                ) from e
+            if nrows <= 0:
+                raise ConfigurationError(
+                    f"[{self.id}] Config 'limit' must be positive"
+                )
+            logger.debug(f"[{self.id}] Row limit set: {nrows}")
 
         # Validate required parameters
         if not filepath:
@@ -240,14 +239,23 @@ class FileInputPositional(BaseComponent):
                 self._update_stats(0, 0, 0)
                 return {'main': pd.DataFrame()}
 
-        # Parse pattern to list of widths
+        # Parse pattern to list of widths (deferred from _validate_config --
+        # may resolve from ${context.WIDTHS})
         try:
             widths = [int(x.strip()) for x in pattern.split(',') if x.strip()]
-            if not widths:
-                raise ConfigurationError(f"Pattern cannot be empty: {pattern}")
-            logger.debug(f"[{self.id}] Parsed column widths: {widths}")
         except ValueError as e:
-            raise ConfigurationError(f"Invalid pattern format: {pattern} - {str(e)}")
+            raise ConfigurationError(
+                f"[{self.id}] Config 'pattern' must be comma-separated integers, got: {pattern}"
+            ) from e
+        if not widths:
+            raise ConfigurationError(
+                f"[{self.id}] Config 'pattern' cannot be empty"
+            )
+        if any(w <= 0 for w in widths):
+            raise ConfigurationError(
+                f"[{self.id}] Config 'pattern' must contain positive integers"
+            )
+        logger.debug(f"[{self.id}] Parsed column widths: {widths}")
 
         # Extract column names from schema if available
         names = None
