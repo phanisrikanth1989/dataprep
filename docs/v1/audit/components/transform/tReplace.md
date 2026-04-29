@@ -63,7 +63,7 @@ What does Talend actually do? This section is the SOURCE OF TRUTH -- researched 
 
 `tReplace` performs search-and-replace operations on column values in data flows. In simple mode, it uses a SUBSTITUTIONS table to define per-column search patterns and replacement strings, with options for whole-word matching, case sensitivity, and glob-style pattern matching. Each substitution row specifies an input column, a search pattern, a replacement string, and boolean flags controlling match behavior.
 
-In advanced mode, the component uses an ADVANCED_SUBST table where the search and replace values come from other columns in the schema rather than literal strings. This enables dynamic replacements based on data from the same row. The component processes all rows in the flow, applying substitutions to each row independently.
+In advanced mode, the component uses an ADVANCED_SUBST table whose `SEARCH_COLUMN` and `REPLACE_COLUMN` entries are misleadingly-named parameters that hold a literal regex pattern (Java string expression) and a literal replacement string respectively. Despite the legacy XML tag names, they are NOT references to other columns in the schema -- the only real column reference per rule is `INPUT_COLUMN`. The same regex is applied uniformly to every row of the input column. (See "Primary Source Verification" at the end of this report for the Talaxie source citations.) The component processes all rows in the flow, applying substitutions to each row independently.
 
 **Source**: Talaxie GitHub tdi-studio-se repository (tReplace_java.xml)
 **Component family**: Processing / Transform
@@ -89,11 +89,11 @@ In advanced mode, the component uses an ADVANCED_SUBST table where the search an
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
 | --- | ----------- | ----------------- | ------ | --------- | ------------- |
-| 4 | Advanced Mode | `ADVANCED_MODE` | CHECK | `false` | When true, use column-based search/replace from ADVANCED_SUBST table |
-| 5 | Advanced Substitutions | `ADVANCED_SUBST` | TABLE (stride-4) | [] | Table of column-based substitution rules |
-| 5a | - Input Column | `INPUT_COLUMN` | str (elementRef) | -- | Column to apply substitution to |
-| 5b | - Search Column | `SEARCH_COLUMN` | str (elementRef) | -- | Column containing search values |
-| 5c | - Replace Column | `REPLACE_COLUMN` | str (elementRef) | -- | Column containing replacement values |
+| 4 | Advanced Mode | `ADVANCED_MODE` | CHECK | `false` | When true, use regex-based search/replace from ADVANCED_SUBST table (literal regex pattern + literal replacement string applied uniformly to every row of the input column) |
+| 5 | Advanced Substitutions | `ADVANCED_SUBST` | TABLE (stride-4) | [] | Table of regex-based substitution rules. Despite legacy XML tag names, only `INPUT_COLUMN` is a column reference -- `SEARCH_COLUMN` and `REPLACE_COLUMN` are literal Java string expressions (regex pattern + replacement). |
+| 5a | - Input Column | `INPUT_COLUMN` | str (elementRef) | -- | DataFrame column the substitution applies to (this one IS a column reference) |
+| 5b | - Pattern (legacy XML tag: SEARCH_COLUMN) | `SEARCH_COLUMN` | Java string expression evaluated to a regex | `"\\w+"` | Literal regex pattern. NOT a column reference despite the tag name. |
+| 5c | - Replace (legacy XML tag: REPLACE_COLUMN) | `REPLACE_COLUMN` | Java string expression for replacement string | `"default"` | Literal replacement string. NOT a column reference despite the tag name. |
 | 5d | - Comment | `COMMENT` | str (elementRef) | `""` | User comment for this substitution rule |
 
 ### 3.3 Connection Types
@@ -185,7 +185,7 @@ How faithfully does the v1 engine implement Talend behavior?
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
 | ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | Simple mode search-and-replace | **No** | N/A | No engine file | No engine implementation exists |
-| 2 | Advanced mode column-based replace | **No** | N/A | No engine file | No engine implementation exists |
+| 2 | Advanced mode regex-based replace (literal pattern applied uniformly to every row of the input column) | **No** | N/A | No engine file | No engine implementation exists |
 | 3 | Whole word matching | **No** | N/A | No engine file | No engine implementation exists |
 | 4 | Case sensitivity control | **No** | N/A | No engine file | No engine implementation exists |
 | 5 | Glob pattern matching | **No** | N/A | No engine file | No engine implementation exists |
@@ -304,7 +304,7 @@ When engine is implemented:
 - Whole word vs partial matching
 - Case sensitivity on/off
 - Glob pattern matching
-- Advanced mode with column-based replacement
+- Advanced mode with regex-based replacement (literal pattern applied uniformly per input column)
 - Empty substitutions table (no-op passthrough)
 - Mixed simple + advanced mode
 - Null/empty values in target columns
@@ -357,13 +357,45 @@ What should be fixed, in what order?
 
 ### Short-term (Hardening)
 
-1. Implement advanced mode (column-based search/replace)
+1. Implement advanced mode (regex-based search/replace -- literal pattern + replacement string applied uniformly to every row of the input column)
 2. Add integration tests with realistic data flows
 
 ### Long-term (Optimization)
 
 1. Optimize for large datasets with vectorized pandas string operations
 2. Consider regex compilation caching for repeated patterns
+
+---
+
+## 11. Primary Source Verification
+
+The advanced-mode behavior was verified against the upstream Talend (Talaxie) source on 2026-04-29:
+
+- **`tReplace_java.xml`** declares the parameters with `FIELD="String"` (literal text input), not `FIELD="PREV_COLUMN_LIST"` (which is what the actual column-reference parameter `INPUT_COLUMN` uses):
+
+  ```xml
+  <ITEM NAME="SEARCH_COLUMN"  FIELD="String" VALUE="&quot;\\w+&quot;" />
+  <ITEM NAME="REPLACE_COLUMN" FIELD="String" VALUE="&quot;default&quot;" />
+  ```
+
+  Source: https://github.com/Talaxie/tdi-studio-se/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tReplace/tReplace_java.xml
+
+- **`tReplace_messages.properties`** confirms the user-facing labels:
+
+  - `ADVANCED_MODE.NAME=Advanced mode ( search with regexp pattern )`
+  - `ADVANCED_SUBST.NAME=Regexp patterns`
+  - `ADVANCED_SUBST.ITEM.SEARCH_COLUMN=Pattern`
+  - `ADVANCED_SUBST.ITEM.REPLACE_COLUMN=Replace`
+
+- **`tReplace_main.javajet`** generates Java that uses these as bareword string expressions, not as `row.*` accessors:
+
+  ```java
+  row.${INPUT_COLUMN} = StringUtils.replaceAll(row.${INPUT_COLUMN}, ${SEARCH_COLUMN}, ${REPLACE_COLUMN});
+  ```
+
+  The user-supplied `"\\w+"` lands in the generated Java as the literal string `"\\w+"` (which Java unescapes to the regex `\w+`).
+
+Conclusion: the SEARCH_COLUMN / REPLACE_COLUMN tag names are a Talend naming artifact. They are regex pattern + replacement string, not column references. The engine implementation in `src/v1/engine/components/transform/replace.py::_apply_advanced_mode` matches this contract.
 
 ---
 
@@ -392,9 +424,9 @@ What should be fixed, in what order?
 | 3 | `STRICT_MATCH` | `strict_match` | bool | `True` | `_get_bool()` |
 | 4 | `ADVANCED_MODE` | `advanced_mode` | bool | `False` | `_get_bool()` |
 | 5 | `ADVANCED_SUBST` | `advanced_subst` | list[dict] | `[]` | `_parse_advanced_subst()` stride-4 |
-| 5a | `INPUT_COLUMN` | `input_column` | str | -- | elementRef |
-| 5b | `SEARCH_COLUMN` | `search_column` | str | -- | elementRef |
-| 5c | `REPLACE_COLUMN` | `replace_column` | str | -- | elementRef |
+| 5a | `INPUT_COLUMN` | `input_column` | str (column ref) | -- | elementRef -- DataFrame column reference |
+| 5b | `SEARCH_COLUMN` | `search_column` | str (literal regex pattern, NOT a column ref) | `"\\w+"` | elementRef -- Java string expression. Talaxie XML defines `FIELD="String"`. |
+| 5c | `REPLACE_COLUMN` | `replace_column` | str (literal replacement string, NOT a column ref) | `"default"` | elementRef -- Java string expression. Talaxie XML defines `FIELD="String"`. |
 | 5d | `COMMENT` | `comment` | str | `""` | elementRef |
 | 6 | `TSTATCATCHER_STATS` | `tstatcatcher_stats` | bool | `False` | `_get_bool()` |
 | 7 | `LABEL` | `label` | str | `""` | `_get_str()` |
