@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: ready_to_plan
-stopped_at: Phase 7.1 complete -- ready for Phase 8 (Code Components)
-last_updated: "2026-04-26T00:00:00.000Z"
-last_activity: 2026-04-25 -- Phase 7.1 verified complete (1093 pytest passing, mvn BUILD SUCCESS)
+status: planning
+stopped_at: Phase 7.1 closed cleanly (commit 8aac6da). Tree clean, origin synced. Stale .continue-here files (5.1/5.2) and consumed HANDOFF.json deleted.
+last_updated: "2026-04-29T07:14:47.753Z"
+last_activity: "2026-04-29 -- Completed quick task 260429-hc2: cleanup of manager commits 43762c8 + c9be184/0c4104d"
 progress:
-  total_phases: 15
+  total_phases: 16
   completed_phases: 11
   total_plans: 41
-  completed_plans: 33
-  percent: 73
+  completed_plans: 41
+  percent: 100
 ---
 
 # Project State
@@ -21,7 +21,7 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-14)
 
 **Core value:** Any Talend job using the target components must produce identical results when run through the Python engine
-**Current focus:** Phase 08 — code-components (tJava, tJavaRow, python_component, python_row_component)
+**Current focus:** Phase 07.2 -- validate-config bug sweep
 
 ## Current Position
 
@@ -83,6 +83,7 @@ Recent decisions affecting current work:
 
 - Phase 05.1 inserted after Phase 5: Java Bridge tMap Fix (URGENT) -- Phase 2 rewrite broke RowWrapper Arrow type conversion and compiled tMap script execution. Must fix before Phase 6+.
 - Phase 07.1 inserted after Phase 7: Manager Audit & BaseComponent Fixes (URGENT) -- Manager-commit audit (range 52dbada..f0f6351, 19 commits, 28 files) surfaced 48 in-scope regressions and gaps including BaseComponent crashes (CR-01, CR-02), Phase 4 file I/O regressions (CR-03, CR-06, CR-09), Phase 6 AggregateRow Talend-parity violations (CR-05), broken Java build on Mac/Linux (CR-04 pom.xml), and a not-production-ready new Normalize component. API findings (27) skipped per direction. See .planning/review/TRIAGE.md for the full triage matrix and .planning/review/manager-commits-REVIEW*.md for evidence. Must complete before Phase 8.
+- Phase 07.2 inserted after Phase 7: validate-config bug sweep -- move pre-resolution content checks to _process across 11 components (URGENT)
 
 ### Pending Todos
 
@@ -91,6 +92,7 @@ None yet.
 ### Blockers/Concerns
 
 Non-blocking human verification carried from Phase 7.1 (do when convenient, not gating Phase 8):
+
 - Linux/RHEL `mvn package` build (only Darwin verified)
 - tNormalize combined-flags vs golden Talend job output
 - FileOutputDelimited datetime default format vs Talend reference
@@ -106,4 +108,4 @@ Non-blocking human verification carried from Phase 7.1 (do when convenient, not 
 
 Last session: 2026-04-26 (resumed for housekeeping after Phase 7.1 close)
 Stopped at: Phase 7.1 closed cleanly (commit 8aac6da). Tree clean, origin synced. Stale .continue-here files (5.1/5.2) and consumed HANDOFF.json deleted.
-Resume with: /gsd-discuss-phase 8  (CONTEXT.md missing; discuss recommended before plan)
+Resume with: /gsd-discuss-phase 07.2 (CONTEXT.md missing; discuss before plan)

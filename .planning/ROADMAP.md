@@ -178,6 +178,16 @@ Plans:
 - [x] 07-01-PLAN.md -- tJoin full rewrite (8 bugs, reject_schema engine fix)
 - [x] 07-02-PLAN.md -- FilterColumns + Unite rewrites + all tests (Join, FilterColumns, Unite)
 
+### Phase 07.2: validate-config bug sweep -- move pre-resolution content checks to _process across 11 components (INSERTED)
+
+**Goal:** [Urgent work - to be planned]
+**Requirements**: TBD
+**Depends on:** Phase 7
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 07.2 to break down)
+
 ### Phase 07.1: Manager Audit & BaseComponent Fixes (INSERTED)
 
 **Goal**: BaseComponent and downstream components produce correct, Talend-compatible output after fixing 48 regressions and gaps surfaced by the out-of-band audit of manager commits (range 52dbada..f0f6351, 19 commits, 28 files), and the Java bridge JAR builds successfully on Mac/Linux. This phase exists because manager commits landed outside the GSD workflow and introduced regressions in already-shipped phases (Phase 1 BaseComponent, Phase 4 file I/O, Phase 6 aggregate, Phase 7 filter_rows) plus a build blocker. Phase 8 must NOT start until these are resolved -- code components inherit BaseComponent's behavior.
