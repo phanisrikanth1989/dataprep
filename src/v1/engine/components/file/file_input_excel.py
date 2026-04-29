@@ -82,12 +82,26 @@ class FileInputExcel(BaseComponent):
         """
         Validate component configuration.
 
+        Note:
+            header / first_column numeric validation is intentionally
+            deferred to _process() after context variable resolution.
+            Validating here would crash with .isdigit() False on
+            legitimate ${context.HEADER_ROW} / ${context.FIRST_COL}
+            references. See file_output_delimited.py (CR-06 / quick
+            task 260429-hc2) for the same pattern.
+
+            footer and limit fields use the same .isdigit() pattern but
+            are out-of-scope for this phase per Phase 7.2 CONTEXT.md
+            decision A scope locking (header, first_column only). A
+            future phase may also defer those if a Talend job is found
+            using context vars for footer / limit.
+
         Returns:
             List of error messages (empty if valid)
         """
         errors = []
 
-        # Required field validation
+        # Required field validation -- key-presence + isinstance shape
         if 'filepath' not in self.config:
             errors.append("Missing required config: 'filepath'")
         elif not isinstance(self.config['filepath'], str):
@@ -101,7 +115,7 @@ class FileInputExcel(BaseComponent):
             if not isinstance(password, str):
                 errors.append("Config 'password' must be a string")
 
-        # Boolean field validation
+        # Boolean field validation -- isinstance shape only
         for field_name in ['all_sheets', 'die_on_error', 'suppress_warn', 'advanced_separator',
                            'trimall', 'convertdatetostring', 'stopread_on_emptyrow']:
             if field_name in self.config:
@@ -109,17 +123,8 @@ class FileInputExcel(BaseComponent):
                 if not isinstance(value, bool):
                     errors.append(f"Config '{field_name}' must be a boolean")
 
-        # Numeric field validation
-        for field_name in ['header', 'first_column']:
-            if field_name in self.config:
-                value = self.config[field_name]
-                if isinstance(value, str):
-                    if not value.isdigit():
-                        errors.append(f"Config '{field_name}' must be a positive integer")
-                elif not isinstance(value, int) or value < 1:
-                    errors.append(f"Config '{field_name}' must be a positive integer")
-
         # Special validation for footer (can be 0 or positive integer)
+        # NOTE: out-of-scope per Phase 7.2 CONTEXT.md decision A; retained.
         if 'footer' in self.config:
             value = self.config['footer']
             if isinstance(value, str):
@@ -129,6 +134,7 @@ class FileInputExcel(BaseComponent):
                 errors.append("Config 'footer' must be a non-negative integer")
 
         # Special validation for limit (can be empty string or None to indicate no limit)
+        # NOTE: out-of-scope per Phase 7.2 CONTEXT.md decision A; retained.
         if 'limit' in self.config:
             value = self.config['limit']
             if isinstance(value, str):
@@ -137,14 +143,14 @@ class FileInputExcel(BaseComponent):
             elif value is not None and (not isinstance(value, int) or value < 0):
                 errors.append("Config 'limit' must be a positive integer or None")
 
-        # List field validation
+        # List field validation -- isinstance shape only
         for field_name in ['sheetlist', 'trim_select', 'date_select']:
             if field_name in self.config:
                 value = self.config[field_name]
                 if not isinstance(value, list):
                     errors.append(f"Config '{field_name}' must be a list")
 
-        # String field validation
+        # String field validation -- isinstance shape only
         for field_name in ['thousands_separator', 'decimal_separator']:
             if field_name in self.config:
                 value = self.config[field_name]
@@ -152,6 +158,34 @@ class FileInputExcel(BaseComponent):
                     errors.append(f"Config '{field_name}' must be a string or None")
 
         return errors
+
+    def _validate_resolved_numeric_fields(self) -> None:
+        """Validate header / first_column AFTER context-var resolution.
+
+        Called from ``_process`` so that ${context.HEADER} style values
+        have been substituted before the .isdigit() / range check runs.
+        Mutates self.config to coerce string-number values to ints so
+        downstream read sites can treat them uniformly.
+
+        Raises:
+            ConfigurationError: If header or first_column resolves to a
+                non-positive-integer value.
+        """
+        for field_name in ('header', 'first_column'):
+            if field_name not in self.config:
+                continue
+            value = self.config[field_name]
+            if isinstance(value, str):
+                if not value.isdigit():
+                    raise ConfigurationError(
+                        f"[{self.id}] Config '{field_name}' must be a positive integer"
+                    )
+                value = int(value)
+            if not isinstance(value, int) or value < 1:
+                raise ConfigurationError(
+                    f"[{self.id}] Config '{field_name}' must be a positive integer"
+                )
+            self.config[field_name] = value
 
     def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
         """
@@ -177,6 +211,10 @@ class FileInputExcel(BaseComponent):
                 error_msg = f"Invalid configuration: {'; '.join(config_errors)}"
                 logger.error(f"[{self.id}] {error_msg}")
                 raise ConfigurationError(error_msg)
+
+            # Phase 7.2-01: validate header / first_column AFTER context-var
+            # resolution (deferred from _validate_config -- see note there).
+            self._validate_resolved_numeric_fields()
 
             # Get configuration with defaults
             filepath = self.config.get('filepath', '').strip()
