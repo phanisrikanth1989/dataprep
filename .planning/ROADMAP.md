@@ -181,12 +181,15 @@ Plans:
 ### Phase 07.2: validate-config bug sweep -- move pre-resolution content checks to _process across 11 components (INSERTED)
 
 **Goal:** Eliminate the systemic bug class where `_validate_config()` (BaseComponent.execute() Step 2) inspects content of config fields BEFORE context resolution (Step 3), causing spurious rejection or crashes when fields hold context-var references. Establish a permanent process rule preventing recurrence in Phase 8 onward.
-**Requirements**: TBD
+**Requirements**: VC-01, VC-02, VC-03, VC-04, TEST-08
 **Depends on:** Phase 7
-**Plans:** 0 plans
+**Plans:** 4 plans
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 07.2 to break down)
+- [ ] 07.2-01-PLAN.md -- Group A confirmed fixes (5 components: file_archive, file_input_positional, log_row, pivot_to_columns_delimited, file_input_excel)
+- [ ] 07.2-02-PLAN.md -- Group B suspect verdicts (5 components: file_input_raw, fixed_flow_input, unique_row, context_load, send_mail)
+- [ ] 07.2-03-PLAN.md -- Add Rule 12 to MANUAL_COMPONENT_AUTHORING.md
+- [ ] 07.2-04-PLAN.md -- Verification + phase summary
 
 ### Phase 07.1: Manager Audit & BaseComponent Fixes (INSERTED)
 
