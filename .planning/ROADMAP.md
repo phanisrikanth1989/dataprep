@@ -180,7 +180,7 @@ Plans:
 
 ### Phase 07.2: validate-config bug sweep -- move pre-resolution content checks to _process across 11 components (INSERTED)
 
-**Goal:** [Urgent work - to be planned]
+**Goal:** Eliminate the systemic bug class where `_validate_config()` (BaseComponent.execute() Step 2) inspects content of config fields BEFORE context resolution (Step 3), causing spurious rejection or crashes when fields hold context-var references. Establish a permanent process rule preventing recurrence in Phase 8 onward.
 **Requirements**: TBD
 **Depends on:** Phase 7
 **Plans:** 0 plans
