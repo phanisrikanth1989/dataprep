@@ -29,7 +29,7 @@ different system and its rules do not apply to engine components.
 
 ---
 
-## The 11 Rules of BaseComponent Subclassing
+## The 12 Rules of BaseComponent Subclassing
 
 These are hard rules, not guidelines. Each violation breaks the execution contract.
 
@@ -121,6 +121,121 @@ def _process(self, input_data=None) -> dict:
     output_df = _build_output(input_data)
     return {"main": output_df, "reject": None}
 ```
+
+---
+
+## Rule 12: `_validate_config` may only check key presence and container shape -- never content
+
+> **CRITICAL: This rule complements Rule 2 and was elevated to its own
+> section after Phase 07.2 swept 11 components for violations.**
+
+BaseComponent.execute() runs validation in this order
+(`src/v1/engine/base_component.py:204-260`):
+
+1. **Step 1**: `self.config = copy.deepcopy(self._original_config)` -- raw config restored
+2. **Step 2**: `self._validate_config()` -- runs on UNRESOLVED config
+3. **Step 3**: `self._resolve_expressions()` -- context vars (`${context.X}`,
+   `context.X`) and Java `{{java}}` markers resolved
+4. **Step 7**: `self._process()` -- `self.config` is now fully resolved
+
+**The bug class:** Any `_validate_config()` that inspects the *content*
+of a config field (length, regex, type coercion, enum membership for
+non-closed-lists, file-exists, numeric range) -- when that field can
+hold a context-var reference -- will spuriously reject or crash on
+valid configs because it measures the unresolved literal, not the
+runtime value.
+
+Phase 07.2 fixed 6+ instances of this bug across file_archive,
+file_input_positional, log_row, pivot_to_columns_delimited,
+file_input_excel, file_output_delimited (CR-06), and send_mail. The
+rule below codifies the contract.
+
+### Allowed in `_validate_config`
+
+- **Key presence**: `if not self.config.get("X"): raise ConfigurationError(...)`
+- **Container shape**: `isinstance(value, list)`, `isinstance(value, dict)`, `isinstance(value, bool)`
+- **Structural validity of immutable config**: e.g. schema list shape,
+  number of rows in a fixed-shape config table.
+- **Closed-list enum membership** ONLY when the converter is proven to
+  emit a literal closed-list value (never a `${context.X}` string).
+  Example: `tContextLoad.LOAD_NEW_VARIABLE` is one of WARNING / ERROR /
+  NO_WARNING -- emitted as a literal -- so `if value not in {...}` is
+  allowed. Document the converter evidence in a code comment when
+  relying on this carve-out.
+
+### Disallowed in `_validate_config`
+
+- **Length checks**: `len(x) != 1`, `len(x) < N` -- defer to `_process`
+- **Regex / pattern checks**: `re.match(...)`, `.startswith(...)` for
+  content shape -- defer to `_process`
+- **Numeric coercion**: `int(value)`, `float(value)`, `.isdigit()` --
+  defer to `_process`
+- **Numeric range**: `value < 0`, `value < 1 or value > 65535` -- defer
+  to `_process`
+- **File-exists / path checks**: `os.path.exists(value)` -- defer to
+  `_process` (path may be `${context.X}`)
+- **Enum membership for fields the converter emits as `_get_str`**:
+  the field can hold a context var -- defer to `_process`
+
+### Where deferred checks belong
+
+Move the check verbatim into `_process()` at the earliest point after
+`self.config` is the resolved dict. (BaseComponent has already run
+Step 3 by the time `_process` is called -- no manual call needed.)
+
+Preserve the **same exception type** and **same error message** so
+behavior at the new check site is identical.
+
+### Side-by-side example
+
+**WRONG -- Rule 12 violation (rejects valid `${context.SEP}`):**
+
+```python
+def _validate_config(self) -> None:
+    if not self.config.get("filepath"):
+        raise ConfigurationError(f"[{self.id}] Missing required config 'filepath'")
+    # WRONG: this measures the unresolved literal "${context.SEP}" as 14 chars
+    sep = self.config.get("fieldseparator", ";")
+    if len(sep) != 1:
+        raise ConfigurationError(f"[{self.id}] fieldseparator must be single char")
+
+def _process(self, input_data=None) -> dict:
+    sep = self.config["fieldseparator"]  # already resolved here
+    ...
+```
+
+**CORRECT -- check moved to `_process` (Phase 07.2 / commit 43762c8):**
+
+```python
+def _validate_config(self) -> None:
+    """Validate component configuration.
+
+    Note:
+        Multi-character fieldseparator validation is intentionally
+        deferred to _process() after context variable resolution.
+        Validating here would incorrectly measure unresolved context
+        references such as ${context.SEP} as multi-character strings.
+    """
+    if not self.config.get("filepath"):
+        raise ConfigurationError(f"[{self.id}] Missing required config 'filepath'")
+
+def _process(self, input_data=None) -> dict:
+    sep = self.config.get("fieldseparator", ";")
+    if len(sep) != 1:
+        raise ConfigurationError(f"[{self.id}] fieldseparator must be single char")
+    ...
+```
+
+### Cross-references
+
+- `src/v1/engine/base_component.py:204-260` -- Template Method
+  lifecycle showing Step 2 vs Step 3 vs Step 7 ordering.
+- `src/v1/engine/components/file/file_output_delimited.py:130-145` --
+  canonical post-fix `_validate_config` with the docstring note.
+- `.planning/phases/07.2-validate-config-bug-sweep-move-pre-resolution-content-checks/`
+  -- the sweep that elevated this rule.
+- Rule 2 above (which states "validate structural correctness only,
+  not resolved values") -- this rule operationalises Rule 2.
 
 ---
 
