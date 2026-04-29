@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-14)
 Phase: 08
 Plan: Not started (CONTEXT.md missing -- discuss-phase recommended before plan)
 Status: Ready to plan
-Last activity: 2026-04-25
+Last activity: 2026-04-29 -- Completed quick task 260429-hc2: cleanup of manager commits 43762c8 + c9be184/0c4104d
 
 Progress: [███████░░░] 73% (11/15 phases complete -- 1, 2, 3, 4, 5, 5.1, 5.2, 6, 7, 7.1, 9)
 
@@ -100,6 +100,7 @@ Non-blocking human verification carried from Phase 7.1 (do when convenient, not 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260425-uid | Rule 11 cleanup + manual-component authoring guide | 2026-04-25 | e4e5881 | [260425-uid-fix-rule-11-contract-violations-stale-te](./quick/260425-uid-fix-rule-11-contract-violations-stale-te/) |
+| 260429-hc2 | Cleanup manager commits 43762c8 + c9be184/0c4104d (rewrite tests + audit docs for Talend parity, supersede CR-06) | 2026-04-29 | dc264d3 | [260429-hc2-cleanup-of-manager-commits-43762c8-c9be1](./quick/260429-hc2-cleanup-of-manager-commits-43762c8-c9be1/) |
 
 ## Session Continuity
 
