@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from ...base_component import BaseComponent
+from ...exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,18 @@ class FileArchiveComponent(BaseComponent):
 
         Returns:
             List of error messages (empty if valid)
+
+        Note:
+            compression_level numeric validation is intentionally deferred to
+            _process() after context variable resolution. Validating here
+            would crash with ValueError on legitimate ${context.LEVEL}
+            references. See file_output_delimited.py (CR-06 / quick task
+            260429-hc2) for the same pattern.
+
+            ARCHIVE_FORMAT enum membership check is retained per Phase 7.2
+            CONTEXT.md decision A scope (compression_level only). A future
+            phase may also defer ARCHIVE_FORMAT if a Talend job is found
+            using a context var for that field.
         """
         errors = []
 
@@ -79,18 +92,10 @@ class FileArchiveComponent(BaseComponent):
         if not self.config.get('target'):
             errors.append("Missing required config: 'target'")
 
-        # Optional field validation
+        # Optional field validation -- enum membership only (key/shape check)
         archive_format = self.config.get('archive_format', self.DEFAULT_ARCHIVE_FORMAT)
         if archive_format not in self.SUPPORTED_FORMATS:
             errors.append(f"Config 'archive_format' must be one of {self.SUPPORTED_FORMATS}, got '{archive_format}'")
-
-        compression_level = self.config.get('compression_level', self.DEFAULT_COMPRESSION_LEVEL)
-        try:
-            level = int(compression_level)
-            if level < 0 or level > 9:
-                errors.append("Config 'compression_level' must be between 0 and 9")
-        except (ValueError, TypeError):
-            errors.append("Config 'compression_level' must be a valid integer")
 
         return errors
 
@@ -118,7 +123,17 @@ class FileArchiveComponent(BaseComponent):
             archive_format = self.config.get('archive_format', self.DEFAULT_ARCHIVE_FORMAT)
             include_subdirectories = self.config.get('include_subdirectories', True)
             overwrite = self.config.get('overwrite', True)
-            compression_level = int(self.config.get('compression_level', self.DEFAULT_COMPRESSION_LEVEL))
+            compression_level_raw = self.config.get('compression_level', self.DEFAULT_COMPRESSION_LEVEL)
+            try:
+                compression_level = int(compression_level_raw)
+            except (ValueError, TypeError) as e:
+                raise ConfigurationError(
+                    f"[{self.id}] Config 'compression_level' must be a valid integer"
+                ) from e
+            if compression_level < 0 or compression_level > 9:
+                raise ConfigurationError(
+                    f"[{self.id}] Config 'compression_level' must be between 0 and 9"
+                )
             die_on_error = self.config.get('die_on_error', True)
 
             # Validate source exists
