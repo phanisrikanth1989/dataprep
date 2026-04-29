@@ -251,13 +251,19 @@ class TestTableParsingOperations:
         operations = result.component["config"]["operations"]
         assert operations[0]["delimiter"] == ";"
 
-    def test_operations_list_object_maps_to_list_with_warning(self):
-        """list_object maps to list function and emits a lossy-mapping warning."""
+    def test_operations_list_object_preserved_no_warning(self):
+        """list_object is preserved unchanged; no lossy-mapping warning emitted.
+
+        Phase 6 fix (commit 125ddc6) changed _FUNCTION_MAP to pass list_object
+        through unchanged because the engine implements it as a delimited string.
+        The previous "maps to list with warning" behavior was lossy and was
+        replaced with verbatim preservation.
+        """
         ops = _make_operations_data([("out", "list_object", "col", False)])
         node = _make_node(params={"OPERATIONS": ops})
         result = AggregateRowConverter().convert(node, [], {})
-        assert result.component["config"]["operations"][0]["function"] == "list"
-        assert any("list_object" in w and "not preserved" in w for w in result.warnings)
+        assert result.component["config"]["operations"][0]["function"] == "list_object"
+        assert not any("list_object" in w and "not preserved" in w for w in result.warnings)
 
     def test_operations_missing_output_column_warns(self):
         """Operation without OUTPUT_COLUMN emits a warning about the missing field."""
