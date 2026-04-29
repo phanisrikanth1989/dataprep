@@ -76,6 +76,12 @@ class FixedFlowInputComponent(BaseComponent):
             errors.append("No valid mode selected (use_singlemode, use_intable, or use_inlinecontent must be True)")
 
         # Validate nb_rows
+        # Group B verdict (Phase 07.2): KEEP. nb_rows is extracted by the
+        # converter as _get_int(node, "NB_ROWS", 1) at
+        # src/converters/talend_to_v1/components/file/fixed_flow_input.py:106,
+        # so config["nb_rows"] is always a Python int -- never a context-var
+        # string. The isinstance check below is shape-only, allowed by Rule 12
+        # (the _validate_config content rule).
         nb_rows = self.config.get('nb_rows', 1)
         if not isinstance(nb_rows, int) or nb_rows < 0:
             errors.append("Config 'nb_rows' must be a non-negative integer")
