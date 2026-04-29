@@ -173,16 +173,14 @@ class FileInputDelimitedConverter(ComponentConverter):
         # ---- 6. Schema ----
         schema = {"input": [], "output": self._parse_schema(node)}
 
-        # ---- 7. Engine gap needs_review entries ----
-        # Engine reads "delimiter" but converter uses "fieldseparator" per D-38
+        # ---- 7. Engine gap needs_review entries (deferred features only) ----
+        # NOTE: keys removed after engine alignment (engine now reads them):
+        #   fieldseparator, csv_option, csv_row_separator, check_fields_num, check_date
+        # Remaining entries are TRULY deferred features (see _DEFERRED_FEATURES in
+        # src/v1/engine/components/file/file_input_delimited.py).
         _engine_gap_keys = [
-            ("fieldseparator", "engine reads 'delimiter' config key, not 'fieldseparator'"),
-            ("csv_option", "engine has no explicit RFC4180 CSV toggle"),
-            ("csv_row_separator", "engine uses only row_separator, ignores csv_row_separator"),
             ("split_record", "engine has no explicit multi-line field toggle"),
             ("random", "engine does not support random line extraction"),
-            ("check_fields_num", "engine does not validate row field count"),
-            ("check_date", "engine does not validate dates against schema patterns"),
             ("enable_decode", "engine does not support hex/octal number parsing"),
             ("advanced_separator", "engine has partial support -- applies to all string columns, not just numeric"),
             ("uncompress", "engine does not support compressed file reading"),

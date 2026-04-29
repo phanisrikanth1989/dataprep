@@ -180,6 +180,17 @@ class JavaRowComponent(CodeComponentMixin, BaseComponent):
         imports: str = self.config.get("imports", "") or ""
         output_schema = self.config.get("output_schema")
 
+        # Bridge contract: output_schema must be dict[str, str] (col -> python type).
+        # Converter emits list[{"name": ..., "type": ...}]; normalize here.
+        if isinstance(output_schema, list):
+            output_schema = {
+                col["name"]: col.get("type", "str")
+                for col in output_schema
+                if isinstance(col, dict) and "name" in col
+            }
+        elif output_schema is None:
+            output_schema = {}
+
         # D-07/D-08: prepend imports with newline separator (one-time, before
         # the bridge compiles the script for the row loop).
         if imports:

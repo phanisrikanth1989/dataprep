@@ -12,12 +12,14 @@ import java.util.logging.Logger;
  * use {@code input_row.columnName} and {@code output_row.columnName = value}
  * syntax directly.
  *
- * <p>Lifecycle per row iteration:
+ * <p>
+ * Lifecycle per row iteration:
  * <ol>
- *   <li>Set input row via {@link #setInputRow(Map)}</li>
- *   <li>Groovy script reads via {@link #get(String)} and writes via {@link #set(String, Object)}</li>
- *   <li>Caller retrieves output via {@link #getOutputRow()}</li>
- *   <li>Caller calls {@link #reset()} before next row</li>
+ * <li>Set input row via {@link #setInputRow(Map)}</li>
+ * <li>Groovy script reads via {@link #get(String)} and writes via
+ * {@link #set(String, Object)}</li>
+ * <li>Caller retrieves output via {@link #getOutputRow()}</li>
+ * <li>Caller calls {@link #reset()} before next row</li>
  * </ol>
  */
 public class RowWrapper {
@@ -36,12 +38,19 @@ public class RowWrapper {
     }
 
     /**
-     * Get a value from the input row.
+     * Get a value from the row. Checks outputRow first so scripts can read back
+     * values they have already written within the same row body
+     * (e.g. {@code output_row.net_salary = input_row.salary - output_row.tax}),
+     * then falls back to inputRow. This matches Talend's generated tJavaRow
+     * code where output_row fields are plain struct members readable after write.
      *
      * @param columnName the column name to look up
-     * @return the value, or null if the column is not present
+     * @return the value, or null if the column is not present in either row
      */
     public Object get(String columnName) {
+        if (outputRow.containsKey(columnName)) {
+            return outputRow.get(columnName);
+        }
         return inputRow.get(columnName);
     }
 
@@ -49,7 +58,7 @@ public class RowWrapper {
      * Set a value in the output row.
      *
      * @param columnName the column name to set
-     * @param value the value to store
+     * @param value      the value to store
      */
     public void set(String columnName, Object value) {
         outputRow.put(columnName, value);
@@ -84,7 +93,8 @@ public class RowWrapper {
 
     /**
      * Clear the output row for the next row iteration.
-     * Input row is not cleared -- caller must call {@link #setInputRow(Map)} explicitly.
+     * Input row is not cleared -- caller must call {@link #setInputRow(Map)}
+     * explicitly.
      */
     public void reset() {
         outputRow.clear();
@@ -108,7 +118,7 @@ public class RowWrapper {
     /**
      * Groovy property write: allows {@code row.columnName = value} syntax.
      *
-     * @param name the property (column) name
+     * @param name  the property (column) name
      * @param value the value to set in the output row
      */
     public void propertyMissing(String name, Object value) {

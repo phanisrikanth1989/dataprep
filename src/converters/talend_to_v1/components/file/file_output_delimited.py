@@ -92,24 +92,10 @@ class FileOutputDelimitedConverter(ComponentConverter):
         schema = {"input": self._parse_schema(node), "output": []}
 
         # ---- 7. Engine gap needs_review entries ----
-        # Engine uses delimiter default ',' but _java.xml FIELDSEPARATOR default is ';'
-        needs_review.append({
-            "issue": "Engine default delimiter=',' but _java.xml FIELDSEPARATOR default is ';' -- converter outputs 'fieldseparator'",
-            "component": node.component_id,
-            "severity": "engine_gap",
-        })
-        # Engine uses encoding default 'UTF-8' but _java.xml ENCODING default is 'ISO-8859-15'
-        needs_review.append({
-            "issue": "Engine default encoding='UTF-8' but _java.xml ENCODING default is 'ISO-8859-15'",
-            "component": node.component_id,
-            "severity": "engine_gap",
-        })
-        # Engine uses include_header default True but _java.xml INCLUDEHEADER default is False
-        needs_review.append({
-            "issue": "Engine default include_header=True but _java.xml INCLUDEHEADER default is False",
-            "component": node.component_id,
-            "severity": "engine_gap",
-        })
+        # All previously-flagged engine gaps have been resolved -- engine now reads
+        # 'fieldseparator' (default ';'), 'encoding' (default 'ISO-8859-15'), and
+        # 'include_header' (default False), all matching _java.xml defaults.
+        # Verified in src/v1/engine/components/file/file_output_delimited.py.
 
         # ---- 8. Build component wrapper ----
         component = self._build_component_dict(
