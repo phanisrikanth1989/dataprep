@@ -1,176 +1,179 @@
-"""
-tFileDelete component - Delete files or directories
+"""tFileDelete component - Deletes a file or directory.
 
 Talend equivalent: tFileDelete
+
+Config mapping (Talend XML param -> v1 engine config key):
+    FILENAME    -> filename      (str)  default-mode source path
+    DIRECTORY   -> directory     (str)  FOLDER mode source path
+    PATH        -> path          (str)  FOLDER_FILE mode source path
+                  Also accepts a single legacy ``path`` for any mode.
+    FAILON      -> failon        (bool, default True)
+                  Also accepts legacy ``fail_on_error``.
+    FOLDER      -> folder        (bool, default False) - directory mode
+                  Also accepts legacy ``is_directory``.
+    FOLDER_FILE -> folder_file   (bool, default False) - auto-detect mode
+                  Also accepts legacy ``is_folder_file``.
+
+Engine extension (no Talend equivalent):
+    recursive   (bool, default True) - recursive directory removal.
+                Talend deletes directory trees implicitly; default True
+                preserves Talend behaviour.
+
+GlobalMap variables (Talend parity):
+    {id}_DELETE_PATH     (string)  - resolved path that was acted on
+    {id}_CURRENT_STATUS  (string)  - "deleted" or "not exist"
+    {id}_ERROR_MESSAGE   (string)  - error message when deletion fails
+    {id}_NB_LINE / NB_LINE_OK / NB_LINE_REJECT  via _update_stats()
 """
 import os
 import shutil
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, Optional
 import logging
 
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
+from ...exceptions import ConfigurationError, FileOperationError
 
 logger = logging.getLogger(__name__)
 
 
+@REGISTRY.register("FileDelete", "tFileDelete")
 class FileDelete(BaseComponent):
+    """Deletes a file or directory in one of three modes.
+
+    Modes (mutually exclusive, evaluated in order):
+        1. ``folder_file`` (auto-detect) - delete whatever exists at ``path``
+        2. ``folder``      (directory)   - delete a directory at ``directory``
+        3. default         (file)        - delete a file at ``filename``
     """
-    Delete files or directories from the filesystem.
 
-    Configuration:
-        path (str): File or directory path to delete. Required.
-        fail_on_error (bool): Whether to fail if deletion encounters error. Default: True
-        is_directory (bool): Whether to treat path as directory. Default: False
-        is_folder_file (bool): Whether to delete file or directory, whichever exists. Default: False
-        recursive (bool): Whether to delete directories recursively. Default: False
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
 
-    Inputs:
-        None: This component does not process input data
+    def _get_bool(self, *keys: str, default: bool = False) -> bool:
+        for k in keys:
+            if k in self.config:
+                return bool(self.config[k])
+        return default
 
-    Outputs:
-        main: None (no data output)
-        status: Status message string
+    def _get_failon(self) -> bool:
+        return self._get_bool("failon", "fail_on_error", default=True)
 
-    Statistics:
-        NB_LINE: Number of items processed (1 if deleted, 0 if not)
-        NB_LINE_OK: Number of successful deletions
-        NB_LINE_REJECT: Number of failed deletions
+    def _get_folder(self) -> bool:
+        return self._get_bool("folder", "is_directory", default=False)
 
-    Example configuration:
-    {
-        "path": "/tmp/file.txt",
-        "fail_on_error": True,
-        "is_directory": False,
-        "recursive": False
-    }
-    """
+    def _get_folder_file(self) -> bool:
+        return self._get_bool("folder_file", "is_folder_file", default=False)
+
+    def _get_recursive(self) -> bool:
+        # Default True to mirror Talend's implicit recursive directory delete.
+        return bool(self.config.get("recursive", True))
+
+    def _resolve_path(self) -> str:
+        """Pick the path key that matches the active mode, with fallbacks."""
+        if self._get_folder_file():
+            return self.config.get("path") or self.config.get("PATH") or ""
+        if self._get_folder():
+            return (
+                self.config.get("directory")
+                or self.config.get("DIRECTORY")
+                or self.config.get("path")
+                or ""
+            )
+        return (
+            self.config.get("filename")
+            or self.config.get("FILENAME")
+            or self.config.get("path")
+            or ""
+        )
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def _validate_config(self) -> None:
+        path = self._resolve_path()
+        if not isinstance(path, str) or not path.strip():
+            raise ConfigurationError(
+                f"[{self.id}] Missing required path config "
+                "('filename', 'directory', or 'path' depending on mode)"
+            )
+        for key in (
+            "failon", "fail_on_error", "folder", "is_directory",
+            "folder_file", "is_folder_file", "recursive",
+        ):
+            if key in self.config and not isinstance(self.config[key], bool):
+                raise ConfigurationError(
+                    f"[{self.id}] Config '{key}' must be a boolean"
+                )
 
     def _process(self, input_data: Optional[Any] = None) -> Dict[str, Any]:
-        """
-        Delete the specified file or directory based on the configuration.
+        path = self._resolve_path()
+        failon = self._get_failon()
+        folder = self._get_folder()
+        folder_file = self._get_folder_file()
+        recursive = self._get_recursive()
 
-        Args:
-            input_data: Not used for this component
-
-        Returns:
-            Dictionary containing:
-                - 'main': None (no data output)
-                - 'status': Status message string
-
-        Raises:
-            ValueError: If required configuration is missing
-            FileOperationError: If deletion fails and fail_on_error is True
-        """
-        # Get configuration with defaults
-        path = self.config.get('path', '')
-        fail_on_error = self.config.get('fail_on_error', True)
-        is_directory = self.config.get('is_directory', False)
-        is_folder_file = self.config.get('is_folder_file', False)
-        recursive = self.config.get('recursive', False)
-
-        logger.info(f"[{self.id}] Delete operation started: {path}")
-
-        status_message = ""
+        logger.info("[%s] Delete operation started: %s", self.id, path)
         deleted = False
-        rows_processed = 0
-
-        if not path:
-            error_msg = "Missing required config: 'path'"
-            logger.error(f"[{self.id}] {error_msg}")
-            raise ValueError(f"[{self.id}] {error_msg}")
+        status = "not exist"
+        error_msg: Optional[str] = None
 
         try:
-            rows_processed = 1
-
-            # FOLDER_FILE: delete file or directory, whichever exists
-            if is_folder_file:
+            if folder_file:
                 if os.path.isfile(path):
                     os.remove(path)
-                    logger.info(f"[{self.id}] File deleted: {path}")
-                    status_message = "File (or path) deleted."
                     deleted = True
                 elif os.path.isdir(path):
                     if recursive:
                         shutil.rmtree(path)
                     else:
                         os.rmdir(path)
-                    logger.info(f"[{self.id}] Directory deleted: {path}")
-                    status_message = "File (or path) deleted."
                     deleted = True
-                else:
-                    logger.warning(f"[{self.id}] File or directory does not exist: {path}")
-                    status_message = "File (or path) does not exist or is invalid."
-            elif is_directory:
-                # Delete directory
+            elif folder:
                 if os.path.isdir(path):
                     if recursive:
                         shutil.rmtree(path)
                     else:
                         os.rmdir(path)
-                    logger.info(f"[{self.id}] Directory deleted: {path}")
-                    status_message = "File (or path) deleted."
                     deleted = True
-                else:
-                    logger.warning(f"[{self.id}] Directory does not exist: {path}")
-                    status_message = "File (or path) does not exist or is invalid."
             else:
-                # Delete file
                 if os.path.isfile(path):
                     os.remove(path)
-                    logger.info(f"[{self.id}] File deleted: {path}")
-                    status_message = "File (or path) deleted."
                     deleted = True
-                else:
-                    logger.warning(f"[{self.id}] File does not exist: {path}")
-                    status_message = "File (or path) does not exist or is invalid."
 
-            # Update statistics
-            rows_ok = 1 if deleted else 0
-            rows_reject = 0 if deleted else 1
-            self._update_stats(rows_processed, rows_ok, rows_reject)
+            if deleted:
+                status = "deleted"
+                logger.info("[%s] Deleted: %s", self.id, path)
+            else:
+                logger.warning("[%s] Path does not exist: %s", self.id, path)
 
-            logger.info(f"[{self.id}] Delete operation complete: "
-                        f"processed={rows_processed}, success={rows_ok}, failed={rows_reject}")
+        except OSError as exc:
+            error_msg = str(exc)
+            logger.error("[%s] Error deleting %s: %s", self.id, path, error_msg)
+            self._update_stats(rows_read=1, rows_ok=0, rows_reject=1)
+            if self.global_map is not None:
+                self.global_map.put(f"{self.id}_DELETE_PATH", path)
+                self.global_map.put(f"{self.id}_CURRENT_STATUS", "error")
+                self.global_map.put(f"{self.id}_ERROR_MESSAGE", error_msg)
+            if failon:
+                raise FileOperationError(
+                    f"[{self.id}] Failed to delete '{path}': {error_msg}"
+                ) from exc
+            return {
+                "main": {"status": "error", "path": path, "message": error_msg},
+                "reject": None,
+            }
 
-        except Exception as e:
-            logger.error(f"[{self.id}] Error deleting {path}: {e}")
-            status_message = f"Error: {e}"
-            self._update_stats(rows_processed, 0, 1)
-            if fail_on_error:
-                raise
+        rows_ok = 1 if deleted else 0
+        rows_reject = 0 if deleted else 1
+        self._update_stats(rows_read=1, rows_ok=rows_ok, rows_reject=rows_reject)
+        if self.global_map is not None:
+            self.global_map.put(f"{self.id}_DELETE_PATH", path)
+            self.global_map.put(f"{self.id}_CURRENT_STATUS", status)
 
-        return {'main': None, 'status': status_message}
-
-    def _validate_config(self) -> List[str]:
-        """
-        Validate component configuration.
-
-        Returns:
-            List of error messages (empty if valid)
-        """
-        errors = []
-
-        # Required fields
-        if 'path' not in self.config:
-            errors.append("Missing required config: 'path'")
-        elif not isinstance(self.config['path'], str):
-            errors.append("Config 'path' must be a non-empty string")
-
-        # Optional fields validation
-        if 'fail_on_error' in self.config:
-            if not isinstance(self.config['fail_on_error'], bool):
-                errors.append("Config 'fail_on_error' must be a boolean")
-
-        if 'is_directory' in self.config:
-            if not isinstance(self.config['is_directory'], bool):
-                errors.append("Config 'is_directory' must be a boolean")
-
-        if 'is_folder_file' in self.config:
-            if not isinstance(self.config['is_folder_file'], bool):
-                errors.append("Config 'is_folder_file' must be a boolean")
-        
-        if 'recursive' in self.config:
-            if not isinstance(self.config['recursive'], bool):
-                errors.append("Config 'recursive' must be a boolean")
-        
-        return errors
+        return {
+            "main": {"status": status, "path": path, "deleted": deleted},
+            "reject": None,
+        }

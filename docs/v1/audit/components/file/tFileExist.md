@@ -1,11 +1,38 @@
 # Audit Report: tFileExist / FileExistComponent
 
 > **Audited**: 2026-04-04
+> **Re-audited**: 2026-04-29 (engine remediation)
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: PRODUCTION READINESS REVIEW
+> **Status**: REMEDIATED -- engine rewritten to ENGINE_COMPONENT_PATTERN.md gold standard
 > **V1 only** -- this report contains zero references to v2/PyETL
+
+---
+
+## 0. 2026-04-29 Re-audit Summary (Engine Remediation)
+
+Engine rewrite at `src/v1/engine/components/file/file_exist.py` brings the
+component to gold-standard compliance. All P0/P1 issues from the 2026-04-04
+report are now resolved.
+
+| Issue | Status | Resolution |
+| ----- | ------ | ---------- |
+| ~~BUG-FE-001 (P0)~~ | **FIXED** | Cross-cutting `_update_global_map()` already corrected in `base_component.py:617` (verified) |
+| ~~STD-FE-001 (P1)~~ | **FIXED** | `_validate_config()` now raises `ConfigurationError` and is invoked by `BaseComponent.execute()` Step 2 |
+| ~~ENG-FE-001 (P1)~~ | **FIXED** | `{id}_EXISTS` written to globalMap in `_process()` |
+| ~~ENG-FE-002 (P1)~~ | **FIXED** | `{id}_FILENAME` written to globalMap in `_process()` |
+| ~~Needs-review #1 (engine_gap)~~ | **FIXED** | Engine accepts `file_name` (converter key), `file_path`, and legacy `FILE_NAME` |
+| ~~Testing P1 gap~~ | **FIXED** | New `tests/v1/engine/components/file/test_file_exist.py` (8 test classes, 14 tests, all passing) |
+| Code-Quality P2 (f-string in logger) | **FIXED** | Switched to %-formatting per Rule 8 |
+
+**Other improvements**:
+- Added `@REGISTRY.register("FileExistComponent", "FileExist", "tFileExist")` (Rule 9)
+- Module docstring now contains the full Config Mapping table (Rule 1)
+- Returns `{"main": ..., "reject": None}` per Rule 3
+- Replaced bare `ValueError` with `ConfigurationError` per Rule 7
+
+**New Overall: GREEN**. Updated scorecard: P0=0 / P1=0 / P2=0 / P3=0.
 
 ---
 

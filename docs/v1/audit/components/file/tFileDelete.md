@@ -1,11 +1,43 @@
 # Audit Report: tFileDelete / FileDelete
 
 > **Audited**: 2026-04-04
+> **Re-audited**: 2026-04-29 (engine remediation)
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: PRODUCTION READINESS REVIEW
+> **Status**: REMEDIATED -- engine rewritten to ENGINE_COMPONENT_PATTERN.md gold standard
 > **V1 only** -- this report is scoped to the v1 engine exclusively
+
+---
+
+## 0. 2026-04-29 Re-audit Summary (Engine Remediation)
+
+Engine rewrite at `src/v1/engine/components/file/file_delete.py` brings the
+component to gold-standard compliance and resolves all 5 converter
+needs-review entries.
+
+| Issue | Status | Resolution |
+| ----- | ------ | ---------- |
+| ~~BUG-DEL P0 (`_update_global_map` crash)~~ | **FIXED** | Cross-cutting fix already in `base_component.py:617` (verified) |
+| ~~ENG-DEL-001 (P1)~~ | **FIXED** | Engine now reads `filename`, `directory`, `path` based on active mode (with single-`path` legacy fallback) |
+| ~~ENG-DEL-002 (P1)~~ | **FIXED** | Engine reads `failon` (converter key) plus legacy `fail_on_error`; default True per _java.xml |
+| ~~ENG-DEL-003 (P1)~~ | **FIXED** | Engine reads `folder` / `folder_file` plus legacy `is_directory` / `is_folder_file` |
+| ~~ENG-DEL-005 (P2)~~ | **FIXED** | `{id}_DELETE_PATH`, `{id}_CURRENT_STATUS`, and `{id}_ERROR_MESSAGE` all set per Talend semantics |
+| ENG-DEL-004 (P2 -- recursive flag) | **FIXED** | `recursive` default changed to `True` to match Talend implicit-recursive behaviour; param remains a documented engine extension |
+| ~~Code-Quality P1 (dead `_validate_config`)~~ | **FIXED** | Now raises `ConfigurationError`; invoked by base `execute()` |
+| ~~Code-Quality P2 (f-string in logger)~~ | **FIXED** | %-formatting throughout |
+| ~~Code-Quality P3 (redundant os.path checks)~~ | **FIXED** | Each mode is a single `isfile`/`isdir` branch |
+| ~~Testing P2 gap~~ | **FIXED** | New `tests/v1/engine/components/file/test_file_delete.py` (9 classes, 18 tests, all passing) |
+
+**Other improvements**:
+- Added `@REGISTRY.register("FileDelete", "tFileDelete")` (Rule 9)
+- Module docstring with full Config Mapping table (Rule 1)
+- Replaced bare `ValueError` and re-raise with `ConfigurationError` / `FileOperationError` (Rule 7)
+- Returns `{"main": ..., "reject": None}` (Rule 3)
+
+**Outstanding (deferred)**: ENG-DEL-006 (P3, symlink handling) -- low impact, not in Talend either; left as documented gap.
+
+**New Overall: GREEN**. Updated scorecard: P0=0 / P1=0 / P2=0 / P3=1.
 
 ---
 

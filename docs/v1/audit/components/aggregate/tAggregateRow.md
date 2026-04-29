@@ -1,11 +1,20 @@
 # Audit Report: tAggregateRow / AggregateRow
 
 > **Audited**: 2026-04-03
+> **Re-audited**: 2026-04-29 (engine rewritten -- most P0/P1 bugs resolved)
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
 > **V1 only** -- this report is scoped to the v1 engine exclusively
+>
+> **2026-04-29 update summary:** Engine fully rewritten (`_grouped_aggregation` +
+> `pd.NamedAgg` single-pass agg). All four P0/P1 functional bugs (ENG-AGG-001..004)
+> are RESOLVED. The legacy `_aggregate_all/_aggregate_grouped/_ensure_output_columns`
+> code path (and its `BUG-AGG-*` issues) no longer exists. `list_object`, `union`,
+> `population_std_dev`, and `USE_FINANCIAL_PRECISION` are all implemented. Engine
+> rating moves from Y to G; overall remains Y because Testing is still R
+> (zero engine unit tests).
 
 ---
 
@@ -15,7 +24,7 @@
 | ------- | ------- |
 | **Talend Name** | `tAggregateRow` |
 | **V1 Engine Class** | `AggregateRow` |
-| **Engine File** | `src/v1/engine/components/aggregate/aggregate_row.py` (543 lines) |
+| **Engine File** | `src/v1/engine/components/aggregate/aggregate_row.py` (~440 lines, rewritten) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/aggregate/aggregate_row.py` |
 | **Converter Dispatch** | `@REGISTRY.register("tAggregateRow")` decorator-based dispatch |
 | **Registry Aliases** | `tAggregateRow` |
@@ -33,25 +42,34 @@
 
 ---
 
-## 2. Scorecard
+## 2. Scorecard (2026-04-29 re-audit)
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
-| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 9 of 9 params extracted; GROUPBYS and OPERATIONS tables parsed; all 12 functions in _FUNCTION_MAP; per-feature needs_review entries for engine gaps |
-| Engine Feature Parity | **Y** | 1 | 3 | 4 | 1 | `_ensure_output_columns` else-branch nulls computed columns; output_column ignored in grouped mode; ignore_null unused; missing functions (list_object, union, population_std_dev); no financial precision toggle |
-| Code Quality | **Y** | 1 | 1 | 3 | 0 | `_ensure_output_columns` critical bug; `_validate_config()` dead code; column collision; Decimal check inconsistency; indentation anomaly |
-| Performance & Memory | **Y** | 0 | 1 | 1 | 1 | Per-operation merge creates O(n*ops) intermediate DataFrames; no Decimal handling in grouped mode; excessive logging slows large datasets |
-| Testing | **R** | 1 | 0 | 0 | 0 | Zero engine unit tests; zero engine integration tests |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 9 of 9 params extracted; GROUPBYS and OPERATIONS tables parsed; all 12 functions in _FUNCTION_MAP; stale gap warnings removed (output_column rename, ignore_null, list-as-string) -- engine now supports them |
+| Engine Feature Parity | **G** | 0 | 0 | 2 | 1 | All P0/P1 bugs RESOLVED. Single-pass `pd.NamedAgg` agg; output_column rename; per-op ignore_null; list returns delimited string; list_object, union, population_std_dev all implemented; USE_FINANCIAL_PRECISION fully wired (Decimal sum/avg/std/var/min/max). Remaining gaps: CHECK_TYPE_OVERFLOW and CHECK_ULP not implemented (P2, deferred) |
+| Code Quality | **G** | 0 | 0 | 1 | 0 | `_ensure_output_columns` and per-op merge code paths removed; `_validate_config()` now invoked by base class lifecycle; Decimal helpers (`_to_decimal`, `_decimal_sum`, `_decimal_mean`, `_decimal_std`) consistent. Minor: one INFO log per execute() (line 341) could be DEBUG |
+| Performance & Memory | **G** | 0 | 0 | 1 | 0 | Single `groupby(...).agg(**named_aggs)` call -- O(n) instead of legacy O(n*ops). Excessive INFO logging removed. Streaming-mode aggregation (chunked) still not supported (P2, deferred) |
+| Testing | **R** | 1 | 0 | 0 | 0 | Zero engine unit tests; zero engine integration tests (UNCHANGED -- this is the remaining blocker) |
 
-**Overall: YELLOW -- Not production-ready without P0/P1 fixes to the engine**
+**Overall: YELLOW -- Engine code is production-ready; blocked only by missing engine test coverage.**
 
-**Top Actions:**
+**Top Actions (revised):**
 
-1. Fix `_ensure_output_columns` else-branch that nulls computed aggregation columns (P0)
-2. Support output_column renaming in grouped aggregation mode (P1)
-3. Honor per-operation ignore_null flag from config (P1)
-4. Add missing aggregation functions: list_object, union, population_std_dev (P2)
-5. Implement financial precision toggle (USE_FINANCIAL_PRECISION) (P2)
+1. Add engine unit tests for `AggregateRow._process` (grouped + global modes) (P0)
+2. Add engine integration tests for Decimal precision paths (financial precision)
+3. (Deferred) Implement CHECK_TYPE_OVERFLOW and CHECK_ULP for full Talend parity (P2)
+4. (Deferred) Add chunked streaming-mode aggregation for very large datasets (P2)
+
+### Original (2026-04-03) Scorecard -- preserved for diff reference
+
+| Dimension | Score | P0 | P1 | P2 | P3 |
+| ----------- | ------- | ---- | ---- | ---- | ---- |
+| Converter Coverage | G | 0 | 0 | 0 | 0 |
+| Engine Feature Parity | Y | 1 | 3 | 4 | 1 |
+| Code Quality | Y | 1 | 1 | 3 | 0 |
+| Performance & Memory | Y | 0 | 1 | 1 | 1 |
+| Testing | R | 1 | 0 | 0 | 0 |
 
 ---
 
@@ -435,7 +453,39 @@ Logging sample data values at INFO level (line 151: `input_data[input_col].head(
 
 ## 9. Issues Summary
 
-### By Priority
+### Resolution Status (2026-04-29 re-audit)
+
+The engine rewrite resolved most issues from the 2026-04-03 audit. Verified against
+current `src/v1/engine/components/aggregate/aggregate_row.py`:
+
+| ID | Original Severity | Status | Evidence in current code |
+| ---- | ------------------- | -------- | -------------------------- |
+| ENG-AGG-001 / BUG-AGG-001 | P0 | RESOLVED | `_ensure_output_columns()` removed; outputs computed directly by `pd.NamedAgg` |
+| ENG-AGG-002 | P1 | RESOLVED | groupby column rename via `rename_map` in `_process()` |
+| ENG-AGG-003 | P1 | RESOLVED | `op.get("ignore_null", True)` read and propagated as `skipna` |
+| ENG-AGG-004 | P1 | RESOLVED | `list` returns `list_delimiter.join(...)` delimited string |
+| ENG-AGG-005 | P2 | RESOLVED | `list_object` implemented (returns Python list, no delimiter -- per Talaxie) |
+| ENG-AGG-006 | P2 | RESOLVED | `union` implemented (sorted distinct + delimited join) |
+| ENG-AGG-007 | P2 | RESOLVED | `population_std_dev` (ddof=0) for both Decimal and float paths |
+| ENG-AGG-008 | P2 | RESOLVED | `use_financial_precision` applied to sum/avg/std/var/min/max in grouped and global modes |
+| BUG-AGG-002 | P1 | RESOLVED | indentation anomaly removed in rewrite |
+| BUG-AGG-003 | P2 | RESOLVED | `pd.NamedAgg(column=..., aggfunc=...)` separates output names from input cols |
+| BUG-AGG-004 | P2 | RESOLVED | Decimal helpers iterate full series instead of `iloc[0]` |
+| STD-AGG-001 | P2 | RESOLVED | `_validate_config()` invoked by BaseComponent lifecycle |
+| PERF-AGG-001 | P1 | RESOLVED | Single-pass `groupby(...).agg(**named_aggs)` -- no per-op merge |
+| PERF-AGG-002 | P2 | RESOLVED | INFO log spam reduced; debug logging gated |
+
+**Remaining open issues (post-rewrite):**
+
+| ID | Priority | Status | Notes |
+| ---- | ---------- | -------- | ------- |
+| TEST-AGG-001 | P0 | OPEN | Zero engine unit tests -- only remaining production blocker |
+| ENG-AGG-009 | P2 | OPEN (deferred) | CHECK_TYPE_OVERFLOW not implemented; converter flags engine_gap when enabled |
+| ENG-AGG-010 | P2 | OPEN (deferred) | CHECK_ULP not implemented; converter flags engine_gap when enabled |
+| PERF-AGG-003 | P3 | OPEN | Streaming-mode chunked aggregation not implemented |
+| XCUT-001..004 | -- | OPEN | Cross-cutting `base_component.py` issues tracked separately |
+
+### Original (2026-04-03) By-Priority Snapshot -- preserved for diff
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |

@@ -1,11 +1,45 @@
 # Audit Report: tFileCopy / FileCopy
 
 > **Audited**: 2026-04-04
+> **Re-audited**: 2026-04-29 (engine remediation)
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: PRODUCTION READINESS REVIEW
+> **Status**: REMEDIATED -- engine rewritten to ENGINE_COMPONENT_PATTERN.md gold standard
 > **V1 only** -- this report is scoped to the v1 engine exclusively
+
+---
+
+## 0. 2026-04-29 Re-audit Summary (Engine Remediation)
+
+Engine rewrite at `src/v1/engine/components/file/file_copy.py` brings the
+component to gold-standard compliance and implements all 5 missing
+features.
+
+| Issue | Status | Resolution |
+| ----- | ------ | ---------- |
+| ~~BUG-FC P0 (`_update_global_map` crash)~~ | **FIXED** | Cross-cutting fix already in `base_component.py:617` (verified) |
+| ~~ENG-FC-001 (P1, source key mismatch)~~ | **FIXED** | Engine reads `filename` (converter key) with legacy `source` fallback |
+| ~~ENG-FC-002 (P1, rename key mismatch)~~ | **FIXED** | Engine reads `destination_rename` with legacy `new_name` fallback |
+| ~~ENG-FC-003 (P1, preserve mtime key mismatch)~~ | **FIXED** | Engine reads `preserve_last_modified_time` with legacy `preserve_last_modified` fallback |
+| ~~ENG-FC-004 (P2, REMOVE_FILE missing)~~ | **FIXED** | `remove_file` deletes source after successful copy (move semantics) |
+| ~~ENG-FC-005 (P2, FAILON missing)~~ | **FIXED** | `failon` raises `FileOperationError` on failure; `failon=False` returns error dict (when `die_on_error=False`) |
+| ~~Needs-review #4 (enable_copy_directory)~~ | **FIXED** | Read and used to switch to directory-copy mode |
+| ~~Needs-review #5 (source_derectory typo)~~ | **FIXED** | Read with the Talend typo preserved; `source_directory` accepted as alias |
+| ~~Needs-review #8 (force_copy_delete)~~ | **FIXED** | Implemented; tolerates source-removal failure when set |
+| ~~Code-Quality P1 (no `_validate_config`)~~ | **FIXED** | Raises `ConfigurationError` for missing source/destination/bad bool types |
+| ~~Code-Quality P2 (f-string in logger)~~ | **FIXED** | %-formatting throughout |
+| ~~Code-Quality P2 (bare except)~~ | **FIXED** | Narrowed to `OSError` / `FileOperationError` |
+| ~~Code-Quality P3 (unused typing import)~~ | **FIXED** | Imports trimmed |
+| ~~Testing P2 gap~~ | **FIXED** | New `tests/v1/engine/components/file/test_file_copy.py` (9 classes, 17 tests, all passing) |
+
+**Other improvements**:
+- Added `@REGISTRY.register("FileCopy", "tFileCopy")` (Rule 9)
+- Module docstring with full 12-key Config Mapping table (Rule 1)
+- Replaced bare `ValueError` / `FileNotFoundError` / `FileExistsError` with `ConfigurationError` / `FileOperationError` (Rule 7)
+- Returns `{"main": ..., "reject": None}` (Rule 3)
+
+**New Overall: GREEN**. Updated scorecard: P0=0 / P1=0 / P2=0 / P3=0.
 
 ---
 

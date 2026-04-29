@@ -97,7 +97,7 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 59 | PythonDataFrameComponent | Y | N/A | Y | Y | G | N/A | 2 | 8 | 8 | 2 | 20 |
 | 60 | SwiftTransformer | Y | N/A | Y | Y | Y | N/A | 3 | 7 | 17 | 6 | 33 |
 | 61 | SwiftBlockFormatter | Y | N/A | Y | Y | Y | N/A | 3 | 10 | 16 | 9 | 38 |
-| 62 | tAggregateRow | Y | G | Y | Y | Y | R | 3 | 5 | 8 | 2 | 18 |
+| 62 | tAggregateRow | Y | G | G | G | G | R | 1 | 0 | 3 | 1 | 5 |
 | 63 | tUniqueRow | Y | G | Y | Y | Y | G | 1 | 4 | 7 | 4 | 16 |
 | 64 | tDie | Y | G | Y | Y | G | G | 1 | 4 | 5 | 3 | 13 |
 | 65 | tWarn | Y | G | Y | Y | G | G | 2 | 2 | 3 | 2 | 9 |
@@ -331,11 +331,12 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 
 | # | Component | Overall | P0 | P1 | P2 | P3 | Total |
 | --- | ----------- | --------- | ---- | ---- | ---- | ---- | ------- |
-| 1 | tAggregateRow | Y | 3 | 5 | 8 | 2 | 18 |
+| 1 | tAggregateRow | Y | 1 | 0 | 3 | 1 | 5 |
 | 2 | tUniqueRow | Y | 1 | 4 | 7 | 4 | 16 |
 
-**Category summary:** 0 Red, 2 Yellow, 0 Green. Total issues: 34.
-**Note:** tAggregateRow REWRITTEN (2026-04-04): Audit rewritten per gold standard. 9 params extracted with GROUPBYS/OPERATIONS tables. 3 P0 (engine bug + cross-cutting), 5 P1 (engine gaps), 8 P2, 2 P3. Converter=G, Testing=R (no engine tests). Overall=Y.
+**Category summary:** 0 Red, 2 Yellow, 0 Green. Total issues: 21.
+**Note:** tAggregateRow RE-AUDITED (2026-04-29): Engine fully rewritten since 2026-04-04 audit. All four P0/P1 functional bugs (ENG-AGG-001..004) RESOLVED. Single-pass `pd.NamedAgg` aggregation; output_column rename; per-op ignore_null; list returns delimited string; list_object/union/population_std_dev all implemented; USE_FINANCIAL_PRECISION wired through Decimal helpers in both grouped and global modes. Engine=G, Code Quality=G, Performance=G. Overall remains Y because Testing=R (zero engine unit tests -- only remaining production blocker). Issues reduced 18->5. Stale converter needs_review entries also removed.
+**Note:** tUniqueRow RE-VERIFIED (2026-04-29): Engine unchanged since original audit; all findings still valid. Per-column case sensitivity, IS_VIRTUAL_COMPONENT, BigDecimal hash normalization, and ONLY_ONCE_EACH_DUPLICATED_KEY remain real engine gaps.
 
 ### Control Components (9)
 

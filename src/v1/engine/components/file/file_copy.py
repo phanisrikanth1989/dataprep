@@ -1,133 +1,217 @@
-"""
-tFileCopy component - Copies files from source to destination
+"""tFileCopy component - Copies a file or directory.
 
 Talend equivalent: tFileCopy
+
+Config mapping (Talend XML param -> v1 engine config key):
+    FILENAME                    -> filename                   (str, required for file mode)
+                                   Also accepts legacy ``source``.
+    ENABLE_COPY_DIRECTORY       -> enable_copy_directory      (bool, default False)
+    SOURCE_DERECTORY            -> source_derectory           (str)  -- Talend typo preserved
+                                   Also accepts ``source_directory``.
+    DESTINATION                 -> destination                (str, required)
+    RENAME                      -> rename                     (bool, default False)
+    DESTINATION_RENAME          -> destination_rename         (str, default 'NewName.temp')
+                                   Also accepts legacy ``new_name``.
+    REMOVE_FILE                 -> remove_file                (bool, default False)
+                                   When True, deletes source after successful copy.
+    REPLACE_FILE                -> replace_file               (bool, default True)
+    CREATE_DIRECTORY            -> create_directory           (bool, default True)
+    FAILON                      -> failon                     (bool, default False)
+                                   Also accepts legacy ``fail_on_error``.
+    FORCE_COPY_DELETE           -> force_copy_delete          (bool, default False)
+                                   Used with REMOVE_FILE to force delete of source.
+    PRESERVE_LAST_MODIFIED_TIME -> preserve_last_modified_time (bool, default False)
+                                   Also accepts legacy ``preserve_last_modified``.
+
+GlobalMap variables:
+    {id}_NB_LINE / NB_LINE_OK / NB_LINE_REJECT via _update_stats()
+    {id}_ERROR_MESSAGE  (string) -- set when the copy operation fails
 """
 import os
 import shutil
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, Optional
 import logging
 
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
+from ...exceptions import ConfigurationError, FileOperationError
 
 logger = logging.getLogger(__name__)
 
 
+@REGISTRY.register("FileCopy", "tFileCopy")
 class FileCopy(BaseComponent):
-    """
-    Copies files or directories from source to destination.
+    """Copies a file or directory from source to destination.
 
-    Configuration:
-        source (str): Source file or directory path. Required.
-        destination (str): Destination file or directory path. Required.
-        rename (bool): Whether to rename the copied file. Default: False
-        new_name (str): New name for the copied file (if rename is True). Default: ''
-        replace_file (bool): Whether to replace existing files. Default: True
-        create_directory (bool): Whether to create destination directory if it doesn't exist. Default: True
-        preserve_last_modified (bool): Whether to preserve last modified time. Default: False
-
-    Inputs:
-        None: This component does not process input data
-
-    Outputs:
-        main: Result dictionary with status and message
-
-    Statistics:
-        NB_LINE: Number of copy operations attempted (always 1)
-        NB_LINE_OK: Number of successful copies
-        NB_LINE_REJECT: Number of failed copies
-
-    Example configuration:
-    {
-        "source": "/source/file.txt",
-        "destination": "/dest/",
-        "rename": True,
-        "new_name": "newfile.txt",
-        "replace_file": True
-    }
+    Supports rename, replace, directory-tree copy, source-removal (move
+    semantics), timestamp preservation, and FAILON error policy per Talend.
     """
 
-    def _process(self, input_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """
-        Perform the file copy operation based on the configuration.
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
 
-        Args:
-            input_data: Not used for this component
+    def _get_bool(self, *keys: str, default: bool = False) -> bool:
+        for k in keys:
+            if k in self.config:
+                return bool(self.config[k])
+        return default
 
-        Returns:
-            Dictionary containing:
-                - 'main': Result dictionary with status and message
+    def _get_str(self, *keys: str, default: str = "") -> str:
+        for k in keys:
+            if k in self.config and self.config[k] is not None:
+                return str(self.config[k])
+        return default
 
-        Raises:
-            ValueError: If required configuration is missing
-            FileNotFoundError: If source file doesn't exist
-            FileExistsError: If destination exists and replace_file is False
-        """
-        # Get configuration with defaults
-        source = self.config.get('source')
-        destination = self.config.get('destination')
-        rename = self.config.get('rename', False)
-        new_name = self.config.get('new_name', '')
-        replace_file = self.config.get('replace_file', True)
-        create_directory = self.config.get('create_directory', True)
-        preserve_last_modified = self.config.get('preserve_last_modified', False)
+    def _resolve_source(self) -> str:
+        if self._get_bool("enable_copy_directory", default=False):
+            return self._get_str(
+                "source_derectory", "source_directory", "filename", "source"
+            )
+        return self._get_str("filename", "source")
 
-        logger.info(f"[{self.id}] Copy operation started: {source} -> {destination}")
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
 
-        rows_processed = 1
-        result = {'status': 'error', 'message': ''}
+    def _validate_config(self) -> None:
+        source = self._resolve_source()
+        destination = self._get_str("destination")
+        if not source.strip():
+            raise ConfigurationError(
+                f"[{self.id}] Missing required source config "
+                "('filename' or 'source_derectory' when enable_copy_directory=true)"
+            )
+        if not destination.strip():
+            raise ConfigurationError(
+                f"[{self.id}] Missing required config key 'destination'"
+            )
+        bool_keys = (
+            "enable_copy_directory", "rename", "remove_file", "replace_file",
+            "create_directory", "failon", "fail_on_error", "force_copy_delete",
+            "preserve_last_modified_time", "preserve_last_modified",
+        )
+        for key in bool_keys:
+            if key in self.config and not isinstance(self.config[key], bool):
+                raise ConfigurationError(
+                    f"[{self.id}] Config '{key}' must be a boolean"
+                )
+
+    def _process(self, input_data: Optional[Any] = None) -> Dict[str, Any]:
+        source = self._resolve_source()
+        destination = self._get_str("destination")
+        rename = self._get_bool("rename", default=False)
+        new_name = self._get_str("destination_rename", "new_name", default="")
+        replace_file = self._get_bool("replace_file", default=True)
+        create_directory = self._get_bool("create_directory", default=True)
+        preserve_last_modified = self._get_bool(
+            "preserve_last_modified_time", "preserve_last_modified", default=False
+        )
+        remove_file = self._get_bool("remove_file", default=False)
+        failon = self._get_bool("failon", "fail_on_error", default=False)
+        force_copy_delete = self._get_bool("force_copy_delete", default=False)
+        enable_copy_directory = self._get_bool("enable_copy_directory", default=False)
+
+        logger.info(
+            "[%s] Copy operation started: %s -> %s", self.id, source, destination,
+        )
+
+        copied = False
+        error_msg: Optional[str] = None
 
         try:
-            if not source or not destination:
-                error_msg = "Source and destination paths must be provided"
-                logger.error(f"[{self.id}] {error_msg}")
-                raise ValueError(f"[{self.id}] {error_msg}")
-
             if not os.path.exists(source):
-                error_msg = f"Source path does not exist: {source}"
-                logger.error(f"[{self.id}] {error_msg}")
-                raise FileNotFoundError(f"[{self.id}] {error_msg}")
+                raise FileOperationError(
+                    f"[{self.id}] Source path does not exist: {source}"
+                )
 
-            # Create destination directory if needed
-            if not os.path.exists(destination) and create_directory:
-                logger.debug(f"[{self.id}] Creating destination directory: {destination}")
-                os.makedirs(destination)
+            is_directory_copy = enable_copy_directory or os.path.isdir(source)
 
-            # Handle renaming
-            final_destination = destination
-            if rename and new_name:
-                final_destination = os.path.join(destination, new_name)
-                logger.debug(f"[{self.id}] Renaming to: {new_name}")
+            # Decide final destination path.
+            if is_directory_copy:
+                final_destination = destination
+                if create_directory:
+                    parent = os.path.dirname(destination.rstrip(os.sep))
+                    if parent and not os.path.exists(parent):
+                        os.makedirs(parent, exist_ok=True)
+            else:
+                # File-mode copy: ensure dest directory exists, then place file.
+                if create_directory and not os.path.exists(destination):
+                    os.makedirs(destination, exist_ok=True)
+                target_filename = new_name if (rename and new_name) else os.path.basename(source)
+                if os.path.isdir(destination):
+                    final_destination = os.path.join(destination, target_filename)
+                else:
+                    final_destination = destination
 
-            # Check if destination exists
-            if os.path.exists(final_destination) and not replace_file:
-                error_msg = f"Destination already exists and replace_file is False: {final_destination}"
-                logger.error(f"[{self.id}] {error_msg}")
-                raise FileExistsError(f"[{self.id}] {error_msg}")
+            if (
+                os.path.exists(final_destination)
+                and not replace_file
+                and not is_directory_copy
+            ):
+                raise FileOperationError(
+                    f"[{self.id}] Destination already exists and replace_file=False: "
+                    f"{final_destination}"
+                )
 
-            # Perform the copy operation
-            if os.path.isdir(source):
-                logger.debug(f"[{self.id}] Copying directory: {source} -> {final_destination}")
+            if is_directory_copy:
                 shutil.copytree(source, final_destination, dirs_exist_ok=replace_file)
             else:
-                logger.debug(f"[{self.id}] Copying file: {source} -> {final_destination}")
                 shutil.copy2(source, final_destination)
 
-            # Preserve last modified time if requested
             if preserve_last_modified:
-                logger.debug(f"[{self.id}] Preserving last modified time")
                 shutil.copystat(source, final_destination)
 
-            # Update statistics and create result
-            self._update_stats(rows_processed, 1, 0)
-            result = {'status': 'success', 'message': f"Copied {source} to {final_destination}"}
+            copied = True
+            logger.info(
+                "[%s] Copy complete: %s -> %s", self.id, source, final_destination,
+            )
 
-            logger.info(f"[{self.id}] Copy operation complete: "
-                f"processed={rows_processed}, success=1, failed=0")
+            # Move semantics: REMOVE_FILE deletes source after successful copy.
+            if remove_file and (copied or force_copy_delete):
+                try:
+                    if os.path.isdir(source):
+                        shutil.rmtree(source)
+                    else:
+                        os.remove(source)
+                    logger.info("[%s] Source removed after copy: %s", self.id, source)
+                except OSError as rm_exc:
+                    if force_copy_delete:
+                        logger.warning(
+                            "[%s] Forced source removal failed: %s",
+                            self.id, rm_exc,
+                        )
+                    else:
+                        raise
 
-        except Exception as e:
-            logger.error(f"[{self.id}] Copy operation failed: {e}")
-            self._update_stats(rows_processed, 0, 1)
-            result = {'status': 'error', 'message': str(e)}
+        except (OSError, FileOperationError) as exc:
+            error_msg = str(exc)
+            logger.error("[%s] Copy operation failed: %s", self.id, error_msg)
+            self._update_stats(rows_read=1, rows_ok=0, rows_reject=1)
+            if self.global_map is not None:
+                self.global_map.put(f"{self.id}_ERROR_MESSAGE", error_msg)
+            if failon or self.die_on_error:
+                if isinstance(exc, FileOperationError):
+                    raise
+                raise FileOperationError(
+                    f"[{self.id}] Copy failed ({source} -> {destination}): {error_msg}"
+                ) from exc
+            return {
+                "main": {
+                    "status": "error",
+                    "source": source,
+                    "destination": destination,
+                    "message": error_msg,
+                },
+                "reject": None,
+            }
 
-        return {'main': result}
+        self._update_stats(rows_read=1, rows_ok=1, rows_reject=0)
+        return {
+            "main": {
+                "status": "success",
+                "source": source,
+                "destination": final_destination,
+            },
+            "reject": None,
+        }
