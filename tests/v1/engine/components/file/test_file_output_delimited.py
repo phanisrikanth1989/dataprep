@@ -756,15 +756,20 @@ class TestIterateReexecution:
 
 @pytest.mark.unit
 class TestMultiCharDelimiter:
-    """Multi-character field separator support (requires csv_option=True per CR-06).
+    """Multi-character field separator behaviour (Talend parity).
 
-    Per CR-06: multi-char separators are only supported when csv_option=True
-    (uses _write_raw_mode). Without csv_option, a ConfigurationError is raised
-    because Python's csv module and pandas.to_csv require single-char delimiters.
+    Verified against Talaxie tdi-studio-se primary source on 2026-04-29:
+
+    - csv_option=True + multi-char fieldseparator: Talend's csv writer takes a
+      Java char (single UTF-16 unit) via setSeparator(char). The component
+      truncates to the first character and emits a warning (parity).
+    - csv_option=False + multi-char fieldseparator: Talend writes via
+      BufferedWriter.write(String), which accepts arbitrary-length separators.
+      The component preserves the full string between fields.
     """
 
-    def test_pipe_semicolon_delimiter_with_csv_option(self, tmp_path):
-        """Two-char delimiter '|;' + csv_option=True writes via raw mode."""
+    def test_pipe_semicolon_delimiter_with_csv_option(self, tmp_path, caplog):
+        """csv_option=True + '|;' -> first char '|' used; warning logged."""
         filepath = str(tmp_path / "output.csv")
         config = {
             **_DEFAULT_CONFIG, "filepath": filepath,
@@ -772,14 +777,26 @@ class TestMultiCharDelimiter:
             "file_exist_exception": False,
         }
         comp = _make_component(config=config)
-        comp.execute(_make_input_df())
+        with caplog.at_level("WARNING"):
+            comp.execute(_make_input_df())
         content = open(filepath, encoding="ISO-8859-15").read()
         lines = content.splitlines()
         assert len(lines) == 3
-        assert "|;" in lines[0]
+        # Output uses single-char '|' only; multi-char '|;' must NOT appear.
+        assert "|;" not in content
+        assert "|" in lines[0]
+        # Warning emitted explaining the truncation (Talend parity).
+        truncate_warns = [
+            r for r in caplog.records
+            if "Multi-character fieldseparator" in r.message and "first character" in r.message
+        ]
+        assert truncate_warns, (
+            f"Expected truncate warning for multi-char + csv_option=True. "
+            f"Records: {[r.message for r in caplog.records]}"
+        )
 
     def test_multichar_delimiter_with_header(self, tmp_path):
-        """Multi-char delimiter + csv_option writes header correctly."""
+        """csv_option=True + multi-char + with_header -> header line uses first char only."""
         filepath = str(tmp_path / "output.csv")
         config = {
             **_DEFAULT_CONFIG, "filepath": filepath,
@@ -791,11 +808,12 @@ class TestMultiCharDelimiter:
         content = open(filepath, encoding="ISO-8859-15").read()
         lines = content.splitlines()
         assert len(lines) == 4  # 1 header + 3 data
-        # Header fields are quoted in CSV mode
-        assert "|;" in lines[0]
+        # Header line uses '|' only, never '|;'.
+        assert "|;" not in lines[0]
+        assert "|" in lines[0]
 
     def test_multichar_delimiter_with_csv_option(self, tmp_path):
-        """Multi-char delimiter + csv_option=True encloses all fields."""
+        """csv_option=True: rows use single-char '|', not '|;' (Talend setSeparator(char))."""
         filepath = str(tmp_path / "output.csv")
         config = {
             **_DEFAULT_CONFIG, "filepath": filepath,
@@ -806,11 +824,12 @@ class TestMultiCharDelimiter:
         df = pd.DataFrame([{"id": 1, "name": "Alice", "value": 100.0}])
         comp.execute(df)
         content = open(filepath, encoding="ISO-8859-15").read()
-        # Every field enclosed in double quotes
-        assert '"1"|;"Alice"|;"100.0"' in content
+        # CSV mode encloses every field; the delimiter between fields is '|', not '|;'.
+        assert '"1"|"Alice"|"100.0"' in content
+        assert "|;" not in content
 
     def test_multichar_delimiter_csv_escapes_enclosure_in_value(self, tmp_path):
-        """Multi-char delimiter + csv_option escapes enclosure chars in values."""
+        """csv_option=True + multi-char: enclosure chars in values are still escaped."""
         filepath = str(tmp_path / "output.csv")
         config = {
             **_DEFAULT_CONFIG, "filepath": filepath,
@@ -821,11 +840,11 @@ class TestMultiCharDelimiter:
         df = pd.DataFrame([{"id": 1, "name": 'Alice "The Great"', "value": 100.0}])
         comp.execute(df)
         content = open(filepath, encoding="ISO-8859-15").read()
-        # Doubled quotes for escaping
+        # Doubled quotes for escaping (CSV doublequote behavior).
         assert '""The Great""' in content
 
     def test_multichar_delimiter_split_mode(self, tmp_path):
-        """Multi-char delimiter + csv_option works with split output."""
+        """csv_option=True + split + multi-char -> all split files use first char only."""
         filepath = str(tmp_path / "output.csv")
         config = {
             **_DEFAULT_CONFIG, "filepath": filepath,
@@ -837,13 +856,16 @@ class TestMultiCharDelimiter:
         comp.execute(_make_input_df())
         file0 = open(str(tmp_path / "output0.csv"), encoding="ISO-8859-15").read()
         file1 = open(str(tmp_path / "output1.csv"), encoding="ISO-8859-15").read()
-        assert "|;" in file0
-        assert "|;" in file1
+        # First-char-only delimiter in every split file.
+        assert "|;" not in file0
+        assert "|;" not in file1
+        assert "|" in file0
+        assert "|" in file1
         assert len(file0.splitlines()) == 2
         assert len(file1.splitlines()) == 1
 
     def test_multichar_delimiter_append_mode(self, tmp_path):
-        """Multi-char delimiter + csv_option works in append mode."""
+        """csv_option=True + append + multi-char -> appended lines use first char only."""
         filepath = str(tmp_path / "output.csv")
         config = {
             **_DEFAULT_CONFIG, "filepath": filepath,
@@ -857,20 +879,30 @@ class TestMultiCharDelimiter:
         content = open(filepath, encoding="ISO-8859-15").read()
         lines = content.splitlines()
         assert len(lines) == 2
-        assert "|;" in lines[0]
-        assert "|;" in lines[1]
+        # Both lines use single-char '|'; multi-char must not appear.
+        assert "|;" not in content
+        assert "|" in lines[0]
+        assert "|" in lines[1]
 
-    def test_multichar_delimiter_no_csv_raises(self, tmp_path):
-        """CR-06: multi-char delimiter without csv_option=True raises ConfigurationError."""
+    def test_multichar_delimiter_no_csv_succeeds(self, tmp_path):
+        """csv_option=False + multi-char '||' -> no error; raw concatenation preserves '||'.
+
+        Talend writes via BufferedWriter.write(String) in non-csv mode, which
+        accepts any-length separator. The engine matches via _write_raw_mode.
+        """
         filepath = str(tmp_path / "output.csv")
         config = {
             **_DEFAULT_CONFIG, "filepath": filepath,
-            "fieldseparator": "|;", "csv_option": False,
+            "fieldseparator": "||", "csv_option": False,
             "file_exist_exception": False,
         }
         comp = _make_component(config=config)
-        with pytest.raises((ConfigurationError, ComponentExecutionError)):
-            comp.execute(_make_input_df())
+        # Must not raise.
+        result = comp.execute(_make_input_df([{"id": 1, "name": "Alice", "value": 100.0}]))
+        assert result["main"] is not None
+        content = open(filepath, encoding="ISO-8859-15").read()
+        # Raw concatenation preserves the multi-char separator literally.
+        assert "1||Alice||100.0" in content
 
 
 # ------------------------------------------------------------------
@@ -1038,16 +1070,27 @@ class TestPassthrough:
 
 
 # ------------------------------------------------------------------
-# TestMultiCharSepValidation (CR-06)
+# TestMultiCharSepValidation (CR-06 superseded: see 260429-hc2)
 # ------------------------------------------------------------------
 
 
 @pytest.mark.unit
 class TestMultiCharSepValidation:
-    """CR-06: multi-character field_sep without csv_option raises ConfigurationError."""
+    """Multi-character fieldseparator validation (Talend parity).
 
-    def test_multichar_sep_no_csv_raises(self, tmp_path):
-        """Multi-char field_sep + csv_option=False must raise ConfigurationError."""
+    CR-06 (Phase 7.1) originally rejected multi-char delimiters with a
+    ConfigurationError gate. Primary-source review of Talaxie tdi-studio-se
+    showed Talend itself accepts both modes (csv_option=True truncates to
+    first char; csv_option=False preserves full multi-char). The contract
+    was superseded -- _validate_config no longer raises on multi-char.
+    """
+
+    def test_multichar_sep_no_csv_succeeds(self, tmp_path):
+        """csv_option=False + multi-char fieldseparator -> no ConfigurationError.
+
+        Talend non-csv mode uses BufferedWriter.write(String); arbitrary-length
+        separators are valid. The engine matches via _write_raw_mode.
+        """
         filepath = str(tmp_path / "output.csv")
         config = {
             **_DEFAULT_CONFIG, "filepath": filepath,
@@ -1055,11 +1098,15 @@ class TestMultiCharSepValidation:
             "file_exist_exception": False,
         }
         comp = _make_component(config=config)
-        with pytest.raises((ConfigurationError, ComponentExecutionError)):
-            comp.execute(_make_input_df())
+        # Must not raise.
+        result = comp.execute(_make_input_df())
+        assert result["main"] is not None
+        content = open(filepath, encoding="ISO-8859-15").read()
+        # Raw concatenation preserves the full multi-char separator.
+        assert "||" in content
 
     def test_multichar_sep_with_csv_ok(self, tmp_path):
-        """Multi-char field_sep + csv_option=True is allowed (raw mode handles it)."""
+        """csv_option=True + multi-char fieldseparator -> truncated to first char (Talend parity)."""
         filepath = str(tmp_path / "output.csv")
         config = {
             **_DEFAULT_CONFIG, "filepath": filepath,
@@ -1067,9 +1114,38 @@ class TestMultiCharSepValidation:
             "file_exist_exception": False,
         }
         comp = _make_component(config=config)
-        # Should not raise -- csv_option=True allows multi-char via raw mode
+        # Should not raise; csv_option=True path truncates and warns.
         result = comp.execute(_make_input_df())
         assert result["main"] is not None
+        content = open(filepath, encoding="ISO-8859-15").read()
+        # Truncated to first char '|'; '||' must not appear.
+        assert "||" not in content
+        assert "|" in content
+
+    def test_multichar_sep_with_context_var_no_validate_error(self, tmp_path):
+        """Regression: fieldseparator='${context.SEP}' must not be measured as multi-char.
+
+        Validation runs against the resolved value (single-char ';'), not the
+        raw 14-char template string. Previously a too-eager _validate_config
+        rejected this configuration before context resolution.
+        """
+        filepath = str(tmp_path / "output.csv")
+        cm = ContextManager()
+        cm.set("SEP", ";")
+        config = {
+            **_DEFAULT_CONFIG, "filepath": filepath,
+            "fieldseparator": "${context.SEP}",  # 14-char raw, resolves to ';'
+            "csv_option": False,
+            "file_exist_exception": False,
+        }
+        comp = _make_component(config=config, context_manager=cm)
+        # Must not raise -- raw template length must NOT be checked as multi-char.
+        result = comp.execute(_make_input_df())
+        assert result["main"] is not None
+        content = open(filepath, encoding="ISO-8859-15").read()
+        # Resolved separator ';' appears; raw template '${context.SEP}' must not.
+        assert ";" in content
+        assert "${context.SEP}" not in content
 
 
 # ------------------------------------------------------------------

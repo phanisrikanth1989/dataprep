@@ -136,6 +136,27 @@ Key behavioral notes: FIELDSEPARATOR defaults to ';' (semicolon, not comma), ENC
 8. **CSVROWSEPARATOR is a CLOSED_LIST** with values LF, CR, CRLF -- not a free-text row separator string.
 9. **COMPRESS creates a ZIP file** with the original filename inside it, not a .gz stream.
 
+### Multi-char Delimiter Behavior (Talend Parity)
+
+Verified against Talaxie tdi-studio-se on 2026-04-29.
+
+- **`csv_option=true` + multi-char `fieldseparator`** -> the delimiter is silently truncated to its first character and a warning is logged. Talend itself enforces this because the underlying CSV writer API takes a Java `char` primitive (single UTF-16 unit):
+
+  `tFileOutputDelimited_main.javajet:645-651`:
+
+  ```java
+  com.talend.csv.CSVWriter csvWriter_<cid> = new com.talend.csv.CSVWriter(...);
+  csvWriter_<cid>.setSeparator(csvSettings_<cid>.getFieldDelim());  // setSeparator(char)
+  ```
+
+  Source: https://github.com/Talaxie/tdi-studio-se/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tFileOutputDelimited/tFileOutputDelimited_main.javajet
+
+- **`csv_option=false` + multi-char `fieldseparator`** -> the full multi-character string is preserved. Talend writes via `BufferedWriter.write(String)` in this path, which accepts arbitrary-length separators.
+
+- **Validation timing**: `_validate_config` runs *after* context resolution (Step 3 of `BaseComponent.execute`), so configurations like `fieldseparator="${context.SEP}"` are checked against the resolved single-character value, not the raw 14-character template string.
+
+**Supersedes**: the original Phase 7.1 CR-06 contract (`ConfigurationError` gate on multi-char sep) was over-strict -- it rejected configs that Talend itself accepts and processes. See `.planning/phases/07.1-manager-audit-and-basecomponent-fixes/07.1-03-SUMMARY.md` addendum dated 2026-04-29.
+
 ---
 
 ## 4. Converter Audit

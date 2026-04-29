@@ -142,6 +142,22 @@ The component supports extensive configuration: field and row separators (includ
 7. **RANDOM sampling reads the entire file** to select random lines -- it does not use reservoir sampling or seek. Large files with RANDOM=true use significant memory.
 8. **LIMIT is a string (not integer)** to support Talend expressions and context variables (e.g., `context.maxRows`).
 
+### Multi-char Delimiter Behavior (Talend Parity)
+
+Verified against Talaxie tdi-studio-se on 2026-04-29.
+
+- **`csv_option=true` + multi-char `fieldseparator`** -> only the first character is used. The Talend implementation explicitly indexes `[0]`:
+
+  `tFileInputDelimited_begin.javajet:1186`:
+
+  ```java
+  csvReader = new com.talend.csv.CSVReader(filename, fieldSeparator_<cid>[0], encoding);
+  ```
+
+  Source: https://github.com/Talaxie/tdi-studio-se/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tFileInputDelimited/tFileInputDelimited_begin.javajet
+
+- **`csv_option=false` + multi-char `fieldseparator`** -> the full multi-character string is honored. Talend uses `org.talend.fileprocess.FileInputDelimited(..., String fieldSeparator, ...)`, which accepts arbitrary-length separators. The Python engine matches this via `pandas.read_csv(..., sep=<multi-char>, engine="python")`.
+
 ---
 
 ## 4. Converter Audit
