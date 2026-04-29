@@ -302,70 +302,164 @@ class TestSimpleModeFlow:
 
 @pytest.mark.unit
 class TestAdvancedModeFlow:
-    """Advanced mode: per-row lookup column substitution."""
+    """Advanced mode: regex-based replacement using literal pattern + replacement.
 
-    def test_basic_advanced_replacement(self):
-        """Replace value in input_col using search_col and replace_col per row."""
+    Talend tReplace advanced mode parameters SEARCH_COLUMN and REPLACE_COLUMN are
+    legacy XML tag names; despite the names, they hold a literal regex pattern and a
+    literal replacement string respectively (verified against Talaxie tReplace_java.xml
+    where both are FIELD="String", and tReplace_main.javajet which emits them as
+    bareword Java string expressions). They are NOT references to other columns.
+    Only input_column refers to an actual DataFrame column.
+    """
+
+    def test_basic_advanced_regex_replacement(self):
+        """Regex pattern \\d+ is applied uniformly to every row of input_column."""
         config = {
             **_DEFAULT_CONFIG,
             "simple_mode": False,
             "advanced_subst": [
                 {
                     "input_column": "name",
-                    "search_column": "search",
-                    "replace_column": "replacement",
+                    "search_column": "\\d+",   # regex pattern literal, NOT a column
+                    "replace_column": "X",      # replacement string literal, NOT a column
                     "comment": "",
                 }
             ],
         }
         comp = _make_component(config=config)
         df = pd.DataFrame([
-            {"id": 1, "name": "Hello World", "search": "World", "replacement": "Earth"},
-            {"id": 2, "name": "Foo Bar", "search": "Bar", "replacement": "Baz"},
+            {"id": 1, "name": "abc123"},
+            {"id": 2, "name": "def456"},
+            {"id": 3, "name": "ghi"},
         ])
         result = comp.execute(df)
-        assert result["main"].iloc[0]["name"] == "Hello Earth"
-        assert result["main"].iloc[1]["name"] == "Foo Baz"
+        # Same regex applied to every row: digits replaced by X; rows without digits unchanged.
+        assert result["main"].iloc[0]["name"] == "abcX"
+        assert result["main"].iloc[1]["name"] == "defX"
+        assert result["main"].iloc[2]["name"] == "ghi"
 
-    def test_advanced_missing_column_skipped(self):
-        """Rule with missing columns is skipped; other columns unchanged."""
+    def test_advanced_input_column_missing_skipped(self):
+        """If input_column does not exist on the DataFrame, the rule is skipped (no exception)."""
+        config = {
+            **_DEFAULT_CONFIG,
+            "simple_mode": False,
+            "advanced_subst": [
+                {
+                    "input_column": "nonexistent",
+                    "search_column": "\\d+",
+                    "replace_column": "X",
+                    "comment": "",
+                }
+            ],
+        }
+        comp = _make_component(config=config)
+        df = pd.DataFrame([
+            {"id": 1, "name": "abc123"},
+            {"id": 2, "name": "def456"},
+        ])
+        result = comp.execute(df)
+        # Rule was skipped; df is otherwise unchanged.
+        assert list(result["main"]["name"]) == ["abc123", "def456"]
+        assert len(result["main"]) == 2
+
+    def test_advanced_invalid_regex_raises(self):
+        """An invalid regex in search_column raises ConfigurationError."""
         config = {
             **_DEFAULT_CONFIG,
             "simple_mode": False,
             "advanced_subst": [
                 {
                     "input_column": "name",
-                    "search_column": "no_such_col",
-                    "replace_column": "replacement",
+                    "search_column": "[invalid(",   # malformed regex
+                    "replace_column": "X",
                     "comment": "",
                 }
             ],
         }
         comp = _make_component(config=config)
-        df = pd.DataFrame([{"id": 1, "name": "Alice", "replacement": "X"}])
+        df = pd.DataFrame([{"id": 1, "name": "abc"}])
+        with pytest.raises(ConfigurationError, match="invalid regex"):
+            comp.execute(df)
+
+    def test_advanced_multiple_rules_applied_in_order(self):
+        """When multiple rules are listed, the second sees the output of the first."""
+        config = {
+            **_DEFAULT_CONFIG,
+            "simple_mode": False,
+            "advanced_subst": [
+                {
+                    "input_column": "name",
+                    "search_column": "\\d+",
+                    "replace_column": "X",
+                    "comment": "",
+                },
+                {
+                    "input_column": "name",
+                    "search_column": "X",
+                    "replace_column": "Y",
+                    "comment": "",
+                },
+            ],
+        }
+        comp = _make_component(config=config)
+        df = pd.DataFrame([
+            {"id": 1, "name": "abc123"},
+            {"id": 2, "name": "def"},
+        ])
         result = comp.execute(df)
-        assert result["main"].iloc[0]["name"] == "Alice"
+        # First rule turns "abc123" -> "abcX"; second rule turns "abcX" -> "abcY".
+        # "def" has no digits and no X, so it is unchanged.
+        assert result["main"].iloc[0]["name"] == "abcY"
+        assert result["main"].iloc[1]["name"] == "def"
 
     def test_advanced_row_count_preserved(self):
+        """The number of output rows equals the number of input rows."""
         config = {
             **_DEFAULT_CONFIG,
             "simple_mode": False,
             "advanced_subst": [
                 {
                     "input_column": "name",
-                    "search_column": "search",
-                    "replace_column": "replacement",
+                    "search_column": "\\d+",
+                    "replace_column": "X",
                     "comment": "",
                 }
             ],
         }
         comp = _make_component(config=config)
         df = pd.DataFrame([
-            {"name": "A", "search": "A", "replacement": "B"},
-            {"name": "C", "search": "C", "replacement": "D"},
+            {"id": i, "name": f"row{i}"} for i in range(7)
         ])
         result = comp.execute(df)
-        assert len(result["main"]) == 2
+        assert len(result["main"]) == 7
+
+    def test_advanced_unicode_escape_handling(self):
+        """The literal escape '\\w+' from JSON is decoded to the regex \\w+ at runtime."""
+        config = {
+            **_DEFAULT_CONFIG,
+            "simple_mode": False,
+            "advanced_subst": [
+                {
+                    "input_column": "name",
+                    # When written by a JSON converter, "\w+" round-trips as the
+                    # 3-char Python string "\\w+". The engine unicode-escape-decodes
+                    # it back to the regex "\w+" before compiling.
+                    "search_column": "\\w+",
+                    "replace_column": "*",
+                    "comment": "",
+                }
+            ],
+        }
+        comp = _make_component(config=config)
+        df = pd.DataFrame([
+            {"id": 1, "name": "abc 123"},   # two word tokens separated by space
+            {"id": 2, "name": "x"},
+        ])
+        result = comp.execute(df)
+        # \w+ matches each word run; both runs replaced by '*'. Space between them
+        # is not a word char and is not consumed.
+        assert result["main"].iloc[0]["name"] == "* *"
+        assert result["main"].iloc[1]["name"] == "*"
 
 
 # ------------------------------------------------------------------
