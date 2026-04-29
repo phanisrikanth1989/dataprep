@@ -89,6 +89,11 @@ class UniqueRow(BaseComponent):
                 errors.append("All items in 'key_columns' must be strings")
 
         # Validate keep option
+        # Group B verdict (Phase 07.2): KEEP. `keep` is a closed-list Talend
+        # enum (see VALID_KEEP_OPTIONS class constant). Talend's KEEP parameter
+        # is emitted as a literal closed-list value by the converter -- it
+        # cannot hold a ${context.X} reference. Membership check is allowed
+        # under Rule 12's closed-list-enum carve-out.
         if 'keep' in self.config:
             keep = self.config['keep']
             if keep not in self.VALID_KEEP_OPTIONS:
