@@ -172,19 +172,30 @@ def _find_java_bridge_jar() -> Path:
     Mirrors the pattern in ``test_map_integration.py::_find_jar_path`` so
     Phase 5.1 and Phase 8 share the same JAR-discovery contract.
     """
+    conftest_dir = Path(__file__).resolve().parent
     try:
         common_dir = subprocess.check_output(
             ["git", "rev-parse", "--git-common-dir"],
-            cwd=str(Path(__file__).resolve().parent),
+            cwd=str(conftest_dir),
             text=True,
         ).strip()
-        main_repo = Path(common_dir).resolve().parent
+        # `git rev-parse --git-common-dir` returns a path relative to its
+        # cwd. Resolve relative paths against the subprocess cwd, not the
+        # current process cwd.
+        common_path = Path(common_dir)
+        if not common_path.is_absolute():
+            common_path = (conftest_dir / common_path).resolve()
+        else:
+            common_path = common_path.resolve()
+        main_repo = common_path.parent
         main_jar = main_repo / _JAR_REL
         if main_jar.exists():
             return main_jar
     except Exception:
         pass
-    return Path(__file__).resolve().parents[2] / _JAR_REL
+    # conftest.py is at tests/v1/engine/conftest.py, so parents[3] is the
+    # repo root (parents[0]=tests/v1/engine, [1]=tests/v1, [2]=tests, [3]=repo).
+    return Path(__file__).resolve().parents[3] / _JAR_REL
 
 
 @pytest.fixture(scope="session")
