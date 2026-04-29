@@ -71,6 +71,11 @@ class ContextLoad(BaseComponent):
         Raises:
             ConfigurationError: If a policy value is not in the allowed set.
         """
+        # Group B verdict (Phase 07.2): KEEP. load_new_variable and
+        # not_load_old_variable are closed-list policy enums (WARNING / ERROR /
+        # INFO / NO_WARNING). Converter emits these as literal strings, never
+        # as context vars. Membership check is allowed under Rule 12's
+        # closed-list-enum carve-out; defensive check is intentional.
         load_new = str(self.config.get("load_new_variable", "WARNING")).upper()
         if load_new not in _VALID_POLICIES:
             raise ConfigurationError(
