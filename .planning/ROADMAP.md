@@ -22,6 +22,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 6: Transform Group A -- Aggregation, Sort, Filter** - Deliver tAggregateRow, tSortRow, and tFilterRow with correct Talend behavior for the hardest transform bugs (completed 2026-04-15)
 - [x] **Phase 7: Transform Group B -- Column, Join, Unite** - Deliver tFilterColumns, tJoin, and tUnite (two already functionally Green, tJoin has targeted fixes) (completed 2026-04-15)
 - [x] **Phase 7.1: Manager Audit & BaseComponent Fixes** (INSERTED) - Fix 48 regressions and BaseComponent gaps surfaced by the manager-commit audit (REVIEW.md, REVIEW-engine.md, REVIEW-javabridge.md, TRIAGE.md) before Phase 8 (completed 2026-04-25)
+- [x] **Phase 7.2: validate-config bug sweep** (INSERTED) - Defer content checks from _validate_config (Step 2) to _process (post-resolution); 5 Group A bugs fixed, 5 Group B verdicts, Rule 12 added (completed 2026-04-29)
 - [ ] **Phase 8: Code Components** - Deliver tJava, tJavaRow, python_component, and python_row_component with correct Talend semantics
 - [x] **Phase 9: tContextLoad & Routines** - Deliver tContextLoad with full policy support and Java/Python routine infrastructure
 - [ ] **Phase 10: Iterate Support** - Deliver tFlowToIterate, tFileList, tFileExist and the engine iterate execution loop
@@ -178,7 +179,7 @@ Plans:
 - [x] 07-01-PLAN.md -- tJoin full rewrite (8 bugs, reject_schema engine fix)
 - [x] 07-02-PLAN.md -- FilterColumns + Unite rewrites + all tests (Join, FilterColumns, Unite)
 
-### Phase 07.2: validate-config bug sweep -- move pre-resolution content checks to _process across 11 components (INSERTED)
+### Phase 07.2: validate-config bug sweep -- move pre-resolution content checks to _process across 11 components (INSERTED) ✓ COMPLETED 2026-04-29
 
 **Goal:** Eliminate the systemic bug class where `_validate_config()` (BaseComponent.execute() Step 2) inspects content of config fields BEFORE context resolution (Step 3), causing spurious rejection or crashes when fields hold context-var references. Establish a permanent process rule preventing recurrence in Phase 8 onward.
 **Requirements**: VC-01, VC-02, VC-03, VC-04, TEST-08
