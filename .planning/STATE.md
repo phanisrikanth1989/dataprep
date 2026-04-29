@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: ready_to_plan
-stopped_at: Phase 07.2 complete -- ready for Phase 8 (Code Components). 5 Group A bugs fixed, 5 Group B verdicts (4 KEEP / 1 DEFER), Rule 12 added to MANUAL_COMPONENT_AUTHORING.md.
-last_updated: "2026-04-29T08:02:25.222Z"
-last_activity: 2026-04-29 -- Phase 07.2 verified complete (823 passing, 44 new regression tests)
+status: planning
+stopped_at: Phase 07.2 complete -- 5 Group A bugs fixed, 5 Group B verdicts (4 KEEP / 1 DEFER for send_mail), Rule 12 added to MANUAL_COMPONENT_AUTHORING.md, 44 new regression tests passing.
+last_updated: "2026-04-29T08:08:35.501Z"
+last_activity: 2026-04-29 -- Phase 07.2 LEARNINGS.md extracted
 progress:
   total_phases: 16
   completed_phases: 12
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-14)
 Phase: 08 (Code Components)
 Plan: Not started (CONTEXT.md missing -- discuss-phase recommended before plan)
 Status: Ready to plan
-Last activity: 2026-04-29 -- Phase 07.2 verified complete
+Last activity: 2026-04-29 -- Phase 07.2 LEARNINGS.md extracted
 
 Progress: [████████░░] 75% (12/16 phases complete -- 1, 2, 3, 4, 5, 5.1, 5.2, 6, 7, 7.1, 7.2, 9)
 
