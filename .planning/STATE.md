@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Phase 8 context gathered (auto mode)
-last_updated: "2026-04-29T09:49:53.882Z"
-last_activity: 2026-04-29 -- Phase 08 execution started
+status: planning
+stopped_at: Phase 8 closed -- ready for Phase 10 (Iterate Support)
+last_updated: "2026-04-29T11:38:09Z"
+last_activity: 2026-04-29 -- Phase 08 closed; 4 code components rewritten + mixin extracted; revision-2 Talend parity corrections (no errorCode, no Java reject, passthrough as data-flow semantic); D-26 superseded
 progress:
   total_phases: 16
-  completed_phases: 12
-  total_plans: 51
-  completed_plans: 46
-  percent: 90
+  completed_phases: 13
+  total_plans: 52
+  completed_plans: 52
+  percent: 81
 ---
 
 # Project State
@@ -21,22 +21,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-14)
 
 **Core value:** Any Talend job using the target components must produce identical results when run through the Python engine
-**Current focus:** Phase 08 — code-components
+**Current focus:** Phase 10 — Iterate Support (next pending phase per ROADMAP)
 
 ## Current Position
 
-Phase: 08 (code-components) — EXECUTING
-Plan: 1 of 6
-Status: Executing Phase 08
-Last activity: 2026-04-29 -- Phase 08 execution started
+Phase: 08 (code-components) — COMPLETE 2026-04-29; advancing to Phase 10
+Plan: -
+Status: Phase 08 closed; Phase 10 pending /gsd-discuss-phase
+Last activity: 2026-04-29 -- Phase 08 closed (4 code components rewritten + mixin; revision-2 Talend parity corrections; D-26 superseded; D-08-01 deferred to bridge layer)
 
-Progress: [████████░░] 75% (12/16 phases complete -- 1, 2, 3, 4, 5, 5.1, 5.2, 6, 7, 7.1, 7.2, 9)
+Progress: [████████▌░] 81% (13/16 phases complete -- 1, 2, 3, 4, 5, 5.1, 5.2, 6, 7, 7.1, 7.2, 8, 9)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 41
+- Total plans completed: 52
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -55,6 +55,8 @@ Progress: [████████░░] 75% (12/16 phases complete -- 1, 2, 3
 | 07 | 2 | - | - |
 | 09 | 2 | - | - |
 | 07.1 | 8 | - | - |
+| 07.2 | 4 | - | - |
+| 08 | 6 | ~2.5h | ~25min |
 
 **Recent Trend:**
 
@@ -78,6 +80,8 @@ Recent decisions affecting current work:
 - Apache 2.0 redistribution sign-off accepted for vendored routines.system.* files (Phase 7.1)
 - CR-07/WR-14/IN-01 byte-identical to upstream Talend OpenDAS -- DO NOT fix, Talend parity (Phase 7.1)
 - MANUAL_COMPONENT_AUTHORING.md enforces Rule 11 contract -- Phase 8 plans must reference it for new components
+- Phase 8 revision-2 Talend parity corrections (2026-04-29): java_row_component has NO REJECT (Talend tJavaRow has none either); python_row_component reject schema is errorMessage-only (no errorCode); D-29 one-shot passthrough is a DataPrep data-flow semantic, not a Talend feature; CONTEXT.md D-26 superseded -- code bodies are NOT context-resolved (SKIP_RESOLUTION_KEYS protection)
+- Phase 8 sandbox honesty: D-11 Python namespace whitelist is hygienic, NOT adversarial-proof -- pure-Python bypass via __subclasses__/__mro__ accepted; trust boundary is internal Citi job authors
 
 ### Roadmap Evolution
 
@@ -91,11 +95,15 @@ None yet.
 
 ### Blockers/Concerns
 
-Non-blocking human verification carried from Phase 7.1 (do when convenient, not gating Phase 8):
+Non-blocking human verification carried from Phase 7.1 (do when convenient, not gating downstream phases):
 
 - Linux/RHEL `mvn package` build (only Darwin verified)
 - tNormalize combined-flags vs golden Talend job output
 - FileOutputDelimited datetime default format vs Talend reference
+
+Phase 8 deferred (single item -- non-blocking for Phase 10):
+
+- D-08-01 (`src/v1/java_bridge/bridge.py:_capture_java_stderr` blocks on `read(65536)`) -- xfail wraps the affected real-bridge test; component-layer JROW-02 contract fully verified by mock-bridge test. Fix requires a future BRDG-* phase. Details: `.planning/phases/08-code-components/deferred-items.md`
 
 ### Quick Tasks Completed
 
@@ -106,6 +114,6 @@ Non-blocking human verification carried from Phase 7.1 (do when convenient, not 
 
 ## Session Continuity
 
-Last session: 2026-04-29T08:13:21.623Z
-Stopped at: Phase 8 context gathered (auto mode)
-Resume with: /gsd-discuss-phase 8 (CONTEXT.md missing; discuss recommended before plan)
+Last session: 2026-04-29T11:38:09Z
+Stopped at: Phase 8 closed -- ready for Phase 10 (Iterate Support)
+Resume with: /gsd-discuss-phase 10 (next pending phase per ROADMAP -- Iterate Support; Phase 11 Oracle and Phase 12 Integration also pending)

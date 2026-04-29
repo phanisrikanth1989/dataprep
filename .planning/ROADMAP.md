@@ -23,7 +23,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 7: Transform Group B -- Column, Join, Unite** - Deliver tFilterColumns, tJoin, and tUnite (two already functionally Green, tJoin has targeted fixes) (completed 2026-04-15)
 - [x] **Phase 7.1: Manager Audit & BaseComponent Fixes** (INSERTED) - Fix 48 regressions and BaseComponent gaps surfaced by the manager-commit audit (REVIEW.md, REVIEW-engine.md, REVIEW-javabridge.md, TRIAGE.md) before Phase 8 (completed 2026-04-25)
 - [x] **Phase 7.2: validate-config bug sweep** (INSERTED) - Defer content checks from _validate_config (Step 2) to _process (post-resolution); 5 Group A bugs fixed, 5 Group B verdicts, Rule 12 added (completed 2026-04-29)
-- [ ] **Phase 8: Code Components** - Deliver tJava, tJavaRow, python_component, and python_row_component with correct Talend semantics
+- [x] **Phase 8: Code Components** - Deliver tJava, tJavaRow, python_component, and python_row_component with correct Talend semantics (completed 2026-04-29)
 - [x] **Phase 9: tContextLoad & Routines** - Deliver tContextLoad with full policy support and Java/Python routine infrastructure
 - [ ] **Phase 10: Iterate Support** - Deliver tFlowToIterate, tFileList, tFileExist and the engine iterate execution loop
 - [ ] **Phase 11: Oracle Components** - Verify and deliver Oracle connection, input, output, and supporting components
@@ -227,15 +227,15 @@ Plans:
   2. python_component and python_row_component mirror tJava/tJavaRow patterns, use secure execution namespace (no os/sys), and python_row_component uses compiled code execution (compile once, exec per row)
   3. Duplicated _get_context_dict() is consolidated into BaseComponent or shared mixin
   4. Engine unit tests pass for all four code components
-**Plans:** 6 plans
+**Plans:** 6/6 plans complete
 
 Plans:
-- [ ] 08-01-PLAN.md -- CodeComponentMixin extraction + java_component.py rewrite (one-shot tJava with imports prepend) -- Wave 1
-- [ ] 08-02-PLAN.md -- python_component.py rewrite (one-shot tPython with D-11 secure namespace) -- Wave 1
-- [ ] 08-03-PLAN.md -- java_row_component.py rewrite (per-row tJavaRow with batch-level REJECT, Q2 Option A) -- Wave 2
-- [ ] 08-04-PLAN.md -- python_row_component.py rewrite (per-row tPythonRow with compile-once + per-row REJECT) -- Wave 2
-- [ ] 08-05-PLAN.md -- java_bridge fixture wiring + engine-level smoke tests + checkpoint -- Wave 3
-- [ ] 08-06-PLAN.md -- 08-PHASE-SUMMARY + ROADMAP/STATE close-out (records D-26 supersession + Q2 Option A) -- Wave 4
+- [x] 08-01-PLAN.md -- CodeComponentMixin extraction + java_component.py rewrite (one-shot tJava with imports prepend) -- Wave 1
+- [x] 08-02-PLAN.md -- python_component.py rewrite (one-shot tPython with D-11 secure namespace) -- Wave 2
+- [x] 08-03-PLAN.md -- java_row_component.py rewrite (per-row tJavaRow with NO REJECT -- Talend parity revision 2) -- Wave 3
+- [x] 08-04-PLAN.md -- python_row_component.py rewrite (per-row tPythonRow with compile-once + errorMessage-only REJECT, revision 2) -- Wave 3
+- [x] 08-05-PLAN.md -- java_bridge fixture wiring + engine-level smoke tests + checkpoint -- Wave 4
+- [x] 08-06-PLAN.md -- 08-PHASE-SUMMARY + ROADMAP/STATE close-out (records revision-2 parity corrections + D-26 supersession) -- Wave 5
 
 ### Phase 9: tContextLoad & Routines
 **Goal**: Jobs can dynamically load context variables from data flows with full policy control, and custom Java/Python routines are discoverable and callable from expressions
@@ -301,8 +301,8 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 5.2. tMap RELOAD_AT_EACH_ROW Fix | 2/2 | Complete | 2026-04-15 |
 | 6. Transform Group A -- Aggregation, Sort, Filter | 4/4 | Complete | 2026-04-15 |
 | 7. Transform Group B -- Column, Join, Unite | 2/2 | Complete | 2026-04-15 |
-| 8. Code Components | 0/TBD | Not started | - |
-| 9. tContextLoad & Routines | 0/2 | Planned | - |
+| 8. Code Components | 6/6 | Complete | 2026-04-29 |
+| 9. tContextLoad & Routines | 2/2 | Complete | - |
 | 10. Iterate Support | 0/TBD | Not started | - |
 | 11. Oracle Components | 0/TBD | Not started | - |
 | 12. Integration Testing & Performance | 0/TBD | Not started | - |
