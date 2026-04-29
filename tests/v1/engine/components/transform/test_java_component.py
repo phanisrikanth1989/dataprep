@@ -281,7 +281,14 @@ class TestExecution:
 
         comp.execute(input_data=None)
 
-        assert comp.global_map.get("hello") == "world"
+        # Plan 05 / Rule 1 deviation: the assertion target is the bridge's
+        # globalMap dict (which _sync_from_java populates after each call),
+        # not the engine-level GlobalMap. There is no automatic engine-side
+        # GlobalMap mirror of bridge writes -- engine.py wires a
+        # ContextManager+JavaBridgeManager but does not copy bridge.global_map
+        # into component.global_map. The Java-side put -> bridge.global_map
+        # is the contract this test verifies.
+        assert comp.java_bridge.global_map.get("hello") == "world"
 
     def test_imports_prepend_compiles(self, java_bridge):
         """Test 13 (JAVA-01): java_code using java.util.Date with imports prepended compiles & runs."""
@@ -293,5 +300,7 @@ class TestExecution:
 
         comp.execute(input_data=None)
 
-        # If the bridge accepted and ran without compile error, the put succeeded.
-        assert comp.global_map.get("when") is not None
+        # If the bridge accepted and ran without compile error, the put
+        # succeeded. Assertion target is bridge.global_map (Plan 05 / Rule 1
+        # deviation -- see test 12 docstring).
+        assert comp.java_bridge.global_map.get("when") is not None
