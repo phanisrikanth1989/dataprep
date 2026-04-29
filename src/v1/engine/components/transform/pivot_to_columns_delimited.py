@@ -11,6 +11,7 @@ import logging
 import pandas as pd
 from typing import Dict, Any, Optional, List
 from ...base_component import BaseComponent
+from ...exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
@@ -76,12 +77,19 @@ class PivotToColumnsDelimited(BaseComponent):
         """
         Validate component configuration.
 
+        Note:
+            field_separator length validation is intentionally deferred to
+            _process() after context variable resolution. Validating here
+            would incorrectly measure unresolved context references such as
+            ${context.SEP} as multi-character strings. Same pattern as
+            file_output_delimited.py CR-06 (quick task 260429-hc2).
+
         Returns:
             List of error messages (empty if valid)
         """
         errors = []
 
-        # Validate required fields
+        # Validate required fields -- key-presence and shape only
         if 'pivot_column' not in self.config or not self.config['pivot_column']:
             errors.append("Missing required config: 'pivot_column'")
 
@@ -98,17 +106,7 @@ class PivotToColumnsDelimited(BaseComponent):
         if 'filename' not in self.config or not self.config['filename']:
             errors.append("Missing required config: 'filename'")
 
-        # Validate field_separator
-        if 'field_separator' in self.config:
-            field_separator = self.config['field_separator']
-            # Remove quotes for validation if present
-            if field_separator.startswith('"') and field_separator.endswith('"'):
-                field_separator = field_separator[1:-1]
-
-            if not isinstance(field_separator, str) or len(field_separator) != 1:
-                errors.append("Config 'field_separator' must be a single-character string")
-
-        # Validate optional fields if present
+        # Validate optional fields if present -- isinstance shape checks only
         if 'aggregation_function' in self.config:
             if not isinstance(self.config['aggregation_function'], str):
                 errors.append("Config 'aggregation_function' must be a string")
@@ -188,10 +186,12 @@ class PivotToColumnsDelimited(BaseComponent):
             logger.error(f"[{self.id}] {error_msg}")
             raise ValueError(error_msg)
 
+        # field_separator length check (deferred from _validate_config so
+        # ${context.SEP} references are resolved before measurement).
         if not isinstance(field_separator, str) or len(field_separator) != 1:
-            error_msg = "Invalid field_separator: must be a single-character string"
-            logger.error(f"[{self.id}] {error_msg}")
-            raise ValueError(error_msg)
+            raise ConfigurationError(
+                f"[{self.id}] Config 'field_separator' must be a single-character string"
+            )
 
         # Perform pivot operation
         try:
