@@ -1,5 +1,6 @@
 # This file marks the transform directory as a Python package.
 
+from ._code_component_mixin import CodeComponentMixin  # noqa: F401  -- mixin used by code components
 from .aggregate_sorted_row import AggregateSortedRow
 from .denormalize import Denormalize
 from .extract_delimited_fields import ExtractDelimitedFields
