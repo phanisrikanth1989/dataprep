@@ -75,7 +75,7 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 37 | tExtractJSONFields | Y | G | Y | R | Y | Y | 3 | 6 | 6 | 2 | 17 |
 | 38 | tExtractXMLField | Y | G | Y | Y | Y | Y | 3 | 6 | 7 | 3 | 19 |
 | 39 | tExtractPositionalFields | Y | G | Y | Y | Y | Y | 2 | 11 | 9 | 1 | 23 |
-| 40 | tPivotToColumnsDelimited | Y | G | Y | R | Y | Y | 4 | 5 | 9 | 2 | 20 |
+| 40 | tPivotToColumnsDelimited | Y | G | Y | G | Y | G | 0 | 1 | 4 | 1 | 6 |
 | 41 | tUnpivotRow | Y | G | Y | G | Y | Y | 1 | 5 | 6 | 2 | 14 |
 | 42 | tSchemaComplianceCheck | Y | G | R | G | N/A | Y | 2 | 5 | 4 | 1 | 12 |
 | 43 | tXMLMap | R | G | R | Y | Y | Y | 3 | 12 | 3 | 3 | 21 |

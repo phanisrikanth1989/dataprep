@@ -38,20 +38,21 @@
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 18/18 params extracted (16 _java.xml + 2 framework); D-38 config keys; GROUPBYS TABLE stride-1; 7 needs_review (all engine_gap) |
-| Engine Feature Parity | **Y** | 1 | 5 | 4 | 2 | No NB_LINE_OUT globalMap; no include-header control; no append mode; no quoting; no die_on_error |
-| Code Quality | **R** | 4 | 5 | 6 | 2 | line_terminator removed in pandas 3.x (guaranteed crash); double float-to-int crash; unicode_escape order bug |
-| Performance & Memory | **Y** | 0 | 1 | 3 | 1 | Row-by-row lambda O(rows*cols); streaming mode silently produces wrong results |
-| Testing | **Y** | 0 | 0 | 1 | 0 | 51 converter tests (gold standard); zero engine unit tests |
+| Engine Feature Parity | **Y** | 0 | 1 | 3 | 1 | NB_LINE_OUT ✅ fixed; delete_emptyfile ✅ fixed; no include-header control; no append mode; no quoting; streaming mode silently wrong (P1) |
+| Code Quality | **G** | 0 | 0 | 1 | 0 | ✅ lineterminator fixed; ✅ float-to-int crash fixed; ✅ _unescape_separator replaces unicode_escape; ✅ D-38 config keys aligned; ✅ first-appearance column order preserved; lambda in NaN loop (P2, minor) |
+| Performance & Memory | **Y** | 0 | 1 | 0 | 0 | Streaming mode silently produces wrong results (P1, pivot requires full dataset); batch-only _select_mode override present but not enforced at engine level |
+| Testing | **G** | 0 | 0 | 0 | 0 | 51 converter tests (gold standard); 46 engine unit tests across 10 test classes |
 
-**Overall: YELLOW -- Converter production-ready (Green); engine has P0 crash bugs and significant feature gaps**
+**Overall: YELLOW -- Converter Green; engine P0s resolved; one P1 open (streaming)**
 
-**Top Actions**:
+> **Engine Fix Note (2026-05-01)**: Engine fully rewritten. All 4 P0 crash bugs fixed. Config keys aligned to D-38 (`groupbys`, `fieldseparator`, `rowseparator`). `_unescape_separator()` helper replaces `unicode_escape` codec. `NB_LINE_OUT` globalMap stat added. `delete_emptyfile` implemented. Column header order now preserves first-appearance from input data (overrides `pd.pivot_table()` alphabetical sort). 46 engine unit tests added. Code Quality R→G, Testing Y→G.
 
-1. Fix `line_terminator` -> `lineterminator` (P0 crash on pandas 3.x)
-2. Fix double float-to-int conversion crash on empty strings (P0)
-3. Fix cross-cutting `_update_global_map()` crash (P0)
-4. Add `NB_LINE_OUT` globalMap variable (P0)
-5. Add engine unit tests
+**Remaining Actions**:
+
+1. Force batch-only mode at engine orchestration level (streaming pivot produces wrong results) (P1)
+2. Add include-header config key to engine (P2)
+3. Add append mode to engine (P2)
+4. Add quoting/text-enclosure to engine output (P2)
 
 ---
 
