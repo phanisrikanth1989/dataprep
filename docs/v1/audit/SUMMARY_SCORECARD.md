@@ -49,9 +49,9 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 11 | tFixedFlowInput | G | G | G | G | G | G | 0 | 0 | 1 | 2 | 3 |
 | 12 | tFileArchive | Y | G | Y | Y | G | Y | 1 | 4 | 6 | 1 | 12 |
 | 13 | tFileUnarchive | Y | G | Y | Y | G | Y | 1 | 2 | 7 | 1 | 11 |
-| 14 | tFileCopy | Y | G | Y | Y | G | Y | 1 | 5 | 5 | 1 | 12 |
-| 15 | tFileDelete | Y | G | Y | Y | G | Y | 1 | 3 | 4 | 2 | 10 |
-| 16 | tFileExist | G | G | Y | Y | G | Y | 1 | 4 | 1 | 0 | 6 |
+| 14 | tFileCopy | G | G | G | G | G | G | 0 | 0 | 0 | 0 | 0 |
+| 15 | tFileDelete | G | G | G | G | G | G | 0 | 0 | 0 | 1 | 1 |
+| 16 | tFileExist | G | G | G | G | G | G | 0 | 0 | 0 | 0 | 0 |
 | 17 | tFileProperties | Y | G | Y | Y | Y | Y | 1 | 4 | 7 | 0 | 12 |
 | 18 | tFileInputProperties | R | G | R | R | N/A | R | 2 | 0 | 0 | 0 | 2 |
 | 19 | tFileInputMSXML | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
@@ -59,7 +59,7 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 21 | tFileList | R | G | R | R | N/A | R | 1 | 0 | 0 | 0 | 1 |
 | 22 | tFileOutputEBCDIC | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
 | 23 | tFileRowCount | G | G | G | G | G | G | 0 | 0 | 0 | 3 | 3 |
-| 24 | tFileTouch | Y | G | Y | Y | G | Y | 1 | 2 | 3 | 1 | 7 |
+| 24 | tFileTouch | G | G | G | G | G | G | 0 | 0 | 0 | 0 | 0 |
 | 25 | tSetGlobalVar | Y | G | Y | Y | G | Y | 1 | 2 | 4 | 2 | 9 |
 | 26 | tFilterRow | Y | G | Y | G | Y | Y | 1 | 4 | 6 | 2 | 13 |
 | 27 | tFilterColumns | Y | G | G | G | N/A | Y | 0 | 0 | 10 | 1 | 11 |
@@ -223,12 +223,12 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | 11 | tFixedFlowInput | G | 0 | 0 | 1 | 2 | 3 |
 | 12 | tFileArchive | Y | 1 | 4 | 6 | 1 | 12 |
 | 13 | tFileUnarchive | Y | 1 | 2 | 7 | 1 | 11 |
-| 14 | tFileCopy | Y | 1 | 5 | 5 | 1 | 12 |
-| 15 | tFileDelete | Y | 1 | 3 | 4 | 2 | 10 |
-| 16 | tFileExist | G | 1 | 4 | 1 | 0 | 6 |
+| 14 | tFileCopy | G | 0 | 0 | 0 | 0 | 0 |
+| 15 | tFileDelete | G | 0 | 0 | 0 | 1 | 1 |
+| 16 | tFileExist | G | 0 | 0 | 0 | 0 | 0 |
 | 17 | tFileProperties | Y | 1 | 4 | 7 | 0 | 12 |
 | 18 | tFileRowCount | G | 0 | 0 | 0 | 3 | 3 |
-| 19 | tFileTouch | Y | 1 | 2 | 3 | 1 | 7 |
+| 19 | tFileTouch | G | 0 | 0 | 0 | 0 | 0 |
 | 20 | tSetGlobalVar | Y | 1 | 2 | 4 | 2 | 9 |
 | 21 | tFileInputProperties | R | 2 | 0 | 0 | 0 | 2 |
 | 22 | tFileInputMSXML | R | 3 | 0 | 0 | 0 | 3 |
@@ -249,6 +249,10 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 **Note:** tFileRowCount ENGINE REWRITTEN (2026-05-01): Full engine rewrite. @REGISTRY.register("FileRowCount", "tFileRowCount") added (dual alias). `_validate_config()` raises ConfigurationError for missing/empty filename. row_separator implemented via `_count_rows()` helper with `_ESCAPE_MAP` normalisation. Encoding default corrected to ISO-8859-15. FileOperationError properly chained. GlobalMap writes outside try block. Returns {"main": None} (correct for utility component). DIE_ON_ERROR confirmed phantom (not in `_java.xml`). 42 engine unit tests across 9 classes (100% pass). Overall Y->G, issues reduced 19->3 (P0=0, P1=0, P2=0, P3=3).
 **Note:** tFileRowCount audit rewritten (2026-04-04): Audit REWRITTEN per gold standard. Phantom DIE_ON_ERROR removed (not in `_java.xml`). ENCODING default ISO-8859-15 per `_java.xml`. 4 unique + 2 framework params extracted with `_build_component_dict`. 1 per-feature needs_review (encoding default mismatch). 26 converter tests across 9 test classes. Testing upgraded R->Y (converter tests Green but engine tests missing). Total issues reduced 30->19.
 **Note:** tFileDelete Converter upgraded to Green (2026-04-04): Audit REWRITTEN per gold standard. FAILON default fixed (False->True per `_java.xml`). Phantom params removed (FAIL_ON_ERROR->FAILON, FOLDER_FILE_PATH->PATH). 6 unique + 2 framework params (100%). 5 per-feature needs_review entries. 31 converter tests across 10 test classes. Testing upgraded R->Y (converter tests Green but engine tests missing). Issues reduced 29->10.
+**Note:** tFileExist ENGINE FIXED (2026-04-29): Engine rewritten. `_validate_config()` raises ConfigurationError. `{id}_EXISTS` and `{id}_FILENAME` globalMap vars set. Accepts file_name/file_path/FILE_NAME aliases. @REGISTRY.register all three aliases. %-formatting in logger. 14 engine tests across 8 classes. Overall G, issues reduced 6->0.
+**Note:** tFileCopy ENGINE FIXED (2026-04-29): Engine rewritten. All 5 missing features implemented (enable_copy_directory, source_derectory, remove_file, failon, force_copy_delete). Config key mismatches resolved (filename/destination_rename/preserve_last_modified_time). `_validate_config()` raises. FileOperationError used. 17 engine tests across 9 classes. Overall Y->G, issues reduced 12->0.
+**Note:** tFileDelete ENGINE FIXED (2026-04-29): Engine rewritten. All 5 config key mismatches resolved (failon, folder, folder_file, filename/directory/path per mode). Talend-parity globalMap vars set (DELETE_PATH, CURRENT_STATUS, ERROR_MESSAGE). recursive default True (matches Talend implicit recursive). `_validate_config()` raises. 18 engine tests across 9 classes. Overall Y->G, issues reduced 10->1 (P3: symlink handling).
+**Note:** tFileTouch ENGINE FIXED (2026-04-29): Engine rewritten. createdir key mismatch resolved (engine now reads createdir with create_directory fallback). `_validate_config()` raises. `{id}_ERROR_MESSAGE` set on failure. FileOperationError replaces bare exceptions. 13 engine tests across 8 classes. Overall Y->G, issues reduced 7->0.
 **Note:** tFileOutputEBCDIC NEW audit created (2026-04-04): No engine implementation (Red overall per D-51). Enterprise-only component -- `_java.xml` NOT available in open-source Talaxie repository. LOW confidence params. Converter rewritten: class renamed FileOutputEBCDICConverter->FileOutputEbcdicConverter, TSTATCATCHER_STATS and LABEL framework params added, die_on_error default fixed (True->False), config key renamed row_separator->rowseparator. 5 unique + 2 framework params, 28 converter tests across 9 test classes. Single consolidated needs_review. Converter=G, Engine=R, Code Quality=R, Testing=R.
 **Note:** tAdvancedFileOutputXML NEW audit created (2026-04-04): No engine implementation (Red overall per D-51). Converter massively rewritten from 6 to 33 params: ROOT/GROUP/LOOP TABLE stride-5 parsers. 33 unique + 2 framework params, 66 converter tests across 10 test classes. Single consolidated needs_review. Converter=G, Engine=R, Code Quality=R, Testing=R.
 **Note:** tRowGenerator ENGINE REWRITTEN (2026-05-01): Full engine rewrite. @REGISTRY.register("RowGenerator", "tRowGenerator") added. _validate_config() raises ConfigurationError for missing/non-list values. nb_rows default fixed 1->100 (Talend parity). Schema reads from self.output_schema (top-level, not config-nested). _eval_expr() module function with restricted eval namespace + Java bridge path for {{java}} expressions. StringHandling.SPACE/LEN pre-processing. 24 print() statements replaced with logger. All 6 ENG-RG issues resolved. 52 engine unit tests across 9 classes (100% pass). Overall Y->G, issues reduced 8->1 (P3: Java routine library).
