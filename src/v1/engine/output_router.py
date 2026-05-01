@@ -24,6 +24,8 @@ _FLOW_TYPE_TO_RESULT_KEY = {
     "reject": "reject",
     "filter": "main",
     "iterate": "iterate",
+    "unique": "main",       # tUniqRow UNIQUE connector -> main (unique rows)
+    "duplicate": "reject",  # tUniqRow DUPLICATE connector -> reject (duplicate rows)
 }
 
 

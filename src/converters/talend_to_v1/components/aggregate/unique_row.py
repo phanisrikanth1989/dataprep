@@ -89,7 +89,9 @@ class UniqueRowConverter(ComponentConverter):
 
         # ---- 1. Core parameters ----
         only_once = self._get_bool(node, "ONLY_ONCE_EACH_DUPLICATED_KEY", default=False)
-        keep = "last" if only_once else "first"
+        # Talend ALWAYS keeps the first occurrence in the UNIQUE output.
+        # ONLY_ONCE_EACH_DUPLICATED_KEY controls the DUPLICATE output (see engine impl).
+        keep = "first"
 
         # ---- 2. TABLE parameters: UNIQUE_KEY ----
         raw_unique_key = self._get_param(node, "UNIQUE_KEY", [])
@@ -156,7 +158,7 @@ class UniqueRowConverter(ComponentConverter):
         _engine_gap_keys = [
             ("case_sensitive", "Engine uses global case_sensitive only; Talend supports per-column CASE_SENSITIVE"),
             ("is_virtual_component", "Engine does not implement IS_VIRTUAL_COMPONENT disk-based processing mode"),
-            ("only_once_each_duplicated_key", "Engine approximates via keep=first/last; does not suppress repeat duplicates"),
+            ("only_once_each_duplicated_key", "When true, engine outputs only the first duplicate per key group to DUPLICATE flow; Talend streams all duplicates vs. first-only"),
         ]
         for key, detail in _engine_gap_keys:
             needs_review.append({

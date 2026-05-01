@@ -70,7 +70,7 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 32 | tDenormalize | G | G | G | G | G | G | 0 | 0 | 2 | 2 | 4 |
 | 33 | tReplicate | Y | G | G | G | N/A | Y | 0 | 0 | 6 | 0 | 6 |
 | 34 | tLogRow | G | G | G | G | G | G | 0 | 0 | 1 | 0 | 1 |
-| 35 | tUnite | Y | G | G | G | Y | Y | 0 | 0 | 11 | 1 | 12 |
+| 35 | tUnite | G | G | G | G | G | G | 0 | 0 | 0 | 1 | 1 |
 | 36 | tExtractDelimitedFields | Y | G | Y | R | R | Y | 4 | 8 | 9 | 2 | 23 |
 | 37 | tExtractJSONFields | Y | G | Y | R | Y | Y | 3 | 6 | 6 | 2 | 17 |
 | 38 | tExtractXMLField | Y | G | Y | Y | Y | Y | 3 | 6 | 7 | 3 | 19 |
@@ -98,7 +98,7 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 60 | SwiftTransformer | Y | N/A | Y | Y | Y | N/A | 3 | 7 | 17 | 6 | 33 |
 | 61 | SwiftBlockFormatter | Y | N/A | Y | Y | Y | N/A | 3 | 10 | 16 | 9 | 38 |
 | 62 | tAggregateRow | Y | G | G | G | G | R | 1 | 0 | 3 | 1 | 5 |
-| 63 | tUniqueRow | Y | G | Y | Y | Y | G | 1 | 4 | 7 | 4 | 16 |
+| 63 | tUniqueRow | Y | G | Y | G | G | G | 0 | 2 | 1 | 1 | 4 |
 | 64 | tDie | Y | G | Y | Y | G | G | 1 | 4 | 5 | 3 | 13 |
 | 65 | tWarn | Y | G | Y | Y | G | G | 2 | 2 | 3 | 2 | 9 |
 | 66 | tSleep | G | G | Y | Y | G | G | 2 | 2 | 4 | 1 | 9 |
@@ -266,7 +266,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | 7 | tDenormalize | G | 0 | 0 | 2 | 2 | 4 |
 | 8 | tReplicate | Y | 0 | 0 | 6 | 0 | 6 |
 | 9 | tLogRow | G | 0 | 0 | 1 | 0 | 1 |
-| 10 | tUnite | Y | 0 | 0 | 11 | 1 | 12 |
+| 10 | tUnite | G | 0 | 0 | 0 | 1 | 1 |
 | 11 | tExtractDelimitedFields | Y | 4 | 8 | 9 | 2 | 23 |
 | 12 | tExtractJSONFields | Y | 3 | 6 | 6 | 2 | 17 |
 | 13 | tExtractXMLField | Y | 3 | 6 | 7 | 3 | 19 |
@@ -295,7 +295,8 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | 36 | SwiftBlockFormatter | Y | 3 | 10 | 16 | 9 | 38 |
 
 **Category summary:** 11 Red, 25 Yellow, 0 Green. Total issues: 485.
-**Note:** tUnite REWRITTEN (2026-04-04): Audit rewritten to gold standard with Section 11 Risk Assessment. 0 unique params (SCHEMA only). Engine has 7 extra config keys (mode, remove_duplicates, etc.) that are engine-specific extensions. Engine defaults compatible with Talend UNION ALL. 0 needs_review. 18 tests across 7 test classes. Converter=G, Code Quality=G, Testing=Y, Overall=Y. Issues reduced 25->12.
+**Note:** tUnite REWRITTEN (2026-04-04): Audit rewritten to gold standard. 0 unique params (SCHEMA only). Engine defaults compatible with Talend UNION ALL. 0 needs_review. Converter=G, Code Quality=G, Testing=Y, Overall=Y. Issues reduced 25->12.
+**Note:** tUnite ENGINE FINALISED (2026-05-01): Engine rewritten to 71-line UNION-ALL-only implementation (MERGE/sort/dedup removed). 18 engine unit tests across 8 test classes. All P2 issues resolved. One P3 remains (PERF-UNI-001 pd.concat memory). Testing=G, Overall=G. Issues reduced 12->1.
 **Note:** tDenormalize REWRITTEN (2026-04-04): Audit rewritten to gold standard. 2 phantom params removed (CONNECTION_FORMAT, NULL_AS_EMPTY). Stride-3 TABLE parser. 3 config keys (1 TABLE + 2 framework). 2 static + 1 conditional needs_review. 26 tests across 10 test classes. Converter=G, Code Quality=G, Testing=Y, Overall=Y. Issues reduced 28->9.
 **Note:** tNormalize ENGINE HARDENED (2026-06-13): itemseparator key fix (ENG-NRM-001), Rule 12 violations removed from _validate_config, phantom die_on_error removed (ENG-NRM-004), discard_trailing_empty_str confirmed trailing-only (ENG-NRM-003). 25 engine unit tests added across 5 test classes. Performance=R→G (vectorized .str.split+.explode). Testing=Y→G. Issues reduced 10→4 (1 open P1: ENG-NRM-002 CSV escape/enclosure).
 **Note:** tDenormalize ENGINE REWRITTEN (2026-06-13): @REGISTRY.register added (ENG-DNR-001 P0 fixed), merge flag implemented with first-seen dedup (ENG-DNR-002 P1 fixed), groupby(dropna=False) preserves null-key rows (ENG-DNR-003 P1 fixed). _validate_config returns None per Rule 12. No double validation. No manual _update_stats. 41 engine unit tests across 11 test classes. Engine=Y→G, Testing=Y→G, Overall=Y→G. Issues reduced 9→4.
@@ -334,11 +335,12 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | # | Component | Overall | P0 | P1 | P2 | P3 | Total |
 | --- | ----------- | --------- | ---- | ---- | ---- | ---- | ------- |
 | 1 | tAggregateRow | Y | 1 | 0 | 3 | 1 | 5 |
-| 2 | tUniqueRow | Y | 1 | 4 | 7 | 4 | 16 |
+| 2 | tUniqueRow | Y | 0 | 2 | 1 | 1 | 4 |
 
 **Category summary:** 0 Red, 2 Yellow, 0 Green. Total issues: 21.
 **Note:** tAggregateRow RE-AUDITED (2026-04-29): Engine fully rewritten since 2026-04-04 audit. All four P0/P1 functional bugs (ENG-AGG-001..004) RESOLVED. Single-pass `pd.NamedAgg` aggregation; output_column rename; per-op ignore_null; list returns delimited string; list_object/union/population_std_dev all implemented; USE_FINANCIAL_PRECISION wired through Decimal helpers in both grouped and global modes. Engine=G, Code Quality=G, Performance=G. Overall remains Y because Testing=R (zero engine unit tests -- only remaining production blocker). Issues reduced 18->5. Stale converter needs_review entries also removed.
 **Note:** tUniqueRow RE-VERIFIED (2026-04-29): Engine unchanged since original audit; all findings still valid. Per-column case sensitivity, IS_VIRTUAL_COMPONENT, BigDecimal hash normalization, and ONLY_ONCE_EACH_DUPLICATED_KEY remain real engine gaps.
+**Note:** tUniqueRow ENGINE HARDENED (2026-05-01): @REGISTRY.register added (4 aliases), execute() override removed (Rule 4 fix), _validate_config() contract fixed (returns None), key_columns parsing fixed (dict-list), per-column case sensitivity implemented, temp column collision fixed (__uniq_ci_ prefix), UNIQUE/DUPLICATE routing fixed (output_router.py updated). 35 engine tests across 8 test classes. Code Quality=Y->G, Perf=Y->G, Testing=G. 2 P1 remain (IS_VIRTUAL, BigDecimal). Issues reduced 16->4.
 
 ### Control Components (9)
 
