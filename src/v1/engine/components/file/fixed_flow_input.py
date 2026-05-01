@@ -1,336 +1,271 @@
-"""
-FixedFlowInputComponent - Generates fixed rows of data based on configuration.
+﻿"""Engine component for FixedFlowInput (tFixedFlowInput).
 
-Talend equivalent: tFixedFlowInput
+Generates a fixed number of rows from static configuration -- no input
+DataFrame required. Three mutually exclusive modes:
 
-This component generates fixed rows of data with support for three modes:
-- Single mode: Generates rows using VALUES configuration
-- Inline table mode: Uses INTABLE configuration data
-- Inline content mode: Parses INLINECONTENT with separators
+  Single mode    : VALUES template row repeated nb_rows times (use_singlemode=True)
+  Inline Table   : INTABLE flat entry list grouped by schema columns (use_intable=True)
+  Inline Content : free-text delimited block, all lines emitted (use_inlinecontent=True)
+
+Config keys consumed:
+  nb_rows           (int, default 1)         -- rows to generate (single / intable)
+  use_singlemode    (bool, default True)      -- enable VALUES single-template mode
+  use_intable       (bool, default False)     -- enable INTABLE multi-row mode
+  use_inlinecontent (bool, default False)     -- enable free-text delimited mode
+  values_config     (list[dict], default []) -- [{"schema_column": col, "value": val}, ...]
+  intable           (list[dict], default []) -- flat [{element_ref: col, value: val}, ...]
+  inline_content    (str, default "")        -- delimited text block
+  row_separator     (str, default "\\\\n")   -- row separator (Java escapes supported)
+  field_separator   (str, default ";")       -- field separator (Java escapes supported)
 """
 import logging
-from typing import Any, Dict, List, Optional
+import re
+from typing import Any, Optional
 
 import pandas as pd
 
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
+from ...exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
+# Java escape sequences accepted in row_separator / field_separator config values
+_ESCAPE_MAP: dict[str, str] = {
+    "\\n": "\n",
+    "\\t": "\t",
+    "\\r": "\r",
+    "\\|": "|",
+}
 
+
+@REGISTRY.register("FixedFlowInputComponent", "tFixedFlowInput")
 class FixedFlowInputComponent(BaseComponent):
-    """
-    Generates fixed rows of data based on configuration and selected mode.
+    """tFixedFlowInput engine implementation.
 
-    Configuration:
-        nb_rows (int): Number of rows to generate. Default: 1
-        use_singlemode (bool): Enable single mode with VALUES. Default: True
-        use_intable (bool): Enable inline table mode. Default: False
-        use_inlinecontent (bool): Enable inline content mode. Default: False
-        schema (list): Schema definition for output columns. Required.
-        values_config (dict): Column values for single mode
-        rows (list): Pre-generated rows data
-        intable_data (list): Table data for inline table mode
-        inline_content (str): Content string for inline content mode
-        row_separator (str): Row separator for inline content. Default: '\n'
-        field_separator (str): Field separator for inline content. Default: ';'
-        die_on_error (bool): Fail on error. Default: True
-
-    Inputs:
-        None: This component generates data without inputs
-
-    Outputs:
-        main: Generated DataFrame with fixed data
-
-    Statistics:
-        NB_LINE: Total rows generated
-        NB_LINE_OK: Successful rows generated
-        NB_LINE_REJECT: Always 0 (no rejection logic)
-
-    Example:
-        config = {
-            "nb_rows": 5,
-            "use_singlemode": True,
-            "schema": [{"name": "id", "type": "id_Integer"}],
-            "values_config": {"id": 1}
-        }
-        component = FixedFlowInputComponent("comp_1", config)
-        result = component.execute()
+    Generates fixed rows of data in single, inline-table, or inline-content
+    mode and emits them as a single FLOW (main) output.  No REJECT output --
+    all data is predefined so there is no concept of malformed input.
     """
 
-    def _validate_config(self) -> List[str]:
+    # ------------------------------------------------------------------
+    # Configuration Validation
+    # ------------------------------------------------------------------
+
+    def _validate_config(self) -> None:
+        """Validate structural correctness of config (Rule 12).
+
+        Group B carve-out: ``nb_rows`` is always emitted as ``int`` by the
+        converter via ``_get_int(node, "NB_ROWS", 1)``, so the isinstance
+        check below is structural, not content-based.
+        See MANUAL_COMPONENT_AUTHORING.md Rule 12.
+
+        Raises:
+            ConfigurationError: If ``nb_rows`` is present but not an int.
         """
-        Validate component configuration.
+        nb_rows = self.config.get("nb_rows")
+        if nb_rows is not None and not isinstance(nb_rows, int):
+            raise ConfigurationError(
+                self.id,
+                f"'nb_rows' must be an int, got {type(nb_rows).__name__}",
+            )
 
-        Returns:
-            List of error messages (empty if valid)
-        """
-        errors = []
+    # ------------------------------------------------------------------
+    # Core Processing
+    # ------------------------------------------------------------------
 
-        # Check that at least one mode is enabled
-        use_singlemode = self.config.get('use_singlemode', True)
-        use_intable = self.config.get('use_intable', False)
-        use_inlinecontent = self.config.get('use_inlinecontent', False)
-
-        if not any([use_singlemode, use_intable, use_inlinecontent]):
-            errors.append("No valid mode selected (use_singlemode, use_intable, or use_inlinecontent must be True)")
-
-        # Validate nb_rows
-        # Group B verdict (Phase 07.2): KEEP. nb_rows is extracted by the
-        # converter as _get_int(node, "NB_ROWS", 1) at
-        # src/converters/talend_to_v1/components/file/fixed_flow_input.py:106,
-        # so config["nb_rows"] is always a Python int -- never a context-var
-        # string. The isinstance check below is shape-only, allowed by Rule 12
-        # (the _validate_config content rule).
-        nb_rows = self.config.get('nb_rows', 1)
-        if not isinstance(nb_rows, int) or nb_rows < 0:
-            errors.append("Config 'nb_rows' must be a non-negative integer")
-
-        # Validate schema
-        schema = self.config.get('schema', [])
-        if not isinstance(schema, list):
-            errors.append("Config 'schema' must be a list")
-        elif len(schema) == 0:
-            errors.append("Config 'schema' cannot be empty")
-
-        # Validate specific mode requirements
-        if use_singlemode:
-            # Single mode should have either values_config or rows
-            if not self.config.get('values_config') and not self.config.get('rows'):
-                errors.append("Single mode selected but no values_config or rows provided")
-
-        elif use_inlinecontent:
-            # Inline content mode should have inline_content
-            if not self.config.get('inline_content'):
-                errors.append("Inline content mode selected but no inline_content provided")
-
-        return errors
-
-    def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
-        """
-        Generate fixed rows of data based on configuration and selected mode.
+    def _process(self, input_data: Optional[pd.DataFrame] = None) -> dict[str, Any]:
+        """Generate fixed rows and return them as a DataFrame.
 
         Args:
-            input_data: Not used for this component
+            input_data: Not used -- this is a source component.
 
         Returns:
-            Dictionary containing:
-                - main: Generated DataFrame with fixed data
+            dict with ``'main'`` key containing the generated DataFrame.
+
+        Raises:
+            ConfigurationError: If ``nb_rows`` is negative.
         """
-        try:
-            # Extract configuration
-            nb_rows = int(self.config.get('nb_rows', 1))
-            schema_columns = self.config.get('schema', [])
+        nb_rows: int = self.config.get("nb_rows", 1)
+        if nb_rows < 0:
+            raise ConfigurationError(self.id, f"'nb_rows' must be >= 0, got {nb_rows}")
 
-            # Get mode configuration
-            use_singlemode = self.config.get('use_singlemode', True)
-            use_intable = self.config.get('use_intable', False)
-            use_inlinecontent = self.config.get('use_inlinecontent', False)
+        # Use output_schema set by the engine (schema is a sibling of config in
+        # the component JSON, not nested inside config).  Fall back to
+        # config["schema"] so existing unit-test fixtures continue to work.
+        schema_cols = getattr(self, "output_schema", None) or self.config.get("schema", [])
+        col_names = [c["name"] if isinstance(c, dict) else c for c in schema_cols]
 
-            logger.info(f"[{self.id}] Processing started: nb_rows={nb_rows}, "
-                        f"single={use_singlemode}, intable={use_intable}, inlinecontent={use_inlinecontent}")
+        use_singlemode = self.config.get("use_singlemode", True)
+        use_intable = self.config.get("use_intable", False)
+        use_inlinecontent = self.config.get("use_inlinecontent", False)
 
-            # Generate rows based on the selected mode
-            if use_singlemode:
-                output_data = self._generate_single_mode_rows(nb_rows, schema_columns)
-            elif use_intable:
-                output_data = self._generate_intable_mode_rows(nb_rows, schema_columns)
-            elif use_inlinecontent:
-                output_data = self._generate_inline_content_rows(nb_rows, schema_columns)
-            else:
-                logger.warning(f"[{self.id}] No valid mode selected, defaulting to single mode")
-                output_data = self._generate_single_mode_rows(nb_rows, schema_columns)
+        logger.info(
+            "[%s] mode: single=%s intable=%s inlinecontent=%s nb_rows=%d",
+            self.id, use_singlemode, use_intable, use_inlinecontent, nb_rows,
+        )
 
-            rows_generated = len(output_data)
-            logger.info(f"[{self.id}] Processing complete: generated {rows_generated} rows")
-
-            # Update statistics
-            self._update_stats(0, rows_generated, 0)  # No input rows, generated rows as output, no rejects
-
-            # Convert to DataFrame
-            if output_data:
-                df = pd.DataFrame(output_data)
-                return {'main': df}
-            else:
-                # Return empty DataFrame with correct schema
-                column_names = [col['name'] if isinstance(col, dict) else col for col in schema_columns]
-                df = pd.DataFrame(columns=column_names)
-                return {'main': df}
-
-        except Exception as e:
-            logger.error(f"[{self.id}] Processing failed: {str(e)}")
-            if self.config.get('die_on_error', True):
-                raise
-
-            # Return empty DataFrame on error
-            logger.warning(f"[{self.id}] Returning empty DataFrame due to error")
-            column_names = [col['name'] if isinstance(col, dict) else col for col in self.config.get('schema', [])]
-            df = pd.DataFrame(columns=column_names)
-            return {'main': df}
-
-    def _generate_single_mode_rows(self, nb_rows: int, schema_columns: List) -> List[Dict]:
-        """Generate rows using single mode (VALUES configuration)"""
-        # Get the pre-generated rows from the parser
-        rows = self.config.get('rows', [])
-        if rows:
-            # Process each row to resolve expressions and context variables
-            resolved_rows = []
-            for row in rows:
-                resolved_row = {}
-                for key, value in row.items():
-                    # Resolve context and global variables for each value
-                    resolved_row[key] = self._resolve_value(value)
-                resolved_rows.append(resolved_row)
-            return resolved_rows
-
-        # Fallback: generate from values_config if rows not available
-        values_config = self.config.get('values_config', {})
-        output_data = []
-
-        for _ in range(nb_rows):
-            row = {}
-            for col in schema_columns:
-                col_name = col['name'] if isinstance(col, dict) else col
-                value = values_config.get(col_name, None)
-                # Resolve context and global variables
-                row[col_name] = self._resolve_value(value)
-            output_data.append(row)
-
-        return output_data
-
-    def _generate_intable_mode_rows(self, nb_rows: int, schema_columns: List) -> List[Dict]:
-        """Generate rows using inline table mode (INTABLE configuration)"""
-        intable_data = self.config.get('intable_data', [])
-        output_data = []
-
-        for i in range(nb_rows):
-            if i < len(intable_data):
-                row = intable_data[i].copy()
-                # Resolve context and global variables in each value
-                for key, value in row.items():
-                    row[key] = self._resolve_value(value)
-                output_data.append(row)
-            else:
-                # Create empty row if not enough data
-                row = {}
-                for col in schema_columns:
-                    col_name = col['name'] if isinstance(col, dict) else col
-                    row[col_name] = None
-                output_data.append(row)
-
-        return output_data
-
-    def _generate_inline_content_rows(self, nb_rows: int, schema_columns: List) -> List[Dict]:
-        """Generate rows using inline content mode (INLINECONTENT configuration)"""
-        inline_content = self.config.get('inline_content', '')
-        row_separator = self.config.get('row_separator', '\n')
-        field_separator = self.config.get('field_separator', ';')
-
-        logger.info(f"[{self.id}] Raw inline_content: {repr(inline_content)}")
-        logger.info(f"[{self.id}] Row separator: {repr(row_separator)}")
-        logger.info(f"[{self.id}] Field separator: {repr(field_separator)}")
-        logger.info(f"[{self.id}] nb_rows parameter: {nb_rows} (ignored in inline content mode)")
-
-        output_data = []
-
-        if inline_content:
-            # Handle escaped characters in separators
-            if row_separator == '\\n':
-                row_separator = '\n'
-            if field_separator == '\\|':
-                field_separator = '|'
-
-            # Split content into rows and filter out empty rows
-            raw_rows = inline_content.split(row_separator)
-            logger.debug(f"[{self.id}] Split into {len(raw_rows)} raw rows: {raw_rows}")
-
-            content_rows = [row.strip() for row in raw_rows if row.strip()]
-            logger.info(f"[{self.id}] Parsed {len(content_rows)} non-empty rows from inline content: {content_rows}")
-
-            # For inline content mode, process ALL available content rows (ignore nb_rows completely)
-            # This behaves like reading a delimited file - process all content provided
-            logger.info(f"[{self.id}] Processing ALL {len(content_rows)} rows from inline content (nb_rows ignored)")
-
-            for i, current_row in enumerate(content_rows):
-                field_values = current_row.split(field_separator)
-                logger.debug(f"[{self.id}] Row {i}: '{current_row}' -> fields: {field_values}")
-
-                row = {}
-                for col_idx, col in enumerate(schema_columns):
-                    col_name = col['name'] if isinstance(col, dict) else col
-                    if col_idx < len(field_values):
-                        value = field_values[col_idx].strip()
-                        row[col_name] = self._resolve_value(value)
-                    else:
-                        row[col_name] = None
-                output_data.append(row)
-                logger.debug(f"[{self.id}] Generated row {i+1}: {row}")
+        if use_inlinecontent:
+            rows = self._build_inline_content_rows(col_names)
+        elif use_intable:
+            rows = self._build_intable_rows(nb_rows, col_names)
+        elif use_singlemode:
+            rows = self._build_single_mode_rows(nb_rows, col_names)
         else:
-            # No content provided, return empty result (don't create empty rows based on nb_rows)
-            logger.info(f"[{self.id}] No inline content provided, returning empty result")
+            logger.warning("[%s] no mode selected, defaulting to single", self.id)
+            rows = self._build_single_mode_rows(nb_rows, col_names)
 
-        return output_data
+        row_count = len(rows)
+        self._update_stats(row_count, row_count, 0)
 
-    def _resolve_value(self, value):
-        """Resolve context variables, global map references, and expressions in a value"""
+        df = pd.DataFrame(rows, columns=col_names) if rows else pd.DataFrame(columns=col_names)
+        logger.info("[%s] generated %d rows", self.id, row_count)
+        return {"main": df}
+
+    # ------------------------------------------------------------------
+    # Mode builders
+    # ------------------------------------------------------------------
+
+    def _build_single_mode_rows(self, nb_rows: int, col_names: list[str]) -> list[dict]:
+        """Build rows for single mode (VALUES template repeated nb_rows times).
+
+        ``values_config`` is a list[dict] emitted by the converter::
+
+            [{"schema_column": "id", "value": "1"},
+             {"schema_column": "name", "value": "Alice"}]
+
+        A plain dict ``{col: val}`` is also accepted for backward compatibility.
+        """
+        raw = self.config.get("values_config", [])
+
+        if isinstance(raw, list):
+            lookup: dict[str, Any] = {
+                e["schema_column"]: e.get("value")
+                for e in raw
+                if isinstance(e, dict) and "schema_column" in e
+            }
+        elif isinstance(raw, dict):
+            lookup = raw
+        else:
+            lookup = {}
+
+        rows = []
+        for _ in range(nb_rows):
+            row = {col: self._resolve_value(lookup.get(col)) for col in col_names}
+            rows.append(row)
+        return rows
+
+    def _build_intable_rows(self, nb_rows: int, col_names: list[str]) -> list[dict]:
+        """Build rows for inline table mode (INTABLE).
+
+        ``intable`` is the flat list emitted by the converter::
+
+            [{"element_ref": "id",   "value": "1"},
+             {"element_ref": "name", "value": "Alice"},
+             {"element_ref": "id",   "value": "2"},
+             {"element_ref": "name", "value": "Bob"}, ...]
+
+        Every ``len(col_names)`` consecutive entries form one row.
+        At most ``nb_rows`` rows are emitted; no null-padding beyond actual data.
+        """
+        entries = self.config.get("intable", [])
+        if not entries or not col_names:
+            return []
+
+        ncols = len(col_names)
+        rows: list[dict] = []
+        for start in range(0, len(entries), ncols):
+            if len(rows) >= nb_rows:
+                break
+            group = entries[start: start + ncols]
+            row: dict[str, Any] = {col: None for col in col_names}
+            for entry in group:
+                if isinstance(entry, dict):
+                    col = entry.get("element_ref", "")
+                    if col in col_names:
+                        row[col] = self._resolve_value(entry.get("value"))
+            rows.append(row)
+        return rows
+
+    def _build_inline_content_rows(self, col_names: list[str]) -> list[dict]:
+        """Build rows from inline content (delimited free-text block).
+
+        ``nb_rows`` is ignored -- all non-empty lines from the content are emitted.
+        Separator config values support Java escape sequences via ``_ESCAPE_MAP``.
+        """
+        content = self.config.get("inline_content", "")
+        raw_row_sep = self.config.get("row_separator", "\\n")
+        raw_field_sep = self.config.get("field_separator", ";")
+
+        row_sep = _ESCAPE_MAP.get(raw_row_sep, raw_row_sep)
+        field_sep = _ESCAPE_MAP.get(raw_field_sep, raw_field_sep)
+
+        if not content:
+            return []
+
+        rows: list[dict] = []
+        for line in content.split(row_sep):
+            if not line.strip():
+                continue
+            fields = line.split(field_sep)
+            row = {}
+            for idx, col in enumerate(col_names):
+                raw_val = fields[idx] if idx < len(fields) else None
+                row[col] = self._resolve_value(raw_val)
+            rows.append(row)
+            logger.debug("[%s] parsed row: %s", self.id, row)
+        return rows
+
+    # ------------------------------------------------------------------
+    # Value resolution
+    # ------------------------------------------------------------------
+
+    def _resolve_value(self, value: Any) -> Any:
+        """Resolve a single cell value from config.
+
+        Handles:
+        - Non-string values: returned as-is.
+        - ``${context.X}`` / ``context.X``: delegated to ContextManager.
+        - ``globalMap.get("KEY")``: resolved via GlobalMap if available.
+        - Numeric strings: coerced to int / float where unambiguous.
+
+        No ``eval()`` is used -- arithmetic expressions are not supported.
+        """
         if not isinstance(value, str):
             return value
 
+        # ContextManager handles ${context.X} and context.X patterns
         try:
-            # Use the ContextManager's resolve_string method which handles {{java}} expressions
-            # and provides fallback for GlobalMap access when Java bridge is unavailable
-            resolved_value = self.context_manager.resolve_string(value)
+            resolved = self.context_manager.resolve_string(value)
+        except Exception:
+            resolved = value
 
-            # If the resolved value is different from input, return it
-            if resolved_value != value:
-                # Try to convert to appropriate type if it's a number
-                try:
-                    if resolved_value.isdigit():
-                        return int(resolved_value)
-                    elif '.' in resolved_value and resolved_value.replace('.', '').replace('-', '').isdigit():
-                        return float(resolved_value)
-                except:
-                    pass
-                return resolved_value
+        if resolved != value:
+            return _coerce_numeric(resolved)
 
-            # Fallback to legacy resolution methods for backward compatibility
-            # Handle ${context.variable} format
-            if value.startswith('${') and value.endswith('}'):
-                context_ref = value[2:-1]  # Remove ${ and }
-                if context_ref.startswith('context.'):
-                    context_key = context_ref[8:]  # Remove 'context.'
-                    resolved_value = self.context_manager.get(context_key)
-                    if resolved_value is not None:
-                        return resolved_value
+        # globalMap.get("KEY") reference (runtime-only -- not resolvable earlier)
+        if self.global_map and "globalMap.get" in value:
+            match = re.search(r'globalMap\.get\("([^"]+)"\)', value)
+            if match:
+                gm_val = self.global_map.get(match.group(1))
+                if gm_val is not None:
+                    return gm_val
 
-            # Handle direct context.variable references
-            elif value.startswith('context.'):
-                context_key = value[8:]  # Remove 'context.'
-                resolved_value = self.context_manager.get(context_key)
-                if resolved_value is not None:
-                    return resolved_value
+        return _coerce_numeric(value)
 
-            # Handle globalMap.get() references directly (fallback)
-            elif "globalMap.get" in value:
-                import re
-                match = re.search(r'globalMap\.get\("(.*?)"\)', value)
-                if match:
-                    global_key = match.group(1)
-                    resolved_value = self.global_map.get(global_key, None)
-                    if resolved_value is not None:
-                        # Replace the globalMap reference with the resolved value
-                        new_value = value.replace(f'globalMap.get("{global_key}")', str(resolved_value))
-                        # Clean up Java-style casting
-                        new_value = new_value.replace("((Integer)", "").replace(")", "")
-                        # Try to evaluate as expression
-                        try:
-                            return eval(new_value)
-                        except:
-                            return new_value
 
-            # Return original value if no special processing needed
-            return value
+def _coerce_numeric(value: Any) -> Any:
+    """Coerce a string to int or float if it represents a plain number.
 
-        except Exception as e:
-            logger.warning(f"[{self.id}] Failed to resolve value '{value}': {e}")
-            return value
+    Uses regex to avoid any eval() risk.  Returns the original value unchanged
+    if it does not match a plain integer or decimal pattern.
+    """
+    if not isinstance(value, str):
+        return value
+    stripped = value.strip()
+    if re.fullmatch(r"-?\d+", stripped):
+        return int(stripped)
+    if re.fullmatch(r"-?\d*\.\d+", stripped):
+        return float(stripped)
+    return value
+

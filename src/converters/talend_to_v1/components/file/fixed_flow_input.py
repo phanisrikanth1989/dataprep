@@ -23,6 +23,7 @@ from typing import Any, Dict, List
 
 from ..base import ComponentConverter, ComponentResult, TalendConnection, TalendNode
 from ..registry import REGISTRY
+from ...expression_converter import ExpressionConverter
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,8 @@ def _parse_values(raw: Any) -> List[Dict[str, Any]]:
             if ref == "SCHEMA_COLUMN":
                 row["schema_column"] = val.strip('"')
             elif ref == "VALUE":
-                row["value"] = val.strip('"')
+                stripped = val.strip('"')
+                row["value"] = ExpressionConverter.mark_java_expression(stripped)
         if row:
             result.append(row)
     return result
@@ -126,25 +128,10 @@ class FixedFlowInputConverter(ComponentConverter):
         schema = {"input": [], "output": self._parse_schema(node)}
 
         # ---- 5. Engine gap needs_review entries ----
-        # Engine reads 'intable_data' but converter produces 'intable' -- key mismatch
-        needs_review.append({
-            "issue": "Engine reads 'intable_data' config key but converter produces 'intable' -- key name mismatch",
-            "component": node.component_id,
-            "severity": "engine_gap",
-        })
-
         # Engine reads 'die_on_error' but param is not in _java.xml -- engine has hardcoded behavior
         needs_review.append({
             "issue": "Engine reads 'die_on_error' config key but DIE_ON_ERROR is not in _java.xml -- "
                      "engine default (True) applies without converter extraction",
-            "component": node.component_id,
-            "severity": "engine_gap",
-        })
-
-        # Engine reads 'rows' (pre-generated) but converter no longer generates rows at conversion time
-        needs_review.append({
-            "issue": "Engine reads 'rows' config key for pre-generated row data -- converter extracts raw "
-                     "VALUES/INTABLE config instead; engine falls back to values_config for single mode",
             "component": node.component_id,
             "severity": "engine_gap",
         })

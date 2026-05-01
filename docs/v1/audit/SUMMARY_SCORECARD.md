@@ -46,7 +46,7 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 8 | tFileOutputPositional | Y | G | Y | Y | Y | Y | 2 | 6 | 7 | 2 | 17 |
 | 9 | tFileInputFullRow | Y | G | Y | Y | Y | Y | 1 | 8 | 9 | 3 | 21 |
 | 10 | tFileInputRaw | Y | G | Y | Y | Y | Y | 1 | 5 | 6 | 2 | 14 |
-| 11 | tFixedFlowInput | Y | G | Y | Y | G | Y | 2 | 7 | 8 | 3 | 20 |
+| 11 | tFixedFlowInput | G | G | G | G | G | G | 0 | 0 | 1 | 2 | 3 |
 | 12 | tFileArchive | Y | G | Y | Y | G | Y | 1 | 4 | 6 | 1 | 12 |
 | 13 | tFileUnarchive | Y | G | Y | Y | G | Y | 1 | 2 | 7 | 1 | 11 |
 | 14 | tFileCopy | Y | G | Y | Y | G | Y | 1 | 5 | 5 | 1 | 12 |
@@ -220,7 +220,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | 8 | tFileOutputPositional | Y | 2 | 6 | 7 | 2 | 17 |
 | 9 | tFileInputFullRow | Y | 1 | 8 | 9 | 3 | 21 |
 | 10 | tFileInputRaw | Y | 1 | 5 | 6 | 2 | 14 |
-| 11 | tFixedFlowInput | Y | 2 | 7 | 8 | 3 | 20 |
+| 11 | tFixedFlowInput | G | 0 | 0 | 1 | 2 | 3 |
 | 12 | tFileArchive | Y | 1 | 4 | 6 | 1 | 12 |
 | 13 | tFileUnarchive | Y | 1 | 2 | 7 | 1 | 11 |
 | 14 | tFileCopy | Y | 1 | 5 | 5 | 1 | 12 |
@@ -244,7 +244,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 **Note:** tFileList NEW audit created (2026-04-03): No engine implementation (Red overall per D-37). Converter rewritten: INCLUDSUBDIR spelling fixed (no E), ERROR default fixed (True->False), FORMAT_FILEPATH_TO_SLASH added, type_name fixed to tFileList. 15 unique + 2 framework params, 51 converter tests across 11 test classes. Single consolidated needs_review. Converter=G, Engine=R, Code Quality=R, Testing=R.
 **Note:** tFileInputMSXML NEW audit created (2026-04-03): No engine implementation (Red overall per D-37). Converter rewritten: 4 missing params added (IGNORE_ORDER, CHECK_DATE, IGNORE_DTD, GENERATION_MODE), defaults fixed (trim_all=True, encoding=ISO-8859-15). SCHEMAS TABLE stride-3 parser (LOOP_PATH, MAPPING, CREATE_EMPTY_ROW). 10 unique + 2 framework params, 44 converter tests across 10 test classes. Single consolidated needs_review. Converter=G, Engine=R, Code Quality=R, Testing=R.
 **Note:** tFileInputFullRow Converter upgraded to Green (2026-04-03): Audit rewritten per gold standard. All 8 unique + 2 framework params extracted with _build_component_dict. ISO-8859-15 encoding default. Phantom DIE_ON_ERROR removed. 4 per-feature needs_review entries (header_rows, footer_rows, random, nb_random engine gaps). 48 converter tests across 10 test classes. Testing upgraded R->Y (converter tests Green but engine tests missing).
-**Note:** tFixedFlowInput Converter upgraded to Green (2026-04-03): Audit rewritten per gold standard with Section 11 Risk Assessment. 8 unique + 2 framework params extracted with _build_component_dict. Phantom CONNECTION_FORMAT and DIE_ON_ERROR removed (not in _java.xml). VALUES and INTABLE TABLE parsers at module level. 3 per-feature needs_review (intable_data key mismatch, die_on_error, rows). 56 converter tests across 12 test classes. Testing upgraded R->Y (converter tests Green but engine tests missing).
+**Note:** tFixedFlowInput ENGINE REWRITTEN (2026-05-01): @REGISTRY.register("FixedFlowInputComponent", "tFixedFlowInput") added. _validate_config() fixed to raise ConfigurationError (not dead list-return). NB_LINE bug fixed (_update_stats(row_count,row_count,0)). values_config list-of-dicts format handled. intable key fixed (was intable_data). Separator normalization complete (\\n,\\t,\\r,\\|). eval() replaced with safe _coerce_numeric(). 34 engine unit tests across 8 classes (100% pass). Converter needs_review reduced 3->1 (intable/rows gaps resolved). Overall Y->G, issues reduced 20->3 (P0=0, P1=0, P2=1, P3=2).
 **Note:** tFileInputExcel upgraded to Green (2026-04-03): Audit REWRITTEN per gold standard with Section 11 Risk Assessment + Appendix C (Generation Mode Comparison) + Appendix D (Sheet Processing). 3 critical defaults fixed (DIE_ON_ERROR=True->False, ENCODING=UTF-8->ISO-8859-15, GENERATION_MODE=EVENT_MODE->USER_MODE). AFFECT_EACH_SHEET type fixed bool->str. 3 module-level TABLE parsers. 28 unique + 2 framework params (100%). 9 per-feature needs_review entries. 83 converter tests across 11 test classes. Testing upgraded R->Y (converter tests Green but engine tests missing).
 **Note:** tFileRowCount audit rewritten (2026-04-04): Audit REWRITTEN per gold standard. Phantom DIE_ON_ERROR removed (not in _java.xml). ENCODING default ISO-8859-15 per _java.xml. 4 unique + 2 framework params extracted with _build_component_dict. 1 per-feature needs_review (encoding default mismatch). 26 converter tests across 9 test classes. Testing upgraded R->Y (converter tests Green but engine tests missing). Total issues reduced 30->19.
 **Note:** tFileDelete Converter upgraded to Green (2026-04-04): Audit REWRITTEN per gold standard. FAILON default fixed (False->True per _java.xml). Phantom params removed (FAIL_ON_ERROR->FAILON, FOLDER_FILE_PATH->PATH). 6 unique + 2 framework params (100%). 5 per-feature needs_review entries. 31 converter tests across 10 test classes. Testing upgraded R->Y (converter tests Green but engine tests missing). Issues reduced 29->10.
@@ -433,7 +433,7 @@ Every converter-applicable component has been rewritten to the gold standard pat
 All 11 database components, 5 control components (tLoop, tParallelize, tPostjob, tPrejob, tRunJob), 1 iterate component (tFlowToIterate), and 16 transform/file components have no engine implementation. Their converters are Green but they cannot execute.
 
 ### 5. Security vulnerabilities in code execution components
-Multiple components use `exec()` or `eval()` without sandboxing: PythonComponent, PythonRowComponent, PythonDataFrameComponent, tFixedFlowInput, tFilterRow (advanced mode), and tSetGlobalVar. No `__builtins__` restriction is applied.
+Multiple components use `exec()` or `eval()` without sandboxing: PythonComponent, PythonRowComponent, PythonDataFrameComponent, tFilterRow (advanced mode), and tSetGlobalVar. No `__builtins__` restriction is applied. (Note: tFixedFlowInput `eval()` was removed 2026-05-01.)
 
 ### 6. No REJECT flow implementation across the engine
 Virtually no component implements the Talend REJECT output flow pattern. Error rows are silently dropped rather than being routed to error-handling paths. This is a fundamental behavioral gap compared to Talend.
