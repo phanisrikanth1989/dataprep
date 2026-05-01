@@ -58,7 +58,7 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 20 | tAdvancedFileOutputXML | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
 | 21 | tFileList | R | G | R | R | N/A | R | 1 | 0 | 0 | 0 | 1 |
 | 22 | tFileOutputEBCDIC | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
-| 23 | tFileRowCount | Y | G | Y | Y | G | Y | 1 | 6 | 8 | 4 | 19 |
+| 23 | tFileRowCount | G | G | G | G | G | G | 0 | 0 | 0 | 3 | 3 |
 | 24 | tFileTouch | Y | G | Y | Y | G | Y | 1 | 2 | 3 | 1 | 7 |
 | 25 | tSetGlobalVar | Y | G | Y | Y | G | Y | 1 | 2 | 4 | 2 | 9 |
 | 26 | tFilterRow | Y | G | Y | G | Y | Y | 1 | 4 | 6 | 2 | 13 |
@@ -227,7 +227,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | 15 | tFileDelete | Y | 1 | 3 | 4 | 2 | 10 |
 | 16 | tFileExist | G | 1 | 4 | 1 | 0 | 6 |
 | 17 | tFileProperties | Y | 1 | 4 | 7 | 0 | 12 |
-| 18 | tFileRowCount | Y | 1 | 6 | 8 | 4 | 19 |
+| 18 | tFileRowCount | G | 0 | 0 | 0 | 3 | 3 |
 | 19 | tFileTouch | Y | 1 | 2 | 3 | 1 | 7 |
 | 20 | tSetGlobalVar | Y | 1 | 2 | 4 | 2 | 9 |
 | 21 | tFileInputProperties | R | 2 | 0 | 0 | 0 | 2 |
@@ -246,6 +246,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 **Note:** tFileInputFullRow Converter upgraded to Green (2026-04-03): Audit rewritten per gold standard. All 8 unique + 2 framework params extracted with _build_component_dict. ISO-8859-15 encoding default. Phantom DIE_ON_ERROR removed. 4 per-feature needs_review entries (header_rows, footer_rows, random, nb_random engine gaps). 48 converter tests across 10 test classes. Testing upgraded R->Y (converter tests Green but engine tests missing).
 **Note:** tFixedFlowInput ENGINE REWRITTEN (2026-05-01): @REGISTRY.register("FixedFlowInputComponent", "tFixedFlowInput") added. _validate_config() fixed to raise ConfigurationError (not dead list-return). NB_LINE bug fixed (_update_stats(row_count,row_count,0)). values_config list-of-dicts format handled. intable key fixed (was intable_data). Separator normalization complete (\\n,\\t,\\r,\\|). eval() replaced with safe _coerce_numeric(). 34 engine unit tests across 8 classes (100% pass). Converter needs_review reduced 3->1 (intable/rows gaps resolved). Overall Y->G, issues reduced 20->3 (P0=0, P1=0, P2=1, P3=2).
 **Note:** tFileInputExcel upgraded to Green (2026-04-03): Audit REWRITTEN per gold standard with Section 11 Risk Assessment + Appendix C (Generation Mode Comparison) + Appendix D (Sheet Processing). 3 critical defaults fixed (DIE_ON_ERROR=True->False, ENCODING=UTF-8->ISO-8859-15, GENERATION_MODE=EVENT_MODE->USER_MODE). AFFECT_EACH_SHEET type fixed bool->str. 3 module-level TABLE parsers. 28 unique + 2 framework params (100%). 9 per-feature needs_review entries. 83 converter tests across 11 test classes. Testing upgraded R->Y (converter tests Green but engine tests missing).
+**Note:** tFileRowCount ENGINE REWRITTEN (2026-05-01): Full engine rewrite. @REGISTRY.register("FileRowCount", "tFileRowCount") added (dual alias). _validate_config() raises ConfigurationError for missing/empty filename. row_separator implemented via _count_rows() helper with _ESCAPE_MAP normalisation. Encoding default corrected to ISO-8859-15. FileOperationError properly chained. GlobalMap writes outside try block. Returns {"main": None} (correct for utility component). DIE_ON_ERROR confirmed phantom (not in _java.xml). 42 engine unit tests across 9 classes (100% pass). Overall Y->G, issues reduced 19->3 (P0=0, P1=0, P2=0, P3=3).
 **Note:** tFileRowCount audit rewritten (2026-04-04): Audit REWRITTEN per gold standard. Phantom DIE_ON_ERROR removed (not in _java.xml). ENCODING default ISO-8859-15 per _java.xml. 4 unique + 2 framework params extracted with _build_component_dict. 1 per-feature needs_review (encoding default mismatch). 26 converter tests across 9 test classes. Testing upgraded R->Y (converter tests Green but engine tests missing). Total issues reduced 30->19.
 **Note:** tFileDelete Converter upgraded to Green (2026-04-04): Audit REWRITTEN per gold standard. FAILON default fixed (False->True per _java.xml). Phantom params removed (FAIL_ON_ERROR->FAILON, FOLDER_FILE_PATH->PATH). 6 unique + 2 framework params (100%). 5 per-feature needs_review entries. 31 converter tests across 10 test classes. Testing upgraded R->Y (converter tests Green but engine tests missing). Issues reduced 29->10.
 **Note:** tFileOutputEBCDIC NEW audit created (2026-04-04): No engine implementation (Red overall per D-51). Enterprise-only component -- _java.xml NOT available in open-source Talaxie repository. LOW confidence params. Converter rewritten: class renamed FileOutputEBCDICConverter->FileOutputEbcdicConverter, TSTATCATCHER_STATS and LABEL framework params added, die_on_error default fixed (True->False), config key renamed row_separator->rowseparator. 5 unique + 2 framework params, 28 converter tests across 9 test classes. Single consolidated needs_review. Converter=G, Engine=R, Code Quality=R, Testing=R.

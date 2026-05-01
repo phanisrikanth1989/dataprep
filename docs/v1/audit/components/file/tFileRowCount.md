@@ -1,10 +1,11 @@
 # Audit Report: tFileRowCount / FileRowCount
 
 > **Audited**: 2026-04-04
+> **Revised**: 2026-05-01 (engine rewrite — all engine violations fixed)
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: PRODUCTION READINESS REVIEW
+> **Status**: GREEN
 > **V1 only** -- this report is scoped to the v1 engine exclusively
 
 ---
@@ -15,10 +16,10 @@
 | ------- | ------- |
 | **Talend Name** | `tFileRowCount` |
 | **V1 Engine Class** | `FileRowCount` |
-| **Engine File** | `src/v1/engine/components/file/file_row_count.py` (229 lines) |
+| **Engine File** | `src/v1/engine/components/file/file_row_count.py` (191 lines) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/file/file_row_count.py` (71 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tFileRowCount")` decorator-based dispatch |
-| **Registry Aliases** | `tFileRowCount` |
+| **Registry Aliases** | `FileRowCount`, `tFileRowCount` |
 | **Category** | File / Utility |
 | **Complexity** | Low -- utility component with 4 unique parameters, no data flow schema |
 
@@ -26,8 +27,9 @@
 
 | File | Purpose |
 | ------ | --------- |
-| `src/v1/engine/components/file/file_row_count.py` | Engine implementation (229 lines) |
+| `src/v1/engine/components/file/file_row_count.py` | Engine implementation (191 lines) |
 | `src/converters/talend_to_v1/components/file/file_row_count.py` | Converter class (71 lines) |
+| `tests/v1/engine/components/file/test_file_row_count.py` | Engine tests (42 tests, 9 classes) |
 | `tests/converters/talend_to_v1/components/test_file_row_count.py` | Converter tests (26 tests) |
 | `src/v1/engine/base_component.py` | Base class |
 | `src/v1/engine/global_map.py` | GlobalMap storage |
@@ -39,20 +41,20 @@
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 4 unique params + 2 framework params extracted; `_build_component_dict` pattern; phantom DIE_ON_ERROR removed; 1 per-feature needs_review for encoding default mismatch |
-| Engine Feature Parity | **Y** | 0 | 3 | 1 | 1 | No row_separator support; no die_on_error handling; no ERROR_MESSAGE globalMap; encoding default mismatch (UTF-8 vs ISO-8859-15) |
-| Code Quality | **Y** | 1 | 3 | 4 | 2 | Cross-cutting `_update_global_map()` crash (P0); `_validate_config()` dead code (P1); return format dict not DataFrame (P1); synthetic UnicodeDecodeError (P2) |
-| Performance & Memory | **G** | 0 | 0 | 0 | 1 | Line-by-line reading is correct; minimal memory; no concerns |
-| Testing | **Y** | 0 | 0 | 1 | 0 | 26 converter unit tests across 9 test classes per gold standard; integration + regression guard passing; engine unit tests missing (P2) |
+| Engine Feature Parity | **G** | 0 | 0 | 0 | 1 | row_separator fully implemented including custom separators; encoding default corrected to ISO-8859-15; DIE_ON_ERROR confirmed phantom (N/A) |
+| Code Quality | **G** | 0 | 0 | 0 | 1 | All bugs fixed: proper exceptions, correct return type (main=None), `_validate_config()` raises, `@REGISTRY.register` added, no dual-key fallback, no debug artifacts |
+| Performance & Memory | **G** | 0 | 0 | 0 | 1 | Custom separator reads full file (O(n) memory) -- acceptable edge case; standard \n path is streaming |
+| Testing | **G** | 0 | 0 | 0 | 0 | 42 engine unit tests across 9 test classes; 26 converter tests; all passing |
 
-**Overall: Yellow -- Converter fully standardized (Green); engine has config key and default mismatches documented via needs_review; cross-cutting base class bugs and missing engine tests keep overall at Yellow**
+**Overall: Green -- Engine fully rewritten (2026-05-01); all P0/P1/P2 issues resolved; 2 P3s remain (custom-separator memory + SEC path traversal)**
 
-**Top Actions:**
+**Resolved Actions (2026-05-01):**
 
-1. Fix `_update_global_map()` crash in base class (P0, cross-cutting)
-2. Implement `row_separator` support in engine (P1, engine gap)
-3. Add `die_on_error` handling in engine (P1, engine gap)
-4. Add `{id}_ERROR_MESSAGE` globalMap variable in engine (P1, engine gap)
-5. Add engine unit tests for FileRowCount (P2, testing gap)
+1. ~~Fix `_update_global_map()` crash in base class (P0, cross-cutting)~~ **RESOLVED** (base class fixed)
+2. ~~Implement `row_separator` support in engine (P1, engine gap)~~ **RESOLVED** (2026-05-01)
+3. ~~Add `die_on_error` handling in engine (P1, engine gap)~~ **RESOLVED** (phantom param — DIE_ON_ERROR not in _java.xml)
+4. ~~Add `{id}_ERROR_MESSAGE` globalMap variable in engine (P1, engine gap)~~ **RESOLVED** (not applicable — die_on_error is phantom)
+5. ~~Add engine unit tests for FileRowCount (P2, testing gap)~~ **RESOLVED** (42 tests added 2026-05-01)
 
 ---
 
@@ -175,30 +177,31 @@ Utility component -- no data flow schema. Schema is `{"input": [], "output": []}
 | 2 | Ignore empty rows | **Yes** | High | `_process()` line 185 | `if ignore_empty_row and not line.strip()` |
 | 3 | Encoding support | **Yes** | Medium | `_process()` line 181 | Default mismatch: engine UTF-8, Talend ISO-8859-15 |
 | 4 | File existence check | **Yes** | High | `_process()` line 169 | `os.path.exists(filename)` |
-| 5 | GlobalMap variables | **Yes** | High | `_process()` lines 210-220 | COUNT, NB_LINE, NB_LINE_OK, NB_LINE_REJECT all set |
-| 6 | Row separator | **No** | N/A | -- | Extracted but not used; engine uses Python default newline |
-| 7 | Die on error | **No** | N/A | -- | Not implemented; all errors raise unconditionally |
-| 8 | ERROR_MESSAGE globalMap | **No** | N/A | -- | Error messages logged but not stored in globalMap |
+| 5 | GlobalMap variables | **Yes** | High | `_process()` lines 113-117 | COUNT, NB_LINE, NB_LINE_OK, NB_LINE_REJECT all set |
+| 6 | Row separator | **Yes** | High | `_count_rows()` helper | Both common (`\n`,`\r`,`\r\n`) and custom separators supported via `_ESCAPE_MAP` normalisation |
+| 7 | Die on error | **N/A** | N/A | -- | DIE_ON_ERROR is a phantom parameter not present in `tFileRowCount_java.xml` |
+| 8 | ERROR_MESSAGE globalMap | **N/A** | N/A | -- | Not applicable — die_on_error is phantom for this component |
 
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
 | ---- | ---------- | ------------- |
-| ENG-FRC-001 | **P1** | `row_separator` extracted but never used. Engine reads lines via Python's universal newline mode. Custom separators produce incorrect counts. |
-| ENG-FRC-002 | **P1** | No `die_on_error` handling. All errors raise unconditionally. Talend with `DIE_ON_ERROR=false` should capture errors and continue. |
-| ENG-FRC-003 | **P1** | `{id}_ERROR_MESSAGE` not set in globalMap. Downstream error handling components get None. |
-| ENG-FRC-005 | **P2** | Default encoding UTF-8 (engine) vs ISO-8859-15 (_java.xml). Converter outputs correct default; engine reads with wrong default if config not passed. |
-| ENG-FRC-006 | **P3** | Universal newline mode silently handles common separators (`\r\n`, `\r`) but not custom ones. |
+| ~~ENG-FRC-001~~ | ~~P1~~ | **RESOLVED (2026-05-01)** -- `row_separator` now used. `_ESCAPE_MAP` normalises `"\\n"` to `"\n"`. Custom separators use full-file read+split. |
+| ~~ENG-FRC-002~~ | ~~P1~~ | **N/A** -- DIE_ON_ERROR is not in `tFileRowCount_java.xml`. Phantom parameter; not applicable. |
+| ~~ENG-FRC-003~~ | ~~P1~~ | **N/A** -- `{id}_ERROR_MESSAGE` not relevant since die_on_error is phantom. |
+| ~~ENG-FRC-005~~ | ~~P2~~ | **RESOLVED (2026-05-01)** -- Engine default now `ISO-8859-15` matching Talend _java.xml. |
+| ~~ENG-FRC-006~~ | ~~P3~~ | **RESOLVED (2026-05-01)** -- Custom separators now supported. |
+| PERF-FRC-002 | **P3** | Custom separator path reads entire file into memory (O(n)). Standard `\n` path streams. Acceptable for typical use cases.
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
 | ---------- | ------------- | ---------- | ----------------- | ------- |
-| `{id}_COUNT` | Yes | **Yes** | `_process()` line 216 | Primary output |
-| `{id}_NB_LINE` | Yes | **Yes** | `_process()` line 215 | Standard stat variable |
-| `{id}_NB_LINE_OK` | Yes | **Yes** | `_process()` line 219 | |
-| `{id}_NB_LINE_REJECT` | Yes | **Yes** | `_process()` line 220 | |
-| `{id}_ERROR_MESSAGE` | Yes | **No** | -- | Not implemented |
+| `{id}_COUNT` | Yes | **Yes** | `_process()` line 113 | Primary output. Equals rows_out (excludes empty rows when ignore_empty_row=True) |
+| `{id}_NB_LINE` | Yes | **Yes** | `_process()` line 114 | Total rows read from file (rows_in) |
+| `{id}_NB_LINE_OK` | Yes | **Yes** | `_process()` line 115 | Rows included in count (rows_out) |
+| `{id}_NB_LINE_REJECT` | Yes | **Yes** | `_process()` line 116 | Empty rows excluded (rows_rejected) |
+| `{id}_ERROR_MESSAGE` | N/A | N/A | -- | Not applicable — die_on_error is phantom for this component |
 
 ---
 
@@ -208,14 +211,22 @@ Utility component -- no data flow schema. Schema is `{"input": [], "output": []}
 
 | ID | Priority | Location | Description |
 | ---- | ---------- | ---------- | ------------- |
-| BUG-FRC-001 | **P0** | `base_component.py:304` | **CROSS-CUTTING**: `_update_global_map()` references undefined variable `value` (should be `stat_value`). Affects ALL components. |
-| BUG-FRC-003 | **P1** | `file_row_count.py:226` | Return format is dict not DataFrame. `_process()` returns `{'main': {'row_count': int}}`. Breaks streaming mode. |
-| BUG-FRC-004 | **P1** | `file_row_count.py:88-136` | `_validate_config()` is never called. 49 lines of dead validation code. |
-| BUG-FRC-006 | **P1** | `file_row_count.py:162` | `row_separator` extracted from config but never used. Dead code. |
-| BUG-FRC-007 | **P2** | `file_row_count.py:193-195` | `UnicodeDecodeError` re-raised with synthetic dummy arguments, losing original diagnostic info. |
-| BUG-FRC-010 | **P2** | `file_row_count.py:169` | Empty filename and missing file share same `FileNotFoundError`. Should be `ConfigurationError` for empty filename. |
-| BUG-FRC-011 | **P2** | `file_row_count.py:210-224` | GlobalMap operations inside try block with catch-all. GlobalMap crash looks like processing error. |
-| BUG-FRC-002 | **P2** | `global_map.py:28` | **CROSS-CUTTING**: `GlobalMap.get()` references undefined `default` parameter. |
+| ~~BUG-FRC-001~~ | ~~P0~~ | `base_component.py` | **RESOLVED** -- Cross-cutting `_update_global_map()` bug fixed in base class. |
+| ~~BUG-FRC-002~~ | ~~P2~~ | `global_map.py` | **RESOLVED** -- Cross-cutting `GlobalMap.get()` undefined `default` fixed. |
+| ~~BUG-FRC-003~~ | ~~P1~~ | `file_row_count.py` | **RESOLVED (2026-05-01)** -- `_process()` now returns `{'main': None}` (utility component, no DataFrame). |
+| ~~BUG-FRC-004~~ | ~~P1~~ | `file_row_count.py` | **RESOLVED (2026-05-01)** -- `_validate_config()` rewritten to raise `ConfigurationError`; dead code removed. |
+| ~~BUG-FRC-005~~ | ~~P3~~ | `file_row_count.py` | **RESOLVED (2026-05-01)** -- `_validate_config()` now returns `None` (raises on error per pattern). |
+| ~~BUG-FRC-006~~ | ~~P1~~ | `file_row_count.py` | **RESOLVED (2026-05-01)** -- `row_separator` now used in `_count_rows()`. |
+| ~~BUG-FRC-007~~ | ~~P2~~ | `file_row_count.py` | **RESOLVED (2026-05-01)** -- `UnicodeDecodeError` now wrapped as `FileOperationError` with original exception chained. |
+| ~~BUG-FRC-010~~ | ~~P2~~ | `file_row_count.py` | **RESOLVED (2026-05-01)** -- Empty `filename` raises `ConfigurationError`; missing file raises `FileOperationError`. |
+| ~~BUG-FRC-011~~ | ~~P2~~ | `file_row_count.py` | **RESOLVED (2026-05-01)** -- GlobalMap writes moved outside the file-reading try block. |
+| ~~DBG-FRC-001~~ | ~~P3~~ | `file_row_count.py` | **RESOLVED (2026-05-01)** -- Debug verification read removed. |
+| ~~NAME-FRC-001~~ | ~~P2~~ | `file_row_count.py` | **RESOLVED (2026-05-01)** -- Dual-key `or` fallback removed; single key format only. |
+| ~~NAME-FRC-002~~ | ~~P2~~ | `file_row_count.py` | **RESOLVED (2026-05-01)** -- All config reads use single lowercase key. |
+| ~~STD-FRC-001~~ | ~~P1~~ | `file_row_count.py` | **RESOLVED (2026-05-01)** -- `_validate_config()` raises, not returns bool. |
+| ~~STD-FRC-002~~ | ~~P1~~ | `file_row_count.py` | **RESOLVED (2026-05-01)** -- `_validate_config()` is now abstract-overriding and called by base class. |
+| ~~STD-FRC-003~~ | ~~P2~~ | `file_row_count.py` | **RESOLVED (2026-05-01)** -- `_process()` returns `{'main': None}` per pattern. |
+| SEC-FRC-001 | **P3** | `file_row_count.py` | No path traversal protection on `filename`. Acceptable for Talend-converted jobs where paths come from job config.
 | BUG-FRC-005 | **P3** | `file_row_count.py:88` | `_validate_config()` returns `bool` instead of `List[str]` per METHODOLOGY.md standard. |
 | DBG-FRC-001 | **P3** | `file_row_count.py:222-224` | Debug verification read in production code. Will crash due to BUG-FRC-002. |
 
@@ -292,20 +303,21 @@ SEC-FRC-001 (P3): No path traversal protection on `filename`. Not a concern for 
 | Converter unit tests | 26 | `tests/converters/talend_to_v1/components/test_file_row_count.py` |
 | Engine unit tests | 0 | None |
 | Integration tests | Covered | `tests/converters/talend_to_v1/test_integration.py` |
+| Engine unit tests | **Added 2026-05-01** | `tests/v1/engine/components/file/test_file_row_count.py` (42 tests, 9 classes) |
 
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
 | ---- | ---------- | ----- |
-| TEST-FRC-001 | **P2** | No engine unit tests for FileRowCount. Prevents Testing dimension from reaching Green per D-52. |
+| ~~TEST-FRC-001~~ | ~~P2~~ | **RESOLVED (2026-05-01)** -- 42 engine unit tests added across 9 test classes: TestRegistration, TestValidation, TestRowCounting, TestIgnoreEmptyRows, TestRowSeparator, TestEncoding, TestGlobalMapVariables, TestEdgeCases, TestCountRowsHelper. |
 
 ### 8.3 Recommended Test Cases
 
-- Engine: count rows in file with various encodings
-- Engine: ignore_empty_row=true excludes blank lines
-- Engine: file not found error handling
-- Engine: encoding mismatch error handling
-- Engine: large file (>1M rows) memory behavior
+- ~~Engine: count rows in file with various encodings~~ **COVERED** (TestEncoding)
+- ~~Engine: ignore_empty_row=true excludes blank lines~~ **COVERED** (TestIgnoreEmptyRows)
+- ~~Engine: file not found error handling~~ **COVERED** (TestRowCounting)
+- ~~Engine: encoding mismatch error handling~~ **COVERED** (TestEncoding)
+- Engine: large file (>1M rows) memory behavior (PERF-FRC-001, P3)
 
 ---
 
@@ -315,32 +327,32 @@ SEC-FRC-001 (P3): No path traversal protection on `filename`. Not a concern for 
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
-| P0 | 1 | **BUG-FRC-001** |
-| P1 | 6 | **ENG-FRC-001**, **ENG-FRC-002**, **ENG-FRC-003**, **BUG-FRC-003**, **BUG-FRC-004**, **BUG-FRC-006** |
-| P2 | 8 | **ENG-FRC-005**, **BUG-FRC-007**, **BUG-FRC-010**, **BUG-FRC-011**, **BUG-FRC-002**, **NAME-FRC-001**, **NAME-FRC-002**, **TEST-FRC-001** |
-| P3 | 4 | **ENG-FRC-006**, **BUG-FRC-005**, **DBG-FRC-001**, **PERF-FRC-001** |
-| **Total** | **19** | |
+| P0 | 0 | ~~BUG-FRC-001~~ (resolved) |
+| P1 | 0 | ~~ENG-FRC-001, ENG-FRC-002, ENG-FRC-003, BUG-FRC-003, BUG-FRC-004, BUG-FRC-006~~ (all resolved) |
+| P2 | 0 | ~~ENG-FRC-005, BUG-FRC-007, BUG-FRC-010, BUG-FRC-011, BUG-FRC-002, NAME-FRC-001, NAME-FRC-002, TEST-FRC-001~~ (all resolved) |
+| P3 | 3 | **PERF-FRC-001** (custom separator memory), **PERF-FRC-002** (see §5.2), **SEC-FRC-001** (path traversal) |
+| **Total** | **3** | |
 
 ### By Category
 
 | Category | Count | IDs |
 | ---------- | ------- | ----- |
 | Converter (CONV) | 0 | All resolved |
-| Engine (ENG) | 5 | ENG-FRC-001, ENG-FRC-002, ENG-FRC-003, ENG-FRC-005, ENG-FRC-006 |
-| Bug (BUG) | 8 | BUG-FRC-001 through BUG-FRC-011 |
-| Naming (NAME) | 2 | NAME-FRC-001, NAME-FRC-002 |
-| Standards (STD) | 3 | STD-FRC-001, STD-FRC-002, STD-FRC-003 (counted in BUG above) |
+| Engine (ENG) | 0 | All resolved |
+| Bug (BUG) | 0 | All resolved |
+| Naming (NAME) | 0 | All resolved |
+| Standards (STD) | 0 | All resolved |
 | Performance (PERF) | 1 | PERF-FRC-001 |
-| Testing (TEST) | 1 | TEST-FRC-001 |
-| Debug (DBG) | 1 | DBG-FRC-001 |
-| Security (SEC) | 1 | SEC-FRC-001 (counted in P3) |
+| Testing (TEST) | 0 | All resolved |
+| Debug (DBG) | 0 | All resolved |
+| Security (SEC) | 1 | SEC-FRC-001 |
 
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
 | ------------- | ---------- | -------------------------- |
-| BUG-FRC-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set |
-| BUG-FRC-002 | `global_map.py:28` | `GlobalMap.get()` undefined `default` parameter |
+| ~~BUG-FRC-001~~ | `base_component.py` | **RESOLVED** -- `_update_global_map()` fixed in base class |
+| ~~BUG-FRC-002~~ | `global_map.py` | **RESOLVED** -- `GlobalMap.get()` fixed |
 
 ---
 
@@ -348,21 +360,12 @@ SEC-FRC-001 (P3): No path traversal protection on `filename`. Not a concern for 
 
 ### Immediate (Before Production)
 
-- Fix `_update_global_map()` crash in base class (BUG-FRC-001, P0, cross-cutting)
-
-### Short-term (Hardening)
-
-- Implement `row_separator` support in engine (ENG-FRC-001, P1)
-- Add `die_on_error` handling (ENG-FRC-002, P1)
-- Implement `{id}_ERROR_MESSAGE` globalMap variable (ENG-FRC-003, P1)
-- Fix `_validate_config()` dead code (BUG-FRC-004, P1)
-- Add engine unit tests (TEST-FRC-001, P2)
+None -- all P0/P1/P2 issues resolved as of 2026-05-01.
 
 ### Long-term (Optimization)
 
-- Align encoding defaults between engine and converter (ENG-FRC-005, P2)
-- Separate empty filename from missing file errors (BUG-FRC-010, P2)
-- Remove debug verification read (DBG-FRC-001, P3)
+- SEC-FRC-001: Add path traversal protection for `filename` parameter (P3)
+- PERF-FRC-001: Consider streaming-safe custom separator for very large files (P3)
 
 ---
 

@@ -9,6 +9,7 @@ import io
 import logging
 import os
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -55,6 +56,7 @@ class JavaBridge:
         self.context: dict[str, Any] = {}
         self.global_map: dict[str, Any] = {}
         self._started: bool = False
+        self._stdout_thread: Optional[threading.Thread] = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -122,6 +124,15 @@ class JavaBridge:
             stderr=subprocess.PIPE,
             text=False,
         )
+
+        # Forward JVM stdout to Python logger so System.out.println() output
+        # from user Java/Groovy code is visible in the engine log.
+        self._stdout_thread = threading.Thread(
+            target=self._drain_java_stdout,
+            daemon=True,
+            name="java-stdout-forwarder",
+        )
+        self._stdout_thread.start()
 
         # Retry connection with exponential backoff
         max_attempts = 5
@@ -269,6 +280,7 @@ class JavaBridge:
             return self.java_bridge.executeOneTimeExpression(
                 expression,
                 self.context,
+                self.global_map,
             )
 
         return self._call_java_with_sync(_call)
@@ -932,6 +944,24 @@ class JavaBridge:
                 f"Build with: cd src/v1/java_bridge/java && mvn package"
             )
         return jar_path
+
+    def _drain_java_stdout(self) -> None:
+        """Background thread: read JVM stdout line-by-line and emit via logger.
+
+        Runs until the JVM process exits. Each non-empty line from
+        ``System.out.println()`` (or any other Java/Groovy stdout write) is
+        forwarded as ``logger.info("[Java] <line>")`` so it appears in the
+        engine log alongside Python output.
+        """
+        if not self.process or not self.process.stdout:
+            return
+        try:
+            for raw_line in self.process.stdout:
+                line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
+                if line:
+                    logger.info("[Java] %s", line)
+        except Exception:
+            pass
 
     def _capture_java_stderr(self) -> str:
         """Non-blocking read of available Java stderr output.

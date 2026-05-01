@@ -160,6 +160,14 @@ class JavaComponent(CodeComponentMixin, BaseComponent):
                 "Java execution requested but no Java bridge available",
             )
 
+        # Sync engine's GlobalMap into bridge's global_map dict so the Java
+        # globalMap binding receives values set by upstream Python components
+        # (e.g. tFileRowCount_1_COUNT from FileRowCount). The bridge's
+        # self.global_map is a plain dict tracking Java-side state; it is
+        # never automatically populated from the engine's GlobalMap object.
+        if self.global_map:
+            self.java_bridge.global_map.update(self.global_map._map)
+
         # Logging policy (RESEARCH.md): DEBUG only, never INFO with body.
         logger.debug(
             f"[{self.id}] Executing one-shot Java block (size={len(java_code)} chars)"

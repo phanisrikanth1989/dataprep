@@ -269,12 +269,15 @@ public class JavaBridge {
     /**
      * Evaluate a single Groovy expression with context/globalMap binding.
      *
-     * @param expression  Groovy expression source
-     * @param contextVars context variables to merge
+     * @param expression    Groovy expression source
+     * @param contextVars   context variables to merge
+     * @param globalMapVars globalMap variables to merge (Python engine values)
      * @return the expression result
      */
-    public Object executeOneTimeExpression(String expression, Map<String, Object> contextVars) {
+    public Object executeOneTimeExpression(String expression, Map<String, Object> contextVars,
+            Map<String, Object> globalMapVars) {
         this.context.putAll(contextVars);
+        this.globalMap.putAll(globalMapVars);
 
         Binding binding = new Binding();
         binding.setVariable("context", context);
