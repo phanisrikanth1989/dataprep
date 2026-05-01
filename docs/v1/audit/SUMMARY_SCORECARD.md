@@ -80,7 +80,7 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 42 | tSchemaComplianceCheck | Y | G | R | G | N/A | Y | 2 | 5 | 4 | 1 | 12 |
 | 43 | tXMLMap | R | G | R | Y | Y | Y | 3 | 12 | 3 | 3 | 21 |
 | 44 | tAggregateSortedRow | Y | G | Y | G | Y | Y | 0 | 3 | 5 | 2 | 10 |
-| 45 | tRowGenerator | Y | G | Y | G | Y | Y | 1 | 3 | 3 | 1 | 8 |
+| 45 | tRowGenerator | G | G | G | G | G | G | 0 | 0 | 0 | 1 | 1 |
 | 46 | tSampleRow | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
 | 47 | tSplitRow | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
 | 48 | tReplace | R | G | R | R | N/A | R | 1 | 0 | 0 | 0 | 1 |
@@ -251,6 +251,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 **Note:** tFileDelete Converter upgraded to Green (2026-04-04): Audit REWRITTEN per gold standard. FAILON default fixed (False->True per _java.xml). Phantom params removed (FAIL_ON_ERROR->FAILON, FOLDER_FILE_PATH->PATH). 6 unique + 2 framework params (100%). 5 per-feature needs_review entries. 31 converter tests across 10 test classes. Testing upgraded R->Y (converter tests Green but engine tests missing). Issues reduced 29->10.
 **Note:** tFileOutputEBCDIC NEW audit created (2026-04-04): No engine implementation (Red overall per D-51). Enterprise-only component -- _java.xml NOT available in open-source Talaxie repository. LOW confidence params. Converter rewritten: class renamed FileOutputEBCDICConverter->FileOutputEbcdicConverter, TSTATCATCHER_STATS and LABEL framework params added, die_on_error default fixed (True->False), config key renamed row_separator->rowseparator. 5 unique + 2 framework params, 28 converter tests across 9 test classes. Single consolidated needs_review. Converter=G, Engine=R, Code Quality=R, Testing=R.
 **Note:** tAdvancedFileOutputXML NEW audit created (2026-04-04): No engine implementation (Red overall per D-51). Converter massively rewritten from 6 to 33 params: ROOT/GROUP/LOOP TABLE stride-5 parsers. 33 unique + 2 framework params, 66 converter tests across 10 test classes. Single consolidated needs_review. Converter=G, Engine=R, Code Quality=R, Testing=R.
+**Note:** tRowGenerator ENGINE REWRITTEN (2026-05-01): Full engine rewrite. @REGISTRY.register("RowGenerator", "tRowGenerator") added. _validate_config() raises ConfigurationError for missing/non-list values. nb_rows default fixed 1->100 (Talend parity). Schema reads from self.output_schema (top-level, not config-nested). _eval_expr() module function with restricted eval namespace + Java bridge path for {{java}} expressions. StringHandling.SPACE/LEN pre-processing. 24 print() statements replaced with logger. All 6 ENG-RG issues resolved. 52 engine unit tests across 9 classes (100% pass). Overall Y->G, issues reduced 8->1 (P3: Java routine library).
 **Note:** tRowGenerator REWRITTEN (2026-04-04): Audit REWRITTEN per gold standard. Converter rewritten with _build_component_dict, SOURCE schema pattern (input=[], output=schema), VALUES TABLE stride-2 parser at module level. 2 unique + 2 framework params (100%). 2 per-feature needs_review (nb_rows default mismatch, schema config path mismatch). 20 converter tests across 8 test classes. Converter=G, Code Quality=G, Testing=Y (no engine tests per D-73). Overall upgraded R->Y. Issues reduced 32->8.
 **Note:** tSetGlobalVar Converter upgraded to Green (2026-04-04): VARIABLES TABLE stride-2 (KEY/VALUE) parser. Engine key/shape mismatch documented. 23 converter tests across 9 test classes.
 
@@ -277,7 +278,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | 17 | tSchemaComplianceCheck | Y | 2 | 5 | 4 | 1 | 12 |
 | 18 | tXMLMap | R | 3 | 12 | 3 | 3 | 21 |
 | 19 | tAggregateSortedRow | Y | 0 | 3 | 5 | 2 | 10 |
-| 20 | tRowGenerator | Y | 1 | 3 | 3 | 1 | 8 |
+| 20 | tRowGenerator | G | 0 | 0 | 0 | 1 | 1 |
 | 21 | tSampleRow | R | 3 | 0 | 0 | 0 | 3 |
 | 22 | tSplitRow | R | 3 | 0 | 0 | 0 | 3 |
 | 23 | tReplace | R | 1 | 0 | 0 | 0 | 1 |
