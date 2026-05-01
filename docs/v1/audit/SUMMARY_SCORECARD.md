@@ -60,7 +60,7 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 22 | tFileOutputEBCDIC | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
 | 23 | tFileRowCount | G | G | G | G | G | G | 0 | 0 | 0 | 3 | 3 |
 | 24 | tFileTouch | G | G | G | G | G | G | 0 | 0 | 0 | 0 | 0 |
-| 25 | tSetGlobalVar | Y | G | Y | Y | G | Y | 1 | 2 | 4 | 2 | 9 |
+| 25 | tSetGlobalVar | G | G | G | G | G | G | 0 | 0 | 0 | 0 | 0 |
 | 26 | tFilterRow | Y | G | Y | G | Y | Y | 1 | 4 | 6 | 2 | 13 |
 | 27 | tFilterColumns | Y | G | G | G | N/A | Y | 0 | 0 | 10 | 1 | 11 |
 | 28 | tSortRow | Y | G | Y | G | Y | Y | 0 | 6 | 8 | 1 | 15 |
@@ -229,7 +229,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | 17 | tFileProperties | Y | 1 | 4 | 7 | 0 | 12 |
 | 18 | tFileRowCount | G | 0 | 0 | 0 | 3 | 3 |
 | 19 | tFileTouch | G | 0 | 0 | 0 | 0 | 0 |
-| 20 | tSetGlobalVar | Y | 1 | 2 | 4 | 2 | 9 |
+| 20 | tSetGlobalVar | G | 0 | 0 | 0 | 0 | 0 |
 | 21 | tFileInputProperties | R | 2 | 0 | 0 | 0 | 2 |
 | 22 | tFileInputMSXML | R | 3 | 0 | 0 | 0 | 3 |
 | 23 | tAdvancedFileOutputXML | R | 3 | 0 | 0 | 0 | 3 |
@@ -258,6 +258,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 **Note:** tRowGenerator ENGINE REWRITTEN (2026-05-01): Full engine rewrite. @REGISTRY.register("RowGenerator", "tRowGenerator") added. _validate_config() raises ConfigurationError for missing/non-list values. nb_rows default fixed 1->100 (Talend parity). Schema reads from self.output_schema (top-level, not config-nested). _eval_expr() module function with restricted eval namespace + Java bridge path for {{java}} expressions. StringHandling.SPACE/LEN pre-processing. 24 print() statements replaced with logger. All 6 ENG-RG issues resolved. 52 engine unit tests across 9 classes (100% pass). Overall Y->G, issues reduced 8->1 (P3: Java routine library).
 **Note:** tRowGenerator REWRITTEN (2026-04-04): Audit REWRITTEN per gold standard. Converter rewritten with _build_component_dict, SOURCE schema pattern (input=[], output=schema), VALUES TABLE stride-2 parser at module level. 2 unique + 2 framework params (100%). 2 per-feature needs_review (nb_rows default mismatch, schema config path mismatch). 20 converter tests across 8 test classes. Converter=G, Code Quality=G, Testing=Y (no engine tests per D-73). Overall upgraded R->Y. Issues reduced 32->8.
 **Note:** tSetGlobalVar Converter upgraded to Green (2026-04-04): VARIABLES TABLE stride-2 (KEY/VALUE) parser. Engine key/shape mismatch documented. 23 converter tests across 9 test classes.
+**Note:** tSetGlobalVar ENGINE FIXED (2026-05-01): Engine fully rewritten. @REGISTRY.register("SetGlobalVar", "tSetGlobalVar") added. _validate_config() raises ConfigurationError (was dead-code returning List). Reads `variables` (lowercase, {key,value}) with fallback to VARIABLES/name/VALUE shapes. die_on_error per-variable skip/raise. Java bridge heuristic removed (BaseComponent resolves {{java}} before _process). % logger formatting. pandas import removed. 26 engine tests across 8 classes (100% pass). Overall Y->G, issues reduced 9->0.
 
 ### Transform Components (36)
 

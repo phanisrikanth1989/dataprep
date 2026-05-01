@@ -205,6 +205,15 @@ class JavaRowComponent(CodeComponentMixin, BaseComponent):
                 "Java execution requested but no Java bridge available",
             )
 
+        # Sync engine's GlobalMap into bridge's global_map dict so the Java
+        # globalMap binding receives values set by upstream Python components
+        # (e.g. tSetGlobalVar, tFileRowCount). The bridge's self.global_map is
+        # a plain dict tracking Java-side state; it is never automatically
+        # populated from the engine's GlobalMap object. Same pattern as
+        # java_component.py:169.
+        if self.global_map:
+            self.java_bridge.global_map.update(self.global_map._map)
+
         # Logging policy (RESEARCH.md): DEBUG only, never INFO with body.
         logger.debug(
             f"[{self.id}] Executing per-row Java code on {len(input_data)} rows "

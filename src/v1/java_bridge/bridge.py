@@ -28,6 +28,34 @@ from .type_mapping import (
 
 logger = logging.getLogger(__name__)
 
+
+def _coerce_global_map_for_java(d: dict[str, Any]) -> dict[str, Any]:
+    """Coerce string values representing numbers to Python int/float.
+
+    Py4J maps Python ``int`` -> Java ``Long`` and ``float`` -> Java ``Double``,
+    but ``str`` -> Java ``String``.  GlobalMap values stored from Python config
+    (e.g. tSetGlobalVar reading ``"5000"`` from JSON) arrive as strings.
+    Groovy explicit casts such as ``(Integer) globalMap.get("key")`` then fail
+    with ``GroovyCastException``.  Coercing here ensures Java receives typed
+    numeric values without changing what Python components observe in GlobalMap.
+    """
+    result: dict[str, Any] = {}
+    for k, v in d.items():
+        if isinstance(v, str):
+            try:
+                result[k] = int(v)
+                continue
+            except ValueError:
+                pass
+            try:
+                result[k] = float(v)
+                continue
+            except ValueError:
+                pass
+        result[k] = v
+    return result
+
+
 # Python logging level -> Java JUL level string
 _PYTHON_TO_JAVA_LOG_LEVEL: dict[int, str] = {
     logging.DEBUG: "FINE",
@@ -258,7 +286,7 @@ class JavaBridge:
                 java_code,
                 self._convert_schema_to_java(output_schema),
                 self.context,
-                self.global_map,
+                _coerce_global_map_for_java(self.global_map),
             )
 
         result_bytes = self._call_java_with_sync(_call)
@@ -280,7 +308,7 @@ class JavaBridge:
             return self.java_bridge.executeOneTimeExpression(
                 expression,
                 self.context,
-                self.global_map,
+                _coerce_global_map_for_java(self.global_map),
             )
 
         return self._call_java_with_sync(_call)
@@ -308,7 +336,7 @@ class JavaBridge:
             return self.java_bridge.executeBatchOneTimeExpressionsWithGlobalMap(
                 expressions,
                 self.context,
-                self.global_map,
+                _coerce_global_map_for_java(self.global_map),
             )
 
         return self._call_java_with_sync(_call)
@@ -354,7 +382,7 @@ class JavaBridge:
                 main_table_name,
                 java_lookup_names,
                 self.context,
-                self.global_map,
+                _coerce_global_map_for_java(self.global_map),
             )
 
         result_map = self._call_java_with_sync(_call)
@@ -426,7 +454,7 @@ class JavaBridge:
                 main_table_name or "row1",
                 java_lookup_names,
                 self.context,
-                self.global_map,
+                _coerce_global_map_for_java(self.global_map),
             )
 
         result_map = self._call_java_with_sync(_call)
@@ -541,7 +569,7 @@ class JavaBridge:
                     component_id,
                     ab,
                     self.context,
-                    self.global_map,
+                    _coerce_global_map_for_java(self.global_map),
                 )
 
             result_map = self._call_java_with_sync(_call)
