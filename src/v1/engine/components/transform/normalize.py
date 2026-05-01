@@ -3,14 +3,15 @@
 Splits a single column on a separator, exploding each delimited value into a
 separate output row. All other columns are carried through unchanged.
 
-Config keys consumed (6 total):
+Config keys consumed (5 total):
   normalize_column           (str, required)      -- column to split
-  item_separator             (str, default ",")   -- literal separator (not regex)
+  itemseparator              (str, default ",")   -- literal separator (not regex)
   trim                       (bool, default False) -- strip whitespace from each value
   discard_trailing_empty_str (bool, default False) -- remove only TRAILING empties per
                                                       Talend tNormalize semantics
   deduplicate                (bool, default False) -- remove duplicate values per row
-  die_on_error               (bool, default True)  -- raise on config/runtime errors
+
+Note: die_on_error is NOT a _java.xml parameter (phantom). Not read by this component.
 
 Talend reference:
   tNormalize_main.javajet (Talaxie mirror):
@@ -49,9 +50,12 @@ class Normalize(BaseComponent):
     def _validate_config(self) -> None:
         """Validate component configuration.
 
+        Only checks key presence and container shape (Rule 12). Content checks
+        (bool isinstance for flags, separator content) are deferred to _process()
+        after context variable resolution.
+
         Raises:
-            ConfigurationError: If normalize_column is missing, not a non-empty
-                string, or if any boolean option is not a bool.
+            ConfigurationError: If normalize_column is missing or not a non-empty string.
         """
         if "normalize_column" not in self.config:
             raise ConfigurationError(
@@ -63,20 +67,6 @@ class Normalize(BaseComponent):
                 f"[{self.id}] 'normalize_column' must be a non-empty string, "
                 f"got {type(nc).__name__!r}: {nc!r}"
             )
-
-        sep = self.config.get("item_separator", ",")
-        if not isinstance(sep, str):
-            raise ConfigurationError(
-                f"[{self.id}] 'item_separator' must be a string, "
-                f"got {type(sep).__name__!r}"
-            )
-
-        for flag in ("deduplicate", "trim", "discard_trailing_empty_str", "die_on_error"):
-            if flag in self.config and not isinstance(self.config[flag], bool):
-                raise ConfigurationError(
-                    f"[{self.id}] '{flag}' must be a boolean, "
-                    f"got {type(self.config[flag]).__name__!r}"
-                )
 
     def _process(self, input_data: Optional[pd.DataFrame] = None) -> dict:
         """Split ``normalize_column`` values into multiple rows.
@@ -96,7 +86,7 @@ class Normalize(BaseComponent):
             return {"main": input_data, "reject": None}
 
         norm_col: str = self.config["normalize_column"]
-        sep: str = self.config.get("item_separator", ",")
+        sep: str = self.config.get("itemseparator", ",")
         trim: bool = self.config.get("trim", False)
         discard_trailing: bool = self.config.get("discard_trailing_empty_str", False)
         dedupe: bool = self.config.get("deduplicate", False)

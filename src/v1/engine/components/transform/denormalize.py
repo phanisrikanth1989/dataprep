@@ -1,8 +1,33 @@
-"""
-Denormalize component - Consolidates rows by grouping key columns and concatenating denormalize columns.
+"""Engine component for Denormalize (tDenormalize).
 
-Talend equivalent: tDenormalize
+Groups rows by key columns (all columns NOT in the denormalize list) and
+concatenates values of specified columns using per-column delimiters.
+This is the inverse of the Normalize (tNormalize) component.
+
+Config keys consumed (2 total):
+  denormalize_columns (list of dicts, default [])  -- columns to concatenate.
+    Each dict has:
+      input_column (str, required)  -- column name to concatenate
+      delimiter    (str, default ";") -- delimiter for concatenation
+      merge        (bool, default False) -- deduplicate values before concatenation
+  null_as_empty    (bool, default False) -- treat null values as empty strings
+                                           (engine-only; not a _java.xml param)
+
+Key column detection:
+  Any column NOT listed in denormalize_columns is treated as a grouping key.
+  Rows are grouped by these key columns; one output row per unique key combination.
+  Null-key rows are preserved as their own group (dropna=False, Talend-compatible).
+
+Talend reference:
+  tDenormalize_main.javajet (Talaxie mirror):
+  https://raw.githubusercontent.com/Talaxie/tdi-studio-se/master/main/plugins/
+  org.talend.designer.components.localprovider/components/tDenormalize/
+  tDenormalize_main.javajet
+
+Note: null_as_empty has no Talend _java.xml equivalent. It is an engine-only
+enhancement. The delimiter default in Talend _java.xml is ";" per column.
 """
+from __future__ import annotations
 
 import logging
 from typing import Any, Dict, List, Optional
@@ -10,229 +35,146 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from ...base_component import BaseComponent
-from ...exceptions import ConfigurationError, DataValidationError, ComponentExecutionError
+from ...component_registry import REGISTRY
+from ...exceptions import ConfigurationError, DataValidationError
 
 logger = logging.getLogger(__name__)
 
 
+@REGISTRY.register("Denormalize", "tDenormalize")
 class Denormalize(BaseComponent):
-    """
-    Consolidates rows by grouping key columns and concatenating denormalize columns.
-    Equivalent to Talend's tDenormalize component.
+    """tDenormalize engine implementation.
 
-    The component works by:
-    1. Identifying key columns (columns NOT in denormalize_columns list)
-    2. Grouping rows by key columns
-    3. Concatenating values of denormalize columns using specified delimiters
-    4. Producing one row per unique key combination
+    Groups rows by key columns (those NOT in ``denormalize_columns``) and
+    concatenates the values of each configured column within each group,
+    separated by the per-column delimiter. Supports optional deduplication
+    (merge flag) and null handling (null_as_empty flag).
 
-    Configuration:
-        denormalize_columns (list): List of column configurations with:
-            - input_column (str): Column name to denormalize
-            - delimiter (str): Delimiter to use for concatenation (resolved from context). Default: ","
-            - merge (bool): Whether to merge values (always true for denormalize)
-        null_as_empty (bool): Whether to treat null values as empty strings. Default: False
-        connection_format (str): Connection format (usually "row"). Default: "row"
-
-    Inputs:
-        main: Primary input DataFrame with rows to be denormalized
-
-    Outputs:
-        main: Denormalized DataFrame with grouped key columns and concatenated denormalize columns
-
-    Statistics:
-        NB_LINE: Total rows processed
-        NB_LINE_OK: Rows successfully denormalized
-        NB_LINE_REJECT: Rows rejected (always 0 for this component)
-
-    Example configuration:
-        {
-            "denormalize_columns": [
-                {
-                    "input_column": "product_name",
-                    "delimiter": "; "
-                },
-                {
-                    "input_column": "quantity",
-                    "delimiter": ", "
-                }
-            ],
-            "null_as_empty": True
-        }
+    Talend reference: tDenormalize_main.javajet
     """
 
-    def _validate_config(self) -> List[str]:
-        """
-        Validate component configuration.
+    def _validate_config(self) -> None:
+        """Validate component configuration.
 
-        Returns:
-            List of error messages (empty if valid)
-        """
-        errors = []
-
-        # denormalize_columns is optional - if not provided, pass through data
-        denormalize_columns = self.config.get('denormalize_columns', [])
-
-        if denormalize_columns:
-            # If provided, validate structure
-            if not isinstance(denormalize_columns, list):
-                errors.append("Config 'denormalize_columns' must be a list")
-            else:
-                for i, col_config in enumerate(denormalize_columns):
-                    if not isinstance(col_config, dict):
-                        errors.append(f"Config 'denormalize_columns[{i}]' must be a dict")
-                        continue
-
-                    if 'input_column' not in col_config:
-                        errors.append(f"Config 'denormalize_columns[{i}]' missing required 'input_column'")
-                    elif not isinstance(col_config['input_column'], str):
-                        errors.append(f"Config 'denormalize_columns[{i}].input_column' must be a string")
-
-                    if 'delimiter' in col_config and not isinstance(col_config['delimiter'], str):
-                        errors.append(f"Config 'denormalize_columns[{i}].delimiter' must be a string")
-
-        # Validate optional boolean fields
-        null_as_empty = self.config.get('null_as_empty', False)
-        if not isinstance(null_as_empty, bool):
-            errors.append("Config 'null_as_empty' must be a boolean")
-
-        return errors
-
-    def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
-        """
-        Perform the denormalization process.
-
-        Consolidates rows by grouping key columns and concatenating values
-        of denormalize columns using specified delimiters.
-
-        Args:
-            input_data: Input DataFrame to process. If None or empty, returns empty result.
-
-        Returns:
-            Dictionary containing:
-                - 'main': Denormalized DataFrame with grouped rows
-                - 'stats': Execution statistics
+        Only checks key presence and container shape per Rule 12. Content checks
+        (bool isinstance for null_as_empty, delimiter content) are deferred to
+        _process() after context variable resolution.
 
         Raises:
-            ConfigurationError: If configuration validation fails
-            DataValidationError: If denormalize columns are missing from input
-            ComponentExecutionError: If denormalization processing fails
-
-        Example:
-            result = self._process(input_df)
-            denormalized_df = result['main']
+            ConfigurationError: If denormalize_columns is present but not a list,
+                or if any entry is not a dict, or if input_column is missing from
+                an entry.
         """
-        # Validate configuration first
-        config_errors = self._validate_config()
-        if config_errors:
-            error_msg = f"Configuration validation failed: {'; '.join(config_errors)}"
-            logger.error(f"[{self.id}] {error_msg}")
-            raise ConfigurationError(error_msg)
+        denormalize_columns = self.config.get("denormalize_columns", [])
+        if not isinstance(denormalize_columns, list):
+            raise ConfigurationError(
+                f"[{self.id}] 'denormalize_columns' must be a list, "
+                f"got {type(denormalize_columns).__name__!r}"
+            )
+        for i, col_config in enumerate(denormalize_columns):
+            if not isinstance(col_config, dict):
+                raise ConfigurationError(
+                    f"[{self.id}] 'denormalize_columns[{i}]' must be a dict, "
+                    f"got {type(col_config).__name__!r}"
+                )
+            if "input_column" not in col_config:
+                raise ConfigurationError(
+                    f"[{self.id}] 'denormalize_columns[{i}]' missing required key 'input_column'"
+                )
 
-        # Handle empty input
+    def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
+        """Group rows by key columns and concatenate denormalize column values.
+
+        Args:
+            input_data: Input DataFrame. If None or empty, returns empty result.
+
+        Returns:
+            Dict with ``main`` key (denormalized DataFrame) and ``reject`` key (None).
+
+        Raises:
+            DataValidationError: If configured denormalize columns are missing from
+                input, or if no key columns can be determined.
+        """
         if input_data is None or input_data.empty:
-            logger.warning(f"[{self.id}] Empty input received")
-            self._update_stats(0, 0, 0)
-            return {'main': pd.DataFrame()}
+            logger.warning("[%s] Empty input received, returning empty result", self.id)
+            return {"main": pd.DataFrame(), "reject": None}
 
         rows_in = len(input_data)
-        logger.info(f"[{self.id}] Processing started: {rows_in} rows")
+        logger.info("[%s] Processing started: %d rows", self.id, rows_in)
 
-        # Extract configuration
-        denormalize_columns = self.config.get('denormalize_columns', [])
-        null_as_empty = self.config.get('null_as_empty', False)
+        denormalize_columns: List[Dict[str, Any]] = self.config.get("denormalize_columns", [])
+        null_as_empty: bool = bool(self.config.get("null_as_empty", False))
 
-        logger.debug(f"[{self.id}] Denormalize columns config: {denormalize_columns}")
-
-        # Validate configuration - if no columns specified, pass through
+        # ---- 1. Pass-through when no denormalize columns configured --------
         if not denormalize_columns:
-            logger.warning(f"[{self.id}] No denormalize_columns configured, passing data through")
-            self._update_stats(rows_in, rows_in, 0)
-            logger.info(f"[{self.id}] Processing complete: in={rows_in}, out={rows_in}, rejected=0")
-            return {'main': input_data.copy()}
+            logger.warning("[%s] No denormalize_columns configured, passing data through", self.id)
+            return {"main": input_data.copy(), "reject": None}
 
-        # Extract denormalize column names
-        denorm_col_names = [col['input_column'] for col in denormalize_columns]
-
-        # Validate that denormalize columns exist in input
-        missing_cols = [col for col in denorm_col_names if col not in input_data.columns]
+        # ---- 2. Validate columns exist in input ----------------------------
+        denorm_col_names: List[str] = [col["input_column"] for col in denormalize_columns]
+        missing_cols = [c for c in denorm_col_names if c not in input_data.columns]
         if missing_cols:
-            error_msg = f"Denormalize columns not found in input: {missing_cols}"
-            logger.error(f"[{self.id}] {error_msg}")
-            raise DataValidationError(error_msg)
+            raise DataValidationError(
+                f"[{self.id}] Denormalize columns not found in input: {missing_cols}"
+            )
 
-        # Identify key columns (all columns NOT in denormalize list)
-        key_columns = [col for col in input_data.columns if col not in denorm_col_names]
-
+        # ---- 3. Identify key columns (all non-denormalize columns) ---------
+        key_columns: List[str] = [c for c in input_data.columns if c not in denorm_col_names]
         if not key_columns:
-            error_msg = "No key columns found. All columns cannot be denormalized."
-            logger.error(f"[{self.id}] {error_msg}")
-            raise DataValidationError(error_msg)
+            raise DataValidationError(
+                f"[{self.id}] No key columns found -- all columns are in "
+                f"denormalize_columns list. At least one non-denormalize column is required."
+            )
 
-        logger.debug(f"[{self.id}] Key columns: {key_columns}")
-        logger.debug(f"[{self.id}] Denormalize columns: {denorm_col_names}")
+        logger.debug("[%s] Key columns: %s", self.id, key_columns)
+        logger.debug("[%s] Denormalize columns: %s", self.id, denorm_col_names)
 
-        try:
-            # Build aggregation dictionary for denormalize columns
-            aggregation_dict = {}
+        # ---- 4. Build per-column aggregation functions ---------------------
+        # dropna=False preserves rows with null values in key columns as a
+        # separate group, matching Talend tDenormalize behavior (ENG-DNR-003).
+        aggregation_dict: Dict[str, Any] = {}
 
-            for col_config in denormalize_columns:
-                col_name = col_config['input_column']
-                delimiter = col_config.get('delimiter', ',')
+        for col_config in denormalize_columns:
+            col_name: str = col_config["input_column"]
+            # Base class has already resolved context vars before _process() runs.
+            delimiter: str = col_config.get("delimiter", ";")
+            do_merge: bool = bool(col_config.get("merge", False))
 
-                # Resolve context variables in delimiter
-                if self.context_manager:
-                    delimiter = self.context_manager.resolve_string(delimiter)
+            def make_concat_func(delim: str, merge: bool) -> Any:
+                def concat_func(series: pd.Series) -> str:
+                    if null_as_empty:
+                        values = [str(val) if pd.notnull(val) else "" for val in series]
+                    else:
+                        values = [str(val) for val in series if pd.notnull(val)]
+                    if merge:
+                        # Deduplicate while preserving first-seen order (Talend merge=True)
+                        seen: Dict[str, None] = {}
+                        values = [v for v in values if not (v in seen or seen.update({v: None}))]  # type: ignore[func-returns-value]
+                    return delim.join(values) if values else ""
+                return concat_func
 
-                logger.debug(f"[{self.id}] Column {col_name} using delimiter '{delimiter}'")
+            aggregation_dict[col_name] = make_concat_func(delimiter, do_merge)
 
-                # Create aggregation function that handles nulls properly
-                def make_concat_func(delim):
-                    def concat_func(series):
-                        if null_as_empty:
-                            # Convert nulls to empty strings
-                            values = [str(val) if pd.notnull(val) else '' for val in series]
-                        else:
-                            # Keep nulls as they are, convert others to string
-                            values = [str(val) if pd.notnull(val) else None for val in series]
-                            # Filter out None values
-                            values = [val for val in values if val is not None]
+        # Key columns: take the first value per group (identical within group)
+        for key_col in key_columns:
+            aggregation_dict[key_col] = "first"
 
-                        # Join non-empty values
-                        result = delim.join(values) if values else ''
-                        return result
-                    return concat_func
+        # ---- 5. Perform groupby (dropna=False preserves null-key rows) -----
+        denormalized_df: pd.DataFrame = input_data.groupby(
+            key_columns if len(key_columns) > 1 else key_columns[0],
+            as_index=False,
+            dropna=False,
+            sort=False,
+        ).agg(aggregation_dict)
 
-                aggregation_dict[col_name] = make_concat_func(delimiter)
+        # Restore original column order: key columns first, then denorm columns
+        output_columns = key_columns + denorm_col_names
+        denormalized_df = denormalized_df[output_columns]
 
-            # For key columns, take the first value (they should be the same within each group)
-            for key_col in key_columns:
-                aggregation_dict[key_col] = 'first'
+        rows_out = len(denormalized_df)
+        logger.info(
+            "[%s] Processing complete: in=%d, out=%d, rejected=0",
+            self.id, rows_in, rows_out,
+        )
 
-            # Perform groupby and aggregation
-            logger.debug(f"[{self.id}] Grouping by {key_columns}")
-
-            if len(key_columns) == 1:
-                # Single key column
-                denormalized_df = input_data.groupby(key_columns[0], as_index=False).agg(aggregation_dict)
-            else:
-                # Multiple key columns
-                denormalized_df = input_data.groupby(key_columns, as_index=False).agg(aggregation_dict)
-
-            # Ensure column order matches original input
-            output_columns = key_columns + denorm_col_names
-            denormalized_df = denormalized_df[output_columns]
-
-            rows_out = len(denormalized_df)
-            logger.debug(f"[{self.id}] Produced {rows_out} rows from {rows_in} input rows")
-
-            # Update statistics and log completion
-            self._update_stats(rows_in, rows_out, 0)
-            logger.info(f"[{self.id}] Processing complete: in={rows_in}, out={rows_out}, rejected=0")
-
-            return {'main': denormalized_df}
-
-        except Exception as e:
-            logger.error(f"[{self.id}] Denormalization failed: {e}")
-            self._update_stats(rows_in, 0, rows_in)
-            raise ComponentExecutionError(self.id, f"Denormalization failed: {e}", e) from e
+        return {"main": denormalized_df, "reject": None}

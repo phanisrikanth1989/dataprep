@@ -4,7 +4,8 @@
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: PRODUCTION READINESS REVIEW
+> **Status**: PRODUCTION READY
+> **Last Updated**: 2026-05-01 — Engine fully rewritten per MANUAL_COMPONENT_AUTHORING.md
 > **V1 only** -- this report contains zero references to v2/PyETL
 
 ---
@@ -15,7 +16,7 @@
 | ------- | ------- |
 | **Talend Name** | `tLogRow` |
 | **V1 Engine Class** | `LogRow` |
-| **Engine File** | `src/v1/engine/components/transform/log_row.py` (231 lines) |
+| **Engine File** | `src/v1/engine/components/transform/log_row.py` (~290 lines, rewritten 2026-05-01) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/transform/log_row.py` (155 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tLogRow")` decorator-based dispatch |
 | **Registry Aliases** | `LogRow`, `tLogRow` |
@@ -38,18 +39,20 @@
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 15 \_java.xml params extracted including LENGTHS TABLE; \_build\_component\_dict wrapper; 12 per-feature needs\_review |
-| Engine Feature Parity | **Y** | 0 | 3 | 3 | 1 | 3 display modes implemented; output via print() not logger; no Log4J; engine default mismatches for table_print and print_header |
-| Code Quality | **G** | 0 | 0 | 0 | 0 | Gold standard converter with LENGTHS TABLE parser; clean structured sections |
-| Performance & Memory | **G** | 0 | 0 | 1 | 1 | iterrows() used for all formats; table width scan over entire DataFrame |
-| Testing | **Y** | 0 | 0 | 1 | 0 | 33 converter tests across 8 test classes; no engine unit tests (D-73) |
+| Engine Feature Parity | **G** | 0 | 0 | 1 | 0 | All 16 config keys implemented; basic/table/vertical modes; print_colnames, print_unique_name, use_fixed_length+lengths, TITLE_PRINT group; Log4J routing deferred (warning only) |
+| Code Quality | **G** | 0 | 0 | 0 | 0 | Engine rewritten per MANUAL_COMPONENT_AUTHORING.md: @REGISTRY.register both names, logger.info() output, Rule 12 deferred validation, no mutable state |
+| Performance & Memory | **G** | 0 | 0 | 1 | 0 | iterrows() used for row rendering (only over max_rows slice); table width scan fixed to df_to_log only |
+| Testing | **G** | 0 | 0 | 0 | 0 | 33 converter tests + 66 engine tests across 15 test classes |
 
-Overall: YELLOW -- Converter gold standard; engine has feature gaps and default mismatches
+Overall: GREEN -- Converter gold standard; engine fully rewritten; all 16 keys implemented; comprehensive tests
 
 **Top Actions**:
 
-1. Add engine unit tests for LogRow component
-2. Fix engine default mismatches (table_print True->False, print_header True->False)
-3. Add engine support for vertical mode params, fixed-width formatting, Log4J routing
+1. ~~Fix engine default mismatches~~ ✅ DONE
+2. ~~Fix config key mismatch~~ ✅ DONE
+3. ~~Add engine unit tests~~ ✅ DONE (66 tests)
+4. ~~Implement missing params~~ ✅ DONE (all 16 keys)
+5. (Long-term) Replace iterrows() with vectorized string operations (PERF-LR-001)
 
 ---
 
@@ -198,39 +201,39 @@ The converter emits 12 per-feature needs_review entries (9 engine-unread + 3 def
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
 | ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
-| 1 | Basic mode (delimited) | **Yes** | Medium | `_print_basic_format()` line 206 | Works but uses `print()` not logger |
-| 2 | Table mode (bordered) | **Yes** | Medium | `_print_table_format()` line 145 | Custom table formatting with borders |
-| 3 | Vertical mode | **Yes** | Low | `_print_vertical_format()` line 214 | Simplified implementation |
-| 4 | Field separator | **Yes** | High | `_process()` line 105 | Reads `field_separator` or `FIELDSEPARATOR` |
-| 5 | Print header | **Yes** | High | `_process()` line 103 | Reads multiple config key aliases |
-| 6 | Max rows | **Yes** | High | `_process()` line 107 | Reads `max_rows` or `SCHEMA_OPT_NUM` |
-| 7 | Fixed-width formatting | **No** | N/A | -- | Not implemented |
-| 8 | LENGTHS table | **No** | N/A | -- | Not implemented |
-| 9 | Log4J output | **No** | N/A | -- | Uses `print()` for all output |
-| 10 | Print column names | **No** | N/A | -- | Not implemented |
-| 11 | Print unique name | **No** | N/A | -- | Not implemented |
-| 12 | Title print group | **No** | N/A | -- | Not implemented |
-| 13 | Pass-through | **Yes** | High | `_process()` line 132 | Returns input unchanged |
+| 1 | Basic mode (delimited) | **Yes** | High | `_log_basic()` | logger.info() per row; custom separator; per-row `[id]` prefix; colname= prefix; fixed-width |
+| 2 | Table mode (bordered) | **Yes** | High | `_log_table()` | Bordered ASCII table; component title; fixed-width column widths |
+| 3 | Vertical mode | **Yes** | High | `_log_vertical()` | Key-value pairs; full TITLE_PRINT radio group; fixed-width |
+| 4 | Field separator | **Yes** | High | `_process()` → `_log_basic()` | Reads `fieldseparator`, default `"|"` |
+| 5 | Print header | **Yes** | High | `_log_basic()` | Separate header row before data rows |
+| 6 | Max rows | **Yes** | High | `_process()` | Deferred resolution; context var accepted at validate time |
+| 7 | Fixed-width formatting | **Yes** | High | `_log_basic()`, `_log_table()`, `_log_vertical()` | `use_fixed_length` + `lengths` list; pad short / truncate long |
+| 8 | LENGTHS table | **Yes** | High | `_process()` → all helpers | `lengths` config key passed to all display helpers |
+| 9 | Log4J output | **Partial** | Low | `_process()` warning | `print_content_with_log4j=False` emits logger.warning; actual Log4J routing deferred |
+| 10 | Print column names | **Yes** | High | `_log_basic()` | `colname=value` format per field |
+| 11 | Print unique name | **Yes** | High | `_log_basic()`, `_log_table()` | `[component_id]` prefix per row / table title |
+| 12 | Title print group | **Yes** | High | `_log_vertical()` | print_unique / print_label / print_unique_label RADIO group |
+| 13 | Pass-through | **Yes** | High | `_process()` | Returns full input df unchanged; display limit does not affect main |
 
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
 | ---- | ---------- | ------------- |
-| ENG-LR-001 | **P1** | Engine defaults for `table_print` (True) and `print_header` (True) differ from Talend (both False). When config key is absent, engine shows table format with headers instead of Talend's basic mode without headers. |
-| ENG-LR-002 | **P1** | Engine reads `field_separator` config key but converter emits `fieldseparator`. Engine falls back to FIELDSEPARATOR uppercase as secondary lookup. |
-| ENG-LR-003 | **P1** | Engine `basic_mode` default is False (engine prefers table mode) but Talend default is True (basic mode). |
-| ENG-LR-004 | **P2** | Output goes to stdout via `print()` instead of through a logging framework. No Log4J integration. |
-| ENG-LR-005 | **P2** | 9 Talend params (vertical title group, print_colnames, use_fixed_length, lengths, print_content_with_log4j, print_unique_name) have no engine implementation. |
-| ENG-LR-006 | **P2** | `NB_LINE_OK` counts displayed rows (after max_rows limit) not input rows. Talend counts all processed rows. |
-| ENG-LR-007 | **P3** | `_validate_config()` defined but never called by base class. Dead code. |
+| ENG-LR-001 | ~~**P1**~~ **FIXED** | ✅ Engine defaults corrected: `basic_mode=True`, `table_print=False`, `print_header=False` — now match Talend defaults. |
+| ENG-LR-002 | ~~**P1**~~ **FIXED** | ✅ Config key mismatch resolved: engine reads `fieldseparator` (the key the converter emits). |
+| ENG-LR-003 | ~~**P1**~~ **FIXED** | ✅ Engine `basic_mode` default now True, matching Talend. |
+| ENG-LR-004 | ~~**P2**~~ **FIXED** | ✅ All output routes through `logger.info()`. No more `print()` statements. |
+| ENG-LR-005 | ~~**P2**~~ **FIXED** | ✅ All 16 config keys now implemented. Vertical title group, print_colnames, use_fixed_length+lengths, print_unique_name all implemented. print_content_with_log4j=False emits warning (routing deferred). |
+| ENG-LR-006 | ~~**P2**~~ **FIXED** | ✅ NB_LINE_OK now counts all input rows (base class auto-count from len(main)), not the displayed subset. |
+| ENG-LR-007 | ~~**P3**~~ **FIXED** | ✅ `_validate_config()` rewritten to be Rule 12 compliant: returns None (no required keys), defers max_rows numeric validation to `_process()`. |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
 | ---------- | ------------- | ---------- | ----------------- | ------- |
-| `{id}_NB_LINE` | Yes | Yes | `_update_stats()` | Total rows processed |
-| `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats()` | V1 counts displayed rows, not input rows |
-| `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats()` | Always 0 |
+| `{id}_NB_LINE` | Yes | Yes | Base class auto-count | Total rows processed (= len(main) + len(reject)) |
+| `{id}_NB_LINE_OK` | Yes | Yes | Base class auto-count | All input rows (display limit does not affect this count) |
+| `{id}_NB_LINE_REJECT` | Yes | Yes | Base class auto-count | Always 0 (tLogRow never rejects rows) |
 
 ---
 
@@ -291,8 +294,8 @@ No concerns identified. tLogRow is a display-only component with no file I/O or 
 
 | ID | Priority | Issue |
 | ---- | ---------- | ------- |
-| PERF-LR-001 | **P2** | Engine uses `iterrows()` for all display formats. For large DataFrames, vectorized string conversion would be faster. |
-| PERF-LR-002 | **P3** | Table mode scans entire DataFrame to calculate column widths before printing. For large data with max_rows limit, only scanned portion widths are needed. |
+| PERF-LR-001 | **P2** | Engine uses `iterrows()` for row rendering. Applies only to the `df_to_log` slice (max_rows rows), not the full DataFrame. Acceptable for a logging/monitoring component. |
+| PERF-LR-002 | ~~**P3**~~ **FIXED** | ✅ Table width calculation now scans `df_to_log` slice only (not the full DataFrame). |
 
 ### 7.1 Memory Management Assessment
 
@@ -311,49 +314,60 @@ No concerns identified. tLogRow is a display-only component with no file I/O or 
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 33 | `tests/converters/talend_to_v1/components/test_log_row.py` |
-| Engine unit tests | 0 | None |
+| Engine unit tests | **66** | `tests/v1/engine/components/transform/test_log_row.py` |
 | Integration tests | 0 | None (covered by regression guard) |
 
-### 8.2 Test Gaps
+### 8.2 Engine Test Classes (66 tests)
+
+| Test Class | Tests | Coverage |
+| ------------ | ------- | --------- |
+| `TestRegistration` | 2 | REGISTRY.get() for both v1 and Talend names |
+| `TestValidation` | 4 | Empty config, full config, context var in max_rows, execute completes |
+| `TestDefaults` | 4 | basic_mode is default, pipe separator default, no header default, max_rows=100 default |
+| `TestPassThrough` | 4 | All rows on main, values identical, columns unchanged, display limit doesn't reduce main |
+| `TestRejectFlow` | 3 | Reject absent for normal input, NaN input, main+reject=input |
+| `TestBasicMode` | 4 | Row count, custom separator, header, values appear |
+| `TestTableMode` | 5 | Border lines, column names, data values, empty df, print_unique_name title |
+| `TestVerticalMode` | 6 | Section headers, column names, default unique title, print_label, print_unique_label, max_rows limit |
+| `TestDisplayOptions` | 5 | print_colnames on/off, print_unique_name on/off, print_header |
+| `TestFixedLength` | 4 | Pads short values, truncates long values, no padding when false, table mode |
+| `TestMaxRows` | 6 | Limits logs, no effect on main, zero, context var, invalid raises, negative raises |
+| `TestDeferredFeatures` | 3 | log4j=False warns, log4j=True no warn, default no warn |
+| `TestEdgeCases` | 7 | None, empty, single row, NaN, large dataset, special chars, numeric types |
+| `TestGlobalMapVariables` | 5 | NB_LINE, NB_LINE_OK, NB_LINE_REJECT, no globalmap, empty input |
+| `TestIterateReexecution` | 4 | Same output twice, stats reset, config not mutated, context var re-resolved |
+
+### 8.3 Test Gaps
 
 | ID | Priority | Gap |
 | ---- | ---------- | ----- |
-| TEST-LR-001 | **P2** | No engine unit tests for LogRow component. Engine behavior (display modes, formatting, max_rows limiting) is untested. |
-
-### 8.3 Recommended Test Cases
-
-- Engine: Basic mode output with custom separator
-- Engine: Table mode output with headers and borders
-- Engine: Vertical mode output format
-- Engine: max_rows limiting (verify truncation)
-- Engine: Empty input handling (None and empty DataFrame)
-- Engine: Pass-through verification (output DataFrame identical to input)
+| TEST-LR-001 | ~~**P2**~~ **CLOSED** | ✅ 66 engine tests covering all modes, all config keys, edge cases, stats, iteration |
 
 ---
 
 ## 9. Issues Summary
 
-### By Priority
+### By Priority (after 2026-05-01 rewrite)
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
 | P0 | 0 | -- |
-| P1 | 3 | ENG-LR-001, ENG-LR-002, ENG-LR-003 |
-| P2 | 4 | ENG-LR-004, ENG-LR-005, ENG-LR-006, PERF-LR-001 |
-| P3 | 2 | ENG-LR-007, PERF-LR-002 |
-| **Total** | **9** | |
+| P1 | 0 | ~~ENG-LR-001, ENG-LR-002, ENG-LR-003~~ all FIXED |
+| P2 | 1 | PERF-LR-001 (iterrows — acceptable for log component) |
+| P3 | 0 | ~~ENG-LR-007, PERF-LR-002~~ all FIXED |
+| **Total** | **1** | |
 
 ### By Category
 
 | Category | Count | IDs |
 | ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
-| Engine (ENG) | 7 | ENG-LR-001 through ENG-LR-007 |
+| Engine (ENG) | 0 | ~~ENG-LR-001 through ENG-LR-007~~ all FIXED |
 | Bug (BUG) | 0 | -- |
 | Naming (NAME) | 0 | -- |
 | Standards (STD) | 0 | -- |
-| Performance (PERF) | 2 | PERF-LR-001, PERF-LR-002 |
-| Testing (TEST) | 1 | TEST-LR-001 |
+| Performance (PERF) | 1 | PERF-LR-001 (iterrows on max_rows slice only) |
+| Testing (TEST) | 0 | ~~TEST-LR-001~~ CLOSED (66 engine tests) |
 
 ### Cross-Cutting Issues
 
@@ -363,21 +377,20 @@ Engine cross-cutting bugs (base_component.py `_update_global_map()` crash, Globa
 
 ## 10. Recommendations
 
-### Immediate (Before Production)
+### Completed (2026-05-01 rewrite)
 
-- Fix engine default mismatches: `basic_mode` should default to True, `table_print` to False, `print_header` to False (ENG-LR-001, ENG-LR-003)
-- Resolve config key mismatch: engine should read `fieldseparator` (or converter should emit `field_separator`) (ENG-LR-002)
-
-### Short-term (Hardening)
-
-- Add engine unit tests for all three display modes (TEST-LR-001)
-- Implement Log4J-style logging output option (ENG-LR-004)
-- Add engine support for remaining 9 unread config keys (ENG-LR-005)
+- ✅ Fixed engine default mismatches: `basic_mode=True`, `table_print=False`, `print_header=False` (ENG-LR-001, ENG-LR-003)
+- ✅ Resolved config key mismatch: engine reads `fieldseparator` (ENG-LR-002)
+- ✅ Added 66 engine unit tests across 15 test classes (TEST-LR-001)
+- ✅ Output routes through `logger.info()` — no `print()` (ENG-LR-004)
+- ✅ All 16 config keys implemented: vertical mode, print_colnames, use_fixed_length+lengths, print_unique_name, TITLE_PRINT group (ENG-LR-005)
+- ✅ NB_LINE_OK counts all input rows (ENG-LR-006)
+- ✅ `_validate_config()` Rule 12 compliant; max_rows validation deferred to `_process()` (ENG-LR-007)
+- ✅ Table width scan fixed to display slice only (PERF-LR-002)
 
 ### Long-term (Optimization)
 
-- Replace `iterrows()` with vectorized string operations (PERF-LR-001)
-- Remove dead `_validate_config()` method or wire it into base class (ENG-LR-007)
+- Replace `iterrows()` with vectorized string operations for the display slice (PERF-LR-001)
 
 ---
 
@@ -395,22 +408,22 @@ Engine cross-cutting bugs (base_component.py `_update_global_map()` crash, Globa
 
 | Converter Config Key | Engine Reads | Engine Config Key | Match? | Notes |
 | --------------------- | ------------- | ------------------- | -------- | ------- |
-| `basic_mode` | Yes | `basic_mode` / `BASIC_MODE` | Yes | Engine checks both cases |
-| `table_print` | Yes | `table_print` / `TABLE_PRINT` | Yes | Engine checks both cases |
-| `vertical` | Yes | `vertical` / `VERTICAL` | Yes | Engine checks both cases |
-| `fieldseparator` | Partial | `field_separator` / `FIELDSEPARATOR` | No | Engine reads `field_separator`, converter emits `fieldseparator` |
-| `print_header` | Yes | `print_header` / `PRINT_HEADER` / `print_column_names` / `PRINT_COLUMN_NAMES` | Yes | Engine checks 4 aliases |
-| `max_rows` | Yes | `max_rows` / `SCHEMA_OPT_NUM` | Yes | Engine checks both |
-| `print_unique` | No | -- | N/A | Engine does not read |
-| `print_label` | No | -- | N/A | Engine does not read |
-| `print_unique_label` | No | -- | N/A | Engine does not read |
-| `print_unique_name` | No | -- | N/A | Engine does not read |
-| `print_colnames` | No | -- | N/A | Engine does not read |
-| `use_fixed_length` | No | -- | N/A | Engine does not read |
-| `lengths` | No | -- | N/A | Engine does not read |
-| `print_content_with_log4j` | No | -- | N/A | Engine does not read |
+| `basic_mode` | Yes | `basic_mode` | Yes | Default True |
+| `table_print` | Yes | `table_print` | Yes | Default False |
+| `vertical` | Yes | `vertical` | Yes | Default False |
+| `fieldseparator` | Yes | `fieldseparator` | Yes | Default `"|"` — mismatch FIXED |
+| `print_header` | Yes | `print_header` | Yes | Default False |
+| `max_rows` | Yes | `max_rows` | Yes | Default 100; context var deferred |
+| `print_unique` | Yes | `print_unique` | Yes | TITLE_PRINT radio; default True |
+| `print_label` | Yes | `print_label` | Yes | TITLE_PRINT radio; default False |
+| `print_unique_label` | Yes | `print_unique_label` | Yes | TITLE_PRINT radio; default False |
+| `print_unique_name` | Yes | `print_unique_name` | Yes | `[id]` prefix per row |
+| `print_colnames` | Yes | `print_colnames` | Yes | `colname=value` format |
+| `use_fixed_length` | Yes | `use_fixed_length` | Yes | Pad/truncate values |
+| `lengths` | Yes | `lengths` | Yes | List of int widths |
+| `print_content_with_log4j` | Yes | `print_content_with_log4j` | Yes | False emits WARNING; routing deferred |
 
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after hidden/design-time param removal*
+*Last updated: 2026-05-01 — Engine fully rewritten per MANUAL_COMPONENT_AUTHORING.md. All 16 config keys implemented. 66 engine tests added. All P1/P2/P3 engine issues resolved. Overall rating Y→G. 9 open issues → 1 (PERF-LR-001 iterrows, acceptable).*

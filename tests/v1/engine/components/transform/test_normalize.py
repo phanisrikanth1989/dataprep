@@ -18,7 +18,7 @@ from src.v1.engine.exceptions import ConfigurationError
 _DEFAULT_CONFIG = {
     "component_type": "Normalize",
     "normalize_column": "tags",
-    "item_separator": ",",
+    "itemseparator": ",",
     "trim": False,
     "discard_trailing_empty_str": False,
     "deduplicate": False,
@@ -362,9 +362,9 @@ class TestEdgeCases:
         assert out["tags"].iloc[0] == "hello"
 
     def test_custom_separator(self):
-        """Custom item_separator '|' splits correctly."""
+        """Custom itemseparator '|' splits correctly."""
         config = dict(_DEFAULT_CONFIG)
-        config["item_separator"] = "|"
+        config["itemseparator"] = "|"
         comp = _make_component(config=config)
         df = _make_input_df(["a|b|c"])
         result = comp.execute(df)

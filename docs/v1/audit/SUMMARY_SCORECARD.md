@@ -66,10 +66,10 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 28 | tSortRow | Y | G | Y | G | Y | Y | 0 | 6 | 8 | 1 | 15 |
 | 29 | tMap | Y | G | Y | Y | Y | Y | 3 | 8 | 12 | 3 | 26 |
 | 30 | tJoin | Y | G | Y | Y | G | Y | 2 | 9 | 8 | 2 | 21 |
-| 31 | tNormalize | Y | G | Y | G | R | Y | 1 | 4 | 4 | 1 | 10 |
-| 32 | tDenormalize | Y | G | Y | G | G | Y | 1 | 2 | 4 | 2 | 9 |
+| 31 | tNormalize | Y | G | Y | G | G | G | 0 | 1 | 2 | 1 | 4 |
+| 32 | tDenormalize | G | G | G | G | G | G | 0 | 0 | 2 | 2 | 4 |
 | 33 | tReplicate | Y | G | G | G | N/A | Y | 0 | 0 | 6 | 0 | 6 |
-| 34 | tLogRow | Y | G | Y | G | G | Y | 0 | 3 | 4 | 2 | 9 |
+| 34 | tLogRow | G | G | G | G | G | G | 0 | 0 | 1 | 0 | 1 |
 | 35 | tUnite | Y | G | G | G | Y | Y | 0 | 0 | 11 | 1 | 12 |
 | 36 | tExtractDelimitedFields | Y | G | Y | R | R | Y | 4 | 8 | 9 | 2 | 23 |
 | 37 | tExtractJSONFields | Y | G | Y | R | Y | Y | 3 | 6 | 6 | 2 | 17 |
@@ -262,10 +262,10 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | 3 | tSortRow | Y | 0 | 6 | 8 | 1 | 15 |
 | 4 | tMap | Y | 3 | 8 | 12 | 3 | 26 |
 | 5 | tJoin | Y | 2 | 9 | 8 | 2 | 21 |
-| 6 | tNormalize | Y | 1 | 4 | 4 | 1 | 10 |
-| 7 | tDenormalize | Y | 1 | 2 | 4 | 2 | 9 |
+| 6 | tNormalize | Y | 0 | 1 | 2 | 1 | 4 |
+| 7 | tDenormalize | G | 0 | 0 | 2 | 2 | 4 |
 | 8 | tReplicate | Y | 0 | 0 | 6 | 0 | 6 |
-| 9 | tLogRow | Y | 0 | 3 | 4 | 2 | 9 |
+| 9 | tLogRow | G | 0 | 0 | 1 | 0 | 1 |
 | 10 | tUnite | Y | 0 | 0 | 11 | 1 | 12 |
 | 11 | tExtractDelimitedFields | Y | 4 | 8 | 9 | 2 | 23 |
 | 12 | tExtractJSONFields | Y | 3 | 6 | 6 | 2 | 17 |
@@ -297,8 +297,10 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 **Category summary:** 11 Red, 25 Yellow, 0 Green. Total issues: 485.
 **Note:** tUnite REWRITTEN (2026-04-04): Audit rewritten to gold standard with Section 11 Risk Assessment. 0 unique params (SCHEMA only). Engine has 7 extra config keys (mode, remove_duplicates, etc.) that are engine-specific extensions. Engine defaults compatible with Talend UNION ALL. 0 needs_review. 18 tests across 7 test classes. Converter=G, Code Quality=G, Testing=Y, Overall=Y. Issues reduced 25->12.
 **Note:** tDenormalize REWRITTEN (2026-04-04): Audit rewritten to gold standard. 2 phantom params removed (CONNECTION_FORMAT, NULL_AS_EMPTY). Stride-3 TABLE parser. 3 config keys (1 TABLE + 2 framework). 2 static + 1 conditional needs_review. 26 tests across 10 test classes. Converter=G, Code Quality=G, Testing=Y, Overall=Y. Issues reduced 28->9.
+**Note:** tNormalize ENGINE HARDENED (2026-06-13): itemseparator key fix (ENG-NRM-001), Rule 12 violations removed from _validate_config, phantom die_on_error removed (ENG-NRM-004), discard_trailing_empty_str confirmed trailing-only (ENG-NRM-003). 25 engine unit tests added across 5 test classes. Performance=R→G (vectorized .str.split+.explode). Testing=Y→G. Issues reduced 10→4 (1 open P1: ENG-NRM-002 CSV escape/enclosure).
+**Note:** tDenormalize ENGINE REWRITTEN (2026-06-13): @REGISTRY.register added (ENG-DNR-001 P0 fixed), merge flag implemented with first-seen dedup (ENG-DNR-002 P1 fixed), groupby(dropna=False) preserves null-key rows (ENG-DNR-003 P1 fixed). _validate_config returns None per Rule 12. No double validation. No manual _update_stats. 41 engine unit tests across 11 test classes. Engine=Y→G, Testing=Y→G, Overall=Y→G. Issues reduced 9→4.
 **Note:** tUniqueRow Converter upgraded Y->G (2026-04-02): CASE_SENSITIVE extracted, change_hash_and_equals_for_bigdecimal extracted, tstatcatcher_stats and label added. 7 config keys, 25 tests, 2 conditional needs_review entries.
-**Note:** tLogRow REWRITTEN (2026-04-04): Audit rewritten to gold standard. LENGTHS TABLE parsing added (stride-1). Config key renamed field_separator->fieldseparator per D-38. max_rows as str for expression support. 16 config keys. 12 per-feature needs_review. 33 tests across 8 test classes. Converter=G, Code Quality=G, Testing=Y, Overall=Y. Issues reduced 41->9.
+**Note:** tLogRow ENGINE REWRITTEN (2026-05-01): Engine fully rewritten per MANUAL_COMPONENT_AUTHORING.md. All 16 config keys implemented: basic/table/vertical modes, print_colnames, print_unique_name, use_fixed_length+lengths, TITLE_PRINT radio group. Default mismatches fixed (basic_mode=True, print_header=False). All output via logger.info(). @REGISTRY.register both names. Rule 12 compliant _validate_config(). 66 engine tests across 15 test classes. Overall Y→G, Engine Y→G, Testing Y→G. Issues reduced 9→1 (PERF-LR-001 iterrows, acceptable).
 **Note:** tExtractJSONFields REWRITTEN (2026-04-04): Audit rewritten to gold standard with Section 11 Risk Assessment. Dual-TABLE parsing added. 15 config keys. 9 per-feature needs_review. 45 tests across 8 test classes. Converter=G, Testing=Y, Overall=Y. Issues reduced 39->17.
 **Note:** tExtractXMLField REWRITTEN (2026-04-04): Audit rewritten to gold standard with Section 11 Risk Assessment. 6 hidden params added. MAPPING TABLE stride-2. 14 config keys. 7 per-feature needs_review. 50 tests across 10 test classes. Converter=G, Code Quality=Y, Testing=Y, Overall=Y. Issues reduced 45->19.
 **Note:** tUnpivotRow REWRITTEN (2026-04-04): Full gold standard rewrite. Community component (MEDIUM confidence). 4 unique + 2 framework params (100%). 0 needs_review. 28 converter tests across 10 test classes. Converter=G, Code Quality=G, Testing=Y, Overall=Y. Issues reduced 45->14.
@@ -435,7 +437,7 @@ Multiple components use `exec()` or `eval()` without sandboxing: PythonComponent
 Virtually no component implements the Talend REJECT output flow pattern. Error rows are silently dropped rather than being routed to error-handling paths. This is a fundamental behavioral gap compared to Talend.
 
 ### 7. `iterrows()` anti-pattern causes 100-1000x performance degradation
-Multiple components (tNormalize, tSchemaComplianceCheck, tExtractDelimitedFields, tExtractXMLField, tExtractJSONFields, tExtractPositionalFields, PythonRowComponent) use the `iterrows()` anti-pattern instead of vectorized pandas operations.
+Multiple components (~~tNormalize -- FIXED 2026-06-13~~, tSchemaComplianceCheck, tExtractDelimitedFields, tExtractXMLField, tExtractJSONFields, tExtractPositionalFields, PythonRowComponent) use the `iterrows()` anti-pattern instead of vectorized pandas operations.
 
 ### 8. NaN/None handling is inconsistent and data-corrupting
 Across the engine, there is no consistent strategy for handling NaN, None, and empty strings. Multiple components silently convert between these values, causing data corruption. The `fillna("")` pattern in several output components converts legitimate null values to empty strings.

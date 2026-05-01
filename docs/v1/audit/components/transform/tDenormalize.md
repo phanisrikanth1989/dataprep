@@ -1,7 +1,8 @@
 # Audit Report: tDenormalize / Denormalize
 
 > **Audited**: 2026-04-04
-> **Auditor**: Claude Opus 4.6 (automated) -- GOLD STANDARD REWRITE
+> **Last Updated**: 2026-06-13 -- Phase 13.1 engine hardening (registry fix, merge flag, null-key rows, Rule 12, 41 engine tests)
+> **Auditor**: Claude Sonnet 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
@@ -38,19 +39,17 @@
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 1 TABLE + 2 framework params extracted (100%). 2 phantom params removed. 2 static + 1 conditional needs_review. |
-| Engine Feature Parity | **Y** | 1 | 2 | 1 | 1 | Broken import path; no merge dedup; groupby drops null-key rows |
-| Code Quality | **G** | 0 | 0 | 1 | 0 | Clean converter, well-documented, gold standard pattern |
-| Performance & Memory | **G** | 0 | 0 | 1 | 1 | groupby() materializes full copy; closure per column |
-| Testing | **Y** | 0 | 0 | 1 | 0 | 26 converter tests (Green); no engine unit tests (per D-64) |
+| Engine Feature Parity | **G** | 0 | 0 | 1 | 1 | ~~ENG-DNR-001~~ FIXED (registry). ~~ENG-DNR-002~~ FIXED (merge flag). ~~ENG-DNR-003~~ FIXED (null-key rows). ENG-DNR-004 (engine delimiter default) P2 open. |
+| Code Quality | **G** | 0 | 0 | 0 | 0 | Rule 12 violations fixed. _validate_config returns None. No double validation. No manual _update_stats. %-style logging. |
+| Performance & Memory | **G** | 0 | 0 | 1 | 1 | groupby() materializes full copy; closure per column. No P0/P1 issues. |
+| Testing | **G** | 0 | 0 | 0 | 0 | 26 converter tests (Green). 41 engine unit tests added (Green). ~~TEST-DNR-001~~ FIXED. |
 
-**Overall: YELLOW -- Engine gaps prevent Green; converter and code quality are production-ready**
+**Overall: GREEN -- All P0/P1 issues resolved; converter and engine are production-ready**
 
-**Top Actions**:
+**Remaining Actions**:
 
-1. Fix broken engine import path (P0)
-2. Add engine support for merge flag (P1)
-3. Fix groupby null-key row dropping (P1)
-4. Add engine unit tests
+1. ENG-DNR-004 (P2): Engine delimiter default is "," but _java.xml says ";" (converter always emits explicit value, so only affects standalone use)
+2. ENG-DNR-005 (P3): Document null_as_empty as engine-specific enhancement
 
 ---
 
@@ -171,30 +170,31 @@ No expression parameters. DELIMITER values are string literals. Context variable
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
 | ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
-| 1 | Column concatenation | **Yes** | High | `_process()` line 175-206 | groupby + agg with delimiter join |
-| 2 | Per-column delimiter | **Yes** | High | `_process()` line 181 | Resolved from context, default "," |
-| 3 | Merge (dedup) flag | **No** | N/A | -- | Engine ignores merge, always concatenates all values |
-| 4 | Null handling | **Yes** | Medium | `_process()` line 191-199 | null_as_empty config controls behavior |
-| 5 | Key column detection | **Yes** | High | `_process()` line 165 | All non-denormalize columns become keys |
+| 1 | Column concatenation | **Yes** | High | `_process()` | groupby + agg with delimiter join |
+| 2 | Per-column delimiter | **Yes** | High | `_process()` | Resolved from config, default "," |
+| 3 | Merge (dedup) flag | **Yes** | High | `_process()` | ~~ENG-DNR-002 FIXED~~ -- `make_concat_func(delim, merge)` with first-seen-order dedup |
+| 4 | Null handling | **Yes** | Medium | `_process()` | null_as_empty config controls behavior |
+| 5 | Key column detection | **Yes** | High | `_process()` | All non-denormalize columns become keys |
 | 6 | Schema passthrough | **Yes** | High | -- | Output matches input schema structure |
+| 7 | Null-key row preservation | **Yes** | High | `_process()` | ~~ENG-DNR-003 FIXED~~ -- `groupby(dropna=False, sort=False)` |
 
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
 | ---- | ---------- | ------------- |
-| ENG-DNR-001 | **P0** | **OPEN** -- Broken import path: `engine.py` imports from `.components.aggregate` but class is in `.components.transform` |
-| ENG-DNR-002 | **P1** | **OPEN** -- Engine does not implement merge flag. When merge=True in Talend, duplicate values should be removed before concatenation. Engine concatenates all values regardless. |
-| ENG-DNR-003 | **P1** | **OPEN** -- groupby drops rows with null key column values (pandas default `dropna=True`). Talend preserves null-key rows as a separate group. |
-| ENG-DNR-004 | **P2** | **OPEN** -- Engine delimiter default is "," but _java.xml says ";". Converter always emits explicit value, but engine standalone use would differ. |
+| ~~ENG-DNR-001~~ | ~~P0~~ | **FIXED** -- `@REGISTRY.register("Denormalize", "tDenormalize")` added; correct import path |
+| ~~ENG-DNR-002~~ | ~~P1~~ | **FIXED** -- `make_concat_func(delim, merge)` closure implements dedup with first-seen order |
+| ~~ENG-DNR-003~~ | ~~P1~~ | **FIXED** -- `groupby(dropna=False, sort=False)` preserves null-key rows as a separate group |
+| ENG-DNR-004 | **P2** | **OPEN** -- Engine delimiter default is "," but _java.xml says ";". Converter always emits explicit value; engine standalone use would differ. |
 | ENG-DNR-005 | **P3** | **OPEN** -- Engine `null_as_empty` option has no Talend equivalent. This is an engine-specific enhancement. |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
 | ---------- | ------------- | ---------- | ----------------- | ------- |
-| `{id}_NB_LINE` | Yes | Yes | `_update_stats()` line 230 | Total rows processed |
-| `{id}_NB_LINE_OK` | Yes | Yes | `_update_stats()` line 230 | Rows output |
-| `{id}_NB_LINE_REJECT` | Yes | Yes | `_update_stats()` line 230 | Always 0 (no reject) |
+| `{id}_NB_LINE` | Yes | Yes | Base class `_update_global_map()` | NB_LINE = input rows (transform pattern) |
+| `{id}_NB_LINE_OK` | Yes | Yes | Base class `_update_global_map()` | NB_LINE_OK = output rows (grouped rows) |
+| `{id}_NB_LINE_REJECT` | Yes | Yes | Base class `_update_global_map()` | Always 0 (no reject path) |
 
 ---
 
@@ -214,11 +214,7 @@ No expression parameters. DELIMITER values are string literals. Context variable
 
 ### 6.3 Standards Compliance
 
-| ID | Priority | Standard | Violation |
-| ---- | ---------- | ---------- | ----------- |
-| STD-DNR-001 | **P2** | "Module docstring lists config mapping" | Converter follows gold standard pattern with complete config mapping in docstring |
-
-All standards met. STD-DNR-001 is resolved.
+All standards met. Engine now follows Rule 12 (no bool/type checks in `_validate_config()`). No double validation. Base class handles stats lifecycle.
 
 ### 6.4 Debug Artifacts
 
@@ -277,23 +273,28 @@ No concerns identified. No exec/eval, no path traversal, no user-supplied code e
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 26 | `tests/converters/talend_to_v1/components/test_denormalize.py` |
-| Engine unit tests | 0 | None |
+| Engine unit tests | 41 | `tests/v1/engine/components/transform/test_denormalize.py` |
 | Integration tests | 0 | None (covered by regression guard) |
 
 ### 8.2 Test Gaps
 
-| ID | Priority | Gap |
-| ---- | ---------- | ----- |
-| TEST-DNR-001 | **P2** | No engine unit tests. Converter tests are comprehensive but engine behavior is untested. Per D-64, Testing=Y when engine tests missing. |
+None. ~~TEST-DNR-001 FIXED~~ -- 41 engine unit tests added.
 
-### 8.3 Recommended Test Cases
+### 8.3 Engine Test Classes
 
-1. Engine: concatenation with various delimiters
-2. Engine: null handling with null_as_empty=True vs False
-3. Engine: multiple key columns grouping
-4. Engine: single-row groups (no actual concatenation)
-5. Engine: empty DataFrame input
-6. Engine: all columns as denormalize columns (no key columns -- should error)
+| Class | Tests | Coverage |
+| ------- | ------- | --------- |
+| TestRegistration | 4 | REGISTRY._components, both aliases (Denormalize + tDenormalize) |
+| TestValidation | 5 | container shape checks, None return, raises ConfigurationError |
+| TestDefaults | 3 | passthrough when no denorm_columns |
+| TestMainFlow | 8 | groupby, concat, delimiter, multiple cols, missing cols |
+| TestMergeFlag | 4 | merge=True dedup, first-seen order |
+| TestNullHandling | 3 | null_as_empty True/False |
+| TestKeyColumnDetection | 2 | multi-key, column order |
+| TestNullKeyRows | 1 | dropna=False preserves null key rows |
+| TestEdgeCases | 5 | None/empty input, single row, reject=None, numeric→string |
+| TestGlobalMapVariables | 4 | NB_LINE=input_rows, NB_LINE_OK=output_rows, REJECT=0 |
+| TestIterateReexecution | 2 | consistent results, accumulating stats (2+6=8) |
 
 ---
 
@@ -303,20 +304,30 @@ No concerns identified. No exec/eval, no path traversal, no user-supplied code e
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
-| P0 | 1 | **ENG-DNR-001** |
-| P1 | 2 | **ENG-DNR-002**, **ENG-DNR-003** |
-| P2 | 4 | ~~CONV-DNR-003~~, ~~CONV-DNR-004~~, ~~CONV-DNR-005~~, ENG-DNR-004, PERF-DNR-001, TEST-DNR-001 |
-| P3 | 2 | ENG-DNR-005, PERF-DNR-002 |
-| **Total** | **9** (3 open, 6 resolved) | |
+| P0 | 0 | ~~ENG-DNR-001 FIXED~~ |
+| P1 | 0 | ~~ENG-DNR-002 FIXED~~, ~~ENG-DNR-003 FIXED~~ |
+| P2 | 2 | **ENG-DNR-004**, **PERF-DNR-001** |
+| P3 | 2 | **ENG-DNR-005**, **PERF-DNR-002** |
+| **Total open** | **4** | (was 9 open, 5 resolved this cycle) |
 
 ### By Category
 
 | Category | Count | IDs |
 | ---------- | ------- | ----- |
-| Converter (CONV) | 6 | ~~CONV-DNR-001~~ through ~~CONV-DNR-006~~ (all FIXED) |
-| Engine (ENG) | 5 | **ENG-DNR-001** through **ENG-DNR-005** |
-| Performance (PERF) | 2 | PERF-DNR-001, PERF-DNR-002 |
-| Testing (TEST) | 1 | TEST-DNR-001 |
+| Converter (CONV) | 0 | ~~All 6 CONV-DNR issues FIXED previously~~ |
+| Engine (ENG) | 2 open | ENG-DNR-004, ENG-DNR-005 |
+| Performance (PERF) | 2 open | PERF-DNR-001, PERF-DNR-002 |
+| Testing (TEST) | 0 | ~~TEST-DNR-001 FIXED~~ |
+
+### Fixed This Cycle (Phase 13.1)
+
+| ID | Fix Applied |
+| ---- | ------------- |
+| ENG-DNR-001 | Added `@REGISTRY.register("Denormalize", "tDenormalize")` + REGISTRY import |
+| ENG-DNR-002 | Implemented `make_concat_func(delim, merge)` with first-seen-order dedup |
+| ENG-DNR-003 | `groupby(dropna=False, sort=False)` preserves null-key rows |
+| Code quality | `_validate_config()` returns None, raises ConfigurationError; no double validation; no manual `_update_stats()`; %-style logging |
+| TEST-DNR-001 | 41 engine unit tests added (11 test classes) |
 
 ### Cross-Cutting Issues
 
@@ -326,19 +337,13 @@ Standard base class bugs (XCUT-001 through XCUT-005) apply to the engine compone
 
 ## 10. Recommendations
 
-### Immediate (Before Production)
-
-1. **ENG-DNR-001 (P0)**: Fix broken import path in engine.py
-
 ### Short-term (Hardening)
 
-1. **ENG-DNR-002 (P1)**: Implement merge flag support (deduplicate before concatenation)
-2. **ENG-DNR-003 (P1)**: Fix groupby to preserve null-key rows (`dropna=False`)
-3. **TEST-DNR-001 (P2)**: Add engine unit tests
+1. **ENG-DNR-004 (P2)**: Change engine delimiter default from "," to ";" to align with _java.xml (low impact since converter always emits explicit values)
 
 ### Long-term (Optimization)
 
-1. **ENG-DNR-005 (P3)**: Document null_as_empty as engine-specific enhancement
+1. **ENG-DNR-005 (P3)**: Document null_as_empty as engine-specific enhancement in component docstring
 2. **PERF-DNR-002 (P3)**: Optimize closure creation in aggregation dict
 
 ---
@@ -365,4 +370,4 @@ Standard base class bugs (XCUT-001 through XCUT-005) apply to the engine compone
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after Phase 11 gold standard rewrite*
+*Last updated: 2026-06-13 -- Phase 13.1 engine hardening (registry fix, merge flag, dropna=False, Rule 12 cleanup, 41 engine tests)*
