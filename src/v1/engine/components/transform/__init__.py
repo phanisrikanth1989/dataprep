@@ -23,6 +23,7 @@ from .replace import Replace
 from .row_generator import RowGenerator
 from .sample_row import SampleRow
 from .schema_compliance_check import SchemaComplianceCheck
+from .split_row import SplitRow
 from .sort_row import SortRow
 from .swift_block_formatter import SwiftBlockFormatter
 from .swift_transformer import SwiftTransformer
@@ -54,6 +55,7 @@ __all__ = [
     'RowGenerator',
     'SampleRow',
     'SchemaComplianceCheck',
+    'SplitRow',
     'SortRow',
     'SwiftBlockFormatter',
     'SwiftTransformer',

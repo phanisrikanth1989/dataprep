@@ -81,8 +81,8 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 43 | tXMLMap | R | G | R | Y | Y | Y | 3 | 12 | 3 | 3 | 21 |
 | 44 | tAggregateSortedRow | Y | G | Y | G | Y | Y | 0 | 3 | 5 | 2 | 10 |
 | 45 | tRowGenerator | G | G | G | G | G | G | 0 | 0 | 0 | 1 | 1 |
-| 46 | tSampleRow | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
-| 47 | tSplitRow | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
+| 46 | tSampleRow | G | G | G | G | N/A | G | 0 | 0 | 0 | 0 | 0 |
+| 47 | tSplitRow | G | G | G | G | N/A | G | 0 | 0 | 0 | 0 | 0 |
 | 48 | tReplace | R | G | R | R | N/A | R | 1 | 0 | 0 | 0 | 1 |
 | 49 | tConvertType | R | G | R | G | N/A | R | 0 | 0 | 1 | 0 | 1 |
 | 50 | tExtractRegexFields | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
