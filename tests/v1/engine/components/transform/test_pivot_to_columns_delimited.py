@@ -253,6 +253,32 @@ class TestPivotOperation:
         result = comp.execute(_sample_df())
         assert result.get("reject") is None
 
+    def test_pivot_column_order_matches_first_appearance(self, tmp_path):
+        """Pivot value columns appear in first-seen input order, not alphabetical.
+
+        Regression test: pd.pivot_table() sorts alphabetically (Feb, Jan, Mar).
+        Talend preserves first-appearance order (Jan, Feb, Mar).
+        """
+        df_in = pd.DataFrame({
+            "employee_id": [101, 101, 101, 102, 102, 102],
+            "month":       ["Jan", "Feb", "Mar", "Jan", "Feb", "Mar"],
+            "amount":      [1000, 1200, 900, 800, 950, 1100],
+        })
+        cfg = _base_config(
+            tmp_path,
+            pivot_column="month",
+            aggregation_column="amount",
+            groupbys=["employee_id"],
+            create=False,
+        )
+        comp = _make_component(cfg)
+        result = comp.execute(df_in)
+        df = result["main"]
+        value_cols = [c for c in df.columns if c != "employee_id"]
+        assert value_cols == ["Jan", "Feb", "Mar"], (
+            f"Expected ['Jan', 'Feb', 'Mar'] but got {value_cols}"
+        )
+
 
 # ------------------------------------------------------------------
 # TestFileOutput
