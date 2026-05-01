@@ -43,7 +43,7 @@
 | Performance & Memory | **G** | 0 | 0 | 1 | 0 | _resolve_value still called per cell (PERF-FFI-001); acceptable for typical NB_ROWS |
 | Testing | **G** | 0 | 0 | 0 | 0 | 56 converter + 34 engine unit tests across 8 classes |
 
-**Overall: GREEN -- Engine fully rewritten; all P0/P1 issues resolved**
+**Overall:** GREEN -- Engine fully rewritten; all P0/P1 issues resolved
 
 **Remaining actions**:
 
@@ -86,7 +86,7 @@ Three mutually exclusive modes are available: Single mode (VALUES table with one
 | 11 | tStatCatcher Statistics | `TSTATCATCHER_STATS` | CHECK | `false` | Framework param. Capture processing metadata for tStatCatcher. |
 | 12 | Label | `LABEL` | TEXT | `""` | Framework param. Text label for the component in the Talend Studio designer. |
 
-**Note**: DIE_ON_ERROR and CONNECTION_FORMAT are NOT in the _java.xml definition for tFixedFlowInput. They appear in some .item exports but are not declared component parameters.
+**Note**: DIE_ON_ERROR and CONNECTION_FORMAT are NOT in the `_java.xml` definition for tFixedFlowInput. They appear in some .item exports but are not declared component parameters.
 
 ### 3.3 Connection Types
 
@@ -142,7 +142,7 @@ The converter uses `FixedFlowInputConverter` in `src/converters/talend_to_v1/com
 | 11 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Framework, default False |
 | 12 | `LABEL` | Yes | `label` | Framework, default "" |
 
-**Phantom params removed**: `CONNECTION_FORMAT` (not in _java.xml), `DIE_ON_ERROR` (not in _java.xml).
+**Phantom params removed**: `CONNECTION_FORMAT` (not in `_java.xml`), `DIE_ON_ERROR` (not in `_java.xml`).
 
 **Summary**: 8 of 8 unique parameters extracted (100%) + 2 framework params. 0 missing.
 
@@ -173,9 +173,10 @@ The rewritten converter does NOT handle context variables or Java expressions in
 
 | # | Config Key | Reason | Severity |
 | --- | ----------- | -------- | ---------- |
-| 1 | `die_on_error` | Engine reads `die_on_error` but DIE_ON_ERROR not in _java.xml -- engine hardcoded default applies | engine_gap |
+| 1 | `die_on_error` | Engine reads `die_on_error` but DIE_ON_ERROR not in `_java.xml` -- engine hardcoded default applies | engine_gap |
 
 **Resolved entries (2026-05-01)**:
+
 - `intable` key mismatch: engine rewritten to read `intable` (not `intable_data`).
 - `rows` key: engine no longer reads `rows`; single mode reads `values_config` list-of-dicts directly.
 
@@ -196,7 +197,7 @@ The rewritten converter does NOT handle context variables or Java expressions in
 | 7 | GlobalMap resolution | **Yes** | High | `_resolve_value()` | Regex-based, no eval(); returns raw globalMap value |
 | 8 | Statistics tracking | **Yes** | High | `_process()` | `_update_stats(row_count, row_count, 0)` -- NB_LINE correct |
 | 9 | Empty schema / nb_rows=0 | **Yes** | High | `_process()` | Returns empty DataFrame with correct schema columns |
-| 10 | Separator normalization | **Yes** | High | `_build_inline_content_rows()` | `\\n`, `\\t`, `\\r`, `\\|` all normalized via _ESCAPE_MAP |
+| 10 | Separator normalization | **Yes** | High | `_build_inline_content_rows()` | `\\n`, `\\t`, `\\r`, and pipe char all normalized via `_ESCAPE_MAP` |
 
 ### 5.2 Behavioral Differences from Talend
 
@@ -205,6 +206,7 @@ The rewritten converter does NOT handle context variables or Java expressions in
 | ENG-FFI-005 | **P3** | **No `{id}_ERROR_MESSAGE` in globalMap**: ConfigurationError propagates via engine but error message string not stored in globalMap for downstream error handlers. |
 
 **Resolved (2026-05-01)**:
+
 - ENG-FFI-001 (P0): `_update_stats(0, ...)` NB_LINE bug fixed → `_update_stats(row_count, row_count, 0)`.
 - ENG-FFI-002 (P1): `eval()` removed; globalMap value returned directly without expression evaluation.
 - ENG-FFI-003 (P1): `validate_schema()` handled by BaseComponent after `_process()` returns (Rule 11).
@@ -233,6 +235,7 @@ The rewritten converter does NOT handle context variables or Java expressions in
 | -- | -- | -- | No open bugs. |
 
 **Resolved (2026-05-01)**:
+
 - BUG-FFI-003 (P1): `_update_stats(0, ...)` NB_LINE bug fixed.
 - BUG-FFI-004 (P1): `_validate_config()` now raises `ConfigurationError` (not dead list-return).
 - BUG-FFI-005 (P2): Bare `except:` clauses replaced with `except Exception:`.
@@ -261,7 +264,7 @@ The rewritten converter does NOT handle context variables or Java expressions in
 | Rule 4 (execute() not overridden) | **Pass** |
 | Rule 2 (_validate_config raises, not returns) | **Pass** |
 | Rule 9 (@REGISTRY.register present) | **Pass** -- both aliases registered |
-| Rule 11 (validate_schema not called in _process) | **Pass** |
+| Rule 11 (validate_schema not called in `_process`) | **Pass** |
 | Rule 12 (_validate_config structural only) | **Pass** -- Group B nb_rows check |
 
 ### 6.5 Security
@@ -332,7 +335,7 @@ The rewritten converter does NOT handle context variables or Java expressions in
 | `TestValidation` | 3 | string/negative nb_rows raise ConfigurationError; valid config runs |
 | `TestSingleMode` | 7 | nb_rows=0/1/3; list-of-dicts format; dict fallback; missing cols; empty values_config |
 | `TestIntableMode` | 5 | basic 2 rows; intable key (not intable_data); nb_rows limit; no null-padding; empty |
-| `TestInlineContentMode` | 6 | basic parse; nb_rows ignored; \\n/\\t/\\| normalization; empty content |
+| `TestInlineContentMode` | 6 | basic parse; nb_rows ignored; `\\n`/`\\t`/`\\\|` normalization; empty content |
 | `TestStats` | 4 | NB_LINE/NB_LINE_OK = rows_generated; NB_LINE_REJECT = 0; nb_rows=0 gives 0 |
 | `TestEdgeCases` | 6 | None/df input ignored; empty schema; numeric coercion; negative int; no reject key |
 
@@ -443,7 +446,7 @@ The rewritten converter does NOT handle context variables or Java expressions in
 | SEC-FFI-001 | P1 | `eval()` removed; globalMap value returned directly; no string arithmetic |
 | ENG-FFI-002 | P1 | Same as SEC-FFI-001 |
 | ENG-FFI-003 | P1 | `validate_schema()` handled by BaseComponent post-`_process()` (Rule 11) |
-| ENG-FFI-004 | P1 | Separator normalization: `_ESCAPE_MAP` covers `\\n`, `\\t`, `\\r`, `\\|` |
+| ENG-FFI-004 | P1 | Separator normalization: `_ESCAPE_MAP` covers `\\n`, `\\t`, `\\r`, `\\\|` |
 | STD-FFI-001 | P1 | `_validate_config()` is now active and raises |
 | BUG-FFI-005 | P2 | Bare `except:` replaced with `except Exception:` |
 | BUG-FFI-006 | P2 | Negative int coercion fixed via `re.fullmatch(r"-?\\d+", ...)` |
@@ -456,7 +459,7 @@ The rewritten converter does NOT handle context variables or Java expressions in
 | BUG-FFI-010 | P3 | globalMap resolution simplified; single-reference limitation not applicable |
 | CONV-001 | engine_gap | `intable` key mismatch removed from needs_review (engine fixed) |
 | CONV-002 | engine_gap | `rows` key needs_review removed (engine no longer uses `rows`) |
-| STD-FFI-002 | P2 | BaseComponent handles validate_schema() automatically after _process() |
+| STD-FFI-002 | P2 | BaseComponent handles `validate_schema()` automatically after `_process()` |
 | NAME-FFI-001 | P2 | field_separator naming is consistent; no change required |
 
 **Engine rewrite**: `@REGISTRY.register("FixedFlowInputComponent", "tFixedFlowInput")` added;

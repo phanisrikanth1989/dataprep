@@ -55,7 +55,7 @@ The `execute()` method implements the Template Method lifecycle: config deepcopy
 globalMap sync. Override ONLY `_validate_config()` and `_process()`. Any other override
 breaks config immutability, expression resolution, stats, and error wrapping.
 
-**Rule 5: Read Config in _process(), Not __init__()**
+**Rule 5: Read Config in `_process()`, Not `__init__()`**
 Config values are resolved by BaseComponent between `_validate_config()` and `_process()`.
 Context variables (`${context.var}`) and Java expressions (`{{java}}...`) are NOT available
 until `_process()` is called. Reading config in `__init__()` produces stale values on
@@ -72,7 +72,7 @@ Use the hierarchy in `src/v1/engine/exceptions.py`. Never raise generic `Excepti
 `RuntimeError`, or `ValueError`. Always include `self.id` in the message.
 
 | Exception | When |
-|-----------|------|
+| --------- | ---- |
 | `ConfigurationError` | Missing/invalid config keys, bad enum values |
 | `DataValidationError` | Schema mismatch, constraint violations |
 | `FileOperationError` | File not found, permission denied, encoding errors |
@@ -92,7 +92,7 @@ Components are re-executed during iterate loops. Do NOT store mutable processing
 `self` that persists across `execute()` calls. All processing state MUST be local to
 `_process()`.
 
-**Rule 11 — DO NOT call self.validate_schema() inside _process()**
+**Rule 11 — DO NOT call `self.validate_schema()` inside `_process()`**
 
 > **CRITICAL: This is the most commonly violated rule.**
 
@@ -269,11 +269,13 @@ Post-7.1 contract: `_update_stats_from_result()` is a strict no-op when
 must be corrected when found.
 
 When to call `_update_stats()` manually:
+
 - When your component has a specific definition of "rows read" that differs from `len(main) + len(reject)`.
 - Example: a source component that reads 1000 rows but produces 500 main + 500 reject should
   call `_update_stats(1000, 500, 500)` to record the actual read count.
 
 When NOT to call it:
+
 - When your transform simply passes rows through or filters them. The base class auto-count
   from `len(main) + len(reject)` is correct.
 
@@ -285,10 +287,12 @@ Schema columns carry a `treat_empty_as_null` attribute (Phase 7.1 D-10). It cont
 empty string `""` values are handled during schema validation.
 
 Default values (if not set in schema):
+
 - `True` for: `int`, `float`, `bool`, `datetime`, `Decimal` columns
 - `False` for: `str` columns
 
 Effect:
+
 - `treat_empty_as_null=True`: `""` is coerced to `pd.NA` / `NaN` / `NaT`.
 - `treat_empty_as_null=False` (str default): `""` stays as `""`.
 
@@ -296,6 +300,7 @@ Talend parity: Talend reads `""` as `""` for string columns by default, and as n
 for numeric/datetime/Decimal columns. This matches.
 
 Schema example:
+
 ```json
 {
   "name": "description",
@@ -316,10 +321,12 @@ When `die_on_error=False` is set in the component config (default is `True`), sc
 violations route rows to the reject flow instead of raising an exception.
 
 Reject rows receive two extra columns added by the base class:
+
 - `errorCode`: `"SCHEMA_VIOLATION"`
 - `errorMessage`: `"Column '<name>': <reason>"`
 
 Violation reasons include:
+
 - `"non-nullable column has null"`
 - `"type coercion failed: <value>"`
 - `"length exceeded: <actual> > <schema_length>"`
@@ -340,11 +347,13 @@ BaseComponent auto-selects execution mode (BATCH / STREAMING / HYBRID) based on 
 In STREAMING mode, `_process()` is called once per chunk, not once per full DataFrame.
 
 What `_process()` MUST NOT assume:
+
 - That `input_data` contains all rows. In STREAMING mode it is one chunk.
 - That it can accumulate state across calls (Rule 10 prohibits this).
 - That it can call `_update_stats()` with the total input size — it only has the chunk.
 
 What the base class handles automatically:
+
 - Chunk splitting and reassembly.
 - Stats aggregation across chunks.
 - Schema enforcement per chunk.
@@ -363,6 +372,7 @@ conversion (by the converter's `ExpressionConverter`). The engine resolves them 
 `_process()` runs, in step 3 of the `execute()` lifecycle.
 
 Timing:
+
 - `_validate_config()`: `{{java}}` markers are NOT yet resolved. Do not validate resolved values.
 - `_process()`: all `{{java}}` expressions in `self.config` are fully evaluated.
 
@@ -384,12 +394,13 @@ From the project's core value statement (CLAUDE.md):
 > the Python engine — feature parity with Talend is non-negotiable.
 
 This means:
+
 - If Talend outputs `""` for a missing string field, the engine must output `""`.
 - If Talend silently drops rows with type errors, the engine must do the same (use reject flow).
 - If Talend preserves column order from the schema definition, the engine must too.
 
 Before implementing any behavior that differs from Talend's documented behavior, verify
-against Talend documentation (Talaxie docs at https://help.talend.com) and add a comment
+against Talend documentation (<https://help.talend.com>) and add a comment
 citing the specific Talend behavior being matched.
 
 ---
@@ -402,7 +413,7 @@ write failing tests. Before merging, all tests must pass.
 Required test coverage classes (from `ENGINE_TEST_PATTERN.md`):
 
 | Class | Purpose |
-|-------|---------|
+| ----- | ------- |
 | `TestRegistration` | Both V1 and Talend alias registered in REGISTRY |
 | `TestValidation` | All `_validate_config()` error paths |
 | `TestCore*` | Happy-path behavior covering each requirement |

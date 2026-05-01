@@ -44,7 +44,7 @@
 | Performance & Memory | **G** | 0 | 0 | 1 | 0 | ~~PERF-NRM-001~~ FIXED (iterrows replaced with .str.split+.explode). ~~PERF-NRM-002~~ FIXED. BUG-NRM-001 still open (empty-separator guard). |
 | Testing | **G** | 0 | 0 | 0 | 0 | 30 converter tests (Green). 25 engine unit tests added (Green). ~~TEST-NRM-001~~ FIXED. |
 
-**Overall: YELLOW -- ENG-NRM-002 (CSV escape/enclosure logic, P1) remains open; all other issues resolved**
+**Overall:** YELLOW -- ENG-NRM-002 (CSV escape/enclosure logic, P1) remains open; all other issues resolved
 
 **Remaining Actions**:
 
@@ -224,7 +224,7 @@ None -- converter is gold standard.
 | ID | Priority | Location | Description |
 | ---- | ---------- | ---------- | ------------- |
 | BUG-NRM-001 | **P2** | `normalize.py` | `str.split("")` raises ValueError if itemseparator is empty string -- no empty-separator guard |
-| ~~BUG-NRM-002~~ | ~~P2~~ | **FIXED** -- `iterrows()` + `row.copy()` replaced with vectorized `.str.split()` + `.explode()` |
+| ~~BUG-NRM-002~~ | ~~P2~~ | `normalize.py` | **FIXED** -- `iterrows()` + `row.copy()` replaced with vectorized `.str.split()` + `.explode()` |
 
 ### 6.2 Naming Consistency
 

@@ -17,23 +17,26 @@ public class TalendString {
     private static final int MAX = 255;
 
     /** used to save the link between with or without accents **/
-    private static final Vector map = initMap();
+    private static final Vector<String> map = initMap();
 
-    public static Vector getMap() {
+    public static Vector<String> getMap() {
         return map;
     }
 
     /**
-     * return Replace the special character(e.g. <,>,& etc) within a string for XML file.
+     * return Replace the special character(e.g. <,>,& etc) within a string for XML
+     * file.
      *
      *
      * {talendTypes} String
      *
      * {Category} TalendString
      *
-     * {param} string("") input: The string with the special character(s) need to be replaced.
+     * {param} string("") input: The string with the special character(s) need to be
+     * replaced.
      *
-     * {example} replaceSpecialCharForXML("<title>Empire <>Burlesque</title>") # <title>Empire &lt;&gt;Burlesque</title>
+     * {example} replaceSpecialCharForXML("<title>Empire <>Burlesque</title>") #
+     * <title>Empire &lt;&gt;Burlesque</title>
      */
     public static String replaceSpecialCharForXML(String input) {
         input = input.replaceAll("&", "&amp;"); //$NON-NLS-1$ //$NON-NLS-2$
@@ -91,7 +94,8 @@ public class TalendString {
     }
 
     /**
-     * talendTrim: Returns a copy of the string, with leading and trailing specified char omitted.
+     * talendTrim: Returns a copy of the string, with leading and trailing specified
+     * char omitted.
      *
      *
      * {talendTypes} String
@@ -102,8 +106,10 @@ public class TalendString {
      *
      * {param} char(' ') padding_char: The padding char for triming.
      *
-     * {param} int(0) align: The alignment of the content in the original string. Positive int for right, negative int
-     * for left and zero for center. Positive integer to trim the left part, zero to trim both the left and the right part, negative to trim the right part.
+     * {param} int(0) align: The alignment of the content in the original string.
+     * Positive int for right, negative int
+     * for left and zero for center. Positive integer to trim the left part, zero to
+     * trim both the left and the right part, negative to trim the right part.
      *
      *
      * {example} talendTrim("$$talend open studio$$$$", '$', 0) # talend open studio
@@ -126,7 +132,7 @@ public class TalendString {
         return origin;
     }
 
-    private static String quoteChars( String padding_chars){
+    private static String quoteChars(String padding_chars) {
         StringBuffer sb = new StringBuffer();
         for (int i = 0; i < padding_chars.length(); i++) {
             char c = padding_chars.charAt(i);
@@ -139,14 +145,15 @@ public class TalendString {
         }
         return sb.toString();
     }
+
     /**
      * self definition:escape char ,for example -->'\\'
      */
-    public static String addEscapeChars(String padding_chars,char escapeChar){
+    public static String addEscapeChars(String padding_chars, char escapeChar) {
         StringBuffer sb = new StringBuffer();
         for (int i = 0; i < padding_chars.length(); i++) {
             char c = padding_chars.charAt(i);
-            if (!(Character.isLetterOrDigit(c) || c == '_'||Character.isWhitespace(c))) {
+            if (!(Character.isLetterOrDigit(c) || c == '_' || Character.isWhitespace(c))) {
                 sb.append(escapeChar);
                 sb.append(c);
             } else {
@@ -159,8 +166,8 @@ public class TalendString {
     /**
      * Initialisation of the map for the accents.
      */
-    private static Vector initMap() {
-        Vector result = new Vector();
+    private static Vector<String> initMap() {
+        Vector<String> result = new Vector<>();
         String car = null;
 
         car = new String("A"); //$NON-NLS-1$
@@ -278,8 +285,8 @@ public class TalendString {
 
         for (int bcl = 0; bcl < text.length(); bcl++) {
             char carVal = text.charAt(bcl);
-            if (carVal >= 192 && carVal <= 255) {
-                String newVal = (String) map.get(carVal - 192);
+            if (carVal >= MIN && carVal <= MAX) {
+                String newVal = map.get(carVal - MIN);
                 result.append(newVal);
             } else {
                 result.append(carVal);
@@ -287,33 +294,34 @@ public class TalendString {
         }
         return result.toString();
     }
+
     /**
      * unionString: Union the variable number of arguments with separator String
      *
      * @param separator union arguments .
-     * @param objects  variable number of arguments.
+     * @param objects   variable number of arguments.
      * @return A union string.
      *
-     * {talendTypes} String
+     *         {talendTypes} String
      *
-     * {Category} TalendString
+     *         {Category} TalendString
      *
      */
-    public static String unionString(String separator,Object... objects){
-    	if(objects!=null){
-    		String value = "";
-        	boolean isFirst = true;
-	    	for(Object obj:objects){
-	    		if(isFirst){
-	    			value = String.valueOf(obj);
-	    			isFirst = false;
-	    		}else{
-	    			value = value +separator + String.valueOf(obj);
-	    		}
-	    	}
-	    	return value;
-    	}else{
-    		return null;
-    	}
+    public static String unionString(String separator, Object... objects) {
+        if (objects != null) {
+            String value = "";
+            boolean isFirst = true;
+            for (Object obj : objects) {
+                if (isFirst) {
+                    value = String.valueOf(obj);
+                    isFirst = false;
+                } else {
+                    value = value + separator + String.valueOf(obj);
+                }
+            }
+            return value;
+        } else {
+            return null;
+        }
     }
 }

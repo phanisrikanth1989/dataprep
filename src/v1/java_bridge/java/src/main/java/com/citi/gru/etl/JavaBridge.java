@@ -543,7 +543,6 @@ public class JavaBridge {
         logger.info("[JavaBridge] Script compiled in " + compileTime + " ms");
 
         // Cache the Script CLASS, not the instance (BRDG-06 fix)
-        @SuppressWarnings("unchecked")
         Class<? extends Script> scriptClass = (Class<? extends Script>) compiledScript.getClass();
 
         CachedTMapMeta meta = new CachedTMapMeta(

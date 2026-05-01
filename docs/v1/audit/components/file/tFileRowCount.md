@@ -46,7 +46,7 @@
 | Performance & Memory | **G** | 0 | 0 | 0 | 1 | Custom separator reads full file (O(n) memory) -- acceptable edge case; standard \n path is streaming |
 | Testing | **G** | 0 | 0 | 0 | 0 | 42 engine unit tests across 9 test classes; 26 converter tests; all passing |
 
-**Overall: Green -- Engine fully rewritten (2026-05-01); all P0/P1/P2 issues resolved; 2 P3s remain (custom-separator memory + SEC path traversal)**
+**Overall:** Green -- Engine fully rewritten (2026-05-01); all P0/P1/P2 issues resolved; 2 P3s remain (custom-separator memory + SEC path traversal)
 
 **Resolved Actions (2026-05-01):**
 
@@ -191,7 +191,7 @@ Utility component -- no data flow schema. Schema is `{"input": [], "output": []}
 | ~~ENG-FRC-003~~ | ~~P1~~ | **N/A** -- `{id}_ERROR_MESSAGE` not relevant since die_on_error is phantom. |
 | ~~ENG-FRC-005~~ | ~~P2~~ | **RESOLVED (2026-05-01)** -- Engine default now `ISO-8859-15` matching Talend _java.xml. |
 | ~~ENG-FRC-006~~ | ~~P3~~ | **RESOLVED (2026-05-01)** -- Custom separators now supported. |
-| PERF-FRC-002 | **P3** | Custom separator path reads entire file into memory (O(n)). Standard `\n` path streams. Acceptable for typical use cases.
+| PERF-FRC-002 | **P3** | Custom separator path reads entire file into memory (O(n)). Standard `\n` path streams. Acceptable for typical use cases. |
 
 ### 5.3 GlobalMap Variable Coverage
 
@@ -226,7 +226,7 @@ Utility component -- no data flow schema. Schema is `{"input": [], "output": []}
 | ~~STD-FRC-001~~ | ~~P1~~ | `file_row_count.py` | **RESOLVED (2026-05-01)** -- `_validate_config()` raises, not returns bool. |
 | ~~STD-FRC-002~~ | ~~P1~~ | `file_row_count.py` | **RESOLVED (2026-05-01)** -- `_validate_config()` is now abstract-overriding and called by base class. |
 | ~~STD-FRC-003~~ | ~~P2~~ | `file_row_count.py` | **RESOLVED (2026-05-01)** -- `_process()` returns `{'main': None}` per pattern. |
-| SEC-FRC-001 | **P3** | `file_row_count.py` | No path traversal protection on `filename`. Acceptable for Talend-converted jobs where paths come from job config.
+| SEC-FRC-001 | **P3** | `file_row_count.py` | No path traversal protection on `filename`. Acceptable for Talend-converted jobs where paths come from job config. |
 | BUG-FRC-005 | **P3** | `file_row_count.py:88` | `_validate_config()` returns `bool` instead of `List[str]` per METHODOLOGY.md standard. |
 | DBG-FRC-001 | **P3** | `file_row_count.py:222-224` | Debug verification read in production code. Will crash due to BUG-FRC-002. |
 

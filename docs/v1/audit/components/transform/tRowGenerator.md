@@ -39,13 +39,13 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
-| Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 2 unique _java.xml params + 2 framework extracted; _build_component_dict wrapper; VALUES TABLE stride-2 parser; 2 per-feature needs_review |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 2 unique `_java.xml` params + 2 framework extracted; `_build_component_dict` wrapper; VALUES TABLE stride-2 parser; 2 per-feature needs_review |
 | Engine Feature Parity | **G** | 0 | 0 | 0 | 1 | Core generation works; restricted eval; nb_rows default 100; Talend Java routines need bridge (P3) |
 | Code Quality | **G** | 0 | 0 | 0 | 0 | Engine fully rewritten: @REGISTRY decorator, _validate_config, no print(), no eval-abuse, logger throughout |
 | Performance & Memory | **G** | 0 | 0 | 0 | 1 | Context fetched once per execute; PERF-RG-001 resolved (eval per-row is unavoidable for source components) |
 | Testing | **G** | 0 | 0 | 0 | 0 | 20 converter + 52 engine tests (8 classes) all passing |
 
-**Overall: GREEN -- Engine rewritten; all P0/P1/P2 resolved; 1 P3 remains (Talend Java routine library)**
+**Overall:** GREEN -- Engine rewritten; all P0/P1/P2 resolved; 1 P3 remains (Talend Java routine library)
 
 **Top Actions**:
 
@@ -54,9 +54,9 @@
 3. ~~Fix engine nb_rows default (1 -> 100) to match Talend~~ DONE
 4. ~~Fix engine schema config path~~ DONE (uses `self.output_schema`)
 5. Implement Talend routine libraries (Numeric.sequence, TalendDataGenerator, TalendDate) — P3, requires Java bridge wiring per-row
-2. Replace unsafe `eval()` in engine with sandboxed expression evaluator
-3. Implement Talend routine libraries (Numeric.sequence, TalendDataGenerator, TalendDate)
-4. Fix engine nb_rows default (1 -> 100) to match Talend
+6. Replace unsafe `eval()` in engine with sandboxed expression evaluator
+7. Implement Talend routine libraries (Numeric.sequence, TalendDataGenerator, TalendDate)
+8. Fix engine nb_rows default (1 -> 100) to match Talend
 
 ---
 
@@ -103,7 +103,7 @@ None defined in _java.xml.
 
 ### 3.5 Behavioral Notes
 
-1. NB_ROWS is hidden in the _java.xml definition (SHOW=false in advanced context) but always present in .item exports
+1. NB_ROWS is hidden in the `_java.xml` definition (SHOW=false in advanced context) but always present in .item exports
 2. VALUES TABLE uses BASED_ON_SCHEMA=true -- one SCHEMA_COLUMN+ARRAY pair per output schema column
 3. MAP parameter (EXTERNAL type) is a visual editor reference for the expression builder; it has no config value and is not extracted
 4. Column expressions can contain Java routines (Numeric.sequence, StringHandling.SPACE, TalendDataGenerator, etc.) that require the Java bridge for full fidelity

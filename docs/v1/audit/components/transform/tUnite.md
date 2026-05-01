@@ -45,7 +45,7 @@
 | Testing | **G** | 0 | 0 | 0 | 0 | 18 converter tests; 18 engine unit tests across 8 test classes |
 | Overall | **G** | 0 | 0 | 0 | 1 | One P3 remains (pd.concat memory) — not a production blocker |
 
-**Overall: GREEN**
+**Overall:** GREEN
 
 **Top Actions**: None. Component is production-ready.
 

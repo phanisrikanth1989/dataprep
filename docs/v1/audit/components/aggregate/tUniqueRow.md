@@ -268,7 +268,7 @@ The converter emits per-feature needs_review entries for specific engine gaps:
 
 | ID | Priority | Standard | Violation |
 | ---- | ---------- | ---------- | ----------- |
-| STD-UNQ-001 | ~~P2~~ | **RESOLVED.** `_validate_config()` now returns None and raises ConfigurationError correctly (Rule 12 compliant). |
+| STD-UNQ-001 | ~~P2~~ | Rule 12 | **RESOLVED.** `_validate_config()` now returns None and raises ConfigurationError correctly (Rule 12 compliant). |
 
 ### 6.4 Debug Artifacts
 
@@ -434,5 +434,5 @@ These issues are shared with all other engine components:
 
 ---
 
-*Report generated: 2026-04-03*
-*Last updated: 2026-04-03 after hidden/design-time param removal*
+_Report generated: 2026-04-03_
+_Last updated: 2026-04-03 after hidden/design-time param removal_

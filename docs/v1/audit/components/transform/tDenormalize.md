@@ -44,7 +44,7 @@
 | Performance & Memory | **G** | 0 | 0 | 1 | 1 | groupby() materializes full copy; closure per column. No P0/P1 issues. |
 | Testing | **G** | 0 | 0 | 0 | 0 | 26 converter tests (Green). 41 engine unit tests added (Green). ~~TEST-DNR-001~~ FIXED. |
 
-**Overall: GREEN -- All P0/P1 issues resolved; converter and engine are production-ready**
+**Overall:** GREEN -- All P0/P1 issues resolved; converter and engine are production-ready
 
 **Remaining Actions**:
 
@@ -151,7 +151,7 @@ No expression parameters. DELIMITER values are string literals. Context variable
 | CONV-DNR-002 | ~~P1~~ | **FIXED** -- merge default corrected to False per _java.xml |
 | CONV-DNR-003 | ~~P2~~ | **FIXED** -- Schema passthrough implemented (input == output) |
 | CONV-DNR-004 | ~~P2~~ | **FIXED** -- DELIMITER default corrected from "," to ";" per _java.xml |
-| CONV-DNR-005 | ~~P2~~ | **FIXED** -- Phantom CONNECTION_FORMAT removed (not in _java.xml) |
+| CONV-DNR-005 | ~~P2~~ | **FIXED** -- Phantom CONNECTION_FORMAT removed (not in `_java.xml`) |
 | CONV-DNR-006 | ~~P2~~ | **FIXED** -- Phantom NULL_AS_EMPTY removed (not in _java.xml) |
 
 ### 4.5 Needs Review Entries

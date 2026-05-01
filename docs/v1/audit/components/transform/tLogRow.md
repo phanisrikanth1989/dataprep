@@ -204,7 +204,7 @@ The converter emits 12 per-feature needs_review entries (9 engine-unread + 3 def
 | 1 | Basic mode (delimited) | **Yes** | High | `_log_basic()` | logger.info() per row; custom separator; per-row `[id]` prefix; colname= prefix; fixed-width |
 | 2 | Table mode (bordered) | **Yes** | High | `_log_table()` | Bordered ASCII table; component title; fixed-width column widths |
 | 3 | Vertical mode | **Yes** | High | `_log_vertical()` | Key-value pairs; full TITLE_PRINT radio group; fixed-width |
-| 4 | Field separator | **Yes** | High | `_process()` → `_log_basic()` | Reads `fieldseparator`, default `"|"` |
+| 4 | Field separator | **Yes** | High | `_process()` → `_log_basic()` | Reads `fieldseparator`, default `"\|"` |
 | 5 | Print header | **Yes** | High | `_log_basic()` | Separate header row before data rows |
 | 6 | Max rows | **Yes** | High | `_process()` | Deferred resolution; context var accepted at validate time |
 | 7 | Fixed-width formatting | **Yes** | High | `_log_basic()`, `_log_table()`, `_log_vertical()` | `use_fixed_length` + `lengths` list; pad short / truncate long |
@@ -411,7 +411,7 @@ Engine cross-cutting bugs (base_component.py `_update_global_map()` crash, Globa
 | `basic_mode` | Yes | `basic_mode` | Yes | Default True |
 | `table_print` | Yes | `table_print` | Yes | Default False |
 | `vertical` | Yes | `vertical` | Yes | Default False |
-| `fieldseparator` | Yes | `fieldseparator` | Yes | Default `"|"` — mismatch FIXED |
+| `fieldseparator` | Yes | `fieldseparator` | Yes | Default `"\|"` — mismatch FIXED |
 | `print_header` | Yes | `print_header` | Yes | Default False |
 | `max_rows` | Yes | `max_rows` | Yes | Default 100; context var deferred |
 | `print_unique` | Yes | `print_unique` | Yes | TITLE_PRINT radio; default True |
