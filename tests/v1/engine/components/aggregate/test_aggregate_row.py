@@ -384,10 +384,10 @@ class TestSpecialFunctions:
         assert "," in a_list
 
     def test_list_object_aggregation(self):
-        """CR-05 (supersedes Phase 6 D-09): list_object produces Python list, NOT a delimited string.
+        """list_object replicates Talend ArrayList.toString(): [elem1, elem2, ...] with no quotes.
 
         Talaxie tAggregateRow_messages.properties: LIST_DELIMITER.NAME=Delimiter (only for list operation)
-        list_delimiter does NOT apply to list_object; list_object returns a Python list.
+        list_delimiter does NOT apply to list_object. Output is a string in [a, b, c] format.
         """
         config = dict(_DEFAULT_CONFIG)
         config["operations"] = [
@@ -397,7 +397,10 @@ class TestSpecialFunctions:
         result = comp.execute(_sample_df())
         main = result["main"]
         a_list = main.loc[main["dept"] == "A", "products"].iloc[0]
-        assert isinstance(a_list, list), f"Expected list, got {type(a_list).__name__}: {a_list!r}"
+        assert isinstance(a_list, str), f"Expected str, got {type(a_list).__name__}: {a_list!r}"
+        assert a_list.startswith("[") and a_list.endswith("]")
+        # No quotes around elements -- Talend ArrayList.toString() format
+        assert "'" not in a_list and '"' not in a_list
 
     def test_list_custom_delimiter(self):
         config = dict(_DEFAULT_CONFIG)
@@ -621,16 +624,15 @@ class TestEdgeCases:
 
 @pytest.mark.unit
 class TestListObject:
-    """list_object returns Python list, NOT delimited string.
+    """list_object replicates Talend ArrayList.toString(): "[elem1, elem2, ...]".
 
-    CR-05: Talaxie tAggregateRow_messages.properties:
-    LIST_DELIMITER.NAME=Delimiter (only for list operation)
-    list_delimiter does NOT apply to list_object.
-    Phase 6 D-09 was wrong; this test enforces the corrected behavior.
+    Talend's List(Object) function returns a java.util.List<Object> whose
+    toString() produces "[a, b, c]" -- no quotes around elements, comma-space
+    separated, enclosed in square brackets. list_delimiter does NOT apply.
     """
 
-    def test_returns_list(self):
-        """list_object produces a Python list, not a delimited string."""
+    def test_returns_talend_string_format(self):
+        """list_object produces [a, b, c] string matching Talend ArrayList.toString()."""
         config = dict(_DEFAULT_CONFIG)
         config["groupbys"] = [{"output_column": "grp", "input_column": "group_col"}]
         config["operations"] = [
@@ -644,11 +646,11 @@ class TestListObject:
         result = comp.execute(df)
         main = result["main"]
         items = main.loc[main["grp"] == "g1", "items"].iloc[0]
-        assert isinstance(items, list), f"Expected list, got {type(items).__name__}: {items!r}"
-        assert items == ["a", "b", "a", "c"]
+        assert isinstance(items, str), f"Expected str, got {type(items).__name__}: {items!r}"
+        assert items == "[a, b, a, c]"
 
     def test_ignore_null_drops_na(self):
-        """list_object with ignore_null=True drops NaN values from list."""
+        """list_object with ignore_null=True drops NaN values."""
         config = dict(_DEFAULT_CONFIG)
         config["groupbys"] = [{"output_column": "grp", "input_column": "group_col"}]
         config["operations"] = [
@@ -662,9 +664,8 @@ class TestListObject:
         result = comp.execute(df)
         main = result["main"]
         items = main.loc[main["grp"] == "g1", "items"].iloc[0]
-        assert isinstance(items, list), f"Expected list, got {type(items).__name__}: {items!r}"
-        assert items == ["a", "b", "c"]
-        assert len(items) == 3  # NaN dropped
+        assert isinstance(items, str), f"Expected str, got {type(items).__name__}: {items!r}"
+        assert items == "[a, b, c]"  # NaN dropped
 
 
 # ------------------------------------------------------------------

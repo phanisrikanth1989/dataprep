@@ -225,6 +225,22 @@ class TestCoreGrouped:
         # list function returns delimiter-joined string by default
         assert "x" in val_a and "y" in val_a
 
+    def test_grouped_list_object_function(self):
+        """list_object replicates Talend ArrayList.toString(): [elem1, elem2, ...] format."""
+        config = dict(_DEFAULT_CONFIG)
+        config["operations"] = [
+            {"output_column": "products", "function": "list_object", "input_column": "product"},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(_sample_df())
+        df = result["main"]
+        val_a = df[df["dept"] == "A"]["products"].iloc[0]
+        assert isinstance(val_a, str), f"Expected str, got {type(val_a).__name__}: {val_a!r}"
+        assert val_a.startswith("[") and val_a.endswith("]")
+        # No quotes around elements -- matches Talend ArrayList.toString()
+        assert "'" not in val_a and '"' not in val_a
+        assert "x" in val_a and "y" in val_a
+
     def test_column_order_group_then_ops(self):
         """Group-by columns come first, then operation output columns."""
         comp = _make_component()
