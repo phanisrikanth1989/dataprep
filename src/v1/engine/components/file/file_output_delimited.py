@@ -216,6 +216,10 @@ class FileOutputDelimited(BaseComponent):
             # _apply_date_patterns receives a copy and returns the same copy with
             # datetime columns replaced by formatted strings. original is untouched.
             df_out = self._apply_date_patterns(df_out)
+            # Apply Decimal precision formatting (schema precision -> fixed decimal places).
+            df_out = self._apply_decimal_precision(df_out)
+            # Apply boolean casing (Python True/False -> Talend true/false).
+            df_out = self._apply_boolean_format(df_out)
         else:
             df_out = input_data if input_data is not None else pd.DataFrame()
 
@@ -333,6 +337,95 @@ class FileOutputDelimited(BaseComponent):
                     continue
             formatted = series.dt.strftime(pattern)
             df[name] = formatted.where(series.notna(), "")
+        return df
+
+    def _apply_decimal_precision(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Format Decimal/BigDecimal columns to schema-defined precision.
+
+        Talend tFileOutputDelimited writes BigDecimal values with exactly
+        ``precision`` decimal places (e.g. precision=4 → "250.5000").
+        Arrow deserializes these as Python decimal.Decimal with full internal
+        precision, so without this step they render as "250.500000000000000000".
+
+        Args:
+            df: Working copy DataFrame to format in place.
+
+        Returns:
+            The same DataFrame with Decimal columns replaced by fixed-point strings.
+        """
+        schema = getattr(self, "input_schema", None) or []
+        if not schema:
+            return df
+
+        for col in schema:
+            if not isinstance(col, dict):
+                continue
+            name = col.get("name")
+            if not name or name not in df.columns:
+                continue
+            col_type = (col.get("type") or "").lower()
+            if col_type not in ("decimal", "bigdecimal", "numeric", "number", "float"):
+                continue
+            precision = col.get("precision")
+            if precision is None or int(precision) < 0:
+                continue
+            precision = int(precision)
+
+            def _fmt(x, p=precision):
+                if x is None:
+                    return ""
+                try:
+                    import math
+                    if isinstance(x, float) and math.isnan(x):
+                        return ""
+                    return f"{x:.{p}f}"
+                except (TypeError, ValueError):
+                    return str(x) if x is not None else ""
+
+            df[name] = df[name].map(_fmt)
+        return df
+
+    def _apply_boolean_format(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Convert Python bool columns to lowercase Talend-style strings.
+
+        Talend writes booleans as ``true``/``false`` (Java/lowercase).
+        pandas serialises Python booleans as ``True``/``False`` (capitalised).
+        This method converts schema-declared bool columns to lowercase strings
+        before the DataFrame is passed to any CSV writer.
+
+        Args:
+            df: Working copy DataFrame to format in place.
+
+        Returns:
+            The same DataFrame with bool columns replaced by lowercase strings.
+        """
+        schema = getattr(self, "input_schema", None) or []
+        if not schema:
+            return df
+
+        for col in schema:
+            if not isinstance(col, dict):
+                continue
+            name = col.get("name")
+            if not name or name not in df.columns:
+                continue
+            col_type = (col.get("type") or "").lower()
+            if col_type not in ("bool", "boolean"):
+                continue
+
+            def _fmt_bool(x):
+                if x is None:
+                    return ""
+                if isinstance(x, bool):
+                    return "true" if x else "false"
+                s = str(x).strip().lower()
+                if s in ("true", "false"):
+                    return s
+                if s in ("", "nan", "none", "null"):
+                    return ""
+                return s
+
+            df[name] = df[name].map(_fmt_bool)
         return df
 
     # ------------------------------------------------------------------

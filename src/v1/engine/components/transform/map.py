@@ -1278,18 +1278,16 @@ class Map(BaseComponent):
             )
 
         # Process compiled results
+        # NOTE: Output filters are already applied inside the compiled Groovy
+        # script (_build_compiled_script embeds `if (filter)` per output).
+        # Do NOT call _apply_output_filter here -- it would re-evaluate the
+        # filter on the *output* DataFrame whose columns no longer include
+        # the input row fields (e.g. row1.line), producing 0 rows.
         result: dict[str, pd.DataFrame] = {}
         for output_cfg in outputs_config:
             out_name = output_cfg["name"]
             if out_name in raw_result:
-                out_df = raw_result[out_name]
-                # Apply output filter if needed
-                if (output_cfg.get("activate_filter")
-                        and output_cfg.get("filter")):
-                    out_df = self._apply_output_filter(
-                        out_df, output_cfg, result, main_name, lookup_names
-                    )
-                result[out_name] = out_df
+                result[out_name] = raw_result[out_name]
             else:
                 result[out_name] = pd.DataFrame(
                     columns=[c["name"] for c in output_cfg["columns"]]

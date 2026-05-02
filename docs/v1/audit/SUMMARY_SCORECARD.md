@@ -44,7 +44,7 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 6 | tFileInputXML | Y | G | Y | Y | Y | Y | 1 | 5 | 7 | 3 | 16 |
 | 7 | tFileInputPositional | Y | G | Y | Y | G | Y | 1 | 8 | 8 | 4 | 21 |
 | 8 | tFileOutputPositional | Y | G | Y | Y | Y | Y | 2 | 6 | 7 | 2 | 17 |
-| 9 | tFileInputFullRow | Y | G | Y | Y | Y | Y | 1 | 8 | 9 | 3 | 21 |
+| 9 | tFileInputFullRow | G | G | G | G | G | G | 0 | 0 | 0 | 0 | 0 |
 | 10 | tFileInputRaw | Y | G | Y | Y | Y | Y | 1 | 5 | 6 | 2 | 14 |
 | 11 | tFixedFlowInput | G | G | G | G | G | G | 0 | 0 | 1 | 2 | 3 |
 | 12 | tFileArchive | Y | G | Y | Y | G | Y | 1 | 4 | 6 | 1 | 12 |
@@ -218,7 +218,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | 6 | tFileInputXML | Y | 1 | 5 | 7 | 3 | 16 |
 | 7 | tFileInputPositional | Y | 1 | 8 | 8 | 4 | 21 |
 | 8 | tFileOutputPositional | Y | 2 | 6 | 7 | 2 | 17 |
-| 9 | tFileInputFullRow | Y | 1 | 8 | 9 | 3 | 21 |
+| 9 | tFileInputFullRow | G | 0 | 0 | 0 | 0 | 0 |
 | 10 | tFileInputRaw | Y | 1 | 5 | 6 | 2 | 14 |
 | 11 | tFixedFlowInput | G | 0 | 0 | 1 | 2 | 3 |
 | 12 | tFileArchive | Y | 1 | 4 | 6 | 1 | 12 |
@@ -243,7 +243,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 **Note:** tFileExist upgraded to Green (2026-04-04): Audit rewritten per gold standard. 1 unique param (FILE_NAME) + 2 framework params extracted with _build_component_dict. 1 needs_review (file_name vs file_path engine key mismatch). 25 converter tests across 8 test classes. Testing upgraded R->Y (converter tests Green but engine tests missing).
 **Note:** tFileList NEW audit created (2026-04-03): No engine implementation (Red overall per D-37). Converter rewritten: INCLUDSUBDIR spelling fixed (no E), ERROR default fixed (True->False), FORMAT_FILEPATH_TO_SLASH added, type_name fixed to tFileList. 15 unique + 2 framework params, 51 converter tests across 11 test classes. Single consolidated needs_review. Converter=G, Engine=R, Code Quality=R, Testing=R.
 **Note:** tFileInputMSXML NEW audit created (2026-04-03): No engine implementation (Red overall per D-37). Converter rewritten: 4 missing params added (IGNORE_ORDER, CHECK_DATE, IGNORE_DTD, GENERATION_MODE), defaults fixed (trim_all=True, encoding=ISO-8859-15). SCHEMAS TABLE stride-3 parser (LOOP_PATH, MAPPING, CREATE_EMPTY_ROW). 10 unique + 2 framework params, 44 converter tests across 10 test classes. Single consolidated needs_review. Converter=G, Engine=R, Code Quality=R, Testing=R.
-**Note:** tFileInputFullRow Converter upgraded to Green (2026-04-03): Audit rewritten per gold standard. All 8 unique + 2 framework params extracted with _build_component_dict. ISO-8859-15 encoding default. Phantom DIE_ON_ERROR removed. 4 per-feature needs_review entries (header_rows, footer_rows, random, nb_random engine gaps). 48 converter tests across 10 test classes. Testing upgraded R->Y (converter tests Green but engine tests missing).
+**Note:** tFileInputFullRow upgraded to all-Green (2026-04-04): Engine fully rewritten per MANUAL_COMPONENT_AUTHORING.md. All features implemented (header_rows, footer_rows, random, nb_random). All bugs fixed (unicode_escape, strip(), limit=0, column name, encoding default). Converter engine_gap needs_review entries removed. 42 engine tests added (all PASS). ENG-FIFR-004 (REJECT) confirmed N/A per Talaxie _java.xml.
 **Note:** tFixedFlowInput ENGINE REWRITTEN (2026-05-01): @REGISTRY.register("FixedFlowInputComponent", "tFixedFlowInput") added. `_validate_config()` fixed to raise ConfigurationError (not dead list-return). NB_LINE bug fixed (`_update_stats(row_count,row_count,0)`). values_config list-of-dicts format handled. intable key fixed (was intable_data). Separator normalization complete (\n,\t,\r,\|). eval() replaced with safe `_coerce_numeric()`. 34 engine unit tests across 8 classes (100% pass). Converter needs_review reduced 3->1 (intable/rows gaps resolved). Overall Y->G, issues reduced 20->3 (P0=0, P1=0, P2=1, P3=2).
 **Note:** tFileInputExcel upgraded to Green (2026-04-03): Audit REWRITTEN per gold standard with Section 11 Risk Assessment + Appendix C (Generation Mode Comparison) + Appendix D (Sheet Processing). 3 critical defaults fixed (DIE_ON_ERROR=True->False, ENCODING=UTF-8->ISO-8859-15, GENERATION_MODE=EVENT_MODE->USER_MODE). AFFECT_EACH_SHEET type fixed bool->str. 3 module-level TABLE parsers. 28 unique + 2 framework params (100%). 9 per-feature needs_review entries. 83 converter tests across 11 test classes. Testing upgraded R->Y (converter tests Green but engine tests missing).
 **Note:** tFileRowCount ENGINE REWRITTEN (2026-05-01): Full engine rewrite. @REGISTRY.register("FileRowCount", "tFileRowCount") added (dual alias). `_validate_config()` raises ConfigurationError for missing/empty filename. row_separator implemented via `_count_rows()` helper with `_ESCAPE_MAP` normalisation. Encoding default corrected to ISO-8859-15. FileOperationError properly chained. GlobalMap writes outside try block. Returns {"main": None} (correct for utility component). DIE_ON_ERROR confirmed phantom (not in `_java.xml`). 42 engine unit tests across 9 classes (100% pass). Overall Y->G, issues reduced 19->3 (P0=0, P1=0, P2=0, P3=3).

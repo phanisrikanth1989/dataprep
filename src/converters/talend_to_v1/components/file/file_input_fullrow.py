@@ -63,21 +63,7 @@ class FileInputFullRowConverter(ComponentConverter):
         schema_cols = self._parse_schema(node)
         schema = {"input": [], "output": schema_cols}
 
-        # ---- 5. Engine gap needs_review entries (per D-36: per-feature) ----
-        _engine_gap_keys = [
-            ("header_rows", "engine does not support skipping header rows"),
-            ("footer_rows", "engine does not support skipping footer rows"),
-            ("random", "engine does not support random line extraction"),
-            ("nb_random", "engine does not support random line count"),
-        ]
-        for key, detail in _engine_gap_keys:
-            needs_review.append({
-                "issue": f"Engine does not read '{key}' config key -- {detail}",
-                "component": node.component_id,
-                "severity": "engine_gap",
-            })
-
-        # ---- 6. Build component wrapper ----
+        # ---- 5. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
             type_name="FileInputFullRowComponent",
@@ -85,7 +71,7 @@ class FileInputFullRowConverter(ComponentConverter):
             schema=schema,
         )
 
-        # ---- 7. Return ----
+        # ---- 6. Return ----
         return ComponentResult(
             component=component,
             warnings=warnings,
