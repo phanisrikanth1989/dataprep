@@ -144,13 +144,15 @@ def _build_agg_func(
         return lambda x: list_delimiter.join(x.astype(str))
 
     if func_name == "list_object":
-        # CR-05 (supersedes Phase 6 D-09): Talend list (object) returns
-        # java.util.List<Object>; Python equivalent is a Python list.
+        # Talend list(object) calls ArrayList.toString() which produces:
+        #   [elem1, elem2, elem3]  -- no quotes around elements, comma-space separated.
+        # Returning a Python list serialises as ['elem1', 'elem2'] with quotes,
+        # which does not match Talend output. We replicate ArrayList.toString() directly.
         # list_delimiter does NOT apply per Talaxie tAggregateRow_messages.properties:
         #   LIST_DELIMITER.NAME=Delimiter (only for list operation)
         if ignore_null:
-            return lambda x: x.dropna().tolist()
-        return lambda x: x.tolist()
+            return lambda x: "[" + ", ".join(x.dropna().astype(str)) + "]"
+        return lambda x: "[" + ", ".join(x.astype(str)) + "]"
 
     if func_name == "union":
         # CR-05-bis: distinct + sorted + joined. Talend union aggregator collects

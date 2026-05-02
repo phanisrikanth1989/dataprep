@@ -13,7 +13,7 @@ Config mapping (3 unique + 2 framework = 5 params total):
 TABLE parsing:
   GROUPBYS: stride-2 (OUTPUT_COLUMN, INPUT_COLUMN) -> list of {output_column, input_column} dicts
   OPERATIONS: stride-4 with state-machine parser (flush-on-OUTPUT_COLUMN) for robustness
-    with optional IGNORE_NULL field. Function mapping: distinct->count_distinct, list_object->list.
+    with optional IGNORE_NULL field. Function mapping: distinct->count_distinct.
 
 Phantom params NOT in _java.xml (excluded):
   DIE_ON_ERROR, CONNECTION_FORMAT
@@ -38,7 +38,7 @@ _FUNCTION_MAP: Dict[str, str] = {
     "first": "first",
     "last": "last",
     "list": "list",
-    "list_object": "list",
+    "list_object": "list_object",
     "count_distinct": "count_distinct",
     "distinct": "count_distinct",
 }
@@ -125,11 +125,6 @@ def _parse_operations(raw: Any, warnings: List[str]) -> List[Dict[str, Any]]:
             raw_fn = val.strip('"').lower()
             mapped = _FUNCTION_MAP.get(raw_fn, raw_fn)
             current_op["function"] = mapped
-            if raw_fn == "list_object":
-                warnings.append(
-                    "function 'list_object' mapped to 'list' -- "
-                    "object references are not preserved"
-                )
         elif ref == "IGNORE_NULL":
             current_op["ignore_null"] = val.lower() in ("true", "1")
 
