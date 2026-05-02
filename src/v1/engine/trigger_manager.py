@@ -34,7 +34,7 @@ _JAVA_CAST_MAP: Dict[str, type] = {
 }
 
 # Pattern: ((Type)globalMap.get("key"))
-_CAST_PATTERN = re.compile(r'\(\((\w+)\)globalMap\.get\("([^"]+)"\)\)')
+_CAST_PATTERN = re.compile(r"""\(\((\w+)\)globalMap\.get\(['"]([^'"]+)['"]\)\)""")
 
 # Safe globals for restricted eval -- no builtins, only basic type constructors
 _SAFE_GLOBALS: Dict[str, Any] = {
@@ -331,8 +331,8 @@ class TriggerManager:
         return _CAST_PATTERN.sub(_cast_replacer, condition)
 
     def _resolve_global_map_refs(self, condition: str) -> str:
-        """Replace globalMap.get("key") (without cast) with Python value literals."""
-        pattern = re.compile(r'globalMap\.get\("([^"]+)"\)')
+        """Replace globalMap.get("key") / globalMap.get('key') (without cast) with Python value literals."""
+        pattern = re.compile(r"globalMap\.get\(['\"]([^'\"]+)['\"]\)")
 
         def _ref_replacer(match: re.Match) -> str:
             key = match.group(1)
