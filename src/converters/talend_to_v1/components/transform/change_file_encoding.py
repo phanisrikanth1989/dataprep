@@ -57,20 +57,13 @@ class ChangeFileEncodingConverter(ComponentConverter):
         # ---- 6. Schema (utility component: no data flow) ----
         schema = {"input": [], "output": []}
 
-        # ---- 7. Engine gap needs_review (single consolidated per D-84/D-27) ----
-        needs_review.append({
-            "issue": (
-                "No v1 engine implementation exists for tChangeFileEncoding. "
-                "Converter output is syntactically valid but cannot execute at runtime."
-            ),
-            "component": node.component_id,
-            "severity": "engine_gap",
-        })
+        # ---- 7. Needs review ----
+        # (none -- engine implementation complete)
 
         # ---- 8. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
-            type_name="tChangeFileEncoding",
+            type_name="ChangeFileEncoding",
             config=config,
             schema=schema,
         )

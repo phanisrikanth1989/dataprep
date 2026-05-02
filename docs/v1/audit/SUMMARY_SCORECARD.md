@@ -87,7 +87,7 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 49 | tConvertType | R | G | R | G | N/A | R | 0 | 0 | 1 | 0 | 1 |
 | 50 | tExtractRegexFields | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
 | 51 | tHashOutput | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
-| 52 | tChangeFileEncoding | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
+| 52 | tChangeFileEncoding | G | G | G | G | N/A | G | 0 | 0 | 0 | 0 | 0 |
 | 53 | tMemorizeRows | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
 | 54 | tParseRecordSet | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
 | 55 | tJava | Y | G | Y | G | Y | Y | 1 | 2 | 5 | 2 | 10 |
@@ -290,7 +290,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | 24 | tConvertType | R | 0 | 0 | 1 | 0 | 1 |
 | 25 | tExtractRegexFields | R | 3 | 0 | 0 | 0 | 3 |
 | 26 | tHashOutput | R | 3 | 0 | 0 | 0 | 3 |
-| 27 | tChangeFileEncoding | R | 3 | 0 | 0 | 0 | 3 |
+| 27 | tChangeFileEncoding | G | 0 | 0 | 0 | 0 | 0 |
 | 28 | tMemorizeRows | R | 3 | 0 | 0 | 0 | 3 |
 | 29 | tParseRecordSet | R | 3 | 0 | 0 | 0 | 3 |
 | 30 | tJava | Y | 1 | 2 | 5 | 2 | 10 |
@@ -322,7 +322,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 **Note:** tSchemaComplianceCheck Converter upgraded R->G (2026-04-02): CHECK_ALL/ALL_EMPTY_ARE_NULL defaults fixed, CHECKCOLS TABLE stride-5 parser, 7 new params added. 15 config keys, 29 tests, 12 needs_review.
 **Note:** tReplace NEW audit created (2026-04-04): No engine implementation (Red overall). WHOLE_WORD default fixed (False->True). ADVANCED_SUBST stride-4 TABLE parser added. 30 converter tests across 10 test classes.
 **Note:** tExtractRegexFields NEW audit created (2026-04-04): No engine implementation (Red overall). Phantom GROUP removed, FIELD and CHECK_FIELDS_NUM added. 24 converter tests across 10 test classes.
-**Note:** tChangeFileEncoding NEW audit created (2026-04-04): No engine implementation (Red overall). 3 defaults fixed (INENCODING, ENCODING, CREATE). 32 converter tests across 8 test classes.
+**Note:** tChangeFileEncoding ENGINE FINALISED (2026-05-02): Engine implemented from scratch per MANUAL_COMPONENT_AUTHORING.md. Chunked file re-encoding with configurable buffer, source/target charset, create flag, and errors='replace' on both read and write sides. locale.getpreferredencoding() used when use_inencoding=False. @REGISTRY.register("ChangeFileEncoding", "tChangeFileEncoding"). _validate_config() raises ConfigurationError per Rules 2,7,12. buffersize coercion deferred to _process (Rule 12). Returns empty DataFrame + reject=None (file utility, no rows). type_name updated to "ChangeFileEncoding" (D-43 reversed). 29 engine unit tests across 6 test classes. Converter tests updated (needs_review cleared, type assertion updated). Overall R->G. Issues reduced 3->0.
 **Note:** tMemorizeRows NEW audit created (2026-04-04): No engine implementation (Red overall). Phantom RESET_ON_CONDITION and CONDITION removed. SPECIFY_COLS TABLE parsing added. 34 converter tests across 10 test classes.
 **Note:** tJava gold-standard rewrite (2026-04-04): Phantom DIE_ON_ERROR removed. 4 config keys, 20 tests in 10 classes, 1 needs_review. Converter=G, Code Quality=G, Testing=Y, Overall=Y.
 **Note:** tJavaRow gold-standard rewrite (2026-04-04): Phantom DIE_ON_ERROR removed, output_schema as list. 5 config keys, 22 tests, 2 needs_review. Converter=G, Code Quality=G, Testing=Y, Overall=Y.

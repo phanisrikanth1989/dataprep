@@ -187,28 +187,13 @@ class TestSchema:
 
 
 class TestNeedsReview:
-    """Verify needs_review entries for engine gaps."""
+    """Engine is implemented -- needs_review should be empty."""
 
-    def test_needs_review_count(self):
-        """Single consolidated needs_review per D-84/D-27 (no engine)."""
+    def test_needs_review_empty(self):
+        """Engine exists -- no engine_gap needs_review entries."""
         node = _make_node()
         result = ChangeFileEncodingConverter().convert(node, [], {})
-        assert len(result.needs_review) == 1
-
-    def test_needs_review_engine_gap(self):
-        node = _make_node()
-        result = ChangeFileEncodingConverter().convert(node, [], {})
-        assert result.needs_review[0]["severity"] == "engine_gap"
-
-    def test_needs_review_no_engine(self):
-        node = _make_node()
-        result = ChangeFileEncodingConverter().convert(node, [], {})
-        assert "No v1 engine implementation" in result.needs_review[0]["issue"]
-
-    def test_needs_review_has_component_id(self):
-        node = _make_node(component_id="test_comp")
-        result = ChangeFileEncodingConverter().convert(node, [], {})
-        assert result.needs_review[0]["component"] == "test_comp"
+        assert len(result.needs_review) == 0
 
     def test_no_framework_param_needs_review(self):
         """Framework params (tstatcatcher_stats, label) must NOT have needs_review."""
@@ -241,10 +226,10 @@ class TestComponentStructure:
     """Verify component wrapper structure."""
 
     def test_has_type(self):
-        """No-engine: type_name='tChangeFileEncoding' per D-43."""
+        """Engine implemented: type_name='ChangeFileEncoding' (D-43 reversed)."""
         node = _make_node()
         result = ChangeFileEncodingConverter().convert(node, [], {})
-        assert result.component["type"] == "tChangeFileEncoding"
+        assert result.component["type"] == "ChangeFileEncoding"
 
     def test_has_original_type(self):
         node = _make_node()

@@ -2,6 +2,7 @@
 
 from ._code_component_mixin import CodeComponentMixin  # noqa: F401  -- mixin used by code components
 from .aggregate_sorted_row import AggregateSortedRow
+from .change_file_encoding import ChangeFileEncoding
 from .denormalize import Denormalize
 from .extract_delimited_fields import ExtractDelimitedFields
 from .extract_json_fields import ExtractJSONFields
@@ -34,6 +35,7 @@ from .filter_columns import FilterColumns
 
 __all__ = [
     'AggregateSortedRow',
+    'ChangeFileEncoding',
     'Denormalize',
     'ExtractDelimitedFields',
     'ExtractJSONFields',
