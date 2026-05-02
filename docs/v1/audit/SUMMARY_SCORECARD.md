@@ -76,7 +76,7 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 38 | tExtractXMLField | Y | G | Y | Y | Y | Y | 3 | 6 | 7 | 3 | 19 |
 | 39 | tExtractPositionalFields | Y | G | Y | Y | Y | Y | 2 | 11 | 9 | 1 | 23 |
 | 40 | tPivotToColumnsDelimited | Y | G | Y | G | Y | G | 0 | 1 | 4 | 1 | 6 |
-| 41 | tUnpivotRow | Y | G | Y | G | Y | Y | 1 | 5 | 6 | 2 | 14 |
+| 41 | tUnpivotRow | G | G | G | G | G | G | 0 | 0 | 0 | 0 | 0 |
 | 42 | tSchemaComplianceCheck | Y | G | R | G | N/A | Y | 2 | 5 | 4 | 1 | 12 |
 | 43 | tXMLMap | R | G | R | Y | Y | Y | 3 | 12 | 3 | 3 | 21 |
 | 44 | tAggregateSortedRow | Y | G | Y | G | Y | Y | 0 | 3 | 5 | 2 | 10 |
@@ -279,7 +279,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | 13 | tExtractXMLField | Y | 3 | 6 | 7 | 3 | 19 |
 | 14 | tExtractPositionalFields | Y | 2 | 11 | 9 | 1 | 23 |
 | 15 | tPivotToColumnsDelimited | Y | 4 | 5 | 9 | 2 | 20 |
-| 16 | tUnpivotRow | Y | 1 | 5 | 6 | 2 | 14 |
+| 16 | tUnpivotRow | G | 0 | 0 | 0 | 0 | 0 |
 | 17 | tSchemaComplianceCheck | Y | 2 | 5 | 4 | 1 | 12 |
 | 18 | tXMLMap | R | 3 | 12 | 3 | 3 | 21 |
 | 19 | tAggregateSortedRow | Y | 0 | 3 | 5 | 2 | 10 |
@@ -312,6 +312,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 **Note:** tExtractJSONFields REWRITTEN (2026-04-04): Audit rewritten to gold standard with Section 11 Risk Assessment. Dual-TABLE parsing added. 15 config keys. 9 per-feature needs_review. 45 tests across 8 test classes. Converter=G, Testing=Y, Overall=Y. Issues reduced 39->17.
 **Note:** tExtractXMLField REWRITTEN (2026-04-04): Audit rewritten to gold standard with Section 11 Risk Assessment. 6 hidden params added. MAPPING TABLE stride-2. 14 config keys. 7 per-feature needs_review. 50 tests across 10 test classes. Converter=G, Code Quality=Y, Testing=Y, Overall=Y. Issues reduced 45->19.
 **Note:** tUnpivotRow REWRITTEN (2026-04-04): Full gold standard rewrite. Community component (MEDIUM confidence). 4 unique + 2 framework params (100%). 0 needs_review. 28 converter tests across 10 test classes. Converter=G, Code Quality=G, Testing=Y, Overall=Y. Issues reduced 45->14.
+**Note:** tUnpivotRow ENGINE FINALISED (2026-05-02): Engine fully rewritten per MANUAL_COMPONENT_AUTHORING.md. @REGISTRY.register added. _validate_config() returns None, raises ConfigurationError (Rules 2,7,12). P0 schema pollution fixed (output = row_keys + pivot_key + pivot_value only). String coercion via null-safe .map(). die_on_error supported. reject key always returned. No input copy, no temp column, no redundant sort, no no-op filter. 29 engine unit tests across 5 test classes. Overall Y->G, Engine Y->G, Perf Y->G, Testing Y->G. Issues reduced 14->0.
 **Note:** tExtractDelimitedFields REWRITTEN (2026-04-04): Audit rewritten to gold standard. SCHEMA_OPT_NUM added. Config key renamed fieldseparator per D-38. 13 config keys. 2 per-feature needs_review. 42 tests across 9 test classes. Testing upgraded R->Y. Overall R->Y. Issues reduced 39->23.
 **Note:** tExtractPositionalFields Testing upgraded R->Y (2026-04-04): Gold-standard test rewrite with 49 tests across 10 test classes. Needs_review corrected from 8 to 6. Audit report rewritten with 10 sections + 2 appendices.
 **Note:** tJoin REWRITTEN (2026-04-04): Audit REWRITTEN per gold standard with Section 11 Risk Assessment. Phantom CASE_SENSITIVE/DIE_ON_ERROR removed. USE_LOOKUP_COLS/LOOKUP_COLS TABLE added. 4 unique + 2 framework params (100%). 4 per-feature needs_review. 26 converter tests across 10 test classes. Testing upgraded R->Y. Issues reduced 36->21.
