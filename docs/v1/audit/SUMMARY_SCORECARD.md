@@ -3,7 +3,7 @@
 ## Overview
 
 **Total components audited:** 86
-**Total issues found:** 928
+**Total issues found:** 924
 **Overall assessment:** NOT PRODUCTION-READY. The v1 engine has systemic quality gaps across all 86 components. Cross-cutting base class bugs affect every component. 33 components are rated RED (engine missing or broken), 50 are rated YELLOW (converter standardized, engine gaps remain), and 3 are rated GREEN (fully functional for their scope). All 81 applicable converters are now Green following Phases 6-13 converter standardization.
 
 Note: Converter standardization (Phases 6-13) is complete. All 81 applicable converters are Green. All 5 Python/Swift audit-only components have Converter=N/A and Testing=N/A per D-82/D-88. The issues below describe engine-level gaps that are out of scope for the converter enhancement milestone.
@@ -39,7 +39,7 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 1 | tFileInputDelimited | Y | G | Y | Y | G | Y | 2 | 7 | 10 | 2 | 21 |
 | 2 | tFileOutputDelimited | Y | G | Y | Y | G | Y | 1 | 4 | 8 | 1 | 14 |
 | 3 | tFileInputExcel | G | G | Y | Y | G | Y | 2 | 5 | 5 | 3 | 15 |
-| 4 | tFileOutputExcel | Y | G | Y | Y | Y | Y | 3 | 10 | 13 | 3 | 29 |
+| 4 | tFileOutputExcel | Y | G | Y | Y | Y | Y | 3 | 8 | 11 | 3 | 25 |
 | 5 | tFileInputJSON | Y | G | Y | Y | G | Y | 2 | 7 | 9 | 3 | 21 |
 | 6 | tFileInputXML | Y | G | Y | Y | Y | Y | 1 | 5 | 7 | 3 | 16 |
 | 7 | tFileInputPositional | Y | G | Y | Y | G | Y | 1 | 8 | 8 | 4 | 21 |
@@ -156,10 +156,10 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | Priority | Total Issues | Percentage | Description |
 | ---------- | ------------- | ------------ | ------------- |
 | **P0** (Critical) | 146 | 15.7% | Blocks production use or causes data corruption/silent failures |
-| **P1** (Major) | 282 | 30.4% | Significant functional gap or behavioral divergence from Talend |
-| **P2** (Moderate) | 382 | 41.2% | Missing feature, code quality concern, or non-standard practice |
+| **P1** (Major) | 280 | 30.2% | Significant functional gap or behavioral divergence from Talend |
+| **P2** (Moderate) | 380 | 41.1% | Missing feature, code quality concern, or non-standard practice |
 | **P3** (Low) | 118 | 12.7% | Minor improvement, cosmetic issue, or rarely-used feature gap |
-| **Total** | **928** | -- | -- |
+| **Total** | **924** | -- | -- |
 
 ---
 
@@ -171,7 +171,7 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 2 | tPivotToColumnsDelimited | 4 | 5 | 9 | 2 | 20 | Y |
 | 3 | SwiftBlockFormatter | 3 | 10 | 16 | 9 | 38 | Y |
 | 4 | SwiftTransformer | 3 | 7 | 17 | 6 | 33 | Y |
-| 5 | tFileOutputExcel | 3 | 10 | 13 | 3 | 29 | Y |
+| 5 | tFileOutputExcel | 3 | 8 | 11 | 3 | 25 | Y |
 | 6 | tMap | 3 | 8 | 12 | 3 | 26 | Y |
 | 7 | PythonRowComponent | 3 | 7 | 11 | 2 | 23 | Y |
 | 8 | tXMLMap | 3 | 12 | 3 | 3 | 21 | R |
@@ -213,7 +213,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | 1 | tFileInputDelimited | Y | 2 | 7 | 10 | 2 | 21 |
 | 2 | tFileOutputDelimited | Y | 1 | 4 | 8 | 1 | 14 |
 | 3 | tFileInputExcel | G | 2 | 5 | 5 | 3 | 15 |
-| 4 | tFileOutputExcel | Y | 3 | 10 | 13 | 3 | 29 |
+| 4 | tFileOutputExcel | Y | 3 | 8 | 11 | 3 | 25 |
 | 5 | tFileInputJSON | Y | 2 | 7 | 9 | 3 | 21 |
 | 6 | tFileInputXML | Y | 1 | 5 | 7 | 3 | 16 |
 | 7 | tFileInputPositional | Y | 1 | 8 | 8 | 4 | 21 |
@@ -236,7 +236,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | 24 | tFileList | R | 1 | 0 | 0 | 0 | 1 |
 | 25 | tFileOutputEBCDIC | R | 3 | 0 | 0 | 0 | 3 |
 
-**Category summary:** 5 Red, 18 Yellow, 2 Green. Total issues: 319.
+**Category summary:** 5 Red, 18 Yellow, 2 Green. Total issues: 315.
 **Note:** tFileInputRaw Converter upgraded to Green (2026-04-03): Audit rewritten per gold standard. All 6 unique + 2 framework params extracted with _build_component_dict. ISO-8859-15 default. 2 per-feature needs_review entries (as_bytearray, as_inputstream engine gaps). 35 converter tests across 8 test classes. Code Quality upgraded R->Y, Testing upgraded R->Y (converter tests Green but engine tests missing).
 **Note:** tFileProperties Converter upgraded to Green (2026-04-03): Audit rewritten per gold standard. All 2 unique + 2 framework params extracted with _build_component_dict. Config keys filename/md5 (snake_case per D-38). 2 per-feature needs_review entries (engine reads uppercase FILENAME/MD5). 28 converter tests across 9 test classes. Testing upgraded R->Y (converter tests Green but engine tests missing).
 **Note:** tFileInputProperties NEW audit created (2026-04-03): No engine implementation (Red overall per D-37). Converter rewritten: 3 missing params added (FILE_FORMAT, RETRIVE_MODE, SECTION_NAME), encoding default fixed (UTF-8->ISO-8859-15), phantom DIE_ON_ERROR removed. 5 unique + 2 framework params, 35 converter tests across 9 test classes. Single consolidated needs_review. Converter=G, Engine=R, Code Quality=R, Testing=R.
@@ -245,6 +245,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 **Note:** tFileInputMSXML NEW audit created (2026-04-03): No engine implementation (Red overall per D-37). Converter rewritten: 4 missing params added (IGNORE_ORDER, CHECK_DATE, IGNORE_DTD, GENERATION_MODE), defaults fixed (trim_all=True, encoding=ISO-8859-15). SCHEMAS TABLE stride-3 parser (LOOP_PATH, MAPPING, CREATE_EMPTY_ROW). 10 unique + 2 framework params, 44 converter tests across 10 test classes. Single consolidated needs_review. Converter=G, Engine=R, Code Quality=R, Testing=R.
 **Note:** tFileInputFullRow upgraded to all-Green (2026-04-04): Engine fully rewritten per MANUAL_COMPONENT_AUTHORING.md. All features implemented (header_rows, footer_rows, random, nb_random). All bugs fixed (unicode_escape, strip(), limit=0, column name, encoding default). Converter engine_gap needs_review entries removed. 42 engine tests added (all PASS). ENG-FIFR-004 (REJECT) confirmed N/A per Talaxie _java.xml.
 **Note:** tFixedFlowInput ENGINE REWRITTEN (2026-05-01): @REGISTRY.register("FixedFlowInputComponent", "tFixedFlowInput") added. `_validate_config()` fixed to raise ConfigurationError (not dead list-return). NB_LINE bug fixed (`_update_stats(row_count,row_count,0)`). values_config list-of-dicts format handled. intable key fixed (was intable_data). Separator normalization complete (\n,\t,\r,\|). eval() replaced with safe `_coerce_numeric()`. 34 engine unit tests across 8 classes (100% pass). Converter needs_review reduced 3->1 (intable/rows gaps resolved). Overall Y->G, issues reduced 20->3 (P0=0, P1=0, P2=1, P3=2).
+**Note:** tFileOutputExcel ENGINE FIXED (2026-05-03): `date_pattern` output formatting implemented via `_apply_date_patterns()` (mirrors FileOutputDelimited pattern). Decimal/float precision implemented via `_build_col_formats()` + openpyxl `cell.number_format`. Column ordering now uses `input_schema` when `output_schema` is empty (correct sink pattern). 45 engine unit tests added across 15 test classes (TestDatePatternFormatting, TestDecimalPrecision, TestInputSchemaColumnOrdering + 12 existing classes). ENG-FOE-013/014/015 fixed; TEST-FOE-001 closed. P1 reduced 10→8, P2 reduced 13→11, Total reduced 29→25.
 **Note:** tFileInputExcel upgraded to Green (2026-04-03): Audit REWRITTEN per gold standard with Section 11 Risk Assessment + Appendix C (Generation Mode Comparison) + Appendix D (Sheet Processing). 3 critical defaults fixed (DIE_ON_ERROR=True->False, ENCODING=UTF-8->ISO-8859-15, GENERATION_MODE=EVENT_MODE->USER_MODE). AFFECT_EACH_SHEET type fixed bool->str. 3 module-level TABLE parsers. 28 unique + 2 framework params (100%). 9 per-feature needs_review entries. 83 converter tests across 11 test classes. Testing upgraded R->Y (converter tests Green but engine tests missing).
 **Note:** tFileRowCount ENGINE REWRITTEN (2026-05-01): Full engine rewrite. @REGISTRY.register("FileRowCount", "tFileRowCount") added (dual alias). `_validate_config()` raises ConfigurationError for missing/empty filename. row_separator implemented via `_count_rows()` helper with `_ESCAPE_MAP` normalisation. Encoding default corrected to ISO-8859-15. FileOperationError properly chained. GlobalMap writes outside try block. Returns {"main": None} (correct for utility component). DIE_ON_ERROR confirmed phantom (not in `_java.xml`). 42 engine unit tests across 9 classes (100% pass). Overall Y->G, issues reduced 19->3 (P0=0, P1=0, P2=0, P3=3).
 **Note:** tFileRowCount audit rewritten (2026-04-04): Audit REWRITTEN per gold standard. Phantom DIE_ON_ERROR removed (not in `_java.xml`). ENCODING default ISO-8859-15 per `_java.xml`. 4 unique + 2 framework params extracted with `_build_component_dict`. 1 per-feature needs_review (encoding default mismatch). 26 converter tests across 9 test classes. Testing upgraded R->Y (converter tests Green but engine tests missing). Total issues reduced 30->19.

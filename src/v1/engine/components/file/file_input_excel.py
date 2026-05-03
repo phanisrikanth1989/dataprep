@@ -15,11 +15,13 @@ import pandas as pd
 import xlrd  # For old Excel .xls files
 
 from ...base_component import BaseComponent, ExecutionMode
+from ...component_registry import REGISTRY
 from ...exceptions import ConfigurationError, FileOperationError, ComponentExecutionError
 
 logger = logging.getLogger(__name__)
 
 
+@REGISTRY.register("FileInputExcel", "tFileInputExcel")
 class FileInputExcel(BaseComponent):
     """
     Read Excel files with full Talend tFileInputExcel compatibility.
@@ -78,86 +80,79 @@ class FileInputExcel(BaseComponent):
         - Advanced separator handling for international formats
     """
 
-    def _validate_config(self) -> List[str]:
-        """
-        Validate component configuration.
+    def _validate_config(self) -> None:
+        """Validate component configuration.
 
         Note:
             header / first_column numeric validation is intentionally
             deferred to _process() after context variable resolution.
             Validating here would crash with .isdigit() False on
             legitimate ${context.HEADER_ROW} / ${context.FIRST_COL}
-            references. See file_output_delimited.py (CR-06 / quick
-            task 260429-hc2) for the same pattern.
+            references. See file_output_delimited.py (CR-06) for the
+            same pattern.
 
-            footer and limit fields use the same .isdigit() pattern but
-            are out-of-scope for this phase per Phase 7.2 CONTEXT.md
-            decision A scope locking (header, first_column only). A
-            future phase may also defer those if a Talend job is found
-            using context vars for footer / limit.
+            footer and limit checks are retained here per Phase 7.2
+            CONTEXT.md decision A (out-of-scope for that phase).
 
-        Returns:
-            List of error messages (empty if valid)
+        Raises:
+            ConfigurationError: If required config is missing or has wrong shape.
         """
-        errors = []
+        # Required: filepath present and non-empty string
+        if not self.config.get('filepath'):
+            raise ConfigurationError(f"[{self.id}] Missing required config 'filepath'")
+        if not isinstance(self.config['filepath'], str):
+            raise ConfigurationError(f"[{self.id}] Config 'filepath' must be a string")
 
-        # Required field validation -- key-presence + isinstance shape
-        if 'filepath' not in self.config:
-            errors.append("Missing required config: 'filepath'")
-        elif not isinstance(self.config['filepath'], str):
-            errors.append("Config 'filepath' must be a string")
-        elif not self.config['filepath'].strip():
-            errors.append("Config 'filepath' cannot be empty")
+        # Optional shape checks
+        if 'password' in self.config and not isinstance(self.config['password'], str):
+            raise ConfigurationError(f"[{self.id}] Config 'password' must be a string")
 
-        # Optional field validation
-        if 'password' in self.config:
-            password = self.config['password']
-            if not isinstance(password, str):
-                errors.append("Config 'password' must be a string")
+        for field_name in ('all_sheets', 'die_on_error', 'suppress_warn', 'advanced_separator',
+                           'trimall', 'convertdatetostring', 'stopread_on_emptyrow'):
+            if field_name in self.config and not isinstance(self.config[field_name], bool):
+                raise ConfigurationError(
+                    f"[{self.id}] Config '{field_name}' must be a boolean"
+                )
 
-        # Boolean field validation -- isinstance shape only
-        for field_name in ['all_sheets', 'die_on_error', 'suppress_warn', 'advanced_separator',
-                           'trimall', 'convertdatetostring', 'stopread_on_emptyrow']:
-            if field_name in self.config:
-                value = self.config[field_name]
-                if not isinstance(value, bool):
-                    errors.append(f"Config '{field_name}' must be a boolean")
-
-        # Special validation for footer (can be 0 or positive integer)
-        # NOTE: out-of-scope per Phase 7.2 CONTEXT.md decision A; retained.
+        # footer -- retained per Phase 7.2 CONTEXT.md decision A
         if 'footer' in self.config:
             value = self.config['footer']
             if isinstance(value, str):
                 if not value.isdigit():
-                    errors.append("Config 'footer' must be a non-negative integer")
+                    raise ConfigurationError(
+                        f"[{self.id}] Config 'footer' must be a non-negative integer"
+                    )
             elif not isinstance(value, int) or value < 0:
-                errors.append("Config 'footer' must be a non-negative integer")
+                raise ConfigurationError(
+                    f"[{self.id}] Config 'footer' must be a non-negative integer"
+                )
 
-        # Special validation for limit (can be empty string or None to indicate no limit)
-        # NOTE: out-of-scope per Phase 7.2 CONTEXT.md decision A; retained.
+        # limit -- retained per Phase 7.2 CONTEXT.md decision A
         if 'limit' in self.config:
             value = self.config['limit']
             if isinstance(value, str):
                 if value.strip() and not value.isdigit():
-                    errors.append("Config 'limit' must be a positive integer or empty string")
+                    raise ConfigurationError(
+                        f"[{self.id}] Config 'limit' must be a positive integer or empty string"
+                    )
             elif value is not None and (not isinstance(value, int) or value < 0):
-                errors.append("Config 'limit' must be a positive integer or None")
+                raise ConfigurationError(
+                    f"[{self.id}] Config 'limit' must be a positive integer or None"
+                )
 
-        # List field validation -- isinstance shape only
-        for field_name in ['sheetlist', 'trim_select', 'date_select']:
-            if field_name in self.config:
-                value = self.config[field_name]
-                if not isinstance(value, list):
-                    errors.append(f"Config '{field_name}' must be a list")
+        for field_name in ('sheetlist', 'trim_select', 'date_select'):
+            if field_name in self.config and not isinstance(self.config[field_name], list):
+                raise ConfigurationError(
+                    f"[{self.id}] Config '{field_name}' must be a list"
+                )
 
-        # String field validation -- isinstance shape only
-        for field_name in ['thousands_separator', 'decimal_separator']:
+        for field_name in ('thousands_separator', 'decimal_separator'):
             if field_name in self.config:
                 value = self.config[field_name]
                 if value is not None and not isinstance(value, str):
-                    errors.append(f"Config '{field_name}' must be a string or None")
-
-        return errors
+                    raise ConfigurationError(
+                        f"[{self.id}] Config '{field_name}' must be a string or None"
+                    )
 
     def _validate_resolved_numeric_fields(self) -> None:
         """Validate header / first_column AFTER context-var resolution.
@@ -167,23 +162,28 @@ class FileInputExcel(BaseComponent):
         Mutates self.config to coerce string-number values to ints so
         downstream read sites can treat them uniformly.
 
+        header: must be >= 0 (0 means no header row to skip, Talend default)
+        first_column: must be >= 1 (1-based; column A = 1, Talend default)
+
         Raises:
-            ConfigurationError: If header or first_column resolves to a
-                non-positive-integer value.
+            ConfigurationError: If header or first_column resolves to an
+                out-of-range integer value.
         """
         for field_name in ('header', 'first_column'):
             if field_name not in self.config:
                 continue
             value = self.config[field_name]
             if isinstance(value, str):
-                if not value.isdigit():
+                stripped = value.strip()
+                if not stripped.isdigit():
                     raise ConfigurationError(
-                        f"[{self.id}] Config '{field_name}' must be a positive integer"
+                        f"[{self.id}] Config '{field_name}' must be a non-negative integer"
                     )
-                value = int(value)
-            if not isinstance(value, int) or value < 1:
+                value = int(stripped)
+            min_val = 0 if field_name == 'header' else 1
+            if not isinstance(value, int) or value < min_val:
                 raise ConfigurationError(
-                    f"[{self.id}] Config '{field_name}' must be a positive integer"
+                    f"[{self.id}] Config '{field_name}' must be >= {min_val}"
                 )
             self.config[field_name] = value
 
@@ -205,15 +205,9 @@ class FileInputExcel(BaseComponent):
         logger.info(f"[{self.id}] Processing started: reading Excel file")
 
         try:
-            # Validate configuration
-            config_errors = self._validate_config()
-            if config_errors:
-                error_msg = f"Invalid configuration: {'; '.join(config_errors)}"
-                logger.error(f"[{self.id}] {error_msg}")
-                raise ConfigurationError(error_msg)
-
             # Phase 7.2-01: validate header / first_column AFTER context-var
             # resolution (deferred from _validate_config -- see note there).
+            # _validate_config() is called by BaseComponent.execute() Step 2.
             self._validate_resolved_numeric_fields()
 
             # Get configuration with defaults
@@ -464,7 +458,7 @@ class FileInputExcel(BaseComponent):
             available_sheets = workbook.sheet_names()
             workbook.release_resources()
 
-            all_sheets = self.config.get('all_sheets', True)
+            all_sheets = self.config.get('all_sheets', False)
             sheetlist = self.config.get('sheetlist', [])
 
             if all_sheets:
@@ -548,7 +542,7 @@ class FileInputExcel(BaseComponent):
         """
         Determine which sheets to read based on configuration
         """
-        all_sheets = self.config.get('all_sheets', True)
+        all_sheets = self.config.get('all_sheets', False)
         sheetlist = self.config.get('sheetlist', [])
 
         available_sheets = wb.sheetnames
@@ -712,7 +706,7 @@ class FileInputExcel(BaseComponent):
         Read data from a single Excel sheet using pandas read_excel for better performance
         """
         # Get configuration
-        header = self.config.get('header', 1)  # 1-based in Talend
+        header = self.config.get('header', 0)  # 0 means no header skip (Talend default)
         footer = self.config.get('footer', 0)
         limit = self.config.get('limit', '')
         first_column = self.config.get('first_column', 1)  # 1-based
@@ -826,6 +820,8 @@ class FileInputExcel(BaseComponent):
 
             for sheet_name in sheets_to_read:
                 logger.info(f"[{self.id}] Reading .xls sheet '{sheet_name}'")
+                if self.global_map:
+                    self.global_map.put(f"{self.id}_CURRENT_SHEET", sheet_name)
                 df = self._read_xls_sheet(filepath, sheet_name)
 
                 if not df.empty:
@@ -921,7 +917,7 @@ class FileInputExcel(BaseComponent):
         Read data from a single .xls sheet using pandas read_excel with xlrd engine
         """
         # Get configuration
-        header = self.config.get('header', 1)  # 1-based in Talend
+        header = self.config.get('header', 0)  # 0 means no header skip (Talend default)
         footer = self.config.get('footer', 0)
         limit = self.config.get('limit', '')
         first_column = self.config.get('first_column', 1)  # 1-based
@@ -1011,6 +1007,8 @@ class FileInputExcel(BaseComponent):
 
         for sheet_name in sheets_to_read:
             logger.info(f"[{self.id}] Reading sheet '{sheet_name}'")
+            if self.global_map:
+                self.global_map.put(f"{self.id}_CURRENT_SHEET", sheet_name)
             df = self._read_sheet(wb, sheet_name)
 
             if not df.empty:
