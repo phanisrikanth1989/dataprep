@@ -273,54 +273,29 @@ class FileOutputExcel(BaseComponent):
             non_empty_rows = [row for row in rows if is_non_empty_row(row)]
             rows_rejected = len(rows) - len(non_empty_rows)
 
-            logger.info(f"[{self.id}] Processing {len(non_empty_rows)} non-empty rows out of {rows_in} total rows")
+            logger.info("[%s] Processing %d non-empty rows out of %d total rows",
+                        self.id, len(non_empty_rows), rows_in)
 
-            # Write header if requested and we have data
-            # Only write header if:
-            # 1. Header is requested (include_header is True)
-            # 2. We have column names
-            # 3. Either we're not appending, or the sheet is empty/has no existing matching header
-            should_write_header = False
-            if include_header and column_names:
-                if not append_file:
-                    # Always write header for new files
-                    should_write_header = True
-                    logger.debug(f"[{self.id}] Writing header for new file")
-                else:
-                    # For append mode, check if we need to write header
-                    if sheet.max_row == 0:
-                        # Sheet is completely empty
-                        should_write_header = True
-                        logger.debug(f"[{self.id}] Writing header for empty sheet in append mode")
-                    elif sheet.max_row >= 1:
-                        # Sheet has content, check if first row is a matching header
-                        try:
-                            first_row_values = [cell.value for cell in sheet[1]]
-                            # Remove any None values and convert to strings for comparison
-                            first_row_cleaned = [str(val).strip() if val is not None else '' for val in first_row_values]
-                            column_names_cleaned = [str(col).strip() for col in column_names]
+            # Find the actual last row that contains data (openpyxl can report max_row=1 for
+            # a freshly-created empty sheet — a "ghost" row — which would otherwise shift all
+            # content down by one row and cause duplicate headers on subsequent appends).
+            def _last_data_row(ws):
+                """Return the index of the last row with at least one non-None cell, or 0."""
+                top = ws.max_row or 0
+                for row_idx in range(top, 0, -1):
+                    if any(cell.value is not None for cell in ws[row_idx]):
+                        return row_idx
+                return 0
 
-                            if first_row_cleaned == column_names_cleaned:
-                                # Headers match, don't write header
-                                should_write_header = False
-                                logger.debug(f"[{self.id}] Skipping header write - sheet already has matching headers")
-                            else:
-                                # Headers don't match or first row is data
-                                # Check if this looks like a header row or data row
-                                if all(val == '' for val in first_row_cleaned):
-                                    # First row is empty, write header
-                                    should_write_header = True
-                                    logger.debug(f"[{self.id}] First row is empty, writing header")
-                                else:
-                                    # First row has data but doesn't match expected headers
-                                    # This could be data from a previous run without headers
-                                    should_write_header = False
-                                    logger.debug(f"[{self.id}] First row appears to be data, not writing header. "
-                                        f"Existing: {first_row_cleaned[:3]}..., Expected headers: {column_names_cleaned[:3]}...")
-                        except Exception as e:
-                            # If we can't read the first row, assume we need to write header
-                            logger.warning(f"[{self.id}] Could not read first row: {e}. Writing header to be safe.")
-                            should_write_header = True
+            last_data_row = _last_data_row(sheet)
+
+            # Write header only when the sheet is truly empty (no prior data).
+            should_write_header = include_header and bool(column_names) and (last_data_row == 0)
+            if should_write_header:
+                logger.debug("[%s] Writing header row (sheet is empty)", self.id)
+            else:
+                logger.debug("[%s] Skipping header write (last_data_row=%d, include_header=%s)",
+                             self.id, last_data_row, include_header)
 
             # Determine write start position from FIRST_CELL_X/Y config (0-based → 1-based)
             try:
@@ -334,8 +309,8 @@ class FileOutputExcel(BaseComponent):
 
             # For append_file or append_sheet mode, start writing after last existing data row
             append_sheet = self.config.get('append_sheet', False)
-            if (append_file or append_sheet) and sheet.max_row and sheet.max_row > 0:
-                start_row = max(start_row, sheet.max_row + 1)
+            if (append_file or append_sheet) and last_data_row > 0:
+                start_row = max(start_row, last_data_row + 1)
 
             current_row = start_row
 
