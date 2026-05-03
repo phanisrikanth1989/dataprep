@@ -369,8 +369,23 @@ class Map(BaseComponent):
             f"{len(joined_df.columns)} columns"
         )
 
-        # Step 5: Evaluate variables
-        if variables_config:
+        # Decide execution path once so both Step 5 and Step 6 use the same decision.
+        _use_compiled = (
+            self._has_java_expressions(outputs_config)
+            and self.java_bridge is not None
+        )
+
+        # Step 5: Evaluate variables.
+        # SKIPPED when using the compiled Groovy path: the generated script
+        # re-evaluates all variables internally (see _build_compiled_script).
+        # Running _evaluate_variables first would:
+        #   (a) make N unnecessary Java bridge round-trips (one per variable),
+        #   (b) populate joined_df with Py4J Java-object proxies (Date,
+        #       BigDecimal) that then require toString() Py4J calls during
+        #       Arrow serialisation for every subsequent bridge call, and
+        #   (c) cause the first call to initialise the Groovy runtime JVM
+        #       (10-30 s one-time cost) before the compiled script even starts.
+        if variables_config and not _use_compiled:
             joined_df = self._evaluate_variables(
                 joined_df, variables_config, main_name, joined_lookup_names
             )
