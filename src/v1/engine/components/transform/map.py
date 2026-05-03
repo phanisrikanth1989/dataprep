@@ -16,6 +16,7 @@ Config keys consumed (8 total):
 """
 import logging
 import re
+from decimal import Decimal
 from typing import Any, Optional
 
 import numpy as np
@@ -69,6 +70,56 @@ _FAIL_RESULT_ROWS = 100_000_000
 
 # Java marker prefix
 _JAVA_MARKER = "{{java}}"
+
+
+def _infer_arrow_schema_dict(df: pd.DataFrame) -> dict[str, str]:
+    """Infer the bridge-side type string for each column of ``df``.
+
+    Maps pandas dtypes to one of the 7 Java-bridge type strings
+    (str, int, float, bool, datetime, Decimal, object).
+
+    Uses case-insensitive dtype matching so pandas nullable extension dtypes
+    such as ``Int64``, ``Float64`` and ``boolean`` map to the same bridge
+    types as their numpy equivalents (``int64``, ``float64``, ``bool``).
+    Without this, ``"int" in "Int64"`` is False and the column would be
+    serialized as a String -- breaking expressions like
+    ``String.format("%03d", row1.empid)`` with ``IllegalFormatConversionException``.
+
+    For ``object`` dtype columns, samples the first non-null value to detect
+    Decimal / datetime / date payloads so they round-trip as BigDecimal /
+    Timestamp instead of String.
+    """
+    import datetime as _dt
+
+    schema: dict[str, str] = {}
+    for col in df.columns:
+        dtype_lower = str(df[col].dtype).lower()
+        if "int" in dtype_lower:
+            schema[col] = "int"
+        elif "float" in dtype_lower:
+            schema[col] = "float"
+        elif "datetime" in dtype_lower:
+            schema[col] = "datetime"
+        elif "bool" in dtype_lower:
+            schema[col] = "bool"
+        elif "decimal" in dtype_lower:
+            schema[col] = "Decimal"
+        else:
+            # object dtype -- sample first non-null value to detect payload type
+            sample = None
+            try:
+                non_null = df[col].dropna()
+                if len(non_null) > 0:
+                    sample = non_null.iloc[0]
+            except Exception:
+                sample = None
+            if isinstance(sample, Decimal):
+                schema[col] = "Decimal"
+            elif isinstance(sample, (_dt.datetime, pd.Timestamp)):
+                schema[col] = "datetime"
+            else:
+                schema[col] = "str"
+    return schema
 
 
 @REGISTRY.register("Map", "tMap")
@@ -1239,19 +1290,7 @@ class Map(BaseComponent):
         output_schemas, output_types = self._build_output_schema(outputs_config)
 
         # Build schema dict for Arrow serialization
-        schema_dict = {}
-        for col in joined_df.columns:
-            dtype = str(joined_df[col].dtype)
-            if "int" in dtype:
-                schema_dict[col] = "int"
-            elif "float" in dtype:
-                schema_dict[col] = "float"
-            elif "datetime" in dtype:
-                schema_dict[col] = "datetime"
-            elif "bool" in dtype:
-                schema_dict[col] = "bool"
-            else:
-                schema_dict[col] = "str"
+        schema_dict = _infer_arrow_schema_dict(joined_df)
 
         # Compile script
         try:
@@ -1765,19 +1804,7 @@ class Map(BaseComponent):
             return {}
 
         # Build schema dict for Arrow
-        schema_dict = {}
-        for col in df.columns:
-            dtype = str(df[col].dtype)
-            if "int" in dtype:
-                schema_dict[col] = "int"
-            elif "float" in dtype:
-                schema_dict[col] = "float"
-            elif "datetime" in dtype:
-                schema_dict[col] = "datetime"
-            elif "bool" in dtype:
-                schema_dict[col] = "bool"
-            else:
-                schema_dict[col] = "str"
+        schema_dict = _infer_arrow_schema_dict(df)
 
         try:
             return self.java_bridge.execute_tmap_preprocessing(
