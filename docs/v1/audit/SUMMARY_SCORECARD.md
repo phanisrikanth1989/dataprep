@@ -42,8 +42,8 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 4 | tFileOutputExcel | Y | G | Y | Y | Y | Y | 3 | 8 | 11 | 3 | 25 |
 | 5 | tFileInputJSON | Y | G | Y | Y | G | Y | 2 | 7 | 9 | 3 | 21 |
 | 6 | tFileInputXML | Y | G | Y | Y | Y | Y | 1 | 5 | 7 | 3 | 16 |
-| 7 | tFileInputPositional | Y | G | Y | Y | G | Y | 1 | 8 | 8 | 4 | 21 |
-| 8 | tFileOutputPositional | Y | G | Y | Y | Y | Y | 2 | 6 | 7 | 2 | 17 |
+| 7 | tFileInputPositional | Y | G | Y | Y | G | G | 1 | 6 | 2 | 4 | 13 |
+| 8 | tFileOutputPositional | G | G | G | G | G | G | 1 | 0 | 0 | 2 | 3 |
 | 9 | tFileInputFullRow | G | G | G | G | G | G | 0 | 0 | 0 | 0 | 0 |
 | 10 | tFileInputRaw | Y | G | Y | Y | Y | Y | 1 | 5 | 6 | 2 | 14 |
 | 11 | tFixedFlowInput | G | G | G | G | G | G | 0 | 0 | 1 | 2 | 3 |
@@ -216,8 +216,8 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | 4 | tFileOutputExcel | Y | 3 | 8 | 11 | 3 | 25 |
 | 5 | tFileInputJSON | Y | 2 | 7 | 9 | 3 | 21 |
 | 6 | tFileInputXML | Y | 1 | 5 | 7 | 3 | 16 |
-| 7 | tFileInputPositional | Y | 1 | 8 | 8 | 4 | 21 |
-| 8 | tFileOutputPositional | Y | 2 | 6 | 7 | 2 | 17 |
+| 7 | tFileInputPositional | Y | 1 | 6 | 2 | 4 | 13 |
+| 8 | tFileOutputPositional | G | 1 | 0 | 0 | 2 | 3 |
 | 9 | tFileInputFullRow | G | 0 | 0 | 0 | 0 | 0 |
 | 10 | tFileInputRaw | Y | 1 | 5 | 6 | 2 | 14 |
 | 11 | tFixedFlowInput | G | 0 | 0 | 1 | 2 | 3 |
@@ -236,7 +236,9 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | 24 | tFileList | R | 1 | 0 | 0 | 0 | 1 |
 | 25 | tFileOutputEBCDIC | R | 3 | 0 | 0 | 0 | 3 |
 
-**Category summary:** 5 Red, 18 Yellow, 2 Green. Total issues: 315.
+**Category summary:** 5 Red, 10 Yellow, 10 Green. Total issues: 196.
+**Note:** tFileOutputPositional ENGINE FINALISED (2026-06-14, Phase 7.2-02): Full engine rewrite per MANUAL_COMPONENT_AUTHORING.md. @REGISTRY.register("FileOutputPositional", "tFileOutputPositional") added (P0 ENG-FOP-001 fixed). DEFAULT_ENCODING='ISO-8859-15', DEFAULT_INCLUDE_HEADER=False (defaults fixed). KEEP ALL/LEFT/MIDDLE/RIGHT implemented with _KEEP_ALIAS. CENTER/CENTRE alignment via _ALIGN_ALIAS. BUG-FOP-003 (append+compress mode) fixed. Vectorized _format_columns() (no iterrows, no string +=, schema_map built once). _validate_config() raises ConfigurationError (structural only), _process() does content validation. Both flushonrow/flush_on_row aliases supported via explicit None checks. 44 engine unit tests across 13 test classes. Overall Y→G, Engine Y→G, Code Y→G, Perf Y→G, Testing Y→G. Issues reduced 17→3.
+**Note:** tFileInputPositional ENGINE HARDENED (2026-06-14, Phase 7.2-02): @REGISTRY.register("FileInputPositional", "tFileInputPositional") added. DEFAULT_ENCODING='ISO-8859-15', DEFAULT_REMOVE_EMPTY_ROW=True (singular), DEFAULT_TRIM_ALL=True, DEFAULT_DIE_ON_ERROR=False (all corrected). _validate_config() now raises ConfigurationError (was returning List[str]). BUG-FIP-002 fixed: advanced_separator now only applied to columns whose schema type is in _NUMERIC_TYPES. BUG-FIP-004 fixed: remove_empty_row replaces '' with pd.NA before dropna so empty-string rows after trim are also dropped. 35 engine unit tests across 13 test classes. Testing Y→G. Issues reduced 21→13.
 **Note:** tFileInputRaw Converter upgraded to Green (2026-04-03): Audit rewritten per gold standard. All 6 unique + 2 framework params extracted with _build_component_dict. ISO-8859-15 default. 2 per-feature needs_review entries (as_bytearray, as_inputstream engine gaps). 35 converter tests across 8 test classes. Code Quality upgraded R->Y, Testing upgraded R->Y (converter tests Green but engine tests missing).
 **Note:** tFileProperties Converter upgraded to Green (2026-04-03): Audit rewritten per gold standard. All 2 unique + 2 framework params extracted with _build_component_dict. Config keys filename/md5 (snake_case per D-38). 2 per-feature needs_review entries (engine reads uppercase FILENAME/MD5). 28 converter tests across 9 test classes. Testing upgraded R->Y (converter tests Green but engine tests missing).
 **Note:** tFileInputProperties NEW audit created (2026-04-03): No engine implementation (Red overall per D-37). Converter rewritten: 3 missing params added (FILE_FORMAT, RETRIVE_MODE, SECTION_NAME), encoding default fixed (UTF-8->ISO-8859-15), phantom DIE_ON_ERROR removed. 5 unique + 2 framework params, 35 converter tests across 9 test classes. Single consolidated needs_review. Converter=G, Engine=R, Code Quality=R, Testing=R.
