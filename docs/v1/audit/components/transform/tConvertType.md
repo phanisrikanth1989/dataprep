@@ -1,10 +1,11 @@
 # Audit Report: tConvertType
 
-> **Audited**: 2026-04-04
-> **Auditor**: Claude Opus 4.6 (automated)
+> **Audited**: 2026-04-04  
+> **Updated**: 2026-05-04 (implementation complete)  
+> **Auditor**: Claude Sonnet 4.6 (automated)  
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: PRODUCTION READINESS REVIEW
+> **Status**: GREEN
 > **V1 only** -- this report contains zero references to v2/PyETL
 
 ---
@@ -16,19 +17,21 @@ What is this component and where does everything live?
 | Field | Value |
 | ------- | ------- |
 | **Talend Name** | `tConvertType` |
-| **V1 Engine Class** | N/A (no engine implementation) |
-| **Engine File** | N/A |
+| **V1 Engine Class** | `ConvertType` |
+| **Engine File** | `src/v1/engine/components/transform/convert_type.py` |
 | **Converter Parser** | `src/converters/talend_to_v1/components/transform/convert_type.py` (118 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tConvertType")` decorator-based dispatch |
-| **Registry Aliases** | `tConvertType` |
+| **Registry Aliases** | `ConvertType`, `tConvertType` (REGISTRY decorator) |
 | **Category** | Transform / Type Conversion |
 
 ### Key Files
 
 | File | Purpose |
 | ------ | --------- |
+| `src/v1/engine/components/transform/convert_type.py` | Engine implementation |
 | `src/converters/talend_to_v1/components/transform/convert_type.py` | Converter class (118 lines) |
 | `tests/converters/talend_to_v1/components/test_convert_type.py` | Converter tests (24 tests) |
+| `tests/v1/engine/components/transform/test_convert_type.py` | Engine tests (24 tests) |
 
 ---
 
@@ -39,17 +42,27 @@ How production-ready is this component at a glance?
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 4/4 unique params + 2 framework extracted; gold standard pattern |
-| Engine Feature Parity | **R** | 0 | 0 | 0 | 0 | No v1 engine implementation exists |
-| Code Quality | **G** | 0 | 0 | 0 | 0 | Clean converter; gold standard compliance |
-| Performance & Memory | **N/A** | 0 | 0 | 0 | 0 | No engine to assess |
-| Testing | **R** | 0 | 0 | 1 | 0 | No engine unit tests (D-44); converter tests comprehensive |
+| Engine Feature Parity | **G** | 0 | 0 | 0 | 0 | autocast, manualtable, emptytonull, dieonerror all implemented; REJECT flow routing; Talend type map |
+| Code Quality | **G** | 0 | 0 | 0 | 0 | Clean converter; gold standard compliance; engine follows all 12 authoring rules |
+| Performance & Memory | **G** | 0 | 0 | 0 | 1 | Per-row coercion loop; could be vectorized for large DataFrames |
+| Testing | **G** | 0 | 0 | 0 | 0 | 24 engine tests: registration, validation, emptytonull, manualtable, autocast, reject routing, die-on-error, noop |
 
-**Overall: R -- No v1 engine implementation; converter is gold standard**
+**Overall: GREEN** -- Engine implemented with full Talend feature parity: autocast, manualtable column coercion, emptytonull, dieonerror, REJECT flow routing.
 
-**Top Actions**:
+**Implementation Notes (2026-05-04):**
 
-1. Implement v1 engine component for tConvertType
-2. Add engine unit tests once engine implementation exists
+- Created `src/v1/engine/components/transform/convert_type.py` (`ConvertType` class)
+- `@REGISTRY.register("ConvertType", "tConvertType")` added
+- Reads: `autocast` (bool), `emptytonull` (bool), `dieonerror` (bool), `manualtable` (list)
+- `_TALEND_TO_PANDAS` dict maps Talend type names to pandas dtype strings
+- `_coerce_series()` helper handles datetime, bool, int, float, string coercion
+- `emptytonull=True`: replaces `""` with `pd.NA` on object columns before manual coercion
+- `manualtable`: per-row coercion; failures tracked in `ok_mask`, routed to REJECT
+- `autocast=True`: `pd.to_numeric(errors='coerce')` on non-manual columns (best-effort)
+- `dieonerror=True`: raises `DataValidationError` instead of building REJECT flow
+- Uses `getattr(self, "output_schema", None)` for runtime schema access (engine sets this)
+- Returns `{"main": ok_df, "reject": reject_df}` with `error_code`/`error_message` columns
+- Added to `src/v1/engine/components/transform/__init__.py`
 
 ---
 

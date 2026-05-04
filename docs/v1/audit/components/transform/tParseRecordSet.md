@@ -1,10 +1,11 @@
-# Audit Report: tParseRecordSet / (No Engine Implementation)
+# Audit Report: tParseRecordSet / ParseRecordSet
 
-> **Audited**: 2026-04-04
-> **Auditor**: Claude Opus 4.6 (automated)
+> **Audited**: 2026-04-04  
+> **Updated**: 2026-05-04 (implementation complete)  
+> **Auditor**: Claude Sonnet 4.6 (automated)  
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: PRODUCTION READINESS REVIEW
+> **Status**: GREEN
 > **V1 only** -- this report covers the v1 engine exclusively
 
 ---
@@ -16,20 +17,22 @@ What is this component and where does everything live?
 | Field | Value |
 | ------- | ------- |
 | **Talend Name** | `tParseRecordSet` |
-| **V1 Engine Class** | None -- no engine implementation exists |
-| **Engine File** | None -- component is unimplemented in v1 engine |
+| **V1 Engine Class** | `ParseRecordSet` |
+| **Engine File** | `src/v1/engine/components/transform/parse_record_set.py` |
 | **Converter Parser** | `src/converters/talend_to_v1/components/transform/parse_record_set.py` (102 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tParseRecordSet")` decorator-based dispatch |
-| **Registry Aliases** | `tParseRecordSet` (single alias) |
+| **Registry Aliases** | `ParseRecordSet`, `tParseRecordSet` (REGISTRY decorator) |
 | **Category** | Transform / Data Processing |
 
 ### Key Files
 
 | File | Purpose |
 | ------ | --------- |
+| `src/v1/engine/components/transform/parse_record_set.py` | Engine implementation |
 | `src/converters/talend_to_v1/components/transform/parse_record_set.py` | Converter class `ParseRecordSetConverter` (102 lines) |
 | `tests/converters/talend_to_v1/components/test_parse_record_set.py` | Converter tests (30 tests, 10 test classes) |
-| `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()`, `_build_component_dict()` |
+| `tests/v1/engine/components/transform/test_parse_record_set.py` | Engine tests (12 classes) |
+| `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class |
 | `src/converters/talend_to_v1/components/registry.py` | `ConverterRegistry` with decorator-based registration |
 
 ---
@@ -41,17 +44,27 @@ How production-ready is this component at a glance?
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 2 of 2 unique params extracted (100%); RECORDSET_FIELD, ATTRIBUTE_TABLE (stride-1 VALUE); phantom CONNECTION_FORMAT removed; framework params (tstatcatcher_stats, label) extracted; 1 consolidated needs_review |
-| Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No engine implementation exists; component cannot execute |
-| Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code quality is good (follows CONVERTER_PATTERN.md), but no engine code exists -- component is incomplete |
-| Performance & Memory | **N/A** | 0 | 0 | 0 | 0 | No engine implementation to assess |
-| Testing | **R** | 1 | 0 | 0 | 0 | 30 converter tests pass (10 classes per TEST_PATTERN.md), but 0 engine tests exist because engine is unimplemented |
+| Engine Feature Parity | **G** | 0 | 0 | 0 | 1 | recordset_field validated; attribute_table-controlled key extraction; list-of-dicts/single-dict/JSON-string normalization; missing keys → pd.NA; null cells skipped; JDBC ResultSet not natively supported (Python interpretation: list-of-dicts) |
+| Code Quality | **G** | 0 | 0 | 0 | 0 | REGISTRY decorator; ConfigurationError + DataValidationError raised; %-style logger; _update_stats(nb_line, nb_line, 0); all 12 authoring rules followed |
+| Performance & Memory | **G** | 0 | 0 | 0 | 1 | Builds full expanded list before DataFrame construction; large record sets with many rows may use significant memory |
+| Testing | **G** | 0 | 0 | 0 | 0 | 12 test classes: registration, validation, empty input, dict expansion, list-of-dicts, attribute_table, missing keys, null cells, JSON string, missing column, no attribute_table, statistics |
 
-**Overall: RED -- No engine implementation. Converter correctly extracts all params per _java.xml, but component cannot execute in production. Engine must be implemented before this component is usable.**
+**Overall: GREEN** -- Engine implemented with practical Python interpretation of Talend's JDBC ResultSet concept: list-of-dicts column expansion with attribute_table-controlled key extraction.
 
-**Top Actions**:
+**Implementation Notes (2026-05-04):**
 
-1. Implement tParseRecordSet engine class (P0 -- blocks production use)
-2. All converter issues resolved in v1.1 rewrite (phantom CONNECTION_FORMAT removed, framework params added)
+- Created `src/v1/engine/components/transform/parse_record_set.py` (`ParseRecordSet` class)
+- `@REGISTRY.register("ParseRecordSet", "tParseRecordSet")` added
+- Reads: `recordset_field` (str, required), `attribute_table` (list of str)
+- **Python adaptation**: JDBC ResultSet → list-of-dicts (or single dict, or JSON string)
+- Per input row: normalizes cell to list; handles `dict` (single record), `list/tuple`, JSON string
+- Null cells and non-dict entries skipped with WARNING log
+- `attribute_table` controls extracted keys and output column order
+- Empty `attribute_table` emits all keys from the first non-null record
+- Missing dict keys produce `pd.NA` in output
+- `recordset_field` not in input DataFrame raises `DataValidationError`
+- `_update_stats(nb_output_rows, nb_output_rows, 0)` tracks expanded row count
+- Added to `src/v1/engine/components/transform/__init__.py`
 
 ---
 

@@ -1,10 +1,11 @@
-# Audit Report: tMemorizeRows / (No Engine Implementation)
+# Audit Report: tMemorizeRows / MemorizeRows
 
-> **Audited**: 2026-04-04
-> **Auditor**: Claude Opus 4.6 (automated)
+> **Audited**: 2026-04-04  
+> **Updated**: 2026-05-04 (implementation complete)  
+> **Auditor**: Claude Sonnet 4.6 (automated)  
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: PRODUCTION READINESS REVIEW
+> **Status**: GREEN
 > **V1 only** -- this report covers the v1 engine exclusively
 
 ---
@@ -16,20 +17,22 @@ What is this component and where does everything live?
 | Field | Value |
 | ------- | ------- |
 | **Talend Name** | `tMemorizeRows` |
-| **V1 Engine Class** | None -- no concrete engine implementation exists |
-| **Engine File** | No dedicated engine file |
+| **V1 Engine Class** | `MemorizeRows` |
+| **Engine File** | `src/v1/engine/components/transform/memorize_rows.py` |
 | **Converter Parser** | `src/converters/talend_to_v1/components/transform/memorize_rows.py` (113 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tMemorizeRows")` decorator-based dispatch |
-| **Registry Aliases** | `tMemorizeRows` (single alias) |
+| **Registry Aliases** | `MemorizeRows`, `tMemorizeRows` (REGISTRY decorator) |
 | **Category** | Transform / Row Memory |
 
 ### Key Files
 
 | File | Purpose |
 | ------ | --------- |
+| `src/v1/engine/components/transform/memorize_rows.py` | Engine implementation |
 | `src/converters/talend_to_v1/components/transform/memorize_rows.py` | Converter class `MemorizeRowsConverter` (113 lines) |
 | `tests/converters/talend_to_v1/components/test_memorize_rows.py` | Converter tests (34 tests, 10 classes) |
-| `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()`, `_build_component_dict()` |
+| `tests/v1/engine/components/transform/test_memorize_rows.py` | Engine tests (12 classes) |
+| `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class |
 | `src/converters/talend_to_v1/components/registry.py` | `ConverterRegistry` with decorator-based registration |
 
 ---
@@ -41,17 +44,25 @@ How production-ready is this component at a glance?
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 2 of 2 _java.xml unique params extracted (100%); ROW_COUNT as str per TEXT type; SPECIFY_COLS TABLE parsed; phantom RESET_ON_CONDITION and CONDITION removed; module docstring follows CONVERTER_PATTERN.md |
-| Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No concrete engine implementation exists; component cannot execute |
-| Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code quality is good (follows CONVERTER_PATTERN.md), but no engine code exists -- component is incomplete |
-| Performance & Memory | **N/A** | 0 | 0 | 0 | 0 | No engine implementation to assess |
-| Testing | **R** | 1 | 0 | 0 | 0 | 34 converter tests pass (10 classes per TEST_PATTERN.md), but 0 engine tests exist because engine is unimplemented |
+| Engine Feature Parity | **G** | 0 | 0 | 0 | 0 | Passthrough; row_count tail selection; specify_cols column filtering; globalMap `{id}_{col}_{offset}` variables published; missing offsets filled with None |
+| Code Quality | **G** | 0 | 0 | 0 | 0 | REGISTRY decorator; ConfigurationError raised; %-style logger; _update_stats(nb_line, nb_line, 0); all 12 authoring rules followed |
+| Performance & Memory | **G** | 0 | 0 | 0 | 1 | pandas tail() is O(1); globalMap put() per column × row_count; small overhead for large schemas |
+| Testing | **G** | 0 | 0 | 0 | 0 | 12 test classes: registration, validation, passthrough, globalMap single/multi row, specify_cols, all cols default, row_count text, invalid row_count, stats, fewer rows than count |
 
-**Overall: RED -- No engine implementation. Converter correctly extracts ROW_COUNT (as str), SPECIFY_COLS TABLE, and framework params for future engine support, but component cannot execute in production. Engine must be implemented before this component is usable.**
+**Overall: GREEN** -- Engine implemented with full Talend feature parity: passthrough, row_count tail selection, specify_cols filtering, globalMap variable publishing.
 
-**Top Actions**:
+**Implementation Notes (2026-05-04):**
 
-1. Implement concrete MemorizeRows engine class (P0 -- blocks production use)
-2. All converter and test issues resolved in v1.1 rewrite
+- Created `src/v1/engine/components/transform/memorize_rows.py` (`MemorizeRows` class)
+- `@REGISTRY.register("MemorizeRows", "tMemorizeRows")` added
+- Reads: `row_count` (TEXT str, coerced to int in `_process()` per Rule 12), `specify_cols` (list)
+- All input rows pass through unchanged as `main` output; `reject=None`
+- `tail_df = input_data.tail(row_count)` selects last N rows
+- globalMap key pattern: `f"{self.id}_{col}_{offset}"` (offset 0 = most recent row)
+- Missing offsets (fewer rows than row_count) filled with `None`
+- `row_count="0"` raises `ConfigurationError` (must be ≥1)
+- `specify_cols` filters via `memorize_it=True/False` flags aligned with DataFrame column order
+- Added to `src/v1/engine/components/transform/__init__.py`
 
 ---
 

@@ -31,7 +31,10 @@ from .swift_transformer import SwiftTransformer
 from .unite import Unite
 from .unpivot_row import UnpivotRow
 from .xml_map import XMLMap
+from .convert_type import ConvertType
 from .filter_columns import FilterColumns
+from .memorize_rows import MemorizeRows
+from .parse_record_set import ParseRecordSet
 
 __all__ = [
     'AggregateSortedRow',
@@ -64,5 +67,8 @@ __all__ = [
     'Unite',
     'UnpivotRow',
     'XMLMap',
-    'FilterColumns'
+    'ConvertType',
+    'FilterColumns',
+    'MemorizeRows',
+    'ParseRecordSet',
 ]

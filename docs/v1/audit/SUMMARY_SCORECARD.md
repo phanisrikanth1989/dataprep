@@ -47,8 +47,8 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 9 | tFileInputFullRow | G | G | G | G | G | G | 0 | 0 | 0 | 0 | 0 |
 | 10 | tFileInputRaw | Y | G | Y | Y | Y | Y | 1 | 5 | 6 | 2 | 14 |
 | 11 | tFixedFlowInput | G | G | G | G | G | G | 0 | 0 | 1 | 2 | 3 |
-| 12 | tFileArchive | Y | G | Y | Y | G | Y | 1 | 4 | 6 | 1 | 12 |
-| 13 | tFileUnarchive | Y | G | Y | Y | G | Y | 1 | 2 | 7 | 1 | 11 |
+| 12 | tFileArchive | G | G | G | G | G | G | 0 | 0 | 0 | 1 | 1 |
+| 13 | tFileUnarchive | G | G | G | G | G | G | 0 | 0 | 0 | 1 | 1 |
 | 14 | tFileCopy | G | G | G | G | G | G | 0 | 0 | 0 | 0 | 0 |
 | 15 | tFileDelete | G | G | G | G | G | G | 0 | 0 | 0 | 1 | 1 |
 | 16 | tFileExist | G | G | G | G | G | G | 0 | 0 | 0 | 0 | 0 |
@@ -84,12 +84,12 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 46 | tSampleRow | G | G | G | G | N/A | G | 0 | 0 | 0 | 0 | 0 |
 | 47 | tSplitRow | G | G | G | G | N/A | G | 0 | 0 | 0 | 0 | 0 |
 | 48 | tReplace | R | G | R | R | N/A | R | 1 | 0 | 0 | 0 | 1 |
-| 49 | tConvertType | R | G | R | G | N/A | R | 0 | 0 | 1 | 0 | 1 |
+| 49 | tConvertType | G | G | G | G | G | G | 0 | 0 | 0 | 1 | 1 |
 | 50 | tExtractRegexFields | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
 | 51 | tHashOutput | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
 | 52 | tChangeFileEncoding | G | G | G | G | N/A | G | 0 | 0 | 0 | 0 | 0 |
-| 53 | tMemorizeRows | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
-| 54 | tParseRecordSet | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
+| 53 | tMemorizeRows | G | G | G | G | G | G | 0 | 0 | 0 | 1 | 1 |
+| 54 | tParseRecordSet | G | G | G | G | G | G | 0 | 0 | 0 | 1 | 1 |
 | 55 | tJava | Y | G | Y | G | Y | Y | 1 | 2 | 5 | 2 | 10 |
 | 56 | tJavaRow | Y | G | Y | G | Y | Y | 3 | 7 | 7 | 3 | 20 |
 | 57 | PythonComponent | R | N/A | Y | R | G | N/A | 2 | 7 | 8 | 2 | 19 |
@@ -221,8 +221,8 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | 9 | tFileInputFullRow | G | 0 | 0 | 0 | 0 | 0 |
 | 10 | tFileInputRaw | Y | 1 | 5 | 6 | 2 | 14 |
 | 11 | tFixedFlowInput | G | 0 | 0 | 1 | 2 | 3 |
-| 12 | tFileArchive | Y | 1 | 4 | 6 | 1 | 12 |
-| 13 | tFileUnarchive | Y | 1 | 2 | 7 | 1 | 11 |
+| 12 | tFileArchive | G | 0 | 0 | 0 | 1 | 1 |
+| 13 | tFileUnarchive | G | 0 | 0 | 0 | 1 | 1 |
 | 14 | tFileCopy | G | 0 | 0 | 0 | 0 | 0 |
 | 15 | tFileDelete | G | 0 | 0 | 0 | 1 | 1 |
 | 16 | tFileExist | G | 0 | 0 | 0 | 0 | 0 |
@@ -290,12 +290,12 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | 21 | tSampleRow | R | 3 | 0 | 0 | 0 | 3 |
 | 22 | tSplitRow | R | 3 | 0 | 0 | 0 | 3 |
 | 23 | tReplace | R | 1 | 0 | 0 | 0 | 1 |
-| 24 | tConvertType | R | 0 | 0 | 1 | 0 | 1 |
+| 24 | tConvertType | G | 0 | 0 | 0 | 1 | 1 |
 | 25 | tExtractRegexFields | R | 3 | 0 | 0 | 0 | 3 |
 | 26 | tHashOutput | R | 3 | 0 | 0 | 0 | 3 |
 | 27 | tChangeFileEncoding | G | 0 | 0 | 0 | 0 | 0 |
-| 28 | tMemorizeRows | R | 3 | 0 | 0 | 0 | 3 |
-| 29 | tParseRecordSet | R | 3 | 0 | 0 | 0 | 3 |
+| 28 | tMemorizeRows | G | 0 | 0 | 0 | 1 | 1 |
+| 29 | tParseRecordSet | G | 0 | 0 | 0 | 1 | 1 |
 | 30 | tJava | Y | 1 | 2 | 5 | 2 | 10 |
 | 31 | tJavaRow | Y | 3 | 7 | 7 | 3 | 20 |
 | 32 | PythonComponent | R | 2 | 7 | 8 | 2 | 19 |

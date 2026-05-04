@@ -1,4 +1,5 @@
-from .file_archive import FileArchiveComponent
+from .file_archive import FileArchive  # registered as FileArchive / FileArchiveComponent / tFileArchive
+from .file_archive import FileArchive as FileArchiveComponent  # backward-compat alias
 
 from .file_copy import FileCopy
 from .file_delete import FileDelete
@@ -13,7 +14,8 @@ from .file_output_positional import FileOutputPositional
 from .file_row_count import FileRowCount
 from .file_touch import FileTouch
 from .file_properties import FileProperties
-from .file_unarchive import FileUnarchiveComponent
+from .file_unarchive import FileUnarchive  # registered as FileUnarchive / FileUnarchiveComponent / tFileUnarchive
+from .file_unarchive import FileUnarchive as FileUnarchiveComponent  # backward-compat alias
 from .fixed_flow_input import FixedFlowInputComponent
 
 from .file_output_excel import FileOutputExcel
@@ -22,6 +24,7 @@ from .file_input_json import FileInputJSON
 from .file_input_excel import FileInputExcel
 
 __all__ = [
+    'FileArchive',
     'FileArchiveComponent',
     'FileCopy',
     'FileDelete',
@@ -36,6 +39,7 @@ __all__ = [
     'FileRowCount',
     'FileProperties',
     'FileTouch',
+    'FileUnarchive',
     'FileUnarchiveComponent',
     'SetGlobalVar',
     'FileInputJSON',
