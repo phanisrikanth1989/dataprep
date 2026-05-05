@@ -969,30 +969,53 @@ class TestIterateAPIContract:
         in execution_stats and terminates early even though die_on_error=False.
         After CR-04 fix: iter_local_failed_bodies scopes the die_on_error check to
         the current iteration only -- stale stats are ignored.
-        """
-        items = [1, 2, 3]
-        exc = _make_iterate_executor(
-            iter_id="iter1",
-            body_comps=[
-                {"id": "body_a", "type": "StubComponent", "config": {"die_on_error": False}},
-            ],
-            items=items,
-        )
-        iter_comp = exc.components["iter1"]
-        body_a = exc.components["body_a"]
 
-        original_execute = body_a.execute
+        IMPORTANT: We patch _process (not execute) so that the full execute() lifecycle
+        runs, setting die_on_error=False from config before _process is called.
+        Patching execute() directly would prevent die_on_error from being set from config.
+        """
         call_count = [0]
 
-        def fail_first_then_ok(input_data=None):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                raise Exception("synthetic body_a error on iter 1")
-            return original_execute(input_data)
+        class FailFirstThenOkStub(StubComponent):
+            def _process(self, input_data=None):
+                call_count[0] += 1
+                if call_count[0] == 1:
+                    raise Exception("synthetic body_a error on iter 1")
+                return {"main": pd.DataFrame()}
 
-        body_a.execute = fail_first_then_ok
+        items = [1, 2, 3]
+        global_map = GlobalMap()
+        ctx = ContextManager(initial_context={"Default": {}})
+        iter_id = "iter1"
+        body_id = "body_a"
 
-        exc.execute_job()
+        iter_comp = IterateStubComponent(iter_id, {"items": items}, global_map, ctx)
+        iter_comp.config = copy.deepcopy(iter_comp._original_config)
+
+        body_comp = FailFirstThenOkStub(body_id, {"die_on_error": False}, global_map, ctx)
+        body_comp.config = copy.deepcopy(body_comp._original_config)
+        body_comp.inputs = []
+        body_comp.outputs = []
+
+        flows = [
+            {"name": f"iterate_{iter_id}_{body_id}", "from": iter_id, "to": body_id, "type": "iterate"},
+        ]
+        comps_config = [
+            {"id": iter_id, "type": "tFileList"},
+            {"id": body_id, "type": "Stub"},
+        ]
+        plan = ExecutionPlan(comps_config, flows, [], None)
+        router = OutputRouter(flows, comps_config)
+        trigger_manager = TriggerManager(global_map)
+        for sid in plan.all_subjob_ids:
+            sp = plan.get_subjob_plan(sid)
+            trigger_manager.register_subjob(sid, list(sp.component_ids))
+
+        executor = Executor(
+            {iter_id: iter_comp, body_id: body_comp},
+            plan, router, trigger_manager, global_map,
+        )
+        executor.execute_job()
 
         # All 3 iterations must have been attempted (stale error from iter 1 must not stop iter 2/3)
         assert iter_comp.stats.get("NB_LINE") == 3, (
