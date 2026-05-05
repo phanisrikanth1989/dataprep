@@ -804,3 +804,79 @@ class TestIterateComponentFlag:
         """FileList must set is_iterate_component=True for Executor branching."""
         comp = _make_file_list(config={"DIRECTORY": "/tmp"})
         assert comp.is_iterate_component is True
+
+
+# ------------------------------------------------------------------
+# Race condition: file deleted between walk and sort (CR-06 / 10-11)
+# ------------------------------------------------------------------
+
+@pytest.mark.unit
+class TestSortPathsRaceCondition:
+    """CR-06 gap closure: _sort_paths must not crash when a file is deleted mid-sort.
+
+    The p.exists()+p.stat() pattern is racy: a file can be deleted between the
+    exists check and the stat call. The fix wraps stat in try/except OSError and
+    returns a sort-stable default (0 for size, 0.0 for mtime).
+    """
+
+    def test_filesize_sort_survives_deleted_file(self, tmp_path, caplog):
+        """FILESIZE sort completes without exception when a file is removed mid-sort."""
+        import logging
+
+        # Create 3 real files
+        f1 = tmp_path / "alpha.txt"
+        f2 = tmp_path / "beta.txt"
+        f3 = tmp_path / "gamma.txt"
+        f1.write_text("aaaa")    # 4 bytes
+        f2.write_text("bb")      # 2 bytes
+        f3.write_text("ccccc")   # 5 bytes
+
+        paths = [f1, f2, f3]
+
+        # Simulate race: delete f2 BEFORE sort runs
+        f2.unlink()
+        assert not f2.exists(), "f2 must be deleted before the sort"
+
+        # Sort must complete without raising FileNotFoundError
+        with caplog.at_level(logging.WARNING):
+            result = FileList._sort_paths(paths, "ORDER_BY_FILESIZE", "ORDER_ACTION_ASC")
+
+        # No exception was raised -- result is a list
+        assert isinstance(result, list)
+        # Real files f1 (4 bytes) and f3 (5 bytes) are still in the list
+        assert f1 in result
+        assert f3 in result
+
+        # WARNING logged for the deleted file
+        assert any(
+            "beta.txt" in record.message or str(f2) in record.message
+            for record in caplog.records
+            if record.levelno == logging.WARNING
+        ), f"Expected WARNING about deleted file, got: {[r.message for r in caplog.records]}"
+
+    def test_modifieddate_sort_survives_deleted_file(self, tmp_path, caplog):
+        """MODIFIEDDATE sort completes without exception when a file is removed mid-sort."""
+        import logging
+
+        f1 = tmp_path / "x.csv"
+        f2 = tmp_path / "y.csv"
+        f1.write_text("data")
+        f2.write_text("more")
+
+        paths = [f1, f2]
+
+        # Delete f1 before sort
+        f1.unlink()
+
+        with caplog.at_level(logging.WARNING):
+            result = FileList._sort_paths(paths, "ORDER_BY_MODIFIEDDATE", "ORDER_ACTION_ASC")
+
+        assert isinstance(result, list)
+        assert f2 in result
+
+        # WARNING logged for deleted f1
+        assert any(
+            "x.csv" in record.message or str(f1) in record.message
+            for record in caplog.records
+            if record.levelno == logging.WARNING
+        ), f"Expected WARNING about deleted file, got: {[r.message for r in caplog.records]}"
