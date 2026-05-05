@@ -267,7 +267,7 @@ Plans:
 - [x] 10-03-PLAN.md -- tFileList engine component (16 params, 5 RETURN globalMap vars, glob/regex, sort, ERROR=true 0-match)
 - [x] 10-04-PLAN.md -- tFlowToIterate engine component + new iterate/ engine package (DEFAULT_MAP true/false, pd.NA handling)
 - [x] 10-05-PLAN.md -- Converter ENABLE_PARALLEL/NUMBER_PARALLEL extraction + engine_gap needs_review
-- [ ] 10-06-PLAN.md -- ASCII-only iterate logging infrastructure (4-tier, threshold-aware, D-H1..H7)
+- [x] 10-06-PLAN.md -- ASCII-only iterate logging infrastructure (4-tier, threshold-aware, D-H1..H7)
 - [ ] 10-07-PLAN.md -- Integration tests with both .item samples + @pytest.mark.java + coverage gate >=90%
 - [x] 10-08-PLAN.md -- tFileExist verify-only integration test (ITER-08, ITER-09, RUN_IF branching)
 
@@ -311,6 +311,6 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 7. Transform Group B -- Column, Join, Unite | 2/2 | Complete | 2026-04-15 |
 | 8. Code Components | 6/6 | Complete | 2026-04-29 |
 | 9. tContextLoad & Routines | 2/2 | Complete | - |
-| 10. Iterate Support | 6/8 | In Progress|  |
+| 10. Iterate Support | 7/8 | In Progress|  |
 | 11. Oracle Components | 0/TBD | Not started | - |
 | 12. Integration Testing & Performance | 0/TBD | Not started | - |
