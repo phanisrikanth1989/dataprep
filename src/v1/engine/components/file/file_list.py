@@ -315,6 +315,18 @@ class FileList(BaseIterateComponent):
         self.global_map.put(f"{self.id}_CURRENT_FILEEXTENSION", item.ext)
         self.global_map.put(f"{self.id}_NB_FILE", item.index)
 
+    def get_iter_key_info(self, item: "FileListItem", index: int) -> str:
+        """Return component-specific key info for per-iteration log lines (D-H3).
+
+        Args:
+            item: FileListItem for the current iteration.
+            index: 1-based iteration index.
+
+        Returns:
+            "file=<absolute path>" string for use in iteration log lines.
+        """
+        return f"file={item.path}"
+
     def finalize(self) -> None:
         """Set final statistics after all iterations complete.
 

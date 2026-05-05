@@ -217,6 +217,22 @@ class FlowToIterate(BaseIterateComponent):
                 self.global_map.put(key, safe_value)
 
     # ------------------------------------------------------------------
+    # Logging hook (D-H3) -- component-specific key info for iteration log lines
+    # ------------------------------------------------------------------
+
+    def get_iter_key_info(self, item: "FlowToIterateItem", index: int) -> str:
+        """Return component-specific key info for per-iteration log lines (D-H3).
+
+        Args:
+            item: FlowToIterateItem for the current iteration.
+            index: 1-based iteration index.
+
+        Returns:
+            "row_index=<index>" string for use in iteration log lines.
+        """
+        return f"row_index={index}"
+
+    # ------------------------------------------------------------------
     # Hook 9: finalize -- set NB_LINE stats
     # ------------------------------------------------------------------
 

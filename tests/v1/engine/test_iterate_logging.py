@@ -152,6 +152,17 @@ class TestGetIterKeyInfo:
         assert comp.get_iter_key_info(item, 3) == "row_index=3"
 
     def test_default_returns_index(self):
+        from collections.abc import Iterator
         from src.v1.engine.base_iterate_component import BaseIterateComponent
-        comp = object.__new__(BaseIterateComponent)
+
+        # Create a minimal concrete subclass to test the default hook
+        class _ConcreteIter(BaseIterateComponent):
+            def _validate_config(self):
+                pass
+            def prepare_iterations(self, input_data=None) -> Iterator:
+                return iter([])
+            def set_iteration_globalmap(self, item):
+                pass
+
+        comp = object.__new__(_ConcreteIter)
         assert comp.get_iter_key_info(object(), 7) == "index=7"

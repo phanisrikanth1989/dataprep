@@ -344,6 +344,29 @@ class BaseIterateComponent(BaseComponent):
         self.stats["NB_LINE_REJECT"] += iteration_stats.get("NB_LINE_REJECT", 0)
 
     # ------------------------------------------------------------------
+    # Logging hook (D-H3) -- override in subclasses for component-specific info
+    # ------------------------------------------------------------------
+
+    def get_iter_key_info(self, item: Any, index: int) -> str:
+        """Return a short key-info string for per-iteration log lines (D-H3).
+
+        Called by the Executor (via iterate_logging.log_iteration_progress) to
+        populate the key_info field in the D-H3 per-iteration log line.
+
+        Default implementation returns "index=<index>". Subclasses override to
+        provide component-specific information (e.g. FileList returns
+        "file=<path>", FlowToIterate returns "row_index=<index>").
+
+        Args:
+            item: The current iteration item (type varies by subclass).
+            index: 1-based iteration index.
+
+        Returns:
+            A short ASCII-only string describing the current iteration.
+        """
+        return f"index={index}"
+
+    # ------------------------------------------------------------------
     # finalize_iterations -- backward-compat synonym for finalize()
     # ------------------------------------------------------------------
 
