@@ -917,3 +917,85 @@ class TestPartialIterateOnDieOnError:
         assert iter_comp_ref.stats["NB_LINE"] == 3
         assert iter_comp_ref.stats["NB_LINE_OK"] == 2
         assert iter_comp_ref.stats["NB_LINE_REJECT"] == 1
+
+
+# ---------------------------------------------------------------------------
+# CR-02 + CR-03 + CR-04 API contract tests
+# ---------------------------------------------------------------------------
+
+class TestIterateAPIContract:
+    """Prove CR-02, CR-03, and CR-04 gap-closure fixes.
+
+    CR-02: current_iteration_index advances per iteration (executor uses
+           has_next_iteration/get_next_iteration_context public API).
+    CR-03: on_iteration_error is removed (Hook 8 was unreachable because
+           _execute_component uses errors-as-statuses, not re-raises).
+    CR-04: stale 'error' status from iteration N does not cause spurious
+           die_on_error termination in iteration N+1.
+    """
+
+    def test_current_iteration_index_advances(self):
+        """CR-02 fix: current_iteration_index equals number of completed iterations."""
+        items = ["a", "b", "c"]
+        # Build a 3-item iterate executor using existing _make_iterate_executor helper
+        exc = _make_iterate_executor(
+            iter_id="iter1",
+            body_comps=[{"id": "body1", "type": "StubComponent", "config": {}}],
+            items=items,
+        )
+        iter_comp = exc.components["iter1"]
+        # Execute the job (which runs the iterate loop)
+        exc.execute_job()
+        # After 3 items, current_iteration_index must equal 3
+        assert iter_comp.current_iteration_index == 3, (
+            f"Expected current_iteration_index=3, got {iter_comp.current_iteration_index}. "
+            "CR-02: executor must drive loop via has_next_iteration/get_next_iteration_context."
+        )
+
+    def test_on_iteration_error_removed(self):
+        """CR-03 fix: on_iteration_error is not present on BaseIterateComponent subclasses."""
+        assert not hasattr(BaseIterateComponent, "on_iteration_error"), (
+            "on_iteration_error must be removed (CR-03): Hook 8 was unreachable "
+            "because _execute_component uses errors-as-statuses, not re-raises."
+        )
+
+    def test_stale_stats_do_not_trigger_die_on_error(self):
+        """CR-04 fix: stale 'error' status from iter N does not cause early termination in iter N+1.
+
+        Setup: 3 iterations. Body has one component (body_a, die_on_error=False).
+        body_a fails only on iteration 1. Iterations 2 and 3 must still complete.
+
+        Before CR-04 fix: iteration 2 check sees stale 'error' for body_a from iter 1
+        in execution_stats and terminates early even though die_on_error=False.
+        After CR-04 fix: iter_local_failed_bodies scopes the die_on_error check to
+        the current iteration only -- stale stats are ignored.
+        """
+        items = [1, 2, 3]
+        exc = _make_iterate_executor(
+            iter_id="iter1",
+            body_comps=[
+                {"id": "body_a", "type": "StubComponent", "config": {"die_on_error": False}},
+            ],
+            items=items,
+        )
+        iter_comp = exc.components["iter1"]
+        body_a = exc.components["body_a"]
+
+        original_execute = body_a.execute
+        call_count = [0]
+
+        def fail_first_then_ok(input_data=None):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise Exception("synthetic body_a error on iter 1")
+            return original_execute(input_data)
+
+        body_a.execute = fail_first_then_ok
+
+        exc.execute_job()
+
+        # All 3 iterations must have been attempted (stale error from iter 1 must not stop iter 2/3)
+        assert iter_comp.stats.get("NB_LINE") == 3, (
+            f"Expected NB_LINE=3 (all iterations attempted), got {iter_comp.stats.get('NB_LINE')}. "
+            "CR-04: stale execution_stats from iter N must not cause die_on_error check to fire in iter N+1."
+        )
