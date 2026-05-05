@@ -343,38 +343,44 @@ class Executor:
             # D-H1: iterate-start log
             log_iterate_start(cid, total_hint, len(body_plan.component_ids))
 
-            for index, item in enumerate(iter_component.iteration_iter, start=1):
+            while iter_component.has_next_iteration():
+                ctx = iter_component.get_next_iteration_context()
+                if not ctx:
+                    break
+                item = ctx["item"]
+                index = ctx["index"]
+
                 # Hook 3: should_stop (D-A5.3)
                 if iter_component.should_stop(item, index):
                     break
 
                 # Hook 4: before_iteration (D-A5.4)
                 iter_component.before_iteration(item, index)
-
-                # Set CURRENT_ITERATION before body runs (D-F5)
-                self.global_map.put(f"{cid}_CURRENT_ITERATION", index)
-
-                # Hook 5: set_iteration_globalmap (D-A5.5)
-                iter_component.set_iteration_globalmap(item)
+                # Note: set_iteration_globalmap and _CURRENT_ITERATION key-write are done
+                # inside get_next_iteration_context() -- do not call them again here.
 
                 # Run the body subjob plan
                 t0 = time.time()
                 iter_count_attempted += 1
                 body_failed = False
 
-                try:
-                    body_result = self._execute_subjob_plan(body_plan)
-                    if body_result == "error":
-                        body_failed = True
-                except ComponentExecutionError as e:
-                    exit_code = getattr(e, "exit_code", None)
-                    if exit_code is not None:
-                        # tDie inside body -> kill entire job (D-E5)
-                        raise
+                # Snapshot pre-iteration stats to detect which bodies fail THIS iteration (CR-04)
+                pre_iter_stats = {
+                    bid: self.execution_stats.get(bid, {}).get("status")
+                    for bid in body_plan.component_ids
+                }
+
+                body_result = self._execute_subjob_plan(body_plan)
+                if body_result == "error":
                     body_failed = True
-                    # Hook 8: on_iteration_error (D-A5.8)
-                    if not iter_component.on_iteration_error(item, index, e):
-                        raise
+
+                # Collect body IDs whose status changed to "error" in THIS iteration only
+                iter_local_failed_bodies = {
+                    bid
+                    for bid in body_plan.component_ids
+                    if self.execution_stats.get(bid, {}).get("status") == "error"
+                    and pre_iter_stats.get(bid) != "error"
+                }
 
                 iter_time = time.time() - t0
                 iter_times.append(iter_time)
@@ -415,7 +421,7 @@ class Executor:
                     iter_count_err += 1
                     # Check if any failed body component has die_on_error=True (D-E6)
                     # If so, stop the iterate loop after draining this iteration's rejects
-                    if self._any_body_die_on_error(body_plan):
+                    if self._any_body_die_on_error(body_plan, iter_local_failed_bodies):
                         # Reset body state before breaking
                         for body_id in body_plan.component_ids:
                             if body_id in self.components:
@@ -477,23 +483,29 @@ class Executor:
         # Mark iterate-source completed; trigger firing happens in caller (_execute_subjob_plan)
         self.executed_components.add(cid)
 
-    def _any_body_die_on_error(self, body_plan: SubjobPlan) -> bool:
-        """Check if any failed body component has die_on_error=True.
+    def _any_body_die_on_error(
+        self, body_plan: SubjobPlan, iter_failed_bodies: set[str] | None = None
+    ) -> bool:
+        """Check if any body component that failed THIS iteration has die_on_error=True.
 
-        Used to decide whether to break the iterate loop early (D-E6).
+        Uses iter_failed_bodies (IDs that changed to 'error' this iteration) to avoid
+        reading stale execution_stats from prior iterations (CR-04).
 
         Args:
             body_plan: The body subgraph plan.
+            iter_failed_bodies: Set of body component IDs that failed in the current
+                iteration. If None, falls back to checking all body component IDs
+                (legacy behavior -- only safe if called for the first iteration).
 
         Returns:
-            True if any failed body component has die_on_error=True.
+            True if any of the iteration-local failed components has die_on_error=True.
         """
-        for body_id in body_plan.component_ids:
+        check_ids = iter_failed_bodies if iter_failed_bodies is not None else set(body_plan.component_ids)
+        for body_id in check_ids:
             comp = self.components.get(body_id)
             if comp is None:
                 continue
-            comp_stats = self.execution_stats.get(body_id, {})
-            if comp_stats.get("status") == "error" and getattr(comp, "die_on_error", False):
+            if getattr(comp, "die_on_error", False):
                 return True
         return False
 
