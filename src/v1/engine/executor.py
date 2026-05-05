@@ -19,9 +19,11 @@ import time
 from collections import deque
 from typing import Any
 
+import pandas as pd
+
 from .base_component import BaseComponent, ComponentStatus
 from .exceptions import ComponentExecutionError, ConfigurationError
-from .execution_plan import ExecutionPlan
+from .execution_plan import ExecutionPlan, SubjobPlan
 from .output_router import OutputRouter
 from .trigger_manager import TriggerManager
 from .global_map import GlobalMap
@@ -77,6 +79,9 @@ class Executor:
 
         # Incrementally tracked set of completed subjobs (WR-01)
         self._executed_subjobs: set[str] = set()
+
+        # Iterate stack depth for nested-iterate prevention (D-A6, Phase 10)
+        self._current_iterate_depth: int = 0
 
     # ------------------------------------------------------------------
     # Main entry point
@@ -173,8 +178,8 @@ class Executor:
     def _execute_subjob(self, subjob_id: str) -> str:
         """Execute all components in a subjob in topological order.
 
-        This is THE building block that Phase 10 iterate support will call
-        in a loop per iteration item.
+        Looks up the SubjobPlan from ExecutionPlan, delegates to
+        _execute_subjob_plan, then records completion.
 
         Args:
             subjob_id: The subjob identifier.
@@ -183,9 +188,37 @@ class Executor:
             'success' if all components passed, 'error' otherwise.
         """
         subjob_plan = self.execution_plan.get_subjob_plan(subjob_id)
+        result = self._execute_subjob_plan(subjob_plan)
+        self._executed_subjobs.add(subjob_id)
+        return result
+
+    def _execute_subjob_plan(self, subjob_plan: SubjobPlan) -> str:
+        """Execute a SubjobPlan directly.
+
+        This is THE building block that Phase 10 iterate support calls in a
+        loop per iteration item. Per-component status, trigger firing, and
+        cross-subjob flow cleanup all live here.
+
+        Args:
+            subjob_plan: The SubjobPlan to execute.
+
+        Returns:
+            'success' if all components passed, 'error' otherwise.
+        """
         subjob_failed = False
 
+        # Track which components were added to executed_components by iterate body loops
+        # so we can skip them when the outer subjob loop reaches them.
+        body_components_executed_by_iterate: set[str] = set()
+
         for comp_id in subjob_plan.component_ids:
+            # Skip body components already executed inside an iterate body loop
+            if comp_id in body_components_executed_by_iterate:
+                logger.debug(
+                    "Skipping %s in subjob loop -- already executed by iterate body", comp_id
+                )
+                continue
+
             # Skip components not in our registry (unknown types)
             if comp_id not in self.components:
                 logger.warning("Component %s not in components dict, skipping", comp_id)
@@ -203,6 +236,26 @@ class Executor:
 
             # Execute the component
             comp_result = self._execute_component(comp_id)
+
+            # Iterate branch: if this is an iterate component, drive the body loop
+            if comp_result == "success":
+                component = self.components.get(comp_id)
+                if component is not None and getattr(component, "is_iterate_component", False):
+                    try:
+                        body_plan = self.execution_plan.get_iterate_body_plan(comp_id)
+                    except KeyError:
+                        body_plan = None
+                    if body_plan is not None:
+                        self._execute_iterate_body(component, body_plan)
+                        # Body components are now considered executed for trigger evaluation;
+                        # track them so the outer loop skips them.
+                        for body_id in body_plan.component_ids:
+                            self.executed_components.add(body_id)
+                            body_components_executed_by_iterate.add(body_id)
+                            # Mark as success in trigger_manager so OnSubjobOk can fire
+                            # for the parent subjob (body may not have run if 0 iterations)
+                            if body_id not in self.trigger_manager.component_status:
+                                self.trigger_manager.set_component_status(body_id, "success")
 
             if comp_result == "error":
                 # Check die_on_error from resolved config (set during component.execute())
@@ -237,10 +290,215 @@ class Executor:
             subjob_plan.component_set, self.executed_components
         )
 
-        # Track completion incrementally (WR-01)
-        self._executed_subjobs.add(subjob_id)
-
         return "error" if subjob_failed else "success"
+
+    # ------------------------------------------------------------------
+    # Iterate body execution (Phase 10)
+    # ------------------------------------------------------------------
+
+    def _execute_iterate_body(self, iter_component: Any, body_plan: SubjobPlan) -> None:
+        """Run the body subgraph once per iteration item produced by the iterate component.
+
+        Updates iter_component.stats with cumulative counts and per-iter timing.
+        Accumulates body REJECT flows into a buffer and routes them as the iterate
+        component's reject output at completion (D-D4).
+
+        Body component triggers fire per iteration (D-C1). Triggers OUT OF the
+        iterate source fire exactly once after all iterations -- handled by the
+        caller's trigger-firing logic after this method returns (D-C2).
+
+        Args:
+            iter_component: The iterate component (BaseIterateComponent subclass).
+                execute() has already been called -- prepare_iterations/iteration_iter ready.
+            body_plan: Pre-computed body SubjobPlan from ExecutionPlan.
+        """
+        cid = iter_component.id
+        body_component_set = body_plan.component_set
+        reject_buffer: list[pd.DataFrame] = []
+
+        iter_count_attempted = 0
+        iter_count_ok = 0
+        iter_count_err = 0
+        iter_times: list[float] = []
+        iter_start_total = time.time()
+
+        # Scope mechanism: track depth (D-A6)
+        iter_component._iterate_depth = self._current_iterate_depth + 1
+        self._current_iterate_depth += 1
+
+        try:
+            total_hint = iter_component.total_iterations
+            logger.info(
+                "[%s] Starting iterate: %d items, %d components in body",
+                cid, total_hint, len(body_plan.component_ids),
+            )
+
+            for index, item in enumerate(iter_component.iteration_iter, start=1):
+                # Hook 3: should_stop (D-A5.3)
+                if iter_component.should_stop(item, index):
+                    break
+
+                # Hook 4: before_iteration (D-A5.4)
+                iter_component.before_iteration(item, index)
+
+                # Set CURRENT_ITERATION before body runs (D-F5)
+                self.global_map.put(f"{cid}_CURRENT_ITERATION", index)
+
+                # Hook 5: set_iteration_globalmap (D-A5.5)
+                iter_component.set_iteration_globalmap(item)
+
+                # Per-iteration logging placeholder (D-H3; full logging in Phase 10-06)
+                logger.debug("[%s] Iteration %d of %d", cid, index, total_hint)
+
+                # Run the body subjob plan
+                t0 = time.time()
+                iter_count_attempted += 1
+                body_failed = False
+
+                try:
+                    body_result = self._execute_subjob_plan(body_plan)
+                    if body_result == "error":
+                        body_failed = True
+                except ComponentExecutionError as e:
+                    exit_code = getattr(e, "exit_code", None)
+                    if exit_code is not None:
+                        # tDie inside body -> kill entire job (D-E5)
+                        raise
+                    body_failed = True
+                    # Hook 8: on_iteration_error (D-A5.8)
+                    if not iter_component.on_iteration_error(item, index, e):
+                        raise
+
+                iter_time = time.time() - t0
+                iter_times.append(iter_time)
+
+                # Drain body REJECT flows for this iteration
+                iter_rejects = self.output_router.drain_reject_flows(body_component_set)
+                for rej_df in iter_rejects.values():
+                    if rej_df is not None and not rej_df.empty:
+                        reject_buffer.append(rej_df)
+
+                # Hook 7: after_iteration (D-A5.7)
+                body_stats = self._snapshot_body_stats(body_plan)
+                iter_component.after_iteration(item, index, body_stats=body_stats)
+
+                if body_failed:
+                    iter_count_err += 1
+                    # Check if any failed body component has die_on_error=True (D-E6)
+                    # If so, stop the iterate loop after draining this iteration's rejects
+                    if self._any_body_die_on_error(body_plan):
+                        # Reset body state before breaking
+                        for body_id in body_plan.component_ids:
+                            if body_id in self.components:
+                                self.components[body_id].reset()
+                            self.executed_components.discard(body_id)
+                        self.output_router.clear_partial_subjob_flows(
+                            body_component_set, self.executed_components
+                        )
+                        break
+                else:
+                    iter_count_ok += 1
+
+                # Reset body components for next iteration (EXEC-05, D-I1)
+                for body_id in body_plan.component_ids:
+                    if body_id in self.components:
+                        self.components[body_id].reset()
+                    # Remove from executed_components so they re-execute next iter
+                    self.executed_components.discard(body_id)
+
+                # Clear body data flows (partial clear preserving cross-subjob consumers)
+                self.output_router.clear_partial_subjob_flows(
+                    body_component_set, self.executed_components
+                )
+
+                # Check for tDie termination
+                if self._job_terminated:
+                    break
+
+            # Hook 9: finalize (D-A5.9) -- called even on early stop
+            iter_component.finalize()
+
+        finally:
+            self._current_iterate_depth -= 1
+
+        # Iterate-end log (D-H2)
+        total_elapsed = time.time() - iter_start_total
+        logger.info(
+            "[%s] Iterate complete: %d OK, %d errors, total elapsed=%.2fs",
+            cid, iter_count_ok, iter_count_err, total_elapsed,
+        )
+
+        # Build iterate component's final stats (D-D1, D-D2)
+        iter_component.stats["NB_LINE"] = iter_count_attempted
+        iter_component.stats["NB_LINE_OK"] = iter_count_ok
+        iter_component.stats["NB_LINE_REJECT"] = iter_count_err
+        if iter_times:
+            iter_component.stats["total_iter_time"] = sum(iter_times)
+            iter_component.stats["avg_iter_time"] = sum(iter_times) / len(iter_times)
+            iter_component.stats["slowest_iter_time"] = max(iter_times)
+            iter_component.stats["fastest_iter_time"] = min(iter_times)
+            iter_component.stats["slowest_iter_index"] = iter_times.index(max(iter_times)) + 1
+            iter_component.stats["fastest_iter_index"] = iter_times.index(min(iter_times)) + 1
+
+        # Concat REJECT buffer and route as iterate component's reject output
+        if reject_buffer:
+            accumulated_reject = pd.concat(reject_buffer, ignore_index=True)
+            self.output_router.route_outputs(cid, {"reject": accumulated_reject})
+
+        # Update globalMap (NB_LINE etc.)
+        iter_component._update_global_map()
+
+        # Mark iterate-source completed; trigger firing happens in caller (_execute_subjob_plan)
+        self.executed_components.add(cid)
+
+    def _any_body_die_on_error(self, body_plan: SubjobPlan) -> bool:
+        """Check if any failed body component has die_on_error=True.
+
+        Used to decide whether to break the iterate loop early (D-E6).
+
+        Args:
+            body_plan: The body subgraph plan.
+
+        Returns:
+            True if any failed body component has die_on_error=True.
+        """
+        for body_id in body_plan.component_ids:
+            comp = self.components.get(body_id)
+            if comp is None:
+                continue
+            comp_stats = self.execution_stats.get(body_id, {})
+            if comp_stats.get("status") == "error" and getattr(comp, "die_on_error", False):
+                return True
+        return False
+
+    def _snapshot_body_stats(self, body_plan: SubjobPlan) -> dict:
+        """Capture a point-in-time snapshot of body component stats.
+
+        Args:
+            body_plan: The body subgraph plan.
+
+        Returns:
+            dict mapping comp_id to its current execution_stats entry.
+        """
+        return {
+            bid: dict(self.execution_stats.get(bid, {}))
+            for bid in body_plan.component_ids
+        }
+
+    def _log_iteration_progress(
+        self,
+        iter_component: Any,
+        index: int,
+        total_hint: int,
+    ) -> None:
+        """Log per-iteration progress. Placeholder for Phase 10-06 full logging.
+
+        Args:
+            iter_component: The iterate component.
+            index: 1-based iteration index.
+            total_hint: Total expected iterations (-1 if unbounded).
+        """
+        logger.debug("[%s] Iteration %d / %d", iter_component.id, index, total_hint)
 
     # ------------------------------------------------------------------
     # Component execution
