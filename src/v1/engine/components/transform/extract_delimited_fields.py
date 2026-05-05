@@ -1,261 +1,222 @@
-"""
-ExtractDelimitedFields - Extracts fields from a delimited string based on configuration.
+"""ExtractDelimitedFields engine component.
 
 Talend equivalent: tExtractDelimitedFields
 
-This component splits a delimited string field into multiple output columns
-based on the specified field separator. Supports advanced number formatting,
-field validation, and flexible schema mapping.
+Splits a single delimited source column into multiple output columns by
+index position.  The extraction is **position-based**: token[0] goes to
+the first output-schema column that is absent from the input DataFrame,
+token[1] to the second, and so on.  Column names are irrelevant; only
+schema position matters.
+
+Config keys (all resolved by BaseComponent before _process is called):
+    field               (str,  required)       -- source column to split
+    fieldseparator      (str,  default ";")    -- delimiter character
+    ignore_source_null  (bool, default True)   -- skip null source rows
+    die_on_error        (bool, default False)  -- raise on row error vs REJECT
+    advanced_separator  (bool, default False)  -- numeric separator conversion
+    thousands_separator (str,  default ",")   -- thousands sep (adv. mode)
+    decimal_separator   (str,  default ".")   -- decimal sep (adv. mode)
+    trim                (bool, default False)  -- strip whitespace from tokens
+    check_fields_num    (bool, default False)  -- reject on token count mismatch
+    check_date          (bool, default False)  -- validate date columns (stub)
+    tstatcatcher_stats  (bool, default False) -- framework
+    label               (str,  default "")   -- framework
+
+GlobalMap variables set:
+    NB_LINE / NB_LINE_OK / NB_LINE_REJECT via _update_stats()
 """
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import pandas as pd
 
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
+from ...exceptions import ConfigurationError, DataValidationError
 
 logger = logging.getLogger(__name__)
 
+# Talend type identifiers for numeric columns (advanced_separator applies to these)
+_NUMERIC_TYPES = frozenset({
+    "id_Integer", "id_Float", "id_Double", "id_Long",
+    "id_Short", "id_BigDecimal", "id_Byte",
+})
 
+
+@REGISTRY.register("ExtractDelimitedFields", "tExtractDelimitedFields")
 class ExtractDelimitedFields(BaseComponent):
-    """
-    Extracts fields from a delimited string based on the specified configuration.
+    """Splits a delimited source column into multiple output columns by position.
 
-    This component takes a source field containing delimited values and splits
-    it into multiple output columns based on positional mapping. Supports
-    advanced number formatting, field trimming, and validation options.
-
-    Configuration:
-        field (str): The source field to extract from. Required.
-        field_separator (str): The delimiter used to split the field. Default: ','
-        ignore_source_null (bool): Whether to ignore null values in the source field. Default: True
-        die_on_error (bool): Whether to stop execution on error. Default: False
-        advanced_separator (bool): Whether to use advanced separators for numbers. Default: False
-        thousands_separator (str): The thousands separator for numbers. Default: ','
-        decimal_separator (str): The decimal separator for numbers. Default: '.'
-        trim (bool): Whether to trim whitespace from extracted fields. Default: False
-        check_fields_num (bool): Whether to validate the number of fields. Default: False
-        check_date (bool): Whether to validate data fields. Default: False
-        schema (list): Output schema (list of dicts with column names/types).
-
-    Inputs:
-        main: A DataFrame containing the input data.
-
-    Outputs:
-        main: A DataFrame with extracted fields expanded into columns.
-        reject: A DataFrame with rejected rows (if applicable).
-
-    Statistics:
-        NB_LINE: Total rows processed
-        NB_LINE_OK: Rows successfully processed
-        NB_LINE_REJECT: Rows rejected due to errors
-
-    Example configuration:
-        {
-            "field": "product",
-            "field_separator": ",",
-            "ignore_source_null": true,
-            "die_on_error": false,
-            "advanced_separator": false,
-            "thousands_separator": ",",
-            "decimal_separator": ".",
-            "trim": false,
-            "check_fields_num": false,
-            "check_date": false,
-            "schema": [
-                {"name": "id", "type": "id_String"},
-                {"name": "name", "type": "id_String"},
-                {"name": "product", "type": "id_String"},
-                {"name": "product1", "type": "id_String"},
-                {"name": "product2", "type": "id_String"},
-                {"name": "product3", "type": "id_String"}
-            ]
-        }
-
-    Notes:
-        - Field names are matched case-insensitively
-        - Output columns are determined by schema configuration
-        - Extracted fields are mapped by position (field1, field2, etc.)
-        - Original source field is preserved in output
+    The source column (named by ``field``) is split by ``fieldseparator``.
+    Extracted output columns are those in ``output_schema`` that are *not*
+    already present in the input DataFrame; they receive split tokens in
+    schema order.  Passthrough columns are copied from the input row.
     """
 
-    # Class constants for default values
-    DEFAULT_FIELD_SEPARATOR = ','
-    DEFAULT_THOUSANDS_SEPARATOR = ','
-    DEFAULT_DECIMAL_SEPARATOR = '.'
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
 
-    def _validate_config(self) -> List[str]:
-        """
-        Validate component configuration.
-
-        Returns:
-            List of error messages (empty if valid)
-        """
-        errors = []
-
-        # Required field validation
-        if 'field' not in self.config:
-            errors.append("Missing required config: 'field'")
-        elif not self.config.get('field'):
-            errors.append("Config 'field' cannot be empty")
-
-        # Optional field validation (type checks only)
-        if 'field_separator' in self.config:
-            field_sep = self.config['field_separator']
-            if not isinstance(field_sep, str):
-                errors.append("Config 'field_separator' must be a string")
-
-        return errors
+    def _validate_config(self) -> None:
+        """Check key presence and container types only (Rule 12)."""
+        if "field" not in self.config:
+            raise ConfigurationError(
+                f"[{self.id}] Missing required config key 'field'"
+            )
+        for bool_key, default in (
+            ("ignore_source_null", True),
+            ("die_on_error", False),
+            ("advanced_separator", False),
+            ("trim", False),
+            ("check_fields_num", False),
+            ("check_date", False),
+        ):
+            val = self.config.get(bool_key, default)
+            if not isinstance(val, bool):
+                raise ConfigurationError(
+                    f"[{self.id}] Config '{bool_key}' must be a boolean"
+                )
 
     def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
-        """
-        Process input data and extract delimited fields.
-
-        Splits the configured source field using the specified delimiter and maps
-        the resulting values to output columns based on positional indexing.
+        """Split source column and assign tokens to output columns by position.
 
         Args:
-            input_data: Input DataFrame. If None or empty, returns empty result.
+            input_data: Input DataFrame.
 
         Returns:
-            Dictionary containing:
-                - 'main': Processed DataFrame with extracted fields
-                - 'reject': Rejected rows DataFrame (if errors occurred)
-
-        Raises:
-            ValueError: If source field is null and ignore_source_null is False
-            Exception: Re-raised if die_on_error is True
+            Dict with ``main`` (processed rows DataFrame) and
+            ``reject`` (failed rows DataFrame).
         """
         if input_data is None or input_data.empty:
-            logger.warning(f"[{self.id}] Empty input received")
             self._update_stats(0, 0, 0)
-            return {'main': pd.DataFrame(), 'reject': pd.DataFrame()}
+            return {"main": pd.DataFrame(), "reject": pd.DataFrame()}
+
+        # ---- resolved config ----
+        field = self.config.get("field", "")
+        separator = self.config.get("fieldseparator", ";")
+        ignore_source_null = self.config.get("ignore_source_null", True)
+        die_on_error = self.config.get("die_on_error", False)
+        advanced_sep = self.config.get("advanced_separator", False)
+        thousands_sep = self.config.get("thousands_separator", ",")
+        decimal_sep = self.config.get("decimal_separator", ".")
+        trim = self.config.get("trim", False)
+        check_fields_num = self.config.get("check_fields_num", False)
+
+        # ---- content-validate (Rule 12: deferred to _process) ----
+        if not field:
+            raise DataValidationError(
+                f"[{self.id}] Config 'field' is empty -- no source column to split"
+            )
+        if field not in input_data.columns:
+            raise DataValidationError(
+                f"[{self.id}] Source column {field!r} not found in input DataFrame"
+            )
+
+        # Strip surrounding quotes from separator (Talend may emit e.g. \",\")
+        sep = separator.strip('"').strip("'") if separator else ";"
+
+        # ---- determine extracted vs passthrough columns ----
+        output_schema = getattr(self, "output_schema", None) or []
+        input_col_set = set(input_data.columns.tolist())
+
+        if output_schema:
+            all_out_cols = [c["name"] for c in output_schema]
+            extracted_info = [
+                (c["name"], c.get("type", ""))
+                for c in output_schema
+                if c["name"] not in input_col_set
+            ]
+        else:
+            all_out_cols = list(input_data.columns)
+            extracted_info = []
+
+        extracted_col_names = [name for name, _ in extracted_info]
+        extracted_col_types = [typ for _, typ in extracted_info]
+        num_extracted = len(extracted_col_names)
 
         rows_in = len(input_data)
-        logger.info(f"[{self.id}] Processing started: {rows_in} rows")
+        main_rows: list = []
+        reject_rows: list = []
 
-        field = self.config.get('field', '')
-        field_separator = self.config.get('field_separator', self.DEFAULT_FIELD_SEPARATOR)
-        ignore_source_null = self.config.get('ignore_source_null', True)
-        die_on_error = self.config.get('die_on_error', False)
-        advanced_separator = self.config.get('advanced_separator', False)
-        thousands_separator = self.config.get('thousands_separator', self.DEFAULT_THOUSANDS_SEPARATOR)
-        decimal_separator = self.config.get('decimal_separator', self.DEFAULT_DECIMAL_SEPARATOR)
-        trim = self.config.get('trim', False)
-        check_fields_num = self.config.get('check_fields_num', False)
-        check_date = self.config.get('check_date', False)
-        # Use output_schema as the primary schema source, fallback to config
-        schema = self.output_schema or self.config.get('schema', [])
+        for _, row in input_data.iterrows():
+            value = row[field]
 
-        # Debug: Print schema and config at the start
-        logger.debug(f"[ExtractDelimitedFields] schema: {schema}")
-        logger.debug(f"[ExtractDelimitedFields] config field: {field}, field_separator: {field_separator}")
-        # Remove quotes from field_separator if present (e.g. "," -> ,)
-        if field_separator.startswith('"') and field_separator.endswith('"'):
-            field_separator = field_separator[1:-1]
-        # Make output_columns and extracted_columns case-insensitive
-        output_columns = [col['name'] for col in schema if col['name'].lower() != field.lower()]
-        extracted_columns = [col for col in output_columns if col.lower().startswith(field.lower())]
-        logger.debug(f"[ExtractDelimitedFields] output_columns: {output_columns}")
-        logger.debug(f"[ExtractDelimitedFields] extracted_columns: {extracted_columns}")
-
-        main_rows = []
-        reject_rows = []
-
-        for idx, row in input_data.iterrows():
+            # ---- null handling ----
             try:
-                # Case-insensitive field lookup
-                field_lookup = {str(k).lower(): k for k in row.index}
-                actual_field = field_lookup.get(field.lower(), field)
-                value = row.get(actual_field, None)
-                if value is None:
-                    if ignore_source_null:
-                        continue
-                    else:
-                        raise ValueError("Source field is null")
+                is_null = pd.isna(value)
+            except (TypeError, ValueError):
+                is_null = False
 
-                # Split using the field separator
-                fields = str(value).split(field_separator)
-                if trim:
-                    fields = [f.strip() for f in fields]
+            if is_null:
+                if ignore_source_null:
+                    logger.debug("[%s] Skipping null source row", self.id)
+                    continue
+                reject_row = dict(row)
+                reject_row["errorCode"] = "NULL_SOURCE"
+                reject_row["errorMessage"] = f"Source column {field!r} is null"
+                reject_rows.append(reject_row)
+                continue
 
-                # Advanced separator handling (for numbers)
-                if advanced_separator:
-                    fields = [f.replace(thousands_separator, '').replace(decimal_separator, '.') for f in fields]
+            tokens = str(value).split(sep)
+            if trim:
+                tokens = [t.strip() for t in tokens]
 
-                # Check number of fields
-                if check_fields_num and len(fields) != len(extracted_columns):
-                    raise ValueError(f"Field count mismatch: expected {len(extracted_columns)}, got {len(fields)}")
-
-                # Optionally check date fields (not implemented in detail)
-                if check_date:
-                    pass
-
-                # Build output row with all schema columns
-                output_row = {}
-                for col in [col['name'] for col in schema]:
-                    if col.lower() == field.lower():
-                        # Original field - preserve as is
-                        output_row[col] = value
-                    elif col.lower().startswith(field.lower()):
-                        # Direct match: e.g. skills -> skills1, skills2, skills3
-                        idx_split = col[len(field):]
-                        idx_val = None
-                        try:
-                            idx_val = int(idx_split) - 1 if idx_split.isdigit() else None
-                        except Exception:
-                            pass
-                        if idx_val is not None and idx_val >= 0 and idx_val < len(fields):
-                            output_row[col] = fields[idx_val]
-                        else:
-                            output_row[col] = None
-                    elif field.lower().startswith(col.lower().rstrip('0123456789')):
-                        # Flexible match: e.g. skills -> skill1, skill2, skill3 (handles singular/plural)
-                        base_col = col.lower().rstrip('0123456789')
-                        if len(col) > len(base_col):
-                            try:
-                                idx_val = int(col[len(base_col):]) - 1
-                                if idx_val >= 0 and idx_val < len(fields):
-                                    output_row[col] = fields[idx_val]
-                                else:
-                                    output_row[col] = None
-                            except (ValueError, IndexError):
-                                output_row[col] = None
-                        else:
-                            output_row[col] = None
-                    else:
-                        # Other columns: copy from input if present (case-insensitive)
-                        col_lookup = {str(k).lower(): k for k in row.index}
-                        output_row[col] = row.get(col_lookup.get(col.lower(), col), None)
-                main_rows.append(output_row)
-            except Exception as e:
-                logger.error(f"[{self.id}] Error processing row {idx}: {e}")
-                reject_rows.append(row)
+            # ---- check_fields_num ----
+            if check_fields_num and len(tokens) != num_extracted:
                 if die_on_error:
-                    raise
+                    raise DataValidationError(
+                        f"[{self.id}] Expected {num_extracted} tokens, got {len(tokens)}"
+                    )
+                reject_row = dict(row)
+                reject_row["errorCode"] = "FIELD_COUNT_MISMATCH"
+                reject_row["errorMessage"] = (
+                    f"Expected {num_extracted} tokens, got {len(tokens)}"
+                )
+                reject_rows.append(reject_row)
+                continue
 
-        # Always use output schema columns if available
-        if schema:
-            schema_cols = [col['name'] for col in schema]
-            main_df = pd.DataFrame(main_rows, columns=schema_cols)
-        else:
+            # ---- advanced separator: normalize numeric tokens ----
+            if advanced_sep and (thousands_sep or decimal_sep):
+                normalized: list = []
+                for i, tok in enumerate(tokens):
+                    col_type = extracted_col_types[i] if i < len(extracted_col_types) else ""
+                    if col_type in _NUMERIC_TYPES:
+                        if thousands_sep:
+                            tok = tok.replace(thousands_sep, "")
+                        if decimal_sep and decimal_sep != ".":
+                            tok = tok.replace(decimal_sep, ".")
+                    normalized.append(tok)
+                tokens = normalized
+
+            # ---- build output row ----
+            out_row = dict(row)  # passthrough: all input columns
+            for i, col_name in enumerate(extracted_col_names):
+                out_row[col_name] = tokens[i] if i < len(tokens) else None
+            main_rows.append(out_row)
+
+        if main_rows:
             main_df = pd.DataFrame(main_rows)
-        reject_df = pd.DataFrame(reject_rows) if reject_rows else pd.DataFrame(columns=input_data.columns)
+            if all_out_cols:
+                for c in all_out_cols:
+                    if c not in main_df.columns:
+                        main_df[c] = None
+                main_df = main_df[all_out_cols]
+        else:
+            main_df = pd.DataFrame(
+                columns=all_out_cols if all_out_cols else list(input_data.columns)
+            )
 
-        # Debug: Print the main DataFrame shape, columns, and head
-        logger.debug(f"[ExtractDelimitedFields] main_df shape: {main_df.shape}")
-        logger.debug(f"[ExtractDelimitedFields] main_df columns: {list(main_df.columns)}")
-        logger.debug(f"[ExtractDelimitedFields] main_df head:\n{main_df.head()}\nValues:\n{main_df.values}")
+        reject_df = pd.DataFrame(reject_rows) if reject_rows else pd.DataFrame()
 
-        # Calculate final statistics
-        rows_out = len(main_df)
-        rows_rejected = len(reject_df)
+        rows_ok = len(main_df)
+        rows_reject = len(reject_df)
+        self._update_stats(rows_in, rows_ok, rows_reject)
+        logger.info(
+            "[%s] done: in=%d ok=%d reject=%d",
+            self.id,
+            rows_in,
+            rows_ok,
+            rows_reject,
+        )
+        return {"main": main_df, "reject": reject_df}
 
-        # Update stats
-        self._update_stats(rows_in, rows_out, rows_rejected)
-
-        # Log completion with statistics
-        logger.info(f"[{self.id}] Processing complete: "
-                     f"in={rows_in}, out={rows_out}, rejected={rows_rejected}")
-
-        return {'main': main_df, 'reject': reject_df}

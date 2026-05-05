@@ -1,180 +1,134 @@
-"""
-FileProperties - Extracts file metadata such as size, last modified time, etc.
+"""FileProperties engine component.
 
 Talend equivalent: tFileProperties
-"""
 
+Extracts file metadata (path parts, size, modification time, optional MD5)
+and emits a single-row DataFrame.
+
+Config keys (all resolved by BaseComponent before _process is called):
+    filename           (str, required)       -- path to the file
+    md5                (bool, default False) -- calculate MD5 checksum
+    tstatcatcher_stats (bool, default False) -- framework
+    label              (str, default "")    -- framework
+
+GlobalMap variables set:
+    NB_LINE / NB_LINE_OK / NB_LINE_REJECT via _update_stats()  (always 1/1/0)
+"""
 import hashlib
 import logging
 import os
-import pandas as pd  # Add pandas import
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
+
+import pandas as pd
 
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
 from ...exceptions import ConfigurationError, FileOperationError
 
 logger = logging.getLogger(__name__)
 
+
+@REGISTRY.register("FileProperties", "tFileProperties")
 class FileProperties(BaseComponent):
-    """
-    Extracts file metadata such as size, last modified time, and directory information.
+    """Extracts file metadata and emits a one-row DataFrame.
 
-    This component analyzes a file and returns various properties including path information,
-    file size, modification time, and optionally MD5 checksum.
-
-    Configuration:
-        FILENAME (str): Path to the file to analyze. Required.
-        MD5 (bool): Whether to calculate MD5 checksum. Default: False
-
-    Inputs:
-        None: This component does not process input data
-
-    Outputs:
-        main: Dictionary containing file properties:
-            - abs_path: Absolute path to the file
-            - dirname: Directory name containing the file
-            - basename: Base name of the file
-            - mode_string: File mode as octal string
-            - size: File size in bytes
-            - mtime: Modification time as timestamp
-            - mtime_string: Modification time as formatted string
-            - md5: MD5 checksum (if MD5=true)
-
-    Statistics:
-        NB_LINE: Always 1 (one file analyzed)
-        NB_LINE_OK: 1 if successful, 0 if failed
-        NB_LINE_REJECT: Always 0
-
-    Example configuration:
-    {
-        "FILENAME": "/path/to/file.txt",
-        "MD5": true
-    }
-
-    Notes:
-        - File must exist or FileOperationError will be raised
-        - MD5 calculation can be time-consuming for large files
+    Reads path parts, size, modification time, and optionally an MD5 checksum
+    from the file at ``filename``.  All stat-based metadata is collected from
+    a single ``os.stat()`` call to avoid TOCTOU races.
     """
 
-    def _validate_config(self) -> List[str]:
-        """
-        Validate component configuration.
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
 
-        Returns:
-            List of error messages (empty if valid)
-        """
-        errors = []
-
-        # Required fields
-        if 'FILENAME' not in self.config:
-            errors.append("Missing required config: 'FILENAME'")
-        elif not self.config['FILENAME']:
-            errors.append("Config 'FILENAME' cannot be empty")
-
-        # Optional field validation
-        if 'MD5' in self.config:
-            md5_value = self.config['MD5']
-            if not isinstance(md5_value, bool):
-                errors.append("Config 'MD5' must be a boolean")
-
-        return errors
+    def _validate_config(self) -> None:
+        """Check key presence only (Rule 12)."""
+        if "filename" not in self.config:
+            raise ConfigurationError(
+                f"[{self.id}] Missing required config key 'filename'"
+            )
+        if not isinstance(self.config.get("md5", False), bool):
+            raise ConfigurationError(
+                f"[{self.id}] Config 'md5' must be a boolean"
+            )
 
     def _process(self, input_data: Optional[Any] = None) -> Dict[str, Any]:
-        """
-        Extract file properties based on the configuration.
+        """Extract file metadata and return as a one-row DataFrame.
 
         Args:
-            input_data: Not used for this component
+            input_data: Not used -- utility component with no FLOW input.
 
         Returns:
-            Dictionary with file properties in 'main' key
+            Dict with ``main`` (single-row metadata DataFrame) and ``reject`` None.
 
         Raises:
-            ConfigurationError: If FILENAME is missing or empty
-            FileOperationError: If file does not exist or cannot be accessed
+            ConfigurationError: If filename is empty after resolution.
+            FileOperationError: If the file cannot be accessed.
         """
-        logger.info(f"[{self.id}] Processing started: analyzing file properties")
+        filepath = str(self.config.get("filename", "")).strip()
+        calculate_md5 = self.config.get("md5", False)
+
+        # Content checks deferred to _process (Rule 12)
+        if not filepath:
+            raise ConfigurationError(
+                f"[{self.id}] Config 'filename' is empty"
+            )
 
         try:
-            # Get configuration with validation
-            file_path = self.config.get('FILENAME', '')
-            calculate_md5 = self.config.get('MD5', False)
+            stat = os.stat(filepath)
+        except FileNotFoundError:
+            raise FileOperationError(
+                f"[{self.id}] File not found: {filepath!r}"
+            )
+        except OSError as exc:
+            raise FileOperationError(
+                f"[{self.id}] Cannot stat file {filepath!r}: {exc}"
+            ) from exc
 
-            if not file_path:
-                logger.error(f"[{self.id}] FILENAME is required in configuration")
-                raise ConfigurationError("FILENAME is required in the configuration.")
+        mtime = stat.st_mtime
+        props: Dict[str, Any] = {
+            "abs_path": os.path.abspath(filepath),
+            "dirname": os.path.dirname(filepath),
+            "basename": os.path.basename(filepath),
+            "mode_string": oct(stat.st_mode),
+            "size": stat.st_size,
+            "mtime": mtime,
+            "mtime_string": datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S"),
+        }
 
-            if not os.path.exists(file_path):
-                logger.error(f"[{self.id}] File not found: {file_path}")
-                raise FileOperationError(f"File not found: {file_path}")
+        if calculate_md5:
+            logger.debug("[%s] Calculating MD5 for %r", self.id, filepath)
+            props["md5"] = self._calculate_md5(filepath)
 
-            logger.debug(f"[{self.id}] Analyzing file: {file_path}")
+        main_df = pd.DataFrame([props])
+        self._update_stats(1, 1, 0)
+        logger.info("[%s] done: file=%r size=%d", self.id, filepath, stat.st_size)
+        return {"main": main_df, "reject": None}
 
-            # Extract file properties (maintain exact same functionality)
-            file_properties = {
-                'abs_path': os.path.abspath(file_path),
-                'dirname': os.path.dirname(file_path),
-                'basename': os.path.basename(file_path),
-                'mode_string': oct(os.stat(file_path).st_mode),
-                'size': os.path.getsize(file_path),
-                'mtime': os.path.getmtime(file_path),
-                'mtime_string': self._format_time(os.path.getmtime(file_path))
-            }
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
 
-            if calculate_md5:
-                logger.debug(f"[{self.id}] Calculating MD5 checksum")
-                file_properties['md5'] = self._calculate_md5(file_path)
-
-            # Update stats (maintain exact same behavior: 1, 1, 0)
-            self._update_stats(1, 1, 0)
-
-            # Convert dictionary to DataFrame for compatibility with other components
-            result_df = pd.DataFrame([file_properties])
-
-            logger.info(f"[{self.id}] Processing complete: "
-                        f"analyzed file {os.path.basename(file_path)}, "
-                        f"size {file_properties['size']} bytes")
-
-            return {'main': result_df}  # Return DataFrame instead of dictionary
-
-        except (ConfigurationError, FileOperationError):
-            # Re-raise our custom exceptions as-is
-            raise
-        except Exception as e:
-            logger.error(f"[{self.id}] Processing failed: {e}")
-            raise FileOperationError(f"Failed to analyze file properties: {e}") from e
-
-    def _calculate_md5(self, file_path: str) -> str:
-        """
-        Calculate the MD5 checksum of the file.
+    def _calculate_md5(self, filepath: str) -> str:
+        """Return the hex MD5 digest of a file.
 
         Args:
-            file_path: Path to the file
+            filepath: Path to the file.
 
         Returns:
-            MD5 checksum as hexadecimal string
+            Hex MD5 string.
 
         Raises:
-            FileOperationError: If file cannot be read
+            FileOperationError: If the file cannot be read.
         """
         try:
-            hash_md5 = hashlib.md5()
-            with open(file_path, 'rb') as f:
-                for chunk in iter(lambda: f.read(4096), b""):
-                    hash_md5.update(chunk)
-            return hash_md5.hexdigest()
-        except Exception as e:
-            raise FileOperationError(f"Failed to calculate MD5 for {file_path}: {e}") from e
-
-    def _format_time(self, timestamp: float) -> str:
-        """
-        Format the timestamp into a human-readable string.
-
-        Args:
-            timestamp: Unix timestamp
-
-        Returns:
-            Formatted time string in 'YYYY-MM-DD HH:MM:SS' format
-        """
-        return datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+            h = hashlib.md5()
+            with open(filepath, "rb") as fh:
+                for chunk in iter(lambda: fh.read(4096), b""):
+                    h.update(chunk)
+            return h.hexdigest()
+        except OSError as exc:
+            raise FileOperationError(
+                f"[{self.id}] Failed to calculate MD5 for {filepath!r}: {exc}"
+            ) from exc

@@ -22,6 +22,8 @@ from .file_output_excel import FileOutputExcel
 from .set_global_var import SetGlobalVar
 from .file_input_json import FileInputJSON
 from .file_input_excel import FileInputExcel
+from .file_input_msxml import FileInputMSXML
+from .file_input_properties import FileInputProperties
 
 __all__ = [
     'FileArchive',
@@ -44,5 +46,7 @@ __all__ = [
     'SetGlobalVar',
     'FileInputJSON',
     'FileInputExcel',
+    'FileInputMSXML',
+    'FileInputProperties',
     'FileOutputExcel',
 ]

@@ -32,6 +32,7 @@ from .unite import Unite
 from .unpivot_row import UnpivotRow
 from .xml_map import XMLMap
 from .convert_type import ConvertType
+from .extract_regex_fields import ExtractRegexFields
 from .filter_columns import FilterColumns
 from .memorize_rows import MemorizeRows
 from .parse_record_set import ParseRecordSet
@@ -68,6 +69,7 @@ __all__ = [
     'UnpivotRow',
     'XMLMap',
     'ConvertType',
+    'ExtractRegexFields',
     'FilterColumns',
     'MemorizeRows',
     'ParseRecordSet',

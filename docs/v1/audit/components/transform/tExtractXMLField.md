@@ -1,10 +1,11 @@
 # Audit Report: tExtractXMLField / ExtractXMLField
 
 > **Audited**: 2026-04-04
-> **Auditor**: Claude Opus 4.6 (automated)
+> **Last Updated**: 2026-04-05 (post-rewrite)
+> **Auditor**: Claude Sonnet 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: PRODUCTION READINESS REVIEW
+> **Status**: GREEN — ENGINE REWRITE COMPLETE
 > **V1 only** -- this report contains zero references to v2/PyETL
 
 ---
@@ -38,19 +39,17 @@
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 14 of 14 params extracted (100%); 6 hidden params added; MAPPING stride-2 parser; 7 needs_review entries |
-| Engine Feature Parity | **Y** | 1 | 3 | 4 | 1 | limit=0 semantic mismatch; no Get Nodes; namespace stripping incomplete; deprecated getiterator() |
-| Code Quality | **Y** | 2 | 3 | 5 | 3 | Cross-cutting _update_global_map() crash; getiterator() removed in lxml 5.0; empty string / NaN edge cases |
-| Performance & Memory | **Y** | 0 | 1 | 3 | 2 | XMLParser created per-row; iterrows() overhead; no streaming mode |
-| Testing | **Y** | 0 | 1 | 0 | 0 | 50 converter tests (Green); zero engine unit tests |
+| Engine Feature Parity | **G** | 0 | 0 | 1 | 1 | Fixed: xmlfield key, lxml iter(), mapping reconciliation by index, limit, nodecheck, REJECT flow |
+| Code Quality | **G** | 0 | 0 | 1 | 0 | All BaseComponent rules followed; %-style logging; no mutable state; lxml 5.x compatible |
+| Performance & Memory | **Y** | 0 | 0 | 1 | 0 | iterrows() retained; XMLParser created once per execute() call |
+| Testing | **G** | 0 | 0 | 0 | 0 | 50 converter tests + new engine unit test suite (TestRegistry/Validate/Empty/Main/Reject/Stats) |
 
-**Overall: YELLOW -- Converter fully standardized (Green). Engine has P0/P1 issues blocking full production readiness.**
+**Overall: GREEN — Engine rewrite complete; all P0/P1 issues fixed; production ready**
 
-**Top Actions**:
+**Remaining items**:
 
-1. Fix limit=0 semantic mismatch (P0 -- data correctness)
-2. Fix _update_global_map() crash (P0 -- cross-cutting)
-3. Replace deprecated getiterator() with iter() (P1 -- lxml 5.0 compatibility)
-4. Add engine unit tests (P1 -- testing gap)
+1. Get Nodes mode (informational only — P3)
+2. Vectorized XPath evaluation (P2 — optimization)
 
 ---
 

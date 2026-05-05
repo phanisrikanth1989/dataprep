@@ -1,239 +1,228 @@
-"""
-ExtractPositionalFields - Extracts fields from positional data based on fixed-width patterns.
+"""ExtractPositionalFields engine component.
 
 Talend equivalent: tExtractPositionalFields
 
-This component processes fixed-width positional data by extracting fields according to
-specified width patterns. Supports trimming and advanced separator handling.
-"""
+Extracts multiple output columns from a single fixed-width positional string
+column.  The ``field`` config key names the source column; ``pattern`` is a
+comma-separated list of field widths (e.g. ``"5,4,5"``).
 
+Config keys (all resolved by BaseComponent before _process is called):
+    field               (str,  required)       -- source column name
+    pattern             (str,  required)       -- comma-separated field widths
+    ignore_source_null  (bool, default True)   -- skip null source rows silently
+    trim                (bool, default False)  -- strip whitespace from fields
+    die_on_error        (bool, default False)  -- raise on row error vs REJECT
+    check_fields_num    (bool, default False)  -- reject lines shorter than total width
+    advanced_separator  (bool, default False)  -- enable numeric separators
+    thousands_separator (str,  default ",")   -- thousands separator
+    decimal_separator   (str,  default ".")   -- decimal separator
+    formats             (list, default [])    -- per-column format table (informational)
+    tstatcatcher_stats  (bool, default False) -- framework
+    label               (str,  default "")   -- framework
+
+GlobalMap variables set:
+    NB_LINE / NB_LINE_OK / NB_LINE_REJECT via _update_stats()
+"""
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import pandas as pd
 
 from ...base_component import BaseComponent
-from ...exceptions import ComponentExecutionError, ConfigurationError, DataValidationError
+from ...component_registry import REGISTRY
+from ...exceptions import ConfigurationError, DataValidationError
 
 logger = logging.getLogger(__name__)
 
 
+@REGISTRY.register("ExtractPositionalFields", "tExtractPositionalFields")
 class ExtractPositionalFields(BaseComponent):
-    """
-    Extracts fields from a positional file based on fixed-width columns.
+    """Extracts fields from a fixed-width positional string column.
 
-    This component processes positional data by splitting each row into fields based on
-    specified field widths. Each field can be optionally trimmed and the component
-    supports advanced separator handling for numeric formatting.
+    Reads the source column named by ``field``, slices its string value at the
+    character positions defined by ``pattern``, and produces one output column
+    per field width.  Output column names come from ``output_schema`` when set;
+    otherwise ``field_1``, ``field_2``, ... are generated.
 
-    Configuration:
-        pattern (str): Comma-separated string defining field widths (e.g. "5,4,5"). Required.
-        die_on_error (bool): Whether to stop processing on error. Default: False
-        trim (bool): Whether to trim whitespace from extracted fields. Default: False
-        advanced_separator (bool): Whether to use advanced separators. Default: False
-        thousands_separator (str): Character for thousands separator. Default: ','
-        decimal_separator (str): Character for decimal separator. Default: '.'
-
-    Inputs:
-        main: Positional file data as a DataFrame with first column containing the raw data.
-
-    Outputs:
-        main: Extracted fields as a DataFrame with columns named field_1, field_2, etc.
-        reject: Rows that failed processing (empty DataFrame if no failures).
-
-    Statistics:
-        NB_LINE: Total rows processed
-        NB_LINE_OK: Rows successfully processed
-        NB_LINE_REJECT: Rows that failed processing
-
-    Example:
-        config = {
-            "pattern": "5,4,5",
-            "die_on_error": False,
-            "trim": True
-        }
-        component = ExtractPositionalFields("comp_1", config)
-        result = component.execute(input_df)
-
-    Notes:
-        - Assumes the first column of input DataFrame contains the positional data
-        - Creates output columns with names field_1, field_2, etc. based on pattern
-        - If a row is shorter than expected, remaining fields will contain partial data
+    Null source rows are handled by ``ignore_source_null``.  Rows that fail
+    extraction are sent to the REJECT output with ``errorCode`` /
+    ``errorMessage`` columns.
     """
 
-    def __init__(self, component_id: str, config: Dict[str, Any], global_map, context_manager):
-        """Initialize the ExtractPositionalFields component with enhanced logging."""
-        super().__init__(component_id, config, global_map, context_manager)
-        logger.info(f"[{self.id}] ExtractPositionalFields component initialized")
-        logger.info(f"[{self.id}] Configuration: {self.config}")
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
 
-        # Validate configuration during initialization
-        config_errors = self._validate_config()
-        if config_errors:
-            error_msg = f"Configuration validation failed: {'; '.join(config_errors)}"
-            logger.error(f"[{self.id}] {error_msg}")
-            raise ConfigurationError(error_msg)
-        else:
-            logger.info(f"[{self.id}] Configuration validation passed")
+    def _validate_config(self) -> None:
+        """Check key presence and container types only (Rule 12).
 
-    def execute(self, input_data=None):
-        """Execute the component with enhanced logging."""
-        logger.info(f"[{self.id}] ===== EXECUTE CALLED =====")
-        logger.info(f"[{self.id}] Input data type: {type(input_data)}")
-        if hasattr(input_data, 'shape'):
-            logger.info(f"[{self.id}] Input data shape: {input_data.shape}")
-        if hasattr(input_data, 'columns'):
-            logger.info(f"[{self.id}] Input data columns: {list(input_data.columns)}")
-
-        try:
-            result = super().execute(input_data)
-            logger.info(f"[{self.id}] ===== EXECUTE COMPLETED =====")
-            logger.info(f"[{self.id}] Result keys: {list(result.keys()) if result else 'None'}")
-            return result
-        except Exception as e:
-            logger.error(f"[{self.id}] ===== EXECUTE FAILED =====")
-            logger.error(f"[{self.id}] Error: {e}")
-            raise
-
-    def _validate_config(self) -> List[str]:
-        """Validate component configuration."""
-        errors = []
-
-        # Check required pattern field
-        if 'pattern' not in self.config:
-            errors.append("Missing required config: 'pattern'")
-        elif not isinstance(self.config['pattern'], str) or not self.config['pattern'].strip():
-            errors.append("Config 'pattern' must be a non-empty string")
-        else:
-            # Validate pattern format
-            try:
-                pattern_parts = self.config['pattern'].split(',')
-                for part in pattern_parts:
-                    width = int(part.strip())
-                    if width <= 0:
-                        errors.append(f"Invalid field width in pattern: {part}. Must be positive integer")
-            except ValueError as e:
-                errors.append(f"Invalid pattern format: {self.config['pattern']}. Must be comma-separated integers")
-
-        # Validate optional boolean fields
-        for bool_field in ['die_on_error', 'trim', 'advanced_separator']:
-            if bool_field in self.config and not isinstance(self.config[bool_field], bool):
-                errors.append(f"Config '{bool_field}' must be boolean")
-
-        # Validate separator fields
-        for sep_field in ['thousands_separator', 'decimal_separator']:
-            if sep_field in self.config:
-                value = self.config[sep_field]
-                if not isinstance(value, str):
-                    errors.append(f"Config '{sep_field}' must be string")
-
-        return errors
+        Content checks (pattern parsing, width > 0) are deferred to _process
+        because pattern may contain a context-variable reference.
+        """
+        if "pattern" not in self.config:
+            raise ConfigurationError(
+                f"[{self.id}] Missing required config key 'pattern'"
+            )
+        for bool_key, default in (
+            ("trim", False),
+            ("die_on_error", False),
+            ("ignore_source_null", True),
+            ("check_fields_num", False),
+        ):
+            val = self.config.get(bool_key, default)
+            if not isinstance(val, bool):
+                raise ConfigurationError(
+                    f"[{self.id}] Config '{bool_key}' must be a boolean"
+                )
 
     def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
-        """Process input data by extracting positional fields."""
-        # Handle empty input
-        if input_data is None or input_data.empty:
-            logger.warning(f"[{self.id}] Empty input received")
-            self._update_stats(0, 0, 0)
-            return {'main': pd.DataFrame(), 'reject': pd.DataFrame()}
+        """Extract fixed-width positional fields from the source column.
 
-        # Ensure input_data is a DataFrame
-        if not isinstance(input_data, pd.DataFrame):
-            try:
-                input_data = pd.DataFrame(input_data)
-                logger.debug(f"[{self.id}] Converted input to DataFrame")
-            except Exception as e:
-                logger.error(f"[{self.id}] Failed to convert input to DataFrame: {e}")
-                raise DataValidationError(f"Cannot convert input to DataFrame: {e}") from e
+        Args:
+            input_data: Input DataFrame containing the positional source column.
+
+        Returns:
+            Dict with ``main`` (extracted rows DataFrame) and
+            ``reject`` (failed/skipped rows DataFrame).
+        """
+        if input_data is None or input_data.empty:
+            self._update_stats(0, 0, 0)
+            return {"main": pd.DataFrame(), "reject": pd.DataFrame()}
+
+        # ---- resolved config ----
+        field = self.config.get("field", "")
+        pattern_str = str(self.config.get("pattern", ""))
+        ignore_source_null = self.config.get("ignore_source_null", True)
+        trim = self.config.get("trim", False)
+        die_on_error = self.config.get("die_on_error", False)
+        check_fields_num = self.config.get("check_fields_num", False)
+
+        # ---- content-validate pattern (Rule 12: deferred from _validate_config) ----
+        if not pattern_str.strip():
+            raise DataValidationError(
+                f"[{self.id}] Config 'pattern' is empty -- cannot extract positional fields"
+            )
+        try:
+            field_widths = [int(w.strip()) for w in pattern_str.split(",") if w.strip()]
+        except ValueError as exc:
+            raise DataValidationError(
+                f"[{self.id}] Config 'pattern' must be comma-separated integers, got {pattern_str!r}"
+            ) from exc
+        for w in field_widths:
+            if w <= 0:
+                raise DataValidationError(
+                    f"[{self.id}] All field widths must be > 0; found {w} in pattern {pattern_str!r}"
+                )
+
+        # ---- select source column ----
+        if field and field in input_data.columns:
+            src_col = field
+        elif field:
+            logger.warning(
+                "[%s] Source column %r not found; falling back to first column",
+                self.id,
+                field,
+            )
+            src_col = input_data.columns[0]
+        else:
+            src_col = input_data.columns[0]
+
+        # ---- output column names (extracted cols = schema cols NOT in input) ----
+        output_schema = getattr(self, "output_schema", None) or []
+        input_col_set = set(input_data.columns.tolist())
+
+        if output_schema:
+            all_out_cols = [c["name"] for c in output_schema]
+            extracted_col_names = [
+                c["name"] for c in output_schema if c["name"] not in input_col_set
+            ]
+        else:
+            all_out_cols = []
+            extracted_col_names = [f"field_{i + 1}" for i in range(len(field_widths))]
+
+        # Use only as many widths as there are extracted columns
+        active_widths = field_widths[: len(extracted_col_names)]
+
+        # Cumulative start positions (based on active_widths)
+        starts: list = []
+        pos = 0
+        for w in active_widths:
+            starts.append(pos)
+            pos += w
+        total_width = pos
 
         rows_in = len(input_data)
-        logger.info(f"[{self.id}] Processing started: {rows_in} rows")
+        main_rows: list = []
+        reject_rows: list = []
 
-        # Get configuration with defaults
-        pattern = self.config.get('pattern', '')
-        die_on_error = self.config.get('die_on_error', False)
-        trim = self.config.get('trim', False)
+        for _, row in input_data.iterrows():
+            value = row[src_col]
 
-        try:
-            # Parse the pattern into field widths
-            field_widths = [int(width) for width in pattern.split(',')]
-            logger.debug(f"[{self.id}] Using strict field widths: {field_widths}")
+            # ---- null handling ----
+            try:
+                is_null = pd.isna(value)
+            except (TypeError, ValueError):
+                is_null = False
 
-            # Extract fields based on the exact pattern specified
-            extracted_data = []
-            for _, row in input_data.iterrows():
-                # Get the line data
-                if 'line' in input_data.columns:
-                    line = row['line']
-                elif len(input_data.columns) > 0:
-                    line = row.iloc[0]
-                else:
-                    logger.error(f"[{self.id}] No data columns found in input DataFrame")
+            if is_null:
+                if ignore_source_null:
+                    logger.debug("[%s] Skipping null source row", self.id)
                     continue
+                reject_row = dict(row)
+                reject_row["errorCode"] = "NULL_SOURCE"
+                reject_row["errorMessage"] = f"Source column {src_col!r} is null"
+                reject_rows.append(reject_row)
+                continue
 
-                # Ensure line is a string and clean any BOM
-                if not isinstance(line, str):
-                    line = str(line)
+            line = str(value)
+            # Strip BOM
+            if line and ord(line[0]) == 0xFEFF:
+                line = line[1:]
 
-                # Clean BOM characters
-                if line.startswith('\ufeff'):  # UTF-8 BOM
-                    line = line[1:]
-                if line.startswith('\xff\xfe'):  # UTF-16 LE BOM
-                    line = line[2:]
+            try:
+                if check_fields_num and len(line) < total_width:
+                    raise DataValidationError(
+                        f"Line length {len(line)} < required total width {total_width}"
+                    )
+                extracted = [line[s: s + w] for s, w in zip(starts, active_widths)]
+                if trim:
+                    extracted = [v.strip() for v in extracted]
+                out_row = dict(row)  # passthrough: all input columns
+                for col_name, val in zip(extracted_col_names, extracted):
+                    out_row[col_name] = val
+                main_rows.append(out_row)
+            except Exception as exc:
+                if die_on_error:
+                    raise DataValidationError(
+                        f"[{self.id}] Row extraction failed: {exc}"
+                    ) from exc
+                reject_row = dict(row)
+                reject_row["errorCode"] = "EXTRACTION_ERROR"
+                reject_row["errorMessage"] = str(exc)
+                reject_rows.append(reject_row)
 
-                logger.debug(f"[{self.id}] Processing line: '{line}' (length: {len(line)})")
+        if main_rows:
+            main_df = pd.DataFrame(main_rows)
+            if all_out_cols:
+                for c in all_out_cols:
+                    if c not in main_df.columns:
+                        main_df[c] = None
+                main_df = main_df[all_out_cols]
+        else:
+            main_df = pd.DataFrame(
+                columns=all_out_cols if all_out_cols else list(input_data.columns)
+            )
+        reject_df = pd.DataFrame(reject_rows) if reject_rows else pd.DataFrame()
 
-                # Extract fields dynamically based on the pattern
-                extracted_row = []
-                current_pos = 0
+        rows_ok = len(main_df)
+        rows_reject = len(reject_df)
+        self._update_stats(rows_in, rows_ok, rows_reject)
+        logger.info(
+            "[%s] done: in=%d ok=%d reject=%d",
+            self.id,
+            rows_in,
+            rows_ok,
+            rows_reject,
+        )
+        return {"main": main_df, "reject": reject_df}
 
-                for idx, width in enumerate(field_widths):
-                    start_pos = current_pos
-                    end_pos = current_pos + width
-                    
-                    # Extract the field, handling lines shorter than expected
-                    field_value = line[start_pos:end_pos] if len(line) > start_pos else ''
-                    
-                    # Apply trimming if configured
-                    if trim:
-                        field_value = field_value.strip()
-                    
-                    extracted_row.append(field_value)
-                    logger.debug(f"[{self.id}] Field {idx+1}: extracted '{field_value}' from positions {start_pos}-{end_pos}")
-                    
-                    current_pos = end_pos
-
-                logger.debug(f"[{self.id}] Extracted row: {extracted_row}")
-
-                extracted_data.append(extracted_row)
-
-            # Create DataFrame with proper column names from schema
-            output_schema = getattr(self, 'output_schema', None) or []
-
-            if output_schema and len(output_schema) >= len(field_widths):
-                column_names = [field['name'] for field in output_schema[:len(field_widths)]]
-                logger.debug(f"[{self.id}] Using schema column names: {column_names}")
-            else:
-                column_names = [f"field_{i+1}" for i in range(len(field_widths))]
-                logger.debug(f"[{self.id}] Using generic column names: {column_names}")
-
-            output_df = pd.DataFrame(extracted_data, columns=column_names)
-
-            # Calculate statistics
-            rows_out = len(output_df)
-            rows_rejected = 0
-
-            # Update statistics
-            self._update_stats(rows_in, rows_out, rows_rejected)
-            logger.info(f"[{self.id}] Processing complete: in={rows_in}, out={rows_out}, rejected={rows_rejected}")
-
-            return {'main': output_df, 'reject': pd.DataFrame()}
-
-        except Exception as e:
-            logger.error(f"[{self.id}] Processing failed: {e}")
-            if die_on_error:
-                raise ComponentExecutionError(self.id, f"Error processing data: {e}", e) from e
-            else:
-                self._update_stats(rows_in, 0, rows_in)
-                logger.warning(f"[{self.id}] Returning empty result due to error (die_on_error=False)")
-                return {'main': pd.DataFrame(), 'reject': input_data}

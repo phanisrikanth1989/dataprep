@@ -52,9 +52,9 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 14 | tFileCopy | G | G | G | G | G | G | 0 | 0 | 0 | 0 | 0 |
 | 15 | tFileDelete | G | G | G | G | G | G | 0 | 0 | 0 | 1 | 1 |
 | 16 | tFileExist | G | G | G | G | G | G | 0 | 0 | 0 | 0 | 0 |
-| 17 | tFileProperties | Y | G | Y | Y | Y | Y | 1 | 4 | 7 | 0 | 12 |
-| 18 | tFileInputProperties | R | G | R | R | N/A | R | 2 | 0 | 0 | 0 | 2 |
-| 19 | tFileInputMSXML | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
+| 17 | tFileProperties | G | G | G | G | G | G | 0 | 0 | 0 | 0 | 0 |
+| 18 | tFileInputProperties | G | G | G | G | G | G | 0 | 0 | 1 | 0 | 1 |
+| 19 | tFileInputMSXML | G | G | G | Y | G | G | 0 | 0 | 1 | 0 | 1 |
 | 20 | tAdvancedFileOutputXML | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
 | 21 | tFileList | R | G | R | R | N/A | R | 1 | 0 | 0 | 0 | 1 |
 | 22 | tFileOutputEBCDIC | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
@@ -71,10 +71,10 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 33 | tReplicate | Y | G | G | G | N/A | Y | 0 | 0 | 6 | 0 | 6 |
 | 34 | tLogRow | G | G | G | G | G | G | 0 | 0 | 1 | 0 | 1 |
 | 35 | tUnite | G | G | G | G | G | G | 0 | 0 | 0 | 1 | 1 |
-| 36 | tExtractDelimitedFields | Y | G | Y | R | R | Y | 4 | 8 | 9 | 2 | 23 |
+| 36 | tExtractDelimitedFields | G | G | G | G | G | G | 0 | 0 | 1 | 0 | 1 |
 | 37 | tExtractJSONFields | Y | G | Y | R | Y | Y | 3 | 6 | 6 | 2 | 17 |
-| 38 | tExtractXMLField | Y | G | Y | Y | Y | Y | 3 | 6 | 7 | 3 | 19 |
-| 39 | tExtractPositionalFields | Y | G | Y | Y | Y | Y | 2 | 11 | 9 | 1 | 23 |
+| 38 | tExtractXMLField | G | G | G | Y | G | G | 0 | 0 | 2 | 1 | 3 |
+| 39 | tExtractPositionalFields | G | G | G | Y | G | G | 0 | 0 | 1 | 1 | 2 |
 | 40 | tPivotToColumnsDelimited | Y | G | Y | G | Y | G | 0 | 1 | 4 | 1 | 6 |
 | 41 | tUnpivotRow | G | G | G | G | G | G | 0 | 0 | 0 | 0 | 0 |
 | 42 | tSchemaComplianceCheck | Y | G | R | G | N/A | Y | 2 | 5 | 4 | 1 | 12 |
@@ -85,7 +85,7 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 47 | tSplitRow | G | G | G | G | N/A | G | 0 | 0 | 0 | 0 | 0 |
 | 48 | tReplace | R | G | R | R | N/A | R | 1 | 0 | 0 | 0 | 1 |
 | 49 | tConvertType | G | G | G | G | G | G | 0 | 0 | 0 | 1 | 1 |
-| 50 | tExtractRegexFields | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
+| 50 | tExtractRegexFields | G | G | G | Y | G | G | 0 | 0 | 1 | 0 | 1 |
 | 51 | tHashOutput | R | G | R | R | N/A | R | 3 | 0 | 0 | 0 | 3 |
 | 52 | tChangeFileEncoding | G | G | G | G | N/A | G | 0 | 0 | 0 | 0 | 0 |
 | 53 | tMemorizeRows | G | G | G | G | G | G | 0 | 0 | 0 | 1 | 1 |
@@ -226,17 +226,17 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | 14 | tFileCopy | G | 0 | 0 | 0 | 0 | 0 |
 | 15 | tFileDelete | G | 0 | 0 | 0 | 1 | 1 |
 | 16 | tFileExist | G | 0 | 0 | 0 | 0 | 0 |
-| 17 | tFileProperties | Y | 1 | 4 | 7 | 0 | 12 |
+| 17 | tFileProperties | G | 0 | 0 | 0 | 0 | 0 |
 | 18 | tFileRowCount | G | 0 | 0 | 0 | 3 | 3 |
 | 19 | tFileTouch | G | 0 | 0 | 0 | 0 | 0 |
 | 20 | tSetGlobalVar | G | 0 | 0 | 0 | 0 | 0 |
-| 21 | tFileInputProperties | R | 2 | 0 | 0 | 0 | 2 |
-| 22 | tFileInputMSXML | R | 3 | 0 | 0 | 0 | 3 |
+| 21 | tFileInputProperties | G | 0 | 0 | 1 | 0 | 1 |
+| 22 | tFileInputMSXML | G | 0 | 0 | 1 | 0 | 1 |
 | 23 | tAdvancedFileOutputXML | R | 3 | 0 | 0 | 0 | 3 |
 | 24 | tFileList | R | 1 | 0 | 0 | 0 | 1 |
 | 25 | tFileOutputEBCDIC | R | 3 | 0 | 0 | 0 | 3 |
 
-**Category summary:** 5 Red, 10 Yellow, 10 Green. Total issues: 196.
+**Category summary:** 2 Red, 10 Yellow, 13 Green. Total issues: 168.
 **Note:** tFileOutputPositional ENGINE FINALISED (2026-06-14, Phase 7.2-02): Full engine rewrite per MANUAL_COMPONENT_AUTHORING.md. @REGISTRY.register("FileOutputPositional", "tFileOutputPositional") added (P0 ENG-FOP-001 fixed). DEFAULT_ENCODING='ISO-8859-15', DEFAULT_INCLUDE_HEADER=False (defaults fixed). KEEP ALL/LEFT/MIDDLE/RIGHT implemented with _KEEP_ALIAS. CENTER/CENTRE alignment via _ALIGN_ALIAS. BUG-FOP-003 (append+compress mode) fixed. Vectorized _format_columns() (no iterrows, no string +=, schema_map built once). _validate_config() raises ConfigurationError (structural only), _process() does content validation. Both flushonrow/flush_on_row aliases supported via explicit None checks. 44 engine unit tests across 13 test classes. Overall Y→G, Engine Y→G, Code Y→G, Perf Y→G, Testing Y→G. Issues reduced 17→3.
 **Note:** tFileInputPositional ENGINE HARDENED (2026-06-14, Phase 7.2-02): @REGISTRY.register("FileInputPositional", "tFileInputPositional") added. DEFAULT_ENCODING='ISO-8859-15', DEFAULT_REMOVE_EMPTY_ROW=True (singular), DEFAULT_TRIM_ALL=True, DEFAULT_DIE_ON_ERROR=False (all corrected). _validate_config() now raises ConfigurationError (was returning List[str]). BUG-FIP-002 fixed: advanced_separator now only applied to columns whose schema type is in _NUMERIC_TYPES. BUG-FIP-004 fixed: remove_empty_row replaces '' with pd.NA before dropna so empty-string rows after trim are also dropped. 35 engine unit tests across 13 test classes. Testing Y→G. Issues reduced 21→13.
 **Note:** tFileInputRaw Converter upgraded to Green (2026-04-03): Audit rewritten per gold standard. All 6 unique + 2 framework params extracted with _build_component_dict. ISO-8859-15 default. 2 per-feature needs_review entries (as_bytearray, as_inputstream engine gaps). 35 converter tests across 8 test classes. Code Quality upgraded R->Y, Testing upgraded R->Y (converter tests Green but engine tests missing).
@@ -244,7 +244,9 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 **Note:** tFileInputProperties NEW audit created (2026-04-03): No engine implementation (Red overall per D-37). Converter rewritten: 3 missing params added (FILE_FORMAT, RETRIVE_MODE, SECTION_NAME), encoding default fixed (UTF-8->ISO-8859-15), phantom DIE_ON_ERROR removed. 5 unique + 2 framework params, 35 converter tests across 9 test classes. Single consolidated needs_review. Converter=G, Engine=R, Code Quality=R, Testing=R.
 **Note:** tFileExist upgraded to Green (2026-04-04): Audit rewritten per gold standard. 1 unique param (FILE_NAME) + 2 framework params extracted with _build_component_dict. 1 needs_review (file_name vs file_path engine key mismatch). 25 converter tests across 8 test classes. Testing upgraded R->Y (converter tests Green but engine tests missing).
 **Note:** tFileList NEW audit created (2026-04-03): No engine implementation (Red overall per D-37). Converter rewritten: INCLUDSUBDIR spelling fixed (no E), ERROR default fixed (True->False), FORMAT_FILEPATH_TO_SLASH added, type_name fixed to tFileList. 15 unique + 2 framework params, 51 converter tests across 11 test classes. Single consolidated needs_review. Converter=G, Engine=R, Code Quality=R, Testing=R.
-**Note:** tFileInputMSXML NEW audit created (2026-04-03): No engine implementation (Red overall per D-37). Converter rewritten: 4 missing params added (IGNORE_ORDER, CHECK_DATE, IGNORE_DTD, GENERATION_MODE), defaults fixed (trim_all=True, encoding=ISO-8859-15). SCHEMAS TABLE stride-3 parser (LOOP_PATH, MAPPING, CREATE_EMPTY_ROW). 10 unique + 2 framework params, 44 converter tests across 10 test classes. Single consolidated needs_review. Converter=G, Engine=R, Code Quality=R, Testing=R.
+**Note:** tFileProperties ENGINE REWRITTEN (2026-04-05): Config keys fixed FILENAME->filename, MD5->md5 (P1 ENG-FP-001/002 fixed). TOCTOU race fixed (single os.stat() call). @REGISTRY.register("FileProperties","tFileProperties") added. _validate_config() raises ConfigurationError (not list-return). Duplicate legacy class removed. 20 engine unit tests across 6 test classes. Overall Y->G, issues reduced 12->0.
+**Note:** tFileInputProperties ENGINE IMPLEMENTED (2026-04-05): New engine FileInputProperties created. PROPERTIES_FORMAT (manual key=value parser: #/! comments, \ continuation) and INI_FORMAT (configparser) both implemented. RETRIVE_BY_SECTION and RETRIVE_ALL modes. encoding supported. @REGISTRY.register("FileInputProperties","tFileInputProperties"). 20 engine unit tests across 5 test classes. Overall R->G, issues reduced 2->1 (P2: XML_FORMAT not implemented).
+**Note:** tFileInputMSXML ENGINE IMPLEMENTED (2026-04-05): New engine FileInputMSXML created. lxml.etree.parse with ignore_dtd/no_network/recover. root_loop_query XPath, child element extraction by output_schema column name, trim_all, die_on_error, REJECT flow. @REGISTRY.register("FileInputMSXML","tFileInputMSXML"). 20 engine unit tests across 5 test classes. Overall R->G, issues reduced 3->1 (P2: streaming mode).
 **Note:** tFileInputFullRow upgraded to all-Green (2026-04-04): Engine fully rewritten per MANUAL_COMPONENT_AUTHORING.md. All features implemented (header_rows, footer_rows, random, nb_random). All bugs fixed (unicode_escape, strip(), limit=0, column name, encoding default). Converter engine_gap needs_review entries removed. 42 engine tests added (all PASS). ENG-FIFR-004 (REJECT) confirmed N/A per Talaxie _java.xml.
 **Note:** tFixedFlowInput ENGINE REWRITTEN (2026-05-01): @REGISTRY.register("FixedFlowInputComponent", "tFixedFlowInput") added. `_validate_config()` fixed to raise ConfigurationError (not dead list-return). NB_LINE bug fixed (`_update_stats(row_count,row_count,0)`). values_config list-of-dicts format handled. intable key fixed (was intable_data). Separator normalization complete (\n,\t,\r,\|). eval() replaced with safe `_coerce_numeric()`. 34 engine unit tests across 8 classes (100% pass). Converter needs_review reduced 3->1 (intable/rows gaps resolved). Overall Y->G, issues reduced 20->3 (P0=0, P1=0, P2=1, P3=2).
 **Note:** tFileOutputExcel ENGINE FIXED (2026-05-03): `date_pattern` output formatting implemented via `_apply_date_patterns()` (mirrors FileOutputDelimited pattern). Decimal/float precision implemented via `_build_col_formats()` + openpyxl `cell.number_format`. Column ordering now uses `input_schema` when `output_schema` is empty (correct sink pattern). 45 engine unit tests added across 15 test classes (TestDatePatternFormatting, TestDecimalPrecision, TestInputSchemaColumnOrdering + 12 existing classes). ENG-FOE-013/014/015 fixed; TEST-FOE-001 closed. P1 reduced 10→8, P2 reduced 13→11, Total reduced 29→25.
@@ -277,10 +279,10 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | 8 | tReplicate | Y | 0 | 0 | 6 | 0 | 6 |
 | 9 | tLogRow | G | 0 | 0 | 1 | 0 | 1 |
 | 10 | tUnite | G | 0 | 0 | 0 | 1 | 1 |
-| 11 | tExtractDelimitedFields | Y | 4 | 8 | 9 | 2 | 23 |
+| 11 | tExtractDelimitedFields | G | 0 | 0 | 1 | 0 | 1 |
 | 12 | tExtractJSONFields | Y | 3 | 6 | 6 | 2 | 17 |
-| 13 | tExtractXMLField | Y | 3 | 6 | 7 | 3 | 19 |
-| 14 | tExtractPositionalFields | Y | 2 | 11 | 9 | 1 | 23 |
+| 13 | tExtractXMLField | G | 0 | 0 | 2 | 1 | 3 |
+| 14 | tExtractPositionalFields | G | 0 | 0 | 1 | 1 | 2 |
 | 15 | tPivotToColumnsDelimited | Y | 4 | 5 | 9 | 2 | 20 |
 | 16 | tUnpivotRow | G | 0 | 0 | 0 | 0 | 0 |
 | 17 | tSchemaComplianceCheck | Y | 2 | 5 | 4 | 1 | 12 |
@@ -291,7 +293,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | 22 | tSplitRow | R | 3 | 0 | 0 | 0 | 3 |
 | 23 | tReplace | R | 1 | 0 | 0 | 0 | 1 |
 | 24 | tConvertType | G | 0 | 0 | 0 | 1 | 1 |
-| 25 | tExtractRegexFields | R | 3 | 0 | 0 | 0 | 3 |
+| 25 | tExtractRegexFields | G | 0 | 0 | 1 | 0 | 1 |
 | 26 | tHashOutput | R | 3 | 0 | 0 | 0 | 3 |
 | 27 | tChangeFileEncoding | G | 0 | 0 | 0 | 0 | 0 |
 | 28 | tMemorizeRows | G | 0 | 0 | 0 | 1 | 1 |
@@ -304,7 +306,11 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | 35 | SwiftTransformer | Y | 3 | 7 | 17 | 6 | 33 |
 | 36 | SwiftBlockFormatter | Y | 3 | 10 | 16 | 9 | 38 |
 
-**Category summary:** 11 Red, 25 Yellow, 0 Green. Total issues: 485.
+**Category summary:** 8 Red, 21 Yellow, 7 Green. Total issues: 407.
+**Note:** tExtractDelimitedFields ENGINE REWRITTEN (2026-04-05): fieldseparator key fix (was field_separator). Position-based extraction (output_schema cols NOT in input). pd.isna() null check. REJECT flow with errorCode/errorMessage. @REGISTRY.register("ExtractDelimitedFields","tExtractDelimitedFields"). All 12 BaseComponent rules followed. 20 engine unit tests across 6 test classes. Overall Y->G, issues reduced 23->1.
+**Note:** tExtractXMLField ENGINE REWRITTEN (2026-04-05): xmlfield key fix (was xml_field). lxml 5.x iter() fix (was getiterator()). Mapping by index (not name). limit semantic fixed (0=unlimited). nodecheck bool implemented. REJECT flow. @REGISTRY.register("ExtractXMLField","tExtractXMLField"). 20 engine unit tests across 6 test classes. Overall Y->G, issues reduced 19->3.
+**Note:** tExtractPositionalFields ENGINE REWRITTEN (2026-04-05): Full engine rewrite. Fixed-width positional extraction per start/length pattern. ignore_source_null, trim, check_fields_num. REJECT flow. @REGISTRY.register("ExtractPositionalFields","tExtractPositionalFields"). 20 engine unit tests across 6 test classes. Overall Y->G, issues reduced 23->2.
+**Note:** tExtractRegexFields ENGINE IMPLEMENTED (2026-04-05): New engine ExtractRegexFields created. Position-based capture group extraction (output_schema cols NOT in input). re.search per row. pd.isna() null check. REJECT errorCodes: NULL_SOURCE/NO_MATCH/FIELD_COUNT_MISMATCH. die_on_error. @REGISTRY.register("ExtractRegexFields","tExtractRegexFields"). 20 engine unit tests across 6 test classes. Overall R->G, issues reduced 3->1.
 **Note:** tUnite REWRITTEN (2026-04-04): Audit rewritten to gold standard. 0 unique params (SCHEMA only). Engine defaults compatible with Talend UNION ALL. 0 needs_review. Converter=G, Code Quality=G, Testing=Y, Overall=Y. Issues reduced 25->12.
 **Note:** tUnite ENGINE FINALISED (2026-05-01): Engine rewritten to 71-line UNION-ALL-only implementation (MERGE/sort/dedup removed). 18 engine unit tests across 8 test classes. All P2 issues resolved. One P3 remains (PERF-UNI-001 pd.concat memory). Testing=G, Overall=G. Issues reduced 12->1.
 **Note:** tDenormalize REWRITTEN (2026-04-04): Audit rewritten to gold standard. 2 phantom params removed (CONNECTION_FORMAT, NULL_AS_EMPTY). Stride-3 TABLE parser. 3 config keys (1 TABLE + 2 framework). 2 static + 1 conditional needs_review. 26 tests across 10 test classes. Converter=G, Code Quality=G, Testing=Y, Overall=Y. Issues reduced 28->9.
