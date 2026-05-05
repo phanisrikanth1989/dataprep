@@ -261,7 +261,15 @@ Plans:
   3. tFileExist checks file existence and sets globalMap variables, with correct config key handling
   4. Downstream subjobs connected via iterate triggers re-execute once per iteration item, with components properly reset (state cleanup + config snapshot/restore) between iterations
   5. Engine unit tests pass for all three iterate components and the iterate execution loop
-**Plans**: TBD
+**Plans**: 8 plans
+- [ ] 10-01-PLAN.md -- BaseIterateComponent enhancements (9 hooks, iterator items, _CURRENT_ITERATION fix, execute() override)
+- [ ] 10-02-PLAN.md -- Executor _execute_iterate_body + ExecutionPlan body BFS + nested-iterate detection + OutputRouter helpers
+- [ ] 10-03-PLAN.md -- tFileList engine component (16 params, 5 RETURN globalMap vars, glob/regex, sort, ERROR=true 0-match)
+- [ ] 10-04-PLAN.md -- tFlowToIterate engine component + new iterate/ engine package (DEFAULT_MAP true/false, pd.NA handling)
+- [ ] 10-05-PLAN.md -- Converter ENABLE_PARALLEL/NUMBER_PARALLEL extraction + engine_gap needs_review
+- [ ] 10-06-PLAN.md -- ASCII-only iterate logging infrastructure (4-tier, threshold-aware, D-H1..H7)
+- [ ] 10-07-PLAN.md -- Integration tests with both .item samples + @pytest.mark.java + coverage gate >=90%
+- [ ] 10-08-PLAN.md -- tFileExist verify-only integration test (ITER-08, ITER-09, RUN_IF branching)
 
 ### Phase 11: Oracle Components
 **Goal**: Jobs using Oracle databases can connect, read, write, and execute operations through the Python engine with the same behavior as Talend
