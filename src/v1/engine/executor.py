@@ -357,7 +357,38 @@ class Executor:
             log_iterate_start(cid, total_hint, len(body_plan.component_ids))
 
             while iter_component.has_next_iteration():
-                ctx = iter_component.get_next_iteration_context()
+                # WR-06: get_next_iteration_context() invokes the
+                # subclass's set_iteration_globalmap, which can raise
+                # ConfigurationError mid-iteration (e.g. tFlowToIterate
+                # when map_entries references a column that is absent
+                # from a particular row). Without this guard the error
+                # would propagate out of _execute_iterate_body, bypassing
+                # iterate-end logging, NB_LINE stats, and reject-buffer
+                # routing -- leaving the job in an inconsistent state.
+                # Treat it as a fatal iterate failure: log it, record an
+                # error iteration, and break so the cleanup code below
+                # still runs.
+                try:
+                    ctx = iter_component.get_next_iteration_context()
+                except ConfigurationError as ctx_exc:
+                    logger.error(
+                        "[%s] iterate setup failed mid-loop (iteration %d): %s",
+                        cid,
+                        iter_component.current_iteration_index + 1,
+                        ctx_exc,
+                    )
+                    iter_count_attempted += 1
+                    iter_count_err += 1
+                    # Re-raise after the finally: block has decremented
+                    # iterate depth and after iterate-end logging / stats
+                    # have been emitted. We surface the failure via the
+                    # _termination_error path so execute_job can finalize
+                    # cleanly.
+                    self._termination_error = ComponentExecutionError(
+                        cid, str(ctx_exc), cause=ctx_exc
+                    )
+                    self._job_terminated = True
+                    break
                 if not ctx:
                     break
                 item = ctx["item"]
