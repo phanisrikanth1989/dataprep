@@ -262,7 +262,7 @@ Plans:
   4. Downstream subjobs connected via iterate triggers re-execute once per iteration item, with components properly reset (state cleanup + config snapshot/restore) between iterations
   5. Engine unit tests pass for all three iterate components and the iterate execution loop
 **Plans**: 8 plans
-- [ ] 10-01-PLAN.md -- BaseIterateComponent enhancements (9 hooks, iterator items, _CURRENT_ITERATION fix, execute() override)
+- [x] 10-01-PLAN.md -- BaseIterateComponent enhancements (9 hooks, iterator items, _CURRENT_ITERATION fix, execute() override)
 - [ ] 10-02-PLAN.md -- Executor _execute_iterate_body + ExecutionPlan body BFS + nested-iterate detection + OutputRouter helpers
 - [ ] 10-03-PLAN.md -- tFileList engine component (16 params, 5 RETURN globalMap vars, glob/regex, sort, ERROR=true 0-match)
 - [ ] 10-04-PLAN.md -- tFlowToIterate engine component + new iterate/ engine package (DEFAULT_MAP true/false, pd.NA handling)
@@ -311,6 +311,6 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 7. Transform Group B -- Column, Join, Unite | 2/2 | Complete | 2026-04-15 |
 | 8. Code Components | 6/6 | Complete | 2026-04-29 |
 | 9. tContextLoad & Routines | 2/2 | Complete | - |
-| 10. Iterate Support | 0/TBD | Not started | - |
+| 10. Iterate Support | 1/8 | In Progress|  |
 | 11. Oracle Components | 0/TBD | Not started | - |
 | 12. Integration Testing & Performance | 0/TBD | Not started | - |
