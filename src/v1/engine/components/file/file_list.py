@@ -413,6 +413,17 @@ class FileList(BaseIterateComponent):
         Accepts Talaxie strings ("YES"/"NO"), boolean-like strings
         ("true"/"false"), and Python booleans.
 
+        WR-03: This is intentionally STRICTER than the module-level
+        ``_truthy`` helper used for other boolean config values
+        (INCLUDSUBDIR, ORDER_BY_*, etc.). CASE_SENSITIVE is the only
+        config value that affects regex compilation flags, so an
+        ambiguous coercion (e.g. accepting integer 1) would silently
+        change pattern matching semantics across an entire job. We
+        require an explicit bool or a known YES/NO/true/false string
+        and reject ints, lists, dicts, and unknown strings. ``_truthy``
+        accepts ``int(1)`` because the other config values are pure
+        runtime gates with no semantic ambiguity.
+
         Args:
             component_id: Component ID for error messages.
             value: Raw config value.
@@ -594,7 +605,17 @@ def _truthy(value: Any) -> bool:
     """Normalise bool-like config values to Python bool.
 
     Accepts bool, "true"/"false", "yes"/"no" strings (case-insensitive),
-    and numeric values. Returns False for empty string and None.
+    and numeric values (int 1 -> True, int 0 -> False). Returns False
+    for empty string and None.
+
+    WR-03 note: this helper is intentionally LENIENT (accepts int 1/0)
+    because it gates non-semantic flags (INCLUDSUBDIR, ORDER_BY_*,
+    ORDER_ACTION_DESC, ERROR, IFEXCLUDE, FORMAT_FILEPATH_TO_SLASH).
+    The CASE_SENSITIVE flag is handled by the stricter
+    ``FileList._normalize_case_sensitive`` because it controls regex
+    flags and accepting ambiguous coercions would silently change
+    pattern matching semantics for the whole job. Do NOT route
+    CASE_SENSITIVE through this helper.
     """
     if isinstance(value, bool):
         return value
