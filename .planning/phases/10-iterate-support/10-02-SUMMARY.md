@@ -141,3 +141,20 @@ None - all iterate loop orchestration is fully wired.
 ---
 *Phase: 10-iterate-support*
 *Completed: 2026-05-06*
+
+## Self-Check: PASSED
+
+All files verified:
+- FOUND: src/v1/engine/output_router.py (drain_reject_flows + clear_partial_subjob_flows)
+- FOUND: src/v1/engine/execution_plan.py (_build_iterate_body_plan + get_iterate_body_plan)
+- FOUND: src/v1/engine/executor.py (_execute_iterate_body + _execute_subjob_plan)
+- FOUND: tests/v1/engine/test_output_router_iterate.py (9 tests)
+- FOUND: tests/v1/engine/test_execution_plan_iterate.py (15 tests)
+- FOUND: tests/v1/engine/test_executor_iterate.py (15 tests)
+- FOUND: .planning/phases/10-iterate-support/10-02-SUMMARY.md
+
+Commits verified:
+- cd13805: feat(10-02): add drain_reject_flows + clear_partial_subjob_flows to OutputRouter
+- 5b4b654: feat(10-02): add body-subgraph BFS + nested-iterate detection to ExecutionPlan
+- a7b8359: feat(10-02): add Executor._execute_iterate_body + _execute_subjob_plan refactor + iterate detection
+- b949b14: docs(10-02): complete iterate execution loop plan summary
