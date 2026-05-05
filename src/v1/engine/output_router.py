@@ -296,3 +296,87 @@ class OutputRouter:
             List of flow names with data.
         """
         return list(self._data_flows.keys())
+
+    # ------------------------------------------------------------------
+    # Iterate support helpers (Phase 10-02)
+    # ------------------------------------------------------------------
+
+    def drain_reject_flows(self, component_ids: set[str]) -> dict[str, "pd.DataFrame"]:
+        """Drain all reject-type outgoing flows from the given component set.
+
+        Returns a dict keyed by flow name with the DataFrame currently held in
+        each reject flow. Removes the drained flows from internal _data_flows.
+        Used by the iterate loop in Executor._execute_iterate_body to accumulate
+        body REJECT data per iteration (D-D4).
+
+        Args:
+            component_ids: Body components to drain.
+
+        Returns:
+            dict[flow_name -> DataFrame] for every drained reject flow.
+        """
+        drained: dict[str, "pd.DataFrame"] = {}
+        for comp_id in component_ids:
+            for flow in self._outgoing.get(comp_id, []):
+                if flow.get("type") != "reject":
+                    continue
+                flow_name = flow.get("name") or flow.get("from")
+                if flow_name in self._data_flows:
+                    drained[flow_name] = self._data_flows.pop(flow_name)
+        return drained
+
+    def clear_partial_subjob_flows(
+        self,
+        body_component_ids: "frozenset[str] | set[str]",
+        executed_components: set[str],
+    ) -> None:
+        """Clear data flows owned by a SUBSET of subjob components (the iterate body).
+
+        Preserves any flow whose downstream consumer is in another subjob that has
+        not yet executed. Mirrors clear_subjob_flows preservation logic but
+        parameterized on a body subset rather than the full subjob (D-I4).
+
+        This is a SUBSET-aware variant of clear_subjob_flows; preservation behavior
+        is identical.
+
+        Args:
+            body_component_ids: Components in the iterate body.
+            executed_components: Set of already-executed component IDs (so we can
+                detect which downstream subjobs still need the flows).
+        """
+        cleared = 0
+        preserved = 0
+
+        for comp_id in body_component_ids:
+            for flow in self._outgoing.get(comp_id, []):
+                flow_name = flow["name"]
+
+                if flow_name not in self._data_flows:
+                    continue
+
+                # Check consumers of this flow
+                consumers = self._flow_consumers.get(flow_name, set())
+
+                # Are there cross-subjob consumers that haven't executed?
+                should_preserve = False
+                for consumer_id in consumers:
+                    if consumer_id not in body_component_ids:
+                        # Consumer is outside the body subset (cross-subjob or parent-subjob)
+                        if consumer_id not in executed_components:
+                            # Consumer hasn't run yet -- preserve
+                            should_preserve = True
+                            logger.debug(
+                                f"Preserving flow {flow_name}: cross-body "
+                                f"consumer {consumer_id} has not yet executed"
+                            )
+                            break
+
+                if should_preserve:
+                    preserved += 1
+                else:
+                    self._data_flows.pop(flow_name, None)
+                    cleared += 1
+
+        logger.debug(
+            f"clear_partial_subjob_flows: cleared {cleared}, preserved {preserved}"
+        )
