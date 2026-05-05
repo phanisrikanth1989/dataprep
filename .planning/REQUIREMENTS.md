@@ -38,9 +38,9 @@ Requirements for engine restructure milestone. Each maps to roadmap phases.
 - [x] **EXEC-01**: Decompose monolithic execution loop into `_execute_subjob()` with topological sort
 - [x] **EXEC-02**: Extract `_route_component_outputs()` for data flow routing between components
 - [x] **EXEC-03**: Extract `_build_execution_plan()` for DAG construction and dependency resolution
-- [ ] **EXEC-04**: Implement iterate execution — `_handle_iterate()` calling `_execute_subjob()` per iteration item
-- [ ] **EXEC-05**: Implement `BaseComponent.reset()` for state cleanup between iterate re-executions
-- [ ] **EXEC-06**: Implement config snapshot/restore for components re-executed in iterate loops
+- [x] **EXEC-04**: Implement iterate execution — `_handle_iterate()` calling `_execute_subjob()` per iteration item
+- [x] **EXEC-05**: Implement `BaseComponent.reset()` for state cleanup between iterate re-executions
+- [x] **EXEC-06**: Implement config snapshot/restore for components re-executed in iterate loops
 - [x] **EXEC-07**: Fix stall detection — raise error instead of silent warning when components are unreachable
 
 ### tFileInputDelimited
@@ -157,17 +157,17 @@ Requirements for engine restructure milestone. Each maps to roadmap phases.
 
 ### Iterate Components
 
-- [ ] **ITER-01**: Implement tFlowToIterate engine component — convert each input row to globalMap variables
-- [ ] **ITER-02**: Implement tFlowToIterate DEFAULT_MAP mode — store as `{flowName}.{columnName}` in globalMap
-- [ ] **ITER-03**: Implement tFlowToIterate custom MAP mode — user-defined key-value pairs
-- [ ] **ITER-04**: Implement tFileList engine component — iterate files matching filemask in directory
-- [ ] **ITER-05**: Implement tFileList globalMap variables (`CURRENT_FILEPATH`, `CURRENT_FILENAME`, `CURRENT_FILEDIRECTORY`, `CURRENT_FILEEXTENSION`, `NB_FILE`)
-- [ ] **ITER-06**: Implement tFileList subdirectory inclusion (`INCLUDSUBDIR`)
-- [ ] **ITER-07**: Implement tFileList sort order options (`ORDER_BY_*`, ascending/descending)
-- [ ] **ITER-08**: Fix tFileExist config key mismatch — `file_name` vs `file_path`
-- [ ] **ITER-09**: Implement tFileExist globalMap variables (`{id}_EXISTS`, `{id}_FILENAME`)
-- [ ] **ITER-10**: Register all iterate components in `COMPONENT_REGISTRY`
-- [ ] **ITER-11**: Implement `{id}_CURRENT_ITERATE` globalMap variable for tFlowToIterate
+- [x] **ITER-01**: Implement tFlowToIterate engine component — convert each input row to globalMap variables
+- [x] **ITER-02**: Implement tFlowToIterate DEFAULT_MAP mode — store as `{flowName}.{columnName}` in globalMap
+- [x] **ITER-03**: Implement tFlowToIterate custom MAP mode — user-defined key-value pairs
+- [x] **ITER-04**: Implement tFileList engine component — iterate files matching filemask in directory
+- [x] **ITER-05**: Implement tFileList globalMap variables (`CURRENT_FILEPATH`, `CURRENT_FILENAME`, `CURRENT_FILEDIRECTORY`, `CURRENT_FILEEXTENSION`, `NB_FILE`)
+- [x] **ITER-06**: Implement tFileList subdirectory inclusion (`INCLUDSUBDIR`)
+- [x] **ITER-07**: Implement tFileList sort order options (`ORDER_BY_*`, ascending/descending)
+- [x] **ITER-08**: Fix tFileExist config key mismatch — `file_name` vs `file_path`
+- [x] **ITER-09**: Implement tFileExist globalMap variables (`{id}_EXISTS`, `{id}_FILENAME`)
+- [x] **ITER-10**: Register all iterate components in `COMPONENT_REGISTRY`
+- [x] **ITER-11**: Implement `{id}_CURRENT_ITERATE` globalMap variable for tFlowToIterate
 
 ### Java Bridge
 
@@ -197,7 +197,7 @@ Requirements for engine restructure milestone. Each maps to roadmap phases.
 - [x] **TEST-01**: Create pytest infrastructure (conftest.py, fixtures, markers)
 - [x] **TEST-02**: Engine unit tests for core infrastructure (GlobalMap, ContextManager, TriggerManager, JavaBridgeManager)
 - [x] **TEST-03**: Engine unit tests for all 12 target components
-- [ ] **TEST-04**: Engine unit tests for iterate components (tFlowToIterate, tFileList, tFileExist)
+- [x] **TEST-04**: Engine unit tests for iterate components (tFlowToIterate, tFileList, tFileExist)
 - [x] **TEST-08**: Engine unit tests for new transform components (tAggregateRow, tSortRow, tFilterRow, tFilterColumns, tJoin, tUnite)
 - [ ] **TEST-05**: Integration tests using real .item samples — convert → run → verify output
 - [ ] **TEST-06**: Talend output comparison tests — verify identical results for same input data
@@ -281,9 +281,9 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | EXEC-01 | Phase 3 | Complete |
 | EXEC-02 | Phase 3 | Complete |
 | EXEC-03 | Phase 3 | Complete |
-| EXEC-04 | Phase 10 | Pending |
-| EXEC-05 | Phase 10 | Pending |
-| EXEC-06 | Phase 10 | Pending |
+| EXEC-04 | Phase 10 | Complete |
+| EXEC-05 | Phase 10 | Complete |
+| EXEC-06 | Phase 10 | Complete |
 | EXEC-07 | Phase 3 | Complete |
 | FILD-01 | Phase 4 | Complete |
 | FILD-02 | Phase 4 | Complete |
@@ -358,17 +358,17 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | PYRO-01 | Phase 8 | Pending |
 | PYRO-02 | Phase 8 | Pending |
 | PYRO-03 | Phase 8 | Pending |
-| ITER-01 | Phase 10 | Pending |
-| ITER-02 | Phase 10 | Pending |
-| ITER-03 | Phase 10 | Pending |
-| ITER-04 | Phase 10 | Pending |
-| ITER-05 | Phase 10 | Pending |
-| ITER-06 | Phase 10 | Pending |
-| ITER-07 | Phase 10 | Pending |
-| ITER-08 | Phase 10 | Pending |
-| ITER-09 | Phase 10 | Pending |
-| ITER-10 | Phase 10 | Pending |
-| ITER-11 | Phase 10 | Pending |
+| ITER-01 | Phase 10 | Complete |
+| ITER-02 | Phase 10 | Complete |
+| ITER-03 | Phase 10 | Complete |
+| ITER-04 | Phase 10 | Complete |
+| ITER-05 | Phase 10 | Complete |
+| ITER-06 | Phase 10 | Complete |
+| ITER-07 | Phase 10 | Complete |
+| ITER-08 | Phase 10 | Complete |
+| ITER-09 | Phase 10 | Complete |
+| ITER-10 | Phase 10 | Complete |
+| ITER-11 | Phase 10 | Complete |
 | BRDG-01 | Phase 2 | Complete |
 | BRDG-02 | Phase 2 | Complete |
 | BRDG-03 | Phase 2 | Complete |
@@ -386,7 +386,7 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | TEST-01 | Phase 1 | Complete |
 | TEST-02 | Phase 1 | Complete |
 | TEST-03 | Phase 4, 5 | Complete |
-| TEST-04 | Phase 10 | Pending |
+| TEST-04 | Phase 10 | Complete |
 | TEST-05 | Phase 12 | Pending |
 | TEST-06 | Phase 12 | Pending |
 | TEST-07 | Phase 8 | Pending |

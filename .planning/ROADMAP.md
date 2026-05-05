@@ -311,6 +311,6 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 7. Transform Group B -- Column, Join, Unite | 2/2 | Complete | 2026-04-15 |
 | 8. Code Components | 6/6 | Complete | 2026-04-29 |
 | 9. tContextLoad & Routines | 2/2 | Complete | - |
-| 10. Iterate Support | 11/11 | Complete   | 2026-05-05 |
+| 10. Iterate Support | 11/11 | Complete    | 2026-05-05 |
 | 11. Oracle Components | 0/TBD | Not started | - |
 | 12. Integration Testing & Performance | 0/TBD | Not started | - |
