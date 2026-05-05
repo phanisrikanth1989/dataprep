@@ -150,10 +150,12 @@ class TestDefaultMapTrue:
 
     def _make(self, inputs=None, gm=None):
         gm = gm or GlobalMap()
+        # Use explicit None check so empty list inputs=[] is preserved
+        resolved_inputs = ["row1"] if inputs is None else inputs
         comp = _make_flow_to_iterate(
             config={"default_map": True},
             global_map=gm,
-            inputs=inputs or ["row1"],
+            inputs=resolved_inputs,
         )
         return comp, gm
 
