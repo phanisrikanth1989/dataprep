@@ -325,6 +325,19 @@ class Executor:
             body_plan: Pre-computed body SubjobPlan from ExecutionPlan.
         """
         cid = iter_component.id
+
+        # WR-05: defense-in-depth. The iterate-body driver is only called
+        # after iter_component.execute() returned success in the caller
+        # (_execute_subjob_plan). If a future code path bypasses that gate
+        # and the component is in ERROR state, iteration_iter is undefined
+        # and silently yields zero items, masking the failure. Assert so
+        # the bug is loud, not silent.
+        assert iter_component.status != ComponentStatus.ERROR, (
+            f"[{cid}] _execute_iterate_body called on errored iterate component "
+            "(status==ERROR). The caller must only invoke this after a "
+            "successful execute(); reaching here indicates a bypass bug."
+        )
+
         body_component_set = body_plan.component_set
         reject_buffer: list[pd.DataFrame] = []
 
