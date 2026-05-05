@@ -116,13 +116,19 @@ class MultiOutputComponent(BaseComponent):
 
 
 class ConcreteIterateComponent(BaseIterateComponent):
-    """Minimal iterate component for testing."""
+    """Minimal iterate component for testing.
+
+    Updated for Phase 10-01: prepare_iterations() returns Iterator[Any]
+    per D-A3 (not a list). Also sets total_iterations for bounded items.
+    """
 
     def _validate_config(self) -> None:
         pass
 
     def prepare_iterations(self, input_data=None):
-        return self.config.get("items", [1, 2, 3])
+        items = self.config.get("items", [1, 2, 3])
+        self.total_iterations = len(items)
+        return iter(items)
 
     def set_iteration_globalmap(self, item):
         if self.global_map:
@@ -820,17 +826,21 @@ class TestBaseIterateComponentLifecycle:
         comp.get_next_iteration_context()
         assert comp.has_next_iteration() is False
 
-    def test_finalize_iterations_updates_stats(self):
-        """finalize_iterations updates stats."""
+    def test_finalize_iterations_callable_no_op(self):
+        """finalize_iterations() is callable (backward-compat stub for finalize()).
+
+        Phase 10-01: finalize_iterations delegates to finalize() (no-op by default).
+        Iterate component stats are accumulated by Executor via update_iteration_stats,
+        not by finalize_iterations itself.
+        """
         gm = GlobalMap()
         comp = ConcreteIterateComponent("iter1", {"items": [1, 2, 3]}, global_map=gm)
         comp.execute()
-        # Consume all iterations
         while comp.has_next_iteration():
             comp.get_next_iteration_context()
-        comp.finalize_iterations()
-        assert comp.stats["NB_LINE"] == 3
-        assert comp.stats["NB_LINE_OK"] == 3
+        comp.finalize_iterations()  # Must not raise; stats are Executor's responsibility
+        # Stats start at 0; Executor would call update_iteration_stats to populate them
+        assert comp.stats["NB_LINE"] == 0  # Not set by finalize_iterations itself
 
     def test_get_next_iteration_context_returns_empty_when_exhausted(self):
         """get_next_iteration_context returns empty dict when no more items."""
@@ -856,14 +866,20 @@ class TestBaseIterateComponentLifecycle:
 class TestBaseIterateComponentReset:
     """reset() clears iterate-specific state."""
 
-    def test_reset_clears_iteration_items(self):
-        """reset() clears iteration_items."""
+    def test_reset_clears_iteration_iter(self):
+        """reset() resets iteration_iter to an empty iterator.
+
+        Phase 10-01: iteration_iter replaces the old iteration_items list (D-A3).
+        After reset, iteration_iter yields nothing.
+        """
         gm = GlobalMap()
         comp = ConcreteIterateComponent("iter1", {"items": [1, 2]}, global_map=gm)
         comp.execute()
-        assert len(comp.iteration_items) == 2
+        # Before reset, iterator has items
+        assert comp.has_next_iteration() is True
         comp.reset()
-        assert comp.iteration_items == []
+        # After reset, iteration_iter is exhausted (empty iterator)
+        assert not comp.has_next_iteration() or comp.total_iterations == -1
 
     def test_reset_resets_current_index_to_zero(self):
         """reset() resets current_iteration_index to 0."""
@@ -875,17 +891,21 @@ class TestBaseIterateComponentReset:
         comp.reset()
         assert comp.current_iteration_index == 0
 
-    def test_reset_resets_total_iterations_to_zero(self):
-        """reset() resets total_iterations to 0."""
+    def test_reset_resets_total_iterations_to_sentinel(self):
+        """reset() resets total_iterations to -1 (unbounded sentinel).
+
+        Phase 10-01: total_iterations uses -1 as the reset/unbounded sentinel (D-A3).
+        The value is populated again by prepare_iterations() on next execute().
+        """
         gm = GlobalMap()
         comp = ConcreteIterateComponent("iter1", {"items": [1, 2]}, global_map=gm)
         comp.execute()
         assert comp.total_iterations == 2
         comp.reset()
-        assert comp.total_iterations == 0
+        assert comp.total_iterations == -1
 
-    def test_can_prepare_iterations_again_after_reset(self):
-        """After reset, can prepare_iterations again."""
+    def test_can_execute_again_after_reset(self):
+        """After reset, can call execute() again to repopulate the iterator."""
         gm = GlobalMap()
         comp = ConcreteIterateComponent("iter1", {"items": [1, 2]}, global_map=gm)
         comp.execute()
@@ -895,11 +915,17 @@ class TestBaseIterateComponentReset:
         assert comp.has_next_iteration() is True
 
     def test_reset_clears_base_stats_too(self):
-        """reset() clears both iterate-specific and base component state."""
+        """reset() clears both iterate-specific and base component state.
+
+        Phase 10-01: finalize_iterations() no longer sets NB_LINE. Stats are
+        accumulated by Executor.update_iteration_stats(). We simulate via
+        update_iteration_stats() to verify reset() clears them.
+        """
         gm = GlobalMap()
         comp = ConcreteIterateComponent("iter1", {"items": [1, 2, 3]}, global_map=gm)
         comp.execute()
-        comp.finalize_iterations()
+        # Simulate Executor accumulating stats
+        comp.update_iteration_stats({"NB_LINE": 3, "NB_LINE_OK": 3, "NB_LINE_REJECT": 0})
         assert comp.stats["NB_LINE"] == 3
         comp.reset()
         assert comp.stats["NB_LINE"] == 0

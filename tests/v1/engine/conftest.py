@@ -1,8 +1,14 @@
 """Pytest configuration for v1 engine tests.
 
-Provides StubComponent and helper functions for Phase 3 execution tests.
+Provides StubComponent, IterateStubComponent, and helper functions for
+Phase 3 execution tests and Phase 10 iterate tests.
+
 StubComponent enables testing execution orchestration without real component
 implementations (per D-17).
+
+IterateStubComponent enables testing the iterate execution loop and
+BaseIterateComponent lifecycle without depending on real iterate component
+implementations (Phase 10, per D-A5).
 
 Also provides a session-scoped ``java_bridge`` fixture used by every
 ``@pytest.mark.java`` integration test that needs a real running JVM
@@ -11,6 +17,7 @@ subprocess (Phase 8 Plan 05 / TEST-07). Per project memory
 MUST exercise a real bridge -- mock-only is FORBIDDEN.
 """
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
@@ -18,8 +25,9 @@ import pandas as pd
 import pytest
 
 from src.v1.engine.base_component import BaseComponent
+from src.v1.engine.base_iterate_component import BaseIterateComponent
 from src.v1.engine.context_manager import ContextManager
-from src.v1.engine.exceptions import ComponentExecutionError
+from src.v1.engine.exceptions import ComponentExecutionError, ConfigurationError
 from src.v1.engine.global_map import GlobalMap
 
 
@@ -74,6 +82,73 @@ class StubComponent(BaseComponent):
             result["reject"] = pd.DataFrame(reject_data)
 
         return result
+
+
+# ===========================================================================
+# Phase 10: Iterate Stub Infrastructure
+# ===========================================================================
+
+
+@dataclass
+class StubIterateItem:
+    """Generic typed item for IterateStubComponent."""
+    value: Any
+    index: int
+
+
+class IterateStubComponent(BaseIterateComponent):
+    """Configurable test stub for the executor iterate loop and base-class tests.
+
+    Enables testing BaseIterateComponent lifecycle and Executor iterate loop
+    without depending on real iterate component implementations (tFileList,
+    tFlowToIterate). Designed for Phase 10 unit tests.
+
+    Config keys:
+        items (list[Any]): items to yield from prepare_iterations.
+        globalmap_key_prefix (str): prefix for keys written by
+            set_iteration_globalmap (default "TEST_").
+        stop_after (int | None): if set, should_stop returns True when
+            index >= stop_after (0-based).
+        fail_at (int | None): if set, raises ComponentExecutionError at
+            this 0-based index inside set_iteration_globalmap.
+    """
+
+    def _validate_config(self) -> None:
+        """Validate that 'items' is a list if provided."""
+        items = self.config.get("items", [])
+        if not isinstance(items, list):
+            raise ConfigurationError(f"[{self.id}] 'items' must be a list")
+
+    def prepare_iterations(self, input_data=None):
+        """Return iter(items) and set total_iterations."""
+        items = self.config.get("items", [])
+        self.total_iterations = len(items)
+        return iter(items)
+
+    def set_iteration_globalmap(self, item) -> None:
+        """Write one globalMap entry per iteration call.
+
+        Uses a per-instance counter so callers can call this method
+        directly in tests without needing to drive the Executor.
+        Key format: {globalmap_key_prefix}{call_number} (1-based).
+        """
+        if self.global_map is None:
+            return
+        prefix = self.config.get("globalmap_key_prefix", "TEST_")
+        # Use a per-instance call counter so tests can call this method
+        # directly without going through the full iterate loop.
+        self._stub_counter = getattr(self, "_stub_counter", 0) + 1
+        # Unwrap StubIterateItem if passed
+        if isinstance(item, StubIterateItem):
+            value = item.value
+        else:
+            value = item
+        self.global_map.put(f"{prefix}{self._stub_counter}", value)
+
+    def should_stop(self, item, index: int) -> bool:
+        """Return True when index >= stop_after config value."""
+        stop_after = self.config.get("stop_after")
+        return stop_after is not None and index >= stop_after
 
 
 def make_stub_component(
@@ -138,6 +213,62 @@ def make_job_config(
         "context": {"Default": {}},
     }
 
+
+
+def make_iterate_job_config(
+    iter_id: str,
+    body_components: list,
+    items: list,
+    globalmap_key_prefix: str = "TEST_",
+) -> dict:
+    """Build a valid job config dict with an IterateStubComponent as the iterate source.
+
+    Creates a job config suitable for testing the Executor iterate loop.
+    The iterate source (IterateStubComponent) is paired with a list of body
+    components connected via ITERATE-typed flows.
+
+    Args:
+        iter_id: Component ID for the IterateStubComponent (iterate source).
+        body_components: List of component config dicts for body components.
+            Each must have at least 'id' and 'component_type'.
+        items: Items to yield from the IterateStubComponent.
+        globalmap_key_prefix: Key prefix for IterateStubComponent globalMap
+            writes (default "TEST_").
+
+    Returns:
+        Job config dict matching the engine's expected format. Contains the
+        iterate source + body components + ITERATE-typed flow connections.
+    """
+    iterate_source = {
+        "id": iter_id,
+        "component_type": "IterateStubComponent",
+        "items": items,
+        "globalmap_key_prefix": globalmap_key_prefix,
+    }
+    all_components = [iterate_source] + list(body_components)
+
+    # Build ITERATE flow from source to each body component
+    flows = []
+    for body_comp in body_components:
+        body_id = body_comp["id"]
+        flows.append({
+            "name": f"iterate_{iter_id}_{body_id}",
+            "from": iter_id,
+            "to": body_id,
+            "type": "iterate",
+        })
+
+    return {
+        "job": {
+            "name": "test_iterate_job",
+            "version": "1.0",
+        },
+        "components": all_components,
+        "flows": flows,
+        "triggers": [],
+        "subjobs": [],
+        "context": {"Default": {}},
+    }
 
 
 @pytest.fixture
