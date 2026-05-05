@@ -110,7 +110,8 @@ class TalendToV1Converter:
             components_map[comp["id"]] = comp
 
         # Step 5: Parse flows from connections
-        flows = self._parse_flows(job.connections)
+        flows, flow_needs_review = self._parse_flows(job.connections)
+        needs_review.extend(flow_needs_review)
 
         # Step 6: Update component inputs/outputs from flows
         for flow in flows:
@@ -219,9 +220,18 @@ class TalendToV1Converter:
     @staticmethod
     def _parse_flows(
         connections: List[TalendConnection],
-    ) -> List[Dict[str, Any]]:
-        """Parse data-flow connections into v1 flow dicts."""
+    ) -> tuple:
+        """Parse data-flow connections into v1 flow dicts.
+
+        Returns
+        -------
+        tuple
+            ``(flows, needs_review_entries)`` where flows is a list of flow
+            dicts and needs_review_entries is a list of engine_gap entries
+            emitted when ENABLE_PARALLEL=true on an ITERATE connection.
+        """
         flows: List[Dict[str, Any]] = []
+        needs_review_entries: List[Dict[str, Any]] = []
 
         for conn in connections:
             if conn.connector_type not in _FLOW_CONNECTOR_TYPES:
@@ -229,14 +239,38 @@ class TalendToV1Converter:
             if not conn.source or not conn.target:
                 continue
 
-            flows.append({
+            flow: Dict[str, Any] = {
                 "name": conn.name or conn.source,
                 "from": conn.source,
                 "to": conn.target,
                 "type": conn.connector_type.lower(),
-            })
+            }
 
-        return flows
+            if conn.connector_type == "ITERATE":
+                enable_parallel_raw = conn.params.get("ENABLE_PARALLEL", "false")
+                enable_parallel = str(enable_parallel_raw).strip().lower() == "true"
+                number_parallel_raw = conn.params.get("NUMBER_PARALLEL", "0") or "0"
+                try:
+                    number_parallel = int(number_parallel_raw)
+                except (TypeError, ValueError):
+                    number_parallel = 0
+                flow["enable_parallel"] = enable_parallel
+                flow["number_parallel"] = number_parallel
+                if enable_parallel:
+                    needs_review_entries.append({
+                        "severity": "engine_gap",
+                        "component_id": conn.source,
+                        "message": (
+                            "Parallel iteration is configured "
+                            "(NUMBER_PARALLEL={}) but Phase 10 engine "
+                            "runs sequentially -- results correct but slower. Defer "
+                            "to Phase 12+ for parallel.".format(number_parallel)
+                        ),
+                    })
+
+            flows.append(flow)
+
+        return flows, needs_review_entries
 
     # ------------------------------------------------------------------
     # Step 6: Update component inputs/outputs

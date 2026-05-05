@@ -157,11 +157,12 @@ class TestFlowParsing:
             _make_connection("row1", "A", "B", "FLOW"),
             _make_connection("row2", "B", "C", "REJECT"),
         ]
-        flows = TalendToV1Converter._parse_flows(connections)
+        flows, needs_review = TalendToV1Converter._parse_flows(connections)
 
         assert len(flows) == 2
         assert flows[0] == {"name": "row1", "from": "A", "to": "B", "type": "flow"}
         assert flows[1] == {"name": "row2", "from": "B", "to": "C", "type": "reject"}
+        assert needs_review == []
 
     def test_trigger_connections_excluded_from_flows(self):
         """Trigger connections (SUBJOB_OK, etc.) are NOT included in flows."""
@@ -170,10 +171,11 @@ class TestFlowParsing:
             _make_connection("trigger1", "A", "C", "SUBJOB_OK"),
             _make_connection("trigger2", "A", "D", "COMPONENT_OK"),
         ]
-        flows = TalendToV1Converter._parse_flows(connections)
+        flows, needs_review = TalendToV1Converter._parse_flows(connections)
 
         assert len(flows) == 1
         assert flows[0]["name"] == "row1"
+        assert needs_review == []
 
     def test_all_flow_connector_types(self):
         """All recognized flow connector types produce flows."""
@@ -182,10 +184,11 @@ class TestFlowParsing:
             _make_connection(f"row_{ct.lower()}", "A", "B", ct)
             for ct in flow_types
         ]
-        flows = TalendToV1Converter._parse_flows(connections)
+        flows, needs_review = TalendToV1Converter._parse_flows(connections)
         assert len(flows) == len(flow_types)
         for i, ct in enumerate(flow_types):
             assert flows[i]["type"] == ct.lower()
+        assert needs_review == []
 
     def test_empty_source_or_target_skipped(self):
         """Connections with empty source or target are skipped."""
@@ -193,8 +196,9 @@ class TestFlowParsing:
             _make_connection("row1", "", "B", "FLOW"),
             _make_connection("row2", "A", "", "FLOW"),
         ]
-        flows = TalendToV1Converter._parse_flows(connections)
+        flows, needs_review = TalendToV1Converter._parse_flows(connections)
         assert len(flows) == 0
+        assert needs_review == []
 
 
 # ---------------------------------------------------------------------------
