@@ -157,7 +157,7 @@ class TestJobTFileListConversion:
         assert json_out.exists(), "convert_job did not write JSON output file"
 
         fatal = [
-            e for e in result.get("needs_review", [])
+            e for e in result.get("_needs_review", [])
             if e.get("severity") in ("error", "fatal")
         ]
         assert not fatal, (
@@ -320,7 +320,7 @@ class TestJobTFlowToIterateConversion:
         assert json_out.exists(), "convert_job did not write JSON output file"
 
         fatal = [
-            e for e in result.get("needs_review", [])
+            e for e in result.get("_needs_review", [])
             if e.get("severity") in ("error", "fatal")
         ]
         assert not fatal, (
