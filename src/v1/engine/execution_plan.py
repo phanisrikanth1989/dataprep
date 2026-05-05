@@ -36,6 +36,16 @@ _REQUIRES_FULL_DATA_TYPES: frozenset[str] = frozenset({
     "AggregateSortedRow", "tAggregateSortedRow",
 })
 
+# ---------------------------------------------------------------------------
+# Iterate component types (Phase 10 hardcoded set)
+# Future iterate components (tForeach, tLoop) add here.
+# ---------------------------------------------------------------------------
+
+_ITERATE_TYPES: frozenset[str] = frozenset({
+    "FlowToIterate", "tFlowToIterate",
+    "FileList", "tFileList",
+})
+
 
 # ---------------------------------------------------------------------------
 # Dataclasses
@@ -189,6 +199,16 @@ class ExecutionPlan:
             if from_subjob and to_subjob and from_subjob != to_subjob:
                 self._cross_subjob_flows.append(flow)
 
+        # ---- 8. Identify iterate body subgraphs (Phase 10) ----
+        self._iterate_body_plans: dict[str, SubjobPlan] = {}
+        for comp_id, comp_config in self._components.items():
+            comp_type = comp_config.get("type", "")
+            if comp_type in _ITERATE_TYPES:
+                self._iterate_body_plans[comp_id] = self._build_iterate_body_plan(comp_id)
+
+        # ---- 9. Detect nested iterate (Phase 10 only -- raises) ----
+        self._detect_nested_iterate()
+
     # ------------------------------------------------------------------
     # Internal builders
     # ------------------------------------------------------------------
@@ -307,6 +327,137 @@ class ExecutionPlan:
 
         return edges
 
+    def _build_iterate_body_plan(self, iter_component_id: str) -> SubjobPlan:
+        """Build the body subgraph SubjobPlan for an iterate component.
+
+        Performs BFS from the iterate edge target(s), following FLOW (non-iterate)
+        and outbound trigger edges. Stops at cross-subjob components and the iterate
+        source itself. Raises ConfigurationError on cycle back to iterate source.
+
+        Args:
+            iter_component_id: The iterate source component ID.
+
+        Returns:
+            SubjobPlan for the body subgraph, topologically sorted.
+
+        Raises:
+            ConfigurationError: If a body trigger creates a cycle back to iterate source.
+        """
+        # 1. Find ITERATE-typed outgoing flows from the iterate component
+        iterate_targets: list[str] = [
+            f["to"] for f in self._flows
+            if f.get("from") == iter_component_id and f.get("type") == "iterate"
+        ]
+
+        if not iterate_targets:
+            # No body -- iterate fires triggers but does no body work
+            return SubjobPlan(
+                subjob_id=f"{iter_component_id}_body",
+                component_ids=[],
+                component_set=frozenset(),
+            )
+
+        # 2. BFS from each iterate target, following FLOW + outbound trigger edges
+        body: set[str] = set()
+        queue: deque[str] = deque(iterate_targets)
+        own_subjob = self._component_to_subjob.get(iter_component_id)
+
+        while queue:
+            current = queue.popleft()
+            if current in body:
+                continue
+            # Skip the iterate source itself (avoids trivial self-loop)
+            if current == iter_component_id:
+                continue
+            # Skip cross-subjob components
+            if self._component_to_subjob.get(current) != own_subjob:
+                continue
+
+            body.add(current)
+
+            # Follow outbound non-iterate FLOW edges
+            for f in self._flows:
+                if f.get("from") == current and f.get("type") != "iterate":
+                    queue.append(f["to"])
+
+            # Follow outbound trigger edges (OnComponentOk, OnComponentError, RunIf etc.)
+            for edge in self._trigger_edges:
+                if edge.from_component == current:
+                    queue.append(edge.to_component)
+
+        # 3. Detect cycle back to iterate source via triggers (error per spec)
+        for edge in self._trigger_edges:
+            if edge.from_component in body and edge.to_component == iter_component_id:
+                raise ConfigurationError(
+                    f"Iterate component '{iter_component_id}' has a trigger cycle: "
+                    f"body component '{edge.from_component}' points back to iterate source "
+                    f"via {edge.trigger_type}. This is not supported."
+                )
+
+        # 4. Topologically sort body components using existing _build_subjob_plan logic
+        return self._topo_sort_body(iter_component_id, body)
+
+    def _topo_sort_body(self, iter_component_id: str, body: set[str]) -> SubjobPlan:
+        """Topologically sort body component set and return a SubjobPlan.
+
+        Args:
+            iter_component_id: Iterate source ID (for the subjob_id name).
+            body: Set of body component IDs.
+
+        Returns:
+            SubjobPlan with topologically sorted component_ids.
+
+        Raises:
+            ConfigurationError: If a cycle is detected within the body.
+        """
+        body_set = frozenset(body)
+        body_list = list(body)
+
+        # Filter flows to only internal body flows
+        internal_flows = [
+            f for f in self._flows
+            if f.get("from") in body_set and f.get("to") in body_set
+            and f.get("type") != "iterate"
+        ]
+
+        sorter = TopologicalSorter()
+        for comp_id in body_list:
+            sorter.add(comp_id)
+        for flow in internal_flows:
+            sorter.add(flow["to"], flow["from"])
+
+        try:
+            sorted_order = list(sorter.static_order())
+        except CycleError as e:
+            raise ConfigurationError(
+                f"Cycle detected in iterate body flow graph for '{iter_component_id}': {e}"
+            ) from e
+
+        return SubjobPlan(
+            subjob_id=f"{iter_component_id}_body",
+            component_ids=sorted_order,
+            component_set=body_set,
+        )
+
+    def _detect_nested_iterate(self) -> None:
+        """Phase 10 enforces depth=1. Raises ConfigurationError on nested iterate.
+
+        If any iterate body contains another iterate component, raise ConfigurationError
+        listing both IDs. This restriction will be lifted in Phase 10.1.
+
+        Raises:
+            ConfigurationError: If nested iterate is detected.
+        """
+        for iter_id, body_plan in self._iterate_body_plans.items():
+            for body_id in body_plan.component_set:
+                body_type = self._components.get(body_id, {}).get("type", "")
+                if body_type in _ITERATE_TYPES:
+                    raise ConfigurationError(
+                        f"Nested iterate detected: '{iter_id}' contains '{body_id}' "
+                        f"in its body. Phase 10 does not support nested iterate. "
+                        f"This restriction will be lifted in Phase 10.1."
+                    )
+
     # ------------------------------------------------------------------
     # Validation
     # ------------------------------------------------------------------
@@ -402,6 +553,26 @@ class ExecutionPlan:
             KeyError: If subjob_id is not found.
         """
         return self._subjob_plans[subjob_id]
+
+    def get_iterate_body_plan(self, iter_component_id: str) -> SubjobPlan:
+        """Return the pre-computed body subgraph plan for an iterate component.
+
+        Args:
+            iter_component_id: The iterate component ID.
+
+        Returns:
+            SubjobPlan for the iterate body (topologically sorted).
+
+        Raises:
+            KeyError: If the component is not registered as an iterate component.
+        """
+        if iter_component_id not in self._iterate_body_plans:
+            raise KeyError(
+                f"No iterate body plan for '{iter_component_id}'; either not "
+                f"an iterate component or ExecutionPlan was built before "
+                f"the component was registered as iterate."
+            )
+        return self._iterate_body_plans[iter_component_id]
 
     def get_triggered_subjobs(self, trigger_type: str, source_component: str) -> list[TriggerEdge]:
         """Get trigger edges from a source component of a given type.
