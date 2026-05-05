@@ -505,10 +505,9 @@ class FileList(BaseIterateComponent):
         reverse = (order_action == "ORDER_ACTION_DESC")
 
         if order_by == "ORDER_BY_NOTHING":
-            # Preserve OS-default (no sort); DESC reversal is a no-op for
-            # unordered sequences, but apply it anyway for consistency.
-            if reverse:
-                paths = list(reversed(paths))
+            # Preserve OS-default (non-deterministic). Talend does NOT reverse
+            # on ORDER_BY_NOTHING+DESC; reversing a non-deterministic sequence
+            # is meaningless and only adds an O(n) allocation. Skip it. (WR-04)
             return paths
 
         if order_by == "ORDER_BY_FILENAME":
