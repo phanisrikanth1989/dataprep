@@ -39,6 +39,7 @@ from typing import Any, Dict, List
 
 from ..base import ComponentConverter, ComponentResult, TalendConnection, TalendNode
 from ..registry import REGISTRY
+from ...expression_converter import ExpressionConverter
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +133,11 @@ class FileInputDelimitedConverter(ComponentConverter):
 
         # ---- 1. Core parameters ----
         config: Dict[str, Any] = {}
-        config["filepath"] = self._get_str(node, "FILENAME", "")
+        # Mark Java expressions in filepath (e.g. ((String)globalMap.get(...))) with {{java}}
+        # so the engine's Java bridge can resolve them at runtime.
+        config["filepath"] = ExpressionConverter.mark_java_expression(
+            self._get_str(node, "FILENAME", "")
+        )
         config["csv_option"] = self._get_bool(node, "CSV_OPTION", False)
         config["row_separator"] = self._get_str(node, "ROWSEPARATOR", "\\n")
         config["csv_row_separator"] = self._get_str(node, "CSVROWSEPARATOR", "\\n")

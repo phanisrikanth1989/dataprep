@@ -116,6 +116,33 @@ class FileList(BaseIterateComponent):
     # Configuration Validation (structural only, D-L4 / Phase 7.1 Rule 12)
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Config key helpers (converter produces lowercase; accept both)
+    # ------------------------------------------------------------------
+
+    def _cfg(self, key_upper: str, key_lower: str, default: Any = None) -> Any:
+        """Read a config value by uppercase key with lowercase fallback.
+
+        The talend_to_v1 converter produces lowercase snake_case config keys
+        (e.g. 'directory', 'list_mode') while the original engine contract used
+        uppercase Talend-style keys (e.g. 'DIRECTORY', 'LIST_MODE'). This helper
+        checks the uppercase key first (backward compat), then falls back to the
+        lowercase key, then to default.
+
+        Args:
+            key_upper: Uppercase Talend-style key (e.g. 'DIRECTORY').
+            key_lower: Lowercase converter-output key (e.g. 'directory').
+            default: Default value if neither key is present.
+
+        Returns:
+            Config value or default.
+        """
+        if key_upper in self.config:
+            return self.config[key_upper]
+        if key_lower in self.config:
+            return self.config[key_lower]
+        return default
+
     def _validate_config(self) -> None:
         """Validate component configuration (structural checks only).
 
@@ -123,45 +150,48 @@ class FileList(BaseIterateComponent):
         presence and enum membership; does NOT check directory existence or
         mask validity (those are content checks belonging in prepare_iterations).
 
+        Accepts both uppercase Talend-style keys (e.g. 'DIRECTORY') and lowercase
+        converter-output keys (e.g. 'directory').
+
         Raises:
             ConfigurationError: If required keys are missing or enum values are invalid.
         """
-        # DIRECTORY: required
-        if "DIRECTORY" not in self.config:
+        # DIRECTORY: required (accepts both 'DIRECTORY' and lowercase 'directory')
+        if "DIRECTORY" not in self.config and "directory" not in self.config:
             raise ConfigurationError(
                 f"[{self.id}] Missing required config key 'DIRECTORY'"
             )
 
         # LIST_MODE: must be in known set
-        list_mode = self.config.get("LIST_MODE", "FILES")
+        list_mode = self._cfg("LIST_MODE", "list_mode", "FILES")
         if list_mode not in _LIST_MODES:
             raise ConfigurationError(
                 f"[{self.id}] Invalid LIST_MODE '{list_mode}'. "
                 f"Must be one of: {sorted(_LIST_MODES)}"
             )
 
-        # ORDER_BY: must be in known set
-        order_by = self.config.get("ORDER_BY", "ORDER_BY_NOTHING")
-        if order_by not in _ORDER_BY_VALUES:
+        # ORDER_BY: optional explicit key; RADIO flags are validated by presence only
+        order_by = self._cfg("ORDER_BY", "order_by", None)
+        if order_by is not None and order_by not in _ORDER_BY_VALUES:
             raise ConfigurationError(
                 f"[{self.id}] Invalid ORDER_BY '{order_by}'. "
                 f"Must be one of: {sorted(_ORDER_BY_VALUES)}"
             )
 
-        # ORDER_ACTION: must be in known set
-        order_action = self.config.get("ORDER_ACTION", "ORDER_ACTION_ASC")
-        if order_action not in _ORDER_ACTIONS:
+        # ORDER_ACTION: optional explicit key
+        order_action = self._cfg("ORDER_ACTION", "order_action", None)
+        if order_action is not None and order_action not in _ORDER_ACTIONS:
             raise ConfigurationError(
                 f"[{self.id}] Invalid ORDER_ACTION '{order_action}'. "
                 f"Must be one of: {sorted(_ORDER_ACTIONS)}"
             )
 
         # CASE_SENSITIVE: normalize; raises ConfigurationError if invalid
-        case_sensitive_raw = self.config.get("CASE_SENSITIVE", "YES")
+        case_sensitive_raw = self._cfg("CASE_SENSITIVE", "case_sensitive", "YES")
         FileList._normalize_case_sensitive(self.id, case_sensitive_raw)
 
-        # FILES: must be a list; each entry must be a dict with FILEMASK key
-        files_list = self.config.get("FILES", [])
+        # FILES: must be a list; each entry must be a dict (FILEMASK or filemask key)
+        files_list = self._cfg("FILES", "files", [])
         if not isinstance(files_list, list):
             raise ConfigurationError(
                 f"[{self.id}] Config 'FILES' must be a list, "
@@ -190,32 +220,57 @@ class FileList(BaseIterateComponent):
         Raises:
             ComponentExecutionError: If ERROR=true and 0 files match.
         """
-        # -- Read config -------------------------------------------------
-        directory_str: str = self.config["DIRECTORY"]
-        files_cfg: List[Dict[str, Any]] = self.config.get("FILES", [])
-        # GLOBEXPRESSIONS or USE_GLOB (alias used by some converter exports)
-        use_glob_raw = self.config.get(
-            "GLOBEXPRESSIONS", self.config.get("USE_GLOB", "false")
+        # -- Read config (accepts both uppercase Talend keys and lowercase converter keys) --
+        directory_str: str = self._cfg("DIRECTORY", "directory", "")
+        files_cfg: List[Dict[str, Any]] = self._cfg("FILES", "files", [])
+        # GLOBEXPRESSIONS or USE_GLOB (alias) or glob_expressions (converter output)
+        use_glob_raw = self._cfg(
+            "GLOBEXPRESSIONS",
+            "glob_expressions",
+            self.config.get("USE_GLOB", "false"),
         )
         use_glob: bool = _truthy(use_glob_raw)
-        case_sensitive_raw = self.config.get("CASE_SENSITIVE", "YES")
+        case_sensitive_raw = self._cfg("CASE_SENSITIVE", "case_sensitive", "YES")
         case_sensitive: bool = FileList._normalize_case_sensitive(
             self.id, case_sensitive_raw
         )
-        recursive: bool = _truthy(self.config.get("INCLUDSUBDIR", "false"))
-        list_mode: str = self.config.get("LIST_MODE", "FILES")
-        order_by: str = self.config.get("ORDER_BY", "ORDER_BY_NOTHING")
-        order_action: str = self.config.get("ORDER_ACTION", "ORDER_ACTION_ASC")
-        error_on_empty: bool = _truthy(self.config.get("ERROR", "false"))
-        if_exclude: bool = _truthy(self.config.get("IFEXCLUDE", "false"))
-        exclude_mask: str = self.config.get("EXCLUDEFILEMASK", "")
-        fmt_slash: bool = _truthy(self.config.get("FORMAT_FILEPATH_TO_SLASH", "false"))
+        recursive: bool = _truthy(self._cfg("INCLUDSUBDIR", "include_subdirs", "false"))
+        list_mode: str = self._cfg("LIST_MODE", "list_mode", "FILES")
 
-        # Extract FILEMASK strings from FILES list
+        # ORDER_BY: either explicit ORDER_BY key or derived from ORDER_BY_* RADIO flags
+        order_by_direct = self._cfg("ORDER_BY", "order_by", None)
+        if order_by_direct is not None:
+            order_by = order_by_direct
+        elif _truthy(self._cfg("ORDER_BY_FILENAME", "order_by_filename", False)):
+            order_by = "ORDER_BY_FILENAME"
+        elif _truthy(self._cfg("ORDER_BY_FILESIZE", "order_by_filesize", False)):
+            order_by = "ORDER_BY_FILESIZE"
+        elif _truthy(self._cfg("ORDER_BY_MODIFIEDDATE", "order_by_modifieddate", False)):
+            order_by = "ORDER_BY_MODIFIEDDATE"
+        else:
+            order_by = "ORDER_BY_NOTHING"
+
+        # ORDER_ACTION: either explicit ORDER_ACTION key or derived from RADIO flags
+        order_action_direct = self._cfg("ORDER_ACTION", "order_action", None)
+        if order_action_direct is not None:
+            order_action = order_action_direct
+        elif _truthy(self._cfg("ORDER_ACTION_DESC", "order_action_desc", False)):
+            order_action = "ORDER_ACTION_DESC"
+        else:
+            order_action = "ORDER_ACTION_ASC"
+
+        error_on_empty: bool = _truthy(self._cfg("ERROR", "error", "false"))
+        if_exclude: bool = _truthy(self._cfg("IFEXCLUDE", "exclude_file", "false"))
+        exclude_mask: str = self._cfg("EXCLUDEFILEMASK", "exclude_filemask", "")
+        fmt_slash: bool = _truthy(
+            self._cfg("FORMAT_FILEPATH_TO_SLASH", "format_filepath_to_slash", "false")
+        )
+
+        # Extract FILEMASK strings from FILES list -- accept both 'FILEMASK' and 'filemask' keys
         masks: List[str] = [
-            entry["FILEMASK"]
+            entry.get("FILEMASK") or entry.get("filemask", "")
             for entry in files_cfg
-            if isinstance(entry, dict) and entry.get("FILEMASK")
+            if isinstance(entry, dict) and (entry.get("FILEMASK") or entry.get("filemask"))
         ]
 
         directory = pathlib.Path(directory_str)

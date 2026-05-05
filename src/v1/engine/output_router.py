@@ -59,6 +59,8 @@ class OutputRouter:
         self._component_inputs: dict[str, list[str]] = {}
         # flow_name -> set of component IDs that consume this flow
         self._flow_consumers: dict[str, set[str]] = {}
+        # flow_name -> flow type (e.g. 'flow', 'iterate', 'reject', 'filter')
+        self._flow_types: dict[str, str] = {}
 
         # Build component lookups
         for comp in components_config:
@@ -86,6 +88,9 @@ class OutputRouter:
             if flow_name not in self._flow_consumers:
                 self._flow_consumers[flow_name] = set()
             self._flow_consumers[flow_name].add(to_id)
+
+            # Flow type lookup
+            self._flow_types[flow_name] = flow.get("type", "flow")
 
         # The data store
         self._data_flows: dict[str, Any] = {}
@@ -171,13 +176,17 @@ class OutputRouter:
         return {flow_name: self._data_flows.get(flow_name) for flow_name in inputs}
 
     def are_inputs_ready(self, comp_id: str) -> bool:
-        """Check if all required inputs for a component are available.
+        """Check if all required data inputs for a component are available.
+
+        ITERATE flows do not carry data -- they are control-flow edges that
+        trigger execution (the iterate source puts data in globalMap, not in a
+        data flow). Iterate-type flows are skipped when checking input readiness.
 
         Args:
             comp_id: The component to check.
 
         Returns:
-            True if component has no inputs or all input flows have data.
+            True if component has no data inputs or all data input flows have data.
         """
         inputs = self._component_inputs.get(comp_id, [])
 
@@ -185,6 +194,9 @@ class OutputRouter:
             return True
 
         for flow_name in inputs:
+            # ITERATE flows are control-flow edges, not data flows; skip them
+            if self._flow_types.get(flow_name) == "iterate":
+                continue
             if flow_name not in self._data_flows:
                 return False
 
