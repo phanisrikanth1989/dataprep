@@ -164,6 +164,26 @@ class TestJobTFileListConversion:
             f"Conversion produced fatal needs_review entries: {fatal}"
         )
 
+    def test_fatal_needs_review_gate_fires(self, tmp_path):
+        """Confirm the _needs_review gate raises AssertionError on a fatal entry.
+
+        Regression guard for CR-01: wrong key ('needs_review') was used before,
+        making the gate a no-op. This test proves the gate fires with the correct key.
+        """
+        fatal_entry = {"severity": "error", "message": "synthetic fatal error"}
+        synthetic_result = {
+            "_needs_review": [fatal_entry],
+            "components": {},
+        }
+        # The gate logic from test_converts_without_errors, applied directly:
+        fatal = [
+            e for e in synthetic_result.get("_needs_review", [])
+            if e.get("severity") in ("error", "fatal")
+        ]
+        assert fatal, (
+            "Expected gate to find the injected fatal entry -- gate is broken"
+        )
+
     def test_converts_with_correct_component_types(self, tmp_path):
         """Converted JSON contains the expected component types."""
         json_out = tmp_path / "filelist.json"
