@@ -516,17 +516,45 @@ class FileList(BaseIterateComponent):
         elif order_by == "ORDER_BY_FILESIZE":
             paths = sorted(
                 paths,
-                key=lambda p: p.stat().st_size if p.exists() else 0,
+                key=FileList._safe_stat_size,
                 reverse=reverse,
             )
         elif order_by == "ORDER_BY_MODIFIEDDATE":
             paths = sorted(
                 paths,
-                key=lambda p: p.stat().st_mtime if p.exists() else 0.0,
+                key=FileList._safe_stat_mtime,
                 reverse=reverse,
             )
 
         return paths
+
+    @staticmethod
+    def _safe_stat_size(p: pathlib.Path) -> int:
+        """Return file size in bytes, or 0 if the file is unavailable.
+
+        Uses try/except OSError to handle files deleted between directory walk
+        and sort (TOCTOU race). Returns 0 as a sort-stable default on error.
+        Logs a WARNING (ASCII-only) to aid debugging of busy-directory races.
+        """
+        try:
+            return p.stat().st_size
+        except OSError:
+            logger.warning("[FileList] File unavailable during FILESIZE sort (skipping): %s", p)
+            return 0
+
+    @staticmethod
+    def _safe_stat_mtime(p: pathlib.Path) -> float:
+        """Return file modification time as float, or 0.0 if the file is unavailable.
+
+        Uses try/except OSError to handle files deleted between directory walk
+        and sort (TOCTOU race). Returns 0.0 as a sort-stable default on error.
+        Logs a WARNING (ASCII-only) to aid debugging of busy-directory races.
+        """
+        try:
+            return p.stat().st_mtime
+        except OSError:
+            logger.warning("[FileList] File unavailable during MODIFIEDDATE sort (skipping): %s", p)
+            return 0.0
 
     @staticmethod
     def _apply_format_filepath_to_slash(
