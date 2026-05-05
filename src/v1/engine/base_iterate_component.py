@@ -4,7 +4,7 @@ Iterate components produce a sequence of iteration items. Each item triggers
 re-execution of downstream subjob components via the engine's iterate loop
 (Phase 10, implemented in Executor._execute_iterate_body).
 
-9-Hook Lifecycle (D-A5 -- Phase 10):
+8-Hook Lifecycle (D-A5 -- Phase 10):
     1. prepare()                        -- one-time setup before iter loop
     2. prepare_iterations(input_data)   -- abstract; returns Iterator[ItemType]
     Per iteration:
@@ -13,8 +13,14 @@ re-execution of downstream subjob components via the engine's iterate loop
       5. set_iteration_globalmap(item)  -- abstract; push iter vars to globalMap
       (body subjob executes via Executor._execute_iterate_body)
       7. after_iteration(item, index)   -- post-iter hook
-      8. on_iteration_error(item, index, exc)  -- error handler; True swallows
     9. finalize()                       -- one-time teardown after loop
+
+Hook 8 (on_iteration_error) removed: Executor._execute_component catches all
+component exceptions and converts them to string status returns ("error"). The
+except ComponentExecutionError arm in the iterate loop was therefore unreachable
+in production. Hook 8 is removed to match the errors-as-statuses architecture.
+Body component errors are signalled via _execute_subjob_plan returning "error",
+not by re-raising. (CR-03 gap closure, 2026-05-05)
 
 The Executor drives the per-iteration loop in _execute_iterate_body. This class
 only prepares state and exposes hooks; it does NOT run the loop itself.
@@ -64,7 +70,7 @@ class BaseIterateComponent(BaseComponent):
     Subclasses must implement _validate_config(), prepare_iterations(),
     and set_iteration_globalmap(). Subclasses MUST NOT override execute().
 
-    See module docstring for full 9-hook lifecycle.
+    See module docstring for full 8-hook lifecycle.
     """
 
     # ------------------------------------------------------------------
@@ -247,19 +253,6 @@ class BaseIterateComponent(BaseComponent):
             body_stats: Stats dict from the body subjob execution, or None.
         """
         pass
-
-    def on_iteration_error(self, item: Any, index: int, exc: Exception) -> bool:
-        """Hook 8: per-iteration error handler. Default False (re-raise).
-
-        Args:
-            item: The current iteration item.
-            index: 0-based iteration index.
-            exc: The exception raised during body execution.
-
-        Returns:
-            True to swallow the exception, False to re-raise.
-        """
-        return False
 
     def finalize(self) -> None:
         """Hook 9: one-time teardown after the iterate loop. Default no-op.

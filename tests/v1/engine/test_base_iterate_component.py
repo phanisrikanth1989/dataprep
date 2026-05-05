@@ -256,10 +256,15 @@ class TestExecuteOverride:
 # ===========================================================================
 
 class TestLifecycleHooks:
-    """D-A5: 9 hooks exist with correct defaults."""
+    """D-A5: 8 hooks exist with correct defaults (Hook 8 removed, CR-03)."""
 
-    def test_all_nine_hooks_callable(self):
-        """All 9 lifecycle hook methods must exist and be callable."""
+    def test_all_eight_hooks_callable(self):
+        """All 8 lifecycle hook methods must exist and be callable.
+
+        Hook 8 (on_iteration_error) was removed in CR-03 gap closure because
+        _execute_component catches all exceptions as string status returns,
+        making the except ComponentExecutionError arm unreachable.
+        """
         comp, _ = _make_component()
         hooks = [
             "prepare",
@@ -268,25 +273,25 @@ class TestLifecycleHooks:
             "before_iteration",
             "set_iteration_globalmap",
             "after_iteration",
-            "on_iteration_error",
             "finalize",
             "finalize_iterations",
         ]
         for h in hooks:
             assert callable(getattr(comp, h, None)), f"Hook '{h}' must be callable"
 
+    def test_on_iteration_error_removed(self):
+        """on_iteration_error must NOT exist on BaseIterateComponent (CR-03 removal)."""
+        comp, _ = _make_component()
+        assert not hasattr(comp, "on_iteration_error"), (
+            "on_iteration_error must be removed: Hook 8 was unreachable because "
+            "_execute_component uses errors-as-statuses, not re-raises (CR-03)."
+        )
+
     def test_should_stop_default_false(self):
         """should_stop() default implementation returns False."""
         comp, _ = _make_component()
         assert comp.should_stop("item", 0) is False
         assert comp.should_stop("item", 100) is False
-
-    def test_on_iteration_error_default_false(self):
-        """on_iteration_error() default implementation returns False (re-raise)."""
-        comp, _ = _make_component()
-        exc = RuntimeError("test error")
-        result = comp.on_iteration_error("item", 0, exc)
-        assert result is False
 
     def test_prepare_default_no_op(self):
         """prepare() default does not raise."""
