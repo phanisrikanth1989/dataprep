@@ -94,9 +94,18 @@ class ETLEngine:
             plan = self.execution_plan.get_subjob_plan(subjob_id)
             self.trigger_manager.register_subjob(subjob_id, list(plan.component_ids))
         self.output_router = OutputRouter(flows_config, components_config)
+        # D-H6: read iterate log threshold from job_config["engine_config"]["iterate"]
+        from .iterate_logging import DEFAULT_LOG_PER_ITER_THRESHOLD
+        engine_cfg = self.job_config.get("engine_config", {})
+        iterate_log_threshold = (
+            engine_cfg.get("iterate", {}).get(
+                "log_per_iter_threshold", DEFAULT_LOG_PER_ITER_THRESHOLD
+            )
+        )
         self.executor = Executor(
             self.components, self.execution_plan, self.output_router,
             self.trigger_manager, self.global_map,
+            iterate_log_threshold=iterate_log_threshold,
         )
 
     def _initialize_components(self) -> None:

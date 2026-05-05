@@ -24,6 +24,13 @@ import pandas as pd
 from .base_component import BaseComponent, ComponentStatus
 from .exceptions import ComponentExecutionError, ConfigurationError
 from .execution_plan import ExecutionPlan, SubjobPlan
+from .iterate_logging import (
+    DEFAULT_LOG_PER_ITER_THRESHOLD,
+    log_iterate_start,
+    log_iterate_end,
+    log_iteration_progress,
+    log_body_component_debug,
+)
 from .output_router import OutputRouter
 from .trigger_manager import TriggerManager
 from .global_map import GlobalMap
@@ -53,12 +60,17 @@ class Executor:
         output_router: OutputRouter,
         trigger_manager: TriggerManager,
         global_map: GlobalMap,
+        iterate_log_threshold: int = DEFAULT_LOG_PER_ITER_THRESHOLD,
     ) -> None:
         self.components = components
         self.execution_plan = execution_plan
         self.output_router = output_router
         self.trigger_manager = trigger_manager
         self.global_map = global_map
+        # D-H6: threshold for per-iteration vs rate-limited logging.
+        # Readable from job_config["engine_config"]["iterate"]["log_per_iter_threshold"]
+        # via ETLEngine constructor; defaults to DEFAULT_LOG_PER_ITER_THRESHOLD (50).
+        self._iterate_log_threshold: int = iterate_log_threshold
 
         # Tracking sets
         self.executed_components: set[str] = set()
@@ -328,10 +340,8 @@ class Executor:
 
         try:
             total_hint = iter_component.total_iterations
-            logger.info(
-                "[%s] Starting iterate: %d items, %d components in body",
-                cid, total_hint, len(body_plan.component_ids),
-            )
+            # D-H1: iterate-start log
+            log_iterate_start(cid, total_hint, len(body_plan.component_ids))
 
             for index, item in enumerate(iter_component.iteration_iter, start=1):
                 # Hook 3: should_stop (D-A5.3)
@@ -346,9 +356,6 @@ class Executor:
 
                 # Hook 5: set_iteration_globalmap (D-A5.5)
                 iter_component.set_iteration_globalmap(item)
-
-                # Per-iteration logging placeholder (D-H3; full logging in Phase 10-06)
-                logger.debug("[%s] Iteration %d of %d", cid, index, total_hint)
 
                 # Run the body subjob plan
                 t0 = time.time()
@@ -371,6 +378,28 @@ class Executor:
 
                 iter_time = time.time() - t0
                 iter_times.append(iter_time)
+
+                # D-H3/D-H4: per-iteration or rate-limited progress log (after body completes)
+                avg_iter_time = sum(iter_times) / len(iter_times)
+                key_info = iter_component.get_iter_key_info(item, index)
+                log_iteration_progress(
+                    cid=cid,
+                    index=index,
+                    total=total_hint,
+                    iter_time=iter_time,
+                    key_info=key_info,
+                    threshold=self._iterate_log_threshold,
+                    avg_iter_time=avg_iter_time,
+                )
+
+                # D-H5: DEBUG per-body-component trace
+                for body_id in body_plan.component_ids:
+                    body_comp = self.components.get(body_id)
+                    if body_comp is None:
+                        continue
+                    nb_line = body_comp.stats.get("NB_LINE", 0)
+                    nb_reject = body_comp.stats.get("NB_LINE_REJECT", 0)
+                    log_body_component_debug(cid, index, body_id, nb_line, nb_reject)
 
                 # Drain body REJECT flows for this iteration
                 iter_rejects = self.output_router.drain_reject_flows(body_component_set)
@@ -421,12 +450,9 @@ class Executor:
         finally:
             self._current_iterate_depth -= 1
 
-        # Iterate-end log (D-H2)
+        # D-H2: iterate-end log
         total_elapsed = time.time() - iter_start_total
-        logger.info(
-            "[%s] Iterate complete: %d OK, %d errors, total elapsed=%.2fs",
-            cid, iter_count_ok, iter_count_err, total_elapsed,
-        )
+        log_iterate_end(cid, iter_count_ok, iter_count_err, total_elapsed)
 
         # Build iterate component's final stats (D-D1, D-D2)
         iter_component.stats["NB_LINE"] = iter_count_attempted
@@ -491,7 +517,11 @@ class Executor:
         index: int,
         total_hint: int,
     ) -> None:
-        """Log per-iteration progress. Placeholder for Phase 10-06 full logging.
+        """Placeholder: superseded by iterate_logging helpers (Phase 10-06).
+
+        The full logging is now wired directly in _execute_iterate_body via
+        log_iteration_progress() from iterate_logging module. This method
+        is retained for backward-compat if any test stubs call it.
 
         Args:
             iter_component: The iterate component.
