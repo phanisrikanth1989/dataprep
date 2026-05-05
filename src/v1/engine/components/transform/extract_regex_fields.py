@@ -95,6 +95,10 @@ class ExtractRegexFields(BaseComponent):
             raise DataValidationError(
                 f"[{self.id}] Config 'regex' is empty"
             )
+        # Talend MEMO fields store regex as Java string literals where
+        # backslash escapes are doubled: \\d -> \d, \\s -> \s, etc.
+        # Unescape so Python's re engine sees the intended regex shorthand.
+        regex_str = regex_str.replace('\\\\', '\\')
         try:
             pattern = re.compile(regex_str)
         except re.error as exc:
