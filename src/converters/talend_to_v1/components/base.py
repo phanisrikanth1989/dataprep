@@ -40,6 +40,7 @@ class TalendConnection:
     target: str
     connector_type: str
     condition: Optional[str] = None
+    params: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
