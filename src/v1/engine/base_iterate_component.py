@@ -134,9 +134,31 @@ class BaseIterateComponent(BaseComponent):
             re-execution and globalMap variable puts.
 
         Raises:
-            ConfigurationError: If _validate_config() raises.
+            ConfigurationError: If _validate_config() raises, or if the
+                component is invoked in an unsafe state (already RUNNING
+                or already SUCCESS without an intervening reset).
             ComponentExecutionError: If any other step fails.
         """
+        # WR-01: re-execute safety. Iterate components hold an iterator
+        # (iteration_iter) and, for tFlowToIterate, a materialised
+        # to_dict('records') buffer behind it. A second execute() without
+        # an intervening reset() would silently rebuild that buffer,
+        # doubling memory pressure and re-walking the directory for
+        # tFileList. Reject the call so the caller has to decide whether
+        # to reset() or treat it as a logic error.
+        if self.status == ComponentStatus.RUNNING:
+            raise ConfigurationError(
+                f"[{self.id}] execute() called while iterate component is "
+                "already RUNNING. Concurrent or re-entrant execution is "
+                "not supported."
+            )
+        if self.status == ComponentStatus.SUCCESS:
+            raise ConfigurationError(
+                f"[{self.id}] execute() called after a previous successful "
+                "run without reset(). Call reset() before re-executing an "
+                "iterate component."
+            )
+
         self.status = ComponentStatus.RUNNING
         start = time.time()
         try:
