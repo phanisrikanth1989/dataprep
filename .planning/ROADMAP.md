@@ -25,7 +25,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 7.2: validate-config bug sweep** (INSERTED) - Defer content checks from _validate_config (Step 2) to _process (post-resolution); 5 Group A bugs fixed, 5 Group B verdicts, Rule 12 added (completed 2026-04-29)
 - [x] **Phase 8: Code Components** - Deliver tJava, tJavaRow, python_component, and python_row_component with correct Talend semantics (completed 2026-04-29)
 - [x] **Phase 9: tContextLoad & Routines** - Deliver tContextLoad with full policy support and Java/Python routine infrastructure
-- [ ] **Phase 10: Iterate Support** - Deliver tFlowToIterate, tFileList, tFileExist and the engine iterate execution loop
+- [x] **Phase 10: Iterate Support** - Deliver tFlowToIterate, tFileList, tFileExist and the engine iterate execution loop (completed 2026-05-05)
 - [ ] **Phase 11: Oracle Components** - Verify and deliver Oracle connection, input, output, and supporting components
 - [ ] **Phase 12: Integration Testing & Performance** - End-to-end integration tests with real Talend jobs, output comparison, and performance optimization
 
@@ -268,7 +268,7 @@ Plans:
 - [x] 10-04-PLAN.md -- tFlowToIterate engine component + new iterate/ engine package (DEFAULT_MAP true/false, pd.NA handling)
 - [x] 10-05-PLAN.md -- Converter ENABLE_PARALLEL/NUMBER_PARALLEL extraction + engine_gap needs_review
 - [x] 10-06-PLAN.md -- ASCII-only iterate logging infrastructure (4-tier, threshold-aware, D-H1..H7)
-- [ ] 10-07-PLAN.md -- Integration tests with both .item samples + @pytest.mark.java + coverage gate >=90%
+- [x] 10-07-PLAN.md -- Integration tests with both .item samples + @pytest.mark.java + coverage gate >=90%
 - [x] 10-08-PLAN.md -- tFileExist verify-only integration test (ITER-08, ITER-09, RUN_IF branching)
 
 ### Phase 11: Oracle Components
@@ -311,6 +311,6 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 7. Transform Group B -- Column, Join, Unite | 2/2 | Complete | 2026-04-15 |
 | 8. Code Components | 6/6 | Complete | 2026-04-29 |
 | 9. tContextLoad & Routines | 2/2 | Complete | - |
-| 10. Iterate Support | 7/8 | In Progress|  |
+| 10. Iterate Support | 8/8 | Complete   | 2026-05-05 |
 | 11. Oracle Components | 0/TBD | Not started | - |
 | 12. Integration Testing & Performance | 0/TBD | Not started | - |
