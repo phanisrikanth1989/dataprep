@@ -299,19 +299,27 @@ class FileList(BaseIterateComponent):
         # else BOTH: no filter
 
         # -- Apply inclusion masks (OR-wise) ----------------------------
+        # WR-07: compile masks ONCE outside the per-file loop. Previously
+        # _match_path recompiled patterns per (file, mask) pair, which is
+        # O(N_files * N_masks) regex compiles. For 1200+ jobs hitting
+        # directories with thousands of files, this is observable lag.
         if masks:
+            compiled_masks = [
+                FileList._compile_mask(m, use_glob, case_sensitive) for m in masks
+            ]
             raw_paths = [
                 p for p in raw_paths
-                if FileList._match_path(p.name, masks, use_glob, case_sensitive)
+                if any(c.fullmatch(p.name) for c in compiled_masks)
             ]
 
         # -- Apply exclusion mask (after inclusion, same mode + sensitivity)
         if if_exclude and exclude_mask:
+            compiled_exclude = FileList._compile_mask(
+                exclude_mask, use_glob, case_sensitive
+            )
             raw_paths = [
                 p for p in raw_paths
-                if not FileList._match_path(
-                    p.name, [exclude_mask], use_glob, case_sensitive
-                )
+                if not compiled_exclude.fullmatch(p.name)
             ]
 
         # -- Sort -------------------------------------------------------
