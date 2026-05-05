@@ -1,3 +1,4 @@
+from .file_list import FileList
 from .file_archive import FileArchive  # registered as FileArchive / FileArchiveComponent / tFileArchive
 from .file_archive import FileArchive as FileArchiveComponent  # backward-compat alias
 
@@ -26,6 +27,7 @@ from .file_input_msxml import FileInputMSXML
 from .file_input_properties import FileInputProperties
 
 __all__ = [
+    'FileList',
     'FileArchive',
     'FileArchiveComponent',
     'FileCopy',
