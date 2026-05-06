@@ -263,6 +263,12 @@ class FileOutputDelimited(BaseComponent):
             )
             field_sep = field_sep[0]
 
+        # ---- Talend append-header rule: write header only on first write ----
+        # When append=True, Talend writes the header only if the file does not
+        # yet exist or is empty. Subsequent iterations append data rows only.
+        if append and include_header and resolved_path.exists() and resolved_path.stat().st_size > 0:
+            include_header = False
+
         # ---- SPLIT mode ----
         if split:
             rows_per_file = _safe_int(split_every, 1000)
