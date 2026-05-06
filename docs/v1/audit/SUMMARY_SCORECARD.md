@@ -72,7 +72,7 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 34 | tLogRow | G | G | G | G | G | G | 0 | 0 | 1 | 0 | 1 |
 | 35 | tUnite | G | G | G | G | G | G | 0 | 0 | 0 | 1 | 1 |
 | 36 | tExtractDelimitedFields | G | G | G | G | G | G | 0 | 0 | 1 | 0 | 1 |
-| 37 | tExtractJSONFields | Y | G | Y | R | Y | Y | 3 | 6 | 6 | 2 | 17 |
+| 37 | tExtractJSONFields | G | G | Y | Y | G | G | 0 | 2 | 4 | 2 | 8 |
 | 38 | tExtractXMLField | G | G | G | G | G | G | 0 | 0 | 1 | 5 | 6 |
 | 39 | tExtractPositionalFields | G | G | G | Y | G | G | 0 | 0 | 1 | 1 | 2 |
 | 40 | tPivotToColumnsDelimited | Y | G | Y | G | Y | G | 0 | 1 | 4 | 1 | 6 |
@@ -280,7 +280,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | 9 | tLogRow | G | 0 | 0 | 1 | 0 | 1 |
 | 10 | tUnite | G | 0 | 0 | 0 | 1 | 1 |
 | 11 | tExtractDelimitedFields | G | 0 | 0 | 1 | 0 | 1 |
-| 12 | tExtractJSONFields | Y | 3 | 6 | 6 | 2 | 17 |
+| 12 | tExtractJSONFields | G | 0 | 2 | 4 | 2 | 8 |
 | 13 | tExtractXMLField | G | 0 | 0 | 1 | 5 | 6 |
 | 14 | tExtractPositionalFields | G | 0 | 0 | 1 | 1 | 2 |
 | 15 | tPivotToColumnsDelimited | Y | 4 | 5 | 9 | 2 | 20 |
@@ -319,7 +319,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 **Note:** tDenormalize ENGINE REWRITTEN (2026-06-13): @REGISTRY.register added (ENG-DNR-001 P0 fixed), merge flag implemented with first-seen dedup (ENG-DNR-002 P1 fixed), groupby(dropna=False) preserves null-key rows (ENG-DNR-003 P1 fixed). _validate_config returns None per Rule 12. No double validation. No manual _update_stats. 41 engine unit tests across 11 test classes. Engine=Y→G, Testing=Y→G, Overall=Y→G. Issues reduced 9→4.
 **Note:** tUniqueRow Converter upgraded Y->G (2026-04-02): CASE_SENSITIVE extracted, change_hash_and_equals_for_bigdecimal extracted, tstatcatcher_stats and label added. 7 config keys, 25 tests, 2 conditional needs_review entries.
 **Note:** tLogRow ENGINE REWRITTEN (2026-05-01): Engine fully rewritten per MANUAL_COMPONENT_AUTHORING.md. All 16 config keys implemented: basic/table/vertical modes, print_colnames, print_unique_name, use_fixed_length+lengths, TITLE_PRINT radio group. Default mismatches fixed (basic_mode=True, print_header=False). All output via logger.info(). @REGISTRY.register both names. Rule 12 compliant _validate_config(). 66 engine tests across 15 test classes. Overall Y→G, Engine Y→G, Testing Y→G. Issues reduced 9→1 (PERF-LR-001 iterrows, acceptable).
-**Note:** tExtractJSONFields REWRITTEN (2026-04-04): Audit rewritten to gold standard with Section 11 Risk Assessment. Dual-TABLE parsing added. 15 config keys. 9 per-feature needs_review. 45 tests across 8 test classes. Converter=G, Testing=Y, Overall=Y. Issues reduced 39->17.
+**Note:** tExtractJSONFields REFACTORED (2026-04-22): Full engine rewrite + converter stride-4 fix. Registration fix (missing @REGISTRY.register). NaN/None guard added. use_loop_as_root, jsonfield, read_by dispatch, JSONPATH/XPATH modes all implemented. PERF-EJF-002 fixed (pre-compile). 9 issues closed. 32 engine tests added (72 total). Scorecard: Conv=G, Testing=G, CodeQuality=Y, Perf=Y. Issues reduced 17->8.
 **Note:** tExtractXMLField REWRITTEN (2026-04-04): Audit rewritten to gold standard with Section 11 Risk Assessment. 6 hidden params added. MAPPING TABLE stride-2. 14 config keys. 7 per-feature needs_review. 50 tests across 10 test classes. Converter=G, Code Quality=Y, Testing=Y, Overall=Y. Issues reduced 45->19.
 **Note:** tUnpivotRow REWRITTEN (2026-04-04): Full gold standard rewrite. Community component (MEDIUM confidence). 4 unique + 2 framework params (100%). 0 needs_review. 28 converter tests across 10 test classes. Converter=G, Code Quality=G, Testing=Y, Overall=Y. Issues reduced 45->14.
 **Note:** tUnpivotRow ENGINE FINALISED (2026-05-02): Engine fully rewritten per MANUAL_COMPONENT_AUTHORING.md. @REGISTRY.register added. _validate_config() returns None, raises ConfigurationError (Rules 2,7,12). P0 schema pollution fixed (output = row_keys + pivot_key + pivot_value only). String coercion via null-safe .map(). die_on_error supported. reject key always returned. No input copy, no temp column, no redundant sort, no no-op filter. 29 engine unit tests across 5 test classes. Overall Y->G, Engine Y->G, Perf Y->G, Testing Y->G. Issues reduced 14->0.

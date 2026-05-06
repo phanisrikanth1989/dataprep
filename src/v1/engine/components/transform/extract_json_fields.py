@@ -1,364 +1,281 @@
 """
-ExtractJSONFields - Extract fields from JSON data based on JSONPath queries.
+ExtractJSONFields - extract fields from a JSON string column using JSONPath.
 
 Talend equivalent: tExtractJSONFields
+
+Config keys consumed by this engine component:
+  read_by            (str)  "JSONPATH" or "XPATH". Default: "JSONPATH".
+                            XPATH mode is handled as best-effort JSONPath.
+  jsonfield          (str)  Name of the JSON source column. Defaults to first column.
+  json_loop_query    (str)  JSONPath loop expression used when read_by=JSONPATH.
+  loop_query         (str)  Loop expression used when read_by=XPATH.
+  mapping_4_jsonpath (list) [{schema_column, query}] JSONPATH mode column mappings.
+  mapping            (list) [{schema_column, query, nodecheck, isarray}] XPATH mode.
+  use_loop_as_root   (bool) True (default): mapping queries run against the loop item.
+                            False: mapping queries run against the full JSON document.
+  die_on_error       (bool) Raise on error instead of routing to REJECT. Default: False.
 """
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
-import json
-from jsonpath_ng import parse
+from jsonpath_ng import parse as jsonpath_parse
 
 from ...base_component import BaseComponent
-from ...exceptions import ComponentExecutionError, ConfigurationError, DataValidationError
+from ...component_registry import REGISTRY
+from ...exceptions import ComponentExecutionError, ConfigurationError
 
 logger = logging.getLogger(__name__)
 
+# REJECT error codes
+_ERR_NO_JSON = "NO_JSON"
+_ERR_PARSE = "PARSE_ERROR"
 
+
+# ------------------------------------------------------------------
+# Module-level helpers
+# ------------------------------------------------------------------
+
+def _try_compile(query: str, component_id: str):
+    """Compile a JSONPath expression string. Returns None on parse failure."""
+    try:
+        return jsonpath_parse(query)
+    except Exception as exc:
+        logger.warning("[%s] Cannot compile JSONPath '%s': %s", component_id, query, exc)
+        return None
+
+
+def _is_null(value: Any) -> bool:
+    """Return True when *value* is None, NaN, pd.NA, or pd.NaT."""
+    if value is None:
+        return True
+    try:
+        return bool(pd.isna(value))
+    except TypeError:
+        # pd.isna raises TypeError for non-scalar containers (list, dict) -- not null
+        return False
+
+
+def _build_reject_row(
+    row: pd.Series,
+    original_json: str,
+    code: str,
+    msg: str,
+) -> Dict[str, Any]:
+    """Build a REJECT output row with Talend-standard error columns."""
+    reject = dict(row)
+    reject["errorJSONField"] = original_json
+    reject["errorCode"] = code
+    reject["errorMessage"] = msg
+    return reject
+
+
+@REGISTRY.register("ExtractJSONFields", "tExtractJSONFields")
 class ExtractJSONFields(BaseComponent):
-    """
-    Extract fields from JSON data based on JSONPath queries.
+    """Extract fields from a JSON string column using JSONPath queries.
 
-    This component processes JSON data contained in DataFrame rows and extracts
-    specific fields using JSONPath expressions. It supports loop queries for
-    processing arrays and complex nested structures.
+    Reads the JSON value from the column named by ``jsonfield`` (defaults to
+    the first column if unset), applies a loop query to iterate over nodes,
+    then maps each node's values to output columns via JSONPath expressions.
 
-    Configuration:
-        loop_query (str): JSONPath query for looping through data. Required.
-        mapping (list): List of mappings for extracting fields. Required.
-        die_on_error (bool): Whether to stop on error. Default: False
-        read_by (str): Method to read JSON (e.g., 'JSONPATH'). Optional.
-        json_path_version (str): JSONPath version (e.g., '2_1_0'). Optional.
-        encoding (str): Encoding type (e.g., 'UTF-8'). Optional.
-        use_loop_as_root (bool): Whether to use the loop as the root. Optional.
+    Mode dispatch (``read_by``):
 
-    Inputs:
-        main: JSON data as a DataFrame with JSON strings in the first column.
+    - ``JSONPATH``: uses ``json_loop_query`` and ``mapping_4_jsonpath``.
+    - ``XPATH``: uses ``loop_query`` and ``mapping`` (processed as JSONPath,
+      best-effort; native XPath not natively supported).
 
-    Outputs:
-        main: Extracted fields as a DataFrame.
-        reject: Rows that failed extraction.
+    ``use_loop_as_root=True`` (default): mapping queries are evaluated against
+    each loop item. ``False``: mapping queries run against the full document.
 
-    Statistics:
-        NB_LINE: Total rows processed
-        NB_LINE_OK: Rows successfully processed
-        NB_LINE_REJECT: Rows that failed processing
-
-    Example configuration:
-        {
-            "loop_query": "$.data[*]",
-            "mapping": [
-                {
-                    "schema_column": "name",
-                    "query": "$.name"
-                },
-                {
-                    "schema_column": "values",
-                    "query": "$.items[*].value"
-                }
-            ],
-            "die_on_error": false
-        }
-
-    Notes:
-        - JSON data is expected in the first column of input DataFrame
-        - Complex objects (lists/dicts) are serialized as JSON strings in output
-        - JSONPath queries containing [*] or .* preserve arrays as lists
-        - Single-value results are flattened to scalar values
+    Empty ``query`` in a mapping entry means passthrough -- the value is
+    copied from the matching input column.
     """
 
-    def _validate_config(self) -> List[str]:
-        """Validate component configuration."""
-        errors = []
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
 
-        # Validate required fields
-        if 'loop_query' not in self.config:
-            errors.append("Missing required config: 'loop_query'")
-        elif not isinstance(self.config['loop_query'], str):
-            errors.append("Config 'loop_query' must be a string")
-        elif not self.config['loop_query'].strip():
-            errors.append("Config 'loop_query' cannot be empty")
+    def _validate_config(self) -> None:
+        """Validate structural config (key presence and container shape only).
 
-        if 'mapping' not in self.config:
-            errors.append("Missing required config: 'mapping'")
-        elif not isinstance(self.config['mapping'], list):
-            errors.append("Config 'mapping' must be a list")
-        elif len(self.config['mapping']) == 0:
-            errors.append("Config 'mapping' cannot be empty")
-        else:
-            # Validate mapping entries
-            for i, mapping_entry in enumerate(self.config['mapping']):
-                if not isinstance(mapping_entry, dict):
-                    errors.append(f"Config 'mapping[{i}]' must be a dictionary")
-                    continue
-
-                # Check for column name
-                if not mapping_entry.get('schema_column') and not mapping_entry.get('column'):
-                    errors.append(f"Config 'mapping[{i}]' must have 'schema_column' or 'column' field")
-
-                # Check for query
-                if not mapping_entry.get('query') and not mapping_entry.get('jsonpath'):
-                    errors.append(f"Config 'mapping[{i}]' must have 'query' or 'jsonpath' field")
-
-        # Validate optional fields
-        if 'die_on_error' in self.config:
-            if not isinstance(self.config['die_on_error'], bool):
-                errors.append("Config 'die_on_error' must be a boolean")
-
-        return errors
+        Note:
+            Content checks (non-empty loop query, non-empty mapping list) are
+            intentionally deferred to _process() after context variable
+            resolution (Rule 12 of MANUAL_COMPONENT_AUTHORING.md).
+        """
+        mapping = self.config.get("mapping")
+        if mapping is not None and not isinstance(mapping, list):
+            raise ConfigurationError(
+                f"[{self.id}] Config 'mapping' must be a list, "
+                f"got {type(mapping).__name__}"
+            )
+        mapping_jp = self.config.get("mapping_4_jsonpath")
+        if mapping_jp is not None and not isinstance(mapping_jp, list):
+            raise ConfigurationError(
+                f"[{self.id}] Config 'mapping_4_jsonpath' must be a list, "
+                f"got {type(mapping_jp).__name__}"
+            )
+        die_on_error = self.config.get("die_on_error", False)
+        if not isinstance(die_on_error, bool):
+            raise ConfigurationError(
+                f"[{self.id}] Config 'die_on_error' must be a boolean, "
+                f"got {type(die_on_error).__name__}"
+            )
 
     def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
-        """
-        Process input data and extract JSON fields using JSONPath queries.
+        """Extract JSON fields from each input row.
 
         Args:
-            input_data: Input DataFrame with JSON strings in first column.
-                        If None or empty, returns empty result.
+            input_data: DataFrame containing a JSON string column.
 
         Returns:
-            Dictionary containing:
-                - 'main': DataFrame with extracted fields
-                - 'reject': DataFrame with rows that failed extraction
-
-        Raises:
-            ComponentExecutionError: If processing fails and die_on_error is True
-            ConfigurationError: If configuration validation fails
+            ``{'main': pd.DataFrame, 'reject': pd.DataFrame}``
         """
-
-        # Validate configuration
-        config_errors = self._validate_config()
-        if config_errors:
-            error_msg = f"Configuration validation failed: {'; '.join(config_errors)}"
-            logger.error(f"[{self.id}] {error_msg}")
-            raise ConfigurationError(error_msg)
-
-        # Handle list input (convert to DataFrame)
-        if isinstance(input_data, list):
-            input_data = pd.DataFrame(input_data)
-
-        # Handle empty input
         if input_data is None or input_data.empty:
-            logger.warning(f"[{self.id}] Empty input received")
-            self._update_stats(0, 0, 0)
-            return {'main': pd.DataFrame(), 'reject': pd.DataFrame()}
+            return {"main": pd.DataFrame(), "reject": pd.DataFrame()}
 
         rows_in = len(input_data)
-        logger.info(f"[{self.id}] Processing started: {rows_in} rows")
+        die_on_error: bool = self.config.get("die_on_error", False)
+        use_loop_as_root: bool = self.config.get("use_loop_as_root", True)
 
-        try:
-            # Extract configuration with defaults
-            loop_query = self.config.get('loop_query', '')
-            mapping = self.config.get('mapping', [])
-            die_on_error = self.config.get('die_on_error', False)
+        # ---- Mode dispatch: choose loop query and mapping table ----
+        read_by: str = self.config.get("read_by", "JSONPATH").upper()
+        if read_by == "JSONPATH":
+            loop_query: str = self.config.get("json_loop_query", "")
+            mapping: List[Dict[str, Any]] = self.config.get("mapping_4_jsonpath") or []
+        else:
+            # XPATH mode: best-effort JSONPath
+            loop_query = self.config.get("loop_query", "")
+            mapping = self.config.get("mapping") or []
+            if loop_query:
+                logger.warning(
+                    "[%s] read_by=XPATH is not natively supported; "
+                    "attempting JSONPath evaluation on loop_query='%s'",
+                    self.id, loop_query,
+                )
 
-            # Debug logging (keeping original debug print format but using Logger)
-            logger.debug(f"[{self.id}] ExtractJSONFields config: loop_query={loop_query}, mapping={mapping}, die_on_error={die_on_error}")
-            logger.debug(f"[{self.id}] Input DataFrame columns: {input_data.columns.tolist()}")
-            logger.debug(f"[{self.id}] Input DataFrame head:\n{input_data.head()}")
+        # ---- Resolve source column ----
+        jsonfield: str = self.config.get("jsonfield", "")
+        json_col = (
+            jsonfield
+            if jsonfield and jsonfield in input_data.columns
+            else input_data.columns[0]
+        )
 
-            # Initialize output collections
-            main_output = []
-            reject_output = []
+        # ---- Pre-compile all JSONPath expressions once ----
+        loop_expr = _try_compile(loop_query, self.id) if loop_query else None
+        col_exprs: Dict[str, Any] = {}
+        for m in mapping:
+            q = m.get("query", "")
+            if q and q not in col_exprs:
+                col_exprs[q] = _try_compile(q, self.id)
 
-            # Process each row
-            for row_idx, row in input_data.iterrows():
+        # ---- Process each input row ----
+        main_output: List[Dict[str, Any]] = []
+        reject_output: List[Dict[str, Any]] = []
+
+        for _, row in input_data.iterrows():
+            raw_val = row[json_col]
+            original_str = str(raw_val) if not _is_null(raw_val) else ""
+
+            # Guard NaN / None
+            if _is_null(raw_val):
+                if die_on_error:
+                    raise ComponentExecutionError(
+                        self.id,
+                        f"{_ERR_NO_JSON}: column '{json_col}' is null",
+                    )
+                reject_output.append(
+                    _build_reject_row(
+                        row, "", _ERR_NO_JSON, f"column '{json_col}' is null"
+                    )
+                )
+                continue
+
+            # Parse JSON string (skip if already a dict/list from upstream)
+            json_data = raw_val
+            if not isinstance(json_data, (dict, list)):
                 try:
-                    logger.debug(f"[{self.id}] Processing row {row_idx}: {row.values}")
-
-                    # Parse JSON data from first column (keeping original assumption)
-                    json_data = json.loads(row[0])
-                    logger.debug(f"[{self.id}] Loaded JSON: {json_data}")
-
-                    # Extract fields using JSONPath
-                    extracted_rows = self._extract_fields(json_data, loop_query, mapping)
-                    logger.debug(f"[{self.id}] Extracted rows: {extracted_rows}")
-
-                    main_output.extend(extracted_rows)
-
-                except Exception as e:
-                    error_msg = f"Error processing row {row_idx}: {str(e)}"
-                    logger.error(f"[{self.id}] {error_msg}")
-
+                    json_data = json.loads(str(raw_val))
+                except (json.JSONDecodeError, TypeError, ValueError) as exc:
                     if die_on_error:
                         raise ComponentExecutionError(
-                            self.id,
-                            f"Row processing failed: {error_msg}",
-                            e
-                        ) from e
-
-                    # Add to reject output (keeping original format)
-                    reject_output.append({
-                        'errorJSONField': row[0],
-                        'errorCode': 'PARSE_ERROR',
-                        'errorMessage': str(e)
-                    })
-
-            # Convert results to DataFrames
-            main_df = pd.DataFrame(main_output)
-            reject_df = pd.DataFrame(reject_output)
-
-            logger.debug(f"[{self.id}] Main DataFrame before serialization:\n{main_df}")
-            logger.debug(f"[{self.id}] Output schema: {getattr(self, 'schema', None)}")
-
-            # Serialize complex objects to JSON strings (preserving original behavior)
-            if not main_df.empty:
-                for col in main_df.columns:
-                    logger.debug(f"[{self.id}] Serializing column: {col}")
-                    main_df[col] = main_df[col].apply(
-                        lambda v: json.dumps(v) if isinstance(v, (list, dict)) else v
+                            self.id, f"{_ERR_PARSE}: {exc}"
+                        ) from exc
+                    reject_output.append(
+                        _build_reject_row(row, original_str, _ERR_PARSE, str(exc))
                     )
-                    logger.debug(f"[{self.id}] After serialization, column {col} sample: {main_df[col].head(3).tolist()}")
+                    continue
 
-            logger.debug(f"[{self.id}] Main DataFrame after serialization:\n{main_df}")
+            # Apply loop query
+            if loop_expr is not None:
+                try:
+                    loop_items = [m.value for m in loop_expr.find(json_data)]
+                except Exception as exc:
+                    if die_on_error:
+                        raise ComponentExecutionError(
+                            self.id, f"{_ERR_PARSE}: loop query error: {exc}"
+                        ) from exc
+                    reject_output.append(
+                        _build_reject_row(
+                            row, original_str, _ERR_PARSE, f"loop query error: {exc}"
+                        )
+                    )
+                    continue
 
-            # Calculate statistics
-            rows_out = len(main_df)
-            rows_rejected = len(reject_df)
+                if not loop_items:
+                    # No matches → 0 output rows (Talend parity: no fallback to root)
+                    continue
+            else:
+                loop_items = [json_data]
 
-            # Update statistics and log completion
-            self._update_stats(rows_in, rows_out, rows_rejected)
-            logger.info(f"[{self.id}] Processing complete: "
-                        f"in={rows_in}, out={rows_out}, rejected={rows_rejected}")
+            # Extract fields for each loop item
+            for item in loop_items:
+                context = item if use_loop_as_root else json_data
+                out_row: Dict[str, Any] = {}
 
-            return {'main': main_df, 'reject': reject_df}
+                for m in mapping:
+                    col = m.get("schema_column") or m.get("column") or ""
+                    if not col:
+                        continue
+                    query = m.get("query", "")
+                    if not query:
+                        # Passthrough: copy value from matching input column
+                        out_row[col] = row.get(col, None)
+                        continue
+                    expr = col_exprs.get(query)
+                    if expr is None:
+                        out_row[col] = ""
+                        continue
+                    try:
+                        matches = [match.value for match in expr.find(context)]
+                    except Exception as exc:
+                        logger.warning(
+                            "[%s] JSONPath '%s' on col '%s' failed: %s",
+                            self.id, query, col, exc,
+                        )
+                        out_row[col] = ""
+                        continue
 
-        except ComponentExecutionError:
-            # Re-raise component execution errors
-            raise
-
-        except ConfigurationError:
-            # Re-raise configuration errors
-            raise
-
-        except Exception as e:
-            error_msg = f"Unexpected error during processing: {str(e)}"
-            logger.error(f"[{self.id}] {error_msg}")
-            raise ComponentExecutionError(self.id, error_msg, e) from e
-
-    def _extract_fields(self, json_data: Any, loop_query: str, mapping: List[Dict]) -> List[Dict]:
-        """
-        Extract fields from JSON data using JSONPath queries.
-
-        Args:
-            json_data: Parsed JSON data structure
-            loop_query: JSONPath query for iteration
-            mapping: List of field mappings with queries
-
-        Returns:
-            List of dictionaries containing extracted field values
-
-        Raises:
-            Exception: If JSONPath processing fails
-        """
-        extracted_rows = []
-
-        try:
-            # Parse loop query and find matches
-            jsonpath_expr = parse(loop_query)
-            matches = [match.value for match in jsonpath_expr.find(json_data)]
-
-            logger.debug(f"[{self.id}] Loop query '{loop_query}' found {len(matches)} matches")
-
-            # If no matches found for loop query, try to process the entire JSON data
-            if not matches:
-                logger.debug(f"[{self.id}] No matches for loop query, processing entire JSON data")
-                matches = [json_data]
-
-            # Extract fields for each match
-            for item_idx, item in enumerate(matches):
-                row = {}
-                logger.debug(f"[{self.id}] Processing item {item_idx}: {item}")
-
-                for m_idx, m in enumerate(mapping):
-                    # Get column name (supporting both schema_column and column)
-                    col = m.get('schema_column') or m.get('column')
-                    # Get query (supporting both query and jsonpath)
-                    query = m.get('query') or m.get('jsonpath')
-
-                    if query:
-                        try:
-                            # Execute JSONPath query on current item
-                            logger.debug(f"[{self.id}] Executing query '{query}' on item for column '{col}'")
-
-                            # Determine the context for the query
-                            # If query starts with $. and doesn't reference the current iteration item,
-                            # execute it on the full JSON data (for accessing parent/sibling data)
-                            if query.startswith('$.') and not self._is_relative_query(query):
-                                # Execute on full JSON data (for accessing data outside current iteration)
-                                jsonpath_matches = parse(query).find(json_data)
-                                logger.debug(f"[{self.id}] Executing '{query}' on full JSON data")
-                            else:
-                                # Execute on current iteration item
-                                jsonpath_matches = parse(query).find(item)
-                                logger.debug(f"[{self.id}] Executing '{query}' on current item")
-
-                            values = [match.value for match in jsonpath_matches]
-
-                            logger.debug(f"[{self.id}] Query '{query}' returned {len(values)} values: {values}")
-
-                            # Handle the extracted values based on query type and result count
-                            if not values:
-                                # No matches found - set to empty string
-                                row[col] = ''
-                                logger.debug(f"[{self.id}] No matches for query '{query}', setting column '{col}' to empty string")
-                            elif '[*]' in query or '.*' in query:
-                                # Wildcard query - preserve as array (but check if we want to serialize)
-                                if len(values) == 1 and not isinstance(values[0], (list, dict)):
-                                    # Single scalar value from wildcard - flatten it
-                                    row[col] = values[0]
-                                else:
-                                    # Multiple values or complex objects - keep as array
-                                    row[col] = values
-                                    logger.debug(f"[{self.id}] Wildcard query '{query}' result for column '{col}': {row[col]}")
-                            else:
-                                # Regular query - take first value if single, otherwise array
-                                if len(values) == 1:
-                                    row[col] = values[0]
-                                else:
-                                    row[col] = values
-                                logger.debug(f"[{self.id}] Regular query '{query}' result for column '{col}': {row[col]}")
-
-                        except Exception as e:
-                            # Set empty string for failed extractions (better than None for display)
-                            row[col] = ''
-                            logger.warning(f"[{self.id}] Failed to execute query '{query}' for column '{col}': {e}")
-
+                    if not matches:
+                        out_row[col] = ""
+                    elif len(matches) == 1:
+                        v = matches[0]
+                        out_row[col] = json.dumps(v) if isinstance(v, (list, dict)) else v
                     else:
-                        row[col] = ''
-                        logger.warning(f"[{self.id}] No query specified for mapping {m_idx}, column '{col}'")
+                        out_row[col] = json.dumps(matches)
 
-                extracted_rows.append(row)
-                logger.debug(f"[{self.id}] Extracted row {item_idx}: {row}")
+                main_output.append(out_row)
 
-        except Exception as e:
-            logger.error(f"[{self.id}] Error in JSONPath extraction: {str(e)}")
-            raise
+        main_df = pd.DataFrame(main_output)
+        reject_df = pd.DataFrame(reject_output)
+        rows_out = len(main_df)
+        rows_rejected = len(reject_df)
 
-        logger.debug(f"[{self.id}] Total extracted rows: {len(extracted_rows)}")
-        return extracted_rows
-
-    def _is_relative_query(self, query: str) -> bool:
-        """
-        Determine if a JSONPath query is relative to the current iteration context.
-
-        Args:
-            query: JSONPath query string
-
-        Returns:
-            True if the query should be executed on the current item, False if on full JSON
-        """
-        # Queries that should be executed on the current iteration item (relative)
-        relative_patterns = [
-            '$.skill',          # Direct property of current item
-            '$.level',          # Direct property of current item
-            '$.name',           # If current item has name property
-            '$.value',          # Direct property access
-        ]
-
-        # Simple heuristic: if query is just accessing direct properties without complex paths,
-        # it's likely meant for the current iteration item
-        if query.count('.') <= 1 and not query.startswith('$.employee'):
-            return True
-
-        return False
+        self._update_stats(rows_in, rows_out, rows_rejected)
+        logger.info(
+            "[%s] done: in=%d, out=%d, reject=%d",
+            self.id, rows_in, rows_out, rows_rejected,
+        )
+        return {"main": main_df, "reject": reject_df}

@@ -54,12 +54,13 @@ def _make_mapping_jsonpath_data(rows):
 
 
 def _make_mapping_xpath_data(rows):
-    """Generate MAPPING TABLE data with stride-3 per row.
+    """Generate MAPPING TABLE data with stride-4 per row.
 
-    rows: list of tuples (query, nodecheck, isarray)
+    rows: list of tuples (schema_column, query, nodecheck, isarray)
     """
     result = []
-    for query, nodecheck, isarray in rows:
+    for schema_column, query, nodecheck, isarray in rows:
+        result.append({"elementRef": "SCHEMA_COLUMN", "value": schema_column})
         result.append({"elementRef": "QUERY", "value": query})
         result.append({"elementRef": "NODECHECK", "value": nodecheck})
         result.append({"elementRef": "ISARRAY", "value": isarray})
@@ -204,18 +205,20 @@ class TestParameterExtraction:
         assert m[1]["query"] == "$.age"
 
     def test_mapping_xpath_parsing(self):
-        """MAPPING TABLE entries (XPath mode) parsed into list of dicts with query, nodecheck, isarray."""
+        """MAPPING TABLE entries (XPath mode) parsed into list of dicts with schema_column, query, nodecheck, isarray."""
         table_data = _make_mapping_xpath_data([
-            ('"//name"', "true", "false"),
-            ('"//items"', "false", "true"),
+            ('"name_col"', '"//name"', "true", "false"),
+            ('"items_col"', '"//items"', "false", "true"),
         ])
         node = _make_node(params={"MAPPING": table_data})
         result = ExtractJSONFieldsConverter().convert(node, [], {})
         m = result.component["config"]["mapping"]
         assert len(m) == 2
+        assert m[0]["schema_column"] == "name_col"
         assert m[0]["query"] == "//name"
         assert m[0]["nodecheck"] is True
         assert m[0]["isarray"] is False
+        assert m[1]["schema_column"] == "items_col"
         assert m[1]["query"] == "//items"
         assert m[1]["nodecheck"] is False
         assert m[1]["isarray"] is True
@@ -233,14 +236,29 @@ class TestParameterExtraction:
     def test_mapping_xpath_incomplete_stride_skipped(self):
         """Incomplete trailing group in XPath MAPPING is skipped."""
         table_data = [
+            # Complete group (stride-4)
+            {"elementRef": "SCHEMA_COLUMN", "value": '"name_col"'},
             {"elementRef": "QUERY", "value": '"//name"'},
             {"elementRef": "NODECHECK", "value": "true"},
             {"elementRef": "ISARRAY", "value": "false"},
-            {"elementRef": "QUERY", "value": '"//orphan"'},
+            # Incomplete trailing group (only 1 entry)
+            {"elementRef": "SCHEMA_COLUMN", "value": '"orphan"'},
         ]
         node = _make_node(params={"MAPPING": table_data})
         result = ExtractJSONFieldsConverter().convert(node, [], {})
         assert len(result.component["config"]["mapping"]) == 1
+
+    def test_mapping_xpath_passthrough_empty_query(self):
+        """Empty QUERY in XPath MAPPING produces row with schema_column set and query empty."""
+        table_data = _make_mapping_xpath_data([
+            ('"id_col"', '', "false", "false"),
+        ])
+        node = _make_node(params={"MAPPING": table_data})
+        result = ExtractJSONFieldsConverter().convert(node, [], {})
+        m = result.component["config"]["mapping"]
+        assert len(m) == 1
+        assert m[0]["schema_column"] == "id_col"
+        assert m[0]["query"] == ""
 
     def test_mapping_jsonpath_legacy_json_path_query(self):
         """Backward-compat: JSON_PATH_QUERY elementRef accepted in MAPPING_4_JSONPATH."""
@@ -286,9 +304,10 @@ class TestNeedsReview:
     """Verify needs_review entries for engine gaps."""
 
     def test_needs_review_has_entries(self):
+        """Exactly 2 engine_gap entries: json_path_version + encoding."""
         node = _make_node()
         result = ExtractJSONFieldsConverter().convert(node, [], {})
-        assert len(result.needs_review) >= 1
+        assert len(result.needs_review) == 2
 
     def test_needs_review_engine_gap_severity(self):
         node = _make_node()
