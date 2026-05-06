@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-14)
 Phase: 11
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-05-05
+Last activity: 2026-05-06 - Completed quick task 260506-lqq: bridge stderr drainer fix (D-08-01)
 
 Progress: [████████▌░] 81% (13/16 phases complete -- 1, 2, 3, 4, 5, 5.1, 5.2, 6, 7, 7.1, 7.2, 8, 9)
 
@@ -112,6 +112,7 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
 |---|-------------|------|--------|-----------|
 | 260425-uid | Rule 11 cleanup + manual-component authoring guide | 2026-04-25 | e4e5881 | [260425-uid-fix-rule-11-contract-violations-stale-te](./quick/260425-uid-fix-rule-11-contract-violations-stale-te/) |
 | 260429-hc2 | Cleanup manager commits 43762c8 + c9be184/0c4104d (rewrite tests + audit docs for Talend parity, supersede CR-06) | 2026-04-29 | dc264d3 | [260429-hc2-cleanup-of-manager-commits-43762c8-c9be1](./quick/260429-hc2-cleanup-of-manager-commits-43762c8-c9be1/) |
+| 260506-lqq | Fix bridge stderr pipe-buffer deadlock (D-08-01) -- background drainer thread + bounded ring buffer | 2026-05-06 | f0caf8b | [260506-lqq-fix-bridge-stderr-pipe-buffer-deadlock-d](./quick/260506-lqq-fix-bridge-stderr-pipe-buffer-deadlock-d/) |
 
 ## Session Continuity
 
