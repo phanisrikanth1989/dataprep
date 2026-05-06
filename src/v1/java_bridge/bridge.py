@@ -5,6 +5,7 @@ synchronization after every Java call. Zero print() statements -- all
 output goes through the logging module.
 """
 
+import collections
 import io
 import logging
 import os
@@ -85,6 +86,9 @@ class JavaBridge:
         self.global_map: dict[str, Any] = {}
         self._started: bool = False
         self._stdout_thread: Optional[threading.Thread] = None
+        self._stderr_buffer: collections.deque = collections.deque(maxlen=200)
+        self._stderr_lock: threading.Lock = threading.Lock()
+        self._stderr_thread: Optional[threading.Thread] = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -161,6 +165,13 @@ class JavaBridge:
             name="java-stdout-forwarder",
         )
         self._stdout_thread.start()
+
+        self._stderr_thread = threading.Thread(
+            target=self._drain_java_stderr,
+            daemon=True,
+            name="java-stderr-drainer",
+        )
+        self._stderr_thread.start()
 
         # Retry connection with exponential backoff
         max_attempts = 5
@@ -991,31 +1002,37 @@ class JavaBridge:
         except Exception:
             pass
 
-    def _capture_java_stderr(self) -> str:
-        """Non-blocking read of available Java stderr output.
+    def _drain_java_stderr(self) -> None:
+        """Background thread: read JVM stderr line-by-line into bounded deque.
 
-        Returns the last 20 lines for error diagnostics.
+        Runs until the JVM process exits.  Keeps the OS pipe buffer empty so
+        the JVM never blocks on a stderr write (prevents pipe-buffer deadlock
+        on tFlowToIterate and other high-verbosity jobs).
 
-        Returns:
-            String of last 20 stderr lines, or empty string.
+        Each non-empty line is appended to ``self._stderr_buffer`` (capped at
+        200 lines) and logged at WARNING level for visibility.
         """
         if not self.process or not self.process.stderr:
-            return ""
-
+            return
         try:
-            # Read available bytes without blocking
-            import select
-            if hasattr(select, "select"):
-                ready, _, _ = select.select([self.process.stderr], [], [], 0.1)
-                if not ready:
-                    return ""
-
-            raw = self.process.stderr.read(65536)
-            if not raw:
-                return ""
-
-            text = raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw
-            lines = text.strip().splitlines()
-            return "\n".join(lines[-20:])
+            for raw_line in self.process.stderr:
+                line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
+                if line:
+                    with self._stderr_lock:
+                        self._stderr_buffer.append(line)
+                    logger.warning("[Java stderr] %s", line)
         except Exception:
-            return ""
+            pass
+
+    def _capture_java_stderr(self) -> str:
+        """Return the last 20 lines of JVM stderr captured by the drainer thread.
+
+        The stderr pipe is continuously drained by ``_drain_java_stderr``; this
+        method reads from the in-memory deque so it never blocks.
+
+        Returns:
+            String of up to 20 most-recent stderr lines, or empty string.
+        """
+        with self._stderr_lock:
+            lines = list(self._stderr_buffer)[-20:]
+        return "\n".join(lines)
