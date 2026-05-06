@@ -6,7 +6,7 @@ XPath loop query and mapping individual XPath expressions to output columns.
 Config mapping (12 unique params):
   XMLFIELD         -> xmlfield (str, PREV_COLUMN_LIST, default "")
   LOOP_QUERY       -> loop_query (str, default "/bills/bill/line")
-  MAPPING          -> mapping (list, TABLE BASED_ON_SCHEMA=true, QUERY+NODECHECK)
+  MAPPING          -> mapping (list, TABLE BASED_ON_SCHEMA=true, SCHEMA_COLUMN+QUERY+NODECHECK)
   LIMIT            -> limit (str, default "")
   DIE_ON_ERROR     -> die_on_error (bool, default False)
   IGNORE_NS        -> ignore_ns (bool, default False)
@@ -20,24 +20,28 @@ from ..registry import REGISTRY
 logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------
-# MAPPING TABLE constants (BASED_ON_SCHEMA=true: QUERY + NODECHECK)
+# MAPPING TABLE constants (BASED_ON_SCHEMA=true: SCHEMA_COLUMN + QUERY + NODECHECK)
 # ------------------------------------------------------------------
-_MAPPING_FIELDS = ("QUERY", "NODECHECK")
+_MAPPING_FIELDS = ("SCHEMA_COLUMN", "QUERY", "NODECHECK")
 _MAPPING_GROUP_SIZE = len(_MAPPING_FIELDS)
 
 
 # ------------------------------------------------------------------
-# MAPPING TABLE parser (module-level, stride-2)
+# MAPPING TABLE parser (module-level, stride-3)
 # ------------------------------------------------------------------
 def _parse_mapping(raw: Any) -> List[Dict[str, Any]]:
     """Parse MAPPING TABLE into list of dicts.
 
-    BASED_ON_SCHEMA=true means SCHEMA_COLUMN is auto-populated from schema,
-    so each stride-2 group contains:
-      QUERY      -> query (str, stripped)
-      NODECHECK  -> nodecheck (bool)
+    Despite BASED_ON_SCHEMA=true, Talend still writes SCHEMA_COLUMN to the XML.
+    Each stride-3 group contains:
+      SCHEMA_COLUMN  -> schema_column (str, column name from output schema)
+      QUERY          -> query (str, XPath expression, stripped of outer quotes)
+      NODECHECK      -> nodecheck (bool)
 
-    Incomplete trailing groups (< 2 entries) are skipped.
+    An empty QUERY means "passthrough from input row" -- the column value is
+    carried through from the upstream flow unchanged (no XPath evaluation).
+
+    Incomplete trailing groups (< 3 entries) are skipped.
     """
     if not raw or not isinstance(raw, list):
         return []
@@ -52,12 +56,15 @@ def _parse_mapping(raw: Any) -> List[Dict[str, Any]]:
                 continue
             ref = entry.get("elementRef", "")
             val = entry.get("value", "")
-            if ref == "QUERY":
+            if ref == "SCHEMA_COLUMN":
+                row["schema_column"] = val
+            elif ref == "QUERY":
                 row["query"] = val.strip('"')
             elif ref == "NODECHECK":
                 row["nodecheck"] = val.lower() in ("true", "1")
-        if row.get("query") is not None:
+        if row.get("schema_column") is not None:
             result.append({
+                "schema_column": row.get("schema_column", ""),
                 "query": row.get("query", ""),
                 "nodecheck": row.get("nodecheck", False),
             })
@@ -97,18 +104,7 @@ class ExtractXMLFieldConverter(ComponentConverter):
         schema_cols = self._parse_schema(node)
         schema: Dict[str, Any] = {"input": schema_cols, "output": schema_cols}
 
-        # ---- 5. Engine gap needs_review entries (per-feature) ----
-        _engine_gap_keys = [
-            ("limit", "engine treats limit=0 as 'no limit' but Talend treats 0 as 'read nothing' -- semantic mismatch"),
-        ]
-        for key, detail in _engine_gap_keys:
-            needs_review.append({
-                "issue": f"Engine does not read '{key}' config key -- {detail}" if "engine treats" not in detail else detail,
-                "component": node.component_id,
-                "severity": "engine_gap",
-            })
-
-        # ---- 6. Build component wrapper ----
+        # ---- 5. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
             type_name="ExtractXMLField",
@@ -116,7 +112,7 @@ class ExtractXMLFieldConverter(ComponentConverter):
             schema=schema,
         )
 
-        # ---- 7. Return ----
+        # ---- 6. Return ----
         return ComponentResult(
             component=component,
             warnings=warnings,

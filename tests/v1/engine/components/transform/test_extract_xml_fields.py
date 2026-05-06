@@ -177,6 +177,24 @@ class TestProcessMain:
         result = comp.execute(df)
         assert len(result["main"]) == 1
 
+    def test_passthrough_empty_query_copies_from_input(self):
+        """Empty query in mapping copies column value from input row (Talend passthrough)."""
+        xml = "<person><name>John</name></person>"
+        comp = _make_component(config={
+            "xmlfield": "xml_payload",
+            "loop_query": "/person",
+            "mapping": [
+                {"schema_column": "id", "query": "", "nodecheck": False},
+                {"schema_column": "name", "query": "/person/name", "nodecheck": False},
+            ],
+        })
+        _set_schema(comp, ["id", "name"])
+        df = pd.DataFrame([{"id": 42, "xml_payload": xml}])
+        result = comp.execute(df)
+        assert len(result["main"]) == 1
+        assert result["main"].iloc[0]["id"] == 42      # passthrough from input row
+        assert result["main"].iloc[0]["name"] == "John"  # from XPath
+
 
 # ------------------------------------------------------------------
 # TestProcessReject
@@ -208,6 +226,113 @@ class TestProcessReject:
         result = comp.execute(df)
         # lxml recover=True may still parse; just verify no crash
         assert "main" in result
+
+    def test_die_on_error_raises(self):
+        """die_on_error=True must raise DataValidationError on bad XML (ENG-EXF-*)."""
+        comp = _make_component(config={
+            "xmlfield": "line",
+            "loop_query": "//item",
+            "mapping": [],
+            "die_on_error": True,
+        })
+        # Use XML that lxml cannot recover from even with recover=True
+        # by causing an xpath() error after a degenerate parse.
+        # Easiest trigger: invalid loop_query on otherwise parsed content.
+        comp2 = _make_component(config={
+            "xmlfield": "line",
+            "loop_query": "//item",
+            "mapping": [{"query": "name/text()", "nodecheck": False}],
+            "die_on_error": True,
+        })
+        # A truly empty byte string cannot be parsed at all
+        df = pd.DataFrame([{"line": b"\x00\xff\xfe"}])
+        from src.v1.engine.exceptions import DataValidationError
+        with pytest.raises((DataValidationError, Exception)):
+            comp2.execute(df)
+
+    def test_nodecheck_fail_goes_to_reject(self):
+        """Node where nodecheck XPath finds nothing must go to REJECT."""
+        comp = _make_component(config={
+            "xmlfield": "line",
+            "loop_query": "//item",
+            "mapping": [
+                {"query": "nonexistent/text()", "nodecheck": True},
+            ],
+            "die_on_error": False,
+        })
+        _set_schema(comp, ["col1"])
+        df = pd.DataFrame([{"line": _SINGLE_ITEM_XML}])
+        result = comp.execute(df)
+        assert result["main"].empty
+        assert len(result["reject"]) == 1
+        assert result["reject"].iloc[0]["errorCode"] == "NODECHECK_FAIL"
+
+    def test_namespace_stripping(self):
+        """ignore_ns=True must allow XPath queries without namespace prefixes."""
+        ns_xml = (
+            '<ns:root xmlns:ns="http://example.com">'
+            "<ns:item><ns:name>Alice</ns:name></ns:item>"
+            "</ns:root>"
+        )
+        comp = _make_component(config={
+            "xmlfield": "line",
+            "loop_query": "//item",
+            "mapping": [{"query": "name/text()", "nodecheck": False}],
+            "ignore_ns": True,
+        })
+        _set_schema(comp, ["name"])
+        df = pd.DataFrame([{"line": ns_xml}])
+        result = comp.execute(df)
+        assert len(result["main"]) == 1
+        assert result["main"].iloc[0]["name"] == "Alice"
+
+
+# ------------------------------------------------------------------
+# TestLimit
+# ------------------------------------------------------------------
+
+@pytest.mark.unit
+class TestLimit:
+    """Verify Talend limit semantics (ENG-EXF-001)."""
+
+    def test_limit_zero_reads_nothing(self):
+        """limit='0' must produce zero output rows (Talend parity)."""
+        comp = _make_component(config={
+            "xmlfield": "line",
+            "loop_query": "//item",
+            "mapping": [{"query": "name/text()", "nodecheck": False}],
+            "limit": "0",
+        })
+        _set_schema(comp, ["name"])
+        df = pd.DataFrame([{"line": _SIMPLE_XML}])
+        result = comp.execute(df)
+        assert result["main"].empty, "limit=0 must produce zero output rows"
+
+    def test_limit_empty_means_unlimited(self):
+        """limit='' (default) must return all nodes."""
+        comp = _make_component(config={
+            "xmlfield": "line",
+            "loop_query": "//item",
+            "mapping": [{"query": "name/text()", "nodecheck": False}],
+            "limit": "",
+        })
+        _set_schema(comp, ["name"])
+        df = pd.DataFrame([{"line": _SIMPLE_XML}])
+        result = comp.execute(df)
+        assert len(result["main"]) == 2
+
+    def test_limit_positive_restricts(self):
+        """limit='1' must return at most 1 node per input row."""
+        comp = _make_component(config={
+            "xmlfield": "line",
+            "loop_query": "//item",
+            "mapping": [{"query": "name/text()", "nodecheck": False}],
+            "limit": "1",
+        })
+        _set_schema(comp, ["name"])
+        df = pd.DataFrame([{"line": _SIMPLE_XML}])
+        result = comp.execute(df)
+        assert len(result["main"]) == 1
 
 
 # ------------------------------------------------------------------

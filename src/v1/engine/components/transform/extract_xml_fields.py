@@ -96,20 +96,26 @@ class ExtractXMLField(BaseComponent):
         die_on_error = self.config.get("die_on_error", False)
         ignore_ns = self.config.get("ignore_ns", False)
 
-        # Coerce limit in _process (may be context-var string -- Rule 12)
+        # Coerce limit in _process (may be context-var string -- Rule 12).
+        # limit_specified=True means a non-empty value was given.
+        # Talend limit=0 means "read nothing"; empty/absent means unlimited.
+        limit_specified = bool(limit_raw and str(limit_raw).strip())
         try:
-            limit = int(limit_raw) if limit_raw and str(limit_raw).strip() else 0
+            limit = int(limit_raw) if limit_specified else None
         except (ValueError, TypeError):
-            limit = 0
+            limit = None
 
         # ---- reconcile mapping with output_schema by index ----
         output_schema = getattr(self, "output_schema", None) or []
         resolved_mapping: list = []
         for i, m in enumerate(mapping):
+            # Prefer explicit schema_column from converter (stride-3 MAPPING),
+            # fall back to index-aligned output_schema, then synthetic name.
+            explicit_col = m.get("schema_column") or ""
             col_name = (
-                output_schema[i]["name"]
-                if i < len(output_schema)
-                else m.get("schema_column", f"field_{i + 1}")
+                explicit_col
+                or (output_schema[i]["name"] if i < len(output_schema) else None)
+                or f"field_{i + 1}"
             )
             resolved_mapping.append({
                 "schema_column": col_name,
@@ -142,7 +148,14 @@ class ExtractXMLField(BaseComponent):
                 continue
 
             try:
-                parser = etree.XMLParser(recover=True)
+                # Security: disable DTD, entity resolution, and network access
+                # to prevent XXE attacks and DTD-bomb memory exhaustion.
+                parser = etree.XMLParser(
+                    recover=True,
+                    resolve_entities=False,
+                    load_dtd=False,
+                    no_network=True,
+                )
                 root = etree.fromstring(str(xml_string).encode("utf-8"), parser=parser)
 
                 # Namespace stripping -- uses iter() (lxml 5.x compatible, not getiterator())
@@ -157,7 +170,8 @@ class ExtractXMLField(BaseComponent):
                 nodes = root.xpath(loop_query)
                 if not isinstance(nodes, list):
                     nodes = [nodes] if nodes is not None else []
-                if limit and limit > 0:
+                # Talend limit=0 means "read nothing"; None/absent means unlimited.
+                if limit is not None:
                     nodes = nodes[:limit]
 
                 for node in nodes:
@@ -169,6 +183,12 @@ class ExtractXMLField(BaseComponent):
                         query = m["query"]
                         nodecheck = m["nodecheck"]
                         value = None
+
+                        # Empty query = passthrough: copy value from input row
+                        # (Talend behavior when QUERY is blank in the MAPPING table).
+                        if not query:
+                            out_row[col] = row.get(col, None)
+                            continue
 
                         if nodecheck:
                             try:

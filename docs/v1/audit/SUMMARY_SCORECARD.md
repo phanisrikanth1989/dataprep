@@ -73,7 +73,7 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 35 | tUnite | G | G | G | G | G | G | 0 | 0 | 0 | 1 | 1 |
 | 36 | tExtractDelimitedFields | G | G | G | G | G | G | 0 | 0 | 1 | 0 | 1 |
 | 37 | tExtractJSONFields | Y | G | Y | R | Y | Y | 3 | 6 | 6 | 2 | 17 |
-| 38 | tExtractXMLField | G | G | G | Y | G | G | 0 | 0 | 2 | 1 | 3 |
+| 38 | tExtractXMLField | G | G | G | G | G | G | 0 | 0 | 1 | 5 | 6 |
 | 39 | tExtractPositionalFields | G | G | G | Y | G | G | 0 | 0 | 1 | 1 | 2 |
 | 40 | tPivotToColumnsDelimited | Y | G | Y | G | Y | G | 0 | 1 | 4 | 1 | 6 |
 | 41 | tUnpivotRow | G | G | G | G | G | G | 0 | 0 | 0 | 0 | 0 |
@@ -176,7 +176,7 @@ Score key: **R** = Red (broken/blocks production), **Y** = Yellow (works partial
 | 7 | PythonRowComponent | 3 | 7 | 11 | 2 | 23 | Y |
 | 8 | tXMLMap | 3 | 12 | 3 | 3 | 21 | R |
 | 9 | tJavaRow | 3 | 7 | 7 | 3 | 20 | Y |
-| 10 | tExtractXMLField | 3 | 6 | 7 | 3 | 19 | Y |
+| ~~10~~ | ~~tExtractXMLField~~ | ~~3~~ | ~~6~~ | ~~7~~ | ~~3~~ | ~~19~~ | ~~Y~~ **REMOVED** — P0 fixed (2026-05-06), now G/G/G/G/G/G |
 
 ---
 
@@ -281,7 +281,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 | 10 | tUnite | G | 0 | 0 | 0 | 1 | 1 |
 | 11 | tExtractDelimitedFields | G | 0 | 0 | 1 | 0 | 1 |
 | 12 | tExtractJSONFields | Y | 3 | 6 | 6 | 2 | 17 |
-| 13 | tExtractXMLField | G | 0 | 0 | 2 | 1 | 3 |
+| 13 | tExtractXMLField | G | 0 | 0 | 1 | 5 | 6 |
 | 14 | tExtractPositionalFields | G | 0 | 0 | 1 | 1 | 2 |
 | 15 | tPivotToColumnsDelimited | Y | 4 | 5 | 9 | 2 | 20 |
 | 16 | tUnpivotRow | G | 0 | 0 | 0 | 0 | 0 |
@@ -308,6 +308,7 @@ See `CROSS_CUTTING_ISSUES.md` for the complete cross-cutting analysis.
 
 **Category summary:** 8 Red, 21 Yellow, 7 Green. Total issues: 407.
 **Note:** tExtractDelimitedFields ENGINE REWRITTEN (2026-04-05): fieldseparator key fix (was field_separator). Position-based extraction (output_schema cols NOT in input). pd.isna() null check. REJECT flow with errorCode/errorMessage. @REGISTRY.register("ExtractDelimitedFields","tExtractDelimitedFields"). All 12 BaseComponent rules followed. 20 engine unit tests across 6 test classes. Overall Y->G, issues reduced 23->1.
+**Note:** tExtractXMLField HARDENED (2026-05-06): limit=0 semantic fixed to "read nothing" per Talend (ENG-EXF-001). XMLParser security flags added: resolve_entities=False, load_dtd=False, no_network=True (XXE/DTD-bomb mitigation). 23 engine unit tests added across 7 test classes (TestRegistry, TestValidateConfig, TestProcessEmpty, TestProcessMain, TestProcessReject, TestLimit, TestStats) — all pass. Code Quality Y->G. Overall remains G. Issues reduced from 3 to 6 open P3s (limit semantic was misclassified as resolved; re-counted correctly).
 **Note:** tExtractXMLField ENGINE REWRITTEN (2026-04-05): xmlfield key fix (was xml_field). lxml 5.x iter() fix (was getiterator()). Mapping by index (not name). limit semantic fixed (0=unlimited). nodecheck bool implemented. REJECT flow. @REGISTRY.register("ExtractXMLField","tExtractXMLField"). 20 engine unit tests across 6 test classes. Overall Y->G, issues reduced 19->3.
 **Note:** tExtractPositionalFields ENGINE REWRITTEN (2026-04-05): Full engine rewrite. Fixed-width positional extraction per start/length pattern. ignore_source_null, trim, check_fields_num. REJECT flow. @REGISTRY.register("ExtractPositionalFields","tExtractPositionalFields"). 20 engine unit tests across 6 test classes. Overall Y->G, issues reduced 23->2.
 **Note:** tExtractRegexFields ENGINE IMPLEMENTED (2026-04-05): New engine ExtractRegexFields created. Position-based capture group extraction (output_schema cols NOT in input). re.search per row. pd.isna() null check. REJECT errorCodes: NULL_SOURCE/NO_MATCH/FIELD_COUNT_MISMATCH. die_on_error. @REGISTRY.register("ExtractRegexFields","tExtractRegexFields"). 20 engine unit tests across 6 test classes. Overall R->G, issues reduced 3->1.
