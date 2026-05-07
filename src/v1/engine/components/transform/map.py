@@ -1608,6 +1608,45 @@ class Map(BaseComponent):
         in Java (Phase 2 design) while giving scripts clean row access via
         Groovy's propertyMissing (row1.columnName).
 
+        Per-output method split (TMAP-METHOD-SIZE fix)
+        ----------------------------------------------
+        The compiled Groovy script is divided into per-output helper
+        methods plus a thin row loop:
+
+            def evalOutput_<name>(int i, RowWrapper main, RowWrapper lk1, ...,
+                                  Map<String,Object> Var) {
+                if (!(<filter>)) return null;     // when activate_filter
+                Object[] row = new Object[N];
+                row[0] = ...;
+                ...
+                return row;
+            }
+
+            for (int i = 0; i < rowCount; i++) {
+                try {
+                    RowWrapper main = buildRowWrapper(inputRoot, i, "main");
+                    ...                          // lookup wrappers
+                    Map Var = new HashMap();
+                    Var.put(...)                 // variables
+                    Object[] r = evalOutput_<name>(i, main, lk1, ..., Var);
+                    if (r != null) <name>_data[<name>_count++] = r;
+                    ...
+                } catch (Exception e) { ... }
+            }
+
+        Each helper compiles into its own JVM method with its own 64KB
+        bytecode budget, so an output with up to 250 columns (the
+        agreed-on cap) stays comfortably under the per-method limit. The
+        prior monolithic run() body summed every output's bytecode and
+        overflowed the JVM Code-attribute limit at high column counts,
+        triggering groovyjarjarasm.asm.MethodTooLargeException.
+
+        Helpers receive everything they need as arguments. Bindings
+        (buildRowWrapper, inputRoot) are touched only inside run().
+        Routine classes (TalendString etc.) and the context / globalMap
+        maps remain accessible from helper bodies via Groovy's Script
+        getProperty -> binding fall-through.
+
         Args:
             outputs: Output config list.
             variables: Variable config list.
@@ -1618,105 +1657,133 @@ class Map(BaseComponent):
             Groovy script string matching bridge API contract.
         """
         die_on_error = self.config.get("die_on_error", True)
+        has_catch = any(o.get("catch_output_reject") for o in outputs)
 
-        lines: list[str] = []
-
-        # Imports (no concurrent/stream -- using Groovy for-loop, not Java lambdas)
-        lines.append("import java.util.*;")
-        lines.append("import com.citi.gru.etl.RowWrapper;")
-        lines.append("")
-
-        # Pre-allocate output arrays and counters for each non-reject output
+        # Active (non-reject) outputs are emitted as helpers and called
+        # from the row loop. is_reject and inner_join_reject outputs are
+        # populated elsewhere in the Python pipeline (see _route_*
+        # methods); emitting helpers for them would generate dead code.
         active_outputs = [
             o for o in outputs
             if not o.get("is_reject") and not o.get("inner_join_reject")
         ]
-        for output in active_outputs:
-            out_name = output["name"]
-            num_cols = len(output["columns"])
-            lines.append(f"Object[][] {out_name}_data = new Object[rowCount][{num_cols}];")
-            lines.append(f"int {out_name}_count = 0;")
 
-        # Error tracking (if die_on_error=false or catch_output_reject)
-        has_catch = any(o.get("catch_output_reject") for o in outputs)
-        if not die_on_error or has_catch:
-            lines.append("int errorCount = 0;")
-            lines.append("Map<Integer, String> errorMap = new HashMap<>();")
+        lines: list[str] = []
+
+        # Imports (Groovy for-loop, not Java lambdas -- lambdas can't see
+        # Groovy script-binding variables like buildRowWrapper).
+        lines.append("import java.util.*;")
+        lines.append("import com.citi.gru.etl.RowWrapper;")
         lines.append("")
 
-        # Main processing loop -- uses Groovy for-loop (not IntStream.forEach).
-        # Java lambdas in IntStream.forEach cannot access Groovy binding
-        # variables (buildRowWrapper, inputRoot, etc.) -- this is a known
-        # Groovy/Java interop limitation. Plain for-loop has full binding access.
-        lines.append("for (int i = 0; i < rowCount; i++) {")
-        lines.append("    try {")
-
-        # Build RowWrappers using the bridge-injected buildRowWrapper closure.
-        # This delegates to JavaBridge.buildArrowRowWrapper() which handles
-        # Arrow vector reading, table-name prefixed column lookup, and type
-        # extraction -- keeping all Arrow complexity in Java (Phase 2 design).
-        lines.append(f"        RowWrapper {main_name} = buildRowWrapper(inputRoot, i, \"{main_name}\");")
-        for lk_name in lookup_names:
-            lines.append(f"        RowWrapper {lk_name} = buildRowWrapper(inputRoot, i, \"{lk_name}\");")
-        lines.append("")
-
-        # Variable evaluation (sequential, supports dependency chains)
-        if variables:
-            lines.append("        Map<String, Object> Var = new HashMap<>();")
-            for var in variables:
-                var_name = var.get("name", "")
-                var_expr = var.get("expression", "")
-                if var_expr:
-                    expr = self._strip_java_marker(var_expr)
-                    if not expr or expr.strip() == "":
-                        expr = "null"
-                    lines.append(f'        Var.put("{var_name}", {expr});')
-            lines.append("")
-
-        # Output expression evaluation
-        lines.append("        // Evaluate outputs")
+        # ----- Per-output helper methods (one method per output) --------
+        # Helper signature: receives the row index, every RowWrapper that
+        # exists in run() (main + each lookup), and the populated Var map.
+        # All names are passed as method parameters so the helper body
+        # never relies on Groovy script-binding lookups for row data.
+        helper_params = (
+            f"int i, RowWrapper {main_name}"
+            + "".join(f", RowWrapper {lk}" for lk in lookup_names)
+            + ", Map<String, Object> Var"
+        )
         for output in active_outputs:
             out_name = output["name"]
             num_cols = len(output["columns"])
             filter_expr = output.get("filter", "")
             activate_filter = output.get("activate_filter", False)
 
-            # Output filter
+            lines.append(f"def evalOutput_{out_name}({helper_params}) {{")
+            # Filter folds into the helper: if filter rejects, return null
+            # so the run() loop skips this output's slot for this row.
             if activate_filter and filter_expr:
                 clean_filter = self._strip_java_marker(filter_expr)
-                lines.append(f"        if ({clean_filter}) {{")
-                indent = "            "
-            else:
-                lines.append("        {")
-                indent = "            "
-
-            # Pre-evaluate all columns into temp array
-            lines.append(f"{indent}Object[] {out_name}_row = new Object[{num_cols}];")
+                lines.append(f"    if (!({clean_filter})) return null;")
+            lines.append(f"    Object[] row = new Object[{num_cols}];")
             for col_idx, col in enumerate(output["columns"]):
                 col_expr = col.get("expression", "")
                 expr = self._strip_java_marker(col_expr)
                 if not expr or expr.strip() == "":
                     expr = "null"
-                lines.append(f"{indent}{out_name}_row[{col_idx}] = {expr};")
-
-            # Commit to output array
-            lines.append(f"{indent}int {out_name}_idx = {out_name}_count++;")
-            lines.append(f"{indent}{out_name}_data[{out_name}_idx] = {out_name}_row;")
-            lines.append("        }")
+                lines.append(f"    row[{col_idx}] = {expr};")
+            lines.append("    return row;")
+            lines.append("}")
             lines.append("")
 
-        # Error handling
+        # ----- Output buffers + counters --------------------------------
+        for output in active_outputs:
+            out_name = output["name"]
+            num_cols = len(output["columns"])
+            lines.append(f"Object[][] {out_name}_data = new Object[rowCount][{num_cols}];")
+            lines.append(f"int {out_name}_count = 0;")
+
+        # Error tracking (when die_on_error=false or any catch_output_reject).
+        if not die_on_error or has_catch:
+            lines.append("int errorCount = 0;")
+            lines.append("Map<Integer, String> errorMap = new HashMap<>();")
+        lines.append("")
+
+        # ----- Main row loop (thin) -------------------------------------
+        lines.append("for (int i = 0; i < rowCount; i++) {")
+        lines.append("    try {")
+
+        # Build RowWrappers via the bridge-injected closure -- keeps Arrow
+        # vector reading in Java (Phase 2 design).
+        lines.append(
+            f"        RowWrapper {main_name} = buildRowWrapper(inputRoot, i, \"{main_name}\");"
+        )
+        for lk_name in lookup_names:
+            lines.append(
+                f"        RowWrapper {lk_name} = buildRowWrapper(inputRoot, i, \"{lk_name}\");"
+            )
+        lines.append("")
+
+        # Variable evaluation (sequential -- later vars can read earlier
+        # ones via Var.get(...)). Var is always emitted, even when
+        # variables is empty, because helpers declare it as a parameter.
+        lines.append("        Map<String, Object> Var = new HashMap<>();")
+        for var in variables or []:
+            var_name = var.get("name", "")
+            var_expr = var.get("expression", "")
+            if var_expr:
+                expr = self._strip_java_marker(var_expr)
+                if not expr or expr.strip() == "":
+                    expr = "null"
+                lines.append(f'        Var.put("{var_name}", {expr});')
+        lines.append("")
+
+        # Per-output helper invocations. Helper returns null when the
+        # output's filter rejects the row -- skip the slot in that case.
+        helper_args = (
+            f"i, {main_name}"
+            + "".join(f", {lk}" for lk in lookup_names)
+            + ", Var"
+        )
+        for output in active_outputs:
+            out_name = output["name"]
+            lines.append(
+                f"        Object[] {out_name}_row = evalOutput_{out_name}({helper_args});"
+            )
+            lines.append(f"        if ({out_name}_row != null) {{")
+            lines.append(f"            {out_name}_data[{out_name}_count++] = {out_name}_row;")
+            lines.append("        }")
+
+        # Error handling -- semantics unchanged from the pre-split script.
         lines.append("    } catch (Exception e) {")
         if die_on_error and not has_catch:
-            lines.append('        throw new RuntimeException("Error at row " + i + ": " + (e.getMessage() != null ? e.getMessage() : e.toString()), e);')
+            lines.append(
+                '        throw new RuntimeException("Error at row " + i + ": " '
+                '+ (e.getMessage() != null ? e.getMessage() : e.toString()), e);'
+            )
         else:
             lines.append("        errorCount++;")
-            lines.append('        errorMap.put(i, e.getMessage() != null ? e.getMessage() : e.toString());')
+            lines.append(
+                '        errorMap.put(i, e.getMessage() != null ? e.getMessage() : e.toString());'
+            )
         lines.append("    }")
         lines.append("}")
         lines.append("")
 
-        # Return results map
+        # ----- Return results map ---------------------------------------
         lines.append("Map<String, Map<String, Object>> results = new HashMap<>();")
         for output in active_outputs:
             out_name = output["name"]
