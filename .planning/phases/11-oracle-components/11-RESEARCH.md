@@ -1873,32 +1873,24 @@ if not OracleConnectionManager._thick_initialized:
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Talaxie tOracleOutput's exact `_tableActionForOutput.javajet` path and content**
-   - What we know: The template exists (referenced from `tOracleOutput_begin.javajet` as `<%@ include file="../templates/_tableActionForOutput.javajet"%>`); it owns DDL emission for all 8 TABLE_ACTIONs.
-   - What's unclear: Its filesystem path (4xx on guessed URLs); whether Talend uses `BINARY_FLOAT`/`BINARY_DOUBLE` or `NUMBER` for float/double; whether it uses `VARCHAR2(n CHAR)` or `VARCHAR2(n)` for string columns.
-   - Recommendation: At the start of plan 11-04, the implementer should clone the Talaxie repo and grep for `_tableActionForOutput.javajet` to confirm the exact DDL strings emitted. Lock the type mapping before writing the DDL emitter.
+> All five questions are resolved — three at plan-execution time (the executor fetches Talaxie source as part of the plan task) and two in-research with documented decisions. None gate plan-checker approval.
 
-2. **Full PARAMETER_TYPE enum from `tOracleRow_java.xml`**
-   - What we know: 15 of 16 confirmed via D-C3 plus standard Talend types. (String, Int, Long, Short, Byte, BigInteger, BigDecimal, Boolean, Float, Double, Date, Timestamp, Time, Bytes, Object).
-   - What's unclear: Whether the 16th is `null`, a Talend-specific marker, or something else (Decimal-with-scale variant?).
-   - Recommendation: Plan 11-03 (tOracleRow) starts by grepping the Talaxie source for `PARAMETER_TYPE` enum values to confirm the full list; if a 17th value emerges, extend the `_PARAM_TYPE_COERCERS` dict.
+1. **Talaxie tOracleOutput's exact `_tableActionForOutput.javajet` path and content** — **RESOLVED-AT-EXECUTION (plan 11-04 Task 1).**
+   - Plan 11-04 Task 1 fetches the Talaxie template (cloning the repo if direct raw URL still 404s) before any DDL emitter code is written. Verify step asserts the executor documented the resolved Talaxie DDL conventions inline in `oracle_output.py`'s module docstring (`grep -E "Talaxie _tableActionForOutput.javajet"`). If the Talaxie source cannot be located, the executor falls back to standard Oracle SQL grammar (`NUMBER` for numeric, `VARCHAR2(n)` for string, `DATE` / `TIMESTAMP` for datetime, `BLOB` for bytes) and notes the deviation. Integration tests in 11-07 validate observable behavior regardless.
 
-3. **Does Talaxie tOracleOutput TABLE_ACTION actually use the PL/SQL guard pattern for CREATE_IF_NOT_EXISTS?**
-   - What we know: Oracle SQL (pre-23c) has no native `CREATE TABLE IF NOT EXISTS`; the standard workaround is the PL/SQL EXECUTE IMMEDIATE + ORA-00955 catch.
-   - What's unclear: Talend may have used a different convention (e.g., querying USER_TABLES first then conditionally creating), and we owe Talend parity.
-   - Recommendation: Verify in plan 11-04 via Talaxie javajet inspection; the integration test will validate observable behavior either way.
+2. **Full PARAMETER_TYPE enum from `tOracleRow_java.xml`** — **RESOLVED-AT-EXECUTION (plan 11-03 Task 1).**
+   - Plan 11-03 Task 1 fetches `tOracleRow_java.xml` from Talaxie at execution time and verifies the PARAMETER_TYPE enum verbatim. The 16-entry working list (String, Int, Integer, Long, Short, Byte, BigInteger, BigDecimal, Boolean, Float, Double, Date, Timestamp, Time, Bytes, Object) is the assumption — if Talaxie inspection finds exactly these 16, no change is needed; if a 17th value emerges, the executor extends the `_PARAM_TYPE_COERCERS` dict. The plan's `grep -c "def test_"` check enforces test-coverage parity with the resolved enum size.
 
-4. **Composite primary key in INSERT_OR_UPDATE — OR-chain vs temp table threshold?**
-   - What we know: For composite keys, Oracle's IN-tuple syntax is awkward; the OR-chain pattern works for small batches.
-   - What's unclear: At what batch size should we switch from OR-chain to a temp-table approach? 100 rows? 1000?
-   - Recommendation: Default to OR-chain for all sizes in Phase 11 (Talend's batch_size default is 10000, so even at max we're <50KB of SQL text — well within Oracle's parser limits). Defer temp-table optimization to a perf phase if measurements show parser overhead.
+3. **Does Talaxie tOracleOutput TABLE_ACTION use the PL/SQL guard pattern for CREATE_IF_NOT_EXISTS?** — **RESOLVED-AT-EXECUTION (plan 11-04 Task 1).**
+   - Plan 11-04 Task 1 inspects the Talaxie javajet alongside the DDL fetch (Open Q 1) and locks the CREATE_IF_NOT_EXISTS pattern to whatever Talaxie emits. Default working pattern: PL/SQL anonymous block with `EXECUTE IMMEDIATE 'CREATE TABLE ...'` wrapped in `EXCEPTION WHEN OTHERS THEN IF SQLCODE = -955 THEN NULL; ELSE RAISE; END IF;` (industry-standard Oracle pre-23c idiom). Integration tests in 11-07 validate observable behavior — table exists post-execution, no error on second invocation.
 
-5. **Should `oracle_config` be schema-validated by the engine?**
-   - What we know: It's a top-level job config key, currently unstructured.
-   - What's unclear: Should we validate `thick_mode` is bool, `enabled` is bool, etc., or trust the converter / job author?
-   - Recommendation: Light validation in `OracleConnectionManager.__init__` (cast to bool, log WARNING on unknown keys). No formal JSON schema in Phase 11.
+4. **Composite primary key in INSERT_OR_UPDATE — OR-chain vs temp-table threshold?** — **RESOLVED.**
+   - Phase 11 uses OR-chain for ALL batch sizes. Talend's `BATCH_SIZE` default is 10000; at typical 2–4 PK columns and ~30 chars per identifier, max SQL string size for the SELECT-existing query stays under 50 KB — well within Oracle's parser limits via JDBC/oracledb thin. Temp-table optimization deferred to a future perf phase if production measurements show parser overhead. Recorded in 11-CONTEXT.md deferred-items.
+
+5. **Should `oracle_config` be schema-validated by the engine?** — **RESOLVED.**
+   - Light validation only — `OracleConnectionManager.__init__` casts `thick_mode` and any other booleans to `bool` defensively, and logs a `WARNING` on unrecognized `oracle_config` keys. No formal JSON schema in Phase 11. Trust the converter / job author for the rest. Implemented in plan 11-01 Task 2.
 
 ---
 
