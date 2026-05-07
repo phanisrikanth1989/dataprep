@@ -83,13 +83,15 @@ class TestModuleDocstring:
     def test_docstring_has_talaxie_attribution(self):
         from src.v1.engine.components.database import oracle_output
 
-        src = open(oracle_output.__file__).read()
+        with open(oracle_output.__file__, encoding="utf-8") as f:
+            src = f.read()
         assert "Talaxie _tableActionForOutput.javajet" in src
 
     def test_docstring_has_fetch_evidence(self):
         from src.v1.engine.components.database import oracle_output
 
-        src = open(oracle_output.__file__).read()
+        with open(oracle_output.__file__, encoding="utf-8") as f:
+            src = f.read()
         fetch_evidence = re.search(
             r"https?://raw\.githubusercontent\.com/[^\s\"']+", src
         )
@@ -99,7 +101,8 @@ class TestModuleDocstring:
     def test_docstring_lists_type_decisions(self):
         from src.v1.engine.components.database import oracle_output
 
-        src = open(oracle_output.__file__).read()
+        with open(oracle_output.__file__, encoding="utf-8") as f:
+            src = f.read()
         for kw in ("Float", "Double", "VARCHAR2", "CREATE_IF_NOT_EXISTS"):
             assert kw in src, f"missing decision keyword: {kw}"
 
