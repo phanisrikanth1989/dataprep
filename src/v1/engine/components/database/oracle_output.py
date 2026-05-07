@@ -2,8 +2,12 @@
 
 Writes a DataFrame to an Oracle table using cursor.executemany with
 batcherrors=True (D-B2, single code path). Supports the full 8 TABLE_ACTION
-x 5 DATA_ACTION matrix per D-C1, with INSERT_OR_UPDATE / UPDATE_OR_INSERT
-deferred to plan 11-05 (this plan stubs them to raise NotImplementedError).
+x 5 DATA_ACTION matrix per D-C1. INSERT_OR_UPDATE / UPDATE_OR_INSERT use
+the batched 2-statement upsert per D-C2 (plan 11-05): per chunk, SELECT
+existing PKs once, partition matched/unmatched in Python, then executemany
+UPDATE on matched + executemany INSERT on unmatched. Stats split correctly
+(NB_LINE_UPDATED += matched_ok; NB_LINE_INSERTED += unmatched_ok); reject
+DataFrame consolidates errors from both calls.
 
 Talaxie _tableActionForOutput.javajet (verified 2026-05-07):
   Source: https://raw.githubusercontent.com/Talaxie/tdi-studio-se/master/main/plugins/org.talend.designer.components.localprovider/components/templates/_tableActionForOutput.javajet
@@ -82,8 +86,11 @@ _VALID_DATA_ACTIONS = frozenset({
     "UPDATE_OR_INSERT",
     "DELETE",
 })
-_DATA_ACTIONS_THIS_PLAN = frozenset({"INSERT", "UPDATE", "DELETE"})
-_DATA_ACTIONS_DEFERRED_TO_11_05 = frozenset({"INSERT_OR_UPDATE", "UPDATE_OR_INSERT"})
+# Per D-C1: 3 single-statement DATA_ACTIONs (plan 11-04) + 2 upsert
+# DATA_ACTIONs (plan 11-05). _DATA_ACTIONS_UPSERT routes to
+# _execute_upsert_batch (D-C2 batched 2-statement strategy).
+_DATA_ACTIONS_SIMPLE = frozenset({"INSERT", "UPDATE", "DELETE"})
+_DATA_ACTIONS_UPSERT = frozenset({"INSERT_OR_UPDATE", "UPDATE_OR_INSERT"})
 
 
 def _quote_ident(name: str) -> str:
@@ -473,6 +480,237 @@ class OracleOutput(BaseComponent):
         )
         return f"DELETE FROM {self._qualified_table()} WHERE {where_clause}"
 
+    # ---- Upsert support (D-C2) ------------------------------------------
+
+    def _build_pk_select_sql(self, pk_cols: List[str], n_keys: int) -> str:
+        """Build SELECT pk_cols FROM table WHERE pk IN (batch_keys) (D-C2).
+
+        Single-PK uses ``WHERE pk IN (:1, :2, ..., :N)``.
+        Composite PK uses an OR-chain
+        ``(pk1=:1 AND pk2=:2) OR (pk1=:3 AND pk2=:4) OR ...`` per
+        RESEARCH.md Open Q 4 (acceptable for batch_size <= 10000).
+
+        Args:
+            pk_cols: List of primary-key column names. Validated identifiers.
+            n_keys: Number of input rows in the batch.
+
+        Returns:
+            The SELECT SQL string with positional :N placeholders.
+
+        Raises:
+            ConfigurationError: If pk_cols is empty.
+        """
+        if not pk_cols:
+            raise ConfigurationError(
+                f"[{self.id}] upsert requires at least one primary key column "
+                f"(schema 'key' attribute or field_options UPDATE_KEY)"
+            )
+        quoted_cols = [_quote_ident(c) for c in pk_cols]
+        if len(pk_cols) == 1:
+            placeholders = ", ".join(f":{i}" for i in range(1, n_keys + 1))
+            return (
+                f"SELECT {quoted_cols[0]} FROM {self._qualified_table()} "
+                f"WHERE {quoted_cols[0]} IN ({placeholders})"
+            )
+        # Composite PK -- OR-chain
+        clauses: List[str] = []
+        bind_idx = 1
+        for _ in range(n_keys):
+            tuple_clauses = []
+            for col in quoted_cols:
+                tuple_clauses.append(f"{col} = :{bind_idx}")
+                bind_idx += 1
+            clauses.append("(" + " AND ".join(tuple_clauses) + ")")
+        return (
+            f"SELECT {', '.join(quoted_cols)} FROM {self._qualified_table()} "
+            f"WHERE " + " OR ".join(clauses)
+        )
+
+    def _flatten_pk_binds(
+        self, chunk: List[Tuple], pk_cols: List[str], col_order: List[str],
+    ) -> List[Any]:
+        """Flatten chunk rows into a positional bind list for the SELECT.
+
+        Args:
+            chunk: List of param tuples in ``col_order`` layout.
+            pk_cols: Primary-key column names.
+            col_order: Column order matching the chunk tuples (INSERT order).
+
+        Returns:
+            Flat list of bind values. Single-PK: one value per row. Composite-PK:
+            len(pk_cols) values per row, row by row.
+        """
+        pk_indices = [col_order.index(c) for c in pk_cols]
+        flat: List[Any] = []
+        if len(pk_cols) == 1:
+            for row in chunk:
+                flat.append(row[pk_indices[0]])
+        else:
+            for row in chunk:
+                for idx in pk_indices:
+                    flat.append(row[idx])
+        return flat
+
+    def _split_matched_unmatched(
+        self,
+        chunk: List[Tuple],
+        chunk_df: pd.DataFrame,
+        pk_cols: List[str],
+        col_order: List[str],
+        matched_keys: set,
+    ) -> Tuple[List[Tuple], pd.DataFrame, List[Tuple], pd.DataFrame, int]:
+        """Partition the chunk into matched / unmatched. NULL-PK rows go to INSERT.
+
+        NULL primary key handling (Pitfall 6 in RESEARCH.md): Oracle's
+        ``NULL = NULL`` is UNKNOWN, so the SELECT cannot match a NULL key.
+        Force such rows into the INSERT path and emit a WARNING per row count.
+
+        Returns:
+            (matched_chunk, matched_df, unmatched_chunk, unmatched_df, null_pk_count).
+        """
+        pk_indices = [col_order.index(c) for c in pk_cols]
+        matched_chunk: List[Tuple] = []
+        unmatched_chunk: List[Tuple] = []
+        matched_idx: List[int] = []
+        unmatched_idx: List[int] = []
+        null_pk_count = 0
+        for i, row in enumerate(chunk):
+            key = tuple(row[idx] for idx in pk_indices)
+            has_null_pk = any(v is None for v in key)
+            if has_null_pk:
+                null_pk_count += 1
+                unmatched_chunk.append(row)
+                unmatched_idx.append(i)
+            elif key in matched_keys:
+                matched_chunk.append(row)
+                matched_idx.append(i)
+            else:
+                unmatched_chunk.append(row)
+                unmatched_idx.append(i)
+        matched_df = chunk_df.iloc[matched_idx].reset_index(drop=True)
+        unmatched_df = chunk_df.iloc[unmatched_idx].reset_index(drop=True)
+        return matched_chunk, matched_df, unmatched_chunk, unmatched_df, null_pk_count
+
+    def _execute_upsert_batch(
+        self,
+        cursor,
+        chunk: List[Tuple],
+        chunk_df: pd.DataFrame,
+        prefer_update: bool,
+    ) -> Tuple[int, int, Optional[pd.DataFrame]]:
+        """Run the batched 2-statement upsert per D-C2.
+
+        Per batch of N rows:
+          1. SELECT pk_cols WHERE pk IN (batch_keys) -- one round trip.
+          2. Partition input rows into matched / unmatched (NULL PK -> unmatched).
+          3. executemany UPDATE on matched_chunk.
+          4. executemany INSERT on unmatched_chunk.
+          5. Combine batcherrors from both calls into a single reject DataFrame.
+
+        ``prefer_update`` only affects log wording; matched rows always go
+        to UPDATE and unmatched rows always go to INSERT. Talend's per-row
+        try-update-first vs try-insert-first distinction collapses to
+        identical batched behavior here.
+
+        Args:
+            cursor: An open oracledb cursor.
+            chunk: Pre-built INSERT-order parameter tuples for the chunk.
+            chunk_df: The original input DataFrame slice for this chunk.
+            prefer_update: True for UPDATE_OR_INSERT; False for INSERT_OR_UPDATE.
+
+        Returns:
+            Tuple of (inserted_count, updated_count, reject_df_or_None).
+
+        Raises:
+            ConfigurationError: If there are no key columns to upsert against.
+        """
+        pk_cols = self._key_columns()
+        if not pk_cols:
+            raise ConfigurationError(
+                f"[{self.id}] upsert requires at least one primary key column "
+                f"(schema 'key' attribute or field_options UPDATE_KEY)"
+            )
+
+        # The chunk param tuples are in INSERT-column order (built by
+        # _dataframe_to_param_list with data_action="INSERT_OR_UPDATE").
+        insert_cols = self._insertable_columns()
+
+        # 1. SELECT existing PKs
+        select_sql = self._build_pk_select_sql(pk_cols, len(chunk))
+        select_binds = self._flatten_pk_binds(chunk, pk_cols, insert_cols)
+        cursor.execute(select_sql, select_binds)
+        matched_keys: set = set()
+        for row in cursor.fetchall():
+            if isinstance(row, (list, tuple)):
+                matched_keys.add(tuple(row))
+            else:
+                matched_keys.add((row,))
+
+        # 2. Partition
+        (
+            matched_chunk, matched_df,
+            unmatched_chunk, unmatched_df,
+            null_pk_count,
+        ) = self._split_matched_unmatched(
+            chunk, chunk_df, pk_cols, insert_cols, matched_keys,
+        )
+        if null_pk_count > 0:
+            logger.warning(
+                "[%s] %d row(s) have NULL primary key; forced into INSERT path "
+                "(Oracle NULL=NULL is UNKNOWN -- SELECT cannot match)",
+                self.id, null_pk_count,
+            )
+
+        # Build matched-row binds in UPDATE order (updatable cols + key cols)
+        updatable_cols = self._updatable_columns()
+        update_col_order = updatable_cols + pk_cols
+        update_indices_in_insert = [insert_cols.index(c) for c in update_col_order]
+        update_chunk: List[Tuple] = []
+        for row in matched_chunk:
+            update_chunk.append(tuple(row[idx] for idx in update_indices_in_insert))
+
+        update_errors: List[Any] = []
+        insert_errors: List[Any] = []
+
+        # 3. executemany UPDATE
+        if update_chunk:
+            update_sql = self._build_update_sql()
+            input_sizes_update = self._build_input_sizes("UPDATE")
+            if input_sizes_update:
+                cursor.setinputsizes(*input_sizes_update)
+            cursor.executemany(update_sql, update_chunk, batcherrors=True)
+            update_errors = list(cursor.getbatcherrors() or [])
+
+        # 4. executemany INSERT
+        if unmatched_chunk:
+            insert_sql = self._build_insert_sql()
+            input_sizes_insert = self._build_input_sizes("INSERT")
+            if input_sizes_insert:
+                cursor.setinputsizes(*input_sizes_insert)
+            cursor.executemany(insert_sql, unmatched_chunk, batcherrors=True)
+            insert_errors = list(cursor.getbatcherrors() or [])
+
+        # 5. Stats
+        updated = len(matched_chunk) - len(update_errors)
+        inserted = len(unmatched_chunk) - len(insert_errors)
+
+        # 6. Reject DataFrame -- merge errors from both calls
+        reject_dfs: List[pd.DataFrame] = []
+        if update_errors:
+            reject_dfs.append(self._build_reject_chunk(matched_df, update_errors))
+        if insert_errors:
+            reject_dfs.append(self._build_reject_chunk(unmatched_df, insert_errors))
+        reject_df = pd.concat(reject_dfs, ignore_index=True) if reject_dfs else None
+
+        logger.debug(
+            "[%s] upsert batch (prefer_update=%s): matched=%d unmatched=%d "
+            "null_pk=%d update_errors=%d insert_errors=%d",
+            self.id, prefer_update, len(matched_chunk), len(unmatched_chunk),
+            null_pk_count, len(update_errors), len(insert_errors),
+        )
+
+        return inserted, updated, reject_df
+
     def _dataframe_to_param_list(
         self, df: pd.DataFrame, data_action: str,
     ) -> List[Tuple]:
@@ -489,7 +727,11 @@ class OracleOutput(BaseComponent):
         Raises:
             NotImplementedError: For data_action values not in this plan.
         """
-        if data_action == "INSERT":
+        if data_action == "INSERT" or data_action in (
+            "INSERT_OR_UPDATE", "UPDATE_OR_INSERT",
+        ):
+            # Upsert chunks use INSERT-column order; _execute_upsert_batch
+            # reorders for UPDATE binds.
             cols = self._insertable_columns()
         elif data_action == "UPDATE":
             cols = self._updatable_columns() + self._key_columns()
@@ -497,7 +739,7 @@ class OracleOutput(BaseComponent):
             cols = self._key_columns()
         else:
             raise NotImplementedError(
-                f"data_action {data_action} not handled in plan 11-04"
+                f"data_action {data_action} not handled"
             )
         return [
             tuple(row[c] if pd.notna(row[c]) else None for c in cols)
@@ -612,9 +854,9 @@ class OracleOutput(BaseComponent):
             tOracleOutput is a sink; ``main`` is always empty.
 
         Raises:
-            ConfigurationError: If oracle_manager is not wired.
-            NotImplementedError: If data_action is INSERT_OR_UPDATE or
-                UPDATE_OR_INSERT (deferred to plan 11-05).
+            ConfigurationError: If oracle_manager is not wired, or if
+                data_action requires a primary key column and none is
+                declared (UPDATE / DELETE / upsert).
             DataValidationError: If die_on_error=True and the reject DataFrame
                 is non-empty (mirror file_input_delimited.py:253-258).
         """
@@ -626,11 +868,8 @@ class OracleOutput(BaseComponent):
             )
 
         data_action = self.config.get("data_action", "INSERT")
-        if data_action in _DATA_ACTIONS_DEFERRED_TO_11_05:
-            # Plan 11-05 lands the upsert logic
-            raise NotImplementedError(
-                f"[{self.id}] data_action {data_action!r} deferred to plan 11-05"
-            )
+        # Plan 11-05: INSERT_OR_UPDATE / UPDATE_OR_INSERT now handled via
+        # _execute_upsert_batch (D-C2 batched 2-statement upsert).
 
         # Acquire connection (shared via manager.get / ad-hoc via open_ad_hoc)
         use_existing = self.config.get("use_existing_connection", False)
@@ -663,19 +902,28 @@ class OracleOutput(BaseComponent):
 
             # 2. DATA_ACTION via executemany + batcherrors
             if input_data is not None and len(input_data) > 0:
+                is_upsert = data_action in (
+                    "INSERT_OR_UPDATE", "UPDATE_OR_INSERT",
+                )
                 if data_action == "INSERT":
                     sql = self._build_insert_sql()
                 elif data_action == "UPDATE":
                     sql = self._build_update_sql()
                 elif data_action == "DELETE":
                     sql = self._build_delete_sql()
+                elif is_upsert:
+                    # Upsert builds SQL internally per chunk
+                    # (_build_pk_select_sql + _build_update_sql + _build_insert_sql).
+                    sql = None
                 else:
                     raise NotImplementedError(
                         f"data_action {data_action} not handled"
                     )
 
                 rows = self._dataframe_to_param_list(input_data, data_action)
-                input_sizes = self._build_input_sizes(data_action)
+                input_sizes = (
+                    self._build_input_sizes(data_action) if not is_upsert else []
+                )
 
                 since_commit = 0
                 for chunk_start in range(0, len(rows), batch_size):
@@ -684,24 +932,38 @@ class OracleOutput(BaseComponent):
                         chunk_start:chunk_start + len(chunk)
                     ]
 
-                    if input_sizes:
-                        cursor.setinputsizes(*input_sizes)
-                    cursor.executemany(sql, chunk, batcherrors=True)
-                    batch_errors = cursor.getbatcherrors() or []
-
-                    ok = len(chunk) - len(batch_errors)
-                    if data_action == "INSERT":
-                        inserted += ok
-                    elif data_action == "UPDATE":
-                        updated += ok
-                    elif data_action == "DELETE":
-                        deleted += ok
-                    rejected += len(batch_errors)
-
-                    if batch_errors:
-                        all_reject_dfs.append(
-                            self._build_reject_chunk(chunk_df, batch_errors)
+                    if is_upsert:
+                        prefer_update = (data_action == "UPDATE_OR_INSERT")
+                        chunk_inserted, chunk_updated, chunk_reject = (
+                            self._execute_upsert_batch(
+                                cursor, chunk, chunk_df,
+                                prefer_update=prefer_update,
+                            )
                         )
+                        inserted += chunk_inserted
+                        updated += chunk_updated
+                        if chunk_reject is not None and len(chunk_reject) > 0:
+                            rejected += len(chunk_reject)
+                            all_reject_dfs.append(chunk_reject)
+                    else:
+                        if input_sizes:
+                            cursor.setinputsizes(*input_sizes)
+                        cursor.executemany(sql, chunk, batcherrors=True)
+                        batch_errors = cursor.getbatcherrors() or []
+
+                        ok = len(chunk) - len(batch_errors)
+                        if data_action == "INSERT":
+                            inserted += ok
+                        elif data_action == "UPDATE":
+                            updated += ok
+                        elif data_action == "DELETE":
+                            deleted += ok
+                        rejected += len(batch_errors)
+
+                        if batch_errors:
+                            all_reject_dfs.append(
+                                self._build_reject_chunk(chunk_df, batch_errors)
+                            )
 
                     # Commit cycle (D-B2 + Pitfall 7: explicit commit when
                     # batcherrors=True; auto-commit DOES NOT fire when

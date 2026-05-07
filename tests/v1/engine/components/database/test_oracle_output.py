@@ -827,7 +827,7 @@ class TestDieOnErrorRewrap:
 
 # ----------------------------------------------------------------------
 # Plan 11-05: Upsert (INSERT_OR_UPDATE / UPDATE_OR_INSERT) test classes
-# Replaces plan 11-04's TestUpsertDeferred (NotImplementedError stubs).
+# Supersedes plan 11-04's deferred-upsert placeholder class (NotImplementedError stubs).
 # Strategy per D-C2: SELECT pk_cols WHERE pk IN (batch_keys) ->
 # partition matched/unmatched -> executemany UPDATE on matched +
 # executemany INSERT on unmatched.
