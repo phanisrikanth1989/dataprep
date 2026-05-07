@@ -35,7 +35,10 @@ converter at src/converters/talend_to_v1/components/database/oracle_connection.p
     properties          (str, default "")            -- Talend k=v;k=v string;
                                                        logged-and-skipped
     use_tns_file        (bool, default False)        -- deferred (WARNING when True)
-    tns_file_alias      (str, default "")            -- deferred
+    tns_file            (str, default "")            -- deferred (matches
+                                                       converter emit name and
+                                                       use_tns_file deferred-flag
+                                                       loop key check below)
     support_nls         (bool, default False)        -- deferred
     use_ssl             (bool, default False)        -- deferred
     ssl_truststore_*    (str)                        -- deferred SSL params
