@@ -825,26 +825,259 @@ class TestDieOnErrorRewrap:
         assert result["reject"] is not None
 
 
+# ----------------------------------------------------------------------
+# Plan 11-05: Upsert (INSERT_OR_UPDATE / UPDATE_OR_INSERT) test classes
+# Replaces plan 11-04's TestUpsertDeferred (NotImplementedError stubs).
+# Strategy per D-C2: SELECT pk_cols WHERE pk IN (batch_keys) ->
+# partition matched/unmatched -> executemany UPDATE on matched +
+# executemany INSERT on unmatched.
+# ----------------------------------------------------------------------
+
+
+def _make_upsert_mock_manager(matched_keys=None, update_errors=None,
+                              insert_errors=None, autocommit=False):
+    """Build a manager + cursor for upsert tests.
+
+    Sequencing (per _execute_upsert_batch):
+      1. cursor.execute(SELECT pk_cols ...)  <- matched_keys returned by fetchall()
+      2. cursor.executemany(UPDATE, matched) [optional]
+      3. cursor.executemany(INSERT, unmatched) [optional]
+
+    For getbatcherrors side_effect ordering:
+      - call 1 -> update_errors (after UPDATE executemany)
+      - call 2 -> insert_errors (after INSERT executemany)
+    Defaults to no errors on either branch.
+    """
+    mgr = MagicMock()
+    mock_conn = MagicMock(autocommit=autocommit)
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = list(matched_keys or [])
+    upd = list(update_errors or [])
+    ins = list(insert_errors or [])
+    mock_cursor.getbatcherrors.side_effect = [upd, ins]
+    mock_conn.cursor.return_value = mock_cursor
+    mgr.get.return_value = mock_conn
+    mgr.open_ad_hoc.return_value = mock_conn
+    return mgr, mock_conn, mock_cursor
+
+
 @pytest.mark.unit
-class TestUpsertDeferred:
-    def test_insert_or_update_raises_not_implemented(self):
-        mgr, _, _ = _make_mock_oracle_manager()
+class TestUpsertBatched:
+    def test_5_rows_2_matched_3_unmatched_stats_split(self):
+        # 2 matched (ids 2 and 4), 3 unmatched
+        mgr, _, _ = _make_upsert_mock_manager(matched_keys=[(2,), (4,)])
+        gm = GlobalMap()
         comp = _make_component(
             _shared_conn_config(data_action="INSERT_OR_UPDATE"),
-            oracle_manager=mgr,
+            oracle_manager=mgr, global_map=gm,
         )
-        with pytest.raises(NotImplementedError) as exc:
-            comp._process(pd.DataFrame({"id": [1]}))
-        assert "11-05" in str(exc.value)
+        df = pd.DataFrame({"id": [1, 2, 3, 4, 5], "name": ["a", "b", "c", "d", "e"]})
+        comp._process(df)
+        assert gm.get("tOracleOutput_1_NB_LINE_INSERTED") == 3
+        assert gm.get("tOracleOutput_1_NB_LINE_UPDATED") == 2
+        assert gm.get("tOracleOutput_1_NB_LINE_REJECTED") == 0
+        assert gm.get("tOracleOutput_1_NB_LINE") == 5
 
-    def test_update_or_insert_raises_not_implemented(self):
-        mgr, _, _ = _make_mock_oracle_manager()
+
+@pytest.mark.unit
+class TestUpsertSingleSelect:
+    def test_select_executed_once_per_batch(self):
+        mgr, _, mock_cursor = _make_upsert_mock_manager(matched_keys=[])
         comp = _make_component(
-            _shared_conn_config(data_action="UPDATE_OR_INSERT"),
-            oracle_manager=mgr,
+            _shared_conn_config(data_action="INSERT_OR_UPDATE"), oracle_manager=mgr,
         )
-        with pytest.raises(NotImplementedError):
-            comp._process(pd.DataFrame({"id": [1]}))
+        df = pd.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"]})
+        comp._process(df)
+        # Exactly ONE cursor.execute -- the SELECT-existing query
+        assert mock_cursor.execute.call_count == 1
+        sql = mock_cursor.execute.call_args.args[0]
+        assert sql.startswith("SELECT")
+        assert "IN (" in sql
+
+    def test_select_uses_parameterized_binds_not_concat(self):
+        """T-11-01 mitigation regression: malicious-looking PK string must
+        flow through binds, never inline in the SQL string."""
+        mgr, _, mock_cursor = _make_upsert_mock_manager(matched_keys=[])
+        # Schema with str id (so the malicious payload is a valid input)
+        schema = [
+            {"name": "id", "type": "str", "length": 50, "key": True, "nullable": False},
+            {"name": "name", "type": "str", "length": 50, "nullable": True},
+        ]
+        comp = _make_component(
+            _shared_conn_config(data_action="INSERT_OR_UPDATE"),
+            oracle_manager=mgr, output_schema=schema,
+        )
+        df = pd.DataFrame({"id": ["1; DROP TABLE EMP", "2"], "name": ["a", "b"]})
+        comp._process(df)
+        sql = mock_cursor.execute.call_args.args[0]
+        # SQL string must NOT contain the payload literally
+        assert "DROP TABLE" not in sql
+        # Binds list must contain it
+        binds = mock_cursor.execute.call_args.args[1]
+        assert "1; DROP TABLE EMP" in binds
+
+
+@pytest.mark.unit
+class TestUpsertExecuteManyOnce:
+    def test_update_and_insert_each_called_once(self):
+        # 1 matched, 2 unmatched -> 1 UPDATE executemany + 1 INSERT executemany
+        mgr, _, mock_cursor = _make_upsert_mock_manager(matched_keys=[(2,)])
+        comp = _make_component(
+            _shared_conn_config(data_action="INSERT_OR_UPDATE"), oracle_manager=mgr,
+        )
+        df = pd.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"]})
+        comp._process(df)
+        assert mock_cursor.executemany.call_count == 2
+
+
+@pytest.mark.unit
+class TestUpsertSinglePk:
+    def test_select_sql_uses_in_list(self):
+        mgr, _, mock_cursor = _make_upsert_mock_manager(matched_keys=[])
+        comp = _make_component(
+            _shared_conn_config(data_action="INSERT_OR_UPDATE"), oracle_manager=mgr,
+        )
+        df = pd.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"]})
+        comp._process(df)
+        sql = mock_cursor.execute.call_args.args[0]
+        assert '"id" IN (' in sql
+        assert ":1" in sql and ":2" in sql and ":3" in sql
+
+
+@pytest.mark.unit
+class TestUpsertCompositePk:
+    def test_select_sql_uses_or_chain(self):
+        mgr, _, mock_cursor = _make_upsert_mock_manager(matched_keys=[])
+        schema = [
+            {"name": "pk1", "type": "int", "key": True, "nullable": False},
+            {"name": "pk2", "type": "str", "length": 10, "key": True, "nullable": False},
+            {"name": "v", "type": "str", "length": 50, "nullable": True},
+        ]
+        comp = _make_component(
+            _shared_conn_config(data_action="INSERT_OR_UPDATE"),
+            oracle_manager=mgr, output_schema=schema,
+        )
+        df = pd.DataFrame({"pk1": [1, 2], "pk2": ["a", "b"], "v": ["x", "y"]})
+        comp._process(df)
+        sql = mock_cursor.execute.call_args.args[0]
+        assert " OR " in sql
+        assert '"pk1" = :' in sql
+        assert '"pk2" = :' in sql
+
+
+@pytest.mark.unit
+class TestUpsertEmptyMatched:
+    def test_no_update_call_when_no_matches(self):
+        mgr, _, mock_cursor = _make_upsert_mock_manager(matched_keys=[])
+        comp = _make_component(
+            _shared_conn_config(data_action="INSERT_OR_UPDATE"), oracle_manager=mgr,
+        )
+        df = pd.DataFrame({"id": [1, 2], "name": ["a", "b"]})
+        comp._process(df)
+        # All rows go to INSERT only
+        assert mock_cursor.executemany.call_count == 1
+
+
+@pytest.mark.unit
+class TestUpsertEmptyUnmatched:
+    def test_no_insert_call_when_all_match(self):
+        mgr, _, mock_cursor = _make_upsert_mock_manager(matched_keys=[(1,), (2,)])
+        comp = _make_component(
+            _shared_conn_config(data_action="INSERT_OR_UPDATE"), oracle_manager=mgr,
+        )
+        df = pd.DataFrame({"id": [1, 2], "name": ["a", "b"]})
+        comp._process(df)
+        # All rows go to UPDATE only
+        assert mock_cursor.executemany.call_count == 1
+
+
+@pytest.mark.unit
+class TestUpsertNullPk:
+    def test_null_pk_forced_to_insert_with_warning(self, caplog):
+        mgr, _, _ = _make_upsert_mock_manager(matched_keys=[])
+        comp = _make_component(
+            _shared_conn_config(data_action="INSERT_OR_UPDATE"), oracle_manager=mgr,
+        )
+        # id schema is non-nullable but the test values include None for one row;
+        # use a nullable-id schema to permit the test scenario.
+        comp.output_schema = [
+            {"name": "id", "type": "int", "key": True, "nullable": True},
+            {"name": "name", "type": "str", "length": 50, "nullable": True},
+        ]
+        df = pd.DataFrame({"id": [None, 1], "name": ["null_pk", "ok"]})
+        import logging as _lg
+        with caplog.at_level(_lg.WARNING):
+            comp._process(df)
+        assert any("NULL primary key" in rec.getMessage() for rec in caplog.records)
+
+
+@pytest.mark.unit
+class TestUpsertRejectMerging:
+    def test_reject_df_consolidates_update_and_insert_errors(self):
+        # 2 matched, 3 unmatched. UPDATE produces 1 BatchError; INSERT
+        # produces 1 BatchError. Reject DataFrame should have 2 rows total.
+        update_err = MagicMock()
+        update_err.code = 2291
+        update_err.message = "parent key not found"
+        update_err.offset = 0
+        insert_err = MagicMock()
+        insert_err.code = 1
+        insert_err.message = "unique constraint violated"
+        insert_err.offset = 1
+        mgr, _, _ = _make_upsert_mock_manager(
+            matched_keys=[(2,), (4,)],
+            update_errors=[update_err],
+            insert_errors=[insert_err],
+        )
+        comp = _make_component(
+            _shared_conn_config(data_action="INSERT_OR_UPDATE"), oracle_manager=mgr,
+        )
+        df = pd.DataFrame({"id": [1, 2, 3, 4, 5], "name": ["a", "b", "c", "d", "e"]})
+        result = comp._process(df)
+        reject = result["reject"]
+        assert reject is not None
+        assert len(reject) == 2
+        assert "errorCode" in reject.columns
+        assert "errorMessage" in reject.columns
+        assert "id" in reject.columns
+        codes = sorted(reject["errorCode"].tolist())
+        assert codes == ["1", "2291"]
+
+
+@pytest.mark.unit
+class TestUpsertNoPkRaises:
+    def test_no_key_column_raises_configuration_error(self):
+        mgr, _, _ = _make_upsert_mock_manager(matched_keys=[])
+        schema = [
+            {"name": "x", "type": "int", "key": False, "nullable": True},
+            {"name": "y", "type": "str", "length": 10, "nullable": True},
+        ]
+        comp = _make_component(
+            _shared_conn_config(data_action="INSERT_OR_UPDATE"),
+            oracle_manager=mgr, output_schema=schema,
+        )
+        with pytest.raises(ConfigurationError) as exc:
+            comp._process(pd.DataFrame({"x": [1], "y": ["a"]}))
+        assert "primary key" in str(exc.value).lower()
+
+
+@pytest.mark.unit
+class TestUpsertPreferUpdateVsInsert:
+    def test_same_partition_for_both_data_actions(self):
+        """INSERT_OR_UPDATE and UPDATE_OR_INSERT produce identical
+        matched/unmatched stats; only the prefer_update flag differs and
+        only affects log wording."""
+        for da in ("INSERT_OR_UPDATE", "UPDATE_OR_INSERT"):
+            mgr, _, _ = _make_upsert_mock_manager(matched_keys=[(2,)])
+            gm = GlobalMap()
+            comp = _make_component(
+                _shared_conn_config(data_action=da),
+                oracle_manager=mgr, global_map=gm,
+            )
+            df = pd.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"]})
+            comp._process(df)
+            assert gm.get("tOracleOutput_1_NB_LINE_UPDATED") == 1
+            assert gm.get("tOracleOutput_1_NB_LINE_INSERTED") == 2
 
 
 # ----------------------------------------------------------------------
