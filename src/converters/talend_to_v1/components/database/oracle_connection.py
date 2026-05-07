@@ -100,15 +100,20 @@ class OracleConnectionConverter(ComponentConverter):
         config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
         config["label"] = self._get_str(node, "LABEL", "")
 
-        # ---- 9. Engine gap needs_review entries ----
-        needs_review.append({
-            "issue": (
-                "No concrete engine implementation for tOracleConnection. "
-                "All config keys are extracted for future engine support."
-            ),
-            "component": node.component_id,
-            "severity": "engine_gap",
-        })
+        # ---- 9. Connection-type review entries (D-E1, Phase 11) ----
+        # Engine ships ORACLE_SID / ORACLE_SERVICE_NAME / ORACLE_RAC in Phase 11;
+        # ORACLE_OCI / ORACLE_WALLET require thick mode + Instant Client (deferred).
+        if config["connection_type"] in ("ORACLE_WALLET", "ORACLE_OCI"):
+            needs_review.append({
+                "issue": (
+                    f"Connection type {config['connection_type']} requires "
+                    f"oracle_config.thick_mode=true in job config, plus Oracle "
+                    f"Instant Client on the host. Phase 11 raises ConfigurationError "
+                    f"until thick_mode is set."
+                ),
+                "component": node.component_id,
+                "severity": "needs_review",
+            })
 
         # ---- 10. Build component dict ----
         component = self._build_component_dict(
