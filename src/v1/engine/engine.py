@@ -14,6 +14,7 @@ from .base_component import BaseComponent
 from .exceptions import ETLError
 from .java_bridge_manager import JavaBridgeManager
 from .python_routine_manager import PythonRoutineManager
+from .oracle_connection_manager import OracleConnectionManager
 from .component_registry import REGISTRY
 from . import components as _components  # noqa: F401 -- triggers decorator registration
 from .execution_plan import ExecutionPlan
@@ -65,6 +66,29 @@ class ETLEngine:
                 routines_dir, required_routines=required_routines or None
             )
             logger.info("Python routine manager initialized from %s", routines_dir)
+
+        # Oracle connection manager (D-A1, D-A2, D-A4b)
+        self.oracle_manager = None
+        oracle_config = self.job_config.get('oracle_config', {})
+        # Auto-detect Oracle components in the job config
+        oracle_component_types = {
+            "OracleConnection", "tOracleConnection", "tDBConnection",
+            "OracleRow", "tOracleRow",
+            "OracleOutput", "tOracleOutput",
+        }
+        has_oracle_components = any(
+            c.get('type') in oracle_component_types
+            for c in self.job_config.get('components', [])
+        )
+        if has_oracle_components or oracle_config.get('enabled', False):
+            thick_mode = bool(oracle_config.get('thick_mode', False))
+            self.oracle_manager = OracleConnectionManager(thick_mode=thick_mode)
+            try:
+                self.oracle_manager.start()
+            except Exception:
+                self.oracle_manager.stop()
+                raise
+            logger.info("Oracle connection manager initialized (thick_mode=%s)", thick_mode)
 
         # Core services
         self.job_name = self.job_config.get('job_name', 'unnamed_job')
@@ -140,6 +164,8 @@ class ETLEngine:
                 component.java_bridge = self.java_bridge_manager.bridge
             if self.python_routine_manager:
                 component.python_routine_manager = self.python_routine_manager
+            if self.oracle_manager:
+                component.oracle_manager = self.oracle_manager
 
             self.components[comp_id] = component
 
@@ -227,10 +253,13 @@ class ETLEngine:
         }
 
     def _cleanup(self) -> None:
-        """Cleanup resources including Java bridge."""
+        """Cleanup resources including Java bridge and Oracle connections."""
         if self.java_bridge_manager:
             logger.info("Shutting down Java bridge...")
             self.java_bridge_manager.stop()
+        if self.oracle_manager:
+            logger.info("Closing Oracle connections...")
+            self.oracle_manager.stop()
 
     def __enter__(self):
         """Context manager entry."""
