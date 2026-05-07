@@ -824,6 +824,31 @@ class TestDieOnErrorRewrap:
         result = comp._process(df)
         assert result["reject"] is not None
 
+    def test_die_on_error_does_not_rollback_prior_commits(self):
+        """WR-01 regression: die_on_error fires AFTER the commit cycle.
+
+        Talend tOracleOutput parity: prior batches that completed successfully
+        within the COMMIT_EVERY cycle have already been committed to the DB.
+        die_on_error then aborts the job, but does NOT issue conn.rollback()
+        -- those committed rows stay in the table. This locks behavior so a
+        future "fix" that adds rollback() doesn't silently diverge from
+        Talend semantics.
+        """
+        err = MagicMock()
+        err.code = 1
+        err.message = "dup"
+        err.offset = 0
+        mgr, mock_conn, mock_cursor = _make_mock_oracle_manager(batch_errors=[err])
+        comp = _make_component(
+            _shared_conn_config(die_on_error=True), oracle_manager=mgr,
+        )
+        df = pd.DataFrame({"id": [1], "name": ["a"]})
+        with pytest.raises(DataValidationError):
+            comp._process(df)
+        # Talend-parity: do NOT auto-rollback; operator's COMMIT_EVERY choice
+        # is the all-or-nothing knob.
+        assert mock_conn.rollback.call_count == 0
+
 
 # ----------------------------------------------------------------------
 # Plan 11-05: Upsert (INSERT_OR_UPDATE / UPDATE_OR_INSERT) test classes

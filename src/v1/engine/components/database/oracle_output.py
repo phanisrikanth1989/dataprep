@@ -1009,6 +1009,20 @@ class OracleOutput(BaseComponent):
             )
 
             # die_on_error rewrap (mirror file_input_delimited.py:253-258)
+            #
+            # WR-01 (Talend-parity, intentional): die_on_error fires AFTER
+            # the per-batch commit cycle has run. Successfully-inserted rows
+            # from earlier chunks (and from the same chunk's non-rejected
+            # rows, since executemany+batcherrors=True allows partial-batch
+            # success) remain committed in the target table. This mirrors
+            # Talend tOracleOutput's behavior: Talend's _main.javajet commits
+            # at COMMIT_EVERY thresholds and the job-abort path does NOT
+            # rollback already-committed work. We deliberately do NOT call
+            # conn.rollback() here -- that would diverge from Talend semantics
+            # and surprise jobs that depend on committed-up-to-failure-point
+            # checkpointing. Operators relying on all-or-nothing semantics
+            # should set commit_every very high (e.g., > input row count)
+            # so only one commit fires at the end of a successful run.
             die_on_error = self.config.get("die_on_error", False)
             if die_on_error and reject_df is not None and len(reject_df) > 0:
                 first_err = reject_df.iloc[0].get("errorMessage", "unknown")
