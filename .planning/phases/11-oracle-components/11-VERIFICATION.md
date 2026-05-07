@@ -1,4 +1,46 @@
+---
+status: pending_real_db
+updated: 2026-05-07
+---
+
 # Phase 11 Verification Gate
+
+> **STATUS: PENDING REAL-DB RUN (DEFERRED)**
+>
+> The Task 7 gate of plan 11-07 was reached on 2026-05-07. Plans 11-01..06 ship
+> code; plan 11-07 ships the integration test suite (4 e2e files + conftest +
+> the sample-driven E2E) and this gate doc. The real-DB pytest run was
+> **deferred at user direction** because Docker is unavailable in the agent
+> execution environment (worktree host has no Docker daemon).
+>
+> Phase 11 cannot be marked `verified` and `11-PHASE-SUMMARY.md` cannot be
+> written until the gate command below is executed on a Docker-capable host
+> (developer workstation or CI runner with Docker) and the green output is
+> pasted into `11-PHASE-SUMMARY.md`.
+>
+> **To complete the gate (operations / next developer):**
+>
+> 1. From the project root on a Docker-capable host:
+>    ```bash
+>    docker info >/dev/null 2>&1 || { echo "Docker not running"; exit 1; }
+>    pip install -e ".[oracle,dev]"
+>    pytest -m oracle tests/v1/engine/components/database/integration/ -v
+>    ```
+> 2. Confirm exit code 0 and `>= 25 passed` in the summary line.
+> 3. Paste the last ~30 lines of pytest output into `11-PHASE-SUMMARY.md` under
+>    the **Verification Gate Result** section, alongside the metadata block
+>    documented under **Acceptance Output Format** below.
+> 4. Update this file's frontmatter `status:` from `pending_real_db` to
+>    `verified` and refresh `updated:` to the run date.
+>
+> Source artifacts (already on the branch as of commit `f94cbbd` and earlier):
+> - `tests/v1/engine/components/database/integration/conftest.py` (commit `a0c8666`)
+> - `tests/v1/engine/components/database/integration/test_oracle_connection_e2e.py` (commit `efce96c`)
+> - `tests/v1/engine/components/database/integration/test_oracle_row_e2e.py` (commit `38eba0b`)
+> - `tests/v1/engine/components/database/integration/test_oracle_output_e2e.py` (commit `3ae1ce2`)
+> - `tests/v1/engine/components/database/integration/test_oracle_phase11_samples_e2e.py` (commit `54ac8ed`)
+
+---
 
 **Per CONTEXT.md D-D3 and D-F4 + Phase 5.1 mocks-lie lesson.**
 
