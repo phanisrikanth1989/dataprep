@@ -186,11 +186,11 @@ Requirements for engine restructure milestone. Each maps to roadmap phases.
 
 ### Oracle Components
 
-- [ ] **ORAC-01**: Verify status of Oracle engine implementations (present vs missing)
-- [ ] **ORAC-02**: Implement or fix Oracle connection component using oracledb (not cx_Oracle)
-- [ ] **ORAC-03**: Implement or fix Oracle input component
-- [ ] **ORAC-04**: Implement or fix Oracle output component
-- [ ] **ORAC-05**: Implement or fix Oracle supporting components (commit, rollback, close, row, SP, bulk exec)
+- [x] **ORAC-01**: Verify status of Oracle engine implementations (present vs missing)
+- [x] **ORAC-02**: Implement or fix Oracle connection component using oracledb (not cx_Oracle)
+- [x] **ORAC-03**: Implement or fix Oracle input component
+- [x] **ORAC-04**: Implement or fix Oracle output component
+- [x] **ORAC-05**: Implement or fix Oracle supporting components (commit, rollback, close, row, SP, bulk exec)
 
 ### Testing
 
@@ -378,11 +378,11 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | ROUT-01 | Phase 9 | Pending |
 | ROUT-02 | Phase 9 | Pending |
 | ROUT-03 | Phase 9 | Pending |
-| ORAC-01 | Phase 11 | Pending |
-| ORAC-02 | Phase 11 | Pending |
-| ORAC-03 | Phase 11 | Pending |
-| ORAC-04 | Phase 11 | Pending |
-| ORAC-05 | Phase 11 | Pending |
+| ORAC-01 | Phase 11 | Complete |
+| ORAC-02 | Phase 11 | Complete |
+| ORAC-03 | Phase 11 | Complete |
+| ORAC-04 | Phase 11 | Complete |
+| ORAC-05 | Phase 11 | Complete |
 | TEST-01 | Phase 1 | Complete |
 | TEST-02 | Phase 1 | Complete |
 | TEST-03 | Phase 4, 5 | Complete |
