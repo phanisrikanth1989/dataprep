@@ -98,6 +98,16 @@ class OracleConnection(BaseComponent):
         refusal) belong in ``_process()`` AFTER context resolution.
         ``_validate_config`` only verifies required keys are present and enum
         values are in the closed set.
+
+        WR-06: SID and SERVICE_NAME paths require ``host`` (and ``dbname`` /
+        a service-name source) to be non-empty. Without this check, a
+        missing ``dbname`` for SID would surface as a low-level KeyError
+        from ``self.config["dbname"]`` in _process; SERVICE_NAME would fall
+        through to a confusing oracledb.connect error. Catching empty
+        required values here gives operators a typed ConfigurationError
+        with the cid prefix instead. (Absence-of-key checks count as
+        structural per Rule 12's spirit; they do not inspect resolved
+        values.)
         """
         ct = self.config.get("connection_type", "ORACLE_SID")
         if ct not in self._VALID_CONNECTION_TYPES:
@@ -109,6 +119,34 @@ class OracleConnection(BaseComponent):
             if required_key not in self.config:
                 raise ConfigurationError(
                     f"[{self.id}] Missing required config key {required_key!r}"
+                )
+
+        # WR-06: structural required-keys check per connection_type. Skip
+        # OCI/WALLET (refused in _process anyway) and RAC (uses rac_url
+        # instead of host/port/dbname; rac_url presence is checked in
+        # _process where context resolution has already run).
+        if ct == "ORACLE_SID":
+            for k in ("host", "dbname"):
+                if not self.config.get(k):
+                    raise ConfigurationError(
+                        f"[{self.id}] connection_type={ct} requires non-empty "
+                        f"config key {k!r}"
+                    )
+        elif ct == "ORACLE_SERVICE_NAME":
+            if not self.config.get("host"):
+                raise ConfigurationError(
+                    f"[{self.id}] connection_type={ct} requires non-empty "
+                    f"config key 'host'"
+                )
+            # Either dbname (Talend's primary key for SERVICE_NAME) or
+            # local_service_name must be set.
+            if not (
+                self.config.get("dbname")
+                or self.config.get("local_service_name")
+            ):
+                raise ConfigurationError(
+                    f"[{self.id}] connection_type={ct} requires non-empty "
+                    f"'dbname' or 'local_service_name'"
                 )
 
     # ------------------------------------------------------------------

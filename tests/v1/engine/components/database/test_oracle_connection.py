@@ -98,6 +98,58 @@ class TestValidateConfig:
         comp = _make_component(_valid_sid_config(connection_type="ORACLE_OCI"))
         comp._validate_config()  # must NOT raise
 
+    # WR-06: structural required-keys check per connection_type
+    def test_sid_missing_host_raises(self):
+        cfg = _valid_sid_config()
+        cfg["host"] = ""
+        comp = _make_component(cfg)
+        with pytest.raises(ConfigurationError) as exc:
+            comp._validate_config()
+        assert "host" in str(exc.value)
+        assert "ORACLE_SID" in str(exc.value)
+
+    def test_sid_missing_dbname_raises(self):
+        cfg = _valid_sid_config()
+        cfg["dbname"] = ""
+        comp = _make_component(cfg)
+        with pytest.raises(ConfigurationError) as exc:
+            comp._validate_config()
+        assert "dbname" in str(exc.value)
+
+    def test_service_name_missing_host_raises(self):
+        cfg = _valid_sid_config(connection_type="ORACLE_SERVICE_NAME", host="")
+        comp = _make_component(cfg)
+        with pytest.raises(ConfigurationError) as exc:
+            comp._validate_config()
+        assert "host" in str(exc.value)
+
+    def test_service_name_missing_both_dbname_and_local_service_name_raises(self):
+        cfg = _valid_sid_config(connection_type="ORACLE_SERVICE_NAME")
+        cfg["dbname"] = ""
+        # local_service_name absent / empty
+        comp = _make_component(cfg)
+        with pytest.raises(ConfigurationError) as exc:
+            comp._validate_config()
+        msg = str(exc.value).lower()
+        assert "dbname" in msg or "local_service_name" in msg
+
+    def test_service_name_with_local_service_name_alone_passes(self):
+        """SERVICE_NAME accepts local_service_name as an alias for dbname."""
+        cfg = _valid_sid_config(connection_type="ORACLE_SERVICE_NAME")
+        cfg["dbname"] = ""
+        cfg["local_service_name"] = "ORCLPDB1"
+        comp = _make_component(cfg)
+        comp._validate_config()  # must NOT raise
+
+    def test_rac_validate_does_not_require_host_dbname(self):
+        """RAC uses rac_url; host/dbname presence not enforced structurally."""
+        cfg = _valid_sid_config(connection_type="ORACLE_RAC")
+        cfg["host"] = ""
+        cfg["dbname"] = ""
+        cfg["rac_url"] = "(DESCRIPTION=...)"
+        comp = _make_component(cfg)
+        comp._validate_config()  # must NOT raise
+
 
 @pytest.mark.unit
 class TestProcessOracleSid:
