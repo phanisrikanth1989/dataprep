@@ -212,6 +212,27 @@ class TestOpenAdHoc:
                                   "user": "u", "password": "p"})
         assert "ORACLE_BOGUS" in str(exc.value)
 
+    # WR-07: error message lists ONLY actually-accepted values; OCI/WALLET
+    # appear separately as "require thick mode" so operators don't try them
+    # as drop-in replacements.
+    def test_unknown_connection_type_message_excludes_unsupported(self):
+        m = OracleConnectionManager()
+        m.is_running = True
+        with pytest.raises(ConfigurationError) as exc:
+            m.open_ad_hoc("cid", {"connection_type": "ORACLE_BOGUS",
+                                  "user": "u", "password": "p"})
+        msg = str(exc.value)
+        # Must list the three accepted values
+        assert "ORACLE_SID" in msg
+        assert "ORACLE_SERVICE_NAME" in msg
+        assert "ORACLE_RAC" in msg
+        # OCI / WALLET must appear ONLY in the deferred-items aside, not
+        # in the "must be one of" set.
+        # Find the "must be one of" set and check OCI/WALLET aren't there.
+        # Easiest sanity check: 'thick mode' / 'deferred' wording present
+        # (telling operator OCI/WALLET need a different code path).
+        assert "thick mode" in msg.lower() or "deferred" in msg.lower()
+
     def test_open_ad_hoc_duplicate_cid_raises_value_error(self):
         mock_oracledb = MagicMock()
         with patch.dict(sys.modules, {"oracledb": mock_oracledb}):

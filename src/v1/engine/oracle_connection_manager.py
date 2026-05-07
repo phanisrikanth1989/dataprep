@@ -178,9 +178,16 @@ class OracleConnectionManager:
         elif ct == "ORACLE_RAC":
             kwargs = self._build_rac_kwargs(oracle_config)
         else:
+            # WR-07: list ONLY the values open_ad_hoc actually accepts. The
+            # branch above already refuses ORACLE_OCI / ORACLE_WALLET with a
+            # dedicated ConfigurationError; including them in this "must be
+            # one of" message misled operators into thinking those types
+            # were valid alternatives to try.
             raise ConfigurationError(
                 f"Unknown connection_type {ct!r}. Must be one of: "
-                f"{{'ORACLE_SID','ORACLE_SERVICE_NAME','ORACLE_OCI','ORACLE_RAC','ORACLE_WALLET'}}"
+                f"{{'ORACLE_SID', 'ORACLE_SERVICE_NAME', 'ORACLE_RAC'}} "
+                f"(OCI/WALLET require thick mode + Oracle Instant Client; "
+                f"tracked in deferred items)"
             )
         conn = oracledb.connect(**kwargs)
         if oracle_config.get("auto_commit", False):
