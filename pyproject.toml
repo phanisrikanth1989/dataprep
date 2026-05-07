@@ -15,12 +15,13 @@ dependencies = [
 [project.optional-dependencies]
 java = ["pyarrow>=15.0,<24", "py4j>=0.10.9,<0.11"]
 excel = ["openpyxl>=3.1,<4", "xlrd>=2.0,<3"]
+oracle = ["oracledb>=2.5,<4"]
 xml = ["lxml>=4.9,<7"]
 yaml = ["PyYAML>=6.0,<7"]
 json = ["jsonpath-ng>=1.5,<2"]
 api = ["fastapi>=0.111,<1", "uvicorn[standard]>=0.29,<1", "python-multipart>=0.0.9,<1"]
-dev = ["pytest>=8.0,<10"]
-all = ["dataprep[java,excel,xml,yaml,json,api]"]
+dev = ["pytest>=8.0,<10", "testcontainers>=4"]
+all = ["dataprep[java,excel,xml,yaml,json,api,oracle]"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -28,6 +29,7 @@ markers = [
     "unit: Unit tests (fast, no I/O)",
     "integration: Integration tests (may require file I/O)",
     "java: Tests requiring Java bridge",
+    "oracle: Tests requiring an Oracle DB testcontainer (slow, opt-in)",
     "slow: Tests that take >5 seconds",
     "coverage: Documents coverage gate requirements (always skipped; enforced by CI command)",
 ]
