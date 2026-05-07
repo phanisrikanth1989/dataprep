@@ -418,9 +418,23 @@ class OracleRow(BaseComponent):
                 self.id, rowcount, use_nb_line,
             )
         finally:
-            cursor.close()
+            # WR-02: cleanup must NEVER mask the original exception. If
+            # cursor.execute raised (e.g. ORA-00942) and cursor.close() also
+            # raises (some drivers raise on bad-state cursors), Python would
+            # replace the meaningful SQL error with the close-time error.
+            # Mirror oracle_output.py:1008-1018 -- swallow cleanup errors and
+            # log a warning instead.
+            try:
+                cursor.close()
+            except Exception:  # noqa: BLE001 -- cleanup must not mask original
+                logger.warning("[%s] cursor.close() raised; ignoring", self.id)
             if owns_connection:
-                self.oracle_manager.close(self.id)
+                try:
+                    self.oracle_manager.close(self.id)
+                except Exception:  # noqa: BLE001 -- cleanup must not mask original
+                    logger.warning(
+                        "[%s] oracle_manager.close() raised; ignoring", self.id
+                    )
 
         # Pass through input (tOracleRow has FLOW out as passthrough)
         return {"main": input_data, "reject": None}
