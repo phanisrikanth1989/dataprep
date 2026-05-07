@@ -140,4 +140,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-15 after Phase 5 completion*
+*Last updated: 2026-05-07 after Phase 11 completion (Oracle Components — SID/SERVICE_NAME/RAC engine + converters; OCI/WALLET deferred; real-DB gate pending)*
