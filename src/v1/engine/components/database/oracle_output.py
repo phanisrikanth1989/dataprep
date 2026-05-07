@@ -635,6 +635,24 @@ class OracleOutput(BaseComponent):
         # _dataframe_to_param_list with data_action="INSERT_OR_UPDATE").
         insert_cols = self._insertable_columns()
 
+        # CR-02: PK columns MUST be in the insertable set for upsert. The
+        # chunk tuples / SELECT binds / UPDATE bind reorder all assume the
+        # PK lives at a known offset within insert_cols. If FIELD_OPTIONS
+        # marks a key column as insertable=False (a legitimate Talend
+        # pattern for sequence-populated PKs on plain INSERT), upsert is
+        # incompatible -- refuse cleanly here rather than crashing later
+        # with a confusing ValueError from list.index().
+        missing_pk_in_insert = [c for c in pk_cols if c not in insert_cols]
+        if missing_pk_in_insert:
+            raise ConfigurationError(
+                f"[{self.id}] upsert (data_action="
+                f"{self.config.get('data_action', '')!r}) requires PK columns "
+                f"{missing_pk_in_insert!r} to also be insertable, but "
+                f"FIELD_OPTIONS marks them insertable=False. Either remove the "
+                f"non-insertable flag for these PK columns, or use a non-upsert "
+                f"data_action."
+            )
+
         # 1. SELECT existing PKs
         select_sql = self._build_pk_select_sql(pk_cols, len(chunk))
         select_binds = self._flatten_pk_binds(chunk, pk_cols, insert_cols)

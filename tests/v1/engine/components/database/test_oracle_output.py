@@ -1176,3 +1176,61 @@ class TestRejectChunkBuilder:
         assert len(out) == 0
         assert "errorCode" in out.columns
         assert "errorMessage" in out.columns
+
+
+# ----------------------------------------------------------------------
+# CR-02: Upsert refuses cleanly when PK column is marked insertable=False
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestUpsertNonInsertablePkRefused:
+    """CR-02 regression: PK marked insertable=False under FIELD_OPTIONS used
+    to crash with a confusing ``ValueError: 'pk' is not in list`` from
+    list.index(); we now raise ConfigurationError up front with a clear
+    remediation message.
+    """
+
+    def test_pk_not_insertable_raises_configuration_error(self):
+        cfg = _shared_conn_config(
+            data_action="INSERT_OR_UPDATE",
+            use_field_options=True,
+            field_options=[
+                # 'id' is the PK (update_key=True) but insertable=False
+                # (e.g. sequence-populated PK pattern)
+                {"column": "id", "update_key": True, "updatable": False, "insertable": False},
+                {"column": "name", "update_key": False, "updatable": True, "insertable": True},
+            ],
+        )
+        schema = [
+            {"name": "id", "type": "int", "key": True, "nullable": False},
+            {"name": "name", "type": "str", "length": 50, "nullable": True},
+        ]
+        mgr, _, _ = _make_upsert_mock_manager(matched_keys=[])
+        comp = _make_component(cfg, output_schema=schema, oracle_manager=mgr)
+        df = pd.DataFrame({"id": [1, 2], "name": ["a", "b"]})
+        with pytest.raises(ConfigurationError) as excinfo:
+            comp._process(df)
+        # Sanity: error mentions the offending column AND the remediation
+        msg = str(excinfo.value)
+        assert "id" in msg
+        assert "insertable" in msg.lower()
+
+    def test_update_or_insert_also_refused(self):
+        cfg = _shared_conn_config(
+            data_action="UPDATE_OR_INSERT",
+            use_field_options=True,
+            field_options=[
+                {"column": "id", "update_key": True, "updatable": False, "insertable": False},
+                {"column": "name", "update_key": False, "updatable": True, "insertable": True},
+            ],
+        )
+        schema = [
+            {"name": "id", "type": "int", "key": True, "nullable": False},
+            {"name": "name", "type": "str", "length": 50, "nullable": True},
+        ]
+        mgr, _, _ = _make_upsert_mock_manager(matched_keys=[])
+        comp = _make_component(cfg, output_schema=schema, oracle_manager=mgr)
+        df = pd.DataFrame({"id": [1], "name": ["a"]})
+        with pytest.raises(ConfigurationError):
+            comp._process(df)
