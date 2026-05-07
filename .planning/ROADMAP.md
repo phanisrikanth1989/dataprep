@@ -282,11 +282,11 @@ Plans:
   4. tOracleOutput supports the full 8 TABLE_ACTION x 5 DATA_ACTION matrix (with INSERT_OR_UPDATE / UPDATE_OR_INSERT using the batched 2-statement upsert), executemany+batcherrors single code path, REJECT flow with [errorCode, errorMessage, *input cols] schema, 5 stat globalMap keys, identifier-quoting policy mitigates DDL injection (D-C1, D-C2, D-C7, T-11-04)
   5. The 3 in-scope converters emit conditional Wallet/OCI needs_review per D-E1; SID/SERVICE_NAME/RAC emit zero needs_review entries; engine_gap entries removed for the in-scope components only
   6. @pytest.mark.oracle integration suite passes against gvenzl/oracle-free:23-slim-faststart testcontainer covering VR-04 (CT open), VR-05 (type round-trip), VR-06 (REJECT batcherrors), VR-07 (INSERT_OR_UPDATE), VR-08 (DDL emission); 3 sample .item files convert + execute end-to-end (D-D3, D-F4)
-**Plans:** 3/7 plans executed
+**Plans:** 4/7 plans executed
 Plans:
 - [x] 11-01-PLAN.md -- OracleConnectionManager + ETLEngine integration + pyproject.toml extras + manager unit tests (Wave 1)
 - [x] 11-02-PLAN.md -- tOracleConnection engine component (5-CT dispatch, manager registration, AUTO_COMMIT, ASCII logging) + unit tests (Wave 2)
-- [ ] 11-03-PLAN.md -- tOracleRow engine component (USE_EXISTING_CONNECTION + ad-hoc, 16-type PARAMETER_TYPE coercion, USE_NB_LINE, PROPAGATE_RECORD_SET refusal) + unit tests (Wave 3 -- shares database/__init__.py with 11-02)
+- [x] 11-03-PLAN.md -- tOracleRow engine component (USE_EXISTING_CONNECTION + ad-hoc, 16-type PARAMETER_TYPE coercion, USE_NB_LINE, PROPAGATE_RECORD_SET refusal) + unit tests (Wave 3 -- shares database/__init__.py with 11-02)
 - [ ] 11-04-PLAN.md -- tOracleOutput part 1 -- 8 TABLE_ACTIONs + INSERT/UPDATE/DELETE batch DML + executemany+batcherrors + REJECT + FIELD_OPTIONS + identifier quoting + unit tests (Wave 4 -- shares database/__init__.py with 11-03)
 - [ ] 11-05-PLAN.md -- tOracleOutput INSERT_OR_UPDATE / UPDATE_OR_INSERT batched 2-statement upsert + unit tests (Wave 5 -- depends on 11-04)
 - [x] 11-06-PLAN.md -- Converter D-E1 update: conditional Wallet/OCI needs_review for the 3 in-scope converters + converter unit tests (Wave 2 -- converter-only, parallel to 11-02)
@@ -322,5 +322,5 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 8. Code Components | 6/6 | Complete | 2026-04-29 |
 | 9. tContextLoad & Routines | 2/2 | Complete | - |
 | 10. Iterate Support | 11/11 | Complete    | 2026-05-05 |
-| 11. Oracle Components | 3/7 | In Progress|  |
+| 11. Oracle Components | 4/7 | In Progress|  |
 | 12. Integration Testing & Performance | 0/TBD | Not started | - |
