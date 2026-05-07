@@ -272,15 +272,25 @@ Plans:
 - [x] 10-08-PLAN.md -- tFileExist verify-only integration test (ITER-08, ITER-09, RUN_IF branching)
 
 ### Phase 11: Oracle Components
-**Goal**: Jobs using Oracle databases can connect, read, write, and execute operations through the Python engine with the same behavior as Talend
+**Goal**: tOracleConnection, tOracleRow, and tOracleOutput engine components ship with full Talend feature parity for the in-scope CONNECTION_TYPE values (SID, SERVICE_NAME, RAC), backed by an OracleConnectionManager that owns oracledb.Connection lifecycle and integrates with ETLEngine cleanup so connections cannot leak. ORACLE_OCI / ORACLE_WALLET runtime support and the other 6 Oracle engine components (Input, SP, BulkExec, Commit, Rollback, Close) are deferred.
 **Depends on**: Phase 1
 **Requirements**: ORAC-01, ORAC-02, ORAC-03, ORAC-04, ORAC-05
 **Success Criteria** (what must be TRUE):
-  1. Oracle connection component establishes connections using oracledb (not cx_Oracle) with proper credential and connection string handling
-  2. Oracle input component reads data with correct type mapping between Oracle and Python/pandas types
-  3. Oracle output component writes data with correct type handling, commit control, and batch sizing
-  4. Supporting Oracle components (commit, rollback, close, row, SP, bulk exec) function correctly in job workflows
-**Plans**: TBD
+  1. OracleConnectionManager is wired into ETLEngine alongside JavaBridgeManager / PythonRoutineManager; idempotent stop() called from _cleanup() guarantees no leaked connections (D-A1, D-A4b)
+  2. tOracleConnection opens connections for ORACLE_SID / ORACLE_SERVICE_NAME / ORACLE_RAC and registers with the manager keyed by component id; ORACLE_OCI / ORACLE_WALLET raise ConfigurationError with the deferred-items message; password never logged or pushed to globalMap (D-A2, D-A3, T-11-02)
+  3. tOracleRow executes arbitrary SQL/DDL/DML via shared or ad-hoc connection; full 16-PARAMETER_TYPE prepared-statement coverage; USE_NB_LINE counter; PROPAGATE_RECORD_SET refused with deferred-feature error (D-C3, D-C4, D-C5)
+  4. tOracleOutput supports the full 8 TABLE_ACTION x 5 DATA_ACTION matrix (with INSERT_OR_UPDATE / UPDATE_OR_INSERT using the batched 2-statement upsert), executemany+batcherrors single code path, REJECT flow with [errorCode, errorMessage, *input cols] schema, 5 stat globalMap keys, identifier-quoting policy mitigates DDL injection (D-C1, D-C2, D-C7, T-11-04)
+  5. The 3 in-scope converters emit conditional Wallet/OCI needs_review per D-E1; SID/SERVICE_NAME/RAC emit zero needs_review entries; engine_gap entries removed for the in-scope components only
+  6. @pytest.mark.oracle integration suite passes against gvenzl/oracle-free:23-slim-faststart testcontainer covering VR-04 (CT open), VR-05 (type round-trip), VR-06 (REJECT batcherrors), VR-07 (INSERT_OR_UPDATE), VR-08 (DDL emission); 3 sample .item files convert + execute end-to-end (D-D3, D-F4)
+**Plans:** 7 plans
+Plans:
+- [ ] 11-01-PLAN.md -- OracleConnectionManager + ETLEngine integration + pyproject.toml extras + manager unit tests (Wave 1)
+- [ ] 11-02-PLAN.md -- tOracleConnection engine component (5-CT dispatch, manager registration, AUTO_COMMIT, ASCII logging) + unit tests (Wave 2)
+- [ ] 11-03-PLAN.md -- tOracleRow engine component (USE_EXISTING_CONNECTION + ad-hoc, 16-type PARAMETER_TYPE coercion, USE_NB_LINE, PROPAGATE_RECORD_SET refusal) + unit tests (Wave 3 -- shares database/__init__.py with 11-02)
+- [ ] 11-04-PLAN.md -- tOracleOutput part 1 -- 8 TABLE_ACTIONs + INSERT/UPDATE/DELETE batch DML + executemany+batcherrors + REJECT + FIELD_OPTIONS + identifier quoting + unit tests (Wave 4 -- shares database/__init__.py with 11-03)
+- [ ] 11-05-PLAN.md -- tOracleOutput INSERT_OR_UPDATE / UPDATE_OR_INSERT batched 2-statement upsert + unit tests (Wave 5 -- depends on 11-04)
+- [ ] 11-06-PLAN.md -- Converter D-E1 update: conditional Wallet/OCI needs_review for the 3 in-scope converters + converter unit tests (Wave 2 -- converter-only, parallel to 11-02)
+- [ ] 11-07-PLAN.md -- Hybrid integration tests: testcontainers conftest + @pytest.mark.oracle e2e for VR-04..08 + 3 sample .item files + 11-VERIFICATION.md phase gate (Wave 6, includes manual checkpoint)
 
 ### Phase 12: Integration Testing & Performance
 **Goal**: Real Talend jobs converted from .item XML run end-to-end through the Python engine and produce identical output to Talend, with acceptable performance for production workloads
@@ -312,5 +322,5 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 8. Code Components | 6/6 | Complete | 2026-04-29 |
 | 9. tContextLoad & Routines | 2/2 | Complete | - |
 | 10. Iterate Support | 11/11 | Complete    | 2026-05-05 |
-| 11. Oracle Components | 0/TBD | Not started | - |
+| 11. Oracle Components | 0/7 | Not started | - |
 | 12. Integration Testing & Performance | 0/TBD | Not started | - |
