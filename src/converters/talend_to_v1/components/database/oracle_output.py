@@ -11,7 +11,7 @@ Config mapping (26 params total):
   HOST                                 -> host (str, default "")
   PORT                                 -> port (str, default "1521")
   DBNAME                               -> dbname (str, default "")
-  TABLESCHEMA                          -> table_schema (str, default "")
+  TABLESCHEMA                          -> schema_db (str, default "")
   USER                                 -> user (str, default "")
   PASS                                 -> password (str, default "")
   TABLE                                -> table (str, default "")
@@ -31,7 +31,9 @@ Config mapping (26 params total):
   TSTATCATCHER_STATS                   -> tstatcatcher_stats (bool, default False)
   LABEL                                -> label (str, default "")
 
-NOTE: tOracleOutput uses TABLESCHEMA (not SCHEMA_DB like other Oracle components).
+NOTE: tOracleOutput's Talend XML param name is TABLESCHEMA (other Oracle
+      components use SCHEMA_DB). Both map to the same v1 engine config key
+      ``schema_db`` so the engine reads one canonical key (CR-01 alignment).
 NOTE: _java.xml param name is PASS (not PASSWORD). Config key is password.
 NOTE: USE_BATCH_SIZE, USE_TIMESTAMP_FOR_DATE_TYPE, TRIM_CHAR default to True.
 """
@@ -67,8 +69,11 @@ class OracleOutputConverter(ComponentConverter):
         config["port"] = self._get_str(node, "PORT", "1521")
         config["dbname"] = self._get_str(node, "DBNAME", "")
 
-        # NOTE: tOracleOutput uses TABLESCHEMA (not SCHEMA_DB)
-        config["table_schema"] = self._get_str(node, "TABLESCHEMA", "")
+        # NOTE: tOracleOutput's XML param is TABLESCHEMA (not SCHEMA_DB) but
+        # the v1 engine config key is the canonical ``schema_db`` shared with
+        # all other Oracle components -- the engine's _qualified_table reads
+        # config['schema_db'] (with 'dbschema' fallback). See CR-01.
+        config["schema_db"] = self._get_str(node, "TABLESCHEMA", "")
 
         config["user"] = self._get_str(node, "USER", "")
 

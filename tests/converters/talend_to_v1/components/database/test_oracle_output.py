@@ -146,10 +146,10 @@ class TestDefaults:
         assert result.component["config"]["dbname"] == ""
 
     def test_table_schema_default(self):
-        """TABLESCHEMA defaults to empty string. Config key is table_schema."""
+        """TABLESCHEMA defaults to empty string. Config key is schema_db (CR-01)."""
         node = _make_node()
         result = OracleOutputConverter().convert(node, [], {})
-        assert result.component["config"]["table_schema"] == ""
+        assert result.component["config"]["schema_db"] == ""
 
     def test_user_default(self):
         """USER defaults to empty string."""
@@ -280,10 +280,10 @@ class TestParameterExtraction:
         assert result.component["config"]["port"] == "1522"
 
     def test_table_schema_extracted(self):
-        """TABLESCHEMA extracted to table_schema config key."""
+        """TABLESCHEMA extracted to canonical schema_db config key (CR-01)."""
         node = _make_node(params={"TABLESCHEMA": '"HR"'})
         result = OracleOutputConverter().convert(node, [], {})
-        assert result.component["config"]["table_schema"] == "HR"
+        assert result.component["config"]["schema_db"] == "HR"
 
     def test_password_extracted_from_pass(self):
         """PASS (not PASSWORD) is the correct XML extraction name."""
@@ -547,7 +547,7 @@ class TestCompleteness:
             "host",
             "port",
             "dbname",
-            "table_schema",
+            "schema_db",
             "user",
             "password",
             "table",
@@ -610,8 +610,14 @@ class TestPhantomParams:
         # password should be empty (default) because we only extract from PASS
         assert result.component["config"]["password"] == ""
 
-    def test_schema_db_not_in_config(self):
-        """SCHEMA_DB is for other Oracle components, not tOracleOutput (uses TABLESCHEMA)."""
+    def test_schema_db_xml_param_not_used(self):
+        """SCHEMA_DB XML param is NOT used for tOracleOutput; only TABLESCHEMA is.
+
+        Post CR-01: the v1 engine config key is the canonical ``schema_db``,
+        but the *Talend XML param* name remains TABLESCHEMA. A SCHEMA_DB XML
+        param must be ignored (no fallback path), so config['schema_db']
+        defaults to empty string when only SCHEMA_DB is supplied.
+        """
         node = _make_node(params={"SCHEMA_DB": '"HR"'})
         result = OracleOutputConverter().convert(node, [], {})
-        assert "schema_db" not in result.component["config"]
+        assert result.component["config"]["schema_db"] == ""
