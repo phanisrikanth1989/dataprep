@@ -1,0 +1,945 @@
+"""Unit tests for OracleOutput engine component (Phase 11-04).
+
+Mock-based tests cover registration, validation, all 8 TABLE_ACTIONs (DDL
+emission), INSERT/UPDATE/DELETE batch DML, REJECT flow with
+[errorCode, errorMessage, *input cols], FIELD_OPTIONS-aware key handling,
+USE_TIMESTAMP_FOR_DATE_TYPE binding, identifier quoting (T-11-04), 5 stat
+keys (D-C8), die_on_error rewrap, deferred upserts.
+
+Real-DB DDL/DML validation deferred to plan 11-07 per D-D3.
+"""
+import re
+from unittest.mock import MagicMock
+
+import pandas as pd
+import pytest
+
+from src.v1.engine.context_manager import ContextManager
+from src.v1.engine.exceptions import ConfigurationError, DataValidationError
+from src.v1.engine.global_map import GlobalMap
+
+
+# ----------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------
+
+
+def _make_component(config, output_schema=None, oracle_manager=None, global_map=None):
+    """Build an OracleOutput with config seeded directly (skip execute() lifecycle)."""
+    from src.v1.engine.components.database.oracle_output import OracleOutput
+
+    gm = global_map if global_map is not None else GlobalMap()
+    comp = OracleOutput(
+        component_id="tOracleOutput_1",
+        config=config,
+        global_map=gm,
+        context_manager=ContextManager(),
+    )
+    # BaseComponent.execute() repopulates self.config; in unit tests we skip
+    # execute() and seed it directly.
+    comp.config = dict(config)
+    comp.output_schema = output_schema if output_schema is not None else [
+        {"name": "id", "type": "int", "key": True, "nullable": False},
+        {"name": "name", "type": "str", "length": 50, "nullable": True},
+    ]
+    comp.oracle_manager = oracle_manager if oracle_manager is not None else MagicMock()
+    return comp
+
+
+def _shared_conn_config(**overrides):
+    cfg = {
+        "use_existing_connection": True,
+        "connection": "tOracleConnection_1",
+        "table": "EMP",
+        "schema_db": "HR",
+        "table_action": "NONE",
+        "data_action": "INSERT",
+    }
+    cfg.update(overrides)
+    return cfg
+
+
+def _make_mock_oracle_manager(autocommit=False, batch_errors=None):
+    """Build a MagicMock manager + cursor with sane defaults for _process tests."""
+    mgr = MagicMock()
+    mock_conn = MagicMock(autocommit=autocommit)
+    mock_cursor = MagicMock()
+    mock_cursor.getbatcherrors.return_value = batch_errors or []
+    mock_conn.cursor.return_value = mock_cursor
+    mgr.get.return_value = mock_conn
+    mgr.open_ad_hoc.return_value = mock_conn
+    return mgr, mock_conn, mock_cursor
+
+
+# ----------------------------------------------------------------------
+# Task 1 RED gate: module docstring documents Talaxie inspection findings
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestModuleDocstring:
+    """Verify Open Q 1 + 3 are resolved in code: DDL conventions documented."""
+
+    def test_docstring_has_talaxie_attribution(self):
+        from src.v1.engine.components.database import oracle_output
+
+        src = open(oracle_output.__file__).read()
+        assert "Talaxie _tableActionForOutput.javajet" in src
+
+    def test_docstring_has_fetch_evidence(self):
+        from src.v1.engine.components.database import oracle_output
+
+        src = open(oracle_output.__file__).read()
+        fetch_evidence = re.search(
+            r"https?://raw\.githubusercontent\.com/[^\s\"']+", src
+        )
+        fallback_evidence = re.search(r"\b404\b", src)
+        assert fetch_evidence or fallback_evidence
+
+    def test_docstring_lists_type_decisions(self):
+        from src.v1.engine.components.database import oracle_output
+
+        src = open(oracle_output.__file__).read()
+        for kw in ("Float", "Double", "VARCHAR2", "CREATE_IF_NOT_EXISTS"):
+            assert kw in src, f"missing decision keyword: {kw}"
+
+
+# ----------------------------------------------------------------------
+# TestRegistration -- both aliases resolve
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestRegistration:
+    def test_both_aliases_resolve(self):
+        from src.v1.engine.components import database  # noqa: F401
+        from src.v1.engine.component_registry import REGISTRY
+        from src.v1.engine.components.database.oracle_output import OracleOutput
+
+        assert REGISTRY.get("OracleOutput") is OracleOutput
+        assert REGISTRY.get("tOracleOutput") is OracleOutput
+
+
+# ----------------------------------------------------------------------
+# TestValidateConfig -- structural checks only (Rule 12 / D-F3)
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestValidateConfig:
+    def test_missing_table_raises(self):
+        cfg = _shared_conn_config()
+        del cfg["table"]
+        comp = _make_component(cfg)
+        with pytest.raises(ConfigurationError):
+            comp._validate_config()
+
+    def test_empty_table_raises(self):
+        comp = _make_component(_shared_conn_config(table=""))
+        with pytest.raises(ConfigurationError):
+            comp._validate_config()
+
+    def test_invalid_table_action_raises(self):
+        comp = _make_component(_shared_conn_config(table_action="BOGUS"))
+        with pytest.raises(ConfigurationError):
+            comp._validate_config()
+
+    def test_invalid_data_action_raises(self):
+        comp = _make_component(_shared_conn_config(data_action="BOGUS"))
+        with pytest.raises(ConfigurationError):
+            comp._validate_config()
+
+    def test_valid_defaults_pass(self):
+        comp = _make_component(_shared_conn_config())
+        # Should not raise
+        comp._validate_config()
+
+
+# ----------------------------------------------------------------------
+# TestIdentifierQuotingPolicy (T-11-04)
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestIdentifierQuotingPolicy:
+    def test_invalid_column_name_with_metachars_raises(self):
+        from src.v1.engine.components.database.oracle_output import _quote_ident
+
+        with pytest.raises(ConfigurationError) as exc:
+            _quote_ident("drop;--")
+        assert "drop;--" in str(exc.value)
+
+    def test_column_starting_with_digit_raises(self):
+        from src.v1.engine.components.database.oracle_output import _quote_ident
+
+        with pytest.raises(ConfigurationError):
+            _quote_ident("1abc")
+
+    def test_column_with_space_raises(self):
+        from src.v1.engine.components.database.oracle_output import _quote_ident
+
+        with pytest.raises(ConfigurationError):
+            _quote_ident("a b")
+
+    def test_column_with_quote_raises(self):
+        from src.v1.engine.components.database.oracle_output import _quote_ident
+
+        with pytest.raises(ConfigurationError):
+            _quote_ident('a"b')
+
+    def test_empty_string_raises(self):
+        from src.v1.engine.components.database.oracle_output import _quote_ident
+
+        with pytest.raises(ConfigurationError):
+            _quote_ident("")
+
+    def test_valid_column_name_quoted(self):
+        from src.v1.engine.components.database.oracle_output import _quote_ident
+
+        assert _quote_ident("emp_id") == '"emp_id"'
+        assert _quote_ident("FIRST_NAME") == '"FIRST_NAME"'
+
+    def test_legacy_oracle_dollar_hash_column_accepted(self):
+        from src.v1.engine.components.database.oracle_output import _quote_ident
+
+        # Talend parity: legacy Oracle column names with $ / # accepted
+        assert _quote_ident("EMP$DATA") == '"EMP$DATA"'
+        assert _quote_ident("COL#1") == '"COL#1"'
+
+    def test_create_with_invalid_column_name_raises(self):
+        comp = _make_component(
+            _shared_conn_config(table_action="CREATE"),
+            output_schema=[{"name": "drop;--", "type": "str", "length": 10}],
+        )
+        with pytest.raises(ConfigurationError):
+            comp._build_create_sql()
+
+
+# ----------------------------------------------------------------------
+# TestQualifiedTableName
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestQualifiedTableName:
+    def test_schema_plus_table(self):
+        comp = _make_component(_shared_conn_config())
+        assert comp._qualified_table() == '"HR"."EMP"'
+
+    def test_table_only_when_no_schema(self):
+        cfg = _shared_conn_config()
+        del cfg["schema_db"]
+        comp = _make_component(cfg)
+        assert comp._qualified_table() == '"EMP"'
+
+    def test_dbschema_alias_honored(self):
+        cfg = _shared_conn_config()
+        del cfg["schema_db"]
+        cfg["dbschema"] = "FINANCE"
+        comp = _make_component(cfg)
+        assert comp._qualified_table() == '"FINANCE"."EMP"'
+
+    def test_invalid_schema_raises(self):
+        comp = _make_component(_shared_conn_config(schema_db="bad-name"))
+        with pytest.raises(ConfigurationError):
+            comp._qualified_table()
+
+
+# ----------------------------------------------------------------------
+# TestTableActions: parametrized across the 8 actions
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "action, expected_substring",
+    [
+        ("CREATE", "CREATE TABLE"),
+        ("CREATE_IF_NOT_EXISTS", "EXECUTE IMMEDIATE"),
+        ("CREATE_IF_NOT_EXISTS", "SQLCODE != -955"),
+        ("DROP_CREATE", "DROP TABLE"),
+        ("DROP_IF_EXISTS_AND_CREATE", "SQLCODE != -942"),
+        ("CLEAR", "DELETE FROM"),
+        ("TRUNCATE", "TRUNCATE TABLE"),
+        ("TRUNCATE_REUSE_STORAGE", "REUSE STORAGE"),
+    ],
+)
+class TestTableActions:
+    def test_emits_expected_sql(self, action, expected_substring):
+        mock_cursor = MagicMock()
+        comp = _make_component(_shared_conn_config(table_action=action))
+        comp._execute_table_action(mock_cursor, action)
+        executed = "\n".join(
+            call.args[0] for call in mock_cursor.execute.call_args_list
+        )
+        assert expected_substring in executed
+
+
+@pytest.mark.unit
+class TestTableActionDispatch:
+    def test_none_emits_nothing(self):
+        mock_cursor = MagicMock()
+        comp = _make_component(_shared_conn_config(table_action="NONE"))
+        comp._execute_table_action(mock_cursor, "NONE")
+        mock_cursor.execute.assert_not_called()
+
+    def test_drop_create_emits_two_statements(self):
+        mock_cursor = MagicMock()
+        comp = _make_component(_shared_conn_config(table_action="DROP_CREATE"))
+        comp._execute_table_action(mock_cursor, "DROP_CREATE")
+        assert mock_cursor.execute.call_count == 2
+
+    def test_drop_if_exists_and_create_emits_two_statements(self):
+        mock_cursor = MagicMock()
+        comp = _make_component(
+            _shared_conn_config(table_action="DROP_IF_EXISTS_AND_CREATE")
+        )
+        comp._execute_table_action(mock_cursor, "DROP_IF_EXISTS_AND_CREATE")
+        # First the PL/SQL DROP guard, then the CREATE
+        assert mock_cursor.execute.call_count == 2
+
+    def test_create_if_not_exists_uses_plsql_block(self):
+        mock_cursor = MagicMock()
+        comp = _make_component(_shared_conn_config(table_action="CREATE_IF_NOT_EXISTS"))
+        comp._execute_table_action(mock_cursor, "CREATE_IF_NOT_EXISTS")
+        sql = mock_cursor.execute.call_args_list[0].args[0]
+        assert "BEGIN" in sql
+        assert "EXCEPTION" in sql
+        assert "END" in sql
+
+    def test_unknown_action_raises(self):
+        mock_cursor = MagicMock()
+        comp = _make_component(_shared_conn_config(table_action="NONE"))
+        with pytest.raises(ConfigurationError):
+            comp._execute_table_action(mock_cursor, "BOGUS")
+
+
+# ----------------------------------------------------------------------
+# TestDdlTypeMapping
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestDdlTypeMapping:
+    def test_int_maps_to_number_10(self):
+        from src.v1.engine.components.database.oracle_output import (
+            _column_to_oracle_type,
+        )
+
+        assert _column_to_oracle_type({"type": "int"}, True) == "NUMBER(10)"
+
+    def test_long_maps_to_number_19(self):
+        from src.v1.engine.components.database.oracle_output import (
+            _column_to_oracle_type,
+        )
+
+        assert _column_to_oracle_type({"type": "long"}, True) == "NUMBER(19)"
+
+    def test_short_maps_to_number_5(self):
+        from src.v1.engine.components.database.oracle_output import (
+            _column_to_oracle_type,
+        )
+
+        assert _column_to_oracle_type({"type": "short"}, True) == "NUMBER(5)"
+
+    def test_bigint_maps_to_number_38(self):
+        from src.v1.engine.components.database.oracle_output import (
+            _column_to_oracle_type,
+        )
+
+        assert _column_to_oracle_type({"type": "BigInteger"}, True) == "NUMBER(38)"
+
+    def test_decimal_with_precision(self):
+        from src.v1.engine.components.database.oracle_output import (
+            _column_to_oracle_type,
+        )
+
+        assert (
+            _column_to_oracle_type(
+                {"type": "Decimal", "length": 10, "precision": 2}, True
+            )
+            == "NUMBER(10,2)"
+        )
+
+    def test_decimal_without_length_falls_back_to_number(self):
+        from src.v1.engine.components.database.oracle_output import (
+            _column_to_oracle_type,
+        )
+
+        assert _column_to_oracle_type({"type": "Decimal"}, True) == "NUMBER"
+
+    def test_str_with_length(self):
+        from src.v1.engine.components.database.oracle_output import (
+            _column_to_oracle_type,
+        )
+
+        assert (
+            _column_to_oracle_type({"type": "str", "length": 50}, True)
+            == "VARCHAR2(50 CHAR)"
+        )
+
+    def test_str_long_maps_to_clob(self):
+        from src.v1.engine.components.database.oracle_output import (
+            _column_to_oracle_type,
+        )
+
+        assert _column_to_oracle_type({"type": "str", "length": 4001}, True) == "CLOB"
+
+    def test_str_no_length_maps_to_clob(self):
+        from src.v1.engine.components.database.oracle_output import (
+            _column_to_oracle_type,
+        )
+
+        assert _column_to_oracle_type({"type": "str"}, True) == "CLOB"
+
+    def test_datetime_with_timestamp_default(self):
+        from src.v1.engine.components.database.oracle_output import (
+            _column_to_oracle_type,
+        )
+
+        assert _column_to_oracle_type({"type": "datetime"}, True) == "TIMESTAMP"
+
+    def test_datetime_with_use_timestamp_false(self):
+        from src.v1.engine.components.database.oracle_output import (
+            _column_to_oracle_type,
+        )
+
+        assert _column_to_oracle_type({"type": "datetime"}, False) == "DATE"
+
+    def test_bool_maps_to_number_1(self):
+        from src.v1.engine.components.database.oracle_output import (
+            _column_to_oracle_type,
+        )
+
+        assert _column_to_oracle_type({"type": "bool"}, True) == "NUMBER(1)"
+
+    def test_bytes_short_maps_to_raw(self):
+        from src.v1.engine.components.database.oracle_output import (
+            _column_to_oracle_type,
+        )
+
+        assert (
+            _column_to_oracle_type({"type": "bytes", "length": 100}, True)
+            == "RAW(100)"
+        )
+
+    def test_bytes_long_maps_to_blob(self):
+        from src.v1.engine.components.database.oracle_output import (
+            _column_to_oracle_type,
+        )
+
+        assert _column_to_oracle_type({"type": "bytes"}, True) == "BLOB"
+
+    def test_float_maps_to_binary_float(self):
+        from src.v1.engine.components.database.oracle_output import (
+            _column_to_oracle_type,
+        )
+
+        # Per Task 1 decision; if Talaxie uses NUMBER, update both code and test
+        assert _column_to_oracle_type({"type": "float"}, True) in (
+            "BINARY_FLOAT",
+            "NUMBER",
+        )
+
+    def test_double_maps_to_binary_double(self):
+        from src.v1.engine.components.database.oracle_output import (
+            _column_to_oracle_type,
+        )
+
+        assert _column_to_oracle_type({"type": "double"}, True) in (
+            "BINARY_DOUBLE",
+            "NUMBER",
+        )
+
+    def test_unknown_type_falls_back_to_varchar2_4000(self):
+        from src.v1.engine.components.database.oracle_output import (
+            _column_to_oracle_type,
+        )
+
+        assert (
+            _column_to_oracle_type({"type": "unknown_type"}, True)
+            == "VARCHAR2(4000)"
+        )
+
+
+# ----------------------------------------------------------------------
+# TestNullableNotNull + TestPrimaryKey
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestNullableNotNull:
+    def test_nullable_true_emits_null(self):
+        schema = [{"name": "x", "type": "int", "nullable": True}]
+        comp = _make_component(_shared_conn_config(table_action="CREATE"), output_schema=schema)
+        sql = comp._build_create_sql()
+        assert '"x" NUMBER(10) NULL' in sql
+
+    def test_nullable_false_emits_not_null(self):
+        schema = [{"name": "x", "type": "int", "nullable": False}]
+        comp = _make_component(_shared_conn_config(table_action="CREATE"), output_schema=schema)
+        sql = comp._build_create_sql()
+        assert '"x" NUMBER(10) NOT NULL' in sql
+
+
+@pytest.mark.unit
+class TestPrimaryKey:
+    def test_pk_constraint_emitted_when_keys_present(self):
+        comp = _make_component(_shared_conn_config(table_action="CREATE"))
+        sql = comp._build_create_sql()
+        assert "PRIMARY KEY" in sql
+        assert "PK_EMP" in sql
+
+    def test_pk_constraint_with_multiple_key_columns(self):
+        schema = [
+            {"name": "a", "type": "int", "key": True, "nullable": False},
+            {"name": "b", "type": "int", "key": True, "nullable": False},
+            {"name": "c", "type": "str", "length": 10},
+        ]
+        comp = _make_component(_shared_conn_config(table_action="CREATE"), output_schema=schema)
+        sql = comp._build_create_sql()
+        assert '"a"' in sql and '"b"' in sql
+        # Both key columns appear in the PRIMARY KEY clause
+        assert re.search(r'PRIMARY KEY \("a", "b"\)', sql)
+
+    def test_no_pk_constraint_when_no_key_column(self):
+        schema = [{"name": "x", "type": "int", "key": False}]
+        comp = _make_component(
+            _shared_conn_config(table_action="CREATE"), output_schema=schema
+        )
+        sql = comp._build_create_sql()
+        assert "PRIMARY KEY" not in sql
+
+
+# ----------------------------------------------------------------------
+# TestInsertSql / TestUpdateSql / TestDeleteSql
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestInsertSql:
+    def test_shape_and_placeholders(self):
+        comp = _make_component(_shared_conn_config())
+        sql = comp._build_insert_sql()
+        assert sql.startswith('INSERT INTO "HR"."EMP"')
+        assert ":1" in sql and ":2" in sql
+        assert '"id"' in sql and '"name"' in sql
+
+    def test_insertable_columns_quoted(self):
+        comp = _make_component(_shared_conn_config())
+        sql = comp._build_insert_sql()
+        # Both columns appear in the INSERT column list
+        assert re.search(r'\("id", "name"\)', sql)
+
+
+@pytest.mark.unit
+class TestUpdateSql:
+    def test_basic_update_uses_key_in_where(self):
+        comp = _make_component(_shared_conn_config())
+        sql = comp._build_update_sql()
+        assert sql.startswith('UPDATE "HR"."EMP"')
+        # 'name' is updatable, 'id' is the key
+        assert '"name" = :1' in sql
+        assert '"id" = :2' in sql
+        assert "WHERE" in sql
+
+    def test_update_without_key_raises(self):
+        schema = [{"name": "a", "type": "int", "key": False}]
+        comp = _make_component(_shared_conn_config(), output_schema=schema)
+        with pytest.raises(ConfigurationError):
+            comp._build_update_sql()
+
+
+@pytest.mark.unit
+class TestDeleteSql:
+    def test_basic_delete_uses_key_in_where(self):
+        comp = _make_component(_shared_conn_config())
+        sql = comp._build_delete_sql()
+        assert sql.startswith('DELETE FROM "HR"."EMP"')
+        assert '"id" = :1' in sql
+
+    def test_delete_without_key_raises(self):
+        schema = [{"name": "a", "type": "int", "key": False}]
+        comp = _make_component(_shared_conn_config(), output_schema=schema)
+        with pytest.raises(ConfigurationError):
+            comp._build_delete_sql()
+
+
+# ----------------------------------------------------------------------
+# TestFieldOptions: per-column UPDATE_KEY / UPDATABLE / INSERTABLE
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestFieldOptionsUpdateKey:
+    def test_field_options_drives_where_clause(self):
+        cfg = _shared_conn_config(
+            data_action="UPDATE",
+            use_field_options=True,
+            field_options=[
+                {"column": "id", "update_key": False, "updatable": True, "insertable": True},
+                {"column": "name", "update_key": True, "updatable": False, "insertable": True},
+            ],
+        )
+        # output_schema 'key' attr is now ignored in favor of field_options
+        comp = _make_component(cfg)
+        sql = comp._build_update_sql()
+        # 'name' is the UPDATE_KEY -> in WHERE; 'id' is updatable -> in SET
+        assert '"id" = :1' in sql  # SET
+        assert "WHERE" in sql
+        assert '"name" = :2' in sql  # WHERE
+
+    def test_field_options_without_update_key_falls_to_schema_key(self):
+        # use_field_options=False -> falls back to schema 'key' attribute
+        comp = _make_component(_shared_conn_config(data_action="UPDATE"))
+        sql = comp._build_update_sql()
+        # 'id' has key=True in default schema; 'name' is updatable
+        assert '"name" = :1' in sql
+        assert '"id" = :2' in sql
+
+
+@pytest.mark.unit
+class TestFieldOptionsUpdatable:
+    def test_updatable_false_omitted_from_set(self):
+        cfg = _shared_conn_config(
+            data_action="UPDATE",
+            use_field_options=True,
+            field_options=[
+                {"column": "id", "update_key": True, "updatable": False, "insertable": True},
+                {"column": "name", "update_key": False, "updatable": False, "insertable": True},
+                {"column": "age", "update_key": False, "updatable": True, "insertable": True},
+            ],
+        )
+        schema = [
+            {"name": "id", "type": "int"},
+            {"name": "name", "type": "str", "length": 50},
+            {"name": "age", "type": "int"},
+        ]
+        comp = _make_component(cfg, output_schema=schema)
+        sql = comp._build_update_sql()
+        assert '"age"' in sql
+        # 'name' updatable=False -> NOT in SET
+        # check 'name' only appears as nothing (it's not in updatable, not key)
+        assert '"name" = ' not in sql
+
+
+@pytest.mark.unit
+class TestFieldOptionsInsertable:
+    def test_insertable_false_omitted_from_insert_cols(self):
+        cfg = _shared_conn_config(
+            data_action="INSERT",
+            use_field_options=True,
+            field_options=[
+                {"column": "id", "update_key": False, "updatable": True, "insertable": True},
+                {"column": "name", "update_key": False, "updatable": True, "insertable": False},
+                {"column": "age", "update_key": False, "updatable": True, "insertable": True},
+            ],
+        )
+        schema = [
+            {"name": "id", "type": "int"},
+            {"name": "name", "type": "str", "length": 50},
+            {"name": "age", "type": "int"},
+        ]
+        comp = _make_component(cfg, output_schema=schema)
+        sql = comp._build_insert_sql()
+        assert '"id"' in sql and '"age"' in sql
+        # 'name' insertable=False -> NOT in INSERT col list
+        assert '"name"' not in sql
+
+
+# ----------------------------------------------------------------------
+# TestExecuteMany + RejectFlow + DieOnError + StatKeys
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestExecuteManyAndRejectFlow:
+    def test_executemany_called_with_batcherrors_true(self):
+        mgr, mock_conn, mock_cursor = _make_mock_oracle_manager()
+        comp = _make_component(_shared_conn_config(), oracle_manager=mgr)
+        df = pd.DataFrame({"id": [1, 2], "name": ["a", "b"]})
+        comp._process(df)
+        args, kwargs = mock_cursor.executemany.call_args
+        assert kwargs.get("batcherrors") is True
+
+    def test_no_executemany_when_input_empty(self):
+        mgr, mock_conn, mock_cursor = _make_mock_oracle_manager()
+        comp = _make_component(_shared_conn_config(), oracle_manager=mgr)
+        df = pd.DataFrame({"id": [], "name": []})
+        comp._process(df)
+        mock_cursor.executemany.assert_not_called()
+
+    def test_no_executemany_when_input_none(self):
+        mgr, mock_conn, mock_cursor = _make_mock_oracle_manager()
+        comp = _make_component(_shared_conn_config(), oracle_manager=mgr)
+        comp._process(None)
+        mock_cursor.executemany.assert_not_called()
+
+    def test_reject_chunk_schema_and_format(self):
+        err1 = MagicMock()
+        err1.code = 1
+        err1.message = "ORA-00001: unique constraint violated"
+        err1.offset = 2
+        err2 = MagicMock()
+        err2.code = 2291
+        err2.message = "parent key not found"
+        err2.offset = 3
+        mgr, mock_conn, mock_cursor = _make_mock_oracle_manager(
+            batch_errors=[err1, err2]
+        )
+        comp = _make_component(_shared_conn_config(), oracle_manager=mgr)
+        df = pd.DataFrame({"id": [10, 11, 12, 13], "name": ["a", "b", "c", "d"]})
+        result = comp._process(df)
+        reject = result["reject"]
+        assert reject is not None
+        assert list(reject.columns)[:2] == ["errorCode", "errorMessage"]
+        assert "id" in reject.columns
+        assert "name" in reject.columns
+        assert reject.iloc[0]["errorCode"] == "1"
+        assert "Line: 2" in reject.iloc[0]["errorMessage"]
+        assert reject.iloc[1]["errorCode"] == "2291"
+
+    def test_no_reject_when_no_batch_errors(self):
+        mgr, mock_conn, mock_cursor = _make_mock_oracle_manager(batch_errors=[])
+        comp = _make_component(_shared_conn_config(), oracle_manager=mgr)
+        df = pd.DataFrame({"id": [1, 2], "name": ["a", "b"]})
+        result = comp._process(df)
+        assert result["reject"] is None
+
+
+@pytest.mark.unit
+class TestStatKeys:
+    def test_all_five_keys_present_for_insert(self):
+        mgr, mock_conn, mock_cursor = _make_mock_oracle_manager()
+        gm = GlobalMap()
+        comp = _make_component(_shared_conn_config(), oracle_manager=mgr, global_map=gm)
+        df = pd.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"]})
+        comp._process(df)
+        assert gm.get("tOracleOutput_1_NB_LINE") == 3
+        assert gm.get("tOracleOutput_1_NB_LINE_INSERTED") == 3
+        assert gm.get("tOracleOutput_1_NB_LINE_UPDATED") == 0
+        assert gm.get("tOracleOutput_1_NB_LINE_DELETED") == 0
+        assert gm.get("tOracleOutput_1_NB_LINE_REJECTED") == 0
+
+    def test_stat_keys_for_update(self):
+        mgr, mock_conn, mock_cursor = _make_mock_oracle_manager()
+        gm = GlobalMap()
+        comp = _make_component(
+            _shared_conn_config(data_action="UPDATE"),
+            oracle_manager=mgr, global_map=gm,
+        )
+        df = pd.DataFrame({"id": [1, 2], "name": ["a", "b"]})
+        comp._process(df)
+        assert gm.get("tOracleOutput_1_NB_LINE_UPDATED") == 2
+        assert gm.get("tOracleOutput_1_NB_LINE_INSERTED") == 0
+
+    def test_stat_keys_for_delete(self):
+        mgr, mock_conn, mock_cursor = _make_mock_oracle_manager()
+        gm = GlobalMap()
+        comp = _make_component(
+            _shared_conn_config(data_action="DELETE"),
+            oracle_manager=mgr, global_map=gm,
+        )
+        df = pd.DataFrame({"id": [1, 2]})
+        comp._process(df)
+        assert gm.get("tOracleOutput_1_NB_LINE_DELETED") == 2
+        assert gm.get("tOracleOutput_1_NB_LINE_INSERTED") == 0
+
+    def test_rejected_count_in_stats(self):
+        err = MagicMock()
+        err.code = 1
+        err.message = "dup"
+        err.offset = 0
+        mgr, mock_conn, mock_cursor = _make_mock_oracle_manager(batch_errors=[err])
+        gm = GlobalMap()
+        comp = _make_component(_shared_conn_config(), oracle_manager=mgr, global_map=gm)
+        df = pd.DataFrame({"id": [1, 2], "name": ["a", "b"]})
+        comp._process(df)
+        # 1 reject, 1 ok
+        assert gm.get("tOracleOutput_1_NB_LINE_REJECTED") == 1
+        assert gm.get("tOracleOutput_1_NB_LINE_INSERTED") == 1
+
+    def test_zero_stats_when_input_empty(self):
+        mgr, mock_conn, mock_cursor = _make_mock_oracle_manager()
+        gm = GlobalMap()
+        comp = _make_component(_shared_conn_config(), oracle_manager=mgr, global_map=gm)
+        comp._process(None)
+        assert gm.get("tOracleOutput_1_NB_LINE") == 0
+        assert gm.get("tOracleOutput_1_NB_LINE_INSERTED") == 0
+
+
+@pytest.mark.unit
+class TestCommitCycle:
+    def test_commit_called_per_commit_every_threshold(self):
+        mgr, mock_conn, mock_cursor = _make_mock_oracle_manager()
+        comp = _make_component(
+            _shared_conn_config(commit_every=2, batch_size=2),
+            oracle_manager=mgr,
+        )
+        df = pd.DataFrame({"id": [1, 2, 3, 4], "name": ["a", "b", "c", "d"]})
+        comp._process(df)
+        # 4 rows / batch_size=2 = 2 chunks; commit_every=2 -> commit after each
+        # plus a trailing commit if there's leftover (here none) -- so at least
+        # 2 commits during loop. NONE table_action means no pre-commit.
+        assert mock_conn.commit.call_count >= 2
+
+    def test_trailing_partial_batch_committed(self):
+        mgr, mock_conn, mock_cursor = _make_mock_oracle_manager()
+        comp = _make_component(
+            _shared_conn_config(commit_every=10, batch_size=2),
+            oracle_manager=mgr,
+        )
+        df = pd.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"]})
+        comp._process(df)
+        # 3 rows < commit_every=10, but trailing partial commit fires in finally
+        assert mock_conn.commit.call_count >= 1
+
+
+@pytest.mark.unit
+class TestDieOnErrorRewrap:
+    def test_die_on_error_with_rejects_raises(self):
+        err = MagicMock()
+        err.code = 1
+        err.message = "dup"
+        err.offset = 0
+        mgr, mock_conn, mock_cursor = _make_mock_oracle_manager(batch_errors=[err])
+        comp = _make_component(
+            _shared_conn_config(die_on_error=True), oracle_manager=mgr,
+        )
+        df = pd.DataFrame({"id": [1], "name": ["a"]})
+        with pytest.raises(DataValidationError):
+            comp._process(df)
+
+    def test_die_on_error_false_does_not_raise(self):
+        err = MagicMock()
+        err.code = 1
+        err.message = "dup"
+        err.offset = 0
+        mgr, mock_conn, mock_cursor = _make_mock_oracle_manager(batch_errors=[err])
+        comp = _make_component(
+            _shared_conn_config(die_on_error=False), oracle_manager=mgr,
+        )
+        df = pd.DataFrame({"id": [1], "name": ["a"]})
+        # No raise; result has reject DataFrame
+        result = comp._process(df)
+        assert result["reject"] is not None
+
+
+@pytest.mark.unit
+class TestUpsertDeferred:
+    def test_insert_or_update_raises_not_implemented(self):
+        mgr, _, _ = _make_mock_oracle_manager()
+        comp = _make_component(
+            _shared_conn_config(data_action="INSERT_OR_UPDATE"),
+            oracle_manager=mgr,
+        )
+        with pytest.raises(NotImplementedError) as exc:
+            comp._process(pd.DataFrame({"id": [1]}))
+        assert "11-05" in str(exc.value)
+
+    def test_update_or_insert_raises_not_implemented(self):
+        mgr, _, _ = _make_mock_oracle_manager()
+        comp = _make_component(
+            _shared_conn_config(data_action="UPDATE_OR_INSERT"),
+            oracle_manager=mgr,
+        )
+        with pytest.raises(NotImplementedError):
+            comp._process(pd.DataFrame({"id": [1]}))
+
+
+# ----------------------------------------------------------------------
+# TestConnectionAcquisition: shared (manager.get) vs ad-hoc (open_ad_hoc)
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestConnectionAcquisition:
+    def test_shared_uses_manager_get(self):
+        mgr, mock_conn, _ = _make_mock_oracle_manager()
+        comp = _make_component(
+            _shared_conn_config(use_existing_connection=True),
+            oracle_manager=mgr,
+        )
+        comp._process(pd.DataFrame({"id": [1], "name": ["a"]}))
+        mgr.get.assert_called_once_with("tOracleConnection_1")
+        mgr.open_ad_hoc.assert_not_called()
+        mgr.close.assert_not_called()  # shared conn is NOT owned
+
+    def test_adhoc_uses_open_ad_hoc_and_closes(self):
+        mgr, _, _ = _make_mock_oracle_manager()
+        comp = _make_component(
+            _shared_conn_config(use_existing_connection=False),
+            oracle_manager=mgr,
+        )
+        comp._process(pd.DataFrame({"id": [1], "name": ["a"]}))
+        mgr.open_ad_hoc.assert_called_once()
+        mgr.close.assert_called_once_with("tOracleOutput_1")
+
+    def test_oracle_manager_not_wired_raises(self):
+        comp = _make_component(_shared_conn_config())
+        comp.oracle_manager = None
+        with pytest.raises(ConfigurationError):
+            comp._process(pd.DataFrame({"id": [1]}))
+
+
+# ----------------------------------------------------------------------
+# TestUseTimestampForDateType (D-B1)
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestUseTimestampForDateType:
+    def test_default_true_emits_timestamp_in_ddl(self):
+        schema = [{"name": "ts", "type": "datetime"}]
+        comp = _make_component(_shared_conn_config(table_action="CREATE"), output_schema=schema)
+        sql = comp._build_create_sql()
+        assert "TIMESTAMP" in sql
+        assert " DATE " not in sql
+
+    def test_false_emits_date_in_ddl(self):
+        schema = [{"name": "ts", "type": "datetime"}]
+        comp = _make_component(
+            _shared_conn_config(table_action="CREATE", use_timestamp_for_date_type=False),
+            output_schema=schema,
+        )
+        sql = comp._build_create_sql()
+        assert "DATE" in sql
+        assert "TIMESTAMP" not in sql
+
+
+# ----------------------------------------------------------------------
+# TestRejectChunkBuilder: schema preservation and offset edge cases
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestRejectChunkBuilder:
+    def test_reject_columns_match_input_plus_error_cols(self):
+        err = MagicMock()
+        err.code = 1
+        err.message = "x"
+        err.offset = 0
+        comp = _make_component(_shared_conn_config())
+        df = pd.DataFrame({"a": [1], "b": [2], "c": [3]})
+        out = comp._build_reject_chunk(df, [err])
+        assert list(out.columns) == ["errorCode", "errorMessage", "a", "b", "c"]
+
+    def test_reject_offset_out_of_range_does_not_raise(self):
+        err = MagicMock()
+        err.code = 1
+        err.message = "x"
+        err.offset = 99  # out of range
+        comp = _make_component(_shared_conn_config())
+        df = pd.DataFrame({"a": [1]})
+        # Should not raise even with bogus offset; defensive fallback
+        out = comp._build_reject_chunk(df, [err])
+        assert len(out) == 1
+        assert out.iloc[0]["errorCode"] == "1"
+
+    def test_empty_batch_errors_returns_empty_df_with_columns(self):
+        comp = _make_component(_shared_conn_config())
+        df = pd.DataFrame({"a": [1], "b": [2]})
+        out = comp._build_reject_chunk(df, [])
+        assert len(out) == 0
+        assert "errorCode" in out.columns
+        assert "errorMessage" in out.columns
