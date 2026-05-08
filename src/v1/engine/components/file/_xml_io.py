@@ -103,14 +103,22 @@ def iterparse_loop_query(filename: str, loop_tag: str) -> Iterator[etree._Elemen
         load_dtd=False,
         recover=False,
     )
-    for _event, element in ctx:
-        yield element
-        # 1. clear the matched element (free its subtree, preserve tail text)
-        element.clear(keep_tail=True)
-        # 2. drop preceding siblings to release the prefix of the parent
-        while element.getprevious() is not None:
-            del element.getparent()[0]
-    del ctx
+    # IN-01 fix: wrap the iteration loop in try/finally so del ctx runs on ALL exit
+    # paths -- including when the caller breaks out of the generator (e.g. LIMIT cap),
+    # which causes GeneratorExit to be thrown at the yield point, bypassing the
+    # post-loop del ctx. In CPython, reference counting releases ctx when the frame
+    # is torn down regardless, so this is correctness-by-intent rather than a resource
+    # leak fix -- but it makes the documented cleanup explicit and reliable.
+    try:
+        for _event, element in ctx:
+            yield element
+            # 1. clear the matched element (free its subtree, preserve tail text)
+            element.clear(keep_tail=True)
+            # 2. drop preceding siblings to release the prefix of the parent
+            while element.getprevious() is not None:
+                del element.getparent()[0]
+    finally:
+        del ctx
 
 
 def log_strategy(
