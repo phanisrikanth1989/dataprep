@@ -25,6 +25,7 @@ from .file_input_json import FileInputJSON
 from .file_input_excel import FileInputExcel
 from .file_input_msxml import FileInputMSXML
 from .file_input_properties import FileInputProperties
+from .file_output_xml import FileOutputXML
 
 __all__ = [
     'FileList',
@@ -51,4 +52,5 @@ __all__ = [
     'FileInputMSXML',
     'FileInputProperties',
     'FileOutputExcel',
+    'FileOutputXML',
 ]

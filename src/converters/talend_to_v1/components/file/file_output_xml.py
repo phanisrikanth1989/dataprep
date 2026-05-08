@@ -101,6 +101,189 @@ def _parse_xml_table(raw: Any) -> List[Dict[str, Any]]:
     return result
 
 
+# ------------------------------------------------------------------
+# tFileOutputXML simple-variant TABLE helpers
+# ------------------------------------------------------------------
+
+def _parse_mapping_table(raw: Any) -> List[Dict[str, Any]]:
+    """Parse MAPPING TABLE for tFileOutputXML simple variant.
+
+    Each stride-2 group maps to one row:
+      SCHEMA_COLUMN_NAME -> column     (str)
+      AS_ATTRIBUTE       -> as_attribute (bool)
+
+    Incomplete trailing groups (< 2 entries) are skipped.
+
+    Args:
+        raw: Raw TABLE data (list of elementRef/value dicts) from the XML parser.
+
+    Returns:
+        List of {column: str, as_attribute: bool} dicts.
+    """
+    if not raw or not isinstance(raw, list):
+        return []
+    result: List[Dict[str, Any]] = []
+    _MAPPING_STRIDE = 2
+    for i in range(0, len(raw), _MAPPING_STRIDE):
+        group = raw[i: i + _MAPPING_STRIDE]
+        if len(group) < _MAPPING_STRIDE:
+            break
+        row: Dict[str, Any] = {}
+        for entry in group:
+            if not isinstance(entry, dict):
+                continue
+            ref = entry.get("elementRef", "")
+            val = entry.get("value", "")
+            if isinstance(val, str):
+                val = val.strip('"')
+            if ref == "SCHEMA_COLUMN_NAME":
+                row["column"] = val
+            elif ref == "AS_ATTRIBUTE":
+                # Coerce string 'true'/'false' to bool
+                row["as_attribute"] = str(val).strip().lower() in ("true", "1", "yes")
+        if row:
+            result.append(row)
+    return result
+
+
+def _parse_groupby_table(raw: Any) -> List[Dict[str, Any]]:
+    """Parse GROUP_BY TABLE for tFileOutputXML simple variant.
+
+    Each stride-2 group maps to one row:
+      COLUMN -> column (str)
+      LABEL  -> label  (str)
+
+    Incomplete trailing groups (< 2 entries) are skipped.
+
+    Args:
+        raw: Raw TABLE data from the XML parser.
+
+    Returns:
+        List of {column: str, label: str} dicts.
+    """
+    if not raw or not isinstance(raw, list):
+        return []
+    result: List[Dict[str, Any]] = []
+    _GROUPBY_STRIDE = 2
+    for i in range(0, len(raw), _GROUPBY_STRIDE):
+        group = raw[i: i + _GROUPBY_STRIDE]
+        if len(group) < _GROUPBY_STRIDE:
+            break
+        row: Dict[str, Any] = {}
+        for entry in group:
+            if not isinstance(entry, dict):
+                continue
+            ref = entry.get("elementRef", "")
+            val = entry.get("value", "")
+            if isinstance(val, str):
+                val = val.strip('"')
+            if ref == "COLUMN":
+                row["column"] = val
+            elif ref == "LABEL":
+                row["label"] = val
+        if row:
+            result.append(row)
+    return result
+
+
+def _parse_root_tags_table(raw: Any) -> List[Dict[str, Any]]:
+    """Parse ROOT_TAGS TABLE for tFileOutputXML simple variant.
+
+    Each stride-1 group maps to one row:
+      VALUE -> name (str)
+
+    Args:
+        raw: Raw TABLE data from the XML parser.
+
+    Returns:
+        List of {name: str} dicts.
+    """
+    if not raw or not isinstance(raw, list):
+        return []
+    result: List[Dict[str, Any]] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        val = entry.get("value", "")
+        if isinstance(val, str):
+            val = val.strip('"')
+        if val:
+            result.append({"name": val})
+    return result
+
+
+@REGISTRY.register("tFileOutputXML")
+class FileOutputXMLConverter(ComponentConverter):
+    """Convert Talend tFileOutputXML (simple/flat) to v1 engine config.
+
+    Extracts all 18 javajet params plus 2 framework params. The engine
+    class is FileOutputXML (PascalCase, registered under both names).
+    Sink semantics: schema input populated, output empty (S-5).
+    """
+
+    def convert(
+        self,
+        node: TalendNode,
+        connections: List[TalendConnection],
+        context: Dict[str, Any],
+    ) -> ComponentResult:
+        """Convert a tFileOutputXML TalendNode to a v1 engine component dict.
+
+        Args:
+            node: Parsed Talend node with component params and schema.
+            connections: Incoming/outgoing connections (used for flow detection).
+            context: Job-level context variables (unused for this component).
+
+        Returns:
+            ComponentResult with component dict, empty warnings, empty needs_review.
+        """
+        warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
+
+        # ---- 1. Core parameters ----
+        config: Dict[str, Any] = {}
+        config["filename"] = self._get_str(node, "FILENAME", "")
+        config["input_is_document"] = self._get_bool(node, "INPUT_IS_DOCUMENT", False)
+        config["document_col"] = self._get_str(node, "DOCUMENT_COL", "")
+        config["row_tag"] = self._get_str(node, "ROW_TAG", "row")
+        config["root_tags"] = _parse_root_tags_table(node.params.get("ROOT_TAGS", []))
+        config["mapping"] = _parse_mapping_table(node.params.get("MAPPING", []))
+        config["use_dynamic_grouping"] = self._get_bool(node, "USE_DYNAMIC_GROUPING", False)
+        config["group_by"] = _parse_groupby_table(node.params.get("GROUP_BY", []))
+        config["flushonrow"] = self._get_bool(node, "FLUSHONROW", False)
+        config["flushonrow_num"] = self._get_str(node, "FLUSHONROW_NUM", "1")
+        config["encoding"] = self._get_str(node, "ENCODING", "ISO-8859-15")  # NOT UTF-8
+        config["split"] = self._get_bool(node, "SPLIT", False)
+        config["split_every"] = self._get_str(node, "SPLIT_EVERY", "1000")
+        config["create"] = self._get_bool(node, "CREATE", True)
+        config["trim"] = self._get_bool(node, "TRIM", False)
+        config["advanced_separator"] = self._get_bool(node, "ADVANCED_SEPARATOR", False)
+        config["thousands_separator"] = self._get_str(node, "THOUSANDS_SEPARATOR", ",")
+        config["decimal_separator"] = self._get_str(node, "DECIMAL_SEPARATOR", ".")
+        config["delete_empty_file"] = self._get_bool(node, "DELETE_EMPTYFILE", False)
+
+        # ---- 2. Framework parameters (ALWAYS LAST per PATTERNS.md S-10) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
+
+        # ---- 3. Schema (sink: input populated, output empty per S-5) ----
+        schema = {"input": self._parse_schema(node), "output": []}
+
+        # ---- 4. Build component dict ----
+        component = self._build_component_dict(
+            node=node,
+            type_name="FileOutputXML",   # engine class name (PascalCase)
+            config=config,
+            schema=schema,
+        )
+
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )
+
+
 @REGISTRY.register("tAdvancedFileOutputXML")
 class AdvancedFileOutputXmlConverter(ComponentConverter):
     """Convert Talend tAdvancedFileOutputXML to v1 engine config."""
