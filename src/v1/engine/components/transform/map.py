@@ -1686,25 +1686,66 @@ class Map(BaseComponent):
             + "".join(f", RowWrapper {lk}" for lk in lookup_names)
             + ", Map<String, Object> Var"
         )
+
+        # CHUNK size for column fill helpers.
+        # Each fillOutput_<name>_chunkN method handles this many column
+        # assignments. A single complex Talend expression can compile to
+        # several hundred bytes of JVM bytecode; keeping to 1 column per
+        # helper guarantees no individual method ever exceeds 64 KB even
+        # for the most complex expressions (ternary chains, regex, etc.).
+        _FILL_CHUNK = 1
+
+        # Chunk-fill params: receive the shared row array + all wrappers.
+        # The row array is passed by reference so each chunk writes into
+        # the same Object[] that evalOutput_<name> allocated.
+        chunk_fill_params = (
+            f"Object[] row, RowWrapper {main_name}"
+            + "".join(f", RowWrapper {lk}" for lk in lookup_names)
+            + ", Map<String, Object> var"
+        )
+        chunk_fill_args = (
+            f"row, {main_name}"
+            + "".join(f", {lk}" for lk in lookup_names)
+            + ", var"
+        )
+
         for output in active_outputs:
             out_name = output["name"]
             num_cols = len(output["columns"])
+            columns = output["columns"]
             filter_expr = output.get("filter", "")
             activate_filter = output.get("activate_filter", False)
 
-            lines.append(f"def evalOutput_{out_name}({helper_params}) {{")
-            # Filter folds into the helper: if filter rejects, return null
-            # so the run() loop skips this output's slot for this row.
-            if activate_filter and filter_expr:
-                clean_filter = self._strip_java_marker(filter_expr)
-                lines.append(f"    if (!({clean_filter})) return null;")
-            lines.append(f"    Object[] row = new Object[{num_cols}];")
-            for col_idx, col in enumerate(output["columns"]):
+                # --- Emit one fill helper per chunk of columns ---
+            for chunk_start in range(0, num_cols, _FILL_CHUNK):
+                chunk_cols = columns[chunk_start:chunk_start + _FILL_CHUNK]
+                chunk_idx = chunk_start // _FILL_CHUNK
+                lines.append(
+                    f"def void fillOutput_{out_name}_chunk{chunk_idx}"
+                    f"({chunk_fill_params}) {{"
+                )
+            for col_offset, col in enumerate(chunk_cols):
+                abs_idx = chunk_start + col_offset
                 col_expr = col.get("expression", "")
                 expr = self._strip_java_marker(col_expr)
                 if not expr or expr.strip() == "":
                     expr = "null"
-                lines.append(f"    row[{col_idx}] = {expr};")
+                lines.append(f"    row[{abs_idx}] = {expr};")
+            lines.append("}")
+            lines.append("")
+
+            # --- Coordinator: evalOutput_<name> allocates array, calls chunks ---
+            num_chunks = -(-num_cols // _FILL_CHUNK)  # ceiling division
+            lines.append(f"def evalOutput_{out_name}({helper_params}) {{")
+            # Filter guard: return null if this row is filtered out.
+            if activate_filter and filter_expr:
+                clean_filter = self._strip_java_marker(filter_expr)
+                lines.append(f"    if (!({clean_filter})) return null;")
+            lines.append(f"    Object[] row = new Object[{num_cols}];")
+            for chunk_idx in range(num_chunks):
+                lines.append(
+                    f"    fillOutput_{out_name}_chunk{chunk_idx}({chunk_fill_args});"
+                )
             lines.append("    return row;")
             lines.append("}")
             lines.append("")
