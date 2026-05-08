@@ -468,6 +468,11 @@ class XMLMap(BaseComponent):
         - "[row1.employee:/employees/employee/name]" -> "./name"
         - "row1.field" -> "./field"
 
+        CR-02 fix: rstrip("]") removed from ALL branches. A trailing ']' on a
+        valid XPath expression is a predicate closer (e.g. "./item[1]") and must
+        NOT be stripped. The "[row1.employee:...]" pattern is fully handled by the
+        startswith("[") and endswith("]") branch via cleaned[1:-1].
+
         Args:
             raw_expr: Raw expression string from JSON configuration
 
@@ -488,8 +493,6 @@ class XMLMap(BaseComponent):
             # Extract field name from the path (last part after /)
             if "/" in cleaned:
                 field_name = cleaned.split("/")[-1]
-                # Remove any trailing brackets
-                field_name = field_name.rstrip("]")
                 return f"./{field_name}"
 
         # Handle dot notation like "row1.field_name"
@@ -497,20 +500,14 @@ class XMLMap(BaseComponent):
             parts = cleaned.split(".")
             if len(parts) >= 2:
                 field_name = parts[-1]  # Take the last part (field name)
-                # Remove any trailing brackets
-                field_name = field_name.rstrip("]")
                 return f"./{field_name}"
 
-        # Handle already clean expressions starting with "./"
+        # Handle already clean expressions starting with "./" -- return as-is
         elif cleaned.startswith("./"):
-            # Remove any trailing brackets
-            cleaned = cleaned.rstrip("]")
             return cleaned
 
         # Default: assume it's a direct field reference
         else:
-            # Remove any trailing brackets
-            cleaned = cleaned.rstrip("]")
             return f"./{cleaned}"
 
     def _clean_looping_element(self, raw_looping_element: str, root: etree._Element) -> str:

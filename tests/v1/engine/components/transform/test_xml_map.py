@@ -678,6 +678,65 @@ class TestSplitSteps:
 
 
 # ------------------------------------------------------------------
+# TestCleanExpression (CR-02 regression: no rstrip("]") in _clean_expression)
+# ------------------------------------------------------------------
+
+@pytest.mark.unit
+class TestCleanExpression:
+    """CR-02 regression guard: _clean_expression must not strip XPath predicate brackets."""
+
+    def test_predicate_not_stripped_position(self):
+        """./item[1] -- positional predicate must survive _clean_expression."""
+        comp = _make_component(_make_minimal_config())
+        result = comp._clean_expression("./item[1]")
+        assert result == "./item[1]", (
+            f"CR-02 regression: predicate bracket stripped; got {result!r}"
+        )
+
+    def test_predicate_not_stripped_attribute(self):
+        """./status[@active='true'] -- attribute predicate must survive."""
+        comp = _make_component(_make_minimal_config())
+        result = comp._clean_expression("./status[@active='true']")
+        assert result == "./status[@active='true']", (
+            f"CR-02 regression: predicate bracket stripped; got {result!r}"
+        )
+
+    def test_predicate_not_stripped_text_match(self):
+        """./child[. = 'x'] -- text predicate must survive."""
+        comp = _make_component(_make_minimal_config())
+        result = comp._clean_expression("./child[. = 'x']")
+        assert result == "./child[. = 'x']", (
+            f"CR-02 regression: predicate bracket stripped; got {result!r}"
+        )
+
+    def test_malformed_row_bracket_still_cleaned(self):
+        """[row1.employee:/employees/employee/id] -> the outer [] are stripped."""
+        comp = _make_component(_make_minimal_config())
+        result = comp._clean_expression("[row1.employee:/employees/employee/id]")
+        # The outer brackets are stripped, then the ":" path pattern fires
+        assert result.startswith("./"), (
+            f"CR-02: malformed [row1...] pattern not cleaned; got {result!r}"
+        )
+
+    def test_no_rstrip_in_source(self):
+        """Regression guard: rstrip(\"]\") must not appear as executable code."""
+        src = _SOURCE_FILE.read_text()
+        # Strip comment lines and docstrings (triple-quote blocks) for targeted check
+        import re as _re
+        # Remove triple-quoted strings to avoid matching docstring examples
+        src_no_docstrings = _re.sub(r'""".*?"""', '""""""', src, flags=_re.DOTALL)
+        src_no_docstrings = _re.sub(r"'''.*?'''", "''''''", src_no_docstrings, flags=_re.DOTALL)
+        # Also strip comment lines
+        src_clean = "\n".join(
+            line for line in src_no_docstrings.splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        assert 'rstrip("]")' not in src_clean, (
+            "CR-02 regression: rstrip(\"]\") reappeared as executable code in xml_map.py"
+        )
+
+
+# ------------------------------------------------------------------
 # TestStats
 # ------------------------------------------------------------------
 
