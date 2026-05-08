@@ -162,6 +162,20 @@ class Executor:
 
         execution_time = time.time() - start_time
 
+        # Finalize streaming components: call reset() on all components that have one.
+        # Sink components (e.g., FileOutputXML, AdvancedFileOutputXML) hold open
+        # etree.xmlfile context managers across chunks; reset() closes them and flushes
+        # the closing tags. Without this, streaming XML output files are truncated.
+        for comp_id, component in self.components.items():
+            if hasattr(component, "reset") and callable(component.reset):
+                try:
+                    component.reset()
+                except Exception as _reset_exc:  # noqa: BLE001
+                    logger.warning(
+                        "Component %s reset() raised during job finalization: %s",
+                        comp_id, _reset_exc,
+                    )
+
         if self._job_terminated:
             status = "error"
         elif self.failed_components:
