@@ -26,6 +26,7 @@ from .file_input_excel import FileInputExcel
 from .file_input_msxml import FileInputMSXML
 from .file_input_properties import FileInputProperties
 from .file_output_xml import FileOutputXML
+from .file_output_advanced_xml import AdvancedFileOutputXML
 
 __all__ = [
     'FileList',
@@ -53,4 +54,5 @@ __all__ = [
     'FileInputProperties',
     'FileOutputExcel',
     'FileOutputXML',
+    'AdvancedFileOutputXML',
 ]
