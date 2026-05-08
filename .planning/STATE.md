@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 12 context gathered
-last_updated: "2026-05-08T15:59:23.028Z"
+stopped_at: Phase 12 complete; ready for /gsd-verify-work then Phase 13
+last_updated: "2026-05-08T17:00:00Z"
 last_activity: 2026-05-08
 progress:
   total_phases: 20
-  completed_phases: 15
+  completed_phases: 16
   total_plans: 77
-  completed_plans: 78
-  percent: 100
+  completed_plans: 86
+  percent: 80
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-04-14)
 
 ## Current Position
 
-Phase: 12 (xml-components-audit-harden-output) — EXECUTING
-Plan: 2 of 8
-Status: Ready to execute
-Last activity: 2026-05-08
+Phase: 12 (xml-components-audit-harden-output) — COMPLETE
+Next: Phase 13 (test-stabilization-bridge-jar-rebuild)
+Status: Phase 12 complete; ready for /gsd-verify-work then Phase 13 -- Test Stabilization & Bridge JAR Rebuild
+Last activity: 2026-05-08 -- Phase 12 closed: 6 XML components feature-parity to Talend; 4 requirements (XML-01..04) all Complete; 12 conditional needs_review entries; 8 E2E tests; 97% overall coverage (all 7 modules >= 95%)
 
-Progress: [██████████] 100%
+Progress: [████████░░] 80% (phases 1..12 complete, phases 13..16 pending)
 
 ## Performance Metrics
 
@@ -67,6 +67,8 @@ Progress: [██████████] 100%
 
 *Updated after each plan completion*
 | Phase 12 P07 | 25 | 3 tasks | 6 files |
+| Phase 12 P08 | 15 | 4 tasks | 5 files |
+| Phase 12 total | ~200 | 8 plans, 6 waves | 6 components + _xml_io |
 
 ## Accumulated Context
 
@@ -116,8 +118,18 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
 | 260429-hc2 | Cleanup manager commits 43762c8 + c9be184/0c4104d (rewrite tests + audit docs for Talend parity, supersede CR-06) | 2026-04-29 | dc264d3 | [260429-hc2-cleanup-of-manager-commits-43762c8-c9be1](./quick/260429-hc2-cleanup-of-manager-commits-43762c8-c9be1/) |
 | 260506-lqq | Fix bridge stderr pipe-buffer deadlock (D-08-01) -- background drainer thread + bounded ring buffer | 2026-05-06 | f0caf8b | [260506-lqq-fix-bridge-stderr-pipe-buffer-deadlock-d](./quick/260506-lqq-fix-bridge-stderr-pipe-buffer-deadlock-d/) |
 
+### Phase 12 closed (2026-05-08)
+- 8 plans, 6 waves
+- 4 input components hardened: tFileInputXML (lxml migration), tFileInputMSXML (build-from-scratch), tExtractXMLField (harden + secure parser), tXMLMap (heavy fix incl. BUG-XMP-003)
+- 2 output components built: tFileOutputXML (simple/flat), tAdvancedFileOutputXML (hierarchical)
+- 12 conditional needs_review entries on the converter (D-E1 lock-in)
+- Per-module 95%+ line coverage achieved (97% overall, all 7 modules >= 95%)
+- 8 E2E tests (6 per-component + 2 D-E1 warn baseline), all pass
+- Java bridge unchanged per D-E2 (JAR rebuild deferred to Phase 13)
+- 43 OPEN audit items from 12-01-AUDIT.md closed across plans 12-03..12-07
+
 ## Session Continuity
 
-Last session: 2026-05-08T15:59:23.020Z
-Stopped at: Phase 12 context gathered
-Resume with: /gsd-discuss-phase 10 (next pending phase per ROADMAP -- Iterate Support; Phase 11 Oracle and Phase 12 Integration also pending)
+Last session: 2026-05-08T17:00:00Z
+Stopped at: Phase 12 complete -- all 8 plans done, all 4 requirements (XML-01..04) delivered
+Resume with: /gsd-verify-work (Phase 12 verification), then /gsd-discuss-phase 13 (Test Stabilization & Bridge JAR Rebuild)
