@@ -196,7 +196,7 @@ Requirements for engine restructure milestone. Each maps to roadmap phases.
 
 - [ ] **XML-01**: The 4 input XML components (`tFileInputXML`, `tFileInputMSXML`, `tExtractXMLField`, `tXMLMap`) match Talaxie javajet behavior parameter-by-parameter; gaps surfaced by the Phase 12 audit (12-01-AUDIT.md) are either fixed in code OR converted to a conditional `needs_review` (D-E1 pattern) for explicitly out-of-scope sub-features (XSLT, XInclude, custom DTD, Document output for tXMLMap, lookup/join for tXMLMap, expression_filter for tXMLMap)
 - [ ] **XML-02**: A new `tFileOutputXML` engine component is built with full simple/flat XML emission (one row per ROW_TAG, columns->sub-elements or attributes via MAPPING) and registered alongside a new `FileOutputXMLConverter` class (one does not exist today; only `tAdvancedFileOutputXML` is registered)
-- [ ] **XML-03**: A new `tAdvancedFileOutputXML` engine component is built with hierarchical emission (ROOT/GROUP/LOOP TABLE-driven nesting, attributes via ATTRIBUTE flag, namespace support); converter `AdvancedFileOutputXmlConverter` already extracts all 33 params, so no converter rewrite needed; the 6 sub-features in the conditional needs_review list (DTD_VALID, XSL_VALID, OUTPUT_AS_XSD, ADD_DOCUMENT_AS_NODE, ADD_UNMAPPED_ATTRIBUTE, MERGE) emit needs_review per D-E1
+- [x] **XML-03**: A new `tAdvancedFileOutputXML` engine component is built with hierarchical emission (ROOT/GROUP/LOOP TABLE-driven nesting, attributes via ATTRIBUTE flag, namespace support); converter `AdvancedFileOutputXmlConverter` already extracts all 33 params, so no converter rewrite needed; the 6 sub-features in the conditional needs_review list (DTD_VALID, XSL_VALID, OUTPUT_AS_XSD, ADD_DOCUMENT_AS_NODE, ADD_UNMAPPED_ATTRIBUTE, MERGE) emit needs_review per D-E1
 - [ ] **XML-04**: All 6 in-scope components are unified on lxml >= 4.9 (already pinned via the `xml` extra in pyproject.toml). `file_input_xml.py` is migrated from stdlib `xml.etree.ElementTree` to lxml. Threshold-switched DOM (`etree.parse`)/streaming (`etree.iterparse + element.clear(keep_tail=True)`) at the configured threshold (`xml_streaming_threshold_mb`, default 50 MB). Per-input-boundary secure-XMLParser flags (`resolve_entities=False, no_network=True, load_dtd=False`) -- substituting for the deprecated `defusedxml.lxml` per D-C4 caveat. Per-module 95% line coverage floor and per-parameter positive+negative test rule met
 
 ### Testing
@@ -392,7 +392,7 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | ORAC-05 | Phase 11 | Complete |
 | XML-01 | Phase 12 | Pending |
 | XML-02 | Phase 12 | Pending |
-| XML-03 | Phase 12 | Pending |
+| XML-03 | Phase 12 | Complete |
 | XML-04 | Phase 12 | Pending |
 | TEST-01 | Phase 1 | Complete |
 | TEST-02 | Phase 1 | Complete |
