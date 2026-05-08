@@ -139,7 +139,26 @@ class Executor:
                 logger.info("Job terminated by tDie component")
                 break
 
-        # Stall detection: check for components in attempted subjobs that never executed
+        execution_time = time.time() - start_time
+
+        # Finalize streaming components: call reset() on all components that have one.
+        # Sink components (e.g., FileOutputXML, AdvancedFileOutputXML) hold open
+        # etree.xmlfile context managers across chunks; reset() closes them and flushes
+        # the closing tags. Without this, streaming XML output files are truncated.
+        # CR-01 fix: finalization MUST run before stall-detection raise so files
+        # are properly closed even when a stall is detected.
+        for comp_id, component in self.components.items():
+            if hasattr(component, "reset") and callable(component.reset):
+                try:
+                    component.reset()
+                except Exception as _reset_exc:  # noqa: BLE001
+                    logger.warning(
+                        "Component %s reset() raised during job finalization: %s",
+                        comp_id, _reset_exc,
+                    )
+
+        # Stall detection: check for components in attempted subjobs that never executed.
+        # Runs AFTER finalization so streaming output files are always closed first.
         if not self._job_terminated:
             unexecuted = set(self.components.keys()) - self.executed_components
             # Exclude components marked as skipped
@@ -159,22 +178,6 @@ class Executor:
                     f"Runtime stall detected: {len(unexecuted)} components never executed. "
                     f"Stuck components:\n{diagnostics}"
                 )
-
-        execution_time = time.time() - start_time
-
-        # Finalize streaming components: call reset() on all components that have one.
-        # Sink components (e.g., FileOutputXML, AdvancedFileOutputXML) hold open
-        # etree.xmlfile context managers across chunks; reset() closes them and flushes
-        # the closing tags. Without this, streaming XML output files are truncated.
-        for comp_id, component in self.components.items():
-            if hasattr(component, "reset") and callable(component.reset):
-                try:
-                    component.reset()
-                except Exception as _reset_exc:  # noqa: BLE001
-                    logger.warning(
-                        "Component %s reset() raised during job finalization: %s",
-                        comp_id, _reset_exc,
-                    )
 
         if self._job_terminated:
             status = "error"
