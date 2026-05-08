@@ -37,8 +37,18 @@ _XSI_TYPE = "{http://www.w3.org/2001/XMLSchema-instance}type"
 
 
 def _java_expr(expression: str) -> str:
-    """Prefix a non-empty expression with the ``{{java}}`` marker."""
+    """Prefix a non-empty expression with the ``{{java}}`` marker.
+
+    Also normalises line endings (CRLF / CR / LF) to a single space so
+    the stored expression is always a single-line string. Groovy's
+    Automatic Semicolon Insertion (ASI) can misparse multi-line
+    expressions when they are injected verbatim into generated scripts.
+    """
+
     if expression:
+        # Collapse any line-ending sequence to a single space, then strip
+        import re
+        expression = re.sub(r'\r\n|\r|\n', ' ', expression).strip()
         return f"{{{{java}}}}{expression}"
     return ""
 
