@@ -27,8 +27,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 9: tContextLoad & Routines** - Deliver tContextLoad with full policy support and Java/Python routine infrastructure
 - [x] **Phase 10: Iterate Support** - Deliver tFlowToIterate, tFileList, tFileExist and the engine iterate execution loop (completed 2026-05-05)
 - [x] **Phase 11: Oracle Components** - Verify and deliver Oracle connection, input, output, and supporting components (completed 2026-05-07)
-- [ ] **Phase 12: Test Stabilization & Bridge JAR Rebuild** (RESCOPED) - Clear ~39 inherited failing tests, rebuild Java bridge JAR to match Python contract, lock per-module coverage baseline before adding new code
-- [ ] **Phase 13: XML Components Audit, Harden & Output** (NEW) - Audit + fix tFileInputXML, tExtractXMLField, tXMLMap against Talend behavior; build tFileOutputXML engine + converter; comprehensive tests
+- [ ] **Phase 12: XML Components Audit, Harden & Output** (NEW) - Audit + fix tFileInputXML, tExtractXMLField, tXMLMap against Talend behavior; build tFileOutputXML engine + converter; comprehensive tests
+- [ ] **Phase 13: Test Stabilization & Bridge JAR Rebuild** (RESCOPED) - Clear inherited failing tests, rebuild Java bridge JAR to match Python contract, lock per-module coverage baseline before coverage push
 - [ ] **Phase 14: Coverage Push to 95% per-module floor** (NEW) - Each module under src/v1/engine and src/converters must hit 95% line coverage; CI gate enforces
 - [ ] **Phase 15: Integration Testing & Performance** (RENUMBERED from old Phase 12) - End-to-end integration tests with real Talend jobs, output comparison, and performance optimization
 - [ ] **Phase 16: Documentation Sweep** (NEW) - Drop stale docs, write canonical set; scope decided after Phase 14
@@ -296,21 +296,9 @@ Plans:
 - [x] 11-06-PLAN.md -- Converter D-E1 update: conditional Wallet/OCI needs_review for the 3 in-scope converters + converter unit tests (Wave 2 -- converter-only, parallel to 11-02)
 - [x] 11-07-PLAN.md -- Hybrid integration tests: testcontainers conftest + @pytest.mark.oracle e2e for VR-04..08 + 3 sample .item files + 11-VERIFICATION.md phase gate (Wave 6, includes manual checkpoint)
 
-### Phase 12: Test Stabilization & Bridge JAR Rebuild
-**Goal**: The test surface is fully green (zero failing tests) and trustworthy as a regression baseline -- Java bridge JAR signature matches Python client, FileOutputExcel input_schema gap closed, NeedsReview converter expectations aligned with current behavior, per-module coverage baseline locked
-**Depends on**: Phase 11
-**Requirements**: TEST-07, TEST-08 (new -- to be added during discuss-phase)
-**Success Criteria** (what must be TRUE):
-  1. Zero failing tests under `python -m pytest tests/` (currently 39 failing across bridge_integration, java_component, file_output_excel, unique_row, NeedsReview converters, extract_regex_fields, convert_type)
-  2. Java bridge JAR rebuilt and committed; `executeOneTimeExpression` and other drifted signatures match Python client
-  3. Per-module coverage baseline measured and recorded in COVERAGE-BASELINE.md (input to Phase 14)
-  4. Pre-existing failure groups documented and resolved (no "leave as deferred" items remaining for inherited tests)
-  5. CI command for coverage measurement is wired and reproducible
-**Plans**: TBD
-
-### Phase 13: XML Components Audit, Harden & Output
+### Phase 12: XML Components Audit, Harden & Output
 **Goal**: The 3 most-used existing XML components (tFileInputXML, tExtractXMLField, tXMLMap) match Talend behavior end-to-end with comprehensive tests; tFileOutputXML ships with engine + converter + tests so production jobs that emit XML can be migrated
-**Depends on**: Phase 12
+**Depends on**: Phase 11
 **Requirements**: XML-01, XML-02, XML-03, XML-04 (new -- to be added during discuss-phase)
 **Success Criteria** (what must be TRUE):
   1. tFileInputXML, tExtractXMLField, tXMLMap each pass an audit-vs-Talend report with all gaps fixed; comprehensive unit + integration tests
@@ -318,6 +306,18 @@ Plans:
   3. Real .item fixtures exercise each XML component end-to-end through ETLEngine
   4. No engine_gap entries remaining for the 4 in-scope XML components
   5. Per-module coverage of each XML component hits the Phase 14 floor (95%)
+**Plans**: TBD
+
+### Phase 13: Test Stabilization & Bridge JAR Rebuild
+**Goal**: The test surface is fully green (zero failing tests) and trustworthy as a regression baseline -- Java bridge JAR signature matches Python client (manager is making concurrent bridge changes that will be incorporated here), FileOutputExcel input_schema gap closed, NeedsReview converter expectations aligned with current behavior, per-module coverage baseline locked
+**Depends on**: Phase 12
+**Requirements**: TEST-07, TEST-08 (new -- to be added during discuss-phase)
+**Success Criteria** (what must be TRUE):
+  1. Zero failing tests under `python -m pytest tests/` (currently ~39 failing across bridge_integration, java_component, file_output_excel, unique_row, NeedsReview converters, extract_regex_fields, convert_type -- expected to evolve with manager's bridge changes)
+  2. Java bridge JAR rebuilt and committed; `executeOneTimeExpression` and other drifted signatures match Python client; manager's in-flight bridge changes are folded in
+  3. Per-module coverage baseline measured and recorded in COVERAGE-BASELINE.md (input to Phase 14)
+  4. Pre-existing failure groups documented and resolved (no "leave as deferred" items remaining for inherited tests)
+  5. CI command for coverage measurement is wired and reproducible
 **Plans**: TBD
 
 ### Phase 14: Coverage Push to 95% per-module floor
@@ -328,7 +328,7 @@ Plans:
   1. Per-module coverage report shows >= 95% line coverage for every module under src/v1/engine and src/converters
   2. CI gate enforces the 95% floor on every PR; below-threshold modules block merge
   3. Tests added during this phase are real-behavior tests (no coverage-gaming via `# pragma: no cover` on logic paths)
-  4. COVERAGE-BASELINE.md from Phase 12 is replaced by COVERAGE.md showing final per-module numbers
+  4. COVERAGE-BASELINE.md from Phase 13 is replaced by COVERAGE.md showing final per-module numbers
 **Plans**: TBD
 
 ### Phase 15: Integration Testing & Performance
@@ -373,8 +373,8 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 9. tContextLoad & Routines | 2/2 | Complete | - |
 | 10. Iterate Support | 11/11 | Complete    | 2026-05-05 |
 | 11. Oracle Components | 7/7 | Complete    | 2026-05-07 |
-| 12. Test Stabilization & Bridge JAR Rebuild | 0/TBD | Not started | - |
-| 13. XML Components Audit, Harden & Output | 0/TBD | Not started | - |
+| 12. XML Components Audit, Harden & Output | 0/TBD | Not started | - |
+| 13. Test Stabilization & Bridge JAR Rebuild | 0/TBD | Not started | - |
 | 14. Coverage Push to 95% per-module floor | 0/TBD | Not started | - |
 | 15. Integration Testing & Performance | 0/TBD | Not started | - |
 | 16. Documentation Sweep | 0/TBD | Not started | - |

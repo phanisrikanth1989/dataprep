@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: ready_to_plan
-stopped_at: Phase 11 complete; ROADMAP restructured to insert phases 12-16 (test stabilization, XML audit+output, coverage 95%, integration & perf renumbered to 15, docs sweep)
-last_updated: "2026-05-07T07:00:00.000Z"
-last_activity: 2026-05-07 -- Restructured v1.0 milestone: added Phase 12 (Test Stabilization), Phase 13 (XML Components), Phase 14 (Coverage 95%), Phase 16 (Docs); old Phase 12 (Integration & Perf) renumbered to Phase 15
+stopped_at: Phase 11 complete; ROADMAP restructured to insert phases 12-16; phases 12 and 13 swapped after manager started concurrent bridge changes -- XML audit+output is now Phase 12, test stabilization (which folds in the bridge changes) is now Phase 13
+last_updated: "2026-05-07T07:30:00.000Z"
+last_activity: 2026-05-07 -- Swapped Phase 12 (XML audit+output) and Phase 13 (test stabilization + bridge JAR rebuild) so test stabilization runs after manager's in-flight bridge changes land
 progress:
   total_phases: 20
   completed_phases: 15
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-14)
 
 **Core value:** Any Talend job using the target components must produce identical results when run through the Python engine
-**Current focus:** Phase 12 — Test Stabilization & Bridge JAR Rebuild
+**Current focus:** Phase 12 — XML Components Audit, Harden & Output
 
 ## Current Position
 
 Phase: 12
 Plan: Not started
-Status: Ready to plan (Test Stabilization)
-Last activity: 2026-05-07 -- ROADMAP restructured; phases 12-16 inserted
+Status: Ready to plan (XML Components)
+Last activity: 2026-05-07 -- Phase 12/13 swapped: XML first, test stabilization deferred until manager's bridge changes land
 
 Progress: [███████▌░░] 75% (15/20 phases complete -- 1, 2, 3, 4, 5, 5.1, 5.2, 6, 7, 7.1, 7.2, 8, 9, 10, 11)
 
