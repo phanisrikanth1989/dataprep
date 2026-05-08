@@ -109,6 +109,19 @@ class FileOutputPositional(BaseComponent):
     # Configuration validation
     # ------------------------------------------------------------------
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Tracks whether _process() has already written the first chunk during
+        # a streaming execute() call.  Set to True after the first successful
+        # write so that subsequent chunks open the file in append mode instead
+        # of overwriting it.  Cleared by reset() so iterate loops start fresh.
+        self._streaming_write_started: bool = False
+
+    def reset(self) -> None:
+        """Reset component state for re-execution (iterate support)."""
+        super().reset()
+        self._streaming_write_started = False
+
     def _validate_config(self) -> None:
         """Validate structural shape of required config keys.
 
@@ -177,6 +190,11 @@ class FileOutputPositional(BaseComponent):
         filepath = self.config.get('filepath', '')
         row_separator = self.config.get('row_separator', self.DEFAULT_ROW_SEPARATOR)
         append = self.config.get('append', self.DEFAULT_APPEND)
+        # Streaming mode: after the first chunk is written, force append so
+        # subsequent chunks do not overwrite the file.  _streaming_write_started
+        # is owned entirely by this component and is reset between execute() calls.
+        if self._streaming_write_started:
+            append = True
         include_header = self.config.get('include_header', self.DEFAULT_INCLUDE_HEADER)
         compress = self.config.get('compress', self.DEFAULT_COMPRESS)
         encoding = self.config.get('encoding', self.DEFAULT_ENCODING)
@@ -293,6 +311,11 @@ class FileOutputPositional(BaseComponent):
             "[%s] Positional file output complete: %d rows written to %s",
             self.id, rows_written, filepath,
         )
+
+        # Mark that the file now exists with content so the next streaming chunk
+        # appends instead of overwriting.
+        self._streaming_write_started = True
+
         return {'main': input_data}
 
     # ------------------------------------------------------------------

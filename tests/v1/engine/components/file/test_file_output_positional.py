@@ -528,3 +528,112 @@ class TestStatistics:
         comp._process(pd.DataFrame())
         assert comp.stats["NB_LINE"] == 0
         assert comp.stats["NB_LINE_OK"] == 0
+
+
+# ------------------------------------------------------------------
+# 14. Streaming multi-chunk append fix
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestStreamingWriteStarted:
+    """_streaming_write_started flag prevents chunk overwrite in streaming mode.
+
+    Bug fixed: without the flag every chunk opened the fixed-width file with
+    mode='w', so only the last chunk survived.  The fix forces append=True
+    for every chunk after the first by tracking _streaming_write_started.
+    """
+
+    def test_flag_is_false_on_init(self):
+        """_streaming_write_started is False on a freshly created component."""
+        comp = _make_component({"filepath": "/tmp/x.txt", "formats": _SIMPLE_FORMATS})
+        assert comp._streaming_write_started is False
+
+    def test_flag_set_true_after_first_process(self, tmp_path):
+        """After the first _process() call the flag becomes True."""
+        out = str(tmp_path / "out.txt")
+        comp = _make_component({"filepath": out, "formats": _SIMPLE_FORMATS})
+        comp._process(_SIMPLE_DATA)
+        assert comp._streaming_write_started is True
+
+    def test_second_chunk_appends_not_overwrites(self, tmp_path):
+        """Second _process() call appends even when append=False is in config.
+
+        Core regression: without the fix chunk 2 would overwrite chunk 1.
+        """
+        out = str(tmp_path / "out.txt")
+        comp = _make_component({"filepath": out, "formats": _SIMPLE_FORMATS, "append": False})
+
+        chunk1 = pd.DataFrame({"name": ["Alice", "Bob"],    "age": ["25", "30"]})
+        chunk2 = pd.DataFrame({"name": ["Charlie", "Dave"], "age": ["35", "40"]})
+        comp._process(chunk1)
+        comp._process(chunk2)
+
+        lines = _read_text(out).splitlines()
+        assert len(lines) == 4, (
+            f"Expected 4 rows (2 per chunk), got {len(lines)}. "
+            f"The second chunk probably overwrote the first."
+        )
+
+    def test_three_chunks_all_rows_present(self, tmp_path):
+        """All rows from three sequential _process() calls survive in the file."""
+        out = str(tmp_path / "out.txt")
+        comp = _make_component({"filepath": out, "formats": _SIMPLE_FORMATS, "append": False})
+
+        for start in [10, 20, 30]:
+            chunk = pd.DataFrame({"name": [f"P{start}a", f"P{start}b"],
+                                   "age":  [str(start), str(start + 1)]})
+            comp._process(chunk)
+
+        lines = _read_text(out).splitlines()
+        assert len(lines) == 6, f"Expected 6 rows (3 chunks x 2), got {len(lines)}"
+
+    def test_reset_clears_flag(self, tmp_path):
+        """reset() sets _streaming_write_started back to False."""
+        out = str(tmp_path / "out.txt")
+        comp = _make_component({"filepath": out, "formats": _SIMPLE_FORMATS})
+        comp._process(_SIMPLE_DATA)
+        assert comp._streaming_write_started is True
+
+        comp.reset()
+        assert comp._streaming_write_started is False
+
+    def test_iterate_pattern_second_pass_overwrites(self, tmp_path):
+        """After reset(), a fresh _process() overwrites — correct iterate-loop behaviour.
+
+        In a tFileList loop each pass calls reset() then execute() again.
+        The output file must contain only the rows from the most recent pass.
+        """
+        out = str(tmp_path / "out.txt")
+        comp = _make_component({"filepath": out, "formats": _SIMPLE_FORMATS, "append": False})
+
+        # First pass — 1 row
+        comp._process(pd.DataFrame({"name": ["Pass1"], "age": ["99"]}))
+        comp.reset()
+
+        # Second pass — 2 rows
+        comp._process(pd.DataFrame({"name": ["Pass2a", "Pass2b"], "age": ["11", "22"]}))
+
+        content = _read_text(out)
+        lines = content.splitlines()
+        assert len(lines) == 2, (
+            f"After reset() the file should contain only the second pass (2 rows), "
+            f"got {len(lines)}"
+        )
+        assert "Pass2" in content
+        assert "Pass1" not in content
+
+    def test_explicit_append_config_respected_on_first_chunk(self, tmp_path):
+        """append=True in config is honoured on the first chunk."""
+        out = str(tmp_path / "out.txt")
+        with open(out, "w", encoding="ISO-8859-15") as fh:
+            fh.write("Existing  00000\n")
+
+        comp = _make_component(
+            {"filepath": out, "formats": _SIMPLE_FORMATS, "append": True}
+        )
+        comp._process(pd.DataFrame({"name": ["New"], "age": ["42"]}))
+
+        content = _read_text(out)
+        assert "Existing" in content, "Pre-existing content must be kept when append=True"
+        assert "New" in content

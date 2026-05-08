@@ -143,7 +143,7 @@ class BaseComponent(ABC):
     """
 
     # Memory threshold for auto-switching to streaming mode (in MB)
-    MEMORY_THRESHOLD_MB = 3072
+    MEMORY_THRESHOLD_MB = 5120
 
     # Python type string -> pandas dtype mapping for validate_schema.
     # Only the 7 canonical Python type strings are supported.
@@ -1060,9 +1060,14 @@ class BaseComponent(ABC):
             col_length = col_def.get("length")
             if col_length is not None and col_type == "str":
                 col_length = int(col_length)
-                result[col_name] = result[col_name].apply(
-                    lambda v: v[:col_length] if isinstance(v, str) and len(v) > col_length else v
-                )
+                # length <= 0 means "no length declared" (Talend default for
+                # auto-generated/system columns like pivot_key, pivot_value).
+                # Treat it as unbounded -- truncating to 0 would silently
+                # empty every string value in the column.
+                if col_length > 0:
+                    result[col_name] = result[col_name].apply(
+                        lambda v: v[:col_length] if isinstance(v, str) and len(v) > col_length else v
+                    )
 
             # Apply precision for Decimal columns (CR-02 fix in _apply_decimal_precision)
             precision = col_def.get("precision")

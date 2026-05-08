@@ -1252,3 +1252,138 @@ class TestEmptyInputCsvHeader:
         assert '"id"' in lines[0] or lines[0].startswith('"'), (
             f"Header not quoted in CSV mode: {lines[0]!r}"
         )
+
+
+# ------------------------------------------------------------------
+# TestStreamingWriteStarted — streaming multi-chunk append fix
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestStreamingWriteStarted:
+    """_streaming_write_started flag prevents chunk overwrite in streaming mode.
+
+    Bug fixed: BaseComponent._execute_streaming() calls _process() once per
+    chunk.  Without the flag, every chunk opened the file with mode='w' so
+    only the last chunk survived.  The fix forces append=True for every chunk
+    after the first by tracking state in _streaming_write_started.
+
+    Note: BaseComponent.__init__ sets self.config = {} and only populates it
+    inside execute().  Tests that call _process() directly must set comp.config
+    explicitly, mirroring what execute() does before delegating.
+    """
+
+    def _make_proc_component(self, config: dict):
+        """Create a component with self.config pre-populated for direct _process() calls."""
+        comp = _make_component(config=config)
+        comp.config = dict(config)   # mirror what execute() does before calling _process()
+        return comp
+
+    def test_flag_is_false_on_init(self, tmp_path):
+        """_streaming_write_started starts False on a freshly created component."""
+        filepath = str(tmp_path / "out.csv")
+        config = {**_DEFAULT_CONFIG, "filepath": filepath, "file_exist_exception": False}
+        comp = _make_component(config=config)
+        assert comp._streaming_write_started is False
+
+    def test_flag_set_true_after_first_process(self, tmp_path):
+        """After the first _process() call the flag becomes True."""
+        filepath = str(tmp_path / "out.csv")
+        config = {**_DEFAULT_CONFIG, "filepath": filepath, "file_exist_exception": False}
+        comp = self._make_proc_component(config)
+        comp._process(_make_input_df())
+        assert comp._streaming_write_started is True
+
+    def test_second_chunk_appends_not_overwrites(self, tmp_path):
+        """Second _process() call appends even when config has append=False.
+
+        This is the core regression: without the fix, chunk 2 would open the
+        file with 'w' (reading append=False from config) and erase chunk 1.
+        """
+        filepath = str(tmp_path / "out.csv")
+        config = {**_DEFAULT_CONFIG, "filepath": filepath, "append": False,
+                  "file_exist_exception": False}
+        comp = self._make_proc_component(config)
+
+        chunk1 = _make_input_df([{"id": 1, "name": "Alice", "value": 1.0},
+                                  {"id": 2, "name": "Bob",   "value": 2.0}])
+        chunk2 = _make_input_df([{"id": 3, "name": "Charlie", "value": 3.0},
+                                  {"id": 4, "name": "Dave",    "value": 4.0}])
+        comp._process(chunk1)
+        comp._process(chunk2)
+
+        lines = open(filepath, encoding="ISO-8859-15").read().splitlines()
+        assert len(lines) == 4, (
+            f"Expected 4 rows (2 per chunk), got {len(lines)}. "
+            f"The second chunk probably overwrote the first."
+        )
+
+    def test_three_chunks_all_rows_present(self, tmp_path):
+        """All rows from all chunks survive when _process() is called three times."""
+        filepath = str(tmp_path / "out.csv")
+        config = {**_DEFAULT_CONFIG, "filepath": filepath, "append": False,
+                  "file_exist_exception": False}
+        comp = self._make_proc_component(config)
+
+        for i in range(3):
+            chunk = _make_input_df(
+                [{"id": i * 3 + j, "name": f"r{i}{j}", "value": float(j)} for j in range(3)]
+            )
+            comp._process(chunk)
+
+        lines = open(filepath, encoding="ISO-8859-15").read().splitlines()
+        assert len(lines) == 9, f"Expected 9 total rows (3 chunks x 3), got {len(lines)}"
+
+    def test_reset_clears_flag(self, tmp_path):
+        """reset() sets _streaming_write_started back to False."""
+        filepath = str(tmp_path / "out.csv")
+        config = {**_DEFAULT_CONFIG, "filepath": filepath, "file_exist_exception": False}
+        comp = self._make_proc_component(config)
+        comp._process(_make_input_df())
+        assert comp._streaming_write_started is True
+
+        comp.reset()
+        assert comp._streaming_write_started is False
+
+    def test_iterate_pattern_second_pass_overwrites(self, tmp_path):
+        """After reset(), a fresh _process() overwrites — correct iterate-loop behaviour.
+
+        In an iterate loop each pass calls reset() then execute() again.
+        The file should contain only the rows from the most recent pass.
+        """
+        filepath = str(tmp_path / "out.csv")
+        config = {**_DEFAULT_CONFIG, "filepath": filepath, "append": False,
+                  "file_exist_exception": False}
+        comp = self._make_proc_component(config)
+
+        # First iterate pass — 1 row
+        comp._process(_make_input_df([{"id": 1, "name": "Pass1", "value": 1.0}]))
+        comp.reset()
+        comp.config = dict(config)  # re-populate after reset (mirrors execute() behaviour)
+
+        # Second iterate pass — 2 rows
+        comp._process(_make_input_df([{"id": 2, "name": "Pass2A", "value": 2.0},
+                                       {"id": 3, "name": "Pass2B", "value": 3.0}]))
+
+        content = open(filepath, encoding="ISO-8859-15").read()
+        lines = content.splitlines()
+        assert len(lines) == 2, (
+            f"After reset() the file should contain only the second pass (2 rows), "
+            f"got {len(lines)}"
+        )
+        assert "Pass2" in content
+        assert "Pass1" not in content
+
+    def test_explicit_append_config_respected_on_first_chunk(self, tmp_path):
+        """append=True in config is honoured on the first chunk (pre-existing content kept)."""
+        filepath = str(tmp_path / "out.csv")
+        with open(filepath, "w", encoding="ISO-8859-15") as fh:
+            fh.write("pre;existing;row\n")
+        config = {**_DEFAULT_CONFIG, "filepath": filepath, "append": True,
+                  "file_exist_exception": False}
+        comp = self._make_proc_component(config)
+        comp._process(_make_input_df([{"id": 1, "name": "New", "value": 9.0}]))
+
+        content = open(filepath, encoding="ISO-8859-15").read()
+        assert "pre" in content, "Pre-existing content must be kept when append=True"
+        assert "New" in content

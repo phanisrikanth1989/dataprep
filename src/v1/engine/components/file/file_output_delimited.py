@@ -102,6 +102,23 @@ class FileOutputDelimited(BaseComponent):
     """
 
     # ------------------------------------------------------------------
+    # Streaming state
+    # ------------------------------------------------------------------
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Tracks whether _process() has already written the first chunk during
+        # a streaming execute() call.  Set to True after the first successful
+        # write so that subsequent chunks open the file in append mode instead
+        # of overwriting it.  Cleared by reset() so iterate loops start fresh.
+        self._streaming_write_started: bool = False
+
+    def reset(self) -> None:
+        """Reset component state for re-execution (iterate support)."""
+        super().reset()
+        self._streaming_write_started = False
+
+    # ------------------------------------------------------------------
     # Bool helper (ENG-WR-11)
     # ------------------------------------------------------------------
 
@@ -170,6 +187,11 @@ class FileOutputDelimited(BaseComponent):
         csv_option = self._bool(self.config.get("csv_option", False))
         include_header = self._bool(self.config.get("include_header", False))
         append = self._bool(self.config.get("append", False))
+        # Streaming mode: after the first chunk is written, force append so
+        # subsequent chunks do not overwrite the file.  _streaming_write_started
+        # is owned entirely by this component and is reset between execute() calls.
+        if self._streaming_write_started:
+            append = True
         create_directory = self._bool(self.config.get("create_directory", True))
         split = self._bool(self.config.get("split", False))
         delete_empty_file = self._bool(self.config.get("delete_empty_file", False))
@@ -294,6 +316,10 @@ class FileOutputDelimited(BaseComponent):
         logger.info(
             f"[{self.id}] Write complete: {total_written} rows to '{filepath}'"
         )
+
+        # Mark that the file now exists with content so the next streaming chunk
+        # appends instead of overwriting.
+        self._streaming_write_started = True
 
         # CR-09 fix: return ORIGINAL input_data, NOT df_out (which has date-formatted cols)
         return {"main": input_data, "reject": None}

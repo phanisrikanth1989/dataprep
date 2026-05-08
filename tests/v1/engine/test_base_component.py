@@ -1429,3 +1429,88 @@ class TestEmptyVsNull:
         main = result["main"]
         # Empty string must become NA when treat_empty_as_null=True
         assert pd.isna(main["name"].iloc[1])
+
+
+# ------------------------------------------------------------------
+# Tests: validate_schema — string length=0 guard (pivot_key / pivot_value fix)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestValidateSchemaLengthZero:
+    """validate_schema must NOT truncate string columns when schema length=0.
+
+    Bug fixed: length=0 is Talend's default for auto-generated columns such
+    as pivot_key and pivot_value from tUnpivotRow.  The old code ran
+    ``v[:col_length]`` which evaluates as ``v[:0] == ''``, silently emptying
+    every string value in the column.  The fix adds an ``if col_length > 0:``
+    guard so that length=0 is treated as "unbounded".
+    """
+
+    def test_length_zero_leaves_values_unchanged(self):
+        """length=0 must not modify any string values."""
+        df = pd.DataFrame({"col": ["hello", "world", "a longer string"]})
+        schema = [{"name": "col", "type": "str", "nullable": True, "length": 0}]
+        comp = ConcreteComponent("c1", {})
+        result = comp.validate_schema(df, schema)
+        assert list(result["col"]) == ["hello", "world", "a longer string"], (
+            f"length=0 must be treated as unbounded, got {list(result['col'])}"
+        )
+
+    def test_length_zero_does_not_produce_empty_strings(self):
+        """Regression: length=0 must not convert every value to an empty string.
+
+        Before the fix ``v[:0] == ''`` silently wiped every string in the column.
+        """
+        df = pd.DataFrame({"pivot_key": ["salary", "bonus", "pension"]})
+        schema = [{"name": "pivot_key", "type": "str", "nullable": True, "length": 0}]
+        comp = ConcreteComponent("c1", {})
+        result = comp.validate_schema(df, schema)
+        assert result["pivot_key"].str.len().gt(0).all(), (
+            "length=0 produced empty strings — the guard fix is not applied"
+        )
+
+    def test_positive_length_still_truncates(self):
+        """Positive length still truncates values that exceed it (no regression)."""
+        df = pd.DataFrame({"col": ["hello_world", "hi", "toolongstring"]})
+        schema = [{"name": "col", "type": "str", "nullable": True, "length": 5}]
+        comp = ConcreteComponent("c1", {})
+        result = comp.validate_schema(df, schema)
+        assert result["col"].iloc[0] == "hello",  "'hello_world'[:5] should be 'hello'"
+        assert result["col"].iloc[1] == "hi",     "'hi' is under limit, must be unchanged"
+        assert result["col"].iloc[2] == "toolon"[:5], "'toolongstring'[:5] should be 'toolo'"
+
+    def test_length_none_no_truncation(self):
+        """Missing 'length' key means no truncation is applied."""
+        df = pd.DataFrame({"col": ["a very long string indeed"]})
+        schema = [{"name": "col", "type": "str", "nullable": True}]  # no 'length'
+        comp = ConcreteComponent("c1", {})
+        result = comp.validate_schema(df, schema)
+        assert result["col"].iloc[0] == "a very long string indeed"
+
+    def test_pivot_key_and_pivot_value_with_length_zero(self):
+        """Real-world pattern: pivot_key + pivot_value columns from tUnpivotRow.
+
+        Both columns carry length=0 (Talend default for system-generated columns).
+        Values must be preserved exactly as produced by the unpivot operation.
+        """
+        df = pd.DataFrame({
+            "pivot_key":   ["salary", "bonus",  "pension"],
+            "pivot_value": ["75000",  "5000",   "12000"],
+        })
+        schema = [
+            {"name": "pivot_key",   "type": "str", "nullable": True, "length": 0},
+            {"name": "pivot_value", "type": "str", "nullable": True, "length": 0},
+        ]
+        comp = ConcreteComponent("c1", {})
+        result = comp.validate_schema(df, schema)
+        assert list(result["pivot_key"])   == ["salary", "bonus", "pension"]
+        assert list(result["pivot_value"]) == ["75000",  "5000",  "12000"]
+
+    def test_length_zero_integer_schema_not_affected(self):
+        """length=0 on a non-string column must have no effect (guard is str-only)."""
+        df = pd.DataFrame({"id": [1, 2, 3]})
+        schema = [{"name": "id", "type": "int", "nullable": False, "length": 0}]
+        comp = ConcreteComponent("c1", {})
+        result = comp.validate_schema(df, schema)
+        assert list(result["id"]) == [1, 2, 3]
