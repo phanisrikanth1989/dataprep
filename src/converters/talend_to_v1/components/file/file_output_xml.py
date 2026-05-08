@@ -1,8 +1,46 @@
-"""Converter for Talend tAdvancedFileOutputXML component.
+"""Converters for Talend tFileOutputXML and tAdvancedFileOutputXML components.
 
-Writes data as XML output with configurable element structure defined by
-ROOT, GROUP, and LOOP TABLE parameters. Supports DOM4J and Null generation
-modes, file validation (DTD/XSL), split output, and advanced separators.
+IN-02 fix: module docstring extended to cover both converter classes present
+in this file (Phase 12-06 added FileOutputXMLConverter for the simple variant).
+
+---- FileOutputXMLConverter (tFileOutputXML -- simple/flat variant) ----
+
+Writes each DataFrame row as a single XML element (ROW_TAG). Optional ROOT_TAGS
+outer wrapper, per-column MAPPING (sub-element vs attribute), streaming-write via
+etree.xmlfile, and split-file support. Engine class: FileOutputXML.
+
+Config mapping (18 unique + 2 framework = 20 params total):
+  FILENAME               -> filename               (str, default "")
+  INPUT_IS_DOCUMENT      -> input_is_document      (bool, default False)
+  DOCUMENT_COL           -> document_col           (str, default "")
+  ROW_TAG                -> row_tag                (str, default "row")
+  ROOT_TAGS              -> root_tags              (list/TABLE: stride-1 VALUE->name)
+  MAPPING                -> mapping               (list/TABLE: stride-2 SCHEMA_COLUMN_NAME/AS_ATTRIBUTE)
+  USE_DYNAMIC_GROUPING   -> use_dynamic_grouping   (bool, default False) [DEFERRED]
+  GROUP_BY               -> group_by              (list/TABLE: stride-2 COLUMN/LABEL) [DEFERRED]
+  FLUSHONROW             -> flushonrow             (bool, default False)
+  FLUSHONROW_NUM         -> flushonrow_num         (str, default "1")
+  ENCODING               -> encoding              (str, default "ISO-8859-15")
+  SPLIT                  -> split                  (bool, default False)
+  SPLIT_EVERY            -> split_every            (str, default "1000")
+  CREATE                 -> create                 (bool, default True)
+  TRIM                   -> trim                   (bool, default False)
+  ADVANCED_SEPARATOR     -> advanced_separator     (bool, default False) [DEFERRED]
+  THOUSANDS_SEPARATOR    -> thousands_separator    (str, default ",") [DEFERRED]
+  DECIMAL_SEPARATOR      -> decimal_separator      (str, default ".") [DEFERRED]
+  DELETE_EMPTYFILE       -> delete_empty_file      (bool, default False)
+  --- framework ---
+  TSTATCATCHER_STATS     -> tstatcatcher_stats     (bool, default False)
+  LABEL                  -> label                  (str, default "")
+
+TABLE helpers: _parse_mapping_table, _parse_groupby_table, _parse_root_tags_table
+
+---- AdvancedFileOutputXmlConverter (tAdvancedFileOutputXML -- structured variant) ----
+
+Writes data as XML output with configurable element structure defined by ROOT,
+GROUP, and LOOP TABLE parameters. Supports DOM4J and Null generation modes,
+file validation (DTD/XSL), split output, and advanced separators.
+No v1 engine implementation exists -- emits engine_gap needs_review entry.
 
 Config mapping (33 unique + 2 framework = 35 params total):
   FILENAME               -> filename               (str, default "")
