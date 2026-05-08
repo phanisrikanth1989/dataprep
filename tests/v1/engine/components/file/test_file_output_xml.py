@@ -30,7 +30,6 @@ import os
 import re
 from pathlib import Path
 from typing import Any, Dict
-from unittest.mock import patch
 
 import pandas as pd
 import pytest
