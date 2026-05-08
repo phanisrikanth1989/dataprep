@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: ready_to_plan
-stopped_at: Phase 11 plans complete (7 plans, plan-checker passed after BLOCKER-1 resolution)
-last_updated: "2026-05-07T06:18:20.276Z"
-last_activity: 2026-05-07 -- Phase 11 execution started
+stopped_at: Phase 11 complete; ROADMAP restructured to insert phases 12-16 (test stabilization, XML audit+output, coverage 95%, integration & perf renumbered to 15, docs sweep)
+last_updated: "2026-05-07T07:00:00.000Z"
+last_activity: 2026-05-07 -- Restructured v1.0 milestone: added Phase 12 (Test Stabilization), Phase 13 (XML Components), Phase 14 (Coverage 95%), Phase 16 (Docs); old Phase 12 (Integration & Perf) renumbered to Phase 15
 progress:
-  total_phases: 16
+  total_phases: 20
   completed_phases: 15
   total_plans: 69
   completed_plans: 64
-  percent: 94
+  percent: 75
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-14)
 
 **Core value:** Any Talend job using the target components must produce identical results when run through the Python engine
-**Current focus:** Phase 11 — oracle-components
+**Current focus:** Phase 12 — Test Stabilization & Bridge JAR Rebuild
 
 ## Current Position
 
 Phase: 12
 Plan: Not started
-Status: Ready to plan
-Last activity: 2026-05-07
+Status: Ready to plan (Test Stabilization)
+Last activity: 2026-05-07 -- ROADMAP restructured; phases 12-16 inserted
 
-Progress: [████████▌░] 81% (13/16 phases complete -- 1, 2, 3, 4, 5, 5.1, 5.2, 6, 7, 7.1, 7.2, 8, 9)
+Progress: [███████▌░░] 75% (15/20 phases complete -- 1, 2, 3, 4, 5, 5.1, 5.2, 6, 7, 7.1, 7.2, 8, 9, 10, 11)
 
 ## Performance Metrics
 
