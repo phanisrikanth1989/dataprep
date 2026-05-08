@@ -749,3 +749,124 @@ class TestFileOutputXMLSimple:
         node = _make_simple_node()
         result = FileOutputXMLConverter().convert(node, [], {})
         assert result.component["config"]["decimal_separator"] == "."
+
+
+# ==================================================================
+# TestAdvancedFileOutputXmlConverterConditionalNeedsReview -- Phase 12-07
+# D-E1 lock-in: the 6 deferred sub-features each emit needs_review when active.
+# ==================================================================
+
+
+def _make_advanced_node(params=None, component_id="xml_adv_1"):
+    """Create a TalendNode for AdvancedFileOutputXmlConverter D-E1 testing.
+
+    Accepts params dict with uppercase keys that map to node.params directly
+    (matching the _get_bool / _get_str converter helper expectations).
+    """
+    return TalendNode(
+        component_id=component_id,
+        component_type="tAdvancedFileOutputXML",
+        params=params or {},
+        schema={},
+        position={"x": 320, "y": 160},
+        raw_xml=__import__("xml.etree.ElementTree", fromlist=["Element"]).Element("node"),
+    )
+
+
+@pytest.mark.unit
+class TestAdvancedFileOutputXmlConverterConditionalNeedsReview:
+    """D-E1 lock-in (Phase 12-07): the 6 deferred sub-features each emit needs_review.
+
+    Each test verifies that the conditional needs_review block fires (or does NOT fire)
+    based on the relevant config flags. The baseline engine_gap entry is always present,
+    so counts are baseline + conditional_count.
+    """
+
+    def test_dtd_validation_emitted_when_both_flags_true(self):
+        """Test 1: file_valid=True AND dtd_valid=True -> dtd_validation needs_review."""
+        node = _make_advanced_node(params={"FILE_VALID": "true", "DTD_VALID": "true"})
+        result = AdvancedFileOutputXmlConverter().convert(node, [], {})
+        entries = [e for e in result.needs_review if e.get("feature") == "dtd_validation"]
+        assert len(entries) == 1
+
+    def test_dtd_validation_not_emitted_when_file_valid_false(self):
+        """Test 2: file_valid=False -> NO dtd_validation entry (both flags must be true)."""
+        node = _make_advanced_node(params={"FILE_VALID": "false", "DTD_VALID": "true"})
+        result = AdvancedFileOutputXmlConverter().convert(node, [], {})
+        entries = [e for e in result.needs_review if e.get("feature") == "dtd_validation"]
+        assert len(entries) == 0
+
+    def test_xsl_validation_emitted_when_both_flags_true(self):
+        """Test 3: file_valid=True AND xsl_valid=True -> xsl_validation needs_review."""
+        node = _make_advanced_node(params={"FILE_VALID": "true", "XSL_VALID": "true"})
+        result = AdvancedFileOutputXmlConverter().convert(node, [], {})
+        entries = [e for e in result.needs_review if e.get("feature") == "xsl_validation"]
+        assert len(entries) == 1
+
+    def test_xsl_validation_not_emitted_when_file_valid_false(self):
+        """Test 4: file_valid=False -> NO xsl_validation entry."""
+        node = _make_advanced_node(params={"FILE_VALID": "false", "XSL_VALID": "true"})
+        result = AdvancedFileOutputXmlConverter().convert(node, [], {})
+        entries = [e for e in result.needs_review if e.get("feature") == "xsl_validation"]
+        assert len(entries) == 0
+
+    def test_output_as_xsd_emitted_when_true(self):
+        """Test 5: output_as_xsd=True -> output_as_xsd needs_review."""
+        node = _make_advanced_node(params={"OUTPUT_AS_XSD": "true"})
+        result = AdvancedFileOutputXmlConverter().convert(node, [], {})
+        entries = [e for e in result.needs_review if e.get("feature") == "output_as_xsd"]
+        assert len(entries) == 1
+
+    def test_add_document_as_node_emitted_when_true(self):
+        """Test 6: add_document_as_node=True -> add_document_as_node needs_review."""
+        node = _make_advanced_node(params={"ADD_DOCUMENT_AS_NODE": "true"})
+        result = AdvancedFileOutputXmlConverter().convert(node, [], {})
+        entries = [e for e in result.needs_review if e.get("feature") == "add_document_as_node"]
+        assert len(entries) == 1
+
+    def test_add_unmapped_attribute_emitted_when_true(self):
+        """Test 7: add_unmapped_attribute=True -> add_unmapped_attribute needs_review."""
+        node = _make_advanced_node(params={"ADD_UNMAPPED_ATTRIBUTE": "true"})
+        result = AdvancedFileOutputXmlConverter().convert(node, [], {})
+        entries = [e for e in result.needs_review if e.get("feature") == "add_unmapped_attribute"]
+        assert len(entries) == 1
+
+    def test_merge_emitted_when_true(self):
+        """Test 8: merge=True -> merge needs_review."""
+        node = _make_advanced_node(params={"MERGE": "true"})
+        result = AdvancedFileOutputXmlConverter().convert(node, [], {})
+        entries = [e for e in result.needs_review if e.get("feature") == "merge"]
+        assert len(entries) == 1
+
+    def test_no_conditional_entries_when_no_flags_set(self):
+        """Test 9 (partial): no conditional D-E1 entries when all flags are at defaults."""
+        node = _make_advanced_node()
+        result = AdvancedFileOutputXmlConverter().convert(node, [], {})
+        conditional_entries = [e for e in result.needs_review if e.get("feature")]
+        assert len(conditional_entries) == 0
+
+    def test_all_six_entries_when_all_flags_set(self):
+        """Test 10: all 6 flags set -> exactly 6 conditional needs_review entries."""
+        node = _make_advanced_node(params={
+            "FILE_VALID": "true",
+            "DTD_VALID": "true",
+            "XSL_VALID": "true",
+            "OUTPUT_AS_XSD": "true",
+            "ADD_DOCUMENT_AS_NODE": "true",
+            "ADD_UNMAPPED_ATTRIBUTE": "true",
+            "MERGE": "true",
+        })
+        result = AdvancedFileOutputXmlConverter().convert(node, [], {})
+        conditional_entries = [e for e in result.needs_review if e.get("feature")]
+        assert len(conditional_entries) == 6
+
+    def test_each_entry_has_phase_key(self):
+        """Test 11: every D-E1 needs_review entry has 'phase' == '12'."""
+        node = _make_advanced_node(params={
+            "FILE_VALID": "true",
+            "DTD_VALID": "true",
+        })
+        result = AdvancedFileOutputXmlConverter().convert(node, [], {})
+        for entry in result.needs_review:
+            if entry.get("feature"):
+                assert entry.get("phase") == "12"

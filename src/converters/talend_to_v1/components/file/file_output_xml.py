@@ -360,6 +360,59 @@ class AdvancedFileOutputXmlConverter(ComponentConverter):
             "severity": "engine_gap",
         })
 
+        # ---- D-E1 conditional needs_review (Phase 12-07 lock-in) ----
+        # The 6 deferred sub-features each emit one needs_review entry when the
+        # corresponding flag is active in the source .item. Converter does NOT
+        # block conversion -- engine warns at runtime and ignores the flag.
+
+        def _add_review(feature, reason):
+            needs_review.append({
+                "feature": feature,
+                "reason": reason,
+                "phase": "12",
+            })
+
+        if config.get("file_valid") and config.get("dtd_valid"):
+            _add_review(
+                "dtd_validation",
+                "tAdvancedFileOutputXML DTD validation (file_valid=true, dtd_valid=true) is "
+                "not implemented by the Phase 12 engine. Engine emits a runtime warning and "
+                "skips the validation step.",
+            )
+        if config.get("file_valid") and config.get("xsl_valid"):
+            _add_review(
+                "xsl_validation",
+                "tAdvancedFileOutputXML XSL validation (file_valid=true, xsl_valid=true) is "
+                "not implemented by the Phase 12 engine. Engine emits a runtime warning and "
+                "skips the validation step.",
+            )
+        if config.get("output_as_xsd"):
+            _add_review(
+                "output_as_xsd",
+                "tAdvancedFileOutputXML XSD generation (output_as_xsd=true) is not implemented "
+                "by the Phase 12 engine. Engine emits a runtime warning and ignores the flag.",
+            )
+        if config.get("add_document_as_node"):
+            _add_review(
+                "add_document_as_node",
+                "tAdvancedFileOutputXML Document column passthrough (add_document_as_node=true) "
+                "is not implemented by the Phase 12 engine. Engine emits a runtime warning and "
+                "ignores the flag.",
+            )
+        if config.get("add_unmapped_attribute"):
+            _add_review(
+                "add_unmapped_attribute",
+                "tAdvancedFileOutputXML unmapped-attribute passthrough (add_unmapped_attribute="
+                "true) is not implemented by the Phase 12 engine. Engine emits a runtime "
+                "warning and ignores the flag.",
+            )
+        if config.get("merge"):
+            _add_review(
+                "merge",
+                "tAdvancedFileOutputXML merge mode (merge=true) is not implemented by the "
+                "Phase 12 engine. Engine emits a runtime warning and falls back to overwrite.",
+            )
+
         # ---- 12. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
