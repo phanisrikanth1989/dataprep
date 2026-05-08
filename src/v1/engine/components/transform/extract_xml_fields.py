@@ -29,6 +29,7 @@ from typing import Any, Dict, Optional
 import pandas as pd
 from lxml import etree
 
+from ..file import _xml_io
 from ...base_component import BaseComponent
 from ...component_registry import REGISTRY
 from ...exceptions import ConfigurationError, DataValidationError
@@ -148,14 +149,11 @@ class ExtractXMLField(BaseComponent):
                 continue
 
             try:
-                # Security: disable DTD, entity resolution, and network access
-                # to prevent XXE attacks and DTD-bomb memory exhaustion.
-                parser = etree.XMLParser(
-                    recover=True,
-                    resolve_entities=False,
-                    load_dtd=False,
-                    no_network=True,
-                )
+                # Security: delegate to _xml_io.secure_xml_parser() which
+                # centralizes the hardening flags (resolve_entities=False,
+                # no_network=True, load_dtd=False, recover=False). recover=False
+                # fails loud so callers can route to REJECT (fix-source policy).
+                parser = _xml_io.secure_xml_parser()
                 root = etree.fromstring(str(xml_string).encode("utf-8"), parser=parser)
 
                 # Namespace stripping -- uses iter() (lxml 5.x compatible, not getiterator())
