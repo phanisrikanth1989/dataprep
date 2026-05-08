@@ -137,7 +137,9 @@ class ExtractXMLField(BaseComponent):
             xml_string = row.get(src_col, None)
 
             try:
-                is_null = pd.isna(xml_string)
+                _na_check = pd.isna(xml_string)
+                # pd.isna on a list/array returns array; bool() collapses to scalar
+                is_null = bool(_na_check)
             except (TypeError, ValueError):
                 is_null = False
 

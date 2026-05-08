@@ -801,11 +801,18 @@ class XMLMap(BaseComponent):
 
             # Null / empty check
             try:
-                is_null = pd.isna(xml_string)
+                _na_check = pd.isna(xml_string)
+                # pd.isna on a list/array returns array; use bool() to catch ambiguous truth
+                is_null = bool(_na_check)
             except (TypeError, ValueError):
                 is_null = False
 
-            if is_null or xml_string == "":
+            try:
+                is_empty = xml_string == ""
+            except (TypeError, ValueError):
+                is_empty = False
+
+            if is_null or is_empty:
                 reject_rows.append(
                     self._make_reject_row(row, xml_string, _ERR_NO_XML, "No XML data")
                 )
@@ -819,9 +826,9 @@ class XMLMap(BaseComponent):
                     xml_string.encode("utf-8") if isinstance(xml_string, str) else xml_string,
                     parser=parser,
                 )
-            except etree.XMLSyntaxError as exc:
+            except (etree.XMLSyntaxError, TypeError, ValueError) as exc:
                 logger.warning("[%s] XML parse failed: %s", component_id, exc)
-                if die_on_error:
+                if die_on_error and isinstance(exc, etree.XMLSyntaxError):
                     raise DataValidationError(
                         f"[{component_id}] XML parse failed: {exc}"
                     ) from exc
