@@ -450,3 +450,133 @@ class TestComponentStructure:
         assert cfg["input_trees"] == []
         assert cfg["output_trees"] == []
         assert cfg["connections"] == []
+
+
+class TestConditionalNeedsReview:
+    """D-E1 lock-in: expression_filter / lookup / allInOne emit conditional needs_review.
+
+    Each sub-feature emits a needs_review entry ONLY when its trigger flag is
+    active in the Talend node (conditional). Absence of the flag means NO entry.
+    """
+
+    # ---- expression_filter ----
+
+    def test_expression_filter_true_emits_needs_review(self):
+        """activateExpressionFilter='true' on outputTree -> needs_review entry with feature='expression_filter'."""
+        raw_xml = _make_raw_xml(
+            output_trees_xml=(
+                '<outputTrees name="out1" expressionFilter="row1.status == 1" '
+                'activateExpressionFilter="true">'
+                '  <nodes name="id" expression="" type="id_String" xpath="id" />'
+                '</outputTrees>'
+            ),
+            metadata_xml=_SIMPLE_METADATA,
+        )
+        result = _convert(raw_xml=raw_xml)
+        ef_entries = [e for e in result.needs_review if e.get("feature") == "expression_filter"]
+        assert len(ef_entries) == 1, (
+            f"Expected exactly 1 expression_filter needs_review entry; got {len(ef_entries)}"
+        )
+
+    def test_expression_filter_false_no_needs_review(self):
+        """activateExpressionFilter='false' -> NO expression_filter needs_review entry."""
+        raw_xml = _make_raw_xml(
+            output_trees_xml=(
+                '<outputTrees name="out1" expressionFilter="" activateExpressionFilter="false">'
+                '  <nodes name="id" expression="" type="id_String" xpath="id" />'
+                '</outputTrees>'
+            ),
+            metadata_xml=_SIMPLE_METADATA,
+        )
+        result = _convert(raw_xml=raw_xml)
+        ef_entries = [e for e in result.needs_review if e.get("feature") == "expression_filter"]
+        assert len(ef_entries) == 0, (
+            "expression_filter needs_review emitted when flag is False"
+        )
+
+    def test_expression_filter_absent_no_needs_review(self):
+        """No activateExpressionFilter attribute -> NO expression_filter needs_review entry."""
+        raw_xml = _make_raw_xml(metadata_xml=_SIMPLE_METADATA)
+        result = _convert(raw_xml=raw_xml)
+        ef_entries = [e for e in result.needs_review if e.get("feature") == "expression_filter"]
+        assert len(ef_entries) == 0
+
+    # ---- lookup_join ----
+
+    def test_lookup_input_tree_emits_needs_review(self):
+        """inputTree with lookup='true' -> needs_review entry with feature='lookup_join'."""
+        raw_xml = _make_raw_xml(
+            input_trees_xml=_SIMPLE_INPUT_TREE + _LOOKUP_INPUT_TREE,
+            metadata_xml=_SIMPLE_METADATA,
+        )
+        result = _convert(raw_xml=raw_xml)
+        lj_entries = [e for e in result.needs_review if e.get("feature") == "lookup_join"]
+        assert len(lj_entries) == 1, (
+            f"Expected exactly 1 lookup_join needs_review entry; got {len(lj_entries)}"
+        )
+
+    def test_no_lookup_input_tree_no_needs_review(self):
+        """All inputTrees have lookup='false' -> NO lookup_join needs_review entry."""
+        raw_xml = _make_raw_xml(
+            input_trees_xml=_SIMPLE_INPUT_TREE,  # lookup='false'
+            metadata_xml=_SIMPLE_METADATA,
+        )
+        result = _convert(raw_xml=raw_xml)
+        lj_entries = [e for e in result.needs_review if e.get("feature") == "lookup_join"]
+        assert len(lj_entries) == 0, (
+            "lookup_join needs_review emitted when no lookup tree present"
+        )
+
+    # ---- all_in_one_document_output ----
+
+    def test_all_in_one_output_tree_emits_needs_review(self):
+        """outputTree with allInOne='true' -> needs_review entry with feature='all_in_one_document_output'."""
+        raw_xml = _make_raw_xml(
+            output_trees_xml=(
+                '<outputTrees name="out1" allInOne="true">'
+                '  <nodes name="id" expression="" type="id_String" xpath="id" />'
+                '</outputTrees>'
+            ),
+            metadata_xml=_SIMPLE_METADATA,
+        )
+        result = _convert(raw_xml=raw_xml)
+        aio_entries = [e for e in result.needs_review if e.get("feature") == "all_in_one_document_output"]
+        assert len(aio_entries) == 1, (
+            f"Expected exactly 1 all_in_one needs_review entry; got {len(aio_entries)}"
+        )
+
+    def test_all_in_one_false_no_needs_review(self):
+        """outputTree with allInOne='false' -> NO all_in_one needs_review entry."""
+        raw_xml = _make_raw_xml(
+            output_trees_xml=(
+                '<outputTrees name="out1" allInOne="false">'
+                '  <nodes name="id" expression="" type="id_String" xpath="id" />'
+                '</outputTrees>'
+            ),
+            metadata_xml=_SIMPLE_METADATA,
+        )
+        result = _convert(raw_xml=raw_xml)
+        aio_entries = [e for e in result.needs_review if e.get("feature") == "all_in_one_document_output"]
+        assert len(aio_entries) == 0
+
+    # ---- combined ----
+
+    def test_all_three_triggers_active_emits_three_entries(self):
+        """All three D-E1 flags active simultaneously -> 3 separate needs_review entries."""
+        raw_xml = _make_raw_xml(
+            input_trees_xml=_SIMPLE_INPUT_TREE + _LOOKUP_INPUT_TREE,
+            output_trees_xml=(
+                '<outputTrees name="out1" expressionFilter="x==1" '
+                'activateExpressionFilter="true" allInOne="true">'
+                '  <nodes name="id" expression="" type="id_String" xpath="id" />'
+                '</outputTrees>'
+            ),
+            metadata_xml=_SIMPLE_METADATA,
+        )
+        result = _convert(raw_xml=raw_xml)
+        ef = [e for e in result.needs_review if e.get("feature") == "expression_filter"]
+        lj = [e for e in result.needs_review if e.get("feature") == "lookup_join"]
+        aio = [e for e in result.needs_review if e.get("feature") == "all_in_one_document_output"]
+        assert len(ef) == 1, f"Expected 1 expression_filter entry, got {len(ef)}"
+        assert len(lj) == 1, f"Expected 1 lookup_join entry, got {len(lj)}"
+        assert len(aio) == 1, f"Expected 1 all_in_one entry, got {len(aio)}"
