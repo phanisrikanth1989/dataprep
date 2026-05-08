@@ -40,6 +40,8 @@ Config mapping (33 unique + 2 framework = 35 params total):
   TSTATCATCHER_STATS     -> tstatcatcher_stats     (bool, default False)
   LABEL                  -> label                  (str, default "")
 """
+from __future__ import annotations
+
 import logging
 from typing import Any, Dict, List
 
