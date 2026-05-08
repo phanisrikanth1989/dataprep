@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+from attr import field
 import pandas as pd
 import pyarrow as pa
 import pyarrow.ipc as ipc
@@ -590,9 +591,17 @@ class JavaBridge:
                     reader = ipc.open_stream(pa.py_buffer(output_bytes))
                     result_table = reader.read_all()
                     chunk_output_df = result_table.to_pandas()
-                    if output_name not in output_dfs_list:
-                        output_dfs_list[output_name] = []
-                    output_dfs_list[output_name].append(chunk_output_df)
+                    # decimal128 null ? "" so callers never see pandas <NA>.
+                    # Keep non-null values as Python Decimal (not str) so that
+                    # if this DF is fed back as input it can still be serialized.
+                    for field in result_table.schema:
+                        if pa.types.is_decimal(field.type) and field.name in chunk_output_df.columns:
+                            chunk_output_df[field.name] = chunk_output_df[field.name].apply(
+                                lambda v: "" if v is None or v is pd.NA or (isinstance(v, float) and pd.isna(v)) else v
+                            )
+                if output_name not in output_dfs_list:
+                    output_dfs_list[output_name] = []
+                output_dfs_list[output_name].append(chunk_output_df)
 
         output_dfs: dict[str, pd.DataFrame] = {}
         for output_name, df_list in output_dfs_list.items():
@@ -791,7 +800,15 @@ class JavaBridge:
                     coerced_df[col_name] = coerced_df[col_name].astype(bool)
                 elif col_type == "datetime":
                     coerced_df[col_name] = pd.to_datetime(coerced_df[col_name], errors="coerce")
-                # Decimal: leave as-is, pyarrow handles conversion
+                elif col_type == "Decimal":
+                    # Empty string "" must become none so pyarrow can write a
+                    # proper arrow null into the decimal128 column. If we pass
+                    # "" directly, pyarrow will raises "int or Decimal expected, got str".
+                    coerced_df[col_name] = coerced_df[col_name].apply(
+                        lambda v: None 
+                        if (isinstance(v, str) and v.strip() == "") or v is pd.NA
+                        else v
+                    )
             except Exception as e:
                 logger.warning(
                     "[WARN] Column '%s' coercion to '%s' failed: %s",
@@ -952,7 +969,17 @@ class JavaBridge:
             if output_bytes and len(output_bytes) > 0:
                 reader = ipc.open_stream(pa.py_buffer(output_bytes))
                 result_table = reader.read_all()
-                output_dfs[output_name] = result_table.to_pandas()
+                output_df = result_table.to_pandas()
+                # decimal128 null ? "" so callers never see pandas <NA>.
+                # Keep non-null values as Python Decimal (not str) so that
+                # if this DF is fed back as input it can still be serialized.
+                for field in result_table.schema:
+                    if pa.types.is_decimal(field.type) and field.name in output_df.columns:
+                        output_df[field.name] = output_df[field.name].apply(
+                            lambda v: "" if v is None or v is pd.NA or (isinstance(v, float) and pd.isna(v)) else v
+                        )
+
+                output_dfs[output_name] = output_df
             else:
                 output_dfs[output_name] = pd.DataFrame()
         return output_dfs

@@ -11,11 +11,14 @@ import java.util.logging.Logger;
 /**
  * Arrow serialization utilities for the Java bridge.
  *
- * Provides static helper methods for creating Arrow vectors, setting typed values,
- * and mapping the 7 Python type strings to Java classes. All Arrow vector creation
+ * Provides static helper methods for creating Arrow vectors, setting typed
+ * values,
+ * and mapping the 7 Python type strings to Java classes. All Arrow vector
+ * creation
  * and value-setting in the bridge routes through this class.
  *
- * <p>Supported Python type strings (from type_mapping.py):
+ * <p>
+ * Supported Python type strings (from type_mapping.py):
  * {@code str}, {@code int}, {@code float}, {@code bool},
  * {@code datetime}, {@code Decimal}, {@code object}
  */
@@ -34,15 +37,16 @@ public final class ArrowSerializer {
     /**
      * Map a Python type string to the corresponding Java class.
      *
-     * <p>The 7 recognised type strings are:
+     * <p>
+     * The 7 recognised type strings are:
      * <ul>
-     *   <li>{@code "str"}      -- {@code String.class}</li>
-     *   <li>{@code "int"}      -- {@code Long.class}</li>
-     *   <li>{@code "float"}    -- {@code Double.class}</li>
-     *   <li>{@code "bool"}     -- {@code Boolean.class}</li>
-     *   <li>{@code "datetime"} -- {@code java.util.Date.class}</li>
-     *   <li>{@code "Decimal"}  -- {@code BigDecimal.class}</li>
-     *   <li>{@code "object"}   -- {@code String.class}</li>
+     * <li>{@code "str"} -- {@code String.class}</li>
+     * <li>{@code "int"} -- {@code Long.class}</li>
+     * <li>{@code "float"} -- {@code Double.class}</li>
+     * <li>{@code "bool"} -- {@code Boolean.class}</li>
+     * <li>{@code "datetime"} -- {@code java.util.Date.class}</li>
+     * <li>{@code "Decimal"} -- {@code BigDecimal.class}</li>
+     * <li>{@code "object"} -- {@code String.class}</li>
      * </ul>
      *
      * Unknown types log a warning and default to {@code String.class}.
@@ -98,11 +102,12 @@ public final class ArrowSerializer {
     // ------------------------------------------------------------------
 
     /**
-     * Create a VectorSchemaRoot from column-oriented data using explicit schema types.
+     * Create a VectorSchemaRoot from column-oriented data using explicit schema
+     * types.
      *
-     * @param allocator  Arrow buffer allocator
-     * @param data       column-oriented data: {columnName: Object[values]}
-     * @param schema     column type map: {columnName: pythonTypeString}
+     * @param allocator Arrow buffer allocator
+     * @param data      column-oriented data: {columnName: Object[values]}
+     * @param schema    column type map: {columnName: pythonTypeString}
      * @return a populated VectorSchemaRoot (caller must close)
      */
     public static VectorSchemaRoot createOutputRootFromData(
@@ -151,7 +156,8 @@ public final class ArrowSerializer {
      * @param allocator  Arrow buffer allocator
      * @param name       column name
      * @param schemaType Python type string (e.g. "str", "int", "Decimal")
-     * @param rowCount   expected number of rows (used for Decimal precision inference hint)
+     * @param rowCount   expected number of rows (used for Decimal precision
+     *                   inference hint)
      * @return allocated but empty FieldVector (caller must populate and close)
      */
     public static FieldVector createVectorForType(
@@ -172,7 +178,8 @@ public final class ArrowSerializer {
             // Use TimeStampNanoVector to match Python's pa.timestamp("ns")
             vector = new TimeStampNanoVector(name, allocator);
         } else if (javaType == BigDecimal.class) {
-            // Default precision/scale matching Python's PYTHON_TO_ARROW["Decimal"] = decimal128(38, 18)
+            // Default precision/scale matching Python's PYTHON_TO_ARROW["Decimal"] =
+            // decimal128(38, 18)
             vector = new DecimalVector(name, allocator, 38, 18);
         } else {
             // Fallback (should not happen given mapSchemaTypeToJava defaults to String)
@@ -234,10 +241,17 @@ public final class ArrowSerializer {
             long millis = (value instanceof Date) ? ((Date) value).getTime() : 0;
             ((DateMilliVector) vector).setSafe(index, millis);
         } else if (vector instanceof DecimalVector) {
+            // Treat empty string as null (Python bridge converts null Decimal -> "" on
+            // output)
+            if (value instanceof String && ((String) value).trim().isEmpty()) {
+                vector.setNull(index);
+                return;
+            }
             BigDecimal decimal = (value instanceof BigDecimal)
                     ? (BigDecimal) value
                     : new BigDecimal(value.toString());
-            // Adjust scale to match the vector's declared scale to avoid ArithmeticException
+            // Adjust scale to match the vector's declared scale to avoid
+            // ArithmeticException
             int vectorScale = ((DecimalVector) vector).getScale();
             if (decimal.scale() != vectorScale) {
                 decimal = decimal.setScale(vectorScale, java.math.RoundingMode.HALF_UP);
@@ -258,10 +272,12 @@ public final class ArrowSerializer {
     // ------------------------------------------------------------------
 
     /**
-     * Infer precision and scale from an array of values that may contain BigDecimals.
+     * Infer precision and scale from an array of values that may contain
+     * BigDecimals.
      *
      * @param values array of values (may contain nulls and non-BigDecimal objects)
-     * @return int[2] where [0]=precision, [1]=scale. Defaults to {38, 2} if no BigDecimal found.
+     * @return int[2] where [0]=precision, [1]=scale. Defaults to {38, 2} if no
+     *         BigDecimal found.
      */
     public static int[] inferDecimalPrecisionScale(Object[] values) {
         if (values != null) {
@@ -270,11 +286,11 @@ public final class ArrowSerializer {
                     BigDecimal bd = (BigDecimal) value;
                     int precision = Math.max(bd.precision(), 38);
                     int scale = bd.scale();
-                    return new int[]{precision, scale};
+                    return new int[] { precision, scale };
                 }
             }
         }
         // Fallback if no BigDecimal values found (all nulls)
-        return new int[]{38, 2};
+        return new int[] { 38, 2 };
     }
 }
