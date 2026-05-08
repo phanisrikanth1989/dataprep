@@ -47,20 +47,36 @@ _ERR_EVAL = "EVAL_ERROR"
 # --------------------------------
 
 def normalize_nsmap(root: etree._Element) -> Dict[str, str]:
-    """
-    Normalize XML namespace map by handling default namespaces.
+    """Build a merged namespace map from root AND all descendants (P-5 fix).
+
+    CR-03 fix: the previous implementation only read root.nsmap, which misses
+    namespace declarations made exclusively on descendant elements. In lxml,
+    each element's nsmap contains only the namespaces visible at that node.
+    Walking all descendants with root.iter() matches the ENG-FIX-004 fix
+    applied in file_input_xml.py._build_nsmap.
+
+    The default namespace (None key in lxml) is mapped to DEFAULT_NAMESPACE_PREFIX
+    ("ns0") so XPath can reference it with a prefix. This key is excluded from
+    the returned dict because lxml XPath does not allow None as a prefix.
 
     Args:
-        root: Root XML element
+        root: Root XML element (or any element to start the walk from)
 
     Returns:
-        Dictionary mapping namespace prefixes to URIs
+        Dictionary mapping namespace prefixes (str) to URIs. Never contains
+        None as a key -- the default namespace is keyed as DEFAULT_NAMESPACE_PREFIX.
     """
-    nsmap = dict(root.nsmap or {})
-    if None in nsmap:
-        nsmap[DEFAULT_NAMESPACE_PREFIX] = nsmap.pop(None)
-    nsmap = {k: v for k, v in nsmap.items() if k is not None}
-    return nsmap
+    collected: Dict[str, str] = {}
+    for el in root.iter():
+        for k, v in (el.nsmap or {}).items():
+            if k is None:
+                # Default namespace: map to sentinel prefix for XPath use
+                if DEFAULT_NAMESPACE_PREFIX not in collected:
+                    collected[DEFAULT_NAMESPACE_PREFIX] = v
+            elif k not in collected:
+                collected[k] = v
+    # Exclude None key (safety -- should not exist after the above logic)
+    return {k: v for k, v in collected.items() if k is not None}
 
 
 def split_steps(expr: str) -> List[str]:
@@ -839,8 +855,12 @@ class XMLMap(BaseComponent):
             nsmap = normalize_nsmap(root)
             logger.debug("[%s] Raw nsmap from XML: %s", component_id, nsmap)
 
-            # Determine namespace prefix strategy
-            if None in nsmap:
+            # Determine namespace prefix strategy.
+            # WR-01 fix: normalize_nsmap never returns None as a key (default namespace
+            # is mapped to DEFAULT_NAMESPACE_PREFIX "ns0"). The old check
+            # "if None in nsmap" was permanently False (dead code). Use the sentinel
+            # key directly to detect when a default namespace was present.
+            if DEFAULT_NAMESPACE_PREFIX in nsmap:
                 ns_prefix = DEFAULT_NAMESPACE_PREFIX
             elif len(nsmap) == 1 and any(k.strip().lower() == "xsi" for k in nsmap.keys()):
                 ns_prefix = ""

@@ -37,7 +37,12 @@ import pandas as pd
 import pytest
 
 from src.v1.engine.component_registry import REGISTRY
-from src.v1.engine.components.transform.xml_map import XMLMap, split_steps
+from src.v1.engine.components.transform.xml_map import (
+    DEFAULT_NAMESPACE_PREFIX,
+    XMLMap,
+    normalize_nsmap,
+    split_steps,
+)
 from src.v1.engine.context_manager import ContextManager
 from src.v1.engine.exceptions import ConfigurationError, DataValidationError
 from src.v1.engine.global_map import GlobalMap
@@ -675,6 +680,60 @@ class TestSplitSteps:
         result = split_steps("//b")
         # The result should contain the node name 'b'
         assert any("b" in s for s in result)
+
+
+# ------------------------------------------------------------------
+# TestNormalizeNsmap (CR-03 regression: full descendant walk for namespaces)
+# ------------------------------------------------------------------
+
+@pytest.mark.unit
+class TestNormalizeNsmap:
+    """CR-03: normalize_nsmap must collect namespaces from all descendants, not just root."""
+
+    def test_root_namespace_collected(self):
+        """Namespaces on the root element are collected."""
+        from lxml import etree
+        root = etree.fromstring(b'<root xmlns:a="http://a.example.com"><child/></root>')
+        result = normalize_nsmap(root)
+        assert "a" in result
+        assert result["a"] == "http://a.example.com"
+
+    def test_descendant_only_namespace_collected(self):
+        """CR-03 regression: namespace declared only on a descendant must appear in result."""
+        from lxml import etree
+        root = etree.fromstring(
+            b'<root><child xmlns:b="http://b.example.com"><b:val>hello</b:val></child></root>'
+        )
+        result = normalize_nsmap(root)
+        assert "b" in result, (
+            f"CR-03 regression: descendant-only namespace 'b' not in nsmap; got {result}"
+        )
+        assert result["b"] == "http://b.example.com"
+
+    def test_default_namespace_mapped_to_sentinel(self):
+        """Default namespace (None key in lxml) becomes DEFAULT_NAMESPACE_PREFIX in result."""
+        from lxml import etree
+        root = etree.fromstring(b'<root xmlns="http://default.example.com"><child/></root>')
+        result = normalize_nsmap(root)
+        assert DEFAULT_NAMESPACE_PREFIX in result
+        assert result[DEFAULT_NAMESPACE_PREFIX] == "http://default.example.com"
+        assert None not in result  # None key must never appear
+
+    def test_no_none_key_in_result(self):
+        """The returned dict must never contain None as a key."""
+        from lxml import etree
+        root = etree.fromstring(
+            b'<root xmlns="http://default.example.com" xmlns:a="http://a.example.com"/>'
+        )
+        result = normalize_nsmap(root)
+        assert None not in result
+
+    def test_empty_nsmap_returns_empty(self):
+        """Element with no namespace declarations returns empty dict."""
+        from lxml import etree
+        root = etree.fromstring(b"<root><child/></root>")
+        result = normalize_nsmap(root)
+        assert result == {}
 
 
 # ------------------------------------------------------------------
