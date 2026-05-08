@@ -429,15 +429,18 @@ class FileOutputXML(BaseComponent):
                     else:
                         outer_name = "root"
                     with xf.element(outer_name):
-                        self._write_rows_to_xf(
+                        # WR-02 fix: use returned count (not len(chunk)) so that
+                        # rows skipped due to XMLSyntaxError in input_is_document
+                        # mode are not counted in NB_LINE stats.
+                        chunk_written = self._write_rows_to_xf(
                             xf, chunk, row_tag, attr_cols, mapping,
                             flushonrow, trim, input_is_document, document_col,
                         )
 
-            total_written += len(chunk)
+            total_written += chunk_written
             logger.info(
                 "[%s] Split file %d: %d rows to %r",
-                self.id, chunk_index, len(chunk), split_path,
+                self.id, chunk_index, chunk_written, split_path,
             )
             chunk_index += 1
 
@@ -454,11 +457,16 @@ class FileOutputXML(BaseComponent):
         trim: bool,
         input_is_document: bool,
         document_col: str,
-    ) -> None:
+    ) -> int:
         """Write DataFrame rows to an open etree.xmlfile incremental writer.
 
         This helper is shared between streaming and split write paths to avoid
         code duplication. It does NOT touch streaming-hook state.
+
+        WR-02 fix: now returns the actual number of rows successfully written
+        (previously returned None). In input_is_document mode, rows with
+        malformed XML are skipped via continue -- the caller must use the
+        returned count, not len(df), to avoid overcounting in NB_LINE stats.
 
         Args:
             xf: Entered etree.xmlfile incremental writer object.
@@ -470,7 +478,11 @@ class FileOutputXML(BaseComponent):
             trim: Whether to strip whitespace in doc mode.
             input_is_document: Whether each row is a full XML doc.
             document_col: Column name for doc mode.
+
+        Returns:
+            Number of rows actually written (skipped rows not counted).
         """
+        written = 0
         for _, row in df.iterrows():
             if input_is_document:
                 doc = row.get(document_col, "") if document_col else ""
@@ -484,6 +496,7 @@ class FileOutputXML(BaseComponent):
                         )
                         sub_root = etree.fromstring(doc_bytes, parser=parser)
                         xf.write(sub_root)
+                        written += 1
                     except etree.XMLSyntaxError as exc:
                         logger.warning(
                             "[%s] Skipping malformed XML doc row: %s", self.id, exc
@@ -515,6 +528,8 @@ class FileOutputXML(BaseComponent):
                             text = "" if pd.isna(val) else str(val)
                             with xf.element(col):
                                 xf.write(text)
+                written += 1
 
             if flushonrow:
                 xf.flush()
+        return written
