@@ -435,3 +435,121 @@ class TestEngineRoutineConfig:
         with pytest.raises(RuntimeError, match="Missing required Python routines"):
             from src.v1.engine.engine import ETLEngine
             ETLEngine(job_config)
+
+
+# ===========================================================================
+# Plan 14-10 lift: 81.6% -> 95%+ -- coverage for missed branches
+# ===========================================================================
+
+
+@pytest.mark.unit
+class TestPythonRoutineLoadFailures:
+    """Failures during module load are logged but do not abort discovery (122-123)."""
+
+    def test_top_level_load_failure_logged_continues(self, tmp_path, caplog):
+        _write_py_file(tmp_path, "broken_routine.py", "raise ImportError('cannot load')")
+        _write_py_file(tmp_path, "good_routine.py", "x = 1")
+        with caplog.at_level("ERROR"):
+            mgr = PythonRoutineManager(str(tmp_path))
+        # Good still loaded; broken failure recorded
+        assert mgr.get_routine("GoodRoutine") is not None
+        assert "Failed to load broken_routine" in caplog.text
+
+    def test_subdir_load_failure_logged_continues(self, tmp_path, caplog):
+        sub = tmp_path / "subpkg"
+        sub.mkdir()
+        _write_py_file(sub, "broken.py", "raise SyntaxError('intentional')")
+        _write_py_file(sub, "ok.py", "y = 2")
+        with caplog.at_level("ERROR"):
+            mgr = PythonRoutineManager(str(tmp_path))
+        # Subdir Ok loaded under qualified name
+        assert "subpkg.Ok" in mgr.routines
+        assert "Failed to load subpkg/broken" in caplog.text
+
+
+@pytest.mark.unit
+class TestPythonRoutineMissingDirectory:
+    """Constructor logs warning when routines_dir does not exist (line 71)."""
+
+    def test_missing_directory_logs_warning(self, tmp_path, caplog):
+        nonexistent = tmp_path / "does_not_exist"
+        with caplog.at_level("WARNING"):
+            mgr = PythonRoutineManager(str(nonexistent))
+        assert "not found" in caplog.text
+        assert mgr.routines == {}
+
+
+@pytest.mark.unit
+class TestPythonRoutineLoadModuleSpecError:
+    """_load_module raises ImportError when spec_from_file_location returns None (line 160)."""
+
+    def test_invalid_path_raises_import_error(self, tmp_path, monkeypatch):
+        """Force spec_from_file_location to return None to hit line 160."""
+        mgr = PythonRoutineManager(str(tmp_path))
+        from pathlib import Path
+        import importlib.util as _iutil
+
+        monkeypatch.setattr(_iutil, "spec_from_file_location", lambda *a, **kw: None)
+        with pytest.raises(ImportError, match="Cannot load module"):
+            mgr._load_module(Path(str(tmp_path / "anything.py")))
+
+
+@pytest.mark.unit
+class TestPythonRoutineGetAllAndList:
+    """get_all_routines returns a copy (line 201) and list_routines works (line 240)."""
+
+    def test_get_all_returns_copy(self, tmp_path):
+        _write_py_file(tmp_path, "demo.py", "x = 1")
+        mgr = PythonRoutineManager(str(tmp_path))
+        all_r = mgr.get_all_routines()
+        assert "Demo" in all_r
+        # Mutate the returned dict; should not affect the manager
+        all_r["NewKey"] = "x"
+        assert "NewKey" not in mgr.routines
+
+    def test_list_routines_returns_keys(self, tmp_path):
+        _write_py_file(tmp_path, "alpha.py", "a = 1")
+        _write_py_file(tmp_path, "beta.py", "b = 2")
+        mgr = PythonRoutineManager(str(tmp_path))
+        names = mgr.list_routines()
+        assert "Alpha" in names
+        assert "Beta" in names
+
+
+@pytest.mark.unit
+class TestPythonRoutineReload:
+    """reload_routine paths (222-231)."""
+
+    def test_reload_unknown_routine_logs_warning(self, tmp_path, caplog):
+        mgr = PythonRoutineManager(str(tmp_path))
+        with caplog.at_level("WARNING"):
+            mgr.reload_routine("NonExistent")
+        assert "not found, cannot reload" in caplog.text
+
+    def test_reload_known_routine_invokes_importlib(self, tmp_path, monkeypatch, caplog):
+        """The success path calls importlib.reload (line 228) and logs INFO (229).
+
+        Patching importlib.reload to a no-op that returns the module exercises
+        the success branch deterministically -- the real importlib.reload
+        depends on the module having been loaded via the spec system that
+        survives across imports.
+        """
+        _write_py_file(tmp_path, "rel_routine.py", "value = 1")
+        mgr = PythonRoutineManager(str(tmp_path))
+        import importlib
+        monkeypatch.setattr(importlib, "reload", lambda mod: mod)
+        with caplog.at_level("INFO"):
+            mgr.reload_routine("RelRoutine")
+        assert "Reloaded routine: RelRoutine" in caplog.text
+
+    def test_reload_failure_logged(self, tmp_path, caplog, monkeypatch):
+        _write_py_file(tmp_path, "rel2.py", "v = 1")
+        mgr = PythonRoutineManager(str(tmp_path))
+        # Force importlib.reload to raise
+        import importlib
+        def boom(_module):
+            raise RuntimeError("forced reload failure")
+        monkeypatch.setattr(importlib, "reload", boom)
+        with caplog.at_level("ERROR"):
+            mgr.reload_routine("Rel2")
+        assert "Failed to reload Rel2" in caplog.text
