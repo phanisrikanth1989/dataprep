@@ -13,10 +13,13 @@ from datetime import datetime
 from collections import defaultdict
 
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
+from ...exceptions import ComponentExecutionError, ConfigurationError, ETLError, FileOperationError
 
 logger = logging.getLogger(__name__)
 
 
+@REGISTRY.register("SwiftBlockFormatter", "tSwiftBlockFormatter")
 class SwiftBlockFormatter(BaseComponent):
     """
     Parse SWIFT messages and convert to pipe-delimited output format.
@@ -30,6 +33,30 @@ class SwiftBlockFormatter(BaseComponent):
         # Initialize SWIFT parser components
         self._init_swift_parser()
 
+    def _validate_config(self) -> None:
+        """Validate SwiftBlockFormatter configuration (BaseComponent abstract).
+
+        Required keys (one of):
+            * ``layout_file`` -- path to YAML layout config
+            * ``layout``      -- inline layout dict (fallback)
+
+        Required:
+            * ``pipe_fields`` -- non-empty list of field names or dicts.
+
+        Raises:
+            ConfigurationError: When neither layout source is present, or
+                when ``pipe_fields`` is missing / empty.
+        """
+        if not self.config.get("layout_file") and not self.config.get("layout"):
+            raise ConfigurationError(
+                f"Component {self.id}: 'layout_file' or 'layout' configuration is required"
+            )
+        pipe_fields_config = self.config.get("pipe_fields", [])
+        if not pipe_fields_config:
+            raise ConfigurationError(
+                f"Component {self.id}: 'pipe_fields' configuration is required"
+            )
+
     def _init_swift_parser(self):
         """Initialize SWIFT parsing configuration - defer layout loading until execution"""
         # Store layout file path for later resolution during execution
@@ -40,12 +67,16 @@ class SwiftBlockFormatter(BaseComponent):
         self.inline_layout = self.config.get('layout', {})
 
         if not self.layout_file and not self.inline_layout:
-            raise ValueError(f"Component {self.id}: 'layout_file' or 'layout' configuration is required")
+            raise ConfigurationError(
+                f"Component {self.id}: 'layout_file' or 'layout' configuration is required"
+            )
 
         # Get pipe fields configuration (REQUIRED)
         pipe_fields_config = self.config.get('pipe_fields', [])
         if not pipe_fields_config:
-            raise ValueError(f"Component {self.id}: 'pipe_fields' configuration is required")
+            raise ConfigurationError(
+                f"Component {self.id}: 'pipe_fields' configuration is required"
+            )
 
         # Extract field names from pipe_fields configuration
         # pipe_fields can be either:
@@ -71,7 +102,9 @@ class SwiftBlockFormatter(BaseComponent):
                 logger.warning(f"Component {self.id}: Invalid pipe_field configuration: {field}")
 
         if not self.pipe_fields:
-            raise ValueError(f"Component {self.id}: No valid pipe_fields found in configuration")
+            raise ConfigurationError(
+                f"Component {self.id}: No valid pipe_fields found in configuration"
+            )
 
         # Processing options
         self.processing_options = self.config.get('processing', {})
@@ -90,7 +123,9 @@ class SwiftBlockFormatter(BaseComponent):
                 self.layout_spec = self.inline_layout
 
             if not self.layout_spec:
-                raise ValueError(f"Component {self.id}: No valid layout configuration available")
+                raise ConfigurationError(
+                    f"Component {self.id}: No valid layout configuration available"
+                )
 
     def _load_layout_from_file(self, layout_file_path: str) -> Dict[str, str]:
         """Load SWIFT layout configuration from YAML file"""
@@ -101,7 +136,10 @@ class SwiftBlockFormatter(BaseComponent):
 
             # Check if file exists
             if not os.path.exists(resolved_path):
-                raise FileNotFoundError(f"Layout configuration file not found: {resolved_path}")
+                # Re-raised below as ConfigurationError via the wrapper.
+                raise FileNotFoundError(
+                    f"Layout configuration file not found: {resolved_path}"
+                )
 
             # Load YAML configuration
             with open(resolved_path, 'r', encoding='utf-8') as file:
@@ -111,7 +149,9 @@ class SwiftBlockFormatter(BaseComponent):
             layout_config = yaml_config.get('swift_layout', {}).get('block4_layout', {})
 
             if not layout_config:
-                raise ValueError(f"No 'swift_layout.block4_layout' found in {resolved_path}")
+                raise ConfigurationError(
+                    f"No 'swift_layout.block4_layout' found in {resolved_path}"
+                )
 
             # Validate and clean layout configuration - ONLY allow string values
             cleaned_layout = {}
@@ -127,15 +167,21 @@ class SwiftBlockFormatter(BaseComponent):
                     cleaned_layout[key] = value
 
             if not cleaned_layout:
-                raise ValueError(f"No valid layout configuration found in {resolved_path}")
+                raise ConfigurationError(
+                    f"No valid layout configuration found in {resolved_path}"
+                )
 
             logger.info(f"Component {self.id}: Loaded layout configuration from {resolved_path}")
             logger.debug(f"Component {self.id}: Validated layout config: {cleaned_layout}")
             return cleaned_layout
 
+        except ConfigurationError:
+            raise
         except Exception as e:
-            logger.error(f"Component {self.id}: Error loading layout file {layout_file_path}: {str(e)}")
-            raise ValueError(f"Failed to load layout configuration: {str(e)}")
+            logger.error(
+                f"Component {self.id}: Error loading layout file {layout_file_path}: {str(e)}"
+            )
+            raise ConfigurationError(f"Failed to load layout configuration: {str(e)}")
 
     def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
         """
@@ -156,7 +202,9 @@ class SwiftBlockFormatter(BaseComponent):
                 # Input from file
                 input_file = self.config.get('input_file', '')
                 if not input_file:
-                    raise ValueError(f"Component {self.id}: input_file is required when no input data provided")
+                    raise ConfigurationError(
+                        f"Component {self.id}: input_file is required when no input data provided"
+                    )
                 swift_messages = self._parse_swift_file(input_file)
 
             if not swift_messages:
@@ -179,14 +227,17 @@ class SwiftBlockFormatter(BaseComponent):
 
             return {'main': result_df}
 
+        except ETLError:
+            # Already a structured engine error -- let BaseComponent.execute()
+            # wrap it as ComponentExecutionError if die_on_error is on.
+            raise
         except Exception as e:
             error_msg = f"Error processing SWIFT messages: {str(e)}"
             if self.config.get('die_on_error', True):
-                raise RuntimeError(error_msg)
-            else:
-                logger.error(f"Component {self.id}: {error_msg}")
-                self._update_stats(0, 0, 1)
-                return {'main': pd.DataFrame()}
+                raise ComponentExecutionError(self.id, error_msg, cause=e)
+            logger.error(f"Component {self.id}: {error_msg}")
+            self._update_stats(0, 0, 1)
+            return {'main': pd.DataFrame()}
 
     def _parse_dataframe_input(self, input_data: pd.DataFrame) -> List[Dict[str, Any]]:
         """Parse SWIFT messages from DataFrame input"""
@@ -203,7 +254,10 @@ class SwiftBlockFormatter(BaseComponent):
                     content_column = col
                     break
             else:
-                raise ValueError(f"No SWIFT content column found. Specify 'content_column' in config or ensure DataFrame has column named 'content'")
+                raise ConfigurationError(
+                    "No SWIFT content column found. Specify 'content_column' in config "
+                    "or ensure DataFrame has column named 'content'"
+                )
 
         # Parse each row as a SWIFT message
         for idx, row in input_data.iterrows():
@@ -221,7 +275,7 @@ class SwiftBlockFormatter(BaseComponent):
             encoding = self.config.get('encoding', 'UTF-8')
 
             if not os.path.exists(file_path):
-                raise FileNotFoundError(f"Input file not found: {file_path}")
+                raise FileOperationError(f"Input file not found: {file_path}")
 
             with open(file_path, 'r', encoding=encoding) as file:
                 content = file.read()
@@ -238,9 +292,13 @@ class SwiftBlockFormatter(BaseComponent):
 
             return parsed_messages
 
-        except Exception as e:
-            logger.error(f"Component {self.id}: Error parsing SWIFT file {file_path}: {str(e)}")
+        except ETLError:
             raise
+        except Exception as e:
+            logger.error(
+                f"Component {self.id}: Error parsing SWIFT file {file_path}: {str(e)}"
+            )
+            raise FileOperationError(f"Error parsing SWIFT file {file_path}: {str(e)}")
 
     def _split_messages(self, content: str) -> List[str]:
         """Split file content into individual SWIFT messages"""
@@ -701,4 +759,4 @@ class SwiftBlockFormatter(BaseComponent):
 
         except Exception as e:
             logger.error(f"Component {self.id}: Error writing output file: {str(e)}")
-            raise
+            raise FileOperationError(f"Error writing output file {output_file}: {str(e)}")

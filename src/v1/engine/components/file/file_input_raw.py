@@ -9,9 +9,12 @@ from typing import Dict, Any, Optional, List
 import pandas as pd
 
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
 
 logger = logging.getLogger(__name__)
 
+
+@REGISTRY.register("FileInputRaw", "tFileInputRaw")
 class FileInputRaw(BaseComponent):
     """
     Reads raw data from a file and outputs it as a single field.
