@@ -1262,3 +1262,356 @@ class TestUpsertNonInsertablePkRefused:
         df = pd.DataFrame({"id": [1], "name": ["a"]})
         with pytest.raises(ConfigurationError):
             comp._process(df)
+
+
+# ----------------------------------------------------------------------
+# Plan 14-04 Coverage Lift: rare matrix corners + ConfigurationError branches.
+# Targets oracle_output.py missed lines: 156, 426, 451, 504, 665, 794, 810-821,
+# 910-912, 919, 1042-1048. (Lines 784-785 are the optional-import shim, allowed
+# pragma per D-C3 but not currently tagged; we cover via direct invocation.)
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestDdlTypeMappingByteAndBlob:
+    """Cover line 156 (byte -> NUMBER(3)) and the DEFAULT-fallback path."""
+
+    def test_byte_maps_to_number_3(self):
+        from src.v1.engine.components.database.oracle_output import (
+            _column_to_oracle_type,
+        )
+        assert _column_to_oracle_type({"type": "byte"}, True) == "NUMBER(3)"
+
+    def test_bytes_blob_when_no_length(self):
+        from src.v1.engine.components.database.oracle_output import (
+            _column_to_oracle_type,
+        )
+        # No length -> BLOB (covers the bytes branch fallback for line 180)
+        assert _column_to_oracle_type({"type": "bytes"}, True) == "BLOB"
+
+
+@pytest.mark.unit
+class TestEmptyInsertableUpdatable:
+    """Cover lines 426 (no insertable cols) and 451 (no updatable cols)."""
+
+    def test_insert_with_no_insertable_columns_raises(self):
+        cfg = _shared_conn_config(
+            data_action="INSERT",
+            use_field_options=True,
+            field_options=[
+                {"column": "id", "update_key": False, "updatable": False, "insertable": False},
+                {"column": "name", "update_key": False, "updatable": False, "insertable": False},
+            ],
+        )
+        comp = _make_component(cfg)
+        with pytest.raises(ConfigurationError) as exc:
+            comp._build_insert_sql()
+        assert "insertable" in str(exc.value).lower()
+
+    def test_update_with_no_updatable_columns_raises(self):
+        # All schema columns are keys; nothing updatable.
+        schema = [
+            {"name": "a", "type": "int", "key": True, "nullable": False},
+            {"name": "b", "type": "int", "key": True, "nullable": False},
+        ]
+        comp = _make_component(
+            _shared_conn_config(data_action="UPDATE"), output_schema=schema,
+        )
+        with pytest.raises(ConfigurationError) as exc:
+            comp._build_update_sql()
+        assert "updatable" in str(exc.value).lower()
+
+    def test_pk_select_empty_pk_raises(self):
+        """Cover line 504: _build_pk_select_sql with empty pk_cols."""
+        comp = _make_component(_shared_conn_config())
+        with pytest.raises(ConfigurationError) as exc:
+            comp._build_pk_select_sql([], 5)
+        assert "primary key" in str(exc.value).lower()
+
+
+@pytest.mark.unit
+class TestUpsertScalarFetchallRow:
+    """Cover line 665: matched_keys.add((row,)) when fetchall returns scalars
+    (some drivers / configurations return raw scalar values for single-column
+    SELECTs instead of tuples)."""
+
+    def test_scalar_fetchall_rows_wrapped_into_singleton_tuples(self):
+        mgr = MagicMock()
+        mock_conn = MagicMock(autocommit=False)
+        mock_cursor = MagicMock()
+        # Return scalars rather than (val,) tuples -- drivers vary on this.
+        mock_cursor.fetchall.return_value = [2, 4]
+        # getbatcherrors is called once for UPDATE then once for INSERT.
+        mock_cursor.getbatcherrors.side_effect = [[], []]
+        mock_conn.cursor.return_value = mock_cursor
+        mgr.get.return_value = mock_conn
+        gm = GlobalMap()
+        comp = _make_component(
+            _shared_conn_config(data_action="INSERT_OR_UPDATE"),
+            oracle_manager=mgr, global_map=gm,
+        )
+        df = pd.DataFrame({"id": [1, 2, 3, 4, 5], "name": ["a", "b", "c", "d", "e"]})
+        comp._process(df)
+        # 2 matched (ids 2 and 4) via the scalar wrapping path.
+        assert gm.get("tOracleOutput_1_NB_LINE_UPDATED") == 2
+        assert gm.get("tOracleOutput_1_NB_LINE_INSERTED") == 3
+
+
+@pytest.mark.unit
+class TestBuildInputSizes:
+    """Cover lines 794, 810-821 in _build_input_sizes type-mapping branches.
+
+    Each oracledb constant is asserted via attribute lookup so the test is
+    resilient to the actual oracledb module's type-class identities.
+    """
+
+    def test_unknown_data_action_returns_empty(self):
+        # Line 794: data_action not in (INSERT/UPDATE/DELETE) -> []
+        comp = _make_component(_shared_conn_config())
+        assert comp._build_input_sizes("BOGUS") == []
+
+    def test_str_long_maps_to_db_type_clob(self):
+        # Line 810: str length > 4000 -> oracledb.DB_TYPE_CLOB
+        import oracledb
+        schema = [
+            {"name": "id", "type": "int", "key": True, "nullable": False},
+            {"name": "big", "type": "str", "length": 8000, "nullable": True},
+        ]
+        comp = _make_component(_shared_conn_config(), output_schema=schema)
+        sizes = comp._build_input_sizes("INSERT")
+        assert sizes[1] is oracledb.DB_TYPE_CLOB
+
+    def test_str_no_length_maps_to_db_type_clob(self):
+        # Line 810: str without length -> CLOB
+        import oracledb
+        schema = [
+            {"name": "id", "type": "int", "key": True, "nullable": False},
+            {"name": "txt", "type": "str", "nullable": True},
+        ]
+        comp = _make_component(_shared_conn_config(), output_schema=schema)
+        sizes = comp._build_input_sizes("INSERT")
+        assert sizes[1] is oracledb.DB_TYPE_CLOB
+
+    def test_datetime_maps_to_timestamp_when_use_ts(self):
+        # Line 812: datetime with use_timestamp_for_date_type=True
+        import oracledb
+        schema = [
+            {"name": "id", "type": "int", "key": True, "nullable": False},
+            {"name": "ts", "type": "datetime", "nullable": True},
+        ]
+        comp = _make_component(_shared_conn_config(), output_schema=schema)
+        sizes = comp._build_input_sizes("INSERT")
+        assert sizes[1] is oracledb.DB_TYPE_TIMESTAMP
+
+    def test_datetime_maps_to_date_when_use_ts_false(self):
+        # Line 812: datetime with use_timestamp_for_date_type=False
+        import oracledb
+        schema = [
+            {"name": "id", "type": "int", "key": True, "nullable": False},
+            {"name": "d", "type": "datetime", "nullable": True},
+        ]
+        cfg = _shared_conn_config(use_timestamp_for_date_type=False)
+        comp = _make_component(cfg, output_schema=schema)
+        sizes = comp._build_input_sizes("INSERT")
+        assert sizes[1] is oracledb.DB_TYPE_DATE
+
+    def test_bytes_short_maps_to_db_type_raw(self):
+        # Line 815-817: bytes with small length -> DB_TYPE_RAW
+        import oracledb
+        schema = [
+            {"name": "id", "type": "int", "key": True, "nullable": False},
+            {"name": "blob", "type": "bytes", "length": 200, "nullable": True},
+        ]
+        comp = _make_component(_shared_conn_config(), output_schema=schema)
+        sizes = comp._build_input_sizes("INSERT")
+        assert sizes[1] is oracledb.DB_TYPE_RAW
+
+    def test_bytes_long_maps_to_db_type_blob(self):
+        # Line 819: bytes without length / length > 2000 -> DB_TYPE_BLOB
+        import oracledb
+        schema = [
+            {"name": "id", "type": "int", "key": True, "nullable": False},
+            {"name": "lob", "type": "bytes", "nullable": True},
+        ]
+        comp = _make_component(_shared_conn_config(), output_schema=schema)
+        sizes = comp._build_input_sizes("INSERT")
+        assert sizes[1] is oracledb.DB_TYPE_BLOB
+
+    def test_unknown_type_appends_none(self):
+        # Line 821: unknown ctype -> None placeholder
+        schema = [
+            {"name": "id", "type": "int", "key": True, "nullable": False},
+            {"name": "weird", "type": "mystery", "nullable": True},
+        ]
+        comp = _make_component(_shared_conn_config(), output_schema=schema)
+        sizes = comp._build_input_sizes("INSERT")
+        assert sizes[1] is None
+
+
+@pytest.mark.unit
+class TestUseBatchSizeFalse:
+    """Cover lines 910-912: use_batch_size=False treats whole DF as one batch."""
+
+    def test_whole_df_is_single_batch_when_use_batch_size_false(self):
+        mgr, mock_conn, mock_cursor = _make_mock_oracle_manager()
+        comp = _make_component(
+            _shared_conn_config(use_batch_size=False, batch_size=2),
+            oracle_manager=mgr,
+        )
+        df = pd.DataFrame({"id": [1, 2, 3, 4, 5], "name": ["a", "b", "c", "d", "e"]})
+        comp._process(df)
+        # batch_size honors len(df) -- one executemany call covers all rows.
+        assert mock_cursor.executemany.call_count == 1
+        # Verify second positional arg (the rows list) has all 5 rows.
+        rows_arg = mock_cursor.executemany.call_args.args[1]
+        assert len(rows_arg) == 5
+
+    def test_use_batch_size_false_with_none_input_does_not_error(self):
+        # Line 910 fallback -- when input_data is None, batch_size=10000.
+        mgr, mock_conn, mock_cursor = _make_mock_oracle_manager()
+        comp = _make_component(
+            _shared_conn_config(use_batch_size=False),
+            oracle_manager=mgr,
+        )
+        # No raise; no executemany either (None input skips DML).
+        comp._process(None)
+        mock_cursor.executemany.assert_not_called()
+
+    def test_use_batch_size_false_with_empty_df_falls_back_to_10000(self):
+        """Cover line 912: empty DataFrame -> batch_size <= 0 -> reset to 10000.
+
+        Empty DF with use_batch_size=False produces batch_size=0 from len(df);
+        the defensive ``if batch_size <= 0`` guard rewrites to 10000 so the
+        loop range step is well-defined (even though the loop body never runs
+        because len(rows)==0 -> range(0,0,10000) is empty).
+        """
+        mgr, mock_conn, mock_cursor = _make_mock_oracle_manager()
+        comp = _make_component(
+            _shared_conn_config(use_batch_size=False),
+            oracle_manager=mgr,
+        )
+        df = pd.DataFrame({"id": [], "name": []})
+        comp._process(df)
+        # No DML rows -> no executemany call.
+        mock_cursor.executemany.assert_not_called()
+
+
+@pytest.mark.unit
+class TestPreCommitAfterTableAction:
+    """Cover line 919: post-table-action commit when action != NONE and
+    autocommit is False."""
+
+    def test_commit_after_create_when_autocommit_false(self):
+        mgr, mock_conn, mock_cursor = _make_mock_oracle_manager(autocommit=False)
+        comp = _make_component(
+            _shared_conn_config(table_action="CREATE", data_action="INSERT"),
+            oracle_manager=mgr,
+        )
+        # Empty DF -> no DML commit cycle -> the only commit is the post-DDL one.
+        df = pd.DataFrame({"id": [], "name": []})
+        comp._process(df)
+        # Must have committed at least once -- the post-DDL commit on line 919.
+        assert mock_conn.commit.call_count >= 1
+
+    def test_no_pre_commit_when_table_action_none(self):
+        mgr, mock_conn, mock_cursor = _make_mock_oracle_manager(autocommit=False)
+        comp = _make_component(
+            _shared_conn_config(table_action="NONE", data_action="INSERT"),
+            oracle_manager=mgr,
+        )
+        df = pd.DataFrame({"id": [], "name": []})
+        comp._process(df)
+        # No DDL, no rows -> NO commits at all (commit is gated on
+        # since_commit > 0, which is 0 here).
+        assert mock_conn.commit.call_count == 0
+
+    def test_no_pre_commit_when_autocommit_true(self):
+        mgr, mock_conn, mock_cursor = _make_mock_oracle_manager(autocommit=True)
+        comp = _make_component(
+            _shared_conn_config(table_action="CREATE"),
+            oracle_manager=mgr,
+        )
+        df = pd.DataFrame({"id": [], "name": []})
+        comp._process(df)
+        # autocommit=True -> the "and not autocommit" guard skips line 919.
+        assert mock_conn.commit.call_count == 0
+
+
+@pytest.mark.unit
+class TestCleanupSwallowsErrors:
+    """Cover lines 1042-1043 (cursor.close raise) + 1047-1048 (manager.close raise)."""
+
+    def test_cursor_close_failure_logged_not_raised(self, caplog):
+        import logging as _lg
+        mgr = MagicMock()
+        mock_conn = MagicMock(autocommit=False)
+        mock_cursor = MagicMock()
+        mock_cursor.close.side_effect = RuntimeError("cursor close exploded")
+        mock_cursor.getbatcherrors.return_value = []
+        mock_conn.cursor.return_value = mock_cursor
+        mgr.open_ad_hoc.return_value = mock_conn
+        comp = _make_component(
+            _shared_conn_config(use_existing_connection=False),
+            oracle_manager=mgr,
+        )
+        df = pd.DataFrame({"id": [1], "name": ["a"]})
+        with caplog.at_level(_lg.WARNING):
+            # Must NOT raise -- cleanup error swallowed.
+            comp._process(df)
+        assert any(
+            "cursor.close() raised" in rec.getMessage() for rec in caplog.records
+        )
+
+    def test_manager_close_failure_logged_not_raised(self, caplog):
+        import logging as _lg
+        mgr = MagicMock()
+        mock_conn = MagicMock(autocommit=False)
+        mock_cursor = MagicMock()
+        mock_cursor.getbatcherrors.return_value = []
+        mock_conn.cursor.return_value = mock_cursor
+        mgr.open_ad_hoc.return_value = mock_conn
+        mgr.close.side_effect = RuntimeError("manager close exploded")
+        comp = _make_component(
+            _shared_conn_config(use_existing_connection=False),
+            oracle_manager=mgr,
+        )
+        df = pd.DataFrame({"id": [1], "name": ["a"]})
+        with caplog.at_level(_lg.WARNING):
+            comp._process(df)
+        assert any(
+            "oracle_manager.close() raised" in rec.getMessage()
+            for rec in caplog.records
+        )
+
+
+@pytest.mark.unit
+class TestReservedWordIdentifierQuoting:
+    """T-11-04: reserved-word column names like GROUP must round-trip via the
+    double-quote wrapper. Oracle treats double-quoted identifiers as
+    case-sensitive so we get correct DDL even for reserved words.
+    """
+
+    def test_group_column_name_quoted_in_create_sql(self):
+        schema = [
+            {"name": "id", "type": "int", "key": True, "nullable": False},
+            {"name": "GROUP", "type": "str", "length": 50, "nullable": True},
+        ]
+        comp = _make_component(
+            _shared_conn_config(table_action="CREATE"),
+            output_schema=schema,
+        )
+        sql = comp._build_create_sql()
+        # Reserved word survives via double-quote wrapping.
+        assert '"GROUP"' in sql
+
+    def test_reserved_word_in_insert_sql(self):
+        schema = [
+            {"name": "id", "type": "int", "key": True, "nullable": False},
+            {"name": "ORDER", "type": "str", "length": 50, "nullable": True},
+        ]
+        comp = _make_component(
+            _shared_conn_config(data_action="INSERT"),
+            output_schema=schema,
+        )
+        sql = comp._build_insert_sql()
+        assert '"ORDER"' in sql
