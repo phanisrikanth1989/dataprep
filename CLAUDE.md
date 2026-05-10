@@ -157,6 +157,25 @@ A Python-based ETL execution engine that replaces Talend Open Studio for 1200+ p
 ## Constants
 <!-- GSD:conventions-end -->
 
+## Coverage
+
+Run per-module line coverage baseline (command from Phase 13):
+
+```bash
+python -m pytest tests/ \
+  --cov=src/v1/engine \
+  --cov=src/converters \
+  --cov-report=term-missing \
+  --cov-report=html \
+  -q
+```
+
+Run from the project root. Produces a terminal per-module summary and `htmlcov/index.html` for browser navigation (`htmlcov/` is gitignored).
+
+Phase 13 locked the per-module baseline on 2026-05-10. See `.planning/phases/13-test-stabilization-bridge-jar-rebuild/13-COVERAGE-BASELINE.md` for the full per-module table. Phase 14 reads these numbers as the 95% per-module floor.
+
+Note: do NOT add `--cov-branch` -- the Phase 14 gate is line coverage only.
+
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
 ## Architecture
 
