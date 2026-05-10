@@ -49,7 +49,7 @@ lookups:
   # First-tier lookup -- runs before any depends_on_lookup logic. Maps
   # SENDER_BIC to SENDER_COUNTRY using exact (normal) match.
   - name: "sender_country"
-    file: "${LOOKUP_DIR}/bic_country.csv"
+    file: "${context.LOOKUP_DIR}/bic_country.csv"
     main_key: "SENDER_BIC"
     lookup_key: "BIC"
     columns: ["SENDER_COUNTRY"]
@@ -59,7 +59,7 @@ lookups:
   # First-tier lookup -- exact match -- demonstrates default
   # source_columns derivation (all non-key columns).
   - name: "receiver_country"
-    file: "${LOOKUP_DIR}/bic_country.csv"
+    file: "${context.LOOKUP_DIR}/bic_country.csv"
     main_key: "RECEIVER_BIC"
     lookup_key: "BIC"
     columns: ["RECEIVER_COUNTRY"]
@@ -68,7 +68,7 @@ lookups:
   # Regex / wildcard match exercising the wildcard-to-regex translation
   # branch in _apply_lookups.
   - name: "bic_pattern"
-    file: "${LOOKUP_DIR}/bic_country.csv"
+    file: "${context.LOOKUP_DIR}/bic_country.csv"
     main_key: "SENDER_BIC"
     lookup_key: "pattern"
     columns: ["BIC_PATTERN_LABEL"]

@@ -72,14 +72,19 @@ class SwiftTransformer(BaseComponent):
 
     def _init_transformer_config(self):
         """Initialize transformation configuration - defer external config loading
-        until execution"""
+        until execution.
+
+        Reads ``_original_config`` because BaseComponent.__init__ leaves
+        ``self.config`` empty until ``execute()`` (ENG-09/ENG-21).
+        """
+        cfg = self._original_config
 
         # Store config file path for later resolution during execution
-        self.config_file = self.config.get('config_file')
+        self.config_file = cfg.get('config_file')
         self.transform_config = None  # Will be loaded during execution
 
         # Check if we have inline config as fallback
-        self.inline_config = self.config.get('transform_config', {})
+        self.inline_config = cfg.get('transform_config', {})
 
         if not self.config_file and not self.inline_config:
             # Use default configuration if neither external nor inline config provided

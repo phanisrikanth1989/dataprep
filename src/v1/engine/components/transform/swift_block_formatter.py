@@ -58,13 +58,21 @@ class SwiftBlockFormatter(BaseComponent):
             )
 
     def _init_swift_parser(self):
-        """Initialize SWIFT parsing configuration - defer layout loading until execution"""
+        """Initialize SWIFT parsing configuration - defer layout loading until execution.
+
+        Reads from ``_original_config`` because BaseComponent.__init__ leaves
+        ``self.config`` empty until ``execute()`` runs (ENG-09/ENG-21 immutability
+        contract). Layout-file IO is deferred to ``_ensure_layout_loaded`` so
+        context-variable resolution can happen first.
+        """
+        cfg = self._original_config
+
         # Store layout file path for later resolution during execution
-        self.layout_file = self.config.get('layout_file')
+        self.layout_file = cfg.get('layout_file')
         self.layout_spec = None  # Will be loaded during execution
 
         # Check if we have inline layout configuration as fallback
-        self.inline_layout = self.config.get('layout', {})
+        self.inline_layout = cfg.get('layout', {})
 
         if not self.layout_file and not self.inline_layout:
             raise ConfigurationError(
@@ -72,7 +80,7 @@ class SwiftBlockFormatter(BaseComponent):
             )
 
         # Get pipe fields configuration (REQUIRED)
-        pipe_fields_config = self.config.get('pipe_fields', [])
+        pipe_fields_config = cfg.get('pipe_fields', [])
         if not pipe_fields_config:
             raise ConfigurationError(
                 f"Component {self.id}: 'pipe_fields' configuration is required"
@@ -107,7 +115,7 @@ class SwiftBlockFormatter(BaseComponent):
             )
 
         # Processing options
-        self.processing_options = self.config.get('processing', {})
+        self.processing_options = cfg.get('processing', {})
 
         logger.info(f"Component {self.id}: Initialized SWIFT parser with {len(self.pipe_fields)} output fields")
 

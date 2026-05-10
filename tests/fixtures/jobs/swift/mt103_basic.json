@@ -32,7 +32,7 @@
       "type": "SwiftBlockFormatter",
       "original_type": "tSwiftBlockFormatter",
       "config": {
-        "layout_file": "${LAYOUT_FILE}",
+        "layout_file": "${context.LAYOUT_FILE}",
         "content_column": "content",
         "pipe_fields": [
           "messagetype",
