@@ -19,10 +19,17 @@ from datetime import datetime
 import pandas as pd
 
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
+from ...exceptions import (
+    ConfigurationError,
+    DataValidationError,
+    FileOperationError,
+)
 
 logger = logging.getLogger(__name__)
 
 
+@REGISTRY.register("FileInputJSON", "tFileInputJSON")
 class FileInputJSON(BaseComponent):
     """
     Reads and processes JSON files using JSONPath expressions for data extraction.
@@ -89,6 +96,56 @@ class FileInputJSON(BaseComponent):
         """Initialize the FileInputJSON component."""
         super().__init__(*args, **kwargs)
         self.logger = logging.getLogger(__name__)
+
+    def _validate_config(self) -> None:
+        """Validate component configuration (Rule 12: shape-only).
+
+        Plan 14-09 BUG-FIJ-002: BaseComponent declares this as an
+        abstract method, so this class previously could not be
+        instantiated through ABC. Mirror of swift_block_formatter
+        BUG-SWIFT-002 fix.
+
+        Raises:
+            ConfigurationError: If required config is missing or wrong shape.
+        """
+        # Required keys (defer content / runtime checks to _process)
+        if 'filename' not in self.config and not self.config.get('useurl'):
+            raise ConfigurationError(
+                f"[{self.id}] Missing required config: 'filename' "
+                f"(or set useurl=True with urlpath)"
+            )
+        if 'json_loop_query' not in self.config:
+            raise ConfigurationError(
+                f"[{self.id}] Missing required config: 'json_loop_query'"
+            )
+
+        # Optional shape checks
+        mapping = self.config.get('mapping')
+        if mapping is not None and not isinstance(mapping, list):
+            raise ConfigurationError(
+                f"[{self.id}] Config 'mapping' must be a list"
+            )
+        encoding = self.config.get('encoding')
+        if encoding is not None and not isinstance(encoding, str):
+            raise ConfigurationError(
+                f"[{self.id}] Config 'encoding' must be a string"
+            )
+        for field_name in ('die_on_error', 'useurl', 'advanced_separator',
+                           'check_date', 'use_loop_as_root'):
+            if field_name in self.config and not isinstance(self.config[field_name], bool):
+                raise ConfigurationError(
+                    f"[{self.id}] Config '{field_name}' must be a boolean"
+                )
+        useurl = self.config.get('useurl', False)
+        if useurl and not self.config.get('urlpath'):
+            raise ConfigurationError(
+                f"[{self.id}] Config 'urlpath' is required when 'useurl' is True"
+            )
+        schema = self.config.get('schema')
+        if schema is not None and not isinstance(schema, list):
+            raise ConfigurationError(
+                f"[{self.id}] Config 'schema' must be a list"
+            )
 
     def _normalize_mapping(self, mapping: List[Dict]) -> List[Dict]:
         """
