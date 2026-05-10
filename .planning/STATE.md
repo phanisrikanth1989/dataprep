@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 14 Plan 09 complete -- file deep-gap modules lifted (file_output_excel.py 69.0%->100.0%, file_input_excel.py 28.7%->97.4%, file_input_json.py 9.3%->100.0%, file_input_raw.py 17.7%->100.0%); 2 source-side BUG-FIJ fixes (REGISTRY registration + abstract _validate_config) mirror Plans 14-06/14-07 BUG-PDC/BUG-SWIFT pattern; 167 new tests (38 FOE + 67 FIE + 39 FIJ + 23 FIR); 7 real binary/text fixtures (.xlsx/.xls/.json/.txt) + 3 pipeline-job JSON fixtures committed under tests/fixtures/data/ and tests/fixtures/jobs/file/. .gitignore D-RULE3 negation extended to tests/fixtures/data/**/*.json. 9 commits. Per-plan gate PASS for all 26 file modules at 95% floor.
-last_updated: "2026-05-11T23:30:00Z"
+stopped_at: Phase 14 Plan 10 complete -- 7 engine-core modules lifted to >=95%: trigger_manager 91.3% -> 100% (13 lines closed), executor 91.0% -> 95.2% (14 closed), base_iterate_component 90.7% -> 100% (8 closed), base_component 80.7% -> 97.1% (86 closed), python_routine_manager 81.6% -> 98.0% (16 closed), engine 88.6% -> 100% (18 closed), java_bridge_manager 52.5% -> 99.0% (47 closed under @pytest.mark.java per D-A3). 3 new core/ pipeline fixtures (trigger_runif, multi_subjob, reject_routing). Resolved Plan 14-01 deferral: TestTMapCompiledExpressions JVM port-25333 contention under -n auto fixed via JavaBridgeManager (dynamic free port) in test_bridge_integration.py 'bridge' fixture. NEW test modules: test_engine.py (18), test_java_bridge_manager.py (16). 11 commits. map.py at 83.06% remains the ONLY out-of-scope failure (Plan 14-06 deferral; 147 Java-bridge-driven lines not closed by core/ fixtures because they don't touch tMap).
+last_updated: "2026-05-11T22:30:00Z"
 last_activity: 2026-05-11
 progress:
   total_phases: 20
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-14)
 ## Current Position
 
 Phase: 14 (coverage-push-to-95-per-module-floor) — EXECUTING
-Plan: 13 of 13 (12 of 13 complete -- Plan 14-09 lands 4 file deep-gap modules PASS; Plans 14-12 / 14-13 still pending)
+Plan: 13 of 13 (Plans 14-01..14-11 complete, Plan 14-10 complete; Plans 14-12 / 14-13 still pending)
 Next: Phase 14 Plan 12 (converters) OR Plan 14-13 (closeout)
 Status: Ready to execute
 Last activity: 2026-05-11
@@ -119,6 +119,9 @@ Recent decisions affecting current work:
 - [Phase 14]: Plan 14-09 BUG-FIJ-001/002: FileInputJSON not registered with REGISTRY + missing abstract _validate_config -- same dual-bug pattern as BUG-SWIFT-001/002 (14-07), BUG-PDC-001/002 (14-06), BUG-AGG-001 (14-02). Production tFileInputJSON jobs silently dropped as "Unknown component"; ABC instantiation refused. Fixed via @REGISTRY.register('FileInputJSON', 'tFileInputJSON') decorator + Rule-12 _validate_config raising ConfigurationError. Plan 14-13 closeout should add plan-checker grep for BaseComponent subclasses missing either invariant.
 - [Phase 14]: Plan 14-09 D-RULE3 extension: .gitignore !tests/fixtures/data/**/*.json negation added so deep-gap JSON fixtures (sample_data.json, sample_jsonpath.json) land in git. Project-wide *.json rule otherwise silently swallows them. Mirrors Plan 14-08 D-RULE3 for tests/fixtures/jobs/.
 - [Phase 14]: Plan 14-09 documented 15 unreached lines in file_input_excel.py as defensive guards that pass shape validation but trip pd.read_excel / xlrd in ways no realistic input could trigger; 95% floor cleared at 97.4%. Future cleanup phase can D-C5 delete or pragma-allowlist them.
+- [Phase 14]: Plan 14-10 BUG-JVM-001: test_bridge_integration.py module-scoped 'bridge' fixture used JavaBridge() with default port=25333; under -n auto every xdist worker except the first failed on bind(). Fixed by switching to JavaBridgeManager() (dynamic free port via socket.bind('', 0)). Resolves Plan 14-01 deferral. All 31 bridge_integration tests pass under 10 parallel workers.
+- [Phase 14]: Plan 14-10 lifted all 7 engine-core modules to >=95% (4 at 100%: trigger_manager, base_iterate_component, engine, executor 95.2%; base_component 97.1%, python_routine_manager 98.0%, java_bridge_manager 99.0% via @pytest.mark.java per D-A3). 3 new core/ pipeline fixtures (trigger_runif, multi_subjob, reject_routing). NEW test modules: test_engine.py + test_java_bridge_manager.py.
+- [Phase 14]: Plan 14-10 confirmed map.py PARTIAL LIFT (83.06%) NOT closed as side effect: the 3 new core pipeline fixtures use FixedFlowInput/SetGlobalVar/FileInput/FileOutput only, do not exercise tMap. Plan 14-13 closeout MUST address either via Plan 14-06b (live-bridge tMap tests under @pytest.mark.java) or amend the per-module floor with documented carve-out for map.py.
 
 ### Roadmap Evolution
 
@@ -171,7 +174,8 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
 - Plan 14-11 complete (2026-05-11): 8 converter-side modules lifted from 78-97% to >=97.2% (5 at 100.0%, expression_converter 98.9%, xml_map 98.1%, foreach 97.2%). 9 commits (`a2a897c` STALE-INT-001 -> `a5465cc` mssql_input). STALE-INT-001 deletion of legacy tests/converters/talend_to_v1/test_integration.py (importing absent src.converters.complex_converter -- a deferred-from-14-01 issue). New test module tests/converters/talend_to_v1/test_expression_converter.py (65 tests). 4 defensive unreachable lines documented as D-C5 candidates kept in source. Per-module gate PASS for the 8 in-scope modules; 2 out-of-scope transform modules (log_row 94.4%, join 94.7%) remain below 95% and are tracked for Plan 14-06.
 - Plan 14-06 complete (2026-05-11): 3 of 4 transform deep-gap modules at 100% line coverage (join.py 69.2%->100%, python_dataframe_component.py 19.6%->100%, log_row.py 96.7%->100%). map.py PARTIAL lift 73.8%->83.1% (147 missed lines remain, all in Java-bridge-driven paths: _join_context_only / _join_cross_table / _join_reload_per_row / _evaluate_outputs_compiled / _evaluate_with_bridge -- require @pytest.mark.java live-bridge tests). 9 commits (`8dac42c` BUG-PDC-001 -> `16556db` COV-MAP-001). 2 BUG-PDC source fixes: BUG-PDC-001 (PythonDataFrameComponent unregistered with REGISTRY -- engine.py silently dropped it as 'Unknown component type' in production!) + BUG-PDC-002 (missing abstract _validate_config). 1 D-C5 source cleanup: 3 sets of unreachable defensive branches deleted from join.py (_merge / lookup-key drops post-keep_cols filter, lk_col + '_lookup' / out_col-passthrough branches, ConfigurationError/DataValidationError re-raise). 2 new pipeline fixtures (transform/map_with_lookup.json, transform/join_with_reject.json) + 4 pipeline tests (D-C1) using run_job_fixture. map.py 95% gap deferred to Plan 14-13 closeout (either spawn 14-06b live-bridge sweep, fold into 14-13, or amend the per-module floor with documented carve-out).
 - Plan 14-09 complete (2026-05-11): 4 file deep-gap modules lifted from 9-69% to >=97.4% (3 at 100%, file_input_excel.py at 97.4%). 9 commits (`709cd33` INFRA-FX-004 -> `e9c2cbe` COV-FIR-001). 2 BUG-FIJ source fixes (registration + abstract method). 7 real binary/text fixtures + 3 pipeline-job fixtures committed. .gitignore D-RULE3 negation extended to tests/fixtures/data/**/*.json. 1402 tests pass under -n auto across file/ + integration/. Per-module gate PASS for all 26 file modules at 95% floor.
-- Plans 14-10, 14-12, 14-13: pending. Next is Plan 14-12 (converters) OR Plan 14-13 (closeout).
+- Plan 14-10 complete (2026-05-11): all 7 engine-core modules lifted to >=95% (4 at 100%: trigger_manager 91.3% -> 100%, base_iterate_component 90.7% -> 100%, engine 88.6% -> 100%, executor 91.0% -> 95.2%; base_component 80.7% -> 97.1%, python_routine_manager 81.6% -> 98.0%, java_bridge_manager 52.5% -> 99.0% under @pytest.mark.java per D-A3). 11 commits (`0e62be6` INFRA-CORE-001 -> `bb2a81d` BUG-JVM-001). 3 new core/* pipeline fixtures (trigger_runif, multi_subjob, reject_routing). NEW test modules: test_engine.py (18 tests) + test_java_bridge_manager.py (16 @pytest.mark.java tests). Resolved Plan 14-01 deferred JVM contention in test_bridge_integration.py by switching the module-scoped 'bridge' fixture from JavaBridge() (default port 25333) to JavaBridgeManager() (dynamic free port). All 31 bridge_integration tests now pass under -n auto with 10 workers. Per-plan gate exits 0 for the 7 in-scope modules; map.py remains at 83.06% (out-of-scope, Plan 14-06 deferral unchanged because core fixtures don't exercise tMap).
+- Plans 14-12, 14-13: pending. Next is Plan 14-12 (converters) OR Plan 14-13 (closeout).
 
 ### Phase 13 closed (2026-05-10)
 
@@ -198,6 +202,6 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
 
 ## Session Continuity
 
-Last session: 2026-05-11T23:30:00Z
-Stopped at: Phase 14 Plan 09 complete -- 4 file deep-gap modules lifted to >=97.4% (3 at 100%); 2 BUG-FIJ source fixes (registration + abstract _validate_config) mirror 14-06/14-07 pattern; 7 binary/text fixtures + 3 pipeline-job fixtures committed; .gitignore extended; 9 commits
+Last session: 2026-05-11T22:30:00Z
+Stopped at: Phase 14 Plan 10 complete -- 7 engine-core modules at >=95% (4 at 100%, java_bridge_manager 99.0% under @pytest.mark.java); 3 new core/ pipeline fixtures; 2 NEW test modules (test_engine.py + test_java_bridge_manager.py); BUG-JVM-001 fix resolves Plan 14-01 JVM-contention deferral; 11 commits
 Resume with: /gsd-execute-phase 14 (continue with Plan 14-12 converters, or Plan 14-13 closeout)

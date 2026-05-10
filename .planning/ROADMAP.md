@@ -378,7 +378,8 @@ Plans:
 | 14-11 | Complete | 9/9 | 8 (converter 97.6% -> 100%, expression_converter 77.8% -> 98.9%, xml_map 87.9% -> 98.1%, replace 93.7% -> 100%, aggregate_row 90.5% -> 100%, foreach 94.4% -> 97.2%, file_input_excel 94.3% -> 100%, mssql_input 81% -> 100%) |
 | 14-07 | Complete | 7/7 | 2 (swift_block_formatter 7% -> 97.2%, swift_transformer 7% -> 98.0%); 5 BUG-SWIFT source fixes; D-C5 dead-code deletion |
 | 14-09 | Complete | 9/9 | 4 (file_output_excel 69.0% -> 100%, file_input_excel 28.7% -> 97.4%, file_input_json 9.3% -> 100%, file_input_raw 17.7% -> 100%); 2 BUG-FIJ source fixes (registration + abstract _validate_config); 12 binary/text + 3 pipeline-job fixtures committed |
-| 14-10, 14-12 | Pending | -- | -- |
+| 14-10 | Complete | 11/11 | 7 engine-core (trigger_manager 91.3% -> 100%, executor 91.0% -> 95.2%, base_iterate_component 90.7% -> 100%, base_component 80.7% -> 97.1%, python_routine_manager 81.6% -> 98.0%, engine 88.6% -> 100%, java_bridge_manager 52.5% -> 99.0% via @pytest.mark.java); 3 new core/* pipeline fixtures; resolved Plan 14-01 JVM-contention deferral |
+| 14-12 | Pending | -- | -- |
 
 ### Phase 15: Integration Testing & Performance
 **Goal**: Real Talend jobs converted from .item XML run end-to-end through the Python engine and produce identical output to Talend, with acceptable performance for production workloads

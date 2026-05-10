@@ -51,6 +51,17 @@ Pre-existing test infrastructure noise surfaced by `-n auto` on the FULL suite
    - **Plan-check stance:** NOT a Plan 14-01 blocker. Plan 14-01 ships
      infrastructure; the failures are a pre-existing issue in the test layout
      amplified by the new parallel gate.
+   - **RESOLUTION (2026-05-11, Plan 14-10 BUG-JVM-001 / commit `bb2a81d`):**
+     Applied option (b). The module-scoped `bridge` fixture in
+     `tests/v1/engine/test_bridge_integration.py` was using `JavaBridge()` with
+     the default port=25333. Each xdist worker created its own fixture instance
+     and competed for the same port; only the first worker bound successfully.
+     Fix: switched the fixture to `JavaBridgeManager(enable=True)` which calls
+     `socket.bind(('', 0))` to allocate a free port per invocation. Each worker
+     now gets a unique port. Verified by running
+     `python -m pytest tests/v1/engine/test_bridge_integration.py -m java -n auto`
+     with 10 workers -- all 31 tests pass under parallel collection. No new
+     marker required; existing `-m "not oracle"` gate command stays clean.
 
 2. **`tests/converters/talend_to_v1/test_integration.py`** -- ImportError on
    collection: `ModuleNotFoundError: No module named 'src.converters.complex_converter'`.
