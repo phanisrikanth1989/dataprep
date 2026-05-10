@@ -403,3 +403,173 @@ class TestPhantomParams:
         node = _make_node(params={"CONNECTION_FORMAT": "row"})
         result = AggregateRowConverter().convert(node, [], {})
         assert "connection_format" not in result.component["config"]
+
+
+# ------------------------------------------------------------------
+# Plan 14-11: helper-function and converter-branch coverage
+# ------------------------------------------------------------------
+
+
+class TestNormaliseFunctionEdges:
+    """Cover line 75 ('population_std_dev' explicit pass branch)."""
+
+    def test_population_std_dev_no_warning(self):
+        """'population_std_dev' is mapped without emitting a warning (line 75)."""
+        from src.converters.talend_to_v1.components.aggregate.aggregate_row import (
+            _normalise_function,
+        )
+        warnings = []
+        result = _normalise_function("population_std_dev", warnings)
+        assert result == "population_std_dev"
+        assert warnings == []
+
+    def test_list_object_no_warning(self):
+        """'list_object' is mapped without emitting a warning (line 73 hit)."""
+        from src.converters.talend_to_v1.components.aggregate.aggregate_row import (
+            _normalise_function,
+        )
+        warnings = []
+        result = _normalise_function("list_object", warnings)
+        assert result == "list_object"
+        assert warnings == []
+
+    def test_union_emits_warning(self):
+        """'union' has no engine equivalent and emits a warning."""
+        from src.converters.talend_to_v1.components.aggregate.aggregate_row import (
+            _normalise_function,
+        )
+        warnings = []
+        result = _normalise_function("union", warnings)
+        assert result == "union"
+        assert len(warnings) == 1
+        assert "union" in warnings[0]
+
+
+class TestParseGroupbysBranches:
+    """Cover lines 100 (incomplete trailing group break) and 104 (entry not dict)."""
+
+    def test_incomplete_trailing_group_skipped(self):
+        """Trailing 2-stride group with < 2 entries is dropped (line 100)."""
+        from src.converters.talend_to_v1.components.aggregate.aggregate_row import (
+            _parse_groupbys,
+        )
+        full = _make_groupbys_data([("out_a", "in_a")])
+        trailing = [{"elementRef": "OUTPUT_COLUMN", "value": '"out_b"'}]
+        result = _parse_groupbys(full + trailing)
+        assert len(result) == 1
+        assert result[0]["output_column"] == "out_a"
+
+    def test_non_dict_entry_skipped(self):
+        """A non-dict entry inside a group is silently skipped (line 104)."""
+        from src.converters.talend_to_v1.components.aggregate.aggregate_row import (
+            _parse_groupbys,
+        )
+        # Build a 2-stride group where one entry is not a dict
+        raw = [
+            {"elementRef": "OUTPUT_COLUMN", "value": '"out_a"'},
+            "not_a_dict",  # skipped (was the INPUT_COLUMN slot)
+        ]
+        result = _parse_groupbys(raw)
+        # Row still emitted with only the OUTPUT_COLUMN populated
+        assert len(result) == 1
+        assert result[0]["output_column"] == "out_a"
+        assert "input_column" not in result[0]
+
+
+class TestParseOperationsBranches:
+    """Cover lines 137 (entry not dict), 159 (no operations parsed warning),
+    181 (missing FUNCTION), 183 (missing INPUT_COLUMN)."""
+
+    def test_non_dict_entry_skipped(self):
+        """A non-dict entry in OPERATIONS raw is silently skipped (line 137)."""
+        from src.converters.talend_to_v1.components.aggregate.aggregate_row import (
+            _parse_operations,
+        )
+        raw = [
+            {"elementRef": "OUTPUT_COLUMN", "value": '"out_a"'},
+            "not_a_dict",  # skipped
+            {"elementRef": "FUNCTION", "value": '"sum"'},
+            {"elementRef": "INPUT_COLUMN", "value": '"in_a"'},
+            {"elementRef": "IGNORE_NULL", "value": "false"},
+        ]
+        warnings = []
+        result = _parse_operations(raw, warnings)
+        assert len(result) == 1
+        assert result[0]["function"] == "sum"
+
+    def test_no_valid_operations_warning(self):
+        """Raw entries with no OUTPUT_COLUMN refs at all yield a warning (line 159)."""
+        from src.converters.talend_to_v1.components.aggregate.aggregate_row import (
+            _parse_operations,
+        )
+        # Raw has entries but no OUTPUT_COLUMN refs (so no flush ever occurs
+        # and no current_op is built up either) -> empty list + warning.
+        raw = [
+            {"elementRef": "UNKNOWN_REF", "value": '"x"'},
+            {"elementRef": "ANOTHER_REF", "value": '"y"'},
+        ]
+        warnings = []
+        result = _parse_operations(raw, warnings)
+        assert result == []
+        assert len(warnings) == 1
+        assert "OPERATIONS table has entries but no valid operations" in warnings[0]
+
+    def test_missing_function_emits_warning(self):
+        """Operation missing FUNCTION emits a warning (line 181)."""
+        from src.converters.talend_to_v1.components.aggregate.aggregate_row import (
+            _parse_operations,
+        )
+        raw = [
+            {"elementRef": "OUTPUT_COLUMN", "value": '"out_a"'},
+            {"elementRef": "INPUT_COLUMN", "value": '"in_a"'},
+            # FUNCTION omitted
+        ]
+        warnings = []
+        ops = _parse_operations(raw, warnings)
+        # The op is appended despite missing fields, and a warning records the gap.
+        assert len(ops) == 1
+        assert any("missing FUNCTION" in w for w in warnings)
+
+    def test_missing_input_column_emits_warning(self):
+        """Operation missing INPUT_COLUMN emits a warning (line 183)."""
+        from src.converters.talend_to_v1.components.aggregate.aggregate_row import (
+            _parse_operations,
+        )
+        raw = [
+            {"elementRef": "OUTPUT_COLUMN", "value": '"out_a"'},
+            {"elementRef": "FUNCTION", "value": '"sum"'},
+            # INPUT_COLUMN omitted
+        ]
+        warnings = []
+        ops = _parse_operations(raw, warnings)
+        assert len(ops) == 1
+        assert any("missing INPUT_COLUMN" in w for w in warnings)
+
+
+class TestConvertNonListTableParams:
+    """Cover lines 217-218 (GROUPBYS not list) and 224-225 (OPERATIONS not list)."""
+
+    def test_groupbys_not_list_emits_warning(self):
+        """GROUPBYS param that is not a list -> warning + empty groupbys (lines 217-218)."""
+        node = _make_node(params={
+            "GROUPBYS": "should_be_a_list",  # str, not list
+            "OPERATIONS": [],
+        })
+        result = AggregateRowConverter().convert(node, [], {})
+        # ComponentResult.warnings is the list we expect to inspect
+        assert any(
+            "GROUPBYS param is not a list" in w for w in result.warnings
+        ), f"Expected GROUPBYS warning; got {result.warnings}"
+        assert result.component["config"]["groupbys"] == []
+
+    def test_operations_not_list_emits_warning(self):
+        """OPERATIONS param that is not a list -> warning + empty ops (lines 224-225)."""
+        node = _make_node(params={
+            "GROUPBYS": [],
+            "OPERATIONS": {"not": "a list"},  # dict, not list
+        })
+        result = AggregateRowConverter().convert(node, [], {})
+        assert any(
+            "OPERATIONS param is not a list" in w for w in result.warnings
+        ), f"Expected OPERATIONS warning; got {result.warnings}"
+        assert result.component["config"]["operations"] == []
