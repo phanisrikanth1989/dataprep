@@ -3340,3 +3340,478 @@ class TestEmptyMainAfterFilter:
         result = comp.execute(_make_input_dict(main_df=main_df))
         # All filtered -> empty outputs
         assert result["out1"].empty
+
+
+# ------------------------------------------------------------------
+# Plan 14-06b unit-test gap closure (no JVM required)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestPlan1406bUnitGapClosure:
+    """Unit-only branches not yet covered by existing test classes.
+
+    Targets the cheap remaining map.py misses outside the Java-bridge code
+    paths exercised by Plan 14-06b's live-bridge tests in
+    `test_map_bridge.py`. Specifically:
+
+    - `_infer_arrow_schema_dict` decimal-named-dtype branch (line 106) +
+      object-column dropna() exception path (lines 114-115)
+    - `_apply_filter` complex-filter no-result-key branch (line 538)
+    - `_apply_filter` simple-column-not-found warning branch (lines 521-524)
+    - Equality-join column-not-found left-key fallback (lines 762, 765)
+    - Equality-join `__dup__` cleanup branch (line 832)
+    - `_find_column` `Var.<col>` branch (line 2041)
+    - `_values_equal` numeric/string mixed comparison branches (2074-2082)
+    - `_apply_matching_mode` empty-df + missing-keys + unknown-mode branches
+      (2129, 2133, 2152-2156)
+    - `_auto_convert_join_keys` `_safe_issubdtype` TypeError branch (2214-2215)
+    - `_build_compiled_script` empty-expression and filter-guard codegen
+      branches (1731-1732, 1741-1743, 1786-1792)
+    - `_evaluate_outputs_simple` `Var.<col>` missing-from-df fallback
+      (lines 1407-1411)
+    - `_evaluate_outputs_simple` complex-expr-with-bridge eval-success
+      branch (line 1418)
+    - `_apply_output_filter` reject-routing append branches (1468-1485)
+    """
+
+    def _helper(self):
+        comp = _make_component()
+        comp.config = copy.deepcopy(comp._original_config)
+        return comp
+
+    # ---------- _infer_arrow_schema_dict edge branches --------------
+
+    def test_infer_schema_decimal_dtype_string(self):
+        """Line 106: dtype string contains 'decimal' (arrow-backed Decimal dtype)."""
+        from decimal import Decimal as _D
+
+        from src.v1.engine.components.transform.map import _infer_arrow_schema_dict
+
+        # Construct a Series whose .dtype repr contains 'decimal'.
+        # pyarrow Decimal128 dtype lowercased contains 'decimal'.
+        try:
+            import pyarrow as pa
+            arr = pa.array([_D("1.5"), _D("2.5")], type=pa.decimal128(10, 2))
+        except Exception:
+            pytest.skip("pyarrow not available for decimal dtype test")
+        # Convert to pandas using ArrowDtype so the column dtype itself is
+        # decimal-typed (not object dtype).
+        try:
+            s = arr.to_pandas(types_mapper=pd.ArrowDtype)
+        except Exception:
+            pytest.skip("pyarrow ArrowDtype not available")
+        df = pd.DataFrame({"a": s})
+        # Verify dtype repr contains 'decimal'
+        if "decimal" not in str(df["a"].dtype).lower():
+            pytest.skip(f"pyarrow Decimal dtype not 'decimal'-named in this build: {df['a'].dtype}")
+        out = _infer_arrow_schema_dict(df)
+        assert out["a"] == "Decimal"
+
+    def test_infer_schema_object_column_dropna_exception(self, monkeypatch):
+        """Lines 114-115: dropna() raises -> sample stays None -> str fallback."""
+        from src.v1.engine.components.transform.map import _infer_arrow_schema_dict
+
+        df = pd.DataFrame({"a": [object(), object()]})  # object dtype
+        # Patch pd.Series.dropna to raise -- exercises the try/except guard
+        # in _infer_arrow_schema_dict's object-dtype sample-detection branch.
+        original_dropna = pd.Series.dropna
+
+        def _exploding_dropna(self, *args, **kwargs):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(pd.Series, "dropna", _exploding_dropna)
+        try:
+            out = _infer_arrow_schema_dict(df)
+        finally:
+            monkeypatch.setattr(pd.Series, "dropna", original_dropna)
+        # Sample remained None -> falls through to "str"
+        assert out["a"] == "str"
+
+    # ---------- _apply_filter complex-filter branches ---------------
+
+    def test_apply_filter_simple_col_not_found(self, caplog):
+        """Lines 521-524: filter column not present -> warning, return df unchanged."""
+        comp = self._helper()
+        df = pd.DataFrame({"id": [1, 2], "key": ["A", "B"]})
+        with caplog.at_level(logging.WARNING):
+            result = comp._apply_filter(df, "row1.not_there", "row1", [])
+        assert len(result) == 2
+        assert any("not found" in r.message for r in caplog.records)
+
+    def test_apply_filter_complex_no_bridge_result_key(self):
+        """Line 538: complex filter, bridge returns dict without __filter__ -> df unchanged."""
+        comp = self._helper()
+
+        class _NoOpBridge:
+            def execute_tmap_preprocessing(self, df, expressions, main_table_name,
+                                           lookup_table_names=None, schema=None):
+                return {}  # no __filter__ key
+
+        comp.java_bridge = _NoOpBridge()
+        df = pd.DataFrame({"id": [1, 2], "k": ["A", "B"]})
+        result = comp._apply_filter(df, "row1.id > 0", "row1", [])
+        # Bridge returned no result key -> original df preserved
+        assert len(result) == 2
+
+    # ---------- _find_column Var. branch ----------------------------
+
+    def test_find_column_var_branch(self):
+        """Line 2041: Var.<col> path."""
+        comp = self._helper()
+        df = pd.DataFrame({"Var.x": [1, 2, 3]})
+        # table='someTable', column='x' -> tries 'someTable.x' (no), 'x' (no), 'Var.x' (YES)
+        assert comp._find_column(df, "someTable", "x") == "Var.x"
+
+    # ---------- _values_equal mixed numeric/string -----------------
+
+    def test_values_equal_numeric_vs_string_castable(self):
+        """Lines 2074-2076: a numeric, b string castable to numeric."""
+        comp = self._helper()
+        assert comp._values_equal(1.0, "1.0") is True
+        assert comp._values_equal(2, "3") is False
+
+    def test_values_equal_numeric_vs_string_non_castable(self):
+        """Line 2077: a numeric, b string NOT castable -> False."""
+        comp = self._helper()
+        assert comp._values_equal(1, "abc") is False
+
+    def test_values_equal_string_vs_numeric_castable(self):
+        """Lines 2079-2081: b numeric, a string castable."""
+        comp = self._helper()
+        assert comp._values_equal("1.5", 1.5) is True
+
+    def test_values_equal_string_vs_numeric_non_castable(self):
+        """Line 2082: b numeric, a string NOT castable -> False."""
+        comp = self._helper()
+        assert comp._values_equal("xyz", 1) is False
+
+    # ---------- _apply_matching_mode edges --------------------------
+
+    def test_apply_matching_mode_empty_df(self):
+        """Line 2129: empty df -> short-circuit return."""
+        comp = self._helper()
+        empty = pd.DataFrame(columns=["k"])
+        out = comp._apply_matching_mode(empty, ["k"], "UNIQUE_MATCH")
+        assert out.empty
+
+    def test_apply_matching_mode_no_existing_keys(self):
+        """Line 2133: none of key_columns present -> return df as-is."""
+        comp = self._helper()
+        df = pd.DataFrame({"v": [1, 2, 2]})
+        out = comp._apply_matching_mode(df, ["MISSING_KEY"], "UNIQUE_MATCH")
+        # No dedup -- df returned unchanged
+        assert len(out) == 3
+
+    def test_apply_matching_mode_unknown_mode_warns(self, caplog):
+        """Lines 2152-2156: unknown mode -> warning + UNIQUE_MATCH fallback."""
+        comp = self._helper()
+        df = pd.DataFrame({"k": ["A", "A", "B"], "v": [1, 2, 3]})
+        with caplog.at_level(logging.WARNING):
+            out = comp._apply_matching_mode(df, ["k"], "BOGUS_MODE")
+        assert len(out) == 2  # UNIQUE_MATCH dedup applied
+        assert any("Unknown matching mode" in r.message for r in caplog.records)
+
+    def test_apply_matching_mode_first_match(self):
+        """Cover the FIRST_MATCH branch (lines 2140-2143)."""
+        comp = self._helper()
+        df = pd.DataFrame({"k": ["A", "A", "B"], "v": [1, 2, 3]})
+        out = comp._apply_matching_mode(df, ["k"], "FIRST_MATCH")
+        assert len(out) == 2
+        assert out[out["k"] == "A"].iloc[0]["v"] == 1
+
+    def test_apply_matching_mode_last_match(self):
+        """Cover the LAST_MATCH branch (lines 2144-2147)."""
+        comp = self._helper()
+        df = pd.DataFrame({"k": ["A", "A", "B"], "v": [1, 2, 3]})
+        out = comp._apply_matching_mode(df, ["k"], "LAST_MATCH")
+        assert len(out) == 2
+        assert out[out["k"] == "A"].iloc[0]["v"] == 2
+
+    def test_apply_matching_mode_all_matches(self):
+        """Cover the ALL_MATCHES branch (line 2150)."""
+        comp = self._helper()
+        df = pd.DataFrame({"k": ["A", "A", "B"], "v": [1, 2, 3]})
+        out = comp._apply_matching_mode(df, ["k"], "ALL_MATCHES")
+        # No dedup
+        assert len(out) == 3
+
+    # ---------- _auto_convert_join_keys exception path -------------
+
+    def test_auto_convert_safe_issubdtype_typeerror_swallowed(self):
+        """Lines 2214-2215: pd extension dtype + np.issubdtype call -> TypeError swallowed.
+
+        The internal `_safe_issubdtype` wraps `np.issubdtype` in try/except
+        because pandas extension dtypes (e.g. StringDtype, Int64) aren't
+        recognized as numpy dtypes. We force the path with mismatched
+        extension dtypes that aren't string-like vs. numeric.
+
+        Construct: left=pd.StringDtype, right=pd.BooleanDtype. Neither is
+        np.number nor np.integer/np.floating; the str-side branches don't
+        match (right is not number), the int<->float branches don't match
+        (neither is np.integer/np.floating). _safe_issubdtype is invoked on
+        all four combinations and silently returns False. No conversion
+        happens; column dtypes preserved.
+        """
+        comp = self._helper()
+        m = pd.DataFrame({"k": pd.array(["a", "b"], dtype="string")})
+        l = pd.DataFrame({"k": pd.array([True, False], dtype="boolean")})
+        m2, l2 = comp._auto_convert_join_keys(m, l, ["k"], ["k"])
+        # Neither converted; both retain extension dtypes (no crash, no convert)
+        assert str(m2["k"].dtype) == "string"
+        assert str(l2["k"].dtype) == "boolean"
+
+    # ---------- _build_compiled_script empty-expr/filter codegen ---
+
+    def test_build_compiled_script_empty_column_expression(self):
+        """Lines 1731-1732: empty column expression -> emit `null` literal."""
+        comp = self._helper()
+        outputs = [{
+            "name": "out1",
+            "is_reject": False,
+            "inner_join_reject": False,
+            "filter": "",
+            "activate_filter": False,
+            "columns": [
+                {"name": "a", "expression": "", "type": "str"},  # empty
+                {"name": "b", "expression": "   ", "type": "str"},  # whitespace
+                {"name": "c", "expression": "{{java}}row1.id", "type": "int"},
+            ],
+            "catch_output_reject": False,
+        }]
+        script = comp._build_compiled_script(outputs, [], "row1", [])
+        assert "row[0] = null;" in script
+        assert "row[1] = null;" in script
+        # Non-empty expr unchanged
+        assert "row[2] = row1.id;" in script
+
+    def test_build_compiled_script_filter_guard_emission(self):
+        """Lines 1741-1743: activate_filter + filter_expr -> emit `if (!(...)) return null;`."""
+        comp = self._helper()
+        outputs = [{
+            "name": "out1",
+            "is_reject": False,
+            "inner_join_reject": False,
+            "filter": "{{java}}row1.id > 0",
+            "activate_filter": True,
+            "columns": [
+                {"name": "a", "expression": "{{java}}row1.id", "type": "int"},
+            ],
+            "catch_output_reject": False,
+        }]
+        script = comp._build_compiled_script(outputs, [], "row1", [])
+        assert "if (!(row1.id > 0)) return null;" in script
+
+    def test_build_compiled_script_variable_with_empty_expression(self):
+        """Lines 1786-1792: variable with empty/whitespace expression -> `null` literal."""
+        comp = self._helper()
+        outputs = [{
+            "name": "out1",
+            "is_reject": False,
+            "inner_join_reject": False,
+            "filter": "",
+            "activate_filter": False,
+            "columns": [
+                {"name": "a", "expression": "{{java}}row1.id", "type": "int"},
+            ],
+            "catch_output_reject": False,
+        }]
+        # Variables with explicit empty + whitespace expression strings
+        variables = [
+            {"name": "v_empty", "expression": ""},  # falsy -> outer `if var_expr:` skips
+            {"name": "v_ws", "expression": "   "},  # truthy, but stripped to empty -> "null"
+            {"name": "v_normal", "expression": "{{java}}row1.id * 2"},
+        ]
+        script = comp._build_compiled_script(outputs, variables, "row1", [])
+        # v_empty NOT emitted (outer guard skips)
+        assert 'Var.put("v_empty"' not in script
+        # v_ws emitted as Var.put("v_ws", null)
+        assert 'Var.put("v_ws", null);' in script
+        # v_normal emitted with stripped expression
+        assert 'Var.put("v_normal", row1.id * 2);' in script
+
+    # ---------- _evaluate_outputs_simple Var.<col> missing branch --
+
+    def test_evaluate_outputs_simple_var_missing_from_df(self):
+        """Lines 1410-1411: output expression `Var.<col>` not in joined_df -> None."""
+        comp = self._helper()
+        joined_df = pd.DataFrame({"row1.id": [1, 2]})
+        outputs = [{
+            "name": "out1",
+            "is_reject": False,
+            "inner_join_reject": False,
+            "filter": "",
+            "activate_filter": False,
+            "columns": [
+                {"name": "v", "expression": "Var.missing", "type": "str"},
+            ],
+        }]
+        result = comp._evaluate_outputs_simple(joined_df, outputs, "row1", [])
+        assert "out1" in result
+        # Var.missing not in joined_df -> column filled with None
+        assert result["out1"]["v"].isna().all()
+
+    def test_evaluate_outputs_simple_var_present(self):
+        """Lines 1407-1409: Var.<col> present in joined_df -> values copied."""
+        comp = self._helper()
+        joined_df = pd.DataFrame({"row1.id": [1, 2], "Var.x": [10, 20]})
+        outputs = [{
+            "name": "out1",
+            "is_reject": False,
+            "inner_join_reject": False,
+            "filter": "",
+            "activate_filter": False,
+            "columns": [
+                {"name": "x", "expression": "Var.x", "type": "int"},
+            ],
+        }]
+        result = comp._evaluate_outputs_simple(joined_df, outputs, "row1", [])
+        assert list(result["out1"]["x"]) == [10, 20]
+
+    def test_evaluate_outputs_simple_complex_with_bridge_result(self):
+        """Line 1418: complex expr, bridge returns the column -> copy values."""
+        comp = self._helper()
+
+        class _MockBridge:
+            def execute_tmap_preprocessing(self, df, expressions, main_table_name,
+                                           lookup_table_names=None, schema=None):
+                # Echo back keys with simple values
+                return {k: np.array([100] * len(df)) for k in expressions}
+
+        comp.java_bridge = _MockBridge()
+        joined_df = pd.DataFrame({"row1.id": [1, 2]})
+        outputs = [{
+            "name": "out1",
+            "is_reject": False,
+            "inner_join_reject": False,
+            "filter": "",
+            "activate_filter": False,
+            "columns": [
+                {"name": "doubled", "expression": "row1.id * 2", "type": "int"},
+            ],
+        }]
+        result = comp._evaluate_outputs_simple(joined_df, outputs, "row1", [])
+        assert list(result["out1"]["doubled"]) == [100, 100]
+
+    # ---------- _apply_output_filter reject append --------------------
+
+    def test_apply_output_filter_routes_failed_rows_to_existing_reject(self):
+        """Lines 1468-1481: failed rows concat into pre-existing reject output."""
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        config["outputs"].append({
+            "name": "rej",
+            "is_reject": True,
+            "inner_join_reject": False,
+            "filter": "",
+            "activate_filter": False,
+            "columns": [
+                {"name": "id", "expression": "{{java}}row1.id", "type": "int"},
+            ],
+        })
+        comp = _make_component(config=config)
+        comp.config = copy.deepcopy(comp._original_config)
+
+        class _MockBridgeFilterMixed:
+            def execute_tmap_preprocessing(self, df, expressions, main_table_name,
+                                           lookup_table_names=None, schema=None):
+                # Half pass / half fail
+                vals = np.array([True, False, True])
+                return {k: vals for k in expressions}
+
+        comp.java_bridge = _MockBridgeFilterMixed()
+        out_df = pd.DataFrame({"id": [1, 2, 3]})
+        # Pre-populate the result dict so the "rej_name in result" branch fires
+        result = {"rej": pd.DataFrame({"id": [99]})}
+        output_cfg = {
+            "name": "out1",
+            "filter": "row1.id != 2",
+            "activate_filter": True,
+        }
+        passed = comp._apply_output_filter(out_df, output_cfg, result, "row1", [])
+        assert list(passed["id"]) == [1, 3]
+        # rej now has the pre-existing 99 + the filtered-out row id=2
+        assert sorted(list(result["rej"]["id"])) == [2, 99]
+
+    def test_apply_output_filter_routes_failed_rows_to_new_reject_key(self):
+        """Lines 1482-1483: failed rows create new reject key when not present."""
+        config = copy.deepcopy(_DEFAULT_CONFIG)
+        config["outputs"].append({
+            "name": "rej",
+            "is_reject": True,
+            "inner_join_reject": False,
+            "filter": "",
+            "activate_filter": False,
+            "columns": [
+                {"name": "id", "expression": "{{java}}row1.id", "type": "int"},
+            ],
+        })
+        comp = _make_component(config=config)
+        comp.config = copy.deepcopy(comp._original_config)
+
+        class _MockBridgeFilterMixed:
+            def execute_tmap_preprocessing(self, df, expressions, main_table_name,
+                                           lookup_table_names=None, schema=None):
+                vals = np.array([True, False])
+                return {k: vals for k in expressions}
+
+        comp.java_bridge = _MockBridgeFilterMixed()
+        out_df = pd.DataFrame({"id": [1, 2]})
+        result = {}  # no pre-existing rej key -> creation branch
+        output_cfg = {
+            "name": "out1",
+            "filter": "row1.id < 2",
+            "activate_filter": True,
+        }
+        passed = comp._apply_output_filter(out_df, output_cfg, result, "row1", [])
+        assert list(passed["id"]) == [1]
+        assert "rej" in result
+        assert list(result["rej"]["id"]) == [2]
+
+    # ---------- equality-join branches not yet hit ------------------
+
+    def test_equality_join_left_key_column_not_found_falls_back(self):
+        """Lines 762, 765: simple-col-ref left key missing in joined_df.
+
+        When _find_column returns None, falls back to using the column name
+        as left_key. With non-existent column on left side, pandas merge
+        will then fail or produce empty result.
+        """
+        comp = _make_component()
+        comp.config = copy.deepcopy(comp._original_config)
+        # Use a config where the join key references a column that doesn't
+        # exist in the main df; _find_column returns None -> fallback to
+        # column literal name -- which still won't be in main, so pandas
+        # will raise. We test only that _find_column-None -> fallback path
+        # is taken (validated by the existing TestSmartJoinRouting cases or
+        # via direct exception assertion).
+        main_df = pd.DataFrame({"id": [1], "val": [10]})  # no 'key' column!
+        lookup_df = pd.DataFrame({"key": ["A"], "label": ["L"]})
+        # Default config join_keys use {{java}}row1.key (-> col 'key')
+        # _find_column won't find 'key' in main, so left_keys = ['key']
+        # then pd.merge raises KeyError on missing left key
+        with pytest.raises((KeyError, ComponentExecutionError)):
+            comp.execute(_make_input_dict(main_df=main_df, lookup_df=lookup_df))
+
+    def test_equality_join_drops_dup_columns(self):
+        """Line 832: __dup__ suffix columns dropped after merge."""
+        comp = _make_component()
+        comp.config = copy.deepcopy(comp._original_config)
+        # Cause a column collision between main and lookup so pandas merge
+        # produces a "{name}__dup__" suffixed column, exercising line 832
+        # (drop those columns from the merged result).
+        # 'val' exists on main; we add 'val' on lookup too.
+        main_df = pd.DataFrame({
+            "id": [1, 2], "key": ["A", "B"], "val": [10, 20],
+        })
+        lookup_df = pd.DataFrame({
+            "key": ["A", "B"],
+            "label": ["L1", "L2"],
+            "val": [99, 99],  # collides with main 'val'
+        })
+        result = comp.execute(_make_input_dict(main_df=main_df, lookup_df=lookup_df))
+        # Output filters down to the configured columns; main val survives.
+        out = result["out1"]
+        # Main val (10/20) preserved; lookup val (99) dropped via __dup__
+        assert list(out["val"]) == [10, 20]
+
+
