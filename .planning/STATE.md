@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 14 Plan 07 complete -- SWIFT deep-gap modules lifted (swift_block_formatter.py 7%->97.2%, swift_transformer.py 7%->98.0%); 5 source-side BUG-SWIFT fixes surfaced and resolved (registration, abstract method, ETLError raises, _original_config init, ctx-var syntax); D-C5 dead-code deletion of duplicate _load_lookup_files; 197 unit + pipeline tests across 2 new test files; synthetic MT generator (mt103/mt202_cov/mt940/malformed) committed under tests/fixtures/swift/. 8 commits
-last_updated: "2026-05-11T22:30:00Z"
+stopped_at: Phase 14 Plan 09 complete -- file deep-gap modules lifted (file_output_excel.py 69.0%->100.0%, file_input_excel.py 28.7%->97.4%, file_input_json.py 9.3%->100.0%, file_input_raw.py 17.7%->100.0%); 2 source-side BUG-FIJ fixes (REGISTRY registration + abstract _validate_config) mirror Plans 14-06/14-07 BUG-PDC/BUG-SWIFT pattern; 167 new tests (38 FOE + 67 FIE + 39 FIJ + 23 FIR); 7 real binary/text fixtures (.xlsx/.xls/.json/.txt) + 3 pipeline-job JSON fixtures committed under tests/fixtures/data/ and tests/fixtures/jobs/file/. .gitignore D-RULE3 negation extended to tests/fixtures/data/**/*.json. 9 commits. Per-plan gate PASS for all 26 file modules at 95% floor.
+last_updated: "2026-05-11T23:30:00Z"
 last_activity: 2026-05-11
 progress:
   total_phases: 20
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-04-14)
 ## Current Position
 
 Phase: 14 (coverage-push-to-95-per-module-floor) — EXECUTING
-Plan: 13 of 13 (11 of 13 complete -- Plan 14-07 lands SWIFT both modules PASS; Plans 14-09 / 14-10 / 14-12 / 14-13 still pending)
-Next: Phase 14 Plan 09 (file deep gaps: excel/json/raw) OR Plan 14-12 (converters) OR Plan 14-13 (closeout)
+Plan: 13 of 13 (12 of 13 complete -- Plan 14-09 lands 4 file deep-gap modules PASS; Plans 14-12 / 14-13 still pending)
+Next: Phase 14 Plan 12 (converters) OR Plan 14-13 (closeout)
 Status: Ready to execute
 Last activity: 2026-05-11
 
@@ -77,6 +77,7 @@ Progress: [██████████] 100%
 | Phase 14 P05 | 85 | 13 tasks | 16 files |
 | Phase 14 P08 | 33 | 16 tasks | 17 commits / 12 test files modified + 3 fixtures + 1 source + 1 .gitignore |
 | Phase 14 P07 | 120 | 7 tasks | 8 commits / 12 created + 3 modified (2 source + 1 file_input_raw); SWIFT 7% -> 97-98% on both modules |
+| Phase 14 P09 | 55 | 9 tasks | 9 commits / 12 created + 4 modified (1 source + 3 tests + .gitignore); 4 file deep gaps lifted, BUG-FIJ-001/002 fixed |
 
 ## Accumulated Context
 
@@ -115,6 +116,9 @@ Recent decisions affecting current work:
 - [Phase 14]: Plan 14-07 D-C5 deletion: duplicate `_load_lookup_files` definition in swift_transformer.py (first one was a stub orphaned by the second def shadowing it); consolidated to a single real implementation.
 - [Phase 14]: Plan 14-07 documented 12 defensive dict-coercion branches in swift_block_formatter (lines 565-573, 578-584, 694, 722) as unreachable guards. 95% floor cleared at 97.2%; future cleanup phase can delete or pragma-allowlist them.
 - [Phase 14]: Plan 14-07 documented 9 missed lines in swift_transformer (139, 301-302, 453, 577-579, 599, 784-785) as defensive in-method exception paths covering ETL upstream malformation; 95% floor cleared at 98.0%.
+- [Phase 14]: Plan 14-09 BUG-FIJ-001/002: FileInputJSON not registered with REGISTRY + missing abstract _validate_config -- same dual-bug pattern as BUG-SWIFT-001/002 (14-07), BUG-PDC-001/002 (14-06), BUG-AGG-001 (14-02). Production tFileInputJSON jobs silently dropped as "Unknown component"; ABC instantiation refused. Fixed via @REGISTRY.register('FileInputJSON', 'tFileInputJSON') decorator + Rule-12 _validate_config raising ConfigurationError. Plan 14-13 closeout should add plan-checker grep for BaseComponent subclasses missing either invariant.
+- [Phase 14]: Plan 14-09 D-RULE3 extension: .gitignore !tests/fixtures/data/**/*.json negation added so deep-gap JSON fixtures (sample_data.json, sample_jsonpath.json) land in git. Project-wide *.json rule otherwise silently swallows them. Mirrors Plan 14-08 D-RULE3 for tests/fixtures/jobs/.
+- [Phase 14]: Plan 14-09 documented 15 unreached lines in file_input_excel.py as defensive guards that pass shape validation but trip pd.read_excel / xlrd in ways no realistic input could trigger; 95% floor cleared at 97.4%. Future cleanup phase can D-C5 delete or pragma-allowlist them.
 
 ### Roadmap Evolution
 
@@ -166,7 +170,8 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
 - Plan 14-08 complete (2026-05-11): 12 file/* modules lifted from 81-94% to >=99.5% (10 at 100.0%, file_input_delimited 99.5%, file_output_positional 99.6%). 17 commits (`7733ee1` D-RULE3 unignore -> `2a0775b` final lift). STALE-FOD-001 D-C5 deletion (file_output_delimited.py:364 unreachable date-coerce catch-all). 3 new pipeline fixtures under `tests/fixtures/jobs/file/`. D-RULE3 .gitignore unblock for `!tests/fixtures/jobs/**/*.json` (Rule 3 deviation -- the project-wide *.json rule was silently ignoring every fixture). 1182 file tests pass under -n auto. Per-module gate PASS for the 12 in-scope modules; the 4 deep-gap modules (file_input_excel, file_input_json, file_input_raw, file_output_excel) remain below 95% per plan scope and are closed by Plan 14-09.
 - Plan 14-11 complete (2026-05-11): 8 converter-side modules lifted from 78-97% to >=97.2% (5 at 100.0%, expression_converter 98.9%, xml_map 98.1%, foreach 97.2%). 9 commits (`a2a897c` STALE-INT-001 -> `a5465cc` mssql_input). STALE-INT-001 deletion of legacy tests/converters/talend_to_v1/test_integration.py (importing absent src.converters.complex_converter -- a deferred-from-14-01 issue). New test module tests/converters/talend_to_v1/test_expression_converter.py (65 tests). 4 defensive unreachable lines documented as D-C5 candidates kept in source. Per-module gate PASS for the 8 in-scope modules; 2 out-of-scope transform modules (log_row 94.4%, join 94.7%) remain below 95% and are tracked for Plan 14-06.
 - Plan 14-06 complete (2026-05-11): 3 of 4 transform deep-gap modules at 100% line coverage (join.py 69.2%->100%, python_dataframe_component.py 19.6%->100%, log_row.py 96.7%->100%). map.py PARTIAL lift 73.8%->83.1% (147 missed lines remain, all in Java-bridge-driven paths: _join_context_only / _join_cross_table / _join_reload_per_row / _evaluate_outputs_compiled / _evaluate_with_bridge -- require @pytest.mark.java live-bridge tests). 9 commits (`8dac42c` BUG-PDC-001 -> `16556db` COV-MAP-001). 2 BUG-PDC source fixes: BUG-PDC-001 (PythonDataFrameComponent unregistered with REGISTRY -- engine.py silently dropped it as 'Unknown component type' in production!) + BUG-PDC-002 (missing abstract _validate_config). 1 D-C5 source cleanup: 3 sets of unreachable defensive branches deleted from join.py (_merge / lookup-key drops post-keep_cols filter, lk_col + '_lookup' / out_col-passthrough branches, ConfigurationError/DataValidationError re-raise). 2 new pipeline fixtures (transform/map_with_lookup.json, transform/join_with_reject.json) + 4 pipeline tests (D-C1) using run_job_fixture. map.py 95% gap deferred to Plan 14-13 closeout (either spawn 14-06b live-bridge sweep, fold into 14-13, or amend the per-module floor with documented carve-out).
-- Plans 14-07, 14-09..14-10, 14-12..14-13: pending. Next is Plan 14-09 (file deep gaps: excel/json/raw) OR Plan 14-07 (SWIFT).
+- Plan 14-09 complete (2026-05-11): 4 file deep-gap modules lifted from 9-69% to >=97.4% (3 at 100%, file_input_excel.py at 97.4%). 9 commits (`709cd33` INFRA-FX-004 -> `e9c2cbe` COV-FIR-001). 2 BUG-FIJ source fixes (registration + abstract method). 7 real binary/text fixtures + 3 pipeline-job fixtures committed. .gitignore D-RULE3 negation extended to tests/fixtures/data/**/*.json. 1402 tests pass under -n auto across file/ + integration/. Per-module gate PASS for all 26 file modules at 95% floor.
+- Plans 14-10, 14-12, 14-13: pending. Next is Plan 14-12 (converters) OR Plan 14-13 (closeout).
 
 ### Phase 13 closed (2026-05-10)
 
@@ -193,6 +198,6 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
 
 ## Session Continuity
 
-Last session: 2026-05-11T19:36:00Z
-Stopped at: Phase 14 Plan 06 complete -- 3 of 4 transform deep-gap modules at 100%; map.py PARTIAL 73.8%->83.1% deferred (147 lines, all bridge-driven); 2 BUG-PDC fixes + 1 D-C5 cleanup; 9 commits
-Resume with: /gsd-execute-phase 14 (continue with Plan 14-09 file deep gaps excel/json/raw, or Plan 14-07 SWIFT)
+Last session: 2026-05-11T23:30:00Z
+Stopped at: Phase 14 Plan 09 complete -- 4 file deep-gap modules lifted to >=97.4% (3 at 100%); 2 BUG-FIJ source fixes (registration + abstract _validate_config) mirror 14-06/14-07 pattern; 7 binary/text fixtures + 3 pipeline-job fixtures committed; .gitignore extended; 9 commits
+Resume with: /gsd-execute-phase 14 (continue with Plan 14-12 converters, or Plan 14-13 closeout)
