@@ -54,6 +54,18 @@ class PythonDataFrameComponent(BaseComponent):
         - routines: Python routines defined in the project (also available directly by name)
     """
 
+    def _validate_config(self) -> None:
+        """Validate component configuration shape (Rule 12 -- key presence only).
+
+        Content (e.g. python_code syntax/runtime safety) is validated lazily in
+        ``_process`` so context resolution / bridge readiness does not block
+        validation. Mirrors PythonComponent's contract.
+        """
+        if not self.config.get("python_code"):
+            raise ConfigurationError(
+                f"[{self.id}] Missing or empty required config key 'python_code'"
+            )
+
     def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
         """Execute Python code on DataFrame"""
 
