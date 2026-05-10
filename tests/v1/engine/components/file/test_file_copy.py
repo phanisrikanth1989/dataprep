@@ -226,3 +226,124 @@ class TestStatistics:
         result = comp.execute()
         assert result["stats"]["NB_LINE_OK"] == 1
         assert result["stats"]["NB_LINE_REJECT"] == 0
+
+
+# ------------------------------------------------------------------
+# Plan 14-08 coverage lift: missed-line clusters
+#   136 (directory-copy + create_directory + parent missing),
+#   145 (file-mode + destination is plain non-existent file path),
+#   174 (rmtree of source directory after copy),
+#   178-185 (REMOVE_FILE OSError: both force_copy_delete and re-raise branches),
+#   196 (OSError wrap when failon=True).
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCoverageLift1408:
+    """Targeted tests added in Plan 14-08 to lift file_copy.py to 100%."""
+
+    def test_directory_copy_creates_parent_when_missing(self, tmp_path):
+        """is_directory_copy + create_directory + parent missing -> os.makedirs (line 136)."""
+        src_dir = tmp_path / "src_tree"
+        src_dir.mkdir()
+        (src_dir / "leaf.txt").write_text("data")
+        # destination has a parent that does not yet exist
+        dest = tmp_path / "newparent" / "dest_tree"
+        comp = _make_component({
+            "filename": str(src_dir),
+            "destination": str(dest),
+            "enable_copy_directory": True,
+            "create_directory": True,
+        })
+        comp.execute()
+        assert (dest / "leaf.txt").exists()
+        assert (tmp_path / "newparent").is_dir()
+
+    def test_file_mode_destination_is_plain_path(self, tmp_path):
+        """File-mode copy with destination not a directory -> final_destination = destination (145)."""
+        src = _src_file(tmp_path)
+        # destination ends in a filename, not a directory path; create the parent
+        # to keep create_directory branch from interfering with the final_destination
+        # plain-path assignment.
+        dest_parent = tmp_path / "out"
+        dest_parent.mkdir()
+        dest = dest_parent / "renamed.txt"
+        comp = _make_component({
+            "filename": str(src),
+            "destination": str(dest),
+            "create_directory": False,
+        })
+        comp.execute()
+        assert dest.is_file()
+        assert dest.read_text() == "hello"
+
+    def test_remove_file_with_directory_source_uses_rmtree(self, tmp_path):
+        """remove_file=True with directory source -> shutil.rmtree(source) (line 174)."""
+        src_dir = tmp_path / "src_tree"
+        src_dir.mkdir()
+        (src_dir / "x.txt").write_text("a")
+        dest = tmp_path / "dest_tree"
+        comp = _make_component({
+            "filename": str(src_dir),
+            "destination": str(dest),
+            "enable_copy_directory": True,
+            "remove_file": True,
+        })
+        comp.execute()
+        assert dest.exists()
+        assert not src_dir.exists()  # rmtree removed source
+
+    def test_remove_file_oserror_force_logs_warning(self, tmp_path, monkeypatch, caplog):
+        """REMOVE_FILE OSError with force_copy_delete=True -> log warning, no raise (178-183)."""
+        import logging
+        src = _src_file(tmp_path)
+        dest = tmp_path / "out.txt"
+        comp = _make_component({
+            "filename": str(src),
+            "destination": str(dest),
+            "remove_file": True,
+            "force_copy_delete": True,
+        })
+
+        original_remove = os.remove
+
+        def remove_raise(path, *args, **kwargs):
+            if str(path) == str(src):
+                raise OSError("simulated rm failure")
+            return original_remove(path, *args, **kwargs)
+
+        monkeypatch.setattr(os, "remove", remove_raise)
+        with caplog.at_level(logging.WARNING):
+            result = comp.execute()
+        assert result["stats"]["NB_LINE_OK"] == 1  # copy succeeded
+        assert any("Forced source removal failed" in r.message for r in caplog.records)
+
+    def test_remove_file_oserror_no_force_reraises(self, tmp_path, monkeypatch):
+        """REMOVE_FILE OSError without force_copy_delete -> raise (line 185)."""
+        from src.v1.engine.exceptions import ComponentExecutionError
+        src = _src_file(tmp_path)
+        dest = tmp_path / "out.txt"
+        comp = _make_component({
+            "filename": str(src),
+            "destination": str(dest),
+            "remove_file": True,
+            "force_copy_delete": False,
+            "failon": True,
+        })
+
+        original_remove = os.remove
+
+        def remove_raise(path, *args, **kwargs):
+            if str(path) == str(src):
+                raise OSError("simulated rm failure")
+            return original_remove(path, *args, **kwargs)
+
+        monkeypatch.setattr(os, "remove", remove_raise)
+        # The OSError is re-raised inside the inner try, then caught by the
+        # outer try's `except (OSError, FileOperationError)` -> wrapped to
+        # FileOperationError because failon=True (line 196).
+        with pytest.raises(
+            (FileOperationError, ComponentExecutionError),
+            match="Copy failed",
+        ):
+            comp.execute()
