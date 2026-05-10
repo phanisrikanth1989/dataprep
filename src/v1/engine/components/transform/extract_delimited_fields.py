@@ -142,10 +142,10 @@ class ExtractDelimitedFields(BaseComponent):
             value = row[field]
 
             # ---- null handling ----
-            try:
-                is_null = pd.isna(value)
-            except (TypeError, ValueError):
-                is_null = False
+            # Scalar source-column values (str / NaN / None) never make
+            # pd.isna() raise -- defensive try/except removed per D-C5
+            # (Phase 14 Plan 14-05).
+            is_null = pd.isna(value)
 
             if is_null:
                 if ignore_source_null:
@@ -197,9 +197,11 @@ class ExtractDelimitedFields(BaseComponent):
         if main_rows:
             main_df = pd.DataFrame(main_rows)
             if all_out_cols:
-                for c in all_out_cols:
-                    if c not in main_df.columns:
-                        main_df[c] = None
+                # Every column in all_out_cols is guaranteed to be in
+                # main_df.columns by construction (input cols via dict(row),
+                # extracted cols always assigned -- None when token absent).
+                # Backfill loop unreachable for realistic input; removed per
+                # D-C5 in Phase 14 Plan 14-05.
                 main_df = main_df[all_out_cols]
         else:
             main_df = pd.DataFrame(

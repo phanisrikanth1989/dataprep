@@ -209,3 +209,89 @@ class TestStats:
         comp = _make_component(config={"field": "src"}, global_map=gm)
         comp.execute(None)
         assert gm.get_nb_line(comp.id) == 0
+
+
+# ------------------------------------------------------------------
+# TestCoverageLift_14_05 (COV-EDF-001)
+#
+# Target missed lines from Phase 14 baseline:
+#   - 107      (field empty after resolution -> DataValidationError)
+#   - 111      (field column not in input -> DataValidationError)
+#   - 130-131  (no output_schema -> all_out_cols = input.columns, no extraction)
+#   - 167      (check_fields_num + die_on_error -> raise inside loop)
+#   - 180-189  (advanced_separator: numeric token normalization)
+#
+# Former lines 145-148 (pd.isna try/except) and 200-202 (main_df backfill)
+# were removed under D-C5 dead-code policy in this same plan -- both
+# branches were unreachable for realistic input shapes.
+# ------------------------------------------------------------------
+
+
+from src.v1.engine.exceptions import DataValidationError
+
+
+@pytest.mark.unit
+class TestCoverageLift1405:
+    """Targeted coverage for residual missed branches in extract_delimited_fields.py."""
+
+    def test_field_empty_raises(self):
+        # Hits line 107.
+        comp = _make_component(config={"field": ""})
+        df = pd.DataFrame([{"src": "a;b"}])
+        with pytest.raises((DataValidationError, ComponentExecutionError)) as excinfo:
+            comp.execute(df)
+        assert "field" in str(excinfo.value)
+
+    def test_field_not_in_columns_raises(self):
+        # Hits line 111.
+        comp = _make_component(config={"field": "missing"})
+        df = pd.DataFrame([{"src": "a;b"}])
+        with pytest.raises((DataValidationError, ComponentExecutionError)) as excinfo:
+            comp.execute(df)
+        assert "missing" in str(excinfo.value)
+
+    def test_no_output_schema_passthrough(self):
+        # Hits lines 130-131.
+        comp = _make_component(config={"field": "src", "fieldseparator": ";"})
+        # Do NOT set output_schema -- triggers all_out_cols = input.columns
+        # and extracted_info = []; the loop produces a passthrough row.
+        df = pd.DataFrame([{"src": "a;b"}])
+        result = comp.execute(df)
+        assert list(result["main"].columns) == ["src"]
+
+    def test_check_fields_num_with_die_on_error_raises(self):
+        # Hits line 167.
+        comp = _make_component(config={
+            "field": "src",
+            "fieldseparator": ";",
+            "die_on_error": True,
+            "check_fields_num": True,
+        })
+        _set_schema(comp, ["src", "col1", "col2"])  # expects 2 extracted tokens
+        df = pd.DataFrame([{"src": "onlyone"}])  # 1 token, expected 2
+        with pytest.raises((DataValidationError, ComponentExecutionError)) as excinfo:
+            comp.execute(df)
+        assert "Expected" in str(excinfo.value)
+
+    def test_advanced_separator_normalizes_numeric_tokens(self):
+        # Hits lines 180-189: numeric type tokens have thousands_sep stripped
+        # and decimal_sep converted to '.'.
+        comp = _make_component(config={
+            "field": "src",
+            "fieldseparator": "|",
+            "advanced_separator": True,
+            "thousands_separator": ".",  # European-style thousands
+            "decimal_separator": ",",    # European-style decimal
+            "die_on_error": False,
+        })
+        comp.output_schema = [
+            {"name": "src", "type": "id_String"},
+            {"name": "col1", "type": "id_Float"},   # numeric -- normalized
+            {"name": "col2", "type": "id_String"},  # non-numeric -- left alone
+        ]
+        df = pd.DataFrame([{"src": "1.234,56|hello,world"}])
+        result = comp.execute(df)
+        # col1 numeric: "1.234,56" -> strip "." -> "1234,56" -> swap "," to "." -> "1234.56".
+        assert result["main"].iloc[0]["col1"] == "1234.56"
+        # col2 non-numeric: left untouched.
+        assert result["main"].iloc[0]["col2"] == "hello,world"
