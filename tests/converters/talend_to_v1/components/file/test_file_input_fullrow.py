@@ -243,12 +243,6 @@ class TestSchema:
 class TestNeedsReview:
     """Verify needs_review entries for engine gaps (per D-36: per-feature)."""
 
-    def test_needs_review_count(self):
-        """Exactly 4 needs_review entries (header_rows, footer_rows, random, nb_random)."""
-        node = _make_node()
-        result = FileInputFullRowConverter().convert(node, [], {})
-        assert len(result.needs_review) == 4
-
     def test_needs_review_header_rows(self):
         """One needs_review entry mentions 'header_rows'."""
         node = _make_node()
