@@ -956,3 +956,269 @@ class TestRejectFlowUserColumn:
         assert "errorMessage" in reject.columns, (
             "Reject flow should have engine 'errorMessage' diagnostic column"
         )
+
+
+# ------------------------------------------------------------------
+# TestCoverageLift_14_05 (COV-FRW-001)
+#
+# Target missed lines from Phase 14 baseline:
+#   - 94-95   (_apply_function unknown FUNCTION -> warn + return col as-is)
+#   - 124     (_compare unsupported operator -> ExpressionError)
+#   - 189     (_validate_config conditions not list -> ConfigurationError)
+#   - 194     (_validate_config cond not dict -> ConfigurationError)
+#   - 202     (_validate_config cond missing 'operator' key -> ConfigurationError)
+#   - 366-375 (_resolve_java_expressions: pop/restore for {{java}} marker;
+#              non-Java passthrough)
+#   - 392-396 (_handle_advanced advanced_cond empty -> warn + all-True mask)
+#   - 411-455 (_handle_advanced full Java bridge path; bridge unavailable;
+#              length mismatch; happy path; bridge raises ExpressionError)
+# ------------------------------------------------------------------
+
+
+from src.v1.engine.exceptions import ExpressionError
+
+
+@pytest.mark.unit
+class TestCoverageLift1405:
+    """Targeted coverage for residual missed branches in filter_rows.py."""
+
+    def test_unknown_function_pretransform_logs_warning_and_returns_col(self, caplog):
+        # Hits lines 94-95.
+        from src.v1.engine.components.transform.filter_rows import _apply_function
+        col = pd.Series(["alpha", "beta"])
+        with caplog.at_level("WARNING"):
+            out = _apply_function(col, "WEIRD_FUNCTION_THAT_DOES_NOT_EXIST")
+        # Same series returned unchanged.
+        pd.testing.assert_series_equal(out, col)
+        assert any(
+            "Unknown FUNCTION pre-transform" in rec.message for rec in caplog.records
+        )
+
+    def test_compare_unsupported_operator_raises_expression_error(self):
+        # Hits line 124.
+        from src.v1.engine.components.transform.filter_rows import _compare
+        col = pd.Series([1, 2, 3])
+        with pytest.raises(ExpressionError) as excinfo:
+            _compare(col, "DOES_NOT_EXIST", "1")
+        assert "Unsupported operator" in str(excinfo.value)
+
+    def test_validate_config_conditions_not_list_raises(self):
+        # Hits line 189.
+        config = {
+            "component_type": "FilterRows",
+            "use_advanced": False,
+            "conditions": "not a list",
+        }
+        comp = _make_component(config)
+        with pytest.raises(ConfigurationError) as excinfo:
+            comp.execute(_sample_df())
+        assert "must be a list" in str(excinfo.value)
+
+    def test_validate_config_cond_not_dict_raises(self):
+        # Hits line 194.
+        config = {
+            "component_type": "FilterRows",
+            "use_advanced": False,
+            "conditions": ["not a dict"],
+        }
+        comp = _make_component(config)
+        with pytest.raises(ConfigurationError) as excinfo:
+            comp.execute(_sample_df())
+        assert "must be a dictionary" in str(excinfo.value)
+
+    def test_validate_config_cond_missing_operator_raises(self):
+        # Hits line 202.
+        config = {
+            "component_type": "FilterRows",
+            "use_advanced": False,
+            "conditions": [{"column": "age"}],  # no 'operator' key
+        }
+        comp = _make_component(config)
+        with pytest.raises(ConfigurationError) as excinfo:
+            comp.execute(_sample_df())
+        assert "missing required key 'operator'" in str(excinfo.value)
+
+    def test_resolve_java_expressions_no_java_marker_calls_super(self):
+        # Hits line 375 (else branch -- super passthrough).
+        config = {
+            "component_type": "FilterRows",
+            "use_advanced": True,
+            "advanced_cond": "row1.age > 10",  # NOT a {{java}} marker
+            "conditions": [],
+        }
+        comp = _make_component(config)
+        # Just call the resolver -- should not raise.
+        comp.config = dict(config)
+        comp._resolve_java_expressions()
+        # advanced_cond is unchanged (no Java marker, stayed in config).
+        assert comp.config["advanced_cond"] == "row1.age > 10"
+
+    def test_resolve_java_expressions_with_java_marker_pops_and_restores(self):
+        # Hits lines 367-373 (pop + try/finally restore).
+        config = {
+            "component_type": "FilterRows",
+            "use_advanced": True,
+            "advanced_cond": "{{java}}row1.age > 10",
+            "conditions": [],
+        }
+        comp = _make_component(config)
+        comp.config = dict(config)
+        comp._resolve_java_expressions()
+        # advanced_cond restored after super() call (Phase 1 D-14 immutability).
+        assert comp.config["advanced_cond"] == "{{java}}row1.age > 10"
+
+    def test_handle_advanced_empty_advanced_cond_passes_all_rows(self, caplog):
+        # Hits lines 392-396.
+        config = {
+            "component_type": "FilterRows",
+            "use_advanced": True,
+            "advanced_cond": "",  # empty, not False -- triggers warn path
+            "conditions": [],
+        }
+        # Bypass _validate_config which rejects empty advanced_cond when
+        # use_advanced=True. Instead call _handle_advanced() directly after
+        # populating self.config manually.
+        comp = _make_component(config={
+            "component_type": "FilterRows",
+            "use_advanced": False,  # let _validate_config pass
+            "advanced_cond": "x",
+            "conditions": [],
+        })
+        comp.config = config  # now override directly
+        df = _sample_df()
+        with caplog.at_level("WARNING"):
+            mask = comp._handle_advanced(df)
+        assert mask.all()
+        assert any("advanced_cond is empty" in rec.message for rec in caplog.records)
+
+    def test_handle_advanced_no_java_bridge_passes_all_rows(self, caplog):
+        # Hits lines 401-406 (no java_bridge -> all True).
+        config = {
+            "component_type": "FilterRows",
+            "use_advanced": True,
+            "advanced_cond": "{{java}}row1.age > 10",
+            "conditions": [],
+        }
+        comp = _make_component(config)
+        comp.config = config
+        # No bridge wired.
+        comp.java_bridge = None
+        df = _sample_df()
+        with caplog.at_level("WARNING"):
+            mask = comp._handle_advanced(df)
+        assert mask.all()
+        assert any("Java bridge but none" in rec.message for rec in caplog.records)
+
+    def test_handle_advanced_input_row_rewrite(self):
+        # Hits lines 411-420 (inputs_attr fallback + input_row. rewrite).
+        config = {
+            "component_type": "FilterRows",
+            "use_advanced": True,
+            "advanced_cond": "input_row.age > 25",
+            "conditions": [],
+        }
+        comp = _make_component(config)
+        comp.config = config
+
+        captured = {}
+
+        class _FakeBridge:
+            def execute_tmap_preprocessing(self, df, exprs, main_table_name, schema):
+                captured["expression"] = exprs["_filter"]
+                captured["main_table_name"] = main_table_name
+                captured["schema"] = schema
+                # Return per-row True / False alternating.
+                arr = np.array([True, False, True, False, True])
+                return {"_filter": arr}
+
+        comp.java_bridge = _FakeBridge()
+        df = _sample_df()
+        mask = comp._handle_advanced(df)
+        # input_row. rewritten to row1. (default main table when inputs unset).
+        assert "row1." in captured["expression"]
+        assert "input_row." not in captured["expression"]
+        assert captured["main_table_name"] == "row1"
+        assert mask.tolist() == [True, False, True, False, True]
+
+    def test_handle_advanced_uses_inputs_attr_for_main_table_name(self):
+        # Hits line 412 (inputs_attr present).
+        config = {
+            "component_type": "FilterRows",
+            "use_advanced": True,
+            "advanced_cond": "{{java}}myFlow.age > 10",
+            "conditions": [],
+        }
+        comp = _make_component(config)
+        comp.config = config
+        comp.inputs = ["myFlow"]
+
+        class _FakeBridge:
+            def execute_tmap_preprocessing(self, df, exprs, main_table_name, schema):
+                assert main_table_name == "myFlow"
+                return {"_filter": np.array([True, True, True, True, True])}
+
+        comp.java_bridge = _FakeBridge()
+        mask = comp._handle_advanced(_sample_df())
+        assert mask.all()
+
+    def test_handle_advanced_length_mismatch_passes_all_rows(self, caplog):
+        # Hits lines 442-447 (length mismatch warn + all-True).
+        config = {
+            "component_type": "FilterRows",
+            "use_advanced": True,
+            "advanced_cond": "{{java}}row1.age > 10",
+            "conditions": [],
+        }
+        comp = _make_component(config)
+        comp.config = config
+
+        class _FakeBridge:
+            def execute_tmap_preprocessing(self, *args, **kwargs):
+                return {"_filter": np.array([True, False])}  # only 2 results, df has 5
+
+        comp.java_bridge = _FakeBridge()
+        with caplog.at_level("WARNING"):
+            mask = comp._handle_advanced(_sample_df())
+        assert mask.all()
+        assert any("length mismatch" in rec.message for rec in caplog.records)
+
+    def test_handle_advanced_bridge_exception_raises_expression_error(self):
+        # Hits lines 454-457 (bridge raises -> wrap as ExpressionError).
+        config = {
+            "component_type": "FilterRows",
+            "use_advanced": True,
+            "advanced_cond": "{{java}}row1.age > 10",
+            "conditions": [],
+        }
+        comp = _make_component(config)
+        comp.config = config
+
+        class _FakeBridge:
+            def execute_tmap_preprocessing(self, *args, **kwargs):
+                raise RuntimeError("bridge boom")
+
+        comp.java_bridge = _FakeBridge()
+        with pytest.raises(ExpressionError) as excinfo:
+            comp._handle_advanced(_sample_df())
+        assert "Error in Java expression" in str(excinfo.value)
+        assert "bridge boom" in str(excinfo.value)
+
+    def test_handle_advanced_per_row_none_treated_as_false(self):
+        # Hits lines 449-453 (boolean coercion with None -> False).
+        config = {
+            "component_type": "FilterRows",
+            "use_advanced": True,
+            "advanced_cond": "{{java}}row1.age > 10",
+            "conditions": [],
+        }
+        comp = _make_component(config)
+        comp.config = config
+
+        class _FakeBridge:
+            def execute_tmap_preprocessing(self, *args, **kwargs):
+                # Mix of bool, None, and 0/1 -- exercises the comprehension.
+                return {"_filter": np.array([True, None, False, 1, 0], dtype=object)}
+
+        comp.java_bridge = _FakeBridge()
+        mask = comp._handle_advanced(_sample_df())
+        assert mask.tolist() == [True, False, False, True, False]
