@@ -401,6 +401,8 @@ class FileList(BaseIterateComponent):
         self.stats["NB_LINE_OK"] = total
         self.stats["NB_LINE_REJECT"] = 0
         self.stats["NB_FILE"] = total  # Talend alias (D-D1)
+        if self.global_map is not None:
+            self.global_map.put(f"{self.id}_NB_FILE", total)
 
     # ------------------------------------------------------------------
     # Static Helpers
