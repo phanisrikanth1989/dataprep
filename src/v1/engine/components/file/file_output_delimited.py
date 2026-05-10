@@ -359,14 +359,13 @@ class FileOutputDelimited(BaseComponent):
                 continue
             series = df[name]
             if not pd.api.types.is_datetime64_any_dtype(series):
-                try:
-                    series = pd.to_datetime(series, errors="coerce")
-                except Exception:  # pragma: no cover - defensive
-                    logger.warning(
-                        f"[{self.id}] Column '{name}' could not be coerced "
-                        f"to datetime; skipping date_pattern formatting."
-                    )
-                    continue
+                # pd.to_datetime(errors="coerce") is contractually non-raising:
+                # invalid values become NaT instead of triggering an exception.
+                # Plan 14-08 (D-C5 STALE-FOD-001): the previously-pragmaed
+                # `except Exception` catch-all here was defensive-only and
+                # unreachable; deleted to honour the project rule "fix the
+                # source, no fallbacks".
+                series = pd.to_datetime(series, errors="coerce")
             formatted = series.dt.strftime(pattern)
             df[name] = formatted.where(series.notna(), "")
         return df
