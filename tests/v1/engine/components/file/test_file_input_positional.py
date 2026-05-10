@@ -505,3 +505,243 @@ class TestStatistics:
         assert comp.stats["NB_LINE"] == 3
         assert comp.stats["NB_LINE_OK"] == 3
         assert comp.stats["NB_LINE_REJECT"] == 0
+
+
+# ------------------------------------------------------------------
+# Plan 14-08 coverage lift: missed-line clusters
+#   167 (input_data not None debug log)
+#   186, 198 (header_rows / footer_rows < 0 raise)
+#   222 (limit <= 0 raise)
+#   229, 231 (missing filepath / pattern raise from _process)
+#   237-238 (file not found + die_on_error=True)
+#   253 (pattern empty after split)
+#   308 (logger.debug on removed empty rows)
+#   333-343 (check_date with date column conversion)
+#   371-372 (logger.debug dtypes_info)
+#   376-391 (FileOperationError / ConfigurationError re-raise + general
+#            Exception with die_on_error True/False)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCoverageLift1408ProcessGuards:
+    def test_input_data_logs_debug(self, tmp_path, caplog):
+        """input_data not None -> debug log (line 167)."""
+        import logging
+        fwf = _make_fwf_file(tmp_path)
+        comp = _make_component({"filepath": fwf, "pattern": "5,4"})
+        with caplog.at_level(logging.DEBUG,
+                             logger="src.v1.engine.components.file.file_input_positional"):
+            comp._process(input_data=pd.DataFrame({"x": [1]}))
+        assert any(
+            "Input data provided but not used" in r.message
+            for r in caplog.records
+        )
+
+    def test_header_rows_negative_raises(self, tmp_path):
+        """header_rows < 0 -> ConfigurationError (line 186)."""
+        fwf = _make_fwf_file(tmp_path)
+        comp = _make_component({"filepath": fwf, "pattern": "5,4",
+                                "header_rows": -1})
+        with pytest.raises(ConfigurationError, match="non-negative"):
+            comp._process()
+
+    def test_footer_rows_negative_raises(self, tmp_path):
+        """footer_rows < 0 -> ConfigurationError (line 198)."""
+        fwf = _make_fwf_file(tmp_path)
+        comp = _make_component({"filepath": fwf, "pattern": "5,4",
+                                "footer_rows": -2})
+        with pytest.raises(ConfigurationError, match="non-negative"):
+            comp._process()
+
+    def test_limit_zero_or_negative_raises(self, tmp_path):
+        """limit <= 0 -> ConfigurationError (line 222-223)."""
+        fwf = _make_fwf_file(tmp_path)
+        comp = _make_component({"filepath": fwf, "pattern": "5,4",
+                                "limit": "0"})
+        with pytest.raises(ConfigurationError, match="must be positive"):
+            comp._process()
+
+    def test_missing_filepath_raises(self):
+        """filepath empty -> ConfigurationError (line 228-229)."""
+        comp = _make_component({"filepath": "", "pattern": "5,4"})
+        with pytest.raises(ConfigurationError, match="filepath"):
+            comp._process()
+
+    def test_missing_pattern_raises(self, tmp_path):
+        """pattern empty -> ConfigurationError (line 230-231)."""
+        fwf = _make_fwf_file(tmp_path)
+        comp = _make_component({"filepath": fwf, "pattern": ""})
+        with pytest.raises(ConfigurationError, match="pattern"):
+            comp._process()
+
+    def test_file_not_found_die_on_error_true_raises(self):
+        """File missing + die_on_error=True -> FileOperationError (237-238)."""
+        from src.v1.engine.exceptions import FileOperationError
+        comp = _make_component({"filepath": "/nonexistent/_x_.txt",
+                                "pattern": "5,4",
+                                "die_on_error": True})
+        with pytest.raises(FileOperationError, match="not found"):
+            comp._process()
+
+    def test_pattern_with_only_whitespace_raises(self, tmp_path):
+        """pattern only whitespace + commas -> empty list -> raise (line 252-254)."""
+        fwf = _make_fwf_file(tmp_path)
+        comp = _make_component({"filepath": fwf, "pattern": " , , "})
+        with pytest.raises(ConfigurationError, match="cannot be empty"):
+            comp._process()
+
+
+@pytest.mark.unit
+class TestCoverageLift1408RemoveEmptyRowsLogging:
+    def test_remove_empty_rows_logs_count(self, tmp_path, caplog, monkeypatch):
+        """remove_empty_row=True with rows removed -> debug log (line 308).
+
+        We bypass pd.read_fwf with a stub returning a frame containing a
+        wholly-empty-string row so the remove_empty_row branch can drop it
+        and emit the debug count.
+        """
+        import logging
+
+        fwf = _make_fwf_file(tmp_path)
+        comp = _make_component({"filepath": str(fwf), "pattern": "5,4",
+                                "remove_empty_row": True})
+
+        # Stub pd.read_fwf to inject a wholly-empty-string row alongside data
+        def fake_read_fwf(*a, **k):
+            return pd.DataFrame({0: ["alice", "", "bob"], 1: ["0025", "", "0030"]})
+
+        monkeypatch.setattr(pd, "read_fwf", fake_read_fwf)
+        with caplog.at_level(logging.DEBUG,
+                             logger="src.v1.engine.components.file.file_input_positional"):
+            result = comp._process()
+        assert len(result["main"]) == 2  # empty row dropped
+        assert any(
+            "Removed" in r.message and "empty rows" in r.message
+            for r in caplog.records
+        )
+
+
+@pytest.mark.unit
+class TestCoverageLift1408CheckDate:
+    def test_check_date_converts_date_column(self, tmp_path):
+        """check_date=True + schema date type -> pd.to_datetime (333-343)."""
+        fwf = tmp_path / "dates.txt"
+        fwf.write_text("20240115Alice\n20240220Bob  \n", encoding="utf-8")
+        schema = [
+            {"name": "dt", "type": "id_date", "date_pattern": "%Y%m%d"},
+            {"name": "name", "type": "id_String"},
+        ]
+        comp = _make_component(
+            {"filepath": str(fwf), "pattern": "8,5",
+             "check_date": True},
+            schema=schema,
+        )
+        result = comp._process()
+        assert pd.api.types.is_datetime64_any_dtype(result["main"]["dt"])
+
+    def test_check_date_swallows_conversion_exception(self, tmp_path, monkeypatch):
+        """check_date=True + pd.to_datetime raises -> swallowed silently (342-343)."""
+        fwf = tmp_path / "dates2.txt"
+        fwf.write_text("20240115Alice\n", encoding="utf-8")
+        schema = [
+            {"name": "dt", "type": "id_date", "date_pattern": "%Y%m%d"},
+            {"name": "name", "type": "id_String"},
+        ]
+        comp = _make_component(
+            {"filepath": str(fwf), "pattern": "8,5",
+             "check_date": True},
+            schema=schema,
+        )
+
+        def boom(*a, **k):
+            raise RuntimeError("simulated date parse failure")
+
+        monkeypatch.setattr(pd, "to_datetime", boom)
+        # The exception is swallowed; _process returns successfully with the
+        # unconverted column.
+        result = comp._process()
+        assert "main" in result
+
+
+@pytest.mark.unit
+class TestCoverageLift1408DebugDtypes:
+    def test_debug_dtypes_logged(self, tmp_path, caplog):
+        """logger.isEnabledFor(DEBUG) -> log dtypes (lines 370-372)."""
+        import logging
+        fwf = _make_fwf_file(tmp_path)
+        comp = _make_component({"filepath": fwf, "pattern": "5,4"})
+        with caplog.at_level(logging.DEBUG,
+                             logger="src.v1.engine.components.file.file_input_positional"):
+            comp._process()
+        assert any(
+            "Column dtypes" in r.message for r in caplog.records
+        )
+
+
+@pytest.mark.unit
+class TestCoverageLift1408ExceptionPaths:
+    def test_file_operation_error_re_raised(self, tmp_path, monkeypatch):
+        """FileOperationError raised inside try -> re-raise (376-378)."""
+        from src.v1.engine.exceptions import FileOperationError
+        fwf = _make_fwf_file(tmp_path)
+        comp = _make_component({"filepath": fwf, "pattern": "5,4"})
+
+        def boom(*a, **k):
+            raise FileOperationError("inner FOE")
+
+        monkeypatch.setattr(pd, "read_fwf", boom)
+        with pytest.raises(FileOperationError, match="inner FOE"):
+            comp._process()
+
+    def test_configuration_error_re_raised(self, tmp_path, monkeypatch):
+        """ConfigurationError raised inside try -> re-raise (379-381)."""
+        fwf = _make_fwf_file(tmp_path)
+        comp = _make_component({"filepath": fwf, "pattern": "5,4"})
+
+        def boom(*a, **k):
+            raise ConfigurationError("inner CE")
+
+        monkeypatch.setattr(pd, "read_fwf", boom)
+        with pytest.raises(ConfigurationError, match="inner CE"):
+            comp._process()
+
+    def test_unexpected_exception_die_on_error_true_raises(self, tmp_path, monkeypatch):
+        """Unexpected Exception + die_on_error=True -> ComponentExecutionError (382-387)."""
+        from src.v1.engine.exceptions import ComponentExecutionError
+        fwf = _make_fwf_file(tmp_path)
+        comp = _make_component({"filepath": fwf, "pattern": "5,4",
+                                "die_on_error": True})
+
+        def boom(*a, **k):
+            raise RuntimeError("unexpected boom")
+
+        monkeypatch.setattr(pd, "read_fwf", boom)
+        with pytest.raises(ComponentExecutionError, match="Error reading positional"):
+            comp._process()
+
+    def test_unexpected_exception_die_on_error_false_returns_empty(
+        self, tmp_path, monkeypatch
+    ):
+        """Unexpected Exception + die_on_error=False -> empty DF (388-391)."""
+        fwf = _make_fwf_file(tmp_path)
+        comp = _make_component({"filepath": fwf, "pattern": "5,4",
+                                "die_on_error": False})
+
+        def boom(*a, **k):
+            raise RuntimeError("unexpected boom")
+
+        monkeypatch.setattr(pd, "read_fwf", boom)
+        result = comp._process()
+        assert len(result["main"]) == 0
+
+
+@pytest.mark.unit
+class TestCoverageLift1408FileNotFoundSoftFail:
+    def test_file_not_found_die_on_error_false_returns_empty(self):
+        """File missing + die_on_error=False -> empty DF (240-242)."""
+        comp = _make_component({"filepath": "/nonexistent/_xyz_.txt",
+                                "pattern": "5,4",
+                                "die_on_error": False})
+        result = comp._process()
+        assert len(result["main"]) == 0
