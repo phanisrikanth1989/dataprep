@@ -28,7 +28,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 10: Iterate Support** - Deliver tFlowToIterate, tFileList, tFileExist and the engine iterate execution loop (completed 2026-05-05)
 - [x] **Phase 11: Oracle Components** - Verify and deliver Oracle connection, input, output, and supporting components (completed 2026-05-07)
 - [x] **Phase 12: XML Components Audit, Harden & Output** (NEW) - Audit + fix tFileInputXML, tExtractXMLField, tXMLMap against Talend behavior; build tFileOutputXML engine + converter; comprehensive tests (completed 2026-05-08)
-- [ ] **Phase 13: Test Stabilization & Bridge JAR Rebuild** (RESCOPED) - Clear inherited failing tests, rebuild Java bridge JAR to match Python contract, lock per-module coverage baseline before coverage push
+- [x] **Phase 13: Test Stabilization & Bridge JAR Rebuild** (RESCOPED) - Clear inherited failing tests, rebuild Java bridge JAR to match Python contract, lock per-module coverage baseline before coverage push (completed 2026-05-10)
 - [ ] **Phase 14: Coverage Push to 95% per-module floor** (NEW) - Each module under src/v1/engine and src/converters must hit 95% line coverage; CI gate enforces
 - [ ] **Phase 15: Integration Testing & Performance** (RENUMBERED from old Phase 12) - End-to-end integration tests with real Talend jobs, output comparison, and performance optimization
 - [ ] **Phase 16: Documentation Sweep** (NEW) - Drop stale docs, write canonical set; scope decided after Phase 14
@@ -321,24 +321,25 @@ Plans:
 ### Phase 13: Test Stabilization & Bridge JAR Rebuild
 **Goal**: The test surface is fully green (zero failing tests) and trustworthy as a regression baseline -- Java bridge JAR signature matches Python client (manager is making concurrent bridge changes that will be incorporated here), FileOutputExcel input_schema gap closed, NeedsReview converter expectations aligned with current behavior, per-module coverage baseline locked
 **Depends on**: Phase 12
-**Requirements**: TEST-07, TEST-08 (new -- to be added during discuss-phase)
+**Requirements**: TEST-09, TEST-10
 **Success Criteria** (what must be TRUE):
-  1. Zero failing tests under `python -m pytest tests/` (currently ~39 failing across bridge_integration, java_component, file_output_excel, unique_row, NeedsReview converters, extract_regex_fields, convert_type -- expected to evolve with manager's bridge changes)
-  2. Java bridge JAR rebuilt and committed; `executeOneTimeExpression` and other drifted signatures match Python client; manager's in-flight bridge changes are folded in
-  3. Per-module coverage baseline measured and recorded in COVERAGE-BASELINE.md (input to Phase 14)
-  4. Pre-existing failure groups documented and resolved (no "leave as deferred" items remaining for inherited tests)
-  5. CI command for coverage measurement is wired and reproducible
-**Plans:** 8/9 plans executed
+  1. Zero failing tests under `python -m pytest tests/` -- DONE (6832 passed, 26 skipped, 1 xfailed, 0 failed)
+  2. Java bridge JAR rebuilt and committed; `executeOneTimeExpression` and other drifted signatures match Python client; manager's in-flight bridge changes are folded in -- DONE (May 10 rebuild from May 5/8 source; 3 Groovy/executor bugs fixed)
+  3. Per-module coverage baseline measured and recorded in COVERAGE-BASELINE.md (input to Phase 14) -- DONE (75% overall, 145/198 modules at/above 95%)
+  4. Pre-existing failure groups documented and resolved (no "leave as deferred" items remaining for inherited tests) -- DONE (4 CODE-CHANGE root-cause patches, 2 TEST-CHANGE updates, 10 STALE deletions)
+  5. CI command for coverage measurement is wired and reproducible -- DONE (documented in CLAUDE.md and 13-COVERAGE-BASELINE.md)
+**Plans:** 9/9 plans complete
 Plans:
 - [x] 13-01-PLAN.md -- JAR rebuild + bridge re-triage (wave 1)
 - [x] 13-02-PLAN.md -- Excel input_schema defensive-read fix BUG-EXC-001 (wave 2)
 - [x] 13-03-PLAN.md -- unique_row pandas-3.0 StringDtype fix BUG-UNIQ-001 (wave 2)
 - [x] 13-04-PLAN.md -- convert_type in-place cast inference fallback BUG-CONV-001 (wave 2)
 - [x] 13-05-PLAN.md -- file_list NB_FILE globalMap finalize put BUG-LIST-001 (wave 2)
-- [x] 13-06-PLAN.md -- TEST-CHANGE sweep: 9 executor_iterate + 5 NeedsReview + 1 regex (wave 3)
-- [x] 13-07-PLAN.md -- STALE deletion sweep: 11 NeedsReview test deletes (wave 3)
+- [x] 13-06-PLAN.md -- TEST-CHANGE sweep: 2 updates (aggregate_row severity count, regex storage convention) (wave 3)
+- [x] 13-07-PLAN.md -- STALE deletion sweep: 10 NeedsReview test deletes (wave 3)
 - [x] 13-08-PLAN.md -- Coverage baseline + CLAUDE.md update (wave 4)
-- [ ] 13-09-PLAN.md -- Requirements + ROADMAP + STATE close-out (wave 5, has checkpoint)
+- [x] 13-09-PLAN.md -- Requirements + ROADMAP + STATE close-out (wave 5)
+**Completed**: 2026-05-10 | **SUMMARY**: 13-PHASE-SUMMARY.md
 
 ### Phase 14: Coverage Push to 95% per-module floor
 **Goal**: Every module under src/v1/engine and src/converters meets a 95% line-coverage floor enforced by CI gate, so no part of the migration surface is silently untested
@@ -394,7 +395,7 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 10. Iterate Support | 11/11 | Complete    | 2026-05-05 |
 | 11. Oracle Components | 7/7 | Complete    | 2026-05-07 |
 | 12. XML Components Audit, Harden & Output | 8/8 | Complete | 2026-05-08 |
-| 13. Test Stabilization & Bridge JAR Rebuild | 8/9 | In Progress|  |
+| 13. Test Stabilization & Bridge JAR Rebuild | 9/9 | Complete    | 2026-05-10 |
 | 14. Coverage Push to 95% per-module floor | 0/TBD | Not started | - |
 | 15. Integration Testing & Performance | 0/TBD | Not started | - |
 | 16. Documentation Sweep | 0/TBD | Not started | - |

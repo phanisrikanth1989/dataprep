@@ -209,6 +209,8 @@ Requirements for engine restructure milestone. Each maps to roadmap phases.
 - [ ] **TEST-05**: Integration tests using real .item samples — convert → run → verify output
 - [ ] **TEST-06**: Talend output comparison tests — verify identical results for same input data
 - [x] **TEST-07**: Engine unit tests for Python components (python_component, python_row_component)
+- [x] **TEST-09**: Full test suite achieves zero failures under `python -m pytest tests/`; all inherited pre-existing failures from Phases 1-12 resolved via root-cause source patches or verified test-expectation corrections; no xfail markers added; 10 STALE NeedsReview tests deleted (D-D1); test count net delta: -10 STALE deletions (Phase 13)
+- [x] **TEST-10**: Per-module coverage baseline measured and recorded in `13-COVERAGE-BASELINE.md` covering all modules in `src/v1/engine/` and `src/converters/`; 6832 tests pass, 0 failed at measurement point; overall 75% coverage (19429 stmts, 4881 missed); baseline consumed by Phase 14 as the 95% per-module floor; reproducible via `python -m pytest tests/ --cov=src/v1/engine --cov=src/converters --cov-report=term-missing --cov-report=html -q` command documented in CLAUDE.md (Phase 13)
 
 ### Performance & Memory
 
@@ -402,18 +404,20 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | TEST-06 | Phase 12 | Pending |
 | TEST-07 | Phase 8 | Complete |
 | TEST-08 | Phase 6 | Complete |
+| TEST-09 | Phase 13 | Complete |
+| TEST-10 | Phase 13 | Complete |
 | PERF-01 | Phase 3 | Complete |
 | PERF-02 | Phase 8 | Pending |
 | PERF-03 | Phase 12 | Pending |
 | PERF-04 | Phase 12 | Pending |
 
 **Coverage:**
-- v1 requirements: 123 total
-- Mapped to phases: 123
+- v1 requirements: 125 total
+- Mapped to phases: 125
 - Unmapped: 0
 
 **Note:** TEST-03 covers unit tests for target components and is split across Phase 4 (file I/O tests) and Phase 5 (tMap tests). All other requirements map to exactly one phase.
 
 ---
 *Requirements defined: 2026-04-14*
-*Last updated: 2026-05-08 after Phase 12 closure (XML-01..04 all Complete)*
+*Last updated: 2026-05-10 after Phase 13 closure (TEST-09, TEST-10 added and Complete)*

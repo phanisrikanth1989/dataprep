@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 13 context gathered
+stopped_at: Phase 13 complete -- awaiting human-verify checkpoint
 last_updated: "2026-05-10T14:21:22.422Z"
 last_activity: 2026-05-10
 progress:
   total_phases: 20
-  completed_phases: 16
+  completed_phases: 17
   total_plans: 86
-  completed_plans: 88
+  completed_plans: 89
   percent: 100
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-14)
 
 **Core value:** Any Talend job using the target components must produce identical results when run through the Python engine
-**Current focus:** Phase 13 — test-stabilization-bridge-jar-rebuild
+**Current focus:** Phase 14 — coverage-push-to-95-per-module-floor
 
 ## Current Position
 
-Phase: 13 (test-stabilization-bridge-jar-rebuild) — EXECUTING
-Plan: 3 of 9
-Next: Phase 13 (test-stabilization-bridge-jar-rebuild)
-Status: Ready to execute
+Phase: 13 (test-stabilization-bridge-jar-rebuild) — COMPLETE
+Plan: 9 of 9
+Next: Phase 14 (coverage-push-to-95-per-module-floor)
+Status: Awaiting human-verify checkpoint before Phase 14 start
 Last activity: 2026-05-10
 
 Progress: [██████████] 100%
@@ -120,6 +120,18 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
 | 260429-hc2 | Cleanup manager commits 43762c8 + c9be184/0c4104d (rewrite tests + audit docs for Talend parity, supersede CR-06) | 2026-04-29 | dc264d3 | [260429-hc2-cleanup-of-manager-commits-43762c8-c9be1](./quick/260429-hc2-cleanup-of-manager-commits-43762c8-c9be1/) |
 | 260506-lqq | Fix bridge stderr pipe-buffer deadlock (D-08-01) -- background drainer thread + bounded ring buffer | 2026-05-06 | f0caf8b | [260506-lqq-fix-bridge-stderr-pipe-buffer-deadlock-d](./quick/260506-lqq-fix-bridge-stderr-pipe-buffer-deadlock-d/) |
 
+### Phase 13 closed (2026-05-10)
+
+- 9 plans, 5 waves
+- 4 CODE-CHANGE root-cause patches: BUG-BRDG-001 (Groovy script generation), BUG-BRDG-002 (BaseComponent.reset() GlobalMap wipe), BUG-BRDG-003 (executor finalization over-reset), BUG-EXC-001 (FileOutputExcel defensive read), BUG-UNIQ-001 (unique_row pandas 3.0 StringDtype), BUG-CT-001 (convert_type MANUALTABLE numeric fallback), BUG-FL-001 (file_list NB_FILE finalize put)
+- 2 TEST-CHANGE updates: aggregate_row NeedsReview count (>= 3 -> >= 1), regex_custom storage convention (double- to single-backslash)
+- 10 STALE deletions: NeedsReview tests for engine-implemented features across 3 converter test files
+- Java bridge JAR rebuilt from May 5/8 manager source (executeOneTimeExpression signature aligned)
+- Test suite: 6832 passed, 26 skipped, 1 xfailed, 0 failed
+- Per-module coverage baseline recorded in 13-COVERAGE-BASELINE.md (75% overall, 145/198 modules >= 95%)
+- 53 modules below 95% handed off to Phase 14 as lift targets
+- Requirements TEST-09 and TEST-10 added and marked Complete
+
 ### Phase 12 closed (2026-05-08)
 
 - 8 plans, 6 waves
@@ -133,6 +145,6 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
 
 ## Session Continuity
 
-Last session: 2026-05-10T14:21:22.414Z
-Stopped at: Phase 13 context gathered
-Resume with: /gsd-execute-phase 13 (clear context first with /clear)
+Last session: 2026-05-10
+Stopped at: Phase 13 complete -- human-verify checkpoint reached (Plan 13-09 Task 3 done, awaiting approval)
+Resume with: /gsd-execute-phase 14 (after checkpoint approval)
