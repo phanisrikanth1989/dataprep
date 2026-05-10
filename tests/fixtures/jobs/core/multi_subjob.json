@@ -1,0 +1,134 @@
+{
+  "job_name": "Job_multi_subjob",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {}
+  },
+  "components": [
+    {
+      "id": "tFixedFlowInput_1",
+      "type": "FixedFlowInputComponent",
+      "original_type": "tFixedFlowInput",
+      "config": {
+        "nb_rows": 3,
+        "use_singlemode": true,
+        "use_intable": false,
+        "use_inlinecontent": false,
+        "values_config": [
+          {"schema_column": "id", "value": "1"},
+          {"schema_column": "name", "value": "alpha"}
+        ],
+        "die_on_error": false
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {"name": "id", "type": "int", "nullable": false, "key": false},
+          {"name": "name", "type": "str", "nullable": false, "key": false}
+        ]
+      },
+      "inputs": [],
+      "outputs": ["row1"],
+      "subjob_id": "subjob_a",
+      "is_subjob_start": true
+    },
+    {
+      "id": "tFileOutputDelimited_1",
+      "type": "FileOutputDelimited",
+      "original_type": "tFileOutputDelimited",
+      "config": {
+        "filepath": "TBD_via_mutations",
+        "fieldseparator": ";",
+        "row_separator": "\\n",
+        "encoding": "UTF-8",
+        "include_header": true,
+        "append": false,
+        "create_directory": true,
+        "split": false,
+        "file_exist_exception": false
+      },
+      "schema": {
+        "input": [
+          {"name": "id", "type": "int", "nullable": false, "key": false},
+          {"name": "name", "type": "str", "nullable": false, "key": false}
+        ],
+        "output": []
+      },
+      "inputs": ["row1"],
+      "outputs": [],
+      "subjob_id": "subjob_a",
+      "is_subjob_start": false
+    },
+    {
+      "id": "tFixedFlowInput_2",
+      "type": "FixedFlowInputComponent",
+      "original_type": "tFixedFlowInput",
+      "config": {
+        "nb_rows": 2,
+        "use_singlemode": true,
+        "use_intable": false,
+        "use_inlinecontent": false,
+        "values_config": [
+          {"schema_column": "id", "value": "10"},
+          {"schema_column": "name", "value": "beta"}
+        ],
+        "die_on_error": false
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {"name": "id", "type": "int", "nullable": false, "key": false},
+          {"name": "name", "type": "str", "nullable": false, "key": false}
+        ]
+      },
+      "inputs": [],
+      "outputs": ["row2"],
+      "subjob_id": "subjob_b",
+      "is_subjob_start": true
+    },
+    {
+      "id": "tFileOutputDelimited_2",
+      "type": "FileOutputDelimited",
+      "original_type": "tFileOutputDelimited",
+      "config": {
+        "filepath": "TBD_via_mutations",
+        "fieldseparator": ";",
+        "row_separator": "\\n",
+        "encoding": "UTF-8",
+        "include_header": true,
+        "append": false,
+        "create_directory": true,
+        "split": false,
+        "file_exist_exception": false
+      },
+      "schema": {
+        "input": [
+          {"name": "id", "type": "int", "nullable": false, "key": false},
+          {"name": "name", "type": "str", "nullable": false, "key": false}
+        ],
+        "output": []
+      },
+      "inputs": ["row2"],
+      "outputs": [],
+      "subjob_id": "subjob_b",
+      "is_subjob_start": false
+    }
+  ],
+  "flows": [
+    {"name": "row1", "from": "tFixedFlowInput_1", "to": "tFileOutputDelimited_1", "type": "flow"},
+    {"name": "row2", "from": "tFixedFlowInput_2", "to": "tFileOutputDelimited_2", "type": "flow"}
+  ],
+  "triggers": [
+    {
+      "type": "OnSubjobOk",
+      "from": "tFixedFlowInput_1",
+      "to": "tFixedFlowInput_2"
+    }
+  ],
+  "subjobs": {
+    "subjob_a": ["tFixedFlowInput_1", "tFileOutputDelimited_1"],
+    "subjob_b": ["tFixedFlowInput_2", "tFileOutputDelimited_2"]
+  },
+  "java_config": {"enabled": false, "routines": [], "libraries": []}
+}
