@@ -136,3 +136,67 @@ class TestGlobalMapErrorMessage:
         with pytest.raises(Exception):
             comp.execute()
         assert gm.get("tFileTouch_1_ERROR_MESSAGE") is not None
+
+
+# ------------------------------------------------------------------
+# Plan 14-08 coverage lift: missed-line clusters
+#   98-108 (OSError branch: die_on_error True -> raise FileOperationError;
+#           False -> return error-dict; ERROR_MESSAGE set in global_map).
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCoverageLift1408:
+    """Targeted tests added in Plan 14-08 to lift file_touch.py to 100%."""
+
+    def test_oserror_die_on_error_true_raises_file_operation_error(self, tmp_path, monkeypatch):
+        """OSError on touch with die_on_error=True wraps as FileOperationError (98-107)."""
+        from src.v1.engine.exceptions import ComponentExecutionError
+
+        target = tmp_path / "f.txt"
+        gm = GlobalMap()
+        comp = _make_component(
+            {"filename": str(target), "die_on_error": True}, global_map=gm,
+        )
+
+        # Force open() to raise OSError so we enter the OSError branch (after
+        # the parent-directory check has passed).
+        import builtins
+        original_open = builtins.open
+
+        def selective_open(path, *args, **kwargs):
+            if str(path) == str(target):
+                raise OSError("simulated touch failure")
+            return original_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "open", selective_open)
+        with pytest.raises(
+            (FileOperationError, ComponentExecutionError),
+            match="Failed to touch file",
+        ):
+            comp.execute()
+        assert gm.get("tFileTouch_1_ERROR_MESSAGE") == "simulated touch failure"
+
+    def test_oserror_die_on_error_false_returns_error_dict(self, tmp_path, monkeypatch):
+        """OSError on touch with die_on_error=False -> error dict (line 108-111)."""
+        target = tmp_path / "f.txt"
+        gm = GlobalMap()
+        comp = _make_component(
+            {"filename": str(target), "die_on_error": False}, global_map=gm,
+        )
+
+        import builtins
+        original_open = builtins.open
+
+        def selective_open(path, *args, **kwargs):
+            if str(path) == str(target):
+                raise OSError("simulated touch failure")
+            return original_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "open", selective_open)
+        result = comp.execute()
+        assert result["main"]["status"] == "error"
+        assert result["main"]["filename"] == str(target)
+        assert "simulated touch failure" in result["main"]["message"]
+        # ERROR_MESSAGE recorded
+        assert gm.get("tFileTouch_1_ERROR_MESSAGE") == "simulated touch failure"
