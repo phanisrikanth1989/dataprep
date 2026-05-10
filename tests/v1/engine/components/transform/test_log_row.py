@@ -403,6 +403,72 @@ class TestVerticalMode:
         row_headers = [r.message for r in caplog.records if r.message.startswith("---")]
         assert len(row_headers) == 2
 
+    def test_vertical_use_fixed_length_truncates_values(self, caplog):
+        """Plan 14-06 lift: vertical mode + use_fixed_length truncates values per width.
+
+        Targets log_row.py:335-336 (use_fixed_length / lengths handling inside
+        _log_vertical: width = int(lengths[j]); val = val[:width].ljust(width)).
+        """
+        df = pd.DataFrame({"longcol": ["ABCDEFGHIJ"]})  # 10 chars
+        comp = _make_component(
+            {"vertical": True, "use_fixed_length": True, "lengths": [4]}
+        )
+        with caplog.at_level(logging.INFO):
+            comp.execute(df)
+        # The column line shows truncated value: 'ABCD' padded to 4 chars
+        col_lines = [r.message for r in caplog.records if "longcol:" in r.message]
+        assert len(col_lines) >= 1
+        # Value truncated to 4 chars: "ABCD"
+        line = col_lines[0]
+        assert "ABCD" in line
+        assert "ABCDE" not in line  # 5th char truncated
+
+    def test_vertical_use_fixed_length_with_non_numeric_width_falls_back_to_10(self, caplog):
+        """Plan 14-06 lift: vertical mode + non-numeric length entry falls back to width=10.
+
+        Targets log_row.py:335 else-branch (isinstance check for int/float).
+        """
+        df = pd.DataFrame({"v": ["ABCDEFGHIJKLMNOP"]})  # 16 chars
+        comp = _make_component(
+            {"vertical": True, "use_fixed_length": True, "lengths": ["bogus"]}
+        )
+        with caplog.at_level(logging.INFO):
+            comp.execute(df)
+        col_lines = [r.message for r in caplog.records if "v:" in r.message]
+        line = col_lines[0]
+        # Width fallback to 10 -> truncated to "ABCDEFGHIJ"
+        assert "ABCDEFGHIJ" in line
+        assert "ABCDEFGHIJK" not in line
+
+
+# ------------------------------------------------------------------
+# TestPrivateMethodGuards -- Plan 14-06 lift, exercise direct method invocation
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestPrivateMethodGuards:
+    """Direct invocations of private display helpers cover defensive guards.
+
+    Targets log_row.py:251 (_log_table early return on empty df). _process()
+    short-circuits before reaching this branch, so direct invocation is the
+    natural way to exercise it.
+    """
+
+    def test_log_table_empty_df_returns_without_emitting(self, caplog):
+        """Direct _log_table call with empty df emits no lines."""
+        comp = _make_component({"table_print": True, "basic_mode": False})
+        with caplog.at_level(logging.INFO):
+            comp._log_table(
+                pd.DataFrame(),  # explicitly empty
+                print_unique_name=False,
+                use_fixed_length=False,
+                lengths=[],
+            )
+        # No border, header, or data lines emitted
+        relevant = [r for r in caplog.records if "log_row" in r.name]
+        assert relevant == []
+
 
 # ------------------------------------------------------------------
 # TestDisplayOptions
