@@ -179,6 +179,17 @@ class ConvertType(BaseComponent):
                 logger.warning("[%s] manualtable: input column %r not in DataFrame -- skipped", self.id, in_col)
                 continue
             target_dtype = output_schema_types.get(out_col, output_schema_types.get(in_col, "object"))
+            # Talend MANUALTABLE default: when no output schema provides a target type,
+            # attempt pd.to_numeric() for in-place casts (input_column == output_column).
+            # This matches tConvertType's default MANUALTABLE behavior (per D-B3).
+            # errors="coerce" -> non-numeric values become NaN (no rows rejected).
+            # Use whole-column replacement (df[col] = series) rather than loc-based
+            # setitem so that StringDtype columns are correctly re-typed to numeric.
+            if target_dtype == "object" and in_col == out_col:
+                inferred = pd.to_numeric(df[in_col], errors="coerce")
+                if inferred.notna().any():
+                    df[in_col] = inferred
+                continue  # skip per-row loop; whole-column operation done
             for idx in df[ok_mask].index:
                 try:
                     coerced = _coerce_series(df.loc[[idx], in_col], target_dtype, in_col)
