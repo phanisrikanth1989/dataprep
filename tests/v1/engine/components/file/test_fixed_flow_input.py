@@ -392,3 +392,131 @@ class TestEdgeCases:
         result = comp.execute(None)
         assert "reject" not in result
 
+
+# ---------------------------------------------------------------------------
+# Plan 14-08 coverage lift: missed-line clusters
+#   115-116 (no mode selected -> warn + default to single),
+#   150 (values_config is non-list/dict -> empty lookup),
+#   209 (inline_content empty line skipped),
+#   240-241 (resolve_string raises -> fallback to original value),
+#   244 (resolved != value -> coerce numeric branch),
+#   248-252 (globalMap.get(...) string pattern),
+#   264 (coerce_numeric: non-string -> return as-is),
+#   269 (coerce_numeric: decimal-pattern -> float).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCoverageLift1408:
+    """Targeted tests added in Plan 14-08 to lift fixed_flow_input.py to >= 95%."""
+
+    def test_no_mode_selected_logs_warning_and_defaults_to_single(self, caplog):
+        """All three mode flags False -> WARNING + single-mode build (115-116)."""
+        import logging
+        cfg = dict(_BASE_CONFIG)
+        cfg["use_singlemode"] = False
+        cfg["use_intable"] = False
+        cfg["use_inlinecontent"] = False
+        comp = _make(cfg)
+        with caplog.at_level(logging.WARNING):
+            df = comp.execute(None)["main"]
+        assert any(
+            "no mode selected, defaulting to single" in r.message
+            for r in caplog.records
+        )
+        # Built one row from values_config like single mode would
+        assert len(df) == 1
+
+    def test_values_config_non_list_non_dict_yields_empty_lookup(self):
+        """values_config of unsupported type -> empty lookup -> all None values (line 150)."""
+        cfg = dict(_BASE_CONFIG)
+        cfg["values_config"] = "not_a_list_or_dict"
+        cfg["nb_rows"] = 2
+        comp = _make(cfg)
+        df = comp.execute(None)["main"]
+        assert len(df) == 2
+        # All values None because lookup is empty for both columns
+        assert df["id"].isnull().all()
+        assert df["name"].isnull().all()
+
+    def test_inline_content_skips_blank_lines(self):
+        """Inline-content mode skips empty / whitespace-only lines (line 209)."""
+        cfg = dict(_BASE_CONFIG)
+        cfg["use_singlemode"] = False
+        cfg["use_inlinecontent"] = True
+        # 3 lines but 2 are blank/whitespace; only 1 row should be produced
+        cfg["inline_content"] = "1;Alice\n   \n2;Bob"
+        cfg["row_separator"] = "\\n"
+        cfg["field_separator"] = ";"
+        comp = _make(cfg)
+        df = comp.execute(None)["main"]
+        assert len(df) == 2
+        assert list(df["name"]) == ["Alice", "Bob"]
+
+    def test_resolve_value_falls_back_when_resolve_raises(self, monkeypatch):
+        """If context_manager.resolve_string raises, _resolve_value falls back (240-241).
+
+        This test invokes _resolve_value directly because BaseComponent.execute()
+        resolves the entire config via context_manager.resolve_dict BEFORE calling
+        _process(); a top-level monkeypatch on resolve_string would crash that
+        outer step instead of exercising the fallback inside _resolve_value.
+        """
+        comp = _make()
+
+        def boom(s):
+            raise RuntimeError("simulated resolve failure")
+
+        monkeypatch.setattr(comp.context_manager, "resolve_string", boom)
+        # Direct call to _resolve_value: should swallow exception and return
+        # the original value unchanged (modulo numeric coercion fall-through).
+        out = comp._resolve_value("BobBoom")
+        assert out == "BobBoom"
+
+    def test_resolve_value_coerces_after_resolution(self, monkeypatch):
+        """Context resolution returning a different string triggers numeric coerce (line 244)."""
+        comp = _make()
+
+        def fake_resolve(s):
+            # Simulate a context substitution that turns the placeholder into "42"
+            if s == "${context.id_val}":
+                return "42"
+            return s
+
+        monkeypatch.setattr(comp.context_manager, "resolve_string", fake_resolve)
+        out = comp._resolve_value("${context.id_val}")
+        # Resolved differently from input -> _coerce_numeric path (line 244)
+        # int("42") == 42 (Python int, not numpy)
+        assert out == 42
+        assert isinstance(out, int)
+
+    def test_global_map_get_pattern_resolved(self):
+        """globalMap.get(\"KEY\") string pattern resolves at runtime (248-252)."""
+        cfg = dict(_BASE_CONFIG)
+        cfg["values_config"] = [
+            {"schema_column": "id", "value": 'globalMap.get("upstream_id")'},
+            {"schema_column": "name", "value": "static"},
+        ]
+        gm = GlobalMap()
+        gm.put("upstream_id", 999)
+        comp = _make(cfg, global_map=gm)
+        df = comp.execute(None)["main"]
+        assert df.iloc[0]["id"] == 999
+
+    def test_coerce_numeric_non_string_returns_as_is(self):
+        """_coerce_numeric: non-string input is returned unchanged (line 264)."""
+        from src.v1.engine.components.file.fixed_flow_input import _coerce_numeric
+
+        sentinel = [1, 2, 3]
+        assert _coerce_numeric(sentinel) is sentinel
+        assert _coerce_numeric(42) == 42
+        assert _coerce_numeric(None) is None
+
+    def test_coerce_numeric_decimal_to_float(self):
+        """_coerce_numeric: decimal-pattern string -> float (line 269)."""
+        from src.v1.engine.components.file.fixed_flow_input import _coerce_numeric
+
+        assert _coerce_numeric("3.14") == 3.14
+        assert _coerce_numeric("-0.5") == -0.5
+        # Plain string remains unchanged
+        assert _coerce_numeric("hello") == "hello"
+
