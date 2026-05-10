@@ -1701,12 +1701,12 @@ class Map(BaseComponent):
         chunk_fill_params = (
             f"Object[] row, RowWrapper {main_name}"
             + "".join(f", RowWrapper {lk}" for lk in lookup_names)
-            + ", Map<String, Object> var"
+            + ", Map<String, Object> Var"
         )
         chunk_fill_args = (
             f"row, {main_name}"
             + "".join(f", {lk}" for lk in lookup_names)
-            + ", var"
+            + ", Var"
         )
 
         for output in active_outputs:
@@ -1716,27 +1716,27 @@ class Map(BaseComponent):
             filter_expr = output.get("filter", "")
             activate_filter = output.get("activate_filter", False)
 
-                # --- Emit one fill helper per chunk of columns ---
+            # --- Emit one fill helper per chunk of columns ---
             for chunk_start in range(0, num_cols, _FILL_CHUNK):
                 chunk_cols = columns[chunk_start:chunk_start + _FILL_CHUNK]
                 chunk_idx = chunk_start // _FILL_CHUNK
                 lines.append(
-                    f"def void fillOutput_{out_name}_chunk{chunk_idx}"
+                    f"void fillOutput_{out_name}_chunk{chunk_idx}"
                     f"({chunk_fill_params}) {{"
                 )
-            for col_offset, col in enumerate(chunk_cols):
-                abs_idx = chunk_start + col_offset
-                col_expr = col.get("expression", "")
-                expr = self._strip_java_marker(col_expr)
-                if not expr or expr.strip() == "":
-                    expr = "null"
-                lines.append(f"    row[{abs_idx}] = {expr};")
-            lines.append("}")
-            lines.append("")
+                for col_offset, col in enumerate(chunk_cols):
+                    abs_idx = chunk_start + col_offset
+                    col_expr = col.get("expression", "")
+                    expr = self._strip_java_marker(col_expr)
+                    if not expr or expr.strip() == "":
+                        expr = "null"
+                    lines.append(f"    row[{abs_idx}] = {expr};")
+                lines.append("}")
+                lines.append("")
 
             # --- Coordinator: evalOutput_<name> allocates array, calls chunks ---
             num_chunks = -(-num_cols // _FILL_CHUNK)  # ceiling division
-            lines.append(f"def evalOutput_{out_name}({helper_params}) {{")
+            lines.append(f"Object[] evalOutput_{out_name}({helper_params}) {{")
             # Filter guard: return null if this row is filtered out.
             if activate_filter and filter_expr:
                 clean_filter = self._strip_java_marker(filter_expr)
