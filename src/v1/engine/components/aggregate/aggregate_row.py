@@ -262,9 +262,18 @@ def _build_agg_func(
     if func_name == "variance":
         return lambda x: x.var(ddof=1, skipna=skipna)
 
-    # Fallback -- unknown function, default to sum
-    logger.warning("Unknown aggregation function '%s', defaulting to sum", func_name)
-    return lambda x: x.sum(skipna=skipna)
+    # Phase 14-02 (D-C5 dead-code deletion): the unknown-function fallback was
+    # unreachable -- _validate_config (and AggregateSortedRow._validate_config)
+    # rejects any func_name not in _SUPPORTED_FUNCTIONS before _build_agg_func
+    # is ever called. Per project policy ("fix source, no fallbacks") and D-C5
+    # ("delete dead branch over pragma-or-fake-test"), the silent-default-to-sum
+    # behavior is removed; an explicit error is the correct contract should the
+    # validation gate ever regress.
+    raise ConfigurationError(
+        f"Unsupported aggregation function '{func_name}' reached _build_agg_func "
+        f"-- _validate_config gate has regressed; supported set: "
+        f"{sorted(_SUPPORTED_FUNCTIONS)}"
+    )
 
 
 # ------------------------------------------------------------------
@@ -381,17 +390,19 @@ class AggregateRow(BaseComponent):
         else:
             result = self._global_aggregation(input_data, agg_specs)
 
-        # Ensure column ordering: group outputs first, then operation outputs
+        # Ensure column ordering: group outputs first, then operation outputs.
+        # Phase 14-02 (D-C5 dead-code deletion): the previous "remaining columns"
+        # safety loop was unreachable -- result is built from groupby (-> group
+        # output cols) and pd.NamedAgg (-> op_output_order), so every column in
+        # result.columns is guaranteed to be in one of the two source lists.
+        # Per project policy ("fix source, no fallbacks") and D-C5, the dead
+        # safety loop is removed.
         ordered_cols = []
         for col in group_output_cols:
             if col in result.columns and col not in ordered_cols:
                 ordered_cols.append(col)
         for col in op_output_order:
             if col in result.columns and col not in ordered_cols:
-                ordered_cols.append(col)
-        # Add any remaining columns (shouldn't happen, but safety)
-        for col in result.columns:
-            if col not in ordered_cols:
                 ordered_cols.append(col)
         result = result[ordered_cols]
 
