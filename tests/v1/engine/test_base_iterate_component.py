@@ -424,3 +424,134 @@ class TestIterateStubComponentFixture:
         # Must have an iterate source component
         comp_ids = [c["id"] for c in cfg["components"]]
         assert "iter_1" in comp_ids
+
+
+# ---------------------------------------------------------------------------
+# Plan 14-10 lift: 91% -> 95%+ extensions for missed lines
+# ---------------------------------------------------------------------------
+
+
+from src.v1.engine.base_component import ComponentStatus
+
+
+@pytest.mark.unit
+class TestExecuteRunningStateRejected:
+    """execute() raises ConfigurationError if status is already RUNNING (line 150)."""
+
+    def test_running_state_rejected(self):
+        comp, _ = _make_component()
+        comp.status = ComponentStatus.RUNNING
+        with pytest.raises(ConfigurationError, match="already RUNNING"):
+            comp.execute()
+
+
+@pytest.mark.unit
+class TestExecuteSuccessStateRejected:
+    """execute() raises ConfigurationError if status is SUCCESS (no reset; line 156)."""
+
+    def test_success_state_rejected_without_reset(self):
+        comp, _ = _make_component(config={"items": [1]})
+        comp.execute()
+        # The Executor would flip RUNNING -> SUCCESS after iterate completes;
+        # we simulate that here directly to exercise the SUCCESS guard.
+        comp.status = ComponentStatus.SUCCESS
+        with pytest.raises(ConfigurationError, match="without reset"):
+            comp.execute()
+
+
+@pytest.mark.unit
+class TestExecuteWrapsArbitraryExceptions:
+    """Non-ConfigurationError exceptions in execute() wrap to ComponentExecutionError (198-204)."""
+
+    def test_arbitrary_exception_wrapped(self):
+        class _BoomStub(BaseIterateComponent):
+            def _validate_config(self): pass
+            def prepare_iterations(self, input_data=None):
+                raise RuntimeError("boom inside prepare_iterations")
+            def set_iteration_globalmap(self, item): pass
+
+        comp, _ = _make_component(cls=_BoomStub)
+        with pytest.raises(ComponentExecutionError):
+            comp.execute()
+        assert comp.status == ComponentStatus.ERROR
+
+
+@pytest.mark.unit
+class TestUpdateIterationStatsAccumulates:
+    """update_iteration_stats sums NB_LINE / NB_LINE_OK / NB_LINE_REJECT (357-359)."""
+
+    def test_accumulates_three_stats(self):
+        comp, _ = _make_component()
+        comp.update_iteration_stats({"NB_LINE": 10, "NB_LINE_OK": 8, "NB_LINE_REJECT": 2})
+        comp.update_iteration_stats({"NB_LINE": 5, "NB_LINE_OK": 5, "NB_LINE_REJECT": 0})
+        assert comp.stats["NB_LINE"] == 15
+        assert comp.stats["NB_LINE_OK"] == 13
+        assert comp.stats["NB_LINE_REJECT"] == 2
+
+    def test_handles_partial_stats(self):
+        """Missing keys default to 0."""
+        comp, _ = _make_component()
+        comp.update_iteration_stats({})
+        assert comp.stats["NB_LINE"] == 0
+
+
+@pytest.mark.unit
+class TestFinalizeIterationsBackcompat:
+    """finalize_iterations() delegates to finalize() (line 394)."""
+
+    def test_delegates_to_finalize(self):
+        called = []
+
+        class _Stub(_BoundedIterateStub):
+            def finalize(self):
+                called.append("finalize")
+
+        comp, _ = _make_component(cls=_Stub)
+        comp.finalize_iterations()
+        assert called == ["finalize"]
+
+
+@pytest.mark.unit
+class TestResetIterateState:
+    """reset() clears iterate-specific state in addition to base state (422-427)."""
+
+    def test_reset_clears_iterate_state(self):
+        comp, _ = _make_component(config={"items": [1, 2, 3]})
+        comp.execute()
+        # Consume one iteration
+        comp.get_next_iteration_context()
+        assert comp.current_iteration_index == 1
+        assert comp.total_iterations == 3
+
+        comp.reset()
+        assert comp.current_iteration_index == 0
+        assert comp.total_iterations == -1
+        assert comp.iteration_stats == []
+        assert comp._iterate_depth == 0
+        # iteration_iter is reset to empty
+        assert next(comp.iteration_iter, None) is None
+
+
+@pytest.mark.unit
+class TestGetNextIterationStopIteration:
+    """get_next_iteration_context returns {} on StopIteration (322-323)."""
+
+    def test_stop_iteration_returns_empty_dict(self):
+        comp, _ = _make_component(config={"items": []})
+        comp.execute()
+        # total_iterations=0, has_next_iteration() should be False
+        # but force a StopIteration path: set total_iterations to -1 (unbounded
+        # sentinel) so has_next_iteration returns True, then exhaust iter_().
+        comp.iteration_iter = iter([])  # exhausted
+        comp.total_iterations = -1  # unbounded -> has_next_iteration() True
+        result = comp.get_next_iteration_context()
+        assert result == {}
+
+    def test_exhausted_bounded_returns_empty(self):
+        """Bounded iterator past total returns {} via has_next_iteration() False (line 318)."""
+        comp, _ = _make_component(config={"items": [1]})
+        comp.execute()
+        comp.get_next_iteration_context()  # consume the only one
+        # current_iteration_index now equals total_iterations -> has_next False
+        result = comp.get_next_iteration_context()
+        assert result == {}
