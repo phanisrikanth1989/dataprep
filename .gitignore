@@ -14,6 +14,8 @@ __pycache__/
 # silently ignored by `git add` and the run_job_fixture loader has nothing
 # to read. Plans 14-08..14-11 all rely on these JSON fixtures being tracked.
 !tests/fixtures/jobs/**/*.json
+# Plan 14-09 deep-gap fixture data (sample_*.json for file_input_json tests).
+!tests/fixtures/data/**/*.json
 
 # Maven build artifacts
 src/v1/java_bridge/java/target/
