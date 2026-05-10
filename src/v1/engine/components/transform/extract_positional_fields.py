@@ -159,10 +159,12 @@ class ExtractPositionalFields(BaseComponent):
             value = row[src_col]
 
             # ---- null handling ----
-            try:
-                is_null = pd.isna(value)
-            except (TypeError, ValueError):
-                is_null = False
+            # pd.isna() on the scalar source-column values that this component
+            # actually receives (str / NaN / None) never raises -- the prior
+            # defensive try/except for TypeError/ValueError was unreachable
+            # for realistic input shapes (D-C5 dead-code policy, Phase 14
+            # Plan 14-05).
+            is_null = pd.isna(value)
 
             if is_null:
                 if ignore_source_null:
