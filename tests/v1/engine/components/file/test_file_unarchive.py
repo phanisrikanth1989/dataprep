@@ -289,3 +289,104 @@ class TestBadZip:
         })
         with pytest.raises((ComponentExecutionError, FileOperationError), match="[Bb]ad|[Cc]orrupt"):
             comp.execute()
+
+
+# ------------------------------------------------------------------
+# Plan 14-08 coverage lift: missed-line clusters
+#   119 (zf.setpassword), 147-148 (directory-entry skip),
+#   161 (printout=True debug log), 168 (OSError -> FileOperationError).
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCoverageLift1408:
+    """Targeted tests added in Plan 14-08 to lift file_unarchive.py to >= 95%."""
+
+    def test_password_protected_zip_setpassword_called(self, tmp_path, monkeypatch):
+        """checkpassword=True with password sets archive password (line 119).
+
+        We can't easily produce a real encrypted-by-stdlib zip, so monkeypatch
+        ZipFile.setpassword to record that it was invoked with our password.
+        """
+        zip_path = _make_zip(tmp_path, {"a.txt": b"hello"})
+        recorded: dict = {}
+        original_setpw = zipfile.ZipFile.setpassword
+
+        def fake_setpw(self_zf, pwd):
+            recorded["pwd"] = pwd
+            # Don't actually encrypt; just record the call.
+            return original_setpw(self_zf, pwd)
+
+        monkeypatch.setattr(zipfile.ZipFile, "setpassword", fake_setpw)
+
+        comp = _make_component({
+            "zipfile": zip_path,
+            "directory": str(tmp_path / "out"),
+            "checkpassword": True,
+            "password": "secret",
+        })
+        result = comp.execute()
+        assert recorded["pwd"] == b"secret"
+        assert isinstance(result["main"], pd.DataFrame)
+
+    def test_directory_entry_creates_dir_and_skips(self, tmp_path):
+        """ZIP member ending in '/' creates directory and continues (lines 147-148)."""
+        zip_path = str(tmp_path / "with_dir.zip")
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            # Explicit directory entry
+            zf.writestr("subdir/", "")
+            zf.writestr("subdir/leaf.txt", b"content")
+        out_dir = str(tmp_path / "out")
+        comp = _make_component({"zipfile": zip_path, "directory": out_dir})
+        comp.execute()
+        assert os.path.isdir(os.path.join(out_dir, "subdir"))
+        assert os.path.isfile(os.path.join(out_dir, "subdir", "leaf.txt"))
+
+    def test_printout_logs_extracted_filename(self, tmp_path, caplog):
+        """printout=True emits DEBUG log per file (line 161)."""
+        import logging
+        zip_path = _make_zip(tmp_path, {"a.txt": b"hello"})
+        comp = _make_component({
+            "zipfile": zip_path,
+            "directory": str(tmp_path / "out"),
+            "printout": True,
+        })
+        with caplog.at_level(logging.DEBUG, logger="src.v1.engine.components.file.file_unarchive"):
+            comp.execute()
+        assert any(
+            "Extracted" in r.message and "a.txt" in r.message
+            for r in caplog.records
+            if r.levelno == logging.DEBUG
+        )
+
+    def test_oserror_during_extraction_raises_file_operation_error(self, tmp_path, monkeypatch):
+        """OSError during extraction is wrapped as FileOperationError (line 168).
+
+        We force `open(target_path, "wb")` (the destination write) to raise
+        OSError so the surrounding `except OSError` branch fires.
+        """
+        zip_path = _make_zip(tmp_path, {"a.txt": b"hello"})
+        comp = _make_component({
+            "zipfile": zip_path,
+            "directory": str(tmp_path / "out"),
+        })
+
+        # Force the write step inside _process to raise an OSError.
+        import builtins
+        original_open = builtins.open
+
+        def selective_open(path, *args, **kwargs):
+            if isinstance(path, str) and path.endswith("a.txt") and "w" in (args[0] if args else kwargs.get("mode", "")):
+                raise OSError("disk full simulation")
+            return original_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "open", selective_open)
+
+        # execute() wraps FileOperationError into ComponentExecutionError; both
+        # ETLError subclasses are accepted since the source exception is the
+        # FileOperationError raised at file_unarchive.py:168.
+        with pytest.raises(
+            (FileOperationError, ComponentExecutionError),
+            match="I/O error during extraction",
+        ):
+            comp.execute()
