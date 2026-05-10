@@ -137,11 +137,19 @@ def _build_agg_func(
     if func_name == "last":
         return "last"
 
+    # BUG-AGG-001 (Phase 14-02): pandas Series.astype(str) does NOT coerce
+    # NaN/None to a string -- it leaves them as floats, so str.join() crashes
+    # ("sequence item N: expected str instance, float found"). The
+    # ignore_null=False branches of list / list_object / union were therefore
+    # broken for any null-bearing input. Fix at source: fillna("null") before
+    # astype(str), matching Java's String.valueOf(null) == "null" semantics
+    # (Talend ArrayList.toString() over a list with a null element writes
+    # "null" in that position).
     if func_name == "list":
         # list: collect all values (preserving duplicates) and join with delimiter
         if ignore_null:
             return lambda x: list_delimiter.join(x.dropna().astype(str))
-        return lambda x: list_delimiter.join(x.astype(str))
+        return lambda x: list_delimiter.join(x.fillna("null").astype(str))
 
     if func_name == "list_object":
         # Talend list(object) calls ArrayList.toString() which produces:
@@ -152,7 +160,7 @@ def _build_agg_func(
         #   LIST_DELIMITER.NAME=Delimiter (only for list operation)
         if ignore_null:
             return lambda x: "[" + ", ".join(x.dropna().astype(str)) + "]"
-        return lambda x: "[" + ", ".join(x.astype(str)) + "]"
+        return lambda x: "[" + ", ".join(x.fillna("null").astype(str)) + "]"
 
     if func_name == "union":
         # CR-05-bis: distinct + sorted + joined. Talend union aggregator collects
@@ -162,7 +170,7 @@ def _build_agg_func(
         # number of rows" -- no null-inclusion clause). DO NOT change to "size".
         if ignore_null:
             return lambda x: list_delimiter.join(sorted(set(x.dropna().astype(str))))
-        return lambda x: list_delimiter.join(sorted(set(x.astype(str))))
+        return lambda x: list_delimiter.join(sorted(set(x.fillna("null").astype(str))))
 
     if func_name == "median":
         if use_financial_precision:
