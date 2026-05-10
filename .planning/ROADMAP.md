@@ -356,7 +356,8 @@ Plans:
   - [x] 14-03-PLAN.md -- control subsystem (send_mail 60%) | SUMMARY: 14-03-SUMMARY.md
   - [x] 14-04-PLAN.md -- database subsystem (oracle_output 94.1% -> 99.5%, oracle_row 90.3% -> 100.0%; mocked oracledb) | SUMMARY: 14-04-SUMMARY.md
   - [x] 14-05-PLAN.md -- transform quick wins + medium gaps (12 modules 80-94% -> 100%; BUG-EJF-001 fix; 5 D-C5 deletions) | SUMMARY: 14-05-SUMMARY.md
-  - [x] 14-06-PLAN.md -- transform deep gaps non-SWIFT (map, join, python_dataframe_component, log_row spillover) -- 3 of 4 modules at 100%; map.py PARTIAL 73.8% -> 83.1% (147 lines deferred to 14-13 closeout, all bridge-driven) | SUMMARY: 14-06-SUMMARY.md
+  - [x] 14-06-PLAN.md -- transform deep gaps non-SWIFT (map, join, python_dataframe_component, log_row spillover) -- 3 of 4 modules at 100%; map.py PARTIAL 73.8% -> 83.1% (147 lines deferred, all bridge-driven) | SUMMARY: 14-06-SUMMARY.md
+  - [x] 14-06b (gap closure follow-on) -- map.py 79.6% -> 95.85% via TestPlan1406bUnitGapClosure (26 unit tests) + new test_map_bridge.py (16 @pytest.mark.java tests). Plan 14-06 deferred-gap RESOLVED. | SUMMARY: 14-06b-SUMMARY.md
   - [x] 14-07-PLAN.md -- SWIFT (swift_transformer 7% -> 98.0%, swift_block_formatter 7% -> 97.2%; synthetic MT generator + 5 BUG-SWIFT source fixes + D-C5 dead-code deletion) | SUMMARY: 14-07-SUMMARY.md
   - [x] 14-08-PLAN.md -- file quick wins (12 modules 81-94% -> >=99.5%; STALE-FOD-001 D-C5 deletion; D-RULE3 .gitignore unblock; 3 pipeline fixtures) | SUMMARY: 14-08-SUMMARY.md
   - [x] 14-09-PLAN.md -- file deep gaps (file_output_excel 69.0% -> 100%, file_input_excel 28.7% -> 97.4%, file_input_json 9.3% -> 100% + BUG-FIJ-001/002 source fixes, file_input_raw 17.7% -> 100%) | SUMMARY: 14-09-SUMMARY.md
@@ -374,6 +375,7 @@ Plans:
 | 14-04 | Complete | 3/3 | 2 (oracle_output 94.1% -> 99.5%, oracle_row 90.3% -> 100.0%) |
 | 14-05 | Complete | 13/13 | 12 (replace, python_row_component, pivot, parse_record_set, row_generator, python_component, extract_positional_fields, extract_regex_fields, convert_type, extract_json_fields, extract_delimited_fields, filter_rows -- all 80-94% -> 100%) |
 | 14-06 | Complete (3/4 + 1 deferred) | 9 commits | 3 (join.py 69.2% -> 100%, python_dataframe_component.py 19.6% -> 100%, log_row.py 96.7% -> 100%); map.py PARTIAL 73.8% -> 83.1% (147 lines deferred -- bridge-driven paths) |
+| 14-06b | Complete | 2 commits | 1 (map.py 79.6% -> 95.85%; Plan 14-06 deferred gap RESOLVED via 26 unit tests + 16 @pytest.mark.java tests) |
 | 14-08 | Complete | 16/16 | 12 (file_list, file_unarchive, file_properties, file_copy, file_input_properties, fixed_flow_input, set_global_var, file_input_delimited, file_output_delimited, file_output_positional, file_input_positional, file_touch -- all 81-94% -> >=99.5%; 10 at 100%) |
 | 14-11 | Complete | 9/9 | 8 (converter 97.6% -> 100%, expression_converter 77.8% -> 98.9%, xml_map 87.9% -> 98.1%, replace 93.7% -> 100%, aggregate_row 90.5% -> 100%, foreach 94.4% -> 97.2%, file_input_excel 94.3% -> 100%, mssql_input 81% -> 100%) |
 | 14-07 | Complete | 7/7 | 2 (swift_block_formatter 7% -> 97.2%, swift_transformer 7% -> 98.0%); 5 BUG-SWIFT source fixes; D-C5 dead-code deletion |
