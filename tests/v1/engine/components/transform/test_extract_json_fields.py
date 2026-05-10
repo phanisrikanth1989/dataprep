@@ -565,3 +565,193 @@ class TestStats:
         }, global_map=gm)
         comp.execute(None)
         assert gm.get_nb_line(comp.id) == 0
+
+
+# ------------------------------------------------------------------
+# TestCoverageLift_14_05 (COV-EJF-001)
+#
+# Target missed lines from Phase 14 baseline:
+#   - 44-46   (_try_compile failure -> warn + None)
+#   - 55-57   (_is_null TypeError on non-scalar containers -> False)
+#   - 215-225 (loop_expr.find() raises: die_on_error vs reject)
+#   - 241     (mapping with empty schema_column -> continue)
+#   - 249-250 (expr is None for a query string -> out_row[col] = "")
+#   - 253-259 (expr.find raises -> warn + out_row[col] = "")
+#   - 267     (multiple matches -> json.dumps wrap)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCoverageLift1405:
+    """Targeted coverage for residual missed branches in extract_json_fields.py."""
+
+    def test_try_compile_returns_none_on_failure(self, caplog):
+        # Hits lines 44-46.
+        from src.v1.engine.components.transform.extract_json_fields import _try_compile
+        with caplog.at_level("WARNING"):
+            result = _try_compile("$.bad[", "tEJF_1")
+        assert result is None
+        assert any("Cannot compile JSONPath" in rec.message for rec in caplog.records)
+
+    def test_is_null_returns_false_for_dict(self):
+        # Hits lines 55-57: pd.isna raises TypeError on dict.
+        from src.v1.engine.components.transform.extract_json_fields import _is_null
+        # pd.isna on a dict raises TypeError in many builds.
+        assert _is_null({"a": 1}) is False
+        assert _is_null([1, 2, 3]) is False
+
+    def test_loop_query_find_failure_routes_to_reject(self, caplog):
+        # Hits lines 220-225 (loop_expr.find raises -> reject branch).
+        # We force jsonpath_ng to raise inside .find() by monkey-patching.
+        comp = _make_component(config={
+            "read_by": "JSONPATH",
+            "jsonfield": "json_data",
+            "json_loop_query": "$.records[*]",
+            "mapping_4_jsonpath": [{"schema_column": "name", "query": "$.name"}],
+            "die_on_error": False,
+        })
+        df = pd.DataFrame([{"json_data": _SIMPLE_JSON}])
+
+        # Patch jsonpath_parse so the loop expression's .find() raises.
+        import src.v1.engine.components.transform.extract_json_fields as ejf
+
+        original_compile = ejf._try_compile
+
+        class _ExplodingExpr:
+            def find(self, _data):
+                raise RuntimeError("forced loop find failure")
+
+        def _patched_compile(query, cid):
+            if "records" in query:
+                return _ExplodingExpr()
+            return original_compile(query, cid)
+
+        ejf._try_compile = _patched_compile
+        try:
+            result = comp.execute(df)
+        finally:
+            ejf._try_compile = original_compile
+        assert len(result["reject"]) == 1
+        assert result["reject"].iloc[0]["errorCode"] == "PARSE_ERROR"
+        assert "loop query error" in result["reject"].iloc[0]["errorMessage"]
+
+    def test_loop_query_find_failure_with_die_on_error_raises(self):
+        # Hits lines 216-219.
+        comp = _make_component(config={
+            "read_by": "JSONPATH",
+            "jsonfield": "json_data",
+            "json_loop_query": "$.records[*]",
+            "mapping_4_jsonpath": [{"schema_column": "name", "query": "$.name"}],
+            "die_on_error": True,
+        })
+        df = pd.DataFrame([{"json_data": _SIMPLE_JSON}])
+
+        import src.v1.engine.components.transform.extract_json_fields as ejf
+        original_compile = ejf._try_compile
+
+        class _ExplodingExpr:
+            def find(self, _data):
+                raise RuntimeError("forced loop find failure")
+
+        def _patched_compile(query, cid):
+            if "records" in query:
+                return _ExplodingExpr()
+            return original_compile(query, cid)
+
+        ejf._try_compile = _patched_compile
+        try:
+            with pytest.raises(ComponentExecutionError) as excinfo:
+                comp.execute(df)
+            assert "loop query error" in str(excinfo.value)
+        finally:
+            ejf._try_compile = original_compile
+
+    def test_mapping_with_empty_schema_column_is_skipped(self):
+        # Hits line 241.
+        comp = _make_component(config={
+            "read_by": "JSONPATH",
+            "jsonfield": "json_data",
+            "json_loop_query": "$.records[*]",
+            "mapping_4_jsonpath": [
+                {"schema_column": "", "query": "$.name"},   # skipped (empty col)
+                {"schema_column": "name", "query": "$.name"},
+            ],
+        })
+        df = pd.DataFrame([{"json_data": _SIMPLE_JSON}])
+        result = comp.execute(df)
+        # Only "name" column appears -- the empty schema_column entry was
+        # dropped by line 241's continue.
+        assert "name" in result["main"].columns
+
+    def test_invalid_query_in_mapping_returns_empty_string(self, caplog):
+        # Hits lines 249-250: expr is None because _try_compile returned None.
+        comp = _make_component(config={
+            "read_by": "JSONPATH",
+            "jsonfield": "json_data",
+            "json_loop_query": "$.records[*]",
+            "mapping_4_jsonpath": [
+                {"schema_column": "broken", "query": "$.bad[invalid"},  # parse fail
+            ],
+        })
+        df = pd.DataFrame([{"json_data": _SIMPLE_JSON}])
+        with caplog.at_level("WARNING"):
+            result = comp.execute(df)
+        # Each loop item produces a row with broken="" (compilation failed).
+        assert all(v == "" for v in result["main"]["broken"].tolist())
+
+    def test_query_find_failure_returns_empty_string(self, caplog):
+        # Hits lines 253-259: expr.find() raises mid-extraction.
+        comp = _make_component(config={
+            "read_by": "JSONPATH",
+            "jsonfield": "json_data",
+            "json_loop_query": "$.records[*]",
+            "mapping_4_jsonpath": [
+                {"schema_column": "name", "query": "$.name"},
+            ],
+        })
+        df = pd.DataFrame([{"json_data": _SIMPLE_JSON}])
+
+        import src.v1.engine.components.transform.extract_json_fields as ejf
+        original_compile = ejf._try_compile
+
+        class _ExplodingExpr:
+            def find(self, _data):
+                raise RuntimeError("forced query find failure")
+
+        def _patched_compile(query, cid):
+            if query == "$.name":
+                return _ExplodingExpr()
+            return original_compile(query, cid)
+
+        ejf._try_compile = _patched_compile
+        try:
+            with caplog.at_level("WARNING"):
+                result = comp.execute(df)
+        finally:
+            ejf._try_compile = original_compile
+        assert all(v == "" for v in result["main"]["name"].tolist())
+        assert any(
+            "JSONPath" in rec.message and "failed" in rec.message
+            for rec in caplog.records
+        )
+
+    def test_query_with_multiple_matches_returns_json_dumps(self):
+        # Hits line 267.
+        # Query that returns multiple matches: $..name across all records.
+        # use_loop_as_root=False so the query runs against the whole document.
+        comp = _make_component(config={
+            "read_by": "JSONPATH",
+            "jsonfield": "json_data",
+            "json_loop_query": "$",  # one loop pass over full doc
+            "use_loop_as_root": True,
+            "mapping_4_jsonpath": [
+                {"schema_column": "all_names", "query": "$..name"},
+            ],
+        })
+        df = pd.DataFrame([{"json_data": _SIMPLE_JSON}])
+        result = comp.execute(df)
+        # Multiple matches -> serialized JSON list.
+        out_val = result["main"].iloc[0]["all_names"]
+        decoded = json.loads(out_val)
+        assert isinstance(decoded, list)
+        assert sorted(decoded) == ["Alice", "Bob"]

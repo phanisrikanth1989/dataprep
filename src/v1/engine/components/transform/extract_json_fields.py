@@ -47,13 +47,18 @@ def _try_compile(query: str, component_id: str):
 
 
 def _is_null(value: Any) -> bool:
-    """Return True when *value* is None, NaN, pd.NA, or pd.NaT."""
+    """Return True when *value* is None, NaN, pd.NA, or pd.NaT.
+
+    Non-scalar containers (list, dict, ndarray) are never null. ``pd.isna``
+    can either raise ``TypeError`` (some shapes) or return an array that
+    breaks ``bool()`` with a ``ValueError`` (multi-element list / ndarray) --
+    both arise only for non-scalar input and both mean "not null".
+    """
     if value is None:
         return True
     try:
         return bool(pd.isna(value))
-    except TypeError:
-        # pd.isna raises TypeError for non-scalar containers (list, dict) -- not null
+    except (TypeError, ValueError):
         return False
 
 
