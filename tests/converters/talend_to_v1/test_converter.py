@@ -829,3 +829,201 @@ class TestNeedsReview:
         assert len(eval_claims) == 0, (
             f"Found false eval() claims in needs_review: {eval_claims}"
         )
+
+
+# ---------------------------------------------------------------------------
+# 11. Plan 14-11: ITERATE NUMBER_PARALLEL parse-error path (lines 255-256)
+# ---------------------------------------------------------------------------
+
+
+class TestIterateNumberParallelEdges:
+    """Cover NUMBER_PARALLEL int(...) ValueError path in _parse_flows."""
+
+    def test_iterate_number_parallel_unparseable_falls_back_to_zero(self):
+        """ITERATE flow with non-numeric NUMBER_PARALLEL falls back to 0."""
+        conn = TalendConnection(
+            name="iter_1",
+            source="A",
+            target="B",
+            connector_type="ITERATE",
+            params={
+                "ENABLE_PARALLEL": "true",
+                "NUMBER_PARALLEL": "not-a-number",
+            },
+        )
+        flows, needs_review = TalendToV1Converter._parse_flows([conn])
+
+        assert len(flows) == 1
+        flow = flows[0]
+        assert flow["enable_parallel"] is True
+        assert flow["number_parallel"] == 0
+        # parallel review entry emitted because enable_parallel=True
+        assert len(needs_review) == 1
+        assert needs_review[0]["severity"] == "engine_gap"
+        assert "Parallel iteration" in needs_review[0]["message"]
+
+    def test_iterate_number_parallel_none_falls_back_to_zero(self):
+        """ITERATE flow with NUMBER_PARALLEL=None (raw) falls back to 0 (or-default '0')."""
+        conn = TalendConnection(
+            name="iter_2",
+            source="A",
+            target="B",
+            connector_type="ITERATE",
+            params={
+                "ENABLE_PARALLEL": "false",
+                # NUMBER_PARALLEL absent -> defaults to "0"
+            },
+        )
+        flows, needs_review = TalendToV1Converter._parse_flows([conn])
+
+        assert len(flows) == 1
+        assert flows[0]["enable_parallel"] is False
+        assert flows[0]["number_parallel"] == 0
+        # No parallel review when enable_parallel=False
+        assert needs_review == []
+
+    def test_iterate_number_parallel_object_int_cast_fails(self):
+        """ITERATE NUMBER_PARALLEL set to an object that cannot int(...) cleanly -> 0."""
+        conn = TalendConnection(
+            name="iter_3",
+            source="A",
+            target="B",
+            connector_type="ITERATE",
+            params={
+                "ENABLE_PARALLEL": "true",
+                # An object that's truthy (so the `or "0"` short-circuit doesn't help)
+                # but raises TypeError when passed to int(...)
+                "NUMBER_PARALLEL": {"k": 1},
+            },
+        )
+        flows, needs_review = TalendToV1Converter._parse_flows([conn])
+
+        assert len(flows) == 1
+        assert flows[0]["enable_parallel"] is True
+        # int({"k":1}) raises TypeError -> caught -> falls back to 0
+        assert flows[0]["number_parallel"] == 0
+        assert len(needs_review) == 1
+
+
+# ---------------------------------------------------------------------------
+# 12. Plan 14-11: schema propagation guards (lines 329, 336)
+# ---------------------------------------------------------------------------
+
+
+class TestSchemaPropagationGuards:
+    """Cover the two early-return guards in _propagate_input_schemas."""
+
+    def test_missing_from_comp_skips_flow(self):
+        """A flow whose 'from' is not in components_map is silently skipped."""
+        # to_comp present, from_comp missing
+        target = {"id": "TARGET", "schema": {"input": [], "output": []}}
+        components_map = {"TARGET": target}
+        flows = [
+            {"name": "ghost_flow", "from": "GHOST", "to": "TARGET", "type": "flow"},
+        ]
+
+        # Should NOT raise; should leave target schema untouched.
+        TalendToV1Converter._propagate_input_schemas(components_map, flows)
+        assert "inputs" not in target["schema"]
+        assert target["schema"]["input"] == []
+
+    def test_missing_to_comp_skips_flow(self):
+        """A flow whose 'to' is not in components_map is silently skipped."""
+        src = {"id": "SRC", "schema": {"output": [{"name": "x", "type": "str"}]}}
+        components_map = {"SRC": src}
+        flows = [
+            {"name": "ghost_flow", "from": "SRC", "to": "GHOST", "type": "flow"},
+        ]
+
+        # Should NOT raise; nothing to propagate to.
+        TalendToV1Converter._propagate_input_schemas(components_map, flows)
+        # Source unchanged
+        assert src["schema"]["output"] == [{"name": "x", "type": "str"}]
+
+    def test_non_dict_from_schema_skips_flow(self):
+        """A flow whose 'from' component schema is not a dict (e.g., None or list) is skipped."""
+        src = {"id": "SRC", "schema": None}  # not a dict
+        target = {"id": "TARGET", "schema": {"input": []}}
+        components_map = {"SRC": src, "TARGET": target}
+        flows = [
+            {"name": "f1", "from": "SRC", "to": "TARGET", "type": "flow"},
+        ]
+
+        TalendToV1Converter._propagate_input_schemas(components_map, flows)
+        # No propagation happened -- target.input untouched
+        assert target["schema"]["input"] == []
+        assert "inputs" not in target["schema"]
+
+    def test_non_dict_to_schema_skips_flow(self):
+        """A flow whose 'to' component schema is not a dict is skipped."""
+        src = {"id": "SRC", "schema": {"output": [{"name": "x", "type": "str"}]}}
+        target = {"id": "TARGET", "schema": []}  # not a dict (e.g., legacy list form)
+        components_map = {"SRC": src, "TARGET": target}
+        flows = [
+            {"name": "f1", "from": "SRC", "to": "TARGET", "type": "flow"},
+        ]
+
+        # Should not raise.
+        TalendToV1Converter._propagate_input_schemas(components_map, flows)
+        # Target schema is the same object (a list); propagation never wrote into it
+        assert target["schema"] == []
+
+
+# ---------------------------------------------------------------------------
+# 13. Plan 14-11: subjob DFS visited-guard (line 415)
+# ---------------------------------------------------------------------------
+
+
+class TestSubjobDFSVisitedGuard:
+    """The DFS in _detect_subjobs uses bidirectional adjacency: a node may be
+    pushed onto the stack multiple times, so the `if current in visited:
+    continue` guard is reached during a triangle (A-B-C-A) traversal.
+    """
+
+    def test_triangle_visits_all_once(self):
+        """A triangle graph A-B, B-C, C-A produces exactly one subjob with 3
+        members and exercises the visited-guard inside the DFS while-loop."""
+        components_map = {
+            "A": {"id": "A"},
+            "B": {"id": "B"},
+            "C": {"id": "C"},
+        }
+        flows = [
+            {"name": "f1", "from": "A", "to": "B", "type": "flow"},
+            {"name": "f2", "from": "B", "to": "C", "type": "flow"},
+            {"name": "f3", "from": "C", "to": "A", "type": "flow"},
+        ]
+
+        subjobs = TalendToV1Converter._detect_subjobs(components_map, flows)
+
+        assert len(subjobs) == 1
+        members = list(subjobs.values())[0]
+        assert set(members) == {"A", "B", "C"}
+        assert len(members) == 3, "no node should appear twice"
+
+
+# ---------------------------------------------------------------------------
+# 14. Plan 14-11: convert_job CLI-style write to nested output dir
+# ---------------------------------------------------------------------------
+
+
+class TestConvertJobNestedOutputDir:
+    """convert_job creates parent dirs for output_path (Path.mkdir(parents=True))."""
+
+    def test_convert_job_creates_nested_output_dir(self, tmp_path):
+        xml = _job_xml(
+            '<node componentName="tLogRow" posX="100" posY="200">'
+            '  <elementParameter name="UNIQUE_NAME" value="tLogRow_1" field="TEXT"/>'
+            "</node>"
+        )
+        path = _write_item(xml)
+        out_path = tmp_path / "nested" / "deeper" / "out.json"
+        assert not out_path.parent.exists()
+        try:
+            convert_job(path, output_path=str(out_path))
+            assert out_path.exists()
+            with open(out_path) as f:
+                loaded = json.load(f)
+            assert "components" in loaded
+        finally:
+            os.unlink(path)
