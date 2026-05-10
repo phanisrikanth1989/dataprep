@@ -159,22 +159,31 @@ A Python-based ETL execution engine that replaces Talend Open Studio for 1200+ p
 
 ## Coverage
 
-Run per-module line coverage baseline (command from Phase 13):
+Paste-runnable Phase 14 gate command (95% per-module line-coverage floor). Run from the project root:
 
 ```bash
-python -m pytest tests/ \
+rm -f .coverage* && python -m pytest tests/ -m "not oracle" -n auto \
   --cov=src/v1/engine \
   --cov=src/converters \
   --cov-report=term-missing \
   --cov-report=html \
-  -q
+  --cov-report=json \
+  && python scripts/check_per_module_coverage.py coverage.json --floor 95
 ```
 
-Run from the project root. Produces a terminal per-module summary and `htmlcov/index.html` for browser navigation (`htmlcov/` is gitignored).
+Expected outcome:
+- Exit 0 with final stdout line `PASS: all 181 in-scope modules at >= 95.0% line coverage`
+- `htmlcov/index.html` regenerated for browser navigation (`htmlcov/` is gitignored)
+- `coverage.json` regenerated (machine-readable report consumed by the per-module gate script)
 
-Phase 13 locked the per-module baseline on 2026-05-10. See `.planning/phases/13-test-stabilization-bridge-jar-rebuild/13-COVERAGE-BASELINE.md` for the full per-module table. Phase 14 reads these numbers as the 95% per-module floor.
+Notes:
+- Requires JVM 11+ on PATH (Phase 14 D-A3: `-m java` tests are measured -- includes `java_bridge_manager.py` and tMap live-bridge coverage).
+- Oracle live tests stay opt-in via `-m oracle` and are excluded from the gate (Phase 14 D-A6; Phase 11 testcontainer suite is the verification path).
+- `[tool.coverage.run]` and `[tool.coverage.report]` in `pyproject.toml` are the source of truth for in-scope modules (`*/__init__.py` omitted, legacy `complex_converter/` omitted) and the pragma allowlist (D-C3: `__main__`, `@abstractmethod`, `raise NotImplementedError`).
+- `rm -f .coverage*` prefix is required (Phase 14 locked Q5) -- stale `.coverage.*` shards from interrupted xdist runs otherwise pollute the JSON report.
+- Branch coverage stays off (Phase 14 D-E4 / Phase 13 D-E2 reasoning).
 
-Note: do NOT add `--cov-branch` -- the Phase 14 gate is line coverage only.
+Phase 14 locked the final per-module table on 2026-05-11. See `.planning/phases/14-coverage-push-to-95-per-module-floor/14-COVERAGE.md` for the full per-module post-lift table (replaces the Phase 13 baseline). `14-coverage.json` is committed alongside as the machine-readable acceptance artifact (Phase 14 locked Q4).
 
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
 ## Architecture
