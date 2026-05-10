@@ -637,3 +637,381 @@ class TestStreamingWriteStarted:
         content = _read_text(out)
         assert "Existing" in content, "Pre-existing content must be kept when append=True"
         assert "New" in content
+
+
+# ------------------------------------------------------------------
+# Plan 14-08 coverage lift: missed-line clusters
+#   149 (formats=[] structural), 154 (formats item not dict),
+#   214, 218 (filepath / formats content checks),
+#   224-225 (flushonrow_num non-int -> raise),
+#   270-271 (delete_empty_file OSError -> warn),
+#   290-297 (write OSError -> FileOperationError; Exception -> CEE),
+#   305-307 (post-write delete-zero-byte),
+#   382 (compress=True header writer),
+#   403-406 (finally close swallows Exception),
+#   437 (padding_char surrounded by single quotes),
+#   480 (column not in df.columns: empty Series),
+#   484-492 (numeric type _fmt_float),
+#   494-501 (integer type _fmt_int),
+#   513 (KEEP=MIDDLE truncation),
+#   539 (build_row_strings empty cols),
+#   567 (header CENTER alignment).
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCoverageLift1408ValidateConfig:
+    def test_validate_empty_formats_list_raises(self):
+        """formats=[] -> ConfigurationError ('Missing required config key' fires first)."""
+        comp = _make_component({"filepath": "/tmp/x.txt", "formats": []})
+        # Line 148-151 ('cannot be empty') is unreachable because the earlier
+        # `if not formats:` (line 140) treats [] as falsy and raises with
+        # 'Missing required config key' first.
+        with pytest.raises(ConfigurationError, match="Missing required"):
+            comp._validate_config()
+
+    def test_validate_format_item_not_dict_raises(self):
+        """formats[i] not a dict -> ConfigurationError (line 154)."""
+        comp = _make_component({"filepath": "/tmp/x.txt", "formats": ["not_a_dict"]})
+        with pytest.raises(ConfigurationError, match="must be a dict"):
+            comp._validate_config()
+
+
+@pytest.mark.unit
+class TestCoverageLift1408ProcessChecks:
+    def test_empty_filepath_in_process_raises(self):
+        """filepath empty after resolution -> ConfigurationError (line 214)."""
+        from src.v1.engine.exceptions import ComponentExecutionError
+        comp = _make_component(
+            {"filepath": "  ", "formats": _SIMPLE_FORMATS}
+        )
+        # _process directly (filepath = "  " trimmed); the structural check at
+        # line 213 fires.
+        comp.config["filepath"] = ""
+        with pytest.raises((ConfigurationError, ComponentExecutionError),
+                           match="must not be empty"):
+            comp._process(_SIMPLE_DATA)
+
+    def test_formats_not_list_raises_in_process(self):
+        """formats not list -> ConfigurationError (line 217-220)."""
+        from src.v1.engine.exceptions import ComponentExecutionError
+        comp = _make_component(
+            {"filepath": "/tmp/x.txt", "formats": "not_a_list"}
+        )
+        with pytest.raises((ConfigurationError, ComponentExecutionError),
+                           match="non-empty list"):
+            comp._process(_SIMPLE_DATA)
+
+    def test_flushonrow_num_non_int_raises(self):
+        """flushonrow_num non-integer -> ConfigurationError (line 224-225)."""
+        from src.v1.engine.exceptions import ComponentExecutionError
+        comp = _make_component(
+            {"filepath": "/tmp/x.txt", "formats": _SIMPLE_FORMATS,
+             "flushonrow_num": "not_an_int"}
+        )
+        with pytest.raises((ConfigurationError, ComponentExecutionError),
+                           match="must be an integer"):
+            comp._process(_SIMPLE_DATA)
+
+
+@pytest.mark.unit
+class TestCoverageLift1408DeleteEmptyFile:
+    def test_delete_empty_file_oserror_logs_warning(self, tmp_path, caplog, monkeypatch):
+        """delete_empty_file=True + os.remove OSError -> warning, no raise (270-271)."""
+        import logging
+        out = str(tmp_path / "delete.txt")
+        # Pre-create file
+        with open(out, "w", encoding="ISO-8859-15") as fh:
+            fh.write("data")
+        comp = _make_component(
+            {"filepath": out, "formats": _SIMPLE_FORMATS,
+             "delete_empty_file": True}
+        )
+
+        original_remove = os.remove
+
+        def remove_raise(path, *a, **k):
+            if str(path) == out:
+                raise OSError("simulated rm failure")
+            return original_remove(path, *a, **k)
+
+        monkeypatch.setattr(os, "remove", remove_raise)
+        with caplog.at_level(logging.WARNING):
+            comp._process(pd.DataFrame())  # Empty input -> delete-empty branch
+        assert any("Could not delete file" in r.message for r in caplog.records)
+
+
+@pytest.mark.unit
+class TestCoverageLift1408WriteFailures:
+    def test_write_oserror_wraps_as_file_operation_error(self, tmp_path, monkeypatch):
+        """OSError during _write_positional_file -> FileOperationError (292-295)."""
+        from src.v1.engine.exceptions import FileOperationError, ComponentExecutionError
+        out = str(tmp_path / "fail.txt")
+        comp = _make_component(
+            {"filepath": out, "formats": _SIMPLE_FORMATS}
+        )
+
+        import builtins
+        original_open = builtins.open
+
+        def selective_open(path, *a, **kw):
+            if str(path) == out:
+                raise OSError("simulated I/O")
+            return original_open(path, *a, **kw)
+
+        monkeypatch.setattr(builtins, "open", selective_open)
+        with pytest.raises(
+            (FileOperationError, ComponentExecutionError),
+            match="I/O error writing",
+        ):
+            comp._process(_SIMPLE_DATA)
+
+    def test_write_unexpected_exception_wraps_as_component_execution_error(
+        self, tmp_path, monkeypatch
+    ):
+        """Non-OSError Exception during write -> ComponentExecutionError (296-301)."""
+        from src.v1.engine.exceptions import ComponentExecutionError
+        out = str(tmp_path / "fail.txt")
+        comp = _make_component(
+            {"filepath": out, "formats": _SIMPLE_FORMATS}
+        )
+
+        # Force an unexpected exception inside _write_positional_file
+        def boom(*a, **k):
+            raise RuntimeError("simulated unexpected")
+
+        monkeypatch.setattr(comp, "_write_positional_file", boom)
+        with pytest.raises(ComponentExecutionError, match="Unexpected error"):
+            comp._process(_SIMPLE_DATA)
+
+    def test_write_file_operation_error_passes_through(self, tmp_path, monkeypatch):
+        """FileOperationError raised by _write_positional_file is re-raised (line 291)."""
+        from src.v1.engine.exceptions import (
+            ComponentExecutionError,
+            FileOperationError,
+        )
+        out = str(tmp_path / "foe.txt")
+        comp = _make_component(
+            {"filepath": out, "formats": _SIMPLE_FORMATS}
+        )
+
+        def raise_foe(*a, **k):
+            raise FileOperationError("inner-foe")
+
+        monkeypatch.setattr(comp, "_write_positional_file", raise_foe)
+        with pytest.raises(
+            (FileOperationError, ComponentExecutionError),
+            match="inner-foe",
+        ):
+            comp._process(_SIMPLE_DATA)
+
+
+@pytest.mark.unit
+class TestCoverageLift1408FinallyClose:
+    def test_finally_close_swallows_exception(self, tmp_path, monkeypatch):
+        """File-handle close in finally block swallows exceptions (lines 403-406)."""
+        out = str(tmp_path / "swallow.txt")
+        comp = _make_component(
+            {"filepath": out, "formats": _SIMPLE_FORMATS}
+        )
+
+        # Patch open() to return a wrapper whose write succeeds but whose
+        # final flush raises -- this triggers exit-via-exception, leaving the
+        # file_handle non-None so the finally block calls close(); and close()
+        # itself raises -- which the bare except in lines 403-406 swallows.
+        import builtins
+        original_open = builtins.open
+
+        class FailHandle:
+            def __init__(self, real):
+                self._real = real
+                self._closed = False
+            def write(self, *a, **k): return self._real.write(*a, **k)
+            def flush(self):
+                # Force an exception on the FIRST flush so file_handle stays
+                # non-None inside the try block.
+                raise OSError("flush failure")
+            def close(self):
+                # Close also raises -- the finally block swallows it (403-406).
+                if not self._closed:
+                    self._closed = True
+                    raise OSError("close failure")
+
+        def selective_open(path, *a, **kw):
+            if str(path) == out:
+                return FailHandle(original_open(path, *a, **kw))
+            return original_open(path, *a, **kw)
+
+        monkeypatch.setattr(builtins, "open", selective_open)
+        # The outer except OSError wraps the OSError as FileOperationError;
+        # the `finally` block's close() OSError is swallowed (403-406).
+        from src.v1.engine.exceptions import (
+            ComponentExecutionError,
+            FileOperationError,
+        )
+        with pytest.raises(
+            (FileOperationError, ComponentExecutionError),
+            match="I/O error|flush failure",
+        ):
+            comp._process(_SIMPLE_DATA)
+
+
+@pytest.mark.unit
+class TestCoverageLift1408PostWriteCleanup:
+    def test_zero_byte_file_deleted_after_write(self, tmp_path):
+        """delete_empty_file=True + zero-byte after write -> remove (305-307)."""
+        out = str(tmp_path / "zero.txt")
+        comp = _make_component(
+            {"filepath": out, "formats": _SIMPLE_FORMATS,
+             "delete_empty_file": True, "include_header": False}
+        )
+        # 0 input rows but DF has 'name' and 'age' columns so it's not "empty"
+        # via input_data.empty -- need rows to bypass empty branch.
+        # Use a DF with 1 row but make _write_positional_file produce empty file
+        # by passing zero formats matching column. Actually simpler: 1 row of
+        # data -> file is non-empty. The post-write zero-byte branch only fires
+        # if writing produced a 0-byte file. Use a DF with len > 0 but data
+        # that yields zero bytes is not possible because formats define width.
+        # So we tickle this by truncating after.
+        df = pd.DataFrame({"name": ["A"], "age": ["1"]})
+        comp._process(df)
+        # Now manually truncate & re-run delete-empty with already existing file
+        with open(out, "w", encoding="ISO-8859-15") as fh:
+            pass  # zero bytes
+        # Also reset streaming flag
+        comp._streaming_write_started = False
+        # Re-call with non-empty data - the file will be empty momentarily from
+        # the truncate before write happens. Since the post-write check looks
+        # at filesize AFTER write, we need a different approach: monkeypatch
+        # _write_positional_file to leave a zero-byte file.
+        comp = _make_component(
+            {"filepath": out, "formats": _SIMPLE_FORMATS,
+             "delete_empty_file": True}
+        )
+        with open(out, "w", encoding="ISO-8859-15") as fh:
+            pass
+        # Stub the write to leave a zero-byte file in place
+        def zero_write(*a, **k):
+            with open(out, "w", encoding="ISO-8859-15") as fh:
+                pass  # 0 bytes
+            return 0
+        comp._write_positional_file = zero_write  # type: ignore
+        comp._process(df)
+        assert not os.path.exists(out), "Zero-byte file should be deleted"
+
+
+@pytest.mark.unit
+class TestCoverageLift1408CompressedHeader:
+    def test_compress_with_header_writes_encoded_header(self, tmp_path):
+        """compress=True + include_header=True -> header.encode(encoding) (line 382)."""
+        out = str(tmp_path / "compressed.txt.gz")
+        comp = _make_component(
+            {"filepath": out, "formats": _SIMPLE_FORMATS,
+             "compress": True, "include_header": True}
+        )
+        comp._process(_SIMPLE_DATA)
+        # Read back via gzip -- header should be the first line
+        with gzip.open(out, "rt", encoding="ISO-8859-15") as fh:
+            content = fh.read()
+        assert "name" in content
+        assert "Alice" in content
+
+
+@pytest.mark.unit
+class TestCoverageLift1408FormatColumns:
+    """_prepare_column_formats and _format_columns branches."""
+
+    def test_padding_char_with_single_quotes_strips_them(self, tmp_path):
+        """padding_char wrapped in single quotes -> stripped (line 437)."""
+        out = str(tmp_path / "padded.txt")
+        formats = [
+            {"schema_column": "x", "size": 5, "align": "L",
+             "padding_char": "' '"},  # quoted single-space
+        ]
+        comp = _make_component({"filepath": out, "formats": formats})
+        comp._process(pd.DataFrame({"x": ["A"]}))
+        content = _read_text(out)
+        # 'A' followed by 4 spaces (the quotes were stripped)
+        assert content.startswith("A    ")
+
+    def test_format_columns_missing_column_yields_blanks(self, tmp_path):
+        """schema_column not in df -> empty Series (line 480)."""
+        out = str(tmp_path / "missing.txt")
+        formats = [
+            {"schema_column": "missing", "size": 5, "align": "L",
+             "padding_char": " "},
+        ]
+        comp = _make_component({"filepath": out, "formats": formats})
+        comp._process(pd.DataFrame({"present": ["X"]}))
+        content = _read_text(out)
+        # 5 spaces output for the missing column row
+        assert "     " in content
+
+    def test_format_columns_numeric_type_fmt_float(self, tmp_path):
+        """col_type=float triggers _fmt_float (484-492)."""
+        out = str(tmp_path / "num.txt")
+        formats = [
+            {"schema_column": "amt", "size": 10, "align": "R",
+             "padding_char": "0"},
+        ]
+        schema = [{"name": "amt", "type": "float", "precision": 2}]
+        comp = _make_component(
+            {"filepath": out, "formats": formats},
+            input_schema=schema,
+        )
+        comp._process(pd.DataFrame({"amt": ["12.345", "", "not_numeric"]}))
+        content = _read_text(out)
+        # 12.345 -> '12.35' right-aligned with '0' padding
+        assert "0000012.35" in content
+
+    def test_format_columns_integer_type_fmt_int(self, tmp_path):
+        """col_type=int triggers _fmt_int (494-501)."""
+        out = str(tmp_path / "int.txt")
+        formats = [
+            {"schema_column": "n", "size": 6, "align": "R", "padding_char": "0"},
+        ]
+        schema = [{"name": "n", "type": "int"}]
+        comp = _make_component(
+            {"filepath": out, "formats": formats},
+            input_schema=schema,
+        )
+        comp._process(pd.DataFrame({"n": ["42", "", "not_numeric"]}))
+        content = _read_text(out)
+        assert "000042" in content
+
+    def test_keep_middle_truncation(self, tmp_path):
+        """keep=MIDDLE -> middle slice; short value passes through (511-515 / 513)."""
+        out = str(tmp_path / "mid.txt")
+        formats = [
+            {"schema_column": "v", "size": 5, "align": "L",
+             "padding_char": " ", "keep": "MIDDLE"},
+        ]
+        comp = _make_component({"filepath": out, "formats": formats})
+        # Mix of long (truncated middle) + short (passed through, line 513)
+        comp._process(pd.DataFrame({"v": ["ABCDEFGHIJ", "AB"]}))
+        content = _read_text(out)
+        # Middle 5 of "ABCDEFGHIJ" -> indices 2-7 -> "CDEFG"
+        assert "CDEFG" in content
+        # "AB" is shorter than size=5, so passes through unchanged then padded
+        assert "AB   " in content
+
+
+@pytest.mark.unit
+class TestCoverageLift1408HelperMethods:
+    def test_build_row_strings_empty_returns_empty(self):
+        """_build_row_strings([]) -> [] (line 538-539)."""
+        comp = _make_component(
+            {"filepath": "/tmp/x.txt", "formats": _SIMPLE_FORMATS}
+        )
+        assert comp._build_row_strings([], "\n") == []
+
+    def test_format_header_row_center_alignment(self):
+        """_format_header_row: align='C' -> center pad (line 567)."""
+        comp = _make_component(
+            {"filepath": "/tmp/x.txt", "formats": _SIMPLE_FORMATS}
+        )
+        col_names = ["abc"]
+        col_formats = [{"size": 7, "pad": "*", "align": "C"}]
+        out = comp._format_header_row(col_names, col_formats, "\n")
+        # 'abc' centered in 7 chars padded with '*'
+        assert "**abc**" in out
