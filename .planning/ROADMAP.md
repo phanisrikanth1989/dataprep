@@ -328,7 +328,17 @@ Plans:
   3. Per-module coverage baseline measured and recorded in COVERAGE-BASELINE.md (input to Phase 14)
   4. Pre-existing failure groups documented and resolved (no "leave as deferred" items remaining for inherited tests)
   5. CI command for coverage measurement is wired and reproducible
-**Plans**: TBD
+**Plans:** 9 plans
+Plans:
+- [ ] 13-01-PLAN.md -- JAR rebuild + bridge re-triage (wave 1)
+- [ ] 13-02-PLAN.md -- Excel input_schema defensive-read fix BUG-EXC-001 (wave 2)
+- [ ] 13-03-PLAN.md -- unique_row pandas-3.0 StringDtype fix BUG-UNIQ-001 (wave 2)
+- [ ] 13-04-PLAN.md -- convert_type in-place cast inference fallback BUG-CONV-001 (wave 2)
+- [ ] 13-05-PLAN.md -- file_list NB_FILE globalMap finalize put BUG-LIST-001 (wave 2)
+- [ ] 13-06-PLAN.md -- TEST-CHANGE sweep: 9 executor_iterate + 5 NeedsReview + 1 regex (wave 3)
+- [ ] 13-07-PLAN.md -- STALE deletion sweep: 11 NeedsReview test deletes (wave 3)
+- [ ] 13-08-PLAN.md -- Coverage baseline + CLAUDE.md update (wave 4)
+- [ ] 13-09-PLAN.md -- Requirements + ROADMAP + STATE close-out (wave 5, has checkpoint)
 
 ### Phase 14: Coverage Push to 95% per-module floor
 **Goal**: Every module under src/v1/engine and src/converters meets a 95% line-coverage floor enforced by CI gate, so no part of the migration surface is silently untested
@@ -384,7 +394,7 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 10. Iterate Support | 11/11 | Complete    | 2026-05-05 |
 | 11. Oracle Components | 7/7 | Complete    | 2026-05-07 |
 | 12. XML Components Audit, Harden & Output | 8/8 | Complete | 2026-05-08 |
-| 13. Test Stabilization & Bridge JAR Rebuild | 0/TBD | Not started | - |
+| 13. Test Stabilization & Bridge JAR Rebuild | 0/9 | Not started | - |
 | 14. Coverage Push to 95% per-module floor | 0/TBD | Not started | - |
 | 15. Integration Testing & Performance | 0/TBD | Not started | - |
 | 16. Documentation Sweep | 0/TBD | Not started | - |
