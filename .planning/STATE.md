@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Phase 14 Plan 06b (gap closure follow-on to 14-06) complete -- map.py 79.6% -> 95.85% via 26 unit tests (TestPlan1406bUnitGapClosure appended to test_map.py) + 16 @pytest.mark.java tests in NEW test_map_bridge.py covering compiled-output execution, context-only join, cross-table join, RELOAD_AT_EACH_ROW deeper paths, and _evaluate_with_bridge edges. Plan 14-06 PARTIAL LIFT deferred gap RESOLVED. 2 commits (`64ef401` unit lift, `7a1faf9` bridge lift). No source changes; pure test addition. Per-module gate now reports map.py PASS (95.85%); only out-of-scope failures remaining are xml_map.py (62.4%, Plan 14-13 territory) and extract_xml_fields.py (90.6%, Plan 14-08 fixture-shift side-effect).
-last_updated: "2026-05-11T23:40:00Z"
+status: idle
+stopped_at: Phase 14 closeout (Plan 14-12) complete -- 181 in-scope modules at >=95.0% line coverage; overall 98.3%; gate command exits 0; 14-COVERAGE.md + 14-coverage.json + 14-VERIFICATION.md + 14-PHASE-SUMMARY.md committed; CLAUDE.md / REQUIREMENTS.md / ROADMAP.md / STATE.md updated. Ready to start Phase 15.
+last_updated: "2026-05-11T03:30:00Z"
 last_activity: 2026-05-11
 progress:
   total_phases: 20
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-14)
 
 **Core value:** Any Talend job using the target components must produce identical results when run through the Python engine
-**Current focus:** Phase 14 — coverage-push-to-95-per-module-floor
+**Current focus:** Phase 14 closed; ready to begin Phase 15 (integration testing & performance)
 
 ## Current Position
 
-Phase: 14 (coverage-push-to-95-per-module-floor) — EXECUTING
-Plan: 13 of 13 (Plans 14-01..14-11 complete, Plan 14-10 complete; Plans 14-12 / 14-13 still pending)
-Next: Phase 14 Plan 12 (converters) OR Plan 14-13 (closeout)
-Status: Ready to execute
+Phase: 14 (coverage-push-to-95-per-module-floor) — COMPLETE (2026-05-11)
+Plan: 12 of 12 complete (+ 14-06b follow-on + COV-CJ-001 extra)
+Next: Phase 15 (integration testing & performance) -- TEST-05, TEST-06, PERF-03, PERF-04
+Status: Idle (Phase 14 closeout signed off)
 Last activity: 2026-05-11
 
 Progress: [██████████] 100%
@@ -175,8 +175,23 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
 - Plan 14-06 complete (2026-05-11): 3 of 4 transform deep-gap modules at 100% line coverage (join.py 69.2%->100%, python_dataframe_component.py 19.6%->100%, log_row.py 96.7%->100%). map.py PARTIAL lift 73.8%->83.1% (147 missed lines remain, all in Java-bridge-driven paths: _join_context_only / _join_cross_table / _join_reload_per_row / _evaluate_outputs_compiled / _evaluate_with_bridge -- require @pytest.mark.java live-bridge tests). 9 commits (`8dac42c` BUG-PDC-001 -> `16556db` COV-MAP-001). 2 BUG-PDC source fixes: BUG-PDC-001 (PythonDataFrameComponent unregistered with REGISTRY -- engine.py silently dropped it as 'Unknown component type' in production!) + BUG-PDC-002 (missing abstract _validate_config). 1 D-C5 source cleanup: 3 sets of unreachable defensive branches deleted from join.py (_merge / lookup-key drops post-keep_cols filter, lk_col + '_lookup' / out_col-passthrough branches, ConfigurationError/DataValidationError re-raise). 2 new pipeline fixtures (transform/map_with_lookup.json, transform/join_with_reject.json) + 4 pipeline tests (D-C1) using run_job_fixture. map.py 95% gap deferred to Plan 14-13 closeout (either spawn 14-06b live-bridge sweep, fold into 14-13, or amend the per-module floor with documented carve-out).
 - Plan 14-09 complete (2026-05-11): 4 file deep-gap modules lifted from 9-69% to >=97.4% (3 at 100%, file_input_excel.py at 97.4%). 9 commits (`709cd33` INFRA-FX-004 -> `e9c2cbe` COV-FIR-001). 2 BUG-FIJ source fixes (registration + abstract method). 7 real binary/text fixtures + 3 pipeline-job fixtures committed. .gitignore D-RULE3 negation extended to tests/fixtures/data/**/*.json. 1402 tests pass under -n auto across file/ + integration/. Per-module gate PASS for all 26 file modules at 95% floor.
 - Plan 14-10 complete (2026-05-11): all 7 engine-core modules lifted to >=95% (4 at 100%: trigger_manager 91.3% -> 100%, base_iterate_component 90.7% -> 100%, engine 88.6% -> 100%, executor 91.0% -> 95.2%; base_component 80.7% -> 97.1%, python_routine_manager 81.6% -> 98.0%, java_bridge_manager 52.5% -> 99.0% under @pytest.mark.java per D-A3). 11 commits (`0e62be6` INFRA-CORE-001 -> `bb2a81d` BUG-JVM-001). 3 new core/* pipeline fixtures (trigger_runif, multi_subjob, reject_routing). NEW test modules: test_engine.py (18 tests) + test_java_bridge_manager.py (16 @pytest.mark.java tests). Resolved Plan 14-01 deferred JVM contention in test_bridge_integration.py by switching the module-scoped 'bridge' fixture from JavaBridge() (default port 25333) to JavaBridgeManager() (dynamic free port). All 31 bridge_integration tests now pass under -n auto with 10 workers. Per-plan gate exits 0 for the 7 in-scope modules; map.py remains at 83.06% (out-of-scope, Plan 14-06 deferral unchanged because core fixtures don't exercise tMap).
-- Plan 14-06b complete (2026-05-11): Plan 14-06 PARTIAL LIFT deferred gap RESOLVED. map.py 79.6% -> 95.85% via two-phase test addition: (1) TestPlan1406bUnitGapClosure (26 unit tests appended to test_map.py) covering branches reachable without a JVM (84.9% interim), and (2) NEW tests/v1/engine/components/transform/test_map_bridge.py (16 @pytest.mark.java tests using session-scoped java_bridge fixture from tests/v1/engine/conftest.py) covering _evaluate_outputs_compiled, _join_context_only, _join_cross_table, _join_reload_per_row deeper paths, _evaluate_with_bridge edges. 2 commits (`64ef401` unit lift, `7a1faf9` bridge lift). No source changes; pure test addition. Per-module gate now reports map.py PASS at 95.85%. Plan 14-13 closeout no longer needs to address map.py.
-- Plans 14-12, 14-13: pending. Next is Plan 14-12 (converters) OR Plan 14-13 (closeout). xml_map.py 62.4% and extract_xml_fields.py 90.6% are the remaining out-of-scope per-module floor failures (both Plan 14-13 territory).
+- Plan 14-06b complete (2026-05-11): Plan 14-06 PARTIAL LIFT deferred gap RESOLVED. map.py 79.6% -> 95.85% via two-phase test addition: (1) TestPlan1406bUnitGapClosure (26 unit tests appended to test_map.py) covering branches reachable without a JVM (84.9% interim), and (2) NEW tests/v1/engine/components/transform/test_map_bridge.py (16 @pytest.mark.java tests using session-scoped java_bridge fixture from tests/v1/engine/conftest.py) covering _evaluate_outputs_compiled, _join_context_only, _join_cross_table, _join_reload_per_row deeper paths, _evaluate_with_bridge edges. 2 commits (`64ef401` unit lift, `7a1faf9` bridge lift). No source changes; pure test addition. Per-module gate now reports map.py PASS at 95.85%.
+- COV-CJ-001 (2026-05-11): converter join.py 94.7% -> 100% via 1 test addition (`d661c1f`); incidental cleanup before closeout.
+- Plan 14-12 complete (2026-05-11): closeout shipped. 8 commits: chore(14-12) INFRA-CLOSE-001 commit 14-coverage.json (+ .gitignore D-RULE3 negation for .planning/phases/**/*coverage.json); docs(14-12) DOC-COV-001 14-COVERAGE.md; docs(14-12) DOC-CLAUDE-001 CLAUDE.md coverage section update; docs(14-12) DOC-REQ-001 TEST-11/TEST-12 -> Complete; docs(14-12) DOC-ROAD-001 ROADMAP Phase 14 SC#2 D-E1 wording + 12/12 Complete; docs(14-12) DOC-STATE-001 STATE.md Phase 14 -> complete; docs(14-12) DOC-VER-001 14-VERIFICATION.md acceptance evidence; docs(14-12) DOC-SUMMARY-001 14-PHASE-SUMMARY.md retrospective. Final gate command exits 0 with `PASS: all 181 in-scope modules at >= 95.0% line coverage`; overall 98.3% (16746/17033 stmts); 100 modules at perfect 100.0%; no-regression check confirms all Phase 13 PASS modules still PASS; iterate/context per locked Q2 merge both PASS; zero inline `# pragma: no cover` annotations in scope (D-C3 enforced via pyproject exclude_also). Phase 14 closed.
+
+### Phase 14 closed (2026-05-11)
+
+- 12 plans + 14-06b follow-on + COV-CJ-001 incidental; ~88 commits
+- 181 in-scope modules at >=95.0% line coverage; overall 98.3% (16746/17033 stmts); 100 modules at 100.0%; zero modules below floor
+- Key artifacts: 14-COVERAGE.md (final per-module table), 14-coverage.json (machine-readable acceptance artifact, locked Q4), 14-VERIFICATION.md, 14-PHASE-SUMMARY.md, scripts/check_per_module_coverage.py, tests/conftest.py root, tests/fixtures/jobs/ + tests/fixtures/swift/ + tests/fixtures/data/
+- Key decisions: D-A1 SWIFT engine in scope; D-A3 java_bridge_manager measured WITH `-m java`; D-A4 send_mail boundary mocks; D-A6 Oracle mocks (testcontainer suite stays opt-in via `-m oracle`); D-C1 multi-component pipeline tests for lifecycle modules; D-C2 fixture-jobs JSON format mirrors converter output; D-C3 pragma allowlist enforced via pyproject exclude_also regexes; D-C5 dead-code deletion preferred over pragma; D-D1 12-plan subsystem split; D-D3 uniform 95% floor; D-D4 pytest-xdist `-n auto` for parallelism; D-E1 paste-runnable gate command (operational CI deferred); D-E3 13-COVERAGE-BASELINE.md stays archived; D-E4 pyproject coverage config blocks; locked Q2 iterate/context modules already >=95% so 14-04 merged into 14-12 no-regression check; locked Q4 commit `14-coverage.json` per phase; locked Q5 `rm -f .coverage*` prefix required to avoid stale shard contamination
+- 8 deep-gap modules closed (<50% baseline): SWIFT 7%->97-98%, file_input_json 9%->100%, python_dataframe_component 20%->100%, file_input_excel 29%->97.4%, file_input_raw 15%->100%, java_bridge_manager 59%->99%, send_mail 60%->100%, file_output_excel 69%->100%
+- Bug fixes during the lift (root-cause source patches; project rule "fix source, no fallbacks"): BUG-AGG-001 (aggregate_row null-bearing list/list_object/union crash), BUG-MAIL-001 (send_mail attachment ETLError swallowed by outer except), BUG-EJF-001 (extract_json_fields _is_null TypeError-only catch), BUG-PDC-001/002 (PythonDataFrameComponent unregistered + missing abstract _validate_config), BUG-SWIFT-001..005 (5 fixes: both Swift components unregistered + abstract method + ValueError->ETLError + __init__ reading empty self.config), BUG-FIJ-001/002 (FileInputJSON unregistered + abstract method), BUG-JVM-001 (test_bridge_integration JavaBridge() default-port contention under -n auto -- switched to JavaBridgeManager() dynamic free port), BUG-CONV-001 source patch carrying in from Phase 13 lineage
+- 12+ D-C5 dead-code deletions across 14-02, 14-05, 14-06, 14-07, 14-08
+- 2 STALE deletions: STALE-INT-001 (legacy tests/converters/talend_to_v1/test_integration.py importing absent complex_converter), STALE-FOD-001 (unreachable except Exception in file_output_delimited._apply_date_patterns)
+- D-RULE3 .gitignore negations added across the phase: !tests/fixtures/jobs/**/*.json (14-08), !tests/fixtures/data/**/*.json (14-09), !.planning/phases/**/*coverage.json (14-12)
+- Requirements TEST-11 and TEST-12 marked Complete
+- No-regression check: all Phase 13 PASS modules still PASS; iterate/context per locked Q2 merge both >=95%
 
 ### Phase 13 closed (2026-05-10)
 
@@ -203,6 +218,6 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
 
 ## Session Continuity
 
-Last session: 2026-05-11T23:40:00Z
-Stopped at: Phase 14 Plan 06b (gap closure) complete -- map.py 79.6% -> 95.85% (Plan 14-06 PARTIAL LIFT deferred gap RESOLVED). 2 commits, no source changes. Two-phase: 26 unit tests + 16 @pytest.mark.java tests in NEW test_map_bridge.py. Per-module gate reports map.py PASS.
-Resume with: /gsd-execute-phase 14 (continue with Plan 14-12 converters, or Plan 14-13 closeout; xml_map.py 62.4% and extract_xml_fields.py 90.6% remain the only out-of-scope per-module floor failures)
+Last session: 2026-05-11T03:30:00Z
+Stopped at: Phase 14 closeout (Plan 14-12) complete -- 181 in-scope modules at >=95.0%; overall 98.3%; gate command exits 0; 14-COVERAGE.md, 14-coverage.json, 14-VERIFICATION.md, 14-PHASE-SUMMARY.md committed; CLAUDE.md / REQUIREMENTS.md / ROADMAP.md / STATE.md updated.
+Resume with: /gsd-discuss-phase 15 (integration testing & performance -- TEST-05, TEST-06, PERF-03, PERF-04). Phase 14's pipeline-test infra (tests/conftest.py + tests/fixtures/jobs/) is the natural foundation; Phase 15 extends with real .item samples + Talend output comparison.
