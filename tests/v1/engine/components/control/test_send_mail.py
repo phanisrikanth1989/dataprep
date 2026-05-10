@@ -274,3 +274,440 @@ class TestSmtpTransportBranches:
 
         mock_server.login.assert_not_called()
         mock_server.sendmail.assert_called_once()
+
+
+# ------------------------------------------------------------------
+# TestAttachments -- success path + missing-file under both die modes
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestAttachments:
+    """Attachment loop coverage: success, missing file, unreadable file.
+
+    The component opens each path with ``open(path, 'rb')``. A
+    ``FileNotFoundError`` is the missing-file branch; any other
+    Exception (e.g. PermissionError, IsADirectoryError) lands in the
+    generic ``except Exception`` branch. Each branch has die_on_error
+    True/False sub-paths.
+    """
+
+    def test_attachment_success_attaches_to_message(self, tmp_path):
+        """A real file path attaches and the SMTP send still runs."""
+        att = tmp_path / "report.txt"
+        att.write_bytes(b"hello attachment")
+
+        config = dict(_BASE_CONFIG)
+        config["smtp_port"] = 25
+        config["attachments"] = [str(att)]
+        comp = _make_component(config)
+
+        with patch(
+            "src.v1.engine.components.control.send_mail.smtplib.SMTP"
+        ) as mock_smtp:
+            mock_server = MagicMock()
+            mock_smtp.return_value = mock_server
+            comp._process()
+
+        # sendmail args: (from_email, all_recipients, msg_as_string)
+        args, _ = mock_server.sendmail.call_args
+        msg_str = args[2]
+        # MIME multipart with attachment must reference the filename in
+        # the Content-Disposition header.
+        assert "report.txt" in msg_str
+        assert "Content-Disposition" in msg_str
+
+    def test_attachment_missing_die_on_error_true_raises(self, tmp_path):
+        """Missing file with die_on_error=True raises FileOperationError."""
+        config = dict(_BASE_CONFIG)
+        config["smtp_port"] = 25
+        config["attachments"] = [str(tmp_path / "missing.txt")]
+        config["die_on_error"] = True
+        comp = _make_component(config)
+
+        with patch(
+            "src.v1.engine.components.control.send_mail.smtplib.SMTP"
+        ):
+            with pytest.raises(FileOperationError) as excinfo:
+                comp._process()
+
+        assert "Attachment file not found" in str(excinfo.value)
+
+    def test_attachment_missing_die_on_error_false_skips_and_continues(
+        self, tmp_path
+    ):
+        """Missing file with die_on_error=False logs warning + still sends."""
+        config = dict(_BASE_CONFIG)
+        config["smtp_port"] = 25
+        config["attachments"] = [str(tmp_path / "missing.txt")]
+        config["die_on_error"] = False
+        comp = _make_component(config)
+
+        with patch(
+            "src.v1.engine.components.control.send_mail.smtplib.SMTP"
+        ) as mock_smtp:
+            mock_server = MagicMock()
+            mock_smtp.return_value = mock_server
+            comp._process()
+
+        # The send still proceeds despite the missing attachment.
+        mock_server.sendmail.assert_called_once()
+
+    def test_attachment_unreadable_die_on_error_true_raises(self, tmp_path):
+        """Non-FileNotFoundError -> generic except branch -> FileOperationError."""
+        # Use a directory path; open(path, 'rb') on a directory raises
+        # IsADirectoryError (subclass of OSError) which lands in the
+        # generic ``except Exception`` branch (not FileNotFoundError).
+        att_dir = tmp_path / "not_a_file"
+        att_dir.mkdir()
+
+        config = dict(_BASE_CONFIG)
+        config["smtp_port"] = 25
+        config["attachments"] = [str(att_dir)]
+        config["die_on_error"] = True
+        comp = _make_component(config)
+
+        with patch(
+            "src.v1.engine.components.control.send_mail.smtplib.SMTP"
+        ):
+            with pytest.raises(FileOperationError) as excinfo:
+                comp._process()
+
+        assert "Failed to read attachment" in str(excinfo.value)
+
+    def test_attachment_unreadable_die_on_error_false_skips(self, tmp_path):
+        """Non-FileNotFoundError + die_on_error=False -> warning, send proceeds."""
+        att_dir = tmp_path / "not_a_file"
+        att_dir.mkdir()
+
+        config = dict(_BASE_CONFIG)
+        config["smtp_port"] = 25
+        config["attachments"] = [str(att_dir)]
+        config["die_on_error"] = False
+        comp = _make_component(config)
+
+        with patch(
+            "src.v1.engine.components.control.send_mail.smtplib.SMTP"
+        ) as mock_smtp:
+            mock_server = MagicMock()
+            mock_smtp.return_value = mock_server
+            comp._process()
+
+        mock_server.sendmail.assert_called_once()
+
+
+# ------------------------------------------------------------------
+# TestSendFailureBranches -- SMTPException / OSError / generic Exception
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestSendFailureBranches:
+    """SMTP-send failure branches.
+
+    The component wraps the connect/login/sendmail/quit block in a
+    try/except that catches (smtplib.SMTPException, ConnectionError,
+    OSError) -> ComponentExecutionError, plus a catch-all ``Exception``
+    that wraps any other error type into ComponentExecutionError.
+    """
+
+    def test_smtp_exception_die_on_error_true_raises_component_error(self):
+        """SMTPException with die_on_error=True -> ComponentExecutionError."""
+        config = dict(_BASE_CONFIG)
+        config["smtp_port"] = 25
+        config["die_on_error"] = True
+        comp = _make_component(config)
+
+        with patch(
+            "src.v1.engine.components.control.send_mail.smtplib.SMTP"
+        ) as mock_smtp:
+            mock_server = MagicMock()
+            mock_smtp.return_value = mock_server
+            mock_server.sendmail.side_effect = smtplib.SMTPException(
+                "boom"
+            )
+            with pytest.raises(ComponentExecutionError) as excinfo:
+                comp._process()
+
+        assert "Failed to send email" in str(excinfo.value)
+        assert excinfo.value.component_id == "tSM_1"
+
+    def test_smtp_exception_die_on_error_false_swallows_and_continues(self):
+        """SMTPException with die_on_error=False logs warning + returns."""
+        config = dict(_BASE_CONFIG)
+        config["smtp_port"] = 25
+        config["die_on_error"] = False
+        comp = _make_component(config)
+
+        with patch(
+            "src.v1.engine.components.control.send_mail.smtplib.SMTP"
+        ) as mock_smtp:
+            mock_server = MagicMock()
+            mock_smtp.return_value = mock_server
+            mock_server.sendmail.side_effect = smtplib.SMTPException(
+                "transient"
+            )
+            # No raise expected.
+            result = comp._process()
+
+        assert result == {}
+
+    def test_oserror_die_on_error_true_raises_component_error(self):
+        """OSError (e.g. ConnectionRefusedError) -> ComponentExecutionError."""
+        config = dict(_BASE_CONFIG)
+        config["smtp_port"] = 25
+        config["die_on_error"] = True
+        comp = _make_component(config)
+
+        with patch(
+            "src.v1.engine.components.control.send_mail.smtplib.SMTP"
+        ) as mock_smtp:
+            mock_smtp.side_effect = OSError("connection refused")
+            with pytest.raises(ComponentExecutionError):
+                comp._process()
+
+    def test_generic_exception_die_on_error_true_raises_component_error(self):
+        """Catch-all branch wraps non-SMTP/OS errors into ComponentExecutionError."""
+        # ValueError is NOT in (SMTPException, ConnectionError, OSError) -- it
+        # falls through to the second except Exception block.
+        config = dict(_BASE_CONFIG)
+        config["smtp_port"] = 25
+        config["die_on_error"] = True
+        comp = _make_component(config)
+
+        with patch(
+            "src.v1.engine.components.control.send_mail.smtplib.SMTP"
+        ) as mock_smtp:
+            mock_server = MagicMock()
+            mock_smtp.return_value = mock_server
+            mock_server.sendmail.side_effect = ValueError("unexpected")
+            with pytest.raises(ComponentExecutionError) as excinfo:
+                comp._process()
+
+        assert "Unexpected error sending email" in str(excinfo.value)
+
+    def test_generic_exception_die_on_error_false_swallows(self):
+        """Catch-all branch with die_on_error=False returns silently."""
+        config = dict(_BASE_CONFIG)
+        config["smtp_port"] = 25
+        config["die_on_error"] = False
+        comp = _make_component(config)
+
+        with patch(
+            "src.v1.engine.components.control.send_mail.smtplib.SMTP"
+        ) as mock_smtp:
+            mock_server = MagicMock()
+            mock_smtp.return_value = mock_server
+            mock_server.sendmail.side_effect = ValueError("unexpected")
+            # Component must NOT raise; _process returns {}.
+            result = comp._process()
+
+        assert result == {}
+
+
+# ------------------------------------------------------------------
+# TestValidateConfigErrors -- required-field + list-shape validation
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestValidateConfigErrors:
+    """Error branches in _validate_config + ConfigurationError raise path.
+
+    These cover lines 105 (required-field error), 110 (empty/non-list to),
+    119 (non-list cc/bcc/attachments), and 143-145 (the join + raise path).
+    """
+
+    def test_missing_smtp_host_yields_required_error(self):
+        config = {
+            "component_type": "SendMailComponent",
+            "from_email": "from@example.com",
+            "to": ["to@example.com"],
+        }
+        comp = _make_component(config)
+        errors = comp._validate_config()
+        assert any("smtp_host" in err for err in errors)
+
+    def test_missing_from_email_yields_required_error(self):
+        config = {
+            "component_type": "SendMailComponent",
+            "smtp_host": "smtp.example.com",
+            "to": ["to@example.com"],
+        }
+        comp = _make_component(config)
+        errors = comp._validate_config()
+        assert any("from_email" in err for err in errors)
+
+    def test_empty_to_list_yields_error(self):
+        config = dict(_BASE_CONFIG)
+        config["to"] = []
+        comp = _make_component(config)
+        errors = comp._validate_config()
+        assert any("non-empty list" in err for err in errors)
+
+    def test_non_list_to_yields_error(self):
+        config = dict(_BASE_CONFIG)
+        config["to"] = "to@example.com"  # string, not list
+        comp = _make_component(config)
+        errors = comp._validate_config()
+        assert any("non-empty list" in err for err in errors)
+
+    @pytest.mark.parametrize("field", ["cc", "bcc", "attachments"])
+    def test_non_list_cc_bcc_attachments_yields_error(self, field):
+        config = dict(_BASE_CONFIG)
+        config[field] = "not-a-list"
+        comp = _make_component(config)
+        errors = comp._validate_config()
+        assert any(f"'{field}' must be a list" in err for err in errors)
+
+    def test_process_raises_configuration_error_when_validate_fails(self):
+        """_process re-raises validate errors as ConfigurationError."""
+        config = {
+            "component_type": "SendMailComponent",
+            "smtp_host": "smtp.example.com",
+            # missing from_email and to -> two errors
+        }
+        comp = _make_component(config)
+        with pytest.raises(ConfigurationError) as excinfo:
+            comp._process()
+        # Both missing fields should appear in the joined message.
+        assert "from_email" in str(excinfo.value)
+        assert "to" in str(excinfo.value)
+
+
+# ------------------------------------------------------------------
+# TestRecipientHandling -- to/cc/bcc are concatenated for the envelope
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestRecipientHandling:
+    """The envelope passed to sendmail() is to + cc + bcc.
+
+    Headers (To/Cc) are joined with ', ' but Bcc deliberately stays
+    out of the headers (standard email-privacy behavior). The envelope
+    arg, however, includes Bcc.
+    """
+
+    def test_envelope_includes_to_cc_bcc(self):
+        config = dict(_BASE_CONFIG)
+        config["smtp_port"] = 25
+        config["cc"] = ["cc1@example.com", "cc2@example.com"]
+        config["bcc"] = ["bcc@example.com"]
+        comp = _make_component(config)
+
+        with patch(
+            "src.v1.engine.components.control.send_mail.smtplib.SMTP"
+        ) as mock_smtp:
+            mock_server = MagicMock()
+            mock_smtp.return_value = mock_server
+            comp._process()
+
+        args, _ = mock_server.sendmail.call_args
+        envelope_recipients = args[1]
+        assert envelope_recipients == [
+            "to@example.com",
+            "cc1@example.com",
+            "cc2@example.com",
+            "bcc@example.com",
+        ]
+        # Bcc must NOT be in the rendered headers.
+        msg_str = args[2]
+        assert "bcc@example.com" not in msg_str
+        # Cc IS in the headers.
+        assert "cc1@example.com" in msg_str
+
+    def test_default_empty_cc_bcc(self):
+        """When cc/bcc absent, only 'to' recipients hit the envelope."""
+        config = dict(_BASE_CONFIG)
+        config["smtp_port"] = 25
+        comp = _make_component(config)
+
+        with patch(
+            "src.v1.engine.components.control.send_mail.smtplib.SMTP"
+        ) as mock_smtp:
+            mock_server = MagicMock()
+            mock_smtp.return_value = mock_server
+            comp._process()
+
+        args, _ = mock_server.sendmail.call_args
+        assert args[1] == ["to@example.com"]
+
+
+# ------------------------------------------------------------------
+# TestPublicValidateConfig -- the legacy public validate_config() method
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestPublicValidateConfig:
+    """Coverage for the public ``validate_config()`` helper (lines 274-280).
+
+    This is a separate code path from the internal ``_validate_config``;
+    it returns bool and logs error rather than collecting a string list.
+    """
+
+    def test_validate_config_true_on_valid_config(self):
+        comp = _make_component(dict(_BASE_CONFIG))
+        assert comp.validate_config() is True
+
+    @pytest.mark.parametrize("missing", ["smtp_host", "from_email", "to"])
+    def test_validate_config_false_on_missing_required(self, missing):
+        config = dict(_BASE_CONFIG)
+        config.pop(missing)
+        comp = _make_component(config)
+        assert comp.validate_config() is False
+
+
+# ------------------------------------------------------------------
+# TestAsciiLogging -- enforce ASCII-only log messages (CLAUDE.md rule)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestAsciiLogging:
+    """Project rule (memory feedback_ascii_logging): no unicode in logs.
+
+    Uses the ``assert_ascii_logs`` fixture from Plan 14-01 root conftest.
+    The fixture captures logs at DEBUG and asserts no non-ASCII bytes
+    on teardown.
+    """
+
+    def test_happy_path_logs_are_ascii(self, assert_ascii_logs):
+        """Plain successful send produces only ASCII log messages."""
+        config = dict(_BASE_CONFIG)
+        config["smtp_port"] = 25
+        comp = _make_component(config)
+
+        with patch(
+            "src.v1.engine.components.control.send_mail.smtplib.SMTP"
+        ) as mock_smtp:
+            mock_server = MagicMock()
+            mock_smtp.return_value = mock_server
+            comp._process()
+        # Fixture asserts ASCII on teardown -- no body assertion needed.
+        # Positive content check on log capture (proves we captured DEBUG).
+        assert any(
+            "Sending email started" in r.getMessage()
+            for r in assert_ascii_logs.records
+        )
+
+    def test_error_path_logs_are_ascii(self, assert_ascii_logs, tmp_path):
+        """Missing-attachment + die_on_error=False warning path is ASCII."""
+        config = dict(_BASE_CONFIG)
+        config["smtp_port"] = 25
+        config["attachments"] = [str(tmp_path / "missing.txt")]
+        config["die_on_error"] = False
+        comp = _make_component(config)
+
+        with patch(
+            "src.v1.engine.components.control.send_mail.smtplib.SMTP"
+        ) as mock_smtp:
+            mock_server = MagicMock()
+            mock_smtp.return_value = mock_server
+            comp._process()
+        # Fixture enforces ASCII on teardown.
+        assert any(
+            "Skipping missing attachment" in r.getMessage()
+            for r in assert_ascii_logs.records
+        )
