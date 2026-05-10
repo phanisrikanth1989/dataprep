@@ -203,3 +203,73 @@ class TestStats:
         _set_schema(comp, ["host"])
         comp.execute(None)
         assert gm.get_nb_line(comp.id) == 1
+
+
+# ------------------------------------------------------------------
+# Plan 14-08 coverage lift: missed-line clusters
+#   82 (empty filename), 98-99 (read failure wrap), 138-139 (line continuation
+#   accumulation), 141-142 (trailing backslash), 148-151 (colon-syntax + no
+#   separator continue).
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCoverageLift1408:
+    """Targeted tests added in Plan 14-08 to lift file_input_properties.py to >= 95%."""
+
+    def test_empty_filename_raises_file_operation_error(self):
+        """filename empty string -> FileOperationError (line 82)."""
+        comp = _make_component(config={"filename": "   "})
+        _set_schema(comp, ["x"])
+        with pytest.raises(
+            (FileOperationError, ComponentExecutionError),
+            match="'filename' is empty",
+        ):
+            comp.execute(None)
+
+    def test_read_failure_wraps_as_file_operation_error(self, tmp_path, monkeypatch):
+        """Underlying read raising -> wrapped as FileOperationError (98-99)."""
+        f = tmp_path / "broken.properties"
+        _write_file(str(f), "key=value\n")
+        comp = _make_component(config={"filename": str(f)})
+        _set_schema(comp, ["key"])
+
+        def boom(*a, **kw):
+            raise RuntimeError("simulated parse failure")
+
+        # _read_properties is a staticmethod; patch on the class.
+        monkeypatch.setattr(
+            FileInputProperties, "_read_properties", staticmethod(boom)
+        )
+        with pytest.raises(
+            (FileOperationError, ComponentExecutionError),
+            match="Failed to read properties file",
+        ):
+            comp.execute(None)
+
+    def test_properties_line_continuation(self, tmp_path):
+        """Trailing backslash continues onto next line (138-139, 141-142)."""
+        f = tmp_path / "cont.properties"
+        # multi-line value via trailing backslash
+        _write_file(str(f), "url=jdbc:postgresql://\\\n  host:5432/db\n")
+        comp = _make_component(config={"filename": str(f)})
+        _set_schema(comp, ["url"])
+        result = comp.execute(None)
+        # Continuation collapses with leading whitespace stripped
+        url = result["main"].iloc[0]["url"]
+        assert url == "jdbc:postgresql://host:5432/db"
+
+    def test_properties_colon_syntax_and_no_separator_skipped(self, tmp_path):
+        """Properties parser handles 'key: value' and skips lines without separator (148-151)."""
+        f = tmp_path / "colon.properties"
+        _write_file(str(f),
+            "host: dbserver\n"
+            "lonely_no_separator_line\n"
+            "port=5432\n"
+        )
+        comp = _make_component(config={"filename": str(f)})
+        _set_schema(comp, ["host", "port"])
+        result = comp.execute(None)
+        row = result["main"].iloc[0]
+        assert row["host"] == "dbserver"
+        assert row["port"] == "5432"
