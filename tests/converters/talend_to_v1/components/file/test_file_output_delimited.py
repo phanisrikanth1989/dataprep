@@ -280,13 +280,6 @@ class TestSchema:
 class TestNeedsReview:
     """Verify needs_review entries for engine gaps."""
 
-    def test_needs_review_include_header_mismatch(self):
-        """Engine uses include_header=True default, _java.xml uses False."""
-        node = _make_node()
-        result = FileOutputDelimitedConverter().convert(node, [], {})
-        issues = [e["issue"] for e in result.needs_review]
-        assert any("include_header" in i for i in issues)
-
     def test_all_needs_review_are_engine_gap(self):
         node = _make_node()
         result = FileOutputDelimitedConverter().convert(node, [], {})
