@@ -13,10 +13,13 @@ import pandas as pd
 import numpy as np
 import logging
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
+from ...exceptions import ComponentExecutionError, ConfigurationError
 
 logger = logging.getLogger(__name__)
 
 
+@REGISTRY.register("PythonDataFrameComponent", "tPythonDataFrame")
 class PythonDataFrameComponent(BaseComponent):
     """
     Execute Python code on entire DataFrame (vectorized operations)
@@ -63,7 +66,9 @@ class PythonDataFrameComponent(BaseComponent):
         output_columns = self.config.get('output_columns', None)
 
         if not python_code:
-            raise ValueError(f"Component {self.id}: 'python_code' is required")
+            raise ConfigurationError(
+                f"[{self.id}] Missing or empty required config key 'python_code'"
+            )
 
         # Get Python routines
         python_routines = self.get_python_routines()
@@ -124,9 +129,15 @@ class PythonDataFrameComponent(BaseComponent):
 
             return {'main': output_df}
 
-        except Exception as e:
-            logger.error(f"Component {self.id}: Error executing Python code: {e}")
+        except (ConfigurationError, ComponentExecutionError):
             raise
+        except Exception as e:
+            logger.error(f"[{self.id}] Error executing Python code: {e}")
+            raise ComponentExecutionError(
+                self.id,
+                f"Error executing python_code: {e}",
+                e,
+            ) from e
 
     def _get_context_dict(self) -> Dict[str, Any]:
         """Get context variables as a flat dictionary"""
