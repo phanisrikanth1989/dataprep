@@ -116,7 +116,9 @@ class UniqueRow(BaseComponent):
         work = input_data
         temp_map: dict[str, str] = {}
         for col in key_cols:
-            if not col_case.get(col, True) and work[col].dtype == object:
+            if not col_case.get(col, True) and (
+                pd.api.types.is_object_dtype(work[col]) or pd.api.types.is_string_dtype(work[col])
+            ):
                 if work is input_data:
                     work = input_data.copy()
                 temp_col = f"__uniq_ci_{col}__"
