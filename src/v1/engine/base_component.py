@@ -1339,16 +1339,20 @@ class BaseComponent(ABC):
     # ------------------------------------------------------------------
 
     def reset(self) -> None:
-        """Reset component state for iterate re-execution.
+        """Reset component state for iterate re-execution or streaming finalization.
 
-        Clears stats, resets status to PENDING. Config is re-derived from
-        _original_config at next execute() call automatically.
-        Clears component stats in globalMap.
+        Clears in-memory stats and resets status to PENDING. Config is
+        re-derived from _original_config at next execute() call automatically.
+
+        GlobalMap stats are intentionally NOT cleared here. put_component_stat
+        overwrites (does not accumulate), so the next execute/_update_global_map
+        call will push fresh values. Clearing GlobalMap stats from reset() would
+        silently wipe stats when the executor calls reset() for streaming
+        finalization (CR-01), causing get_nb_line_ok/get_nb_line to return 0
+        for non-iterate components after job completion.
         """
         self.stats = self._default_stats()
         self.status = ComponentStatus.PENDING
-        if self.global_map:
-            self.global_map.reset_component(self.id)
 
     # ------------------------------------------------------------------
     # Utility
