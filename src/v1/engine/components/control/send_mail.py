@@ -15,7 +15,12 @@ from email.mime.text import MIMEText
 from typing import Any, Dict, List, Optional
 
 from ...base_component import BaseComponent
-from ...exceptions import ComponentExecutionError, ConfigurationError, FileOperationError
+from ...exceptions import (
+    ComponentExecutionError,
+    ConfigurationError,
+    ETLError,
+    FileOperationError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -243,6 +248,18 @@ class SendMailComponent(BaseComponent):
             server.quit()
 
             logger.info(f"[{self.id}] Email sent successfully to {len(all_recipients)} recipients")
+
+        except ETLError:
+            # BUG-MAIL-001: Attachment-loop ETLError raises (e.g.
+            # FileOperationError from missing or unreadable attachment) used to
+            # be caught by ``except (..., OSError)`` (FileNotFoundError is an
+            # OSError subclass) or by the catch-all ``except Exception`` and
+            # silently rewrapped to ComponentExecutionError, contradicting the
+            # _process docstring contract ("Raises: FileOperationError: If
+            # attachment files cannot be read"). Re-raise any ETLError-derived
+            # exception untouched so attachment errors surface with their
+            # documented type.
+            raise
 
         except (smtplib.SMTPException, ConnectionError, OSError) as e:
             error_msg = f"Failed to send email: {str(e)}"
