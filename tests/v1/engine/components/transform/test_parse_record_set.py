@@ -301,3 +301,51 @@ class TestStatistics:
         assert gm.get("tParseRecordSet_1_NB_LINE") == 2
         assert gm.get("tParseRecordSet_1_NB_LINE_OK") == 2
         assert gm.get("tParseRecordSet_1_NB_LINE_REJECT") == 0
+
+
+# ------------------------------------------------------------------
+# TestCoverageLift_14_05 (COV-PRS-001)
+#
+# Target missed lines from Phase 14 baseline:
+#   - 127-133 (JSON parse failure -> skip row, log warning)
+#   - 137-142 (record entry is not a dict -> skip, log warning)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCoverageLift1405:
+    """Targeted coverage for residual missed branches in parse_record_set.py."""
+
+    def test_unparseable_string_cell_is_skipped(self, caplog):
+        # Hits lines 127-133. Non-dict, non-list cell that cannot be
+        # JSON-parsed. The row is skipped and a warning is logged.
+        df = pd.DataFrame([
+            {"rs": "this is not json", "id": 1},
+            {"rs": [{"v": 99}], "id": 2},  # one valid row
+        ])
+        comp = _make_component({"recordset_field": "rs", "attribute_table": ["v"]})
+        with caplog.at_level("WARNING"):
+            result = comp.execute(df)
+        # Only the valid row produces output.
+        assert len(result["main"]) == 1
+        assert int(result["main"].iloc[0]["v"]) == 99
+        # Warning emitted for the unparseable cell.
+        assert any("Cannot parse recordset value" in rec.message for rec in caplog.records)
+
+    def test_non_dict_record_entry_is_skipped(self, caplog):
+        # Hits lines 137-142. Cell is a list with non-dict entries mixed in.
+        df = pd.DataFrame([
+            {"rs": [{"v": 1}, "not a dict", {"v": 2}, 42], "id": 1},
+        ])
+        comp = _make_component({"recordset_field": "rs", "attribute_table": ["v"]})
+        with caplog.at_level("WARNING"):
+            result = comp.execute(df)
+        # Only the two valid dict entries become output rows.
+        assert len(result["main"]) == 2
+        assert sorted(int(v) for v in result["main"]["v"].tolist()) == [1, 2]
+        # Warning logged for each non-dict entry.
+        non_dict_warnings = [
+            rec for rec in caplog.records
+            if "Record entry is not a dict" in rec.message
+        ]
+        assert len(non_dict_warnings) >= 2
