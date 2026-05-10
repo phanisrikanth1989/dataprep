@@ -353,7 +353,7 @@ Plans:
 **Plans** (12 total, status):
   - [x] 14-01-PLAN.md -- Pipeline-test infrastructure (wave 0) | SUMMARY: 14-01-SUMMARY.md
   - [x] 14-02-PLAN.md -- aggregate subsystem (aggregate_row 79%)
-  - [ ] 14-03-PLAN.md -- control subsystem (send_mail 60%)
+  - [x] 14-03-PLAN.md -- control subsystem (send_mail 60%) | SUMMARY: 14-03-SUMMARY.md
   - [ ] 14-04-PLAN.md -- iterate / context (no-regress check)
   - [ ] 14-05-PLAN.md -- database subsystem (oracle_output, oracle_row mocked)
   - [ ] 14-06-PLAN.md -- transform quick wins + medium gaps
@@ -364,12 +364,14 @@ Plans:
   - [ ] 14-11-PLAN.md -- engine core (executor, base_*, trigger_manager, engine.py, java_bridge_manager)
   - [ ] 14-12-PLAN.md -- converter core + components + closeout (14-COVERAGE.md, CLAUDE.md gate update)
 
-**Phase 14 Plan Progress** (1 of 12 complete):
+**Phase 14 Plan Progress** (3 of 12 complete):
 
 | Plan | Status | Tasks | Modules Lifted |
 |------|--------|------:|---------------:|
 | 14-01 | Complete | 6/6 | 0 (infra-only) |
-| 14-02..14-12 | Pending | -- | -- |
+| 14-02 | Complete | 2/2 | 1 (aggregate_row 79% -> >=95%) |
+| 14-03 | Complete | 3/3 | 1 (send_mail 60% -> 100%) |
+| 14-04..14-12 | Pending | -- | -- |
 
 ### Phase 15: Integration Testing & Performance
 **Goal**: Real Talend jobs converted from .item XML run end-to-end through the Python engine and produce identical output to Talend, with acceptable performance for production workloads
