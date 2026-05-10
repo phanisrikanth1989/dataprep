@@ -880,3 +880,137 @@ class TestSortPathsRaceCondition:
             for record in caplog.records
             if record.levelno == logging.WARNING
         ), f"Expected WARNING about deleted file, got: {[r.message for r in caplog.records]}"
+
+
+# ------------------------------------------------------------------
+# Plan 14-08 coverage lift: missed-line clusters
+#   143 (_cfg lowercase fallback), 245/247/249 (ORDER_BY RADIO branches),
+#   258 (ORDER_ACTION_DESC RADIO branch), 391 (get_iter_key_info),
+#   496-500 (_match_path static helper), 625 / 628 (_truthy int + fallthrough).
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCoverageLift1408:
+    """Targeted tests added in Plan 14-08 to lift file_list.py to >= 95%."""
+
+    def test_cfg_lowercase_fallback(self):
+        """_cfg returns lowercase value when uppercase key absent (line 143)."""
+        comp = _make_file_list(config={"directory": "/tmp/lower_only"})
+        # uppercase 'DIRECTORY' is absent, lowercase 'directory' provided.
+        assert comp._cfg("DIRECTORY", "directory", "default") == "/tmp/lower_only"
+        # When neither key is present, default is returned.
+        assert comp._cfg("FOO", "foo", "fallback") == "fallback"
+
+    def test_order_by_filename_radio_flag(self, tmp_path):
+        """ORDER_BY_FILENAME RADIO flag derives order_by (line 245)."""
+        f1 = tmp_path / "b.txt"
+        f2 = tmp_path / "a.txt"
+        f1.write_text("1")
+        f2.write_text("2")
+        comp = _make_file_list(config={
+            "DIRECTORY": str(tmp_path),
+            "FILES": [{"FILEMASK": "*.txt"}],
+            "GLOBEXPRESSIONS": "true",
+            "ORDER_BY_FILENAME": True,
+        })
+        items = _prep_iter(comp)
+        names = [it.name for it in items]
+        assert names == ["a.txt", "b.txt"]
+
+    def test_order_by_filesize_radio_flag(self, tmp_path):
+        """ORDER_BY_FILESIZE RADIO flag derives order_by (line 247)."""
+        big = tmp_path / "big.txt"
+        small = tmp_path / "small.txt"
+        big.write_text("xxxxxxxxxx")
+        small.write_text("y")
+        comp = _make_file_list(config={
+            "DIRECTORY": str(tmp_path),
+            "FILES": [{"FILEMASK": "*.txt"}],
+            "GLOBEXPRESSIONS": "true",
+            "ORDER_BY_FILESIZE": True,
+        })
+        items = _prep_iter(comp)
+        sizes = [p.path.stat().st_size for p in items]
+        assert sizes == sorted(sizes)
+
+    def test_order_by_modifieddate_radio_flag(self, tmp_path):
+        """ORDER_BY_MODIFIEDDATE RADIO flag derives order_by (line 249)."""
+        old = tmp_path / "old.txt"
+        new = tmp_path / "new.txt"
+        old.write_text("1")
+        new.write_text("2")
+        # set old's mtime explicitly to be older than new's
+        os.utime(old, (time.time() - 100, time.time() - 100))
+        comp = _make_file_list(config={
+            "DIRECTORY": str(tmp_path),
+            "FILES": [{"FILEMASK": "*.txt"}],
+            "GLOBEXPRESSIONS": "true",
+            "ORDER_BY_MODIFIEDDATE": True,
+        })
+        items = _prep_iter(comp)
+        names = [it.name for it in items]
+        # ascending by mtime: old before new
+        assert names == ["old.txt", "new.txt"]
+
+    def test_order_action_desc_radio_flag(self, tmp_path):
+        """ORDER_ACTION_DESC RADIO flag derives DESC direction (line 258)."""
+        f1 = tmp_path / "a.txt"
+        f2 = tmp_path / "b.txt"
+        f1.write_text("1")
+        f2.write_text("2")
+        comp = _make_file_list(config={
+            "DIRECTORY": str(tmp_path),
+            "FILES": [{"FILEMASK": "*.txt"}],
+            "GLOBEXPRESSIONS": "true",
+            "ORDER_BY": "ORDER_BY_FILENAME",
+            "ORDER_ACTION_DESC": True,
+        })
+        items = _prep_iter(comp)
+        names = [it.name for it in items]
+        assert names == ["b.txt", "a.txt"]
+
+    def test_get_iter_key_info_returns_file_path(self, tmp_path):
+        """get_iter_key_info returns 'file=<path>' (line 391)."""
+        f = tmp_path / "report.txt"
+        f.write_text("data")
+        item = FileListItem(
+            path=f.resolve(), name=f.name, parent=f.parent.resolve(), ext="txt", index=1
+        )
+        comp = _make_file_list()
+        info = comp.get_iter_key_info(item, 1)
+        assert info == f"file={item.path}"
+
+    def test_match_path_helper_or_wise(self):
+        """_match_path returns True when any mask matches (lines 496-500)."""
+        # First mask matches
+        assert FileList._match_path(
+            "report.txt", ["*.txt", "*.log"], use_glob=True, case_sensitive=True
+        ) is True
+        # Second mask matches (first does not)
+        assert FileList._match_path(
+            "report.log", ["*.txt", "*.log"], use_glob=True, case_sensitive=True
+        ) is True
+        # No mask matches
+        assert FileList._match_path(
+            "report.csv", ["*.txt", "*.log"], use_glob=True, case_sensitive=True
+        ) is False
+        # Empty mask list
+        assert FileList._match_path(
+            "anything", [], use_glob=True, case_sensitive=True
+        ) is False
+
+    def test_truthy_accepts_int_and_unknown_falls_through(self):
+        """_truthy: int(1) -> True (line 625); unknown types fall through to False (line 628)."""
+        from src.v1.engine.components.file.file_list import _truthy
+
+        # int branch (line 625)
+        assert _truthy(1) is True
+        assert _truthy(0) is False
+        assert _truthy(2) is True
+
+        # Unknown type fall-through (line 628): None / list / dict / object
+        assert _truthy(None) is False
+        assert _truthy([]) is False
+        assert _truthy({"k": "v"}) is False
+        assert _truthy(object()) is False
