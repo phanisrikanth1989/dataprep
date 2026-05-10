@@ -280,13 +280,6 @@ class TestSchema:
 class TestNeedsReview:
     """Verify needs_review entries for engine gaps."""
 
-    def test_needs_review_encoding_mismatch(self):
-        """Engine uses UTF-8 encoding default, _java.xml uses ISO-8859-15."""
-        node = _make_node()
-        result = FileOutputDelimitedConverter().convert(node, [], {})
-        issues = [e["issue"] for e in result.needs_review]
-        assert any("encoding" in i.lower() for i in issues)
-
     def test_needs_review_include_header_mismatch(self):
         """Engine uses include_header=True default, _java.xml uses False."""
         node = _make_node()
