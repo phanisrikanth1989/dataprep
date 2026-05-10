@@ -332,7 +332,8 @@ class TestNeedsReview:
 
     def test_needs_review_severity_engine_gap(self):
         """When triggered, all entries have severity engine_gap."""
-        # Trigger: groupby renaming + ignore_null + check_type_overflow
+        # Trigger: check_type_overflow (groupby renaming and ignore_null are now
+        # engine-implemented and no longer generate needs_review entries per D-C2)
         groupbys = _make_groupbys_data([("renamed", "original")])
         ops = _make_operations_data([("out", "sum", "col", True)])
         node = _make_node(params={
@@ -341,7 +342,7 @@ class TestNeedsReview:
             "CHECK_TYPE_OVERFLOW": "true",
         })
         result = AggregateRowConverter().convert(node, [], {})
-        assert len(result.needs_review) >= 3
+        assert len(result.needs_review) >= 1
         for entry in result.needs_review:
             assert entry["severity"] == "engine_gap"
 
