@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: completed
-stopped_at: Phase 14 planned -- 12 plans, plan-check PASS WITH NOTES
-last_updated: "2026-05-10T16:53:17.695Z"
-last_activity: 2026-05-10 -- Phase 13 marked complete
+status: executing
+stopped_at: Phase 14 Plan 01 complete -- pipeline-test infrastructure shipped
+last_updated: "2026-05-10T22:42:00.000Z"
+last_activity: 2026-05-10 -- Phase 14 Plan 01 complete (5 commits, infra-only)
 progress:
   total_phases: 20
   completed_phases: 17
   total_plans: 87
-  completed_plans: 90
+  completed_plans: 91
   percent: 100
 ---
 
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-04-14)
 
 ## Current Position
 
-Phase: 13 — COMPLETE
-Plan: 9 of 9
-Next: Phase 14 (coverage-push-to-95-per-module-floor)
-Status: Phase 13 complete
-Last activity: 2026-05-10 -- Phase 13 marked complete
+Phase: 14 (coverage-push-to-95-per-module-floor) — EXECUTING
+Plan: 2 of 12 (1 of 12 complete)
+Next: Phase 14 Plan 02 (aggregate subsystem -- aggregate_row 79% lift)
+Status: Executing Phase 14
+Last activity: 2026-05-10 -- Phase 14 Plan 01 complete (pipeline-test infrastructure)
 
 Progress: [██████████] 100%
 
@@ -120,6 +120,21 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
 | 260429-hc2 | Cleanup manager commits 43762c8 + c9be184/0c4104d (rewrite tests + audit docs for Talend parity, supersede CR-06) | 2026-04-29 | dc264d3 | [260429-hc2-cleanup-of-manager-commits-43762c8-c9be1](./quick/260429-hc2-cleanup-of-manager-commits-43762c8-c9be1/) |
 | 260506-lqq | Fix bridge stderr pipe-buffer deadlock (D-08-01) -- background drainer thread + bounded ring buffer | 2026-05-06 | f0caf8b | [260506-lqq-fix-bridge-stderr-pipe-buffer-deadlock-d](./quick/260506-lqq-fix-bridge-stderr-pipe-buffer-deadlock-d/) |
 
+### Phase 14 progress (2026-05-10) -- EXECUTING
+
+- Plan 14-01 complete: pipeline-test infrastructure shipped
+  - `tests/conftest.py` (root): `run_job_fixture`, `assert_ascii_logs`, `PipelineResult`, `FIXTURE_JOBS_ROOT`
+  - `tests/fixtures/jobs/{file,transform,core,swift}/` + `tests/fixtures/data/` directory scaffolding (.gitkeep tracked)
+  - `tests/fixtures/jobs/README.md` (JSON-job format + naming spec)
+  - `scripts/check_per_module_coverage.py` (stdlib-only per-module 95% floor gate)
+  - `pyproject.toml` `[tool.coverage.run|report|html|json]` blocks; explicit `pytest-cov>=7.0,<8` + `pytest-xdist>=3.8,<4` pins
+  - `.gitignore`: `.coverage`, `.coverage.*`, `htmlcov/` added (Coverage artifacts section)
+  - 5 commits (`145663c`, `d15de38`, `456e6da`, `541a805`, `4699a82`)
+  - Smoke result: serial vs `-n auto` coverage equivalent (delta 0.00%) -- recorded in `14-PLAN-CHECK-NOTES.md`
+  - Gate command verified: 52 modules below 95% (Phase 13 baseline expected ~53; off-by-one is `__init__` omit)
+  - Pre-existing infrastructure issues surfaced (NOT regressions): `test_bridge_integration` xdist contention -> Plan 14-11; `test_integration.py` complex_converter ImportError -> Plan 14-12
+- Plans 14-02..14-12: pending. Next is Plan 14-02 (aggregate subsystem, aggregate_row 79% lift).
+
 ### Phase 13 closed (2026-05-10)
 
 - 9 plans, 5 waves
@@ -145,6 +160,6 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
 
 ## Session Continuity
 
-Last session: 2026-05-10T16:53:17.686Z
-Stopped at: Phase 14 planned -- 12 plans, plan-check PASS WITH NOTES
-Resume with: /gsd-execute-phase 14 (after checkpoint approval)
+Last session: 2026-05-10T22:42:00.000Z
+Stopped at: Phase 14 Plan 01 complete -- pipeline-test infrastructure shipped (5 commits)
+Resume with: /gsd-execute-phase 14 (continue with Plan 14-02 aggregate subsystem)

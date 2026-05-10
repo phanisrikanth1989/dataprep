@@ -211,6 +211,8 @@ Requirements for engine restructure milestone. Each maps to roadmap phases.
 - [x] **TEST-07**: Engine unit tests for Python components (python_component, python_row_component)
 - [x] **TEST-09**: Full test suite achieves zero failures under `python -m pytest tests/`; all inherited pre-existing failures from Phases 1-12 resolved via root-cause source patches or verified test-expectation corrections; no xfail markers added; 10 STALE NeedsReview tests deleted (D-D1); test count net delta: -10 STALE deletions (Phase 13)
 - [x] **TEST-10**: Per-module coverage baseline measured and recorded in `13-COVERAGE-BASELINE.md` covering all modules in `src/v1/engine/` and `src/converters/`; 6832 tests pass, 0 failed at measurement point; overall 75% coverage (19429 stmts, 4881 missed); baseline consumed by Phase 14 as the 95% per-module floor; reproducible via `python -m pytest tests/ --cov=src/v1/engine --cov=src/converters --cov-report=term-missing --cov-report=html -q` command documented in CLAUDE.md (Phase 13)
+- [ ] **TEST-11**: Coverage push to 95% per-module line-coverage floor across every module under `src/v1/engine/` and `src/converters/` (excluding `complex_converter` legacy modules); new tests are real-behavior (no `# pragma: no cover` outside the D-C3 narrow allowlist of `if __name__ == "__main__":`, `@abstractmethod` raising `NotImplementedError`, and optional-dependency import shims); pipeline-test infrastructure under `tests/fixtures/jobs/` exists; no module currently >=95% regresses (Phase 14)
+- [ ] **TEST-12**: Paste-runnable gate command + final `14-COVERAGE.md` documenting the 95% floor verification: documented command in CLAUDE.md and `14-COVERAGE.md` reproduces the measurement; `[tool.coverage.*]` config lives in `pyproject.toml`; per-module final coverage table replaces `13-COVERAGE-BASELINE.md`; `scripts/check_per_module_coverage.py` enforces the per-module floor against `coverage.json` (Phase 14)
 
 ### Performance & Memory
 
@@ -406,18 +408,20 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | TEST-08 | Phase 6 | Complete |
 | TEST-09 | Phase 13 | Complete |
 | TEST-10 | Phase 13 | Complete |
+| TEST-11 | Phase 14 | In Progress (Plan 14-01 infra shipped; lifts pending) |
+| TEST-12 | Phase 14 | In Progress (Plan 14-01 script + pyproject config shipped; final COVERAGE.md + CLAUDE.md update at closeout) |
 | PERF-01 | Phase 3 | Complete |
 | PERF-02 | Phase 8 | Pending |
 | PERF-03 | Phase 12 | Pending |
 | PERF-04 | Phase 12 | Pending |
 
 **Coverage:**
-- v1 requirements: 125 total
-- Mapped to phases: 125
+- v1 requirements: 127 total
+- Mapped to phases: 127
 - Unmapped: 0
 
 **Note:** TEST-03 covers unit tests for target components and is split across Phase 4 (file I/O tests) and Phase 5 (tMap tests). All other requirements map to exactly one phase.
 
 ---
-*Requirements defined: 2026-04-14*
+*Requirements defined: 2026-04-14; TEST-11 + TEST-12 added 2026-05-10 with Phase 14 Plan 01*
 *Last updated: 2026-05-10 after Phase 13 closure (TEST-09, TEST-10 added and Complete)*
