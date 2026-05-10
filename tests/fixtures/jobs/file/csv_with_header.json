@@ -1,0 +1,44 @@
+{
+  "job_name": "Job_csv_with_header",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {}
+  },
+  "components": [
+    {
+      "id": "tFileInputDelimited_1",
+      "type": "FileInputDelimited",
+      "original_type": "tFileInputDelimited",
+      "config": {
+        "filepath": "TBD_via_mutations",
+        "fieldseparator": ";",
+        "row_separator": "\\n",
+        "header_rows": 1,
+        "footer_rows": 0,
+        "encoding": "ISO-8859-15",
+        "csv_option": false,
+        "remove_empty_row": true,
+        "die_on_error": false,
+        "check_fields_num": false,
+        "trim_all": false,
+        "trim_select": []
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {"name": "id", "type": "int", "nullable": false, "key": false},
+          {"name": "name", "type": "str", "nullable": false, "key": false}
+        ]
+      },
+      "inputs": [],
+      "outputs": ["row1"]
+    }
+  ],
+  "flows": [],
+  "triggers": [],
+  "subjobs": {
+    "subjob_1": ["tFileInputDelimited_1"]
+  },
+  "java_config": {"enabled": false, "routines": [], "libraries": []}
+}
