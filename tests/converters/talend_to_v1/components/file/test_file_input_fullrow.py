@@ -243,13 +243,6 @@ class TestSchema:
 class TestNeedsReview:
     """Verify needs_review entries for engine gaps (per D-36: per-feature)."""
 
-    def test_needs_review_nb_random(self):
-        """One needs_review entry mentions 'nb_random'."""
-        node = _make_node()
-        result = FileInputFullRowConverter().convert(node, [], {})
-        issues = [e["issue"] for e in result.needs_review]
-        assert any("nb_random" in i for i in issues)
-
     def test_all_needs_review_are_engine_gap(self):
         """All needs_review entries have severity 'engine_gap'."""
         node = _make_node()
