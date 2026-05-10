@@ -208,7 +208,7 @@ Requirements for engine restructure milestone. Each maps to roadmap phases.
 - [x] **TEST-08**: Engine unit tests for new transform components (tAggregateRow, tSortRow, tFilterRow, tFilterColumns, tJoin, tUnite)
 - [ ] **TEST-05**: Integration tests using real .item samples — convert → run → verify output
 - [ ] **TEST-06**: Talend output comparison tests — verify identical results for same input data
-- [ ] **TEST-07**: Engine unit tests for Python components (python_component, python_row_component)
+- [x] **TEST-07**: Engine unit tests for Python components (python_component, python_row_component)
 
 ### Performance & Memory
 
@@ -400,7 +400,7 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | TEST-04 | Phase 10 | Complete |
 | TEST-05 | Phase 12 | Pending |
 | TEST-06 | Phase 12 | Pending |
-| TEST-07 | Phase 8 | Pending |
+| TEST-07 | Phase 8 | Complete |
 | TEST-08 | Phase 6 | Complete |
 | PERF-01 | Phase 3 | Complete |
 | PERF-02 | Phase 8 | Pending |
