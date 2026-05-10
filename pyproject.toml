@@ -20,7 +20,12 @@ xml = ["lxml>=4.9,<7"]
 yaml = ["PyYAML>=6.0,<7"]
 json = ["jsonpath-ng>=1.5,<2"]
 api = ["fastapi>=0.111,<1", "uvicorn[standard]>=0.29,<1", "python-multipart>=0.0.9,<1"]
-dev = ["pytest>=8.0,<10", "testcontainers>=4"]
+dev = [
+    "pytest>=8.0,<10",
+    "pytest-cov>=7.0,<8",
+    "pytest-xdist>=3.8,<4",
+    "testcontainers>=4",
+]
 all = ["dataprep[java,excel,xml,yaml,json,api,oracle]"]
 
 [tool.pytest.ini_options]
@@ -38,3 +43,41 @@ addopts = "-v --tb=short"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]
+
+# Coverage configuration -- Phase 14 D-E4
+# Per-module 95% line-coverage floor is enforced by scripts/check_per_module_coverage.py
+# (NOT by a global fail_under here -- a global threshold would mask per-module gaps).
+# Branch coverage is intentionally disabled (Phase 13 D-E2 / Phase 14 D-E4 reasoning).
+
+[tool.coverage.run]
+source = [
+    "src/v1/engine",
+    "src/converters",
+]
+omit = [
+    "src/converters/complex_converter/*",
+    "*/__init__.py",
+    "*/tests/*",
+    "*/test_*.py",
+]
+branch = false
+parallel = true
+
+[tool.coverage.report]
+# Per-module gate enforced via scripts/check_per_module_coverage.py -- do NOT set fail_under here.
+show_missing = true
+skip_covered = false
+precision = 1
+exclude_also = [
+    # D-C3 narrow allowlist for # pragma: no cover
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "@(abc\\.)?abstractmethod",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+[tool.coverage.json]
+output = "coverage.json"
+pretty_print = false
