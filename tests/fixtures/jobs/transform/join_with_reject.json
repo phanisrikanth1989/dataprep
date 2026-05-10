@@ -1,0 +1,174 @@
+{
+  "job_name": "Job_join_with_reject",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {}
+  },
+  "components": [
+    {
+      "id": "tFileInputDelimited_main",
+      "type": "FileInputDelimited",
+      "original_type": "tFileInputDelimited",
+      "config": {
+        "filepath": "TBD_via_mutations",
+        "fieldseparator": ";",
+        "row_separator": "\\n",
+        "header_rows": 1,
+        "footer_rows": 0,
+        "encoding": "UTF-8",
+        "csv_option": false,
+        "remove_empty_row": true,
+        "die_on_error": false,
+        "check_fields_num": false,
+        "trim_all": false,
+        "trim_select": []
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {"name": "id", "type": "str", "nullable": false, "key": false},
+          {"name": "name", "type": "str", "nullable": false, "key": false}
+        ]
+      },
+      "inputs": [],
+      "outputs": ["row_main"]
+    },
+    {
+      "id": "tFileInputDelimited_lookup",
+      "type": "FileInputDelimited",
+      "original_type": "tFileInputDelimited",
+      "config": {
+        "filepath": "TBD_via_mutations",
+        "fieldseparator": ";",
+        "row_separator": "\\n",
+        "header_rows": 1,
+        "footer_rows": 0,
+        "encoding": "UTF-8",
+        "csv_option": false,
+        "remove_empty_row": true,
+        "die_on_error": false,
+        "check_fields_num": false,
+        "trim_all": false,
+        "trim_select": []
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {"name": "ref_id", "type": "str", "nullable": false, "key": false},
+          {"name": "city", "type": "str", "nullable": false, "key": false}
+        ]
+      },
+      "inputs": [],
+      "outputs": ["row_lookup"]
+    },
+    {
+      "id": "tJoin_1",
+      "type": "Join",
+      "original_type": "tJoin",
+      "config": {
+        "component_type": "Join",
+        "use_inner_join": false,
+        "join_key": [
+          {"input_column": "id", "lookup_column": "ref_id"}
+        ],
+        "use_lookup_cols": true,
+        "lookup_cols": [
+          {"output_column": "city", "lookup_column": "city"}
+        ],
+        "case_sensitive": true,
+        "die_on_error": true
+      },
+      "schema": {
+        "input": [],
+        "inputs": {
+          "row_main": [
+            {"name": "id", "type": "str", "nullable": false, "key": false},
+            {"name": "name", "type": "str", "nullable": false, "key": false}
+          ],
+          "row_lookup": [
+            {"name": "ref_id", "type": "str", "nullable": false, "key": false},
+            {"name": "city", "type": "str", "nullable": false, "key": false}
+          ]
+        },
+        "output": [
+          {"name": "id", "type": "str", "nullable": true, "key": false},
+          {"name": "name", "type": "str", "nullable": true, "key": false},
+          {"name": "city", "type": "str", "nullable": true, "key": false}
+        ],
+        "reject": [
+          {"name": "id", "type": "str", "nullable": true, "key": false},
+          {"name": "name", "type": "str", "nullable": true, "key": false},
+          {"name": "errorCode", "type": "str", "nullable": true, "key": false},
+          {"name": "errorMessage", "type": "str", "nullable": true, "key": false}
+        ]
+      },
+      "inputs": ["row_main", "row_lookup"],
+      "outputs": ["out_main", "out_reject"]
+    },
+    {
+      "id": "tFileOutputDelimited_main",
+      "type": "FileOutputDelimited",
+      "original_type": "tFileOutputDelimited",
+      "config": {
+        "filepath": "TBD_via_mutations",
+        "fieldseparator": ";",
+        "row_separator": "\\n",
+        "encoding": "UTF-8",
+        "include_header": true,
+        "append": false,
+        "create_directory": true,
+        "split": false,
+        "file_exist_exception": false
+      },
+      "schema": {
+        "input": [
+          {"name": "id", "type": "str", "nullable": true, "key": false},
+          {"name": "name", "type": "str", "nullable": true, "key": false},
+          {"name": "city", "type": "str", "nullable": true, "key": false}
+        ],
+        "output": []
+      },
+      "inputs": ["out_main"],
+      "outputs": []
+    },
+    {
+      "id": "tFileOutputDelimited_reject",
+      "type": "FileOutputDelimited",
+      "original_type": "tFileOutputDelimited",
+      "config": {
+        "filepath": "TBD_via_mutations",
+        "fieldseparator": ";",
+        "row_separator": "\\n",
+        "encoding": "UTF-8",
+        "include_header": true,
+        "append": false,
+        "create_directory": true,
+        "split": false,
+        "file_exist_exception": false
+      },
+      "schema": {
+        "input": [
+          {"name": "id", "type": "str", "nullable": true, "key": false},
+          {"name": "name", "type": "str", "nullable": true, "key": false},
+          {"name": "errorCode", "type": "str", "nullable": true, "key": false},
+          {"name": "errorMessage", "type": "str", "nullable": true, "key": false}
+        ],
+        "output": []
+      },
+      "inputs": ["out_reject"],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {"name": "row_main", "from": "tFileInputDelimited_main", "to": "tJoin_1", "type": "flow"},
+    {"name": "row_lookup", "from": "tFileInputDelimited_lookup", "to": "tJoin_1", "type": "flow"},
+    {"name": "out_main", "from": "tJoin_1", "to": "tFileOutputDelimited_main", "type": "flow"},
+    {"name": "out_reject", "from": "tJoin_1", "to": "tFileOutputDelimited_reject", "type": "reject"}
+  ],
+  "triggers": [],
+  "subjobs": {
+    "subjob_1": ["tFileInputDelimited_main", "tFileInputDelimited_lookup", "tJoin_1", "tFileOutputDelimited_main", "tFileOutputDelimited_reject"]
+  },
+  "java_config": {"enabled": false, "routines": [], "libraries": []}
+}
