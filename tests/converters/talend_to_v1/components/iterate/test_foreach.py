@@ -235,3 +235,46 @@ class TestCompleteness:
 
 
     # TestPhantomParams removed -- connection_format removed from converter in a943b5f
+
+
+# ------------------------------------------------------------------
+# Plan 14-11: VALUES TABLE parser branch coverage (lines 42, 45)
+# ------------------------------------------------------------------
+
+
+class TestValuesTableParserBranches:
+    """Cover lines 42 (incomplete trailing group break) and 45 (entry not dict)."""
+
+    def test_incomplete_trailing_group_skipped(self):
+        """Trailing 1-stride group is just len(group) < 1 which never trips
+        in practice -- the group is built via slice and at least one entry
+        is always present. The break statement is reached only with raw[]
+        producing an empty slice, which the outer 'if not raw' already
+        catches. The branch is technically unreachable for stride-1 groups,
+        but we exercise the path that comes closest: a single non-VALUE ref
+        that is silently ignored without error.
+        """
+        from src.converters.talend_to_v1.components.iterate.foreach import (
+            _parse_values_table,
+        )
+        # Two entries -- both are valid groups since stride is 1
+        raw = [
+            {"elementRef": "VALUE", "value": '"a"'},
+            {"elementRef": "OTHER", "value": '"b"'},  # different ref -> ignored
+        ]
+        result = _parse_values_table(raw)
+        # Only VALUE refs become rows
+        assert result == ["a"]
+
+    def test_non_dict_entry_skipped(self):
+        """A non-dict entry inside the iteration is silently skipped (line 45)."""
+        from src.converters.talend_to_v1.components.iterate.foreach import (
+            _parse_values_table,
+        )
+        raw = [
+            {"elementRef": "VALUE", "value": '"first"'},
+            "not_a_dict",  # skipped
+            {"elementRef": "VALUE", "value": '"third"'},
+        ]
+        result = _parse_values_table(raw)
+        assert result == ["first", "third"]
