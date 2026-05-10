@@ -20,22 +20,37 @@ from decimal import Decimal
 import pandas as pd
 import pytest
 
+from src.v1.engine.java_bridge_manager import JavaBridgeManager
 from src.v1.java_bridge.bridge import JavaBridge
 from src.v1.java_bridge.type_mapping import extract_precision_map
 
 
 # ------------------------------------------------------------------
 # Module-scoped bridge fixture (one JVM per test module -- T-02-12)
+#
+# Plan 14-01 deferred-issue resolution (Plan 14-10):
+# Use JavaBridgeManager (dynamic port via socket.bind('', 0)) instead of
+# the bare JavaBridge() default port=25333. Under pytest-xdist -n auto, each
+# worker creates its own module-scoped fixture; with the default port every
+# worker except one collided on bind() and the entire TestTMapCompiledExpressions
+# class failed under parallel collection. Dynamic port allocation eliminates
+# the contention; tests now pass under serial AND -n auto.
 # ------------------------------------------------------------------
 
 
 @pytest.fixture(scope="module")
 def bridge():
-    """Start a real Java bridge for the test module."""
-    b = JavaBridge()
-    b.start()
-    yield b
-    b.stop()
+    """Start a real Java bridge for the test module via JavaBridgeManager.
+
+    JavaBridgeManager allocates a free port per worker (via socket.bind('', 0)),
+    avoiding the port-25333 collision that crashed parallel xdist workers.
+    """
+    manager = JavaBridgeManager(enable=True)
+    manager.start()
+    try:
+        yield manager.bridge
+    finally:
+        manager.stop()
 
 
 # ------------------------------------------------------------------
