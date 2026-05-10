@@ -620,15 +620,26 @@ class TestBaseComponentReset:
         comp.reset()
         assert comp.stats == {"NB_LINE": 0, "NB_LINE_OK": 0, "NB_LINE_REJECT": 0}
 
-    def test_reset_calls_global_map_reset_component(self):
-        """reset() calls globalMap.reset_component."""
+    def test_reset_does_not_clear_global_map_stats(self):
+        """reset() does NOT clear GlobalMap stats.
+
+        GlobalMap stats persist through reset() so that post-execution
+        queries (e.g. get_nb_line_ok) return the correct values even
+        after the executor's finalization loop calls reset() on all
+        streaming sink components (BUG-BRDG-002 fix).
+        put_component_stat overwrites (not accumulates), so the next
+        execute() + _update_global_map() will replace these values.
+        """
         gm = GlobalMap()
         df = pd.DataFrame({"x": [1, 2]})
         comp = ConcreteComponent("c1", {}, global_map=gm)
         comp.execute(df)
         assert gm.get_component_stat("c1", "NB_LINE") == 2
         comp.reset()
-        assert gm.get_component_stat("c1", "NB_LINE") == 0
+        # GlobalMap still holds the last execution's stats after reset()
+        assert gm.get_component_stat("c1", "NB_LINE") == 2
+        # In-memory stats are zeroed (for fresh iterate re-execution)
+        assert comp.stats["NB_LINE"] == 0
 
     def test_execute_after_reset_works(self):
         """execute() after reset() works correctly (full lifecycle)."""

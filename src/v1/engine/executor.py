@@ -141,13 +141,21 @@ class Executor:
 
         execution_time = time.time() - start_time
 
-        # Finalize streaming components: call reset() on all components that have one.
-        # Sink components (e.g., FileOutputXML, AdvancedFileOutputXML) hold open
-        # etree.xmlfile context managers across chunks; reset() closes them and flushes
-        # the closing tags. Without this, streaming XML output files are truncated.
-        # CR-01 fix: finalization MUST run before stall-detection raise so files
-        # are properly closed even when a stall is detected.
+        # Finalize streaming sink components: call reset() only on components
+        # that hold open streaming context managers (FileOutputXML,
+        # AdvancedFileOutputXML, FileOutputDelimited).
+        # Detection: components that manage streaming state have a
+        # _streaming_write_started attribute (set during their __init__).
+        # Non-streaming components must NOT receive a finalization reset() --
+        # calling reset() on them would zero their in-memory stats dict,
+        # making post-execution stats queries return 0 for non-iterate
+        # components (BUG-BRDG-002 fix: BaseComponent.reset() no longer
+        # clears GlobalMap stats, but it still zeros self.stats).
+        # CR-01 fix: finalization MUST run before stall-detection raise so
+        # files are properly closed even when a stall is detected.
         for comp_id, component in self.components.items():
+            if not hasattr(component, "_streaming_write_started"):
+                continue
             if hasattr(component, "reset") and callable(component.reset):
                 try:
                     component.reset()
