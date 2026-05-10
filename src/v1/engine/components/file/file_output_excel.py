@@ -213,8 +213,9 @@ class FileOutputExcel(BaseComponent):
                 df_out = self._apply_date_patterns(df_out)
 
                 # PRIORITY 1: Use input schema column order if defined (output_schema is empty for sink components)
-                if self.input_schema:
-                    column_names = [col_def['name'] for col_def in self.input_schema]
+                _input_schema = getattr(self, "input_schema", None) or []
+                if _input_schema:
+                    column_names = [col_def['name'] for col_def in _input_schema]
                     logger.debug(f"[{self.id}] Using input schema column order: {column_names}")
                 elif self.output_schema:
                     column_names = [col_def['name'] for col_def in self.output_schema]
@@ -241,8 +242,9 @@ class FileOutputExcel(BaseComponent):
                 rows = main_data
                 rows_in = len(rows)
                 # Use schema if available, otherwise use first row keys
-                if self.input_schema:
-                    column_names = [col_def['name'] for col_def in self.input_schema]
+                _input_schema = getattr(self, "input_schema", None) or []
+                if _input_schema:
+                    column_names = [col_def['name'] for col_def in _input_schema]
                     logger.debug(f"[{self.id}] Using input schema column order for list data: {column_names}")
                 elif self.output_schema:
                     column_names = [col_def['name'] for col_def in self.output_schema]
