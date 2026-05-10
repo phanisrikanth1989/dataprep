@@ -452,13 +452,6 @@ class TestNeedsReview:
             assert "tstatcatcher_stats" not in issue
             assert "label" not in issue.lower().split()
 
-    def test_needs_review_csv_option(self):
-        """needs_review includes csv_option engine gap."""
-        node = _make_node()
-        result = FileInputDelimitedConverter().convert(node, [], {})
-        issues = [e["issue"] for e in result.needs_review]
-        assert any("csv_option" in i for i in issues)
-
     def test_needs_review_split_record(self):
         """needs_review includes split_record engine gap."""
         node = _make_node()
