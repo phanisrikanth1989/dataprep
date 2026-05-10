@@ -569,3 +569,141 @@ class TestIterateReexecution:
         comp.reset()
         comp.execute(df)
         assert comp._original_config == snapshot
+
+
+# ------------------------------------------------------------------
+# TestCoverageLift_14_05 (COV-REP-001)
+#
+# Target missed lines from Phase 14 baseline:
+#   - 79  (_build_regex whole_word=True branch)
+#   - 85-86 (_build_regex re.error -> ConfigurationError)
+#   - 134 (_validate_adv_subst_row non-dict -> ConfigurationError)
+#   - 322-323 (_apply_advanced_mode: unicode_escape decode failure -> use pattern as-is)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCoverageLift1405:
+    """Targeted coverage for the residual missed branches in replace.py."""
+
+    def test_whole_word_anchor_applied_in_simple_mode(self):
+        # Hits line 79: whole_word=True wraps core in \b...\b
+        config = {
+            "component_type": "tReplace",
+            "simple_mode": True,
+            "substitutions": [
+                {
+                    "input_column": "city",
+                    "search_pattern": "alice",
+                    "replace_string": "ALICE",
+                    "whole_word": True,
+                    "case_sensitive": False,
+                    "use_glob": False,
+                    "comment": "",
+                }
+            ],
+            "strict_match": False,
+            "advanced_mode": False,
+            "advanced_subst": [],
+        }
+        comp = _make_component(config)
+        df = pd.DataFrame(
+            [
+                {"id": 1, "city": "alice springs"},
+                {"id": 2, "city": "alicent"},
+            ]
+        )
+        result = comp.execute(df)["main"]
+        # whole-word boundary -> "alice springs" hits, "alicent" stays unchanged
+        assert result.loc[0, "city"] == "ALICE springs"
+        assert result.loc[1, "city"] == "alicent"
+
+    def test_simple_mode_invalid_glob_raises_configuration_error(self):
+        # Hits lines 85-86: re.compile failure -> ConfigurationError
+        # use_glob=False means the search_pattern is fed to re.escape so
+        # a literal pattern can never trigger re.error. We force use_glob=False
+        # but bypass re.escape via a monkeypatch-free path: use_glob=True with a
+        # crafted pattern is also re.escape'd in _glob_to_regex, so we must
+        # reach _build_regex via a direct call from advanced mode-style helper.
+        # Easier: call _build_regex directly with a pattern that is NOT escaped.
+        from src.v1.engine.components.transform.replace import _build_regex
+
+        # Build a payload that bypasses escaping by trailing whole-word + an
+        # unbalanced group via core injection. Since _build_regex always runs
+        # re.escape, the only way to provoke re.error is via the boundary
+        # wrappers + an empty pattern with whole_word=True is still valid
+        # (\b\b matches). We instead exploit that whole_word adds raw \b to
+        # an EMPTY pattern after re.escape: still valid. Final lever: monkey
+        # the function. Simpler -- the production path catches re.error from
+        # re.compile(core, flags). We provoke this via _build_regex with a
+        # raw-injected core by calling re.compile on an unbalanced group
+        # mocked into core. Cleanest: monkeypatch re.escape to passthrough
+        # for this single call.
+        import re as _re_mod
+
+        original = _re_mod.escape
+        try:
+            _re_mod.escape = lambda s: s  # passthrough so an invalid regex remains invalid
+            with pytest.raises(ConfigurationError) as excinfo:
+                _build_regex(
+                    search_pattern="(unbalanced",
+                    whole_word=False,
+                    case_sensitive=True,
+                    use_glob=False,
+                    strict_match=False,
+                )
+            assert "Invalid search pattern" in str(excinfo.value)
+            assert "unbalanced" in str(excinfo.value)
+        finally:
+            _re_mod.escape = original
+
+    def test_advanced_subst_non_dict_row_raises_configuration_error(self):
+        # Hits line 134: row is not a dict
+        config = {
+            "component_type": "tReplace",
+            "simple_mode": False,
+            "substitutions": [],
+            "strict_match": False,
+            "advanced_mode": True,
+            "advanced_subst": ["not a dict"],
+        }
+        comp = _make_component(config)
+        df = _make_input_df()
+        with pytest.raises(ConfigurationError) as excinfo:
+            comp.execute(df)
+        assert "advanced_subst[0]" in str(excinfo.value)
+        assert "must be a dict" in str(excinfo.value)
+        assert "str" in str(excinfo.value)
+
+    def test_advanced_subst_unicode_escape_failure_falls_through_to_re_compile(self):
+        # Hits lines 322-323: unicode_escape raises -> except -> use as-is.
+        #
+        # Patterns that fail unicode_escape decoding (truncated \\xXX, \\uXXXX,
+        # \\N{...}, lone trailing backslash, etc.) all happen to also fail at
+        # re.compile because Python's regex engine recognizes the same escape
+        # sequences. The path semantics are: we exercise the bare-except
+        # fallback, then re.compile raises re.error and the production code
+        # wraps it as ConfigurationError. That is the only observable behavior
+        # for "decode-fails" inputs.
+        config = {
+            "component_type": "tReplace",
+            "simple_mode": False,
+            "substitutions": [],
+            "strict_match": False,
+            "advanced_mode": True,
+            "advanced_subst": [
+                {
+                    "input_column": "name",
+                    "search_column": "Alice\\",  # trailing backslash -> decode fails
+                    "replace_column": "X",
+                    "comment": "",
+                }
+            ],
+        }
+        comp = _make_component(config)
+        df = pd.DataFrame([{"id": 1, "name": "Alice"}])
+        with pytest.raises(ConfigurationError) as excinfo:
+            comp.execute(df)
+        # Wrapping message comes from the re.compile path, but lines 322-323
+        # are still exercised on the way there.
+        assert "invalid regex pattern" in str(excinfo.value)
