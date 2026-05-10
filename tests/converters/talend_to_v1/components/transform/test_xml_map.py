@@ -2,6 +2,8 @@
 import inspect
 import xml.etree.ElementTree as ET
 
+import pytest
+
 from src.converters.talend_to_v1.components.base import (
     ComponentResult,
     SchemaColumn,
@@ -580,3 +582,257 @@ class TestConditionalNeedsReview:
         assert len(ef) == 1, f"Expected 1 expression_filter entry, got {len(ef)}"
         assert len(lj) == 1, f"Expected 1 lookup_join entry, got {len(lj)}"
         assert len(aio) == 1, f"Expected 1 all_in_one entry, got {len(aio)}"
+
+
+# ==================================================================
+# Plan 14-11: targeted module-helper tests for missed-line clusters
+# ==================================================================
+#
+# These cover the helper-function branches that the converter-level
+# tests above do not naturally exercise. Calling helpers directly via
+# crafted Element / dict inputs is cleaner than constructing a full
+# Talend tXMLMap node for each branch. See xml_map.py:
+#   _build_expressions: lines 183, 188, 208-212, 216
+#   _detect_looping_element: lines 247-249, 253-256, 263-268
+#   _rewrite_expressions_for_loop: lines 293-294, 315-317, 320-321
+#   converter convert(): line 409 (raw_xml without nodeData)
+
+
+class TestBuildExpressionsBranches:
+    """Cover lines 183, 188, 208-212, 216 in _build_expressions."""
+
+    def _build(self):
+        from src.converters.talend_to_v1.components.transform.xml_map import (
+            _build_expressions,
+        )
+        return _build_expressions
+
+    def test_target_without_output_path_skipped(self):
+        """A connection whose target lacks 'outputTrees.0/@nodes.<n>' is skipped (line 183)."""
+        build = self._build()
+        connections = [
+            {
+                # No outputTrees regex match
+                "source": "inputTrees.0/@nodes.0",
+                "target": "garbage/path",
+                "sourceExpression": "",
+            },
+        ]
+        result = build(connections, {}, {0: "out_col"})
+        assert result == {}
+
+    def test_unknown_output_index_skipped(self):
+        """A connection's out_idx not in output_col_map -> skipped (line 188)."""
+        build = self._build()
+        connections = [
+            {
+                "source": "inputTrees.0/@nodes.0",
+                "target": "outputTrees.0/@nodes.42",  # idx 42 not in map
+                "sourceExpression": "",
+            },
+        ]
+        result = build(connections, {}, {0: "first_only"})
+        assert result == {}
+
+    def test_attribute_at_leaf_with_parents(self):
+        """ATTRIBUT leaf with parent xpath_parts -> ./parents/@attr (lines 207-210)."""
+        build = self._build()
+        # Build an input_tree_node_map where the leaf node is type ATTRIBUT
+        node_map = {
+            "inputTrees.0/@nodes.0": ("doc", "ELEMENT", {}),
+            "inputTrees.0/@nodes.0/@children.0": ("root", "ELEMENT", {}),
+            "inputTrees.0/@nodes.0/@children.0/@children.0": (
+                "id_attr", "ATTRIBUT", {},
+            ),
+        }
+        connections = [
+            {
+                "source": (
+                    "inputTrees.0/@nodes.0/@children.0/@children.0"
+                ),
+                "target": "outputTrees.0/@nodes.0",
+                "sourceExpression": "",
+            },
+        ]
+        result = build(connections, node_map, {0: "id"})
+        # Expect ./root/@id_attr (parent then attribute name)
+        # Note 'doc' (the @nodes.0 root) is skipped because xpath_parts skips
+        # 'newColumn'-named entries; but 'doc' is a real name so it IS included.
+        # Check the suffix matches the ATTRIBUT shape.
+        assert result["id"].startswith("./")
+        assert "/@id_attr" in result["id"]
+
+    def test_attribute_at_leaf_without_parents(self):
+        """ATTRIBUT leaf with no parent xpath_parts -> ./@attr (lines 211-212)."""
+        build = self._build()
+        # Only the leaf-attribute node is named; the parent's name is "newColumn"
+        # which is filtered out by line 201's exclusion list, so xpath_parts
+        # is empty after pop.
+        node_map = {
+            "inputTrees.0/@nodes.0": ("newColumn", "ELEMENT", {}),
+            "inputTrees.0/@nodes.0/@children.0": (
+                "attrOnly", "ATTRIBUT", {},
+            ),
+        }
+        connections = [
+            {
+                "source": "inputTrees.0/@nodes.0/@children.0",
+                "target": "outputTrees.0/@nodes.0",
+                "sourceExpression": "",
+            },
+        ]
+        result = build(connections, node_map, {0: "id"})
+        assert result["id"] == "./@attrOnly"
+
+    def test_no_named_path_parts_falls_back_to_dot(self):
+        """Source path with no recognised parts -> xpath '.' (line 216)."""
+        build = self._build()
+        # node_map has no entries matching the source path -> path_parts empty
+        connections = [
+            {
+                "source": "totally/unrelated",
+                "target": "outputTrees.0/@nodes.0",
+                "sourceExpression": "",
+            },
+        ]
+        result = build(connections, {}, {0: "id"})
+        assert result == {"id": "."}
+
+
+class TestDetectLoopingElementBranches:
+    """Cover lines 247-249, 253-256, 263-268 in _detect_looping_element."""
+
+    def _detect(self):
+        from src.converters.talend_to_v1.components.transform.xml_map import (
+            _detect_looping_element,
+        )
+        return _detect_looping_element
+
+    def test_strategy2_element_parameter_lookup(self):
+        """No loop=true child but elementParameter LOOPING_ELEMENT present (lines 247-249)."""
+        detect = self._detect()
+        raw_xml = ET.fromstring(
+            '<node>'
+            '  <elementParameter name="LOOPING_ELEMENT" value="loop_node" />'
+            '</node>'
+        )
+        result = detect(raw_xml, {})
+        assert result == "loop_node"
+
+    def test_strategy2_element_parameter_value_none_strips_to_empty(self):
+        """elementParameter LOOPING_ELEMENT with no value attribute -> empty (line 248)."""
+        detect = self._detect()
+        # value attribute missing -> param.get("value") is None -> "" or None
+        raw_xml = ET.fromstring(
+            '<node>'
+            '  <elementParameter name="LOOPING_ELEMENT" />'
+            '</node>'
+        )
+        result = detect(raw_xml, {})
+        # Falls through Strategy 2 (sets to ""), then Strategy 3 with empty map -> ""
+        assert result == ""
+
+    def test_normalize_list_value(self):
+        """If looping_element somehow becomes a list, str(list[0]) is used (line 256)."""
+        # We cannot trigger this via raw_xml + ET (param.get always returns str),
+        # but we can construct a fake param-bearing element by patching ET nodes.
+        # Easier: call private through a stub that returns a list. Use
+        # monkey-style by constructing ET with attribute that the function
+        # reads via param.get("value"). The function uses str.strip() on the
+        # value -- so we must drive the list/tuple/dict branch a different way:
+        # call the helper and then verify the carve-out via a tuple-bearing
+        # raw_xml that contains a nested children loop=true (Strategy 1) where
+        # name returns a list-like via custom Element subclass.
+        # Simpler: construct a Strategy 1 hit using two children with loop=true;
+        # the function takes the FIRST one. The list/tuple/dict branch is dead
+        # for ET-typed `name` returns. Document and skip the branch.
+        pytest.skip(
+            "Strategy 1/2 always yield strings via ET.Element.get(); the "
+            "list/tuple/dict normalization branch (lines 252-256) is "
+            "defensive code for non-ET callers and is genuinely unreachable "
+            "via the documented call sites. D-C5 candidate but kept as "
+            "low-risk defensive code per Phase 14 scope."
+        )
+
+    def test_strategy3_deepest_node_in_input_tree(self):
+        """No loop=true and no elementParameter -> use deepest path in node_map
+        (lines 263-268)."""
+        detect = self._detect()
+        raw_xml = ET.fromstring("<node />")  # no children loop, no LOOPING_ELEMENT
+        node_map = {
+            "inputTrees.0/@nodes.0": ("doc", "ELEMENT", {}),
+            "inputTrees.0/@nodes.0/@children.0": ("shallow", "ELEMENT", {}),
+            "inputTrees.0/@nodes.0/@children.0/@children.0": (
+                "deepest", "ELEMENT", {},
+            ),
+        }
+        result = detect(raw_xml, node_map)
+        # Deepest path has the most '/' separators -> "deepest"
+        assert result == "deepest"
+
+    def test_strategy3_with_no_input_map_returns_empty(self):
+        """Empty raw_xml AND empty node_map -> empty string."""
+        detect = self._detect()
+        result = detect(None, {})
+        assert result == ""
+
+
+class TestRewriteExpressionsBranches:
+    """Cover lines 293-294, 315-317, 320-321 in _rewrite_expressions_for_loop."""
+
+    def _rewrite(self):
+        from src.converters.talend_to_v1.components.transform.xml_map import (
+            _rewrite_expressions_for_loop,
+        )
+        return _rewrite_expressions_for_loop
+
+    def test_empty_xpath_passthrough(self):
+        """An empty xpath passes through unchanged (lines 293-294)."""
+        rewrite = self._rewrite()
+        result = rewrite({"col_a": ""}, "loop")
+        assert result["col_a"] == ""
+
+    def test_in_loop_no_remaining_parts_uses_loop_name(self):
+        """xpath whose last part IS the loop element -> ./<loop_name>
+        (lines 314-315)."""
+        rewrite = self._rewrite()
+        # field_parts = ['root', 'item'] and loop_name='item' -> in_loop=True,
+        # loop_index=1, rel_parts=[] -> new_xpath = './item'
+        result = rewrite({"id": "./root/item"}, "item")
+        assert result["id"] == "./item"
+
+    def test_in_loop_with_relative_parts(self):
+        """xpath inside loop with deeper parts -> ./<rel_parts>."""
+        rewrite = self._rewrite()
+        # loop_name='item', xpath='./root/item/id' -> in_loop=True,
+        # rel_parts=['id'] -> './id'
+        result = rewrite({"id": "./root/item/id"}, "item")
+        assert result["id"] == "./id"
+
+    def test_field_outside_loop_uses_ancestor_axis(self):
+        """A field NOT under the loop element -> ./ancestor::<path>
+        (lines 320-321)."""
+        rewrite = self._rewrite()
+        # xpath='./root/header' and loop_name='item' -> in_loop=False
+        # -> new_xpath = './ancestor::root/header'
+        result = rewrite({"hdr": "./root/header"}, "item")
+        assert result["hdr"] == "./ancestor::root/header"
+
+
+class TestConverterRawXmlEdges:
+    """Cover line 409 (raw_xml provided but missing nodeData)."""
+
+    def test_raw_xml_without_nodedata_emits_warning(self):
+        """raw_xml is provided but contains no <nodeData> child -> warning."""
+        # Build a node element with NO nodeData child
+        raw_xml = ET.fromstring(
+            '<node componentName="tXMLMap" componentVersion="0.1" />'
+        )
+        node = _make_node(raw_xml=raw_xml)
+        result = XMLMapConverter().convert(node, [], {})
+
+        # Convert returns a ComponentResult; warnings should mention missing nodeData
+        warnings = result.warnings
+        assert any("nodeData element not found" in w for w in warnings), (
+            f"Expected 'nodeData element not found' warning; got {warnings}"
+        )
