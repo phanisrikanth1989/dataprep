@@ -16,6 +16,9 @@ __pycache__/
 !tests/fixtures/jobs/**/*.json
 # Plan 14-09 deep-gap fixture data (sample_*.json for file_input_json tests).
 !tests/fixtures/data/**/*.json
+# Plan 14-12 closeout: committed per-phase coverage.json artifact (locked Q4).
+# The project-wide *.json rule otherwise silently ignores this acceptance artifact.
+!.planning/phases/**/*coverage.json
 
 # Maven build artifacts
 src/v1/java_bridge/java/target/
