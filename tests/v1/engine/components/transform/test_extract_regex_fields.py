@@ -237,3 +237,120 @@ class TestStats:
         comp = _make_component(config={"field": "src", "regex": r"(\w+)"}, global_map=gm)
         comp.execute(None)
         assert gm.get_nb_line(comp.id) == 0
+
+
+# ------------------------------------------------------------------
+# TestCoverageLift_14_05 (COV-ERF-001)
+#
+# Target missed lines from Phase 14 baseline:
+#   - 91, 95   (field / regex empty after resolution -> DataValidationError)
+#   - 104-105  (re.compile error -> DataValidationError)
+#   - 113-120  (field missing in columns: die_on_error=True raises;
+#               die_on_error=False warns + uses first column)
+#   - 132-133  (no output_schema -> all_out_cols = input.columns; no extraction)
+#   - 174      (check_fields_num + die_on_error -> raise inside loop)
+#   - 195      (main_df missing schema column filled with None)
+#
+# NOTE: Former lines 144-147 (pd.isna try/except for TypeError/ValueError)
+# were removed under D-C5 in this same plan -- pd.isna() never raises on the
+# scalar source-column values (str/NaN/None) this component actually receives.
+# ------------------------------------------------------------------
+
+
+from src.v1.engine.exceptions import DataValidationError
+
+
+@pytest.mark.unit
+class TestCoverageLift1405:
+    """Targeted coverage for residual missed branches in extract_regex_fields.py."""
+
+    def test_field_empty_raises(self):
+        # Hits line 91.
+        comp = _make_component(config={"field": "", "regex": r"(\w+)"})
+        df = pd.DataFrame([{"src": "abc"}])
+        with pytest.raises((DataValidationError, ComponentExecutionError)) as excinfo:
+            comp.execute(df)
+        assert "field" in str(excinfo.value)
+
+    def test_regex_empty_raises(self):
+        # Hits line 95.
+        comp = _make_component(config={"field": "src", "regex": ""})
+        df = pd.DataFrame([{"src": "abc"}])
+        with pytest.raises((DataValidationError, ComponentExecutionError)) as excinfo:
+            comp.execute(df)
+        assert "regex" in str(excinfo.value)
+
+    def test_invalid_regex_raises_data_validation_error(self):
+        # Hits lines 104-105.
+        comp = _make_component(config={"field": "src", "regex": "(unbalanced"})
+        df = pd.DataFrame([{"src": "abc"}])
+        with pytest.raises((DataValidationError, ComponentExecutionError)) as excinfo:
+            comp.execute(df)
+        assert "valid regular expression" in str(excinfo.value)
+
+    def test_field_missing_with_die_on_error_raises(self):
+        # Hits lines 113-116.
+        comp = _make_component(config={
+            "field": "missing", "regex": r"(\w+)", "die_on_error": True,
+        })
+        _set_schema(comp, ["missing", "col1"])
+        df = pd.DataFrame([{"src": "hello"}])
+        with pytest.raises((DataValidationError, ComponentExecutionError)) as excinfo:
+            comp.execute(df)
+        assert "missing" in str(excinfo.value)
+
+    def test_field_missing_without_die_on_error_falls_back_to_first(self, caplog):
+        # Hits lines 117-120.
+        comp = _make_component(config={
+            "field": "missing", "regex": r"(\w+)", "die_on_error": False,
+        })
+        _set_schema(comp, ["missing", "col1"])
+        df = pd.DataFrame([{"src": "hello"}])
+        with caplog.at_level("WARNING"):
+            result = comp.execute(df)
+        assert any("missing" in rec.message for rec in caplog.records)
+        # Match was attempted on the first column ("src").
+        assert len(result["main"]) == 1
+
+    def test_no_output_schema_passes_through_without_extraction(self):
+        # Hits lines 132-133.
+        comp = _make_component(config={
+            "field": "src", "regex": r"(\w+)", "die_on_error": False,
+        })
+        # Do NOT set output_schema -- extracted_col_names becomes [], and
+        # all_out_cols becomes the original input columns.
+        df = pd.DataFrame([{"src": "hello"}])
+        result = comp.execute(df)
+        assert list(result["main"].columns) == ["src"]
+        assert result["main"].iloc[0]["src"] == "hello"
+
+    def test_check_fields_num_with_die_on_error_raises(self):
+        # Hits line 174.
+        comp = _make_component(config={
+            "field": "src",
+            "regex": r"(\w+)",  # 1 group
+            "die_on_error": True,
+            "check_fields_num": True,
+        })
+        _set_schema(comp, ["src", "col1", "col2"])  # expects 2 extracted groups
+        df = pd.DataFrame([{"src": "hello"}])
+        with pytest.raises((DataValidationError, ComponentExecutionError)) as excinfo:
+            comp.execute(df)
+        assert "Expected" in str(excinfo.value)
+
+    def test_missing_schema_columns_filled_with_none(self):
+        # Hits line 195: main_df missing column gets None.
+        comp = _make_component(config={
+            "field": "src", "regex": r"(\w+)", "die_on_error": False,
+        })
+        # 3 schema cols but regex captures only 1 group; one of the schema
+        # cols is absent from extraction and must be filled with None.
+        comp.output_schema = [
+            {"name": "src", "type": "id_String"},
+            {"name": "col1", "type": "id_String"},
+            {"name": "col2", "type": "id_String"},  # absent from groups
+        ]
+        df = pd.DataFrame([{"src": "hello"}])
+        result = comp.execute(df)
+        assert "col2" in result["main"].columns
+        assert pd.isna(result["main"].iloc[0]["col2"])

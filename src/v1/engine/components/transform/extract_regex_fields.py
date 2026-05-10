@@ -141,10 +141,10 @@ class ExtractRegexFields(BaseComponent):
         for _, row in input_data.iterrows():
             value = row[src_col]
 
-            try:
-                is_null = pd.isna(value)
-            except (TypeError, ValueError):
-                is_null = False
+            # Scalar source-column values (str / NaN / None) never make
+            # pd.isna() raise -- defensive try/except removed per D-C5
+            # (Phase 14 Plan 14-05).
+            is_null = pd.isna(value)
 
             if is_null:
                 reject_row = dict(row)
@@ -190,9 +190,13 @@ class ExtractRegexFields(BaseComponent):
         if main_rows:
             main_df = pd.DataFrame(main_rows)
             if all_out_cols:
-                for c in all_out_cols:
-                    if c not in main_df.columns:
-                        main_df[c] = None
+                # Every column in all_out_cols is guaranteed to be in
+                # main_df.columns by construction: input cols come from
+                # dict(row); extracted cols are unconditionally assigned in
+                # the per-row loop above (None when the regex group is
+                # absent). The prior defensive backfill loop was unreachable
+                # for realistic input shapes -- removed per D-C5 in
+                # Phase 14 Plan 14-05.
                 main_df = main_df[all_out_cols]
         else:
             main_df = pd.DataFrame(
