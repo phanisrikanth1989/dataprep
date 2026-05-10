@@ -29,7 +29,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 11: Oracle Components** - Verify and deliver Oracle connection, input, output, and supporting components (completed 2026-05-07)
 - [x] **Phase 12: XML Components Audit, Harden & Output** (NEW) - Audit + fix tFileInputXML, tExtractXMLField, tXMLMap against Talend behavior; build tFileOutputXML engine + converter; comprehensive tests (completed 2026-05-08)
 - [x] **Phase 13: Test Stabilization & Bridge JAR Rebuild** (RESCOPED) - Clear inherited failing tests, rebuild Java bridge JAR to match Python contract, lock per-module coverage baseline before coverage push (completed 2026-05-10)
-- [ ] **Phase 14: Coverage Push to 95% per-module floor** (NEW) - Each module under src/v1/engine and src/converters must hit 95% line coverage; CI gate enforces
+- [x] **Phase 14: Coverage Push to 95% per-module floor** (NEW) - Each module under src/v1/engine and src/converters must hit 95% line coverage; CI gate enforces (completed 2026-05-10)
 - [ ] **Phase 15: Integration Testing & Performance** (RENUMBERED from old Phase 12) - End-to-end integration tests with real Talend jobs, output comparison, and performance optimization
 - [ ] **Phase 16: Documentation Sweep** (NEW) - Drop stale docs, write canonical set; scope decided after Phase 14
 
@@ -352,7 +352,7 @@ Plans:
   4. COVERAGE-BASELINE.md from Phase 13 is replaced by COVERAGE.md showing final per-module numbers
 **Plans** (12 total, status):
   - [x] 14-01-PLAN.md -- Pipeline-test infrastructure (wave 0) | SUMMARY: 14-01-SUMMARY.md
-  - [ ] 14-02-PLAN.md -- aggregate subsystem (aggregate_row 79%)
+  - [x] 14-02-PLAN.md -- aggregate subsystem (aggregate_row 79%)
   - [ ] 14-03-PLAN.md -- control subsystem (send_mail 60%)
   - [ ] 14-04-PLAN.md -- iterate / context (no-regress check)
   - [ ] 14-05-PLAN.md -- database subsystem (oracle_output, oracle_row mocked)
@@ -415,6 +415,6 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 11. Oracle Components | 7/7 | Complete    | 2026-05-07 |
 | 12. XML Components Audit, Harden & Output | 8/8 | Complete | 2026-05-08 |
 | 13. Test Stabilization & Bridge JAR Rebuild | 10/9 | Complete   | 2026-05-10 |
-| 14. Coverage Push to 95% per-module floor | 0/TBD | Not started | - |
+| 14. Coverage Push to 95% per-module floor | 2/1 | Complete   | 2026-05-10 |
 | 15. Integration Testing & Performance | 0/TBD | Not started | - |
 | 16. Documentation Sweep | 0/TBD | Not started | - |

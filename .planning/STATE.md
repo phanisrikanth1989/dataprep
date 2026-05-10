@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 14 Plan 01 complete -- pipeline-test infrastructure shipped
-last_updated: "2026-05-10T22:42:00.000Z"
-last_activity: 2026-05-10 -- Phase 14 Plan 01 complete (5 commits, infra-only)
+stopped_at: Phase 14 Plan 01 complete -- pipeline-test infrastructure shipped (5 commits)
+last_updated: "2026-05-10T17:27:54.890Z"
+last_activity: 2026-05-10
 progress:
   total_phases: 20
-  completed_phases: 17
+  completed_phases: 18
   total_plans: 87
-  completed_plans: 91
+  completed_plans: 92
   percent: 100
 ---
 
@@ -26,10 +26,10 @@ See: .planning/PROJECT.md (updated 2026-04-14)
 ## Current Position
 
 Phase: 14 (coverage-push-to-95-per-module-floor) — EXECUTING
-Plan: 2 of 12 (1 of 12 complete)
+Plan: 3 of 12 (1 of 12 complete)
 Next: Phase 14 Plan 02 (aggregate subsystem -- aggregate_row 79% lift)
-Status: Executing Phase 14
-Last activity: 2026-05-10 -- Phase 14 Plan 01 complete (pipeline-test infrastructure)
+Status: Ready to execute
+Last activity: 2026-05-10
 
 Progress: [██████████] 100%
 
@@ -71,6 +71,7 @@ Progress: [██████████] 100%
 | Phase 12 P08 | 15 | 4 tasks | 5 files |
 | Phase 12 total | ~200 | 8 plans, 6 waves | 6 components + _xml_io |
 | Phase 13-test-stabilization-bridge-jar-rebuild P01 | 35 | 2 tasks | 5 files |
+| Phase 14 P02 | 35 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -89,6 +90,8 @@ Recent decisions affecting current work:
 - MANUAL_COMPONENT_AUTHORING.md enforces Rule 11 contract -- Phase 8 plans must reference it for new components
 - Phase 8 revision-2 Talend parity corrections (2026-04-29): java_row_component has NO REJECT (Talend tJavaRow has none either); python_row_component reject schema is errorMessage-only (no errorCode); D-29 one-shot passthrough is a DataPrep data-flow semantic, not a Talend feature; CONTEXT.md D-26 superseded -- code bodies are NOT context-resolved (SKIP_RESOLUTION_KEYS protection)
 - Phase 8 sandbox honesty: D-11 Python namespace whitelist is hygienic, NOT adversarial-proof -- pure-Python bypass via __subclasses__/__mro__ accepted; trust boundary is internal Citi job authors
+- [Phase ?]: Phase 14-02 BUG-AGG-001: list/list_object/union under ignore_null=False crashed on null-bearing input; root-cause fix via Series.fillna("null") + Java String.valueOf parity
+- [Phase ?]: Phase 14-02 D-C5 deletions: _build_agg_func unknown-function fallback (silent default-to-sum) -> explicit ConfigurationError; _process column-ordering safety loop removed
 
 ### Roadmap Evolution
 
@@ -160,6 +163,6 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
 
 ## Session Continuity
 
-Last session: 2026-05-10T22:42:00.000Z
+Last session: 2026-05-10T17:27:46.732Z
 Stopped at: Phase 14 Plan 01 complete -- pipeline-test infrastructure shipped (5 commits)
 Resume with: /gsd-execute-phase 14 (continue with Plan 14-02 aggregate subsystem)
