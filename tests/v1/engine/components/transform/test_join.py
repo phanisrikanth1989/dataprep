@@ -527,3 +527,322 @@ class TestEdgeCases:
         assert nb_line > 0
         assert nb_line_ok > 0
         assert nb_reject > 0
+
+
+# ------------------------------------------------------------------
+# TestValidationExtra -- Plan 14-06 lift, _validate_config defensive branches
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestValidationExtra:
+    """Defensive validation branches in _validate_config (lines 65, 70)."""
+
+    def test_join_key_not_a_list(self):
+        """join_key as a non-list value -> ConfigurationError."""
+        config = {**_DEFAULT_CONFIG, "join_key": "not_a_list"}
+        comp = _make_component(config=config)
+        with pytest.raises(ConfigurationError, match="must be a list"):
+            _exec(comp)
+
+    def test_join_key_entry_not_a_dict(self):
+        """join_key entry that is not a dict -> ConfigurationError."""
+        config = {**_DEFAULT_CONFIG, "join_key": ["not_a_dict_string"]}
+        comp = _make_component(config=config)
+        with pytest.raises(ConfigurationError, match="must be a dict"):
+            _exec(comp)
+
+    def test_join_key_input_column_not_string(self):
+        """input_column with non-string type -> ConfigurationError."""
+        config = {
+            **_DEFAULT_CONFIG,
+            "join_key": [{"input_column": 123, "lookup_column": "x"}],
+        }
+        comp = _make_component(config=config)
+        with pytest.raises(ConfigurationError, match="input_column"):
+            _exec(comp)
+
+    def test_join_key_lookup_column_not_string(self):
+        """lookup_column with non-string type -> ConfigurationError."""
+        config = {
+            **_DEFAULT_CONFIG,
+            "join_key": [{"input_column": "x", "lookup_column": 456}],
+        }
+        comp = _make_component(config=config)
+        with pytest.raises(ConfigurationError, match="lookup_column"):
+            _exec(comp)
+
+
+# ------------------------------------------------------------------
+# TestInputResolution -- Plan 14-06 lift
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestInputResolution:
+    """_resolve_inputs branches (lines 104-135)."""
+
+    def test_non_dict_input_data_raises(self):
+        """input_data must be a dict (line 105)."""
+        comp = _make_component()
+        with pytest.raises(ConfigurationError, match="Expected dict"):
+            comp.execute(_main_df())  # passing DataFrame directly
+
+    def test_explicit_main_lookup_keys(self):
+        """If input_data has 'main' and 'lookup' keys, use them directly (lines 111-112)."""
+        comp = _make_component()
+        comp.inputs = []  # not configured -- prove explicit keys win
+        result = comp.execute({"main": _main_df(), "lookup": _lookup_df()})
+        assert len(result["main"]) == 3
+
+    def test_inputs_list_resolution(self):
+        """When 'inputs' attr is a 2+ list, map first/second flow names."""
+        comp = _make_component()
+        comp.inputs = ["row1", "row2"]
+        result = comp.execute({"row1": _main_df(), "row2": _lookup_df()})
+        assert len(result["main"]) == 3
+
+    def test_fallback_first_two_values(self):
+        """No 'main'/'lookup' keys, no inputs list -> use first two non-None values (lines 118-122)."""
+        comp = _make_component()
+        comp.inputs = []  # empty list disables inputs-list path
+        result = comp.execute({
+            "alpha_flow": _main_df(),
+            "beta_flow": _lookup_df(),
+        })
+        assert len(result["main"]) == 3
+
+    def test_fallback_insufficient_inputs(self):
+        """Less than 2 non-None values -> ConfigurationError (line 123)."""
+        comp = _make_component()
+        comp.inputs = []
+        with pytest.raises(ConfigurationError, match="Requires exactly 2"):
+            comp.execute({"only_one": _main_df()})
+
+    def test_main_or_lookup_none_raises(self):
+        """One side None -> ConfigurationError (line 129)."""
+        comp = _make_component()
+        with pytest.raises(ConfigurationError, match="non-None"):
+            comp.execute({"main": _main_df(), "lookup": None})
+
+    def test_inputs_must_be_dataframes(self):
+        """Non-DataFrame input -> ConfigurationError (line 133)."""
+        comp = _make_component()
+        with pytest.raises(ConfigurationError, match="must be DataFrames"):
+            comp.execute({"main": _main_df(), "lookup": [1, 2, 3]})
+
+
+# ------------------------------------------------------------------
+# TestCaseInsensitiveJoin -- Plan 14-06 lift, JOIN-01 invariant
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCaseInsensitiveJoin:
+    """case_sensitive=False lowering branches (lines 181-186).
+
+    JOIN-01 invariant (Phase 7): original DataFrame must NOT be mutated.
+    """
+
+    def test_case_insensitive_match_succeeds(self):
+        """Main 'A', lookup 'a' with case_sensitive=False -> match."""
+        main = pd.DataFrame({"id": ["A"], "name": ["Alice"]})
+        lookup = pd.DataFrame({"ref_id": ["a"], "city": ["NYC"]})
+        config = {**_DEFAULT_CONFIG, "use_inner_join": True, "case_sensitive": False}
+        comp = _make_component(config=config)
+        result = _exec(comp, main=main, lookup=lookup)
+        assert len(result["main"]) == 1
+
+    def test_case_insensitive_does_not_mutate_caller_df(self):
+        """JOIN-01 invariant: original caller DataFrames unchanged after join."""
+        main = pd.DataFrame({"id": ["A", "B"], "name": ["Alice", "Bob"]})
+        lookup = pd.DataFrame({"ref_id": ["a", "B"], "city": ["NYC", "LA"]})
+        original_main_ids = main["id"].tolist()
+        original_lookup_ids = lookup["ref_id"].tolist()
+        config = {**_DEFAULT_CONFIG, "case_sensitive": False}
+        comp = _make_component(config=config)
+        _exec(comp, main=main, lookup=lookup)
+        # Original frames untouched: still uppercase main, mixed lookup
+        assert main["id"].tolist() == original_main_ids
+        assert lookup["ref_id"].tolist() == original_lookup_ids
+
+    def test_case_insensitive_mixed_case(self):
+        """Main 'Alice', lookup 'ALICE' with case_sensitive=False -> match."""
+        main = pd.DataFrame({"id": ["Alice", "Bob"], "name": ["x", "y"]})
+        lookup = pd.DataFrame({"ref_id": ["ALICE", "bob"], "city": ["NYC", "LA"]})
+        config = {**_DEFAULT_CONFIG, "use_inner_join": True, "case_sensitive": False}
+        comp = _make_component(config=config)
+        result = _exec(comp, main=main, lookup=lookup)
+        assert len(result["main"]) == 2
+
+
+# ------------------------------------------------------------------
+# TestIncludeLookupRenames -- Plan 14-06 lift
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestIncludeLookupRenames:
+    """Lookup column rename / suffix-collision branches (lines 241-258)."""
+
+    def test_lookup_col_with_rename(self):
+        """output_column != lookup_column triggers rename path (line 249)."""
+        config = {
+            **_DEFAULT_CONFIG,
+            "use_lookup_cols": True,
+            "lookup_cols": [{"output_column": "renamed_city", "lookup_column": "city"}],
+        }
+        comp = _make_component(config=config)
+        result = _exec(comp)
+        assert "renamed_city" in result["main"].columns
+        assert "city" not in result["main"].columns
+
+    def test_lookup_col_unique_to_lookup_renamed(self):
+        """Lookup column unique to lookup side, output_column != lookup_column -> rename branch (line 249)."""
+        # Lookup has 'city' (not in main), and we map it with a different output name.
+        config = {
+            **_DEFAULT_CONFIG,
+            "use_lookup_cols": True,
+            "lookup_cols": [
+                {"output_column": "city_renamed", "lookup_column": "city"}
+            ],
+        }
+        comp = _make_component(config=config)
+        result = _exec(comp)
+        assert "city_renamed" in result["main"].columns
+        assert "city" not in result["main"].columns
+
+    def test_lookup_col_no_rename_when_already_correct(self):
+        """output_column == source_col: no rename, just keep (line 254)."""
+        config = {
+            **_DEFAULT_CONFIG,
+            "use_lookup_cols": True,
+            "lookup_cols": [{"output_column": "city", "lookup_column": "city"}],
+        }
+        comp = _make_component(config=config)
+        result = _exec(comp)
+        assert "city" in result["main"].columns
+
+    def test_lookup_col_already_in_main_after_merge(self):
+        """Lookup column NOT in merged frame but output_column IS -- skip add (line 257)."""
+        # When lookup_column doesn't exist post-merge but output_column already does.
+        # This branch handles edge cases where the column already passed through.
+        config = {
+            **_DEFAULT_CONFIG,
+            "use_lookup_cols": True,
+            "lookup_cols": [{"output_column": "id", "lookup_column": "MISSING_LK"}],
+        }
+        comp = _make_component(config=config)
+        result = _exec(comp)
+        # 'id' already in main (it's a main col), so no error
+        assert "id" in result["main"].columns
+
+
+# ------------------------------------------------------------------
+# TestMergeArtifactCleanup -- Plan 14-06 lift
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestMergeArtifactCleanup:
+    """_merge column drop + duplicate-key column drop (lines 271, 273, 282, 285)."""
+
+    def test_merge_indicator_dropped_from_main(self):
+        """The pd.merge indicator='_merge' column must be dropped from main_out."""
+        comp = _make_component()
+        result = _exec(comp)
+        assert "_merge" not in result["main"].columns
+
+    def test_merge_indicator_dropped_from_reject(self):
+        """The pd.merge indicator='_merge' column must be dropped from reject_rows (line 273)."""
+        comp = _make_component()
+        result = _exec(comp)
+        assert result["reject"] is not None
+        assert "_merge" not in result["reject"].columns
+
+    def test_lookup_key_column_dropped_when_different_from_main_key(self):
+        """When mk != lk, the lookup key (lk) is dropped from main_out (line 282)."""
+        # main key 'id', lookup key 'ref_id' -- 'ref_id' must NOT survive in main_out
+        comp = _make_component()
+        result = _exec(comp)
+        assert "ref_id" not in result["main"].columns
+
+    def test_lookup_key_suffix_dropped(self):
+        """Lookup key with _lookup suffix dropped from main_out (line 285)."""
+        # Force a collision: main key column name == lookup key column name
+        main = pd.DataFrame({"id": ["A", "B"], "name": ["x", "y"]})
+        lookup = pd.DataFrame({"id": ["A", "C"], "city": ["NYC", "LA"]})
+        config = {
+            **_DEFAULT_CONFIG,
+            "join_key": [{"input_column": "id", "lookup_column": "id"}],
+        }
+        comp = _make_component(config=config)
+        result = _exec(comp, main=main, lookup=lookup)
+        # No duplicate id_lookup column should remain
+        assert "id_lookup" not in result["main"].columns
+
+
+# ------------------------------------------------------------------
+# TestExceptionPaths -- Plan 14-06 lift, lines 321-340
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestExceptionPaths:
+    """Generic exception branch + die_on_error toggle (lines 321-340)."""
+
+    def test_unexpected_error_die_on_error_true_raises(self):
+        """Generic exception during merge -> ComponentExecutionError with die_on_error=True."""
+        from src.v1.engine.exceptions import ComponentExecutionError
+
+        # Construct a config where an unexpected error surfaces.
+        # join_key references a column that doesn't exist in either frame
+        # AFTER validation passed (validation only checks shape, not column existence).
+        main = pd.DataFrame({"id": ["A"], "name": ["x"]})
+        lookup = pd.DataFrame({"ref_id": ["A"], "city": ["NYC"]})
+        config = {
+            **_DEFAULT_CONFIG,
+            "join_key": [
+                {"input_column": "MISSING_MAIN_COL", "lookup_column": "ref_id"},
+            ],
+            "die_on_error": True,
+        }
+        comp = _make_component(config=config)
+        with pytest.raises(ComponentExecutionError) as ei:
+            _exec(comp, main=main, lookup=lookup)
+        assert ei.value.component_id == "tJoin_1"
+
+    def test_unexpected_error_die_on_error_false_returns_empty(self):
+        """die_on_error=False -> graceful degradation: empty main, full main as reject."""
+        main = pd.DataFrame({"id": ["A", "B"], "name": ["x", "y"]})
+        lookup = pd.DataFrame({"ref_id": ["A"], "city": ["NYC"]})
+        config = {
+            **_DEFAULT_CONFIG,
+            "join_key": [
+                {"input_column": "MISSING_MAIN_COL", "lookup_column": "ref_id"},
+            ],
+            "die_on_error": False,
+        }
+        comp = _make_component(config=config)
+        result = _exec(comp, main=main, lookup=lookup)
+        # main empty, full main goes to reject
+        assert isinstance(result["main"], pd.DataFrame)
+        assert result["main"].empty
+        assert result["reject"] is not None
+        assert len(result["reject"]) == 2
+
+    def test_error_message_globalmap_on_unexpected_failure(self):
+        """ERROR_MESSAGE in globalMap on unexpected exception (line 329)."""
+        gm = GlobalMap()
+        config = {
+            **_DEFAULT_CONFIG,
+            "join_key": [
+                {"input_column": "MISSING_COL", "lookup_column": "ref_id"},
+            ],
+            "die_on_error": False,
+        }
+        comp = _make_component(config=config, global_map=gm)
+        _exec(comp)
+        # ERROR_MESSAGE set
+        msg = gm.get("tJoin_1_ERROR_MESSAGE")
+        assert msg is not None
