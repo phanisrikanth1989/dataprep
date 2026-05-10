@@ -342,3 +342,71 @@ class TestContextMixin:
         assert hasattr(PythonComponent, "_get_context_dict")
         # But NOT defined directly on PythonComponent itself (no copy).
         assert "_get_context_dict" not in PythonComponent.__dict__
+
+
+# ----------------------------------------------------------------
+# TestCoverageLift_14_05 (COV-PYC-001)
+#
+# Target missed lines from Phase 14 baseline:
+#   - 171-172 (_build_exec_namespace: routines spread + nested mapping)
+#   - 174     (_build_exec_namespace: input_row binding)
+#   - 176     (_build_exec_namespace: output_row binding)
+#   - 219     (python_code not a string -> ConfigurationError)
+#   - 223     (python_code empty after resolution -> ConfigurationError)
+# ----------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCoverageLift1405:
+    """Targeted coverage for residual missed branches in python_component.py."""
+
+    def test_routines_spread_into_namespace(self):
+        # Hits lines 171-172.
+        comp = _make_component()
+
+        class _FakeRoutineMgr:
+            def get_all_routines(self):
+                return {"my_routine": lambda x: x + 1}
+
+        comp.python_routine_manager = _FakeRoutineMgr()
+        ns = comp._build_exec_namespace()
+        assert "routines" in ns
+        assert "my_routine" in ns
+        assert ns["my_routine"](10) == 11
+        assert ns["routines"]["my_routine"](10) == 11
+
+    def test_input_row_binding(self):
+        # Hits line 174.
+        comp = _make_component()
+        in_row = {"a": 1, "b": "x"}
+        ns = comp._build_exec_namespace(input_row=in_row)
+        assert ns["input_row"] is in_row
+
+    def test_output_row_binding(self):
+        # Hits line 176.
+        comp = _make_component()
+        out_row = {"b": 2}
+        ns = comp._build_exec_namespace(output_row=out_row)
+        assert ns["output_row"] is out_row
+
+    def test_python_code_not_a_string_raises(self):
+        # Hits line 219.
+        config = {
+            "component_type": "PythonComponent",
+            "python_code": 12345,  # truthy non-string -- passes _validate_config
+        }
+        comp = _make_component(config=config)
+        with pytest.raises(ConfigurationError) as excinfo:
+            comp._process(input_data=None)
+        assert "must be a string" in str(excinfo.value)
+
+    def test_python_code_whitespace_only_raises(self):
+        # Hits line 223.
+        config = {
+            "component_type": "PythonComponent",
+            "python_code": "   \n\t  ",  # truthy -- passes _validate_config
+        }
+        comp = _make_component(config=config)
+        with pytest.raises(ConfigurationError) as excinfo:
+            comp._process(input_data=None)
+        assert "non-empty after resolution" in str(excinfo.value)
