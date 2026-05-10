@@ -408,7 +408,7 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | TEST-08 | Phase 6 | Complete |
 | TEST-09 | Phase 13 | Complete |
 | TEST-10 | Phase 13 | Complete |
-| TEST-11 | Phase 14 | In Progress (Plan 14-01 infra shipped; lifts pending) |
+| TEST-11 | Phase 14 | In Progress (Plans 14-01..14-05 + 14-08 shipped; 6 of 12 plans complete) |
 | TEST-12 | Phase 14 | In Progress (Plan 14-01 script + pyproject config shipped; final COVERAGE.md + CLAUDE.md update at closeout) |
 | PERF-01 | Phase 3 | Complete |
 | PERF-02 | Phase 8 | Pending |

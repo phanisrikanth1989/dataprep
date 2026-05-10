@@ -358,13 +358,13 @@ Plans:
   - [x] 14-05-PLAN.md -- transform quick wins + medium gaps (12 modules 80-94% -> 100%; BUG-EJF-001 fix; 5 D-C5 deletions) | SUMMARY: 14-05-SUMMARY.md
   - [ ] 14-06-PLAN.md -- transform deep gaps non-SWIFT (map, join, python_dataframe_component)
   - [ ] 14-07-PLAN.md -- SWIFT (swift_transformer + swift_block_formatter + synthetic MT generator)
-  - [ ] 14-08-PLAN.md -- file quick wins + medium gaps
+  - [x] 14-08-PLAN.md -- file quick wins (12 modules 81-94% -> >=99.5%; STALE-FOD-001 D-C5 deletion; D-RULE3 .gitignore unblock; 3 pipeline fixtures) | SUMMARY: 14-08-SUMMARY.md
   - [ ] 14-09-PLAN.md -- file deep gaps (file_input_excel, file_output_excel, file_input_json, file_input_raw)
   - [ ] 14-10-PLAN.md -- engine core (executor, base_*, trigger_manager, engine.py, java_bridge_manager)
   - [ ] 14-11-PLAN.md -- converter core + components
   - [ ] 14-12-PLAN.md -- closeout (14-COVERAGE.md, CLAUDE.md gate update)
 
-**Phase 14 Plan Progress** (5 of 12 complete):
+**Phase 14 Plan Progress** (6 of 12 complete):
 
 | Plan | Status | Tasks | Modules Lifted |
 |------|--------|------:|---------------:|
@@ -373,7 +373,8 @@ Plans:
 | 14-03 | Complete | 3/3 | 1 (send_mail 60% -> 100%) |
 | 14-04 | Complete | 3/3 | 2 (oracle_output 94.1% -> 99.5%, oracle_row 90.3% -> 100.0%) |
 | 14-05 | Complete | 13/13 | 12 (replace, python_row_component, pivot, parse_record_set, row_generator, python_component, extract_positional_fields, extract_regex_fields, convert_type, extract_json_fields, extract_delimited_fields, filter_rows -- all 80-94% -> 100%) |
-| 14-06..14-12 | Pending | -- | -- |
+| 14-08 | Complete | 16/16 | 12 (file_list, file_unarchive, file_properties, file_copy, file_input_properties, fixed_flow_input, set_global_var, file_input_delimited, file_output_delimited, file_output_positional, file_input_positional, file_touch -- all 81-94% -> >=99.5%; 10 at 100%) |
+| 14-06, 14-07, 14-09..14-12 | Pending | -- | -- |
 
 ### Phase 15: Integration Testing & Performance
 **Goal**: Real Talend jobs converted from .item XML run end-to-end through the Python engine and produce identical output to Talend, with acceptable performance for production workloads
