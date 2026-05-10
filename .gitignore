@@ -12,3 +12,8 @@ __pycache__/
 # Maven build artifacts
 src/v1/java_bridge/java/target/
 src/v1/java_bridge/java/dependency-reduced-pom.xml
+
+# Coverage artifacts (Phase 14 gate command outputs)
+.coverage
+.coverage.*
+htmlcov/
