@@ -307,3 +307,129 @@ class TestNoopConfig:
         comp = _make_component({"autocast": False, "manualtable": []})
         result = comp.execute(df)
         assert list(result["main"]["word"]) == ["alpha", "beta"]
+
+
+# ------------------------------------------------------------------
+# TestCoverageLift_14_05 (COV-CVT-001)
+#
+# Target missed lines from Phase 14 baseline:
+#   - 71-75   (_coerce_series bool/boolean branch)
+#   - 76-77   (_coerce_series int branch)
+#   - 78-79   (_coerce_series float / double / decimal branch)
+#   - 80-81   (_coerce_series object / str / string branch)
+#   - 82-83   (_coerce_series generic fallback via astype(target_dtype))
+#   - 196-200 (manualtable: in_col != out_col vs in_col == out_col)
+#   - 220     (autocast skips reserved "error_code"/"error_message" cols)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCoverageLift1405:
+    """Targeted coverage for residual missed branches in convert_type.py."""
+
+    def test_coerce_bool_from_object_strings(self):
+        # Hits lines 71-74 (object dtype branch).
+        from src.v1.engine.components.transform.convert_type import _coerce_series
+        s = pd.Series(["true", "false", "TRUE"], dtype=object)
+        out = _coerce_series(s, "boolean", "c")
+        assert list(out) == [True, False, True]
+
+    def test_coerce_bool_from_numeric(self):
+        # Hits line 75 (non-object branch -> astype(bool)).
+        from src.v1.engine.components.transform.convert_type import _coerce_series
+        s = pd.Series([1, 0, 2])
+        out = _coerce_series(s, "bool", "c")
+        assert list(out) == [True, False, True]
+
+    def test_coerce_int_via_to_numeric_int64(self):
+        # Hits lines 76-77.
+        from src.v1.engine.components.transform.convert_type import _coerce_series
+        s = pd.Series(["10", "20", "30"], dtype=object)
+        out = _coerce_series(s, "int64", "c")
+        assert str(out.dtype) == "Int64"
+        assert list(out) == [10, 20, 30]
+
+    def test_coerce_float_via_to_numeric(self):
+        # Hits lines 78-79.
+        from src.v1.engine.components.transform.convert_type import _coerce_series
+        s = pd.Series(["1.5", "2.25"], dtype=object)
+        out = _coerce_series(s, "float64", "c")
+        assert list(out) == [1.5, 2.25]
+
+    def test_coerce_decimal_alias_via_to_numeric(self):
+        # Also hits 78-79 ("decimal" alias).
+        from src.v1.engine.components.transform.convert_type import _coerce_series
+        s = pd.Series(["3.14"], dtype=object)
+        out = _coerce_series(s, "decimal", "c")
+        assert list(out) == [3.14]
+
+    def test_coerce_to_string(self):
+        # Hits lines 80-81 (string branch).
+        from src.v1.engine.components.transform.convert_type import _coerce_series
+        s = pd.Series([1, 2, None], dtype=object)
+        out = _coerce_series(s, "string", "c")
+        assert str(out.iloc[0]) == "1"
+        assert str(out.iloc[1]) == "2"
+        assert pd.isna(out.iloc[2])
+
+    def test_coerce_generic_fallback(self):
+        # Hits line 83 (generic astype fallback for an unmapped dtype).
+        # "float32" matches the "float" substring branch (line 78), so we
+        # need a dtype name that doesn't contain any of: datetime, date, bool,
+        # int, float, double, decimal, object, str, string. "category" works.
+        from src.v1.engine.components.transform.convert_type import _coerce_series
+        s = pd.Series(["a", "b", "a"])
+        out = _coerce_series(s, "category", "c")
+        assert str(out.dtype) == "category"
+
+    def test_manualtable_in_col_eq_out_col_inplace_cast(self):
+        # Hits line 200 (in_col == out_col branch). The simple "to_numeric
+        # default" shortcut at line 188-192 only fires when target_dtype is
+        # "object" -- giving an explicit non-object output schema bypasses it
+        # and routes the row loop through _coerce_series. We use a float
+        # source column so that the int64 coerced result can land back in
+        # place without pandas 3.0 strict-dtype assignment errors.
+        comp = _make_component({
+            "manualtable": [{"input_column": "amount", "output_column": "amount"}],
+            "dieonerror": False,
+        })
+        comp.output_schema = [{"name": "amount", "type": "int"}]
+        df = pd.DataFrame({"amount": [1.0, 2.0, 3.0]})
+        result = comp.execute(df)
+        assert list(result["main"]["amount"]) == [1, 2, 3]
+
+    def test_manualtable_in_col_neq_out_col_writes_to_target(self):
+        # Hits lines 196-198 (in_col != out_col branch).
+        comp = _make_component({
+            "manualtable": [{"input_column": "src", "output_column": "dst"}],
+            "dieonerror": False,
+        })
+        comp.output_schema = [
+            {"name": "src", "type": "string"},
+            {"name": "dst", "type": "int"},
+        ]
+        df = pd.DataFrame({"src": ["10", "20"], "dst": [None, None]})
+        result = comp.execute(df)
+        # dst column populated with int conversion of src; src untouched.
+        assert int(result["main"].iloc[0]["dst"]) == 10
+        assert int(result["main"].iloc[1]["dst"]) == 20
+        assert result["main"].iloc[0]["src"] == "10"
+
+    def test_autocast_skips_error_code_and_error_message_columns(self):
+        # Hits line 220 (continue when col is "error_code" or "error_message").
+        # We pre-seed those columns so autocast's loop iterates over them and
+        # the skip branch fires. Use float dtype on the data column so the
+        # autocast path can successfully assign back without pandas 3.0
+        # strict-dtype assignment errors (the goal here is to verify that
+        # error_code/error_message are NOT touched, regardless of whether
+        # data autocasts).
+        comp = _make_component({"autocast": True, "manualtable": []})
+        df = pd.DataFrame({
+            "data": [1.0, 2.0, 3.0],
+            "error_code": ["X1", "X2", "X3"],
+            "error_message": ["foo", "bar", "baz"],
+        })
+        result = comp.execute(df)
+        # The skip branch protected error_code / error_message from coercion.
+        assert result["main"]["error_code"].tolist() == ["X1", "X2", "X3"]
+        assert result["main"]["error_message"].tolist() == ["foo", "bar", "baz"]
