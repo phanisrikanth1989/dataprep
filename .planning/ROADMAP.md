@@ -29,7 +29,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 11: Oracle Components** - Verify and deliver Oracle connection, input, output, and supporting components (completed 2026-05-07)
 - [x] **Phase 12: XML Components Audit, Harden & Output** (NEW) - Audit + fix tFileInputXML, tExtractXMLField, tXMLMap against Talend behavior; build tFileOutputXML engine + converter; comprehensive tests (completed 2026-05-08)
 - [x] **Phase 13: Test Stabilization & Bridge JAR Rebuild** (RESCOPED) - Clear inherited failing tests, rebuild Java bridge JAR to match Python contract, lock per-module coverage baseline before coverage push (completed 2026-05-10)
-- [x] **Phase 14: Coverage Push to 95% per-module floor** (NEW) - Each module under src/v1/engine and src/converters must hit 95% line coverage; CI gate enforces (completed 2026-05-10)
+- [x] **Phase 14: Coverage Push to 95% per-module floor** (NEW) - Every module under src/v1/engine and src/converters at >=95% line-coverage floor; paste-runnable gate command in CLAUDE.md and 14-COVERAGE.md verifies the floor (operational CI deferred to a future phase per D-E1) (completed 2026-05-11)
 - [ ] **Phase 15: Integration Testing & Performance** (RENUMBERED from old Phase 12) - End-to-end integration tests with real Talend jobs, output comparison, and performance optimization
 - [ ] **Phase 16: Documentation Sweep** (NEW) - Drop stale docs, write canonical set; scope decided after Phase 14
 
@@ -344,12 +344,12 @@ Plans:
 ### Phase 14: Coverage Push to 95% per-module floor
 **Goal**: Every module under src/v1/engine and src/converters meets a 95% line-coverage floor verified by a paste-runnable gate command (operational CI deferred to a future phase per D-E1), so no part of the migration surface is silently untested
 **Depends on**: Phase 13
-**Requirements**: TEST-11, TEST-12 (new -- added during discuss-phase)
+**Requirements**: TEST-11, TEST-12
 **Success Criteria** (what must be TRUE):
-  1. Per-module coverage report shows >= 95% line coverage for every module under src/v1/engine and src/converters
-  2. Paste-runnable gate command documented in 14-COVERAGE.md and CLAUDE.md; running the command verifies the 95% floor (D-E1 amends original "CI gate" criterion)
-  3. Tests added during this phase are real-behavior tests (no coverage-gaming via `# pragma: no cover` on logic paths)
-  4. COVERAGE-BASELINE.md from Phase 13 is replaced by COVERAGE.md showing final per-module numbers
+  1. Per-module coverage report shows >= 95% line coverage for every in-scope module under src/v1/engine and src/converters -- DONE (181 in-scope modules, all PASS; overall 98.3%)
+  2. Paste-runnable gate command documented in `14-COVERAGE.md` and CLAUDE.md; running the command verifies the 95% floor (D-E1 amends original "CI gate" criterion -- operational CI deferred) -- DONE
+  3. Tests added during this phase are real-behavior tests (no coverage-gaming via `# pragma: no cover` on logic paths; D-C3 narrow allowlist enforced via `[tool.coverage.report] exclude_also` regexes, zero inline pragmas in scope) -- DONE
+  4. COVERAGE-BASELINE.md from Phase 13 is replaced by COVERAGE.md showing final per-module numbers -- DONE (14-COVERAGE.md committed; 13-COVERAGE-BASELINE.md stays archived per D-E3)
 **Plans** (12 total, status):
   - [x] 14-01-PLAN.md -- Pipeline-test infrastructure (wave 0) | SUMMARY: 14-01-SUMMARY.md
   - [x] 14-02-PLAN.md -- aggregate subsystem (aggregate_row 79%)
@@ -365,23 +365,42 @@ Plans:
   - [x] 14-11-PLAN.md -- converter core + components (8 modules 78-97% -> >=97.2%; STALE-INT-001 legacy complex_converter removal) | SUMMARY: 14-11-SUMMARY.md
   - [ ] 14-12-PLAN.md -- closeout (14-COVERAGE.md, CLAUDE.md gate update)
 
-**Phase 14 Plan Progress** (10 of 12 complete):
+**Plans:** 12/12 plans complete (+ 14-06b gap-closure follow-on + COV-CJ-001 converter join.py extras)
+
+Plans:
+- [x] 14-01-PLAN.md -- Pipeline-test infrastructure (root conftest, fixture-jobs scaffolding, pyproject coverage config, xdist pin, floor script)
+- [x] 14-02-PLAN.md -- engine.components.aggregate (aggregate_row 79% -> 100%)
+- [x] 14-03-PLAN.md -- engine.components.control (send_mail 60% -> 100%)
+- [x] 14-04-PLAN.md -- engine.components.database (oracle_output 94.1% -> 99.5%, oracle_row 90.3% -> 100%)
+- [x] 14-05-PLAN.md -- engine.components.transform quick wins (12 modules 80-94% -> 100%)
+- [x] 14-06-PLAN.md -- engine.components.transform deep gaps non-SWIFT (join 69% -> 100%, python_dataframe_component 20% -> 100%, log_row 97% -> 100%; map.py PARTIAL closed by 14-06b)
+- [x] 14-06b (follow-on) -- map.py 79.6% -> 95.85% via 26 unit tests + 16 @pytest.mark.java tests
+- [x] 14-07-PLAN.md -- SWIFT (swift_transformer 7% -> 98.0%, swift_block_formatter 7% -> 97.2%)
+- [x] 14-08-PLAN.md -- engine.components.file quick wins (12 modules 81-94% -> >=99.5%)
+- [x] 14-09-PLAN.md -- engine.components.file deep gaps (file_output_excel, file_input_excel, file_input_json, file_input_raw all 9-69% -> >=97.4%)
+- [x] 14-10-PLAN.md -- engine core (7 modules incl. java_bridge_manager 52.5% -> 99.0% via @pytest.mark.java)
+- [x] 14-11-PLAN.md -- converters (8 modules 78-97% -> >=97.2%)
+- [x] 14-12-PLAN.md -- closeout (14-COVERAGE.md, 14-coverage.json, 14-VERIFICATION.md, 14-PHASE-SUMMARY.md, CLAUDE.md/REQUIREMENTS.md/ROADMAP.md/STATE.md updates)
+
+**Completed**: 2026-05-11 | **SUMMARY**: 14-PHASE-SUMMARY.md
+
+**Phase 14 Plan Progress** (12 of 12 complete):
 
 | Plan | Status | Tasks | Modules Lifted |
 |------|--------|------:|---------------:|
 | 14-01 | Complete | 6/6 | 0 (infra-only) |
-| 14-02 | Complete | 2/2 | 1 (aggregate_row 79% -> >=95%) |
+| 14-02 | Complete | 2/2 | 1 (aggregate_row 79% -> 100%) |
 | 14-03 | Complete | 3/3 | 1 (send_mail 60% -> 100%) |
 | 14-04 | Complete | 3/3 | 2 (oracle_output 94.1% -> 99.5%, oracle_row 90.3% -> 100.0%) |
-| 14-05 | Complete | 13/13 | 12 (replace, python_row_component, pivot, parse_record_set, row_generator, python_component, extract_positional_fields, extract_regex_fields, convert_type, extract_json_fields, extract_delimited_fields, filter_rows -- all 80-94% -> 100%) |
-| 14-06 | Complete (3/4 + 1 deferred) | 9 commits | 3 (join.py 69.2% -> 100%, python_dataframe_component.py 19.6% -> 100%, log_row.py 96.7% -> 100%); map.py PARTIAL 73.8% -> 83.1% (147 lines deferred -- bridge-driven paths) |
-| 14-06b | Complete | 2 commits | 1 (map.py 79.6% -> 95.85%; Plan 14-06 deferred gap RESOLVED via 26 unit tests + 16 @pytest.mark.java tests) |
-| 14-08 | Complete | 16/16 | 12 (file_list, file_unarchive, file_properties, file_copy, file_input_properties, fixed_flow_input, set_global_var, file_input_delimited, file_output_delimited, file_output_positional, file_input_positional, file_touch -- all 81-94% -> >=99.5%; 10 at 100%) |
-| 14-11 | Complete | 9/9 | 8 (converter 97.6% -> 100%, expression_converter 77.8% -> 98.9%, xml_map 87.9% -> 98.1%, replace 93.7% -> 100%, aggregate_row 90.5% -> 100%, foreach 94.4% -> 97.2%, file_input_excel 94.3% -> 100%, mssql_input 81% -> 100%) |
-| 14-07 | Complete | 7/7 | 2 (swift_block_formatter 7% -> 97.2%, swift_transformer 7% -> 98.0%); 5 BUG-SWIFT source fixes; D-C5 dead-code deletion |
-| 14-09 | Complete | 9/9 | 4 (file_output_excel 69.0% -> 100%, file_input_excel 28.7% -> 97.4%, file_input_json 9.3% -> 100%, file_input_raw 17.7% -> 100%); 2 BUG-FIJ source fixes (registration + abstract _validate_config); 12 binary/text + 3 pipeline-job fixtures committed |
-| 14-10 | Complete | 11/11 | 7 engine-core (trigger_manager 91.3% -> 100%, executor 91.0% -> 95.2%, base_iterate_component 90.7% -> 100%, base_component 80.7% -> 97.1%, python_routine_manager 81.6% -> 98.0%, engine 88.6% -> 100%, java_bridge_manager 52.5% -> 99.0% via @pytest.mark.java); 3 new core/* pipeline fixtures; resolved Plan 14-01 JVM-contention deferral |
-| 14-12 | Pending | -- | -- |
+| 14-05 | Complete | 13/13 | 12 (transform quick wins 80-94% -> 100%) |
+| 14-06 | Complete (3/4 + 1 follow-on) | 9 commits | 3 (join.py, python_dataframe_component.py, log_row.py); map.py PARTIAL -> 14-06b |
+| 14-06b | Complete | 2 commits | 1 (map.py 79.6% -> 95.85%) |
+| 14-07 | Complete | 7/7 | 2 (swift_block_formatter, swift_transformer 7% -> ~97-98%) |
+| 14-08 | Complete | 16/16 | 12 (file quick wins 81-94% -> >=99.5%) |
+| 14-09 | Complete | 9/9 | 4 (file deep gaps: file_output_excel, file_input_excel, file_input_json, file_input_raw) |
+| 14-10 | Complete | 11/11 | 7 engine-core (incl. java_bridge_manager via @pytest.mark.java) |
+| 14-11 | Complete | 9/9 | 8 (converter core + components) |
+| 14-12 | Complete | 9/9 | 0 (closeout -- no module lifts; 1 incidental converter join.py 94.7% -> 100% via COV-CJ-001) |
 
 ### Phase 15: Integration Testing & Performance
 **Goal**: Real Talend jobs converted from .item XML run end-to-end through the Python engine and produce identical output to Talend, with acceptable performance for production workloads
@@ -427,6 +446,6 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 11. Oracle Components | 7/7 | Complete    | 2026-05-07 |
 | 12. XML Components Audit, Harden & Output | 8/8 | Complete | 2026-05-08 |
 | 13. Test Stabilization & Bridge JAR Rebuild | 10/9 | Complete   | 2026-05-10 |
-| 14. Coverage Push to 95% per-module floor | 2/1 | Complete   | 2026-05-10 |
+| 14. Coverage Push to 95% per-module floor | 12/12 | Complete   | 2026-05-11 |
 | 15. Integration Testing & Performance | 0/TBD | Not started | - |
 | 16. Documentation Sweep | 0/TBD | Not started | - |
