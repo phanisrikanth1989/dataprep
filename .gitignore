@@ -9,6 +9,12 @@ __pycache__/
 .claude/
 .gemini/
 
+# Pipeline-test fixture jobs (Phase 14): override the *.json rule above.
+# Without this negation, fixtures committed to tests/fixtures/jobs/ are
+# silently ignored by `git add` and the run_job_fixture loader has nothing
+# to read. Plans 14-08..14-11 all rely on these JSON fixtures being tracked.
+!tests/fixtures/jobs/**/*.json
+
 # Maven build artifacts
 src/v1/java_bridge/java/target/
 src/v1/java_bridge/java/dependency-reduced-pom.xml
