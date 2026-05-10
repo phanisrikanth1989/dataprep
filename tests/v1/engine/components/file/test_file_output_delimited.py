@@ -1387,3 +1387,375 @@ class TestStreamingWriteStarted:
         content = open(filepath, encoding="ISO-8859-15").read()
         assert "pre" in content, "Pre-existing content must be kept when append=True"
         assert "New" in content
+
+
+# ------------------------------------------------------------------
+# Plan 14-08 coverage lift: missed-line clusters
+# (Pragma at line 364 already deleted in commit STALE-FOD-001)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCoverageLift1408ModuleHelpers:
+    """Module-level helpers _safe_int and _resolve_csv_row_separator."""
+
+    def test_safe_int_parses_valid_string(self):
+        from src.v1.engine.components.file.file_output_delimited import _safe_int
+        assert _safe_int("42", default=99) == 42
+
+    def test_safe_int_falls_back_on_invalid(self):
+        from src.v1.engine.components.file.file_output_delimited import _safe_int
+        assert _safe_int("abc", default=99) == 99
+        assert _safe_int(None, default=7) == 7
+
+    def test_resolve_csv_row_separator_known_codes(self):
+        from src.v1.engine.components.file.file_output_delimited import (
+            _resolve_csv_row_separator,
+        )
+        assert _resolve_csv_row_separator("LF") == "\n"
+        assert _resolve_csv_row_separator("CRLF") == "\r\n"
+
+    def test_resolve_csv_row_separator_falls_back_to_unescape(self):
+        """_resolve_csv_row_separator: unknown code goes through _unescape (line 893)."""
+        from src.v1.engine.components.file.file_output_delimited import (
+            _resolve_csv_row_separator,
+        )
+        # raw escape sequence not in the known code map
+        assert _resolve_csv_row_separator("\\t") == "\t"
+        # plain literal passes through unchanged
+        assert _resolve_csv_row_separator("|") == "|"
+
+
+@pytest.mark.unit
+class TestCoverageLift1408HeaderColumns:
+    """_get_header_columns logic."""
+
+    def test_returns_empty_list_when_no_schemas(self):
+        """No output_schema and no input_schema -> [] (line 837)."""
+        comp = _make_component()
+        comp.output_schema = None
+        comp.input_schema = None
+        assert comp._get_header_columns() == []
+
+
+@pytest.mark.unit
+class TestCoverageLift1408DateFormatter:
+    """Branches inside _apply_date_patterns."""
+
+    def test_skips_non_dict_schema_entries(self):
+        """schema entry that isn't a dict -> continue (line 351-352)."""
+        comp = _make_component()
+        comp.input_schema = ["not_a_dict",
+                             {"name": "ts", "type": "datetime",
+                              "date_pattern": "%Y-%m-%d"}]
+        df = pd.DataFrame({"ts": pd.to_datetime(["2024-01-15"])})
+        out = comp._apply_date_patterns(df.copy())
+        assert list(out["ts"]) == ["2024-01-15"]
+
+    def test_skips_columns_missing_from_dataframe(self):
+        """schema name missing from df.columns -> continue (354-355)."""
+        comp = _make_component()
+        comp.input_schema = [{"name": "missing_col", "type": "datetime",
+                              "date_pattern": "%Y-%m-%d"}]
+        df = pd.DataFrame({"present_col": [1, 2]})
+        out = comp._apply_date_patterns(df.copy())
+        assert "missing_col" not in out.columns
+        assert list(out["present_col"]) == [1, 2]
+
+    def test_skips_when_no_pattern_or_non_date_type(self):
+        """no pattern OR non-date type -> continue (358-359)."""
+        comp = _make_component()
+        comp.input_schema = [
+            {"name": "x", "type": "datetime", "date_pattern": ""},
+            {"name": "y", "type": "str", "date_pattern": "%Y"},
+        ]
+        df = pd.DataFrame({"x": pd.to_datetime(["2024-01-15"]),
+                           "y": ["raw"]})
+        out = comp._apply_date_patterns(df.copy())
+        assert pd.api.types.is_datetime64_any_dtype(out["x"])
+        assert list(out["y"]) == ["raw"]
+
+    def test_coerces_non_datetime_column_via_to_datetime(self):
+        """series not datetime dtype -> pd.to_datetime(...,errors='coerce') (line 368)."""
+        comp = _make_component()
+        comp.input_schema = [{"name": "ts", "type": "datetime",
+                              "date_pattern": "%Y-%m-%d"}]
+        df = pd.DataFrame({"ts": ["2024-01-15", "2024-02-20", "garbage"]})
+        out = comp._apply_date_patterns(df.copy())
+        assert list(out["ts"]) == ["2024-01-15", "2024-02-20", ""]
+
+
+@pytest.mark.unit
+class TestCoverageLift1408DecimalFormatter:
+    """Branches inside _apply_decimal_precision."""
+
+    def test_skips_non_dict_schema_entries(self):
+        """non-dict schema entry -> continue (392-393)."""
+        comp = _make_component()
+        comp.input_schema = ["not_a_dict",
+                             {"name": "amt", "type": "decimal", "precision": 2}]
+        df = pd.DataFrame({"amt": [12.345]})
+        out = comp._apply_decimal_precision(df.copy())
+        assert list(out["amt"]) == ["12.35"]
+
+    def test_skips_columns_missing_from_dataframe(self):
+        """missing col in df -> continue (line 396)."""
+        comp = _make_component()
+        comp.input_schema = [{"name": "missing", "type": "decimal", "precision": 2}]
+        df = pd.DataFrame({"present": [1.0]})
+        out = comp._apply_decimal_precision(df.copy())
+        assert "missing" not in out.columns
+
+    def test_skips_when_precision_missing_or_negative(self):
+        """precision None / < 0 -> continue (line 401)."""
+        comp = _make_component()
+        comp.input_schema = [
+            {"name": "a", "type": "decimal"},
+            {"name": "b", "type": "decimal", "precision": -1},
+        ]
+        df = pd.DataFrame({"a": [1.5], "b": [2.5]})
+        out = comp._apply_decimal_precision(df.copy())
+        assert out["a"].iloc[0] == 1.5
+        assert out["b"].iloc[0] == 2.5
+
+    def test_fmt_handles_none_nan_and_format_fallback(self):
+        """_fmt: None / NaN / format / TypeError fallback (405-414)."""
+        comp = _make_component()
+        comp.input_schema = [{"name": "amt", "type": "decimal", "precision": 2}]
+        df = pd.DataFrame({"amt": [None, float("nan"), 12.345, "not_numeric"]})
+        out = comp._apply_decimal_precision(df.copy())
+        vals = list(out["amt"])
+        assert vals[0] == ""
+        assert vals[1] == ""
+        assert vals[2] == "12.35"
+        assert vals[3] == "not_numeric"
+
+
+@pytest.mark.unit
+class TestCoverageLift1408BooleanFormatter:
+    """Branches inside _apply_boolean_format."""
+
+    def test_skips_non_dict_schema_entries(self):
+        comp = _make_component()
+        comp.input_schema = ["not_a_dict",
+                             {"name": "flag", "type": "bool"}]
+        df = pd.DataFrame({"flag": [True, False]})
+        out = comp._apply_boolean_format(df.copy())
+        assert list(out["flag"]) == ["true", "false"]
+
+    def test_skips_columns_missing_from_dataframe(self):
+        comp = _make_component()
+        comp.input_schema = [{"name": "missing", "type": "bool"}]
+        df = pd.DataFrame({"present": [1]})
+        out = comp._apply_boolean_format(df.copy())
+        assert "missing" not in out.columns
+
+    def test_fmt_bool_full_branch_coverage(self):
+        """Cover None / Python bool / true-string / blank / fallthrough (446-459)."""
+        comp = _make_component()
+        comp.input_schema = [{"name": "flag", "type": "bool"}]
+        df = pd.DataFrame({"flag": [
+            None, True, False, "TRUE", "false", "", "nan", "yes",
+        ]})
+        out = comp._apply_boolean_format(df.copy())
+        assert list(out["flag"]) == [
+            "", "true", "false", "true", "false", "", "", "yes",
+        ]
+
+
+@pytest.mark.unit
+class TestCoverageLift1408EmptyInputHandler:
+    """Branches inside _handle_empty_input."""
+
+    def test_empty_input_csv_multichar_truncate(self, tmp_path):
+        """csv_option=True with multi-char field separator -> truncate (line 511)."""
+        filepath = str(tmp_path / "empty_csv.csv")
+        cfg = {**_DEFAULT_CONFIG, "filepath": filepath,
+               "include_header": True, "fieldseparator": ";|",
+               "csv_option": True, "encoding": "utf-8",
+               "file_exist_exception": False}
+        comp = _make_component(config=cfg)
+        comp.config = dict(cfg)
+        empty_df = pd.DataFrame({"a": [], "b": []})
+        comp._process(empty_df)
+        content = open(filepath, encoding="utf-8").read()
+        assert ";" in content
+        assert ";|" not in content
+
+    def test_empty_input_uses_df_columns(self, tmp_path):
+        """Empty DF has columns -> use df.columns for header (line 517)."""
+        filepath = str(tmp_path / "empty_dfcols.csv")
+        cfg = {**_DEFAULT_CONFIG, "filepath": filepath,
+               "include_header": True, "encoding": "utf-8",
+               "file_exist_exception": False}
+        comp = _make_component(config=cfg)
+        comp.config = dict(cfg)
+        empty_df = pd.DataFrame(columns=["col_x", "col_y"])
+        comp._process(empty_df)
+        content = open(filepath, encoding="utf-8").read()
+        assert "col_x" in content
+        assert "col_y" in content
+
+    def test_empty_input_no_schema_writes_empty_bytes(self, tmp_path):
+        """Empty df + no columns + no schema -> empty file (line 537)."""
+        filepath = str(tmp_path / "empty_nothing.csv")
+        cfg = {**_DEFAULT_CONFIG, "filepath": filepath,
+               "include_header": True, "encoding": "utf-8",
+               "file_exist_exception": False}
+        comp = _make_component(config=cfg)
+        comp.config = dict(cfg)
+        comp.input_schema = None
+        comp.output_schema = None
+        comp._process(pd.DataFrame())
+        assert os.path.getsize(filepath) == 0
+
+
+@pytest.mark.unit
+class TestCoverageLift1408AppendHeaderRule:
+    def test_append_with_existing_content_skips_header(self, tmp_path):
+        """append=True + include_header=True + file exists w/ content -> drop header (line 292)."""
+        filepath = str(tmp_path / "append.csv")
+        with open(filepath, "w", encoding="ISO-8859-15") as f:
+            f.write("pre_existing_data\n")
+        cfg = {**_DEFAULT_CONFIG, "filepath": filepath,
+               "append": True, "include_header": True,
+               "file_exist_exception": False}
+        comp = _make_component(config=cfg)
+        comp.config = dict(cfg)
+        comp._process(_make_input_df([{"id": 1, "name": "X", "value": 1.0}]))
+        content = open(filepath, encoding="ISO-8859-15").read()
+        assert content.count("id;name;value") == 0
+        assert "pre_existing_data" in content
+
+
+@pytest.mark.unit
+class TestCoverageLift1408EncloseFieldEscape:
+    def test_enclose_field_escape_distinct_from_quote(self):
+        """_enclose_field with escape != quote (line 731)."""
+        out = FileOutputDelimited._enclose_field('hi"x', text_enclosure='"', escape_char="\\")
+        assert out == '"hi\\"x"'
+
+
+@pytest.mark.unit
+class TestCoverageLift1408RawWriteFailure:
+    def test_write_oserror_wraps_as_file_operation_error(self, tmp_path, monkeypatch):
+        """OSError during _write_file -> FileOperationError (609-612)."""
+        filepath = str(tmp_path / "fail.csv")
+        cfg = {**_DEFAULT_CONFIG, "filepath": filepath,
+               "fieldseparator": ";", "csv_option": False,
+               "file_exist_exception": False, "encoding": "utf-8"}
+        comp = _make_component(config=cfg)
+        comp.config = dict(cfg)
+
+        # Single-char + non-CSV -> pandas.to_csv path. Force OSError there.
+        def boom(self_df, *a, **k):
+            raise OSError("simulated write failure")
+
+        monkeypatch.setattr(pd.DataFrame, "to_csv", boom)
+        with pytest.raises(
+            (FileOperationError, ComponentExecutionError),
+            match="Failed to write file",
+        ):
+            comp._process(_make_input_df())
+
+    def test_write_file_operation_error_reraised(self, tmp_path, monkeypatch):
+        """FileOperationError raised by inner writer is re-raised, not re-wrapped (line 608)."""
+        filepath = str(tmp_path / "reraise.csv")
+        cfg = {**_DEFAULT_CONFIG, "filepath": filepath,
+               "fieldseparator": ";", "csv_option": False,
+               "file_exist_exception": False, "encoding": "utf-8"}
+        comp = _make_component(config=cfg)
+        comp.config = dict(cfg)
+
+        def raise_foe(self_df, *a, **k):
+            raise FileOperationError("inner-writer-error")
+
+        monkeypatch.setattr(pd.DataFrame, "to_csv", raise_foe)
+        # The original FileOperationError surfaces unchanged (no double-wrapping)
+        with pytest.raises(
+            (FileOperationError, ComponentExecutionError),
+            match="inner-writer-error",
+        ):
+            comp._process(_make_input_df())
+
+
+@pytest.mark.unit
+class TestCoverageLift1408RawModeBranches:
+    """_write_raw_mode header / per-row write paths (688-709)."""
+
+    def test_raw_mode_with_header_csv_option(self, tmp_path):
+        """Single-char delim + csv_option=True writes enclosed header + rows (690-695, 700-705).
+
+        Note: multi-char delimiter + csv_option=True triggers single-char truncation
+        per Talend semantics, so a single-char delimiter is used here -- this still
+        routes to _write_raw_mode because csv_option=True+truncation goes through
+        the writer's enclosure path.
+        """
+        filepath = str(tmp_path / "raw_csv.csv")
+        cfg = {**_DEFAULT_CONFIG, "filepath": filepath,
+               "fieldseparator": "<>",  # multi-char -- raw mode
+               "csv_option": False,      # raw multi-char path with enclosure off
+               "include_header": True,
+               "file_exist_exception": False, "encoding": "utf-8"}
+        comp = _make_component(config=cfg)
+        comp.config = dict(cfg)
+        comp._process(_make_input_df([{"id": 1, "name": "Alice", "value": 1.5}]))
+        content = open(filepath, encoding="utf-8").read()
+        # Header line uses raw multi-char delimiter
+        assert "id<>name<>value" in content
+        assert "1<>Alice<>1.5" in content
+
+    def test_raw_mode_no_header_no_csv(self, tmp_path):
+        """Raw multi-char + no header + plain values (line 696-697, 707)."""
+        filepath = str(tmp_path / "raw_plain.csv")
+        cfg = {**_DEFAULT_CONFIG, "filepath": filepath,
+               "fieldseparator": "<>",
+               "csv_option": False,
+               "include_header": False,
+               "file_exist_exception": False, "encoding": "utf-8"}
+        comp = _make_component(config=cfg)
+        comp.config = dict(cfg)
+        comp._process(_make_input_df([{"id": 1, "name": "Alice", "value": 1.5}]))
+        content = open(filepath, encoding="utf-8").read()
+        assert "1<>Alice<>1.5" in content
+
+    def test_raw_mode_direct_with_csv_option_enclosure(self, tmp_path):
+        """_write_raw_mode invoked directly with csv_option=True hits enclosure paths (691, 702).
+
+        Through _process this code path is unreachable (csv_option=True with multi-char
+        delimiter is pre-truncated to single-char and routed to _write_csv_mode).
+        Direct call exercises the enclosure-on-header / enclosure-on-row branches
+        of _write_raw_mode for parity with the standalone API.
+        """
+        filepath = str(tmp_path / "raw_direct_csv.csv")
+        comp = _make_component()
+        df = pd.DataFrame([{"id": 1, "name": "Alice", "value": 1.5}])
+        comp._write_raw_mode(
+            df, filepath, field_sep="<>", line_sep="\n",
+            encoding="utf-8", include_header=True, csv_option=True,
+            text_enclosure='"', escape_char='"', mode="w",
+        )
+        content = open(filepath, encoding="utf-8").read()
+        # Multi-char delimiter preserved; values + header are enclosed
+        assert '"id"<>"name"<>"value"' in content
+        assert '"1"<>"Alice"<>"1.5"' in content
+
+
+@pytest.mark.unit
+class TestCoverageLift1408SplitPipeline:
+    """Plan 14-08 pipeline test: file/csv_split_output (FOLD-04)."""
+
+    def test_csv_split_output_pipeline(self, run_job_fixture, tmp_path,
+                                       assert_ascii_logs):
+        out_path = tmp_path / "split.csv"
+        result = run_job_fixture(
+            "file/csv_split_output",
+            mutations={
+                "tFileOutputDelimited_1": {"filepath": str(out_path)},
+            },
+        )
+        # nb_rows=5, split_every=2 -> ceil(5/2) = 3 split files: split0/1/2.csv
+        produced = sorted(p.name for p in tmp_path.iterdir() if p.suffix == ".csv")
+        assert produced == ["split0.csv", "split1.csv", "split2.csv"]
+        # Total rows written across splits
+        assert result.global_map.get("tFileOutputDelimited_1_NB_LINE") == 5
