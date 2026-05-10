@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 14 Plan 06 complete -- 3 of 4 transform deep-gap modules at 100% (join.py 69.2%->100%, python_dataframe_component.py 19.6%->100%, log_row.py 96.7%->100%); map.py partial 73.8%->83.1% (147 missed lines, all bridge-driven, deferred to 14-13 closeout). 2 BUG-PDC fixes (registration + abstract method). 9 commits
-last_updated: "2026-05-11T19:36:00Z"
+stopped_at: Phase 14 Plan 07 complete -- SWIFT deep-gap modules lifted (swift_block_formatter.py 7%->97.2%, swift_transformer.py 7%->98.0%); 5 source-side BUG-SWIFT fixes surfaced and resolved (registration, abstract method, ETLError raises, _original_config init, ctx-var syntax); D-C5 dead-code deletion of duplicate _load_lookup_files; 197 unit + pipeline tests across 2 new test files; synthetic MT generator (mt103/mt202_cov/mt940/malformed) committed under tests/fixtures/swift/. 8 commits
+last_updated: "2026-05-11T22:30:00Z"
 last_activity: 2026-05-11
 progress:
   total_phases: 20
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-04-14)
 ## Current Position
 
 Phase: 14 (coverage-push-to-95-per-module-floor) — EXECUTING
-Plan: 13 of 13 (10 of 13 complete -- Plan 14-06 lands with 3/4 modules PASS + 1 deferred; Plans 14-07 / 14-09 / 14-10 / 14-12 / 14-13 still pending)
-Next: Phase 14 Plan 09 (file deep gaps: excel/json/raw) OR Plan 14-07 (SWIFT)
+Plan: 13 of 13 (11 of 13 complete -- Plan 14-07 lands SWIFT both modules PASS; Plans 14-09 / 14-10 / 14-12 / 14-13 still pending)
+Next: Phase 14 Plan 09 (file deep gaps: excel/json/raw) OR Plan 14-12 (converters) OR Plan 14-13 (closeout)
 Status: Ready to execute
 Last activity: 2026-05-11
 
@@ -76,6 +76,7 @@ Progress: [██████████] 100%
 | Phase 14 P04 | 30 | 3 tasks | 2 files |
 | Phase 14 P05 | 85 | 13 tasks | 16 files |
 | Phase 14 P08 | 33 | 16 tasks | 17 commits / 12 test files modified + 3 fixtures + 1 source + 1 .gitignore |
+| Phase 14 P07 | 120 | 7 tasks | 8 commits / 12 created + 3 modified (2 source + 1 file_input_raw); SWIFT 7% -> 97-98% on both modules |
 
 ## Accumulated Context
 
@@ -108,6 +109,12 @@ Recent decisions affecting current work:
 - [Phase 14]: Plan 14-06 BUG-PDC-002: PythonDataFrameComponent did not implement BaseComponent's abstract _validate_config method -- the class was instantiable only because no test had previously exercised the contract. Added Rule-12 minimal validator (key presence; content checked lazily in _process).
 - [Phase 14]: Plan 14-06 D-C5 deletions in transform/join.py: 3 sets of unreachable defensive branches (post-keep_cols _merge/lookup-key drops at lines 270-285; lk_col+'_lookup' / out_col-passthrough branches at lines 241-258; except (ConfigurationError, DataValidationError) re-raise at line 316). All 60 existing test_join.py cases pass unchanged after deletion; coverage rose from 94.5% (post-tests, with dead branches) to 100%.
 - [Phase 14]: Plan 14-06 PARTIAL LIFT for map.py (73.8% -> 83.1%): the remaining 147 missed lines fall predominantly inside Java-bridge-driven paths (_join_context_only 863-917, _join_cross_table 941-1021, _join_reload_per_row 1088-1212, _evaluate_outputs_compiled 1307-1418, _evaluate_with_bridge 1912-1955). Closing the 12-pct gap requires @pytest.mark.java live-bridge tests not landable in single-plan scope. Documented in 14-06-SUMMARY with concrete remediation paths for Plan 14-13 closeout.
+- [Phase 14]: Plan 14-07 BUG-SWIFT-001/002/003: SwiftBlockFormatter + SwiftTransformer + FileInputRaw were unregistered with REGISTRY (engine silently dropped them as 'Unknown component type'); both Swift classes lacked the BaseComponent.abstract _validate_config (uninstantiable via ABC); raises used ValueError/RuntimeError instead of ETLError subclasses. Fixed via decorators + ConfigurationError-raising _validate_config + ETLError raises across all error paths.
+- [Phase 14]: Plan 14-07 BUG-SWIFT-004: both Swift components' init helpers read self.config which BaseComponent leaves empty until execute(); switched to self._original_config per ENG-09/ENG-21 contract. Pattern reusable for any future component whose __init__ needs to inspect config.
+- [Phase 14]: Plan 14-07 BUG-SWIFT-005: pipeline-job JSON fixtures used unsupported \\${VAR} ctx-var syntax; ContextManager only resolves \\${context.VAR}. Affected 3 swift JSON fixtures + transform_with_lookup.yaml.
+- [Phase 14]: Plan 14-07 D-C5 deletion: duplicate `_load_lookup_files` definition in swift_transformer.py (first one was a stub orphaned by the second def shadowing it); consolidated to a single real implementation.
+- [Phase 14]: Plan 14-07 documented 12 defensive dict-coercion branches in swift_block_formatter (lines 565-573, 578-584, 694, 722) as unreachable guards. 95% floor cleared at 97.2%; future cleanup phase can delete or pragma-allowlist them.
+- [Phase 14]: Plan 14-07 documented 9 missed lines in swift_transformer (139, 301-302, 453, 577-579, 599, 784-785) as defensive in-method exception paths covering ETL upstream malformation; 95% floor cleared at 98.0%.
 
 ### Roadmap Evolution
 
