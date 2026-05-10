@@ -562,3 +562,328 @@ class TestPassthrough:
         result = comp._process(None)
         assert result["main"] is None
         assert result["reject"] is None
+
+
+# ----------------------------------------------------------------------
+# Plan 14-04 Coverage Lift: PARAMETER_TYPE coercion edges + cleanup raise paths.
+# Targets oracle_row.py missed lines: 134, 136, 139, 152, 155, 167, 170, 183,
+# 186, 429, 430, 434, 435.
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestParameterTypeCoercionDateEdges:
+    """Cover the date / timestamp / time / bytes branches that the existing
+    parametric test only hits via the str/ISO path. Lines 134, 136, 139,
+    152, 155, 167, 170, 183, 186.
+    """
+
+    def test_date_from_datetime_extracts_date(self):
+        from src.v1.engine.components.database.oracle_row import (
+            _coerce_prepared_param,
+        )
+        # Line 134: datetime input -> v.date()
+        result = _coerce_prepared_param({
+            "parameter_index": "1",
+            "parameter_type": "Date",
+            "parameter_value": datetime.datetime(2026, 5, 7, 10, 30, 0),
+        })
+        assert result == datetime.date(2026, 5, 7)
+        assert type(result) is datetime.date
+
+    def test_date_from_date_returns_same(self):
+        from src.v1.engine.components.database.oracle_row import (
+            _coerce_prepared_param,
+        )
+        # Line 136: pure date instance returns as-is
+        d = datetime.date(2026, 5, 7)
+        result = _coerce_prepared_param({
+            "parameter_index": "1",
+            "parameter_type": "Date",
+            "parameter_value": d,
+        })
+        assert result is d  # same object
+
+    def test_date_from_int_raises_value_error(self):
+        from src.v1.engine.components.database.oracle_row import (
+            _coerce_prepared_param,
+        )
+        # Line 139: non-None / non-date / non-str -> ValueError
+        with pytest.raises(ValueError) as exc:
+            _coerce_prepared_param({
+                "parameter_index": "1",
+                "parameter_type": "Date",
+                "parameter_value": 12345,
+            })
+        assert "Cannot coerce" in str(exc.value)
+
+    def test_timestamp_from_datetime_returns_same(self):
+        from src.v1.engine.components.database.oracle_row import (
+            _coerce_prepared_param,
+        )
+        # Line 152: datetime -> returned as-is
+        ts = datetime.datetime(2026, 5, 7, 10, 30, 0)
+        result = _coerce_prepared_param({
+            "parameter_index": "1",
+            "parameter_type": "Timestamp",
+            "parameter_value": ts,
+        })
+        assert result is ts
+
+    def test_timestamp_from_int_raises_value_error(self):
+        from src.v1.engine.components.database.oracle_row import (
+            _coerce_prepared_param,
+        )
+        # Line 155
+        with pytest.raises(ValueError) as exc:
+            _coerce_prepared_param({
+                "parameter_index": "1",
+                "parameter_type": "Timestamp",
+                "parameter_value": 12345,
+            })
+        assert "timestamp" in str(exc.value)
+
+    def test_time_from_time_returns_same(self):
+        from src.v1.engine.components.database.oracle_row import (
+            _coerce_prepared_param,
+        )
+        # Line 167: time -> returned as-is
+        t = datetime.time(12, 34, 56)
+        result = _coerce_prepared_param({
+            "parameter_index": "1",
+            "parameter_type": "Time",
+            "parameter_value": t,
+        })
+        assert result is t
+
+    def test_time_from_int_raises_value_error(self):
+        from src.v1.engine.components.database.oracle_row import (
+            _coerce_prepared_param,
+        )
+        # Line 170
+        with pytest.raises(ValueError) as exc:
+            _coerce_prepared_param({
+                "parameter_index": "1",
+                "parameter_type": "Time",
+                "parameter_value": 12345,
+            })
+        assert "time" in str(exc.value)
+
+    def test_bytes_from_bytes_returns_same(self):
+        from src.v1.engine.components.database.oracle_row import (
+            _coerce_prepared_param,
+        )
+        # Line 183: bytes -> returned as-is (no encode() roundtrip)
+        b = b"\x00\x01\x02\xff"
+        result = _coerce_prepared_param({
+            "parameter_index": "1",
+            "parameter_type": "Bytes",
+            "parameter_value": b,
+        })
+        assert result is b
+
+    def test_blob_from_bytes_returns_same(self):
+        from src.v1.engine.components.database.oracle_row import (
+            _coerce_prepared_param,
+        )
+        # Line 183 again -- Blob also routes through _coerce_bytes
+        b = b"binary\x00content"
+        result = _coerce_prepared_param({
+            "parameter_index": "1",
+            "parameter_type": "Blob",
+            "parameter_value": b,
+        })
+        assert result is b
+
+    def test_bytes_from_int_raises_value_error(self):
+        from src.v1.engine.components.database.oracle_row import (
+            _coerce_prepared_param,
+        )
+        # Line 186
+        with pytest.raises(ValueError) as exc:
+            _coerce_prepared_param({
+                "parameter_index": "1",
+                "parameter_type": "Bytes",
+                "parameter_value": 12345,
+            })
+        assert "bytes" in str(exc.value)
+
+
+@pytest.mark.unit
+class TestUseNbLineWithZeroRows:
+    """USE_NB_LINE counter when query returns 0 rows (rowcount=0).
+
+    Distinct from rowcount=-1/None DDL paths -- here rowcount is a valid
+    integer 0; the counter must record 0 cleanly without warning.
+    """
+
+    def test_zero_rowcount_writes_zero_no_warning(self, caplog):
+        mock_mgr = MagicMock()
+        mock_conn = MagicMock(autocommit=False)
+        mock_cursor = MagicMock(rowcount=0)
+        mock_conn.cursor.return_value = mock_cursor
+        mock_mgr.get.return_value = mock_conn
+        gm = GlobalMap()
+        comp = _make_component(
+            _shared_conn_config(
+                query="DELETE FROM emp WHERE 1=0",
+                use_nb_line="NB_LINE_DELETED",
+            ),
+            oracle_manager=mock_mgr,
+            global_map=gm,
+        )
+        with caplog.at_level(_lg.WARNING):
+            comp._process(None)
+        assert gm.get("tOracleRow_1_NB_LINE_DELETED") == 0
+        # No DDL warning for valid 0-rowcount.
+        assert not any(
+            "DDL or unknown" in rec.getMessage() for rec in caplog.records
+        )
+
+
+@pytest.mark.unit
+class TestExecuteMidBatchError:
+    """When cursor.execute raises (driver mid-batch error), oracle_row
+    propagates the exception while still cleaning up cursor + connection.
+    """
+
+    def test_database_error_propagated_with_cleanup(self):
+        # Simulate oracledb.DatabaseError (subclass of Exception) on execute
+        class FakeDatabaseError(Exception):
+            pass
+
+        mock_mgr = MagicMock()
+        mock_conn = MagicMock(autocommit=False)
+        mock_cursor = MagicMock()
+        mock_cursor.execute.side_effect = FakeDatabaseError(
+            "ORA-00942: table or view does not exist"
+        )
+        mock_conn.cursor.return_value = mock_cursor
+        mock_mgr.open_ad_hoc.return_value = mock_conn
+        comp = _make_component(
+            _ad_hoc_config(query="SELECT * FROM nonexistent"),
+            oracle_manager=mock_mgr,
+        )
+        with pytest.raises(FakeDatabaseError) as exc:
+            comp._process(None)
+        assert "ORA-00942" in str(exc.value)
+        # Cleanup must still run.
+        mock_cursor.close.assert_called_once()
+        mock_mgr.close.assert_called_once_with("tOracleRow_1")
+
+
+@pytest.mark.unit
+class TestCleanupSwallowsErrors:
+    """Cover lines 429-430 (cursor.close raise) and 434-435 (manager.close
+    raise). Cleanup errors must NOT mask the in-flight execution result.
+    """
+
+    def test_cursor_close_failure_logged_not_raised(self, caplog):
+        mock_mgr = MagicMock()
+        mock_conn = MagicMock(autocommit=False)
+        mock_cursor = MagicMock(rowcount=1)
+        mock_cursor.close.side_effect = RuntimeError("cursor close exploded")
+        mock_conn.cursor.return_value = mock_cursor
+        mock_mgr.get.return_value = mock_conn
+        comp = _make_component(_shared_conn_config(), oracle_manager=mock_mgr)
+        with caplog.at_level(_lg.WARNING):
+            # Must NOT raise -- cleanup error swallowed.
+            comp._process(None)
+        assert any(
+            "cursor.close() raised" in rec.getMessage() for rec in caplog.records
+        )
+
+    def test_manager_close_failure_logged_not_raised(self, caplog):
+        mock_mgr = MagicMock()
+        mock_conn = MagicMock(autocommit=False)
+        mock_cursor = MagicMock(rowcount=1)
+        mock_conn.cursor.return_value = mock_cursor
+        mock_mgr.open_ad_hoc.return_value = mock_conn
+        mock_mgr.close.side_effect = RuntimeError("manager close exploded")
+        comp = _make_component(_ad_hoc_config(), oracle_manager=mock_mgr)
+        with caplog.at_level(_lg.WARNING):
+            comp._process(None)
+        assert any(
+            "oracle_manager.close() raised" in rec.getMessage()
+            for rec in caplog.records
+        )
+
+
+@pytest.mark.unit
+class TestPreparedStatementWithNullParameter:
+    """End-to-end: PARAMETER_TYPE='Null' bound through prepared statement
+    flow. Locks behavior that 'Null' always binds Python None regardless of
+    parameter_value, and that the bind list ordering still works.
+    """
+
+    def test_null_param_binds_none(self):
+        mock_mgr = MagicMock()
+        mock_conn = MagicMock(autocommit=False)
+        mock_cursor = MagicMock(rowcount=1)
+        mock_conn.cursor.return_value = mock_cursor
+        mock_mgr.get.return_value = mock_conn
+        cfg = _shared_conn_config(
+            query="UPDATE emp SET phone=:1 WHERE id=:2",
+            use_preparedstatement=True,
+            set_preparedstatement_parameters=[
+                {"parameter_index": "1", "parameter_type": "Null",
+                 "parameter_value": "ignored"},
+                {"parameter_index": "2", "parameter_type": "Int",
+                 "parameter_value": "100"},
+            ],
+        )
+        comp = _make_component(cfg, oracle_manager=mock_mgr)
+        comp._process(None)
+        args, kwargs = mock_cursor.execute.call_args
+        assert args[1] == [None, 100]
+
+
+@pytest.mark.unit
+class TestUseExistingConnectionVsAdHocBindShape:
+    """Both connection paths must produce identical execute() bind shape.
+
+    Locks the contract that switching between use_existing_connection True
+    vs False does not perturb the prepared-statement bind list.
+    """
+
+    def test_shared_and_adhoc_both_emit_identical_binds(self):
+        params = [
+            {"parameter_index": "1", "parameter_type": "Int",
+             "parameter_value": "1"},
+            {"parameter_index": "2", "parameter_type": "String",
+             "parameter_value": 99},
+        ]
+
+        # Shared connection path
+        mgr_shared = MagicMock()
+        conn_s = MagicMock(autocommit=False)
+        cur_s = MagicMock(rowcount=1)
+        conn_s.cursor.return_value = cur_s
+        mgr_shared.get.return_value = conn_s
+        comp_s = _make_component(
+            _shared_conn_config(
+                use_preparedstatement=True,
+                set_preparedstatement_parameters=params,
+            ),
+            oracle_manager=mgr_shared,
+        )
+        comp_s._process(None)
+
+        # Ad-hoc connection path
+        mgr_adhoc = MagicMock()
+        conn_a = MagicMock(autocommit=False)
+        cur_a = MagicMock(rowcount=1)
+        conn_a.cursor.return_value = cur_a
+        mgr_adhoc.open_ad_hoc.return_value = conn_a
+        comp_a = _make_component(
+            _ad_hoc_config(
+                use_preparedstatement=True,
+                set_preparedstatement_parameters=params,
+            ),
+            oracle_manager=mgr_adhoc,
+        )
+        comp_a._process(None)
+
+        # Both emit the same coerced bind list [int 1, str "99"].
+        assert cur_s.execute.call_args.args[1] == [1, "99"]
+        assert cur_a.execute.call_args.args[1] == [1, "99"]
