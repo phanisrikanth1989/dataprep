@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 14 Plan 03 complete -- send_mail.py 60% -> 100% (BUG-MAIL-001 fixed; 3 commits)
-last_updated: "2026-05-10T18:30:00.000Z"
+stopped_at: Phase 14 Plan 04 complete -- oracle_output 94.1% -> 99.5%, oracle_row 90.3% -> 100.0% (no source changes; 2 commits)
+last_updated: "2026-05-10T17:43:32Z"
 last_activity: 2026-05-10
 progress:
   total_phases: 20
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-04-14)
 ## Current Position
 
 Phase: 14 (coverage-push-to-95-per-module-floor) — EXECUTING
-Plan: 4 of 12 (3 of 12 complete)
-Next: Phase 14 Plan 04 (iterate / context -- no-regress check)
+Plan: 5 of 12 (4 of 12 complete)
+Next: Phase 14 Plan 05 (transform quick wins + medium gaps, per ROADMAP)
 Status: Ready to execute
 Last activity: 2026-05-10
 
@@ -73,6 +73,7 @@ Progress: [██████████] 100%
 | Phase 13-test-stabilization-bridge-jar-rebuild P01 | 35 | 2 tasks | 5 files |
 | Phase 14 P02 | 35 | 2 tasks | 2 files |
 | Phase 14 P03 | 30 | 3 tasks | 2 files |
+| Phase 14 P04 | 30 | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -94,6 +95,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 14-02 BUG-AGG-001: list/list_object/union under ignore_null=False crashed on null-bearing input; root-cause fix via Series.fillna("null") + Java String.valueOf parity
 - [Phase ?]: Phase 14-02 D-C5 deletions: _build_agg_func unknown-function fallback (silent default-to-sum) -> explicit ConfigurationError; _process column-ordering safety loop removed
 - [Phase 14]: Plan 14-03 BUG-MAIL-001: send_mail.py attachment FileOperationError swallowed by outer except Exception block (rewrapped to ComponentExecutionError) -- root-cause fix via ``except ETLError: raise`` guard between attachment loop and SMTP-failure catch blocks; documented exception contract now reachable
+- [Phase 14]: Plan 14-04 -- direct oracledb.DB_TYPE_* attribute lookup pattern (vs patched constants) for type-binding tests resilient to oracledb version churn; FakeDatabaseError stand-in for mid-batch driver error simulation when oracledb.DatabaseError can't be raised without a real connection
 
 ### Roadmap Evolution
 
@@ -140,7 +142,8 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
   - Pre-existing infrastructure issues surfaced (NOT regressions): `test_bridge_integration` xdist contention -> Plan 14-11; `test_integration.py` complex_converter ImportError -> Plan 14-12
 - Plan 14-02 complete (2026-05-10): aggregate_row 79% -> >=95%; BUG-AGG-001 fix; D-C5 deletions; 2 commits.
 - Plan 14-03 complete (2026-05-10): send_mail 60.2% -> 100.0%; BUG-MAIL-001 fix (attachment ETLError swallowed by outer except); 3 commits (`1c24b76`, `6b2b05c`, `d46907f`); per-module gate PASS for control subsystem (4/4 modules >=95%).
-- Plans 14-04..14-12: pending. Next is Plan 14-04 (iterate / context no-regress check).
+- Plan 14-04 complete (2026-05-10): oracle_output 94.1% -> 99.5%, oracle_row 90.3% -> 100.0%; no source changes; 2 commits (`d54b5c1`, `43d0b54`); per-module gate PASS for database subsystem (3/3 modules >=95%); Phase 11 testcontainer suite still gracefully skips at collection-time when testcontainers not installed.
+- Plans 14-05..14-12: pending. Next is Plan 14-05 (transform quick wins + medium gaps, per ROADMAP).
 
 ### Phase 13 closed (2026-05-10)
 
@@ -167,6 +170,6 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
 
 ## Session Continuity
 
-Last session: 2026-05-10T18:30:00.000Z
-Stopped at: Phase 14 Plan 03 complete -- send_mail.py 60% -> 100% (BUG-MAIL-001 fixed; 3 commits)
-Resume with: /gsd-execute-phase 14 (continue with Plan 14-04 iterate / context no-regress check)
+Last session: 2026-05-10T17:43:32Z
+Stopped at: Phase 14 Plan 04 complete -- oracle_output 94.1% -> 99.5%, oracle_row 90.3% -> 100.0% (no source changes; 2 commits)
+Resume with: /gsd-execute-phase 14 (continue with Plan 14-05 transform quick wins + medium gaps)
