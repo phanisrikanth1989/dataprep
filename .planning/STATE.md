@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 14 Plan 11 complete -- 8 converter modules lifted to >=97% (5 at 100%, 2 at 98%+, 1 at 97.2%); STALE-INT-001 legacy complex_converter import resolved; 9 commits
-last_updated: "2026-05-11T20:30:00Z"
+stopped_at: Phase 14 Plan 06 complete -- 3 of 4 transform deep-gap modules at 100% (join.py 69.2%->100%, python_dataframe_component.py 19.6%->100%, log_row.py 96.7%->100%); map.py partial 73.8%->83.1% (147 missed lines, all bridge-driven, deferred to 14-13 closeout). 2 BUG-PDC fixes (registration + abstract method). 9 commits
+last_updated: "2026-05-11T19:36:00Z"
 last_activity: 2026-05-11
 progress:
   total_phases: 20
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-04-14)
 ## Current Position
 
 Phase: 14 (coverage-push-to-95-per-module-floor) — EXECUTING
-Plan: 12 of 13 (9 of 13 complete -- Plan 14-11 lands; Plans 14-06 / 14-07 / 14-09 / 14-10 / 14-12 / 14-13 still pending)
-Next: Phase 14 Plan 06 (transform deep gaps non-SWIFT) OR Plan 14-09 (file deep gaps: excel/json/raw)
+Plan: 13 of 13 (10 of 13 complete -- Plan 14-06 lands with 3/4 modules PASS + 1 deferred; Plans 14-07 / 14-09 / 14-10 / 14-12 / 14-13 still pending)
+Next: Phase 14 Plan 09 (file deep gaps: excel/json/raw) OR Plan 14-07 (SWIFT)
 Status: Ready to execute
 Last activity: 2026-05-11
 
@@ -104,6 +104,10 @@ Recent decisions affecting current work:
 - [Phase 14]: Plan 14-08 D-RULE3 (Rule 3 deviation): added .gitignore negation `!tests/fixtures/jobs/**/*.json` -- the project-wide *.json rule had silently swallowed every fixture committed under tests/fixtures/jobs/ (Plan 14-01 scaffolding had not added the negation)
 - [Phase 14]: Plan 14-11 STALE-INT-001: deleted legacy tests/converters/talend_to_v1/test_integration.py (378 lines) -- imported absent src.converters.complex_converter, broke -n auto collection. Originally deferred from 14-01; absorbed into 14-11 scope.
 - [Phase 14]: Plan 14-11 documented 4 defensive unreachable branches as D-C5 candidates kept in source (expression_converter.py:134, foreach.py:42, xml_map.py:252-256/317) -- 95% floor cleared without source-level cleanup; future cosmetic deletion phase can revisit.
+- [Phase 14]: Plan 14-06 BUG-PDC-001: PythonDataFrameComponent was unregistered with REGISTRY despite being importable -- engine silently dropped any tPythonDataFrame component as 'Unknown component type' in production. Fixed via @REGISTRY.register('PythonDataFrameComponent', 'tPythonDataFrame'). Also replaced ValueError with ConfigurationError + wrapped exec() failures in ComponentExecutionError per CLAUDE.md ETLError hierarchy.
+- [Phase 14]: Plan 14-06 BUG-PDC-002: PythonDataFrameComponent did not implement BaseComponent's abstract _validate_config method -- the class was instantiable only because no test had previously exercised the contract. Added Rule-12 minimal validator (key presence; content checked lazily in _process).
+- [Phase 14]: Plan 14-06 D-C5 deletions in transform/join.py: 3 sets of unreachable defensive branches (post-keep_cols _merge/lookup-key drops at lines 270-285; lk_col+'_lookup' / out_col-passthrough branches at lines 241-258; except (ConfigurationError, DataValidationError) re-raise at line 316). All 60 existing test_join.py cases pass unchanged after deletion; coverage rose from 94.5% (post-tests, with dead branches) to 100%.
+- [Phase 14]: Plan 14-06 PARTIAL LIFT for map.py (73.8% -> 83.1%): the remaining 147 missed lines fall predominantly inside Java-bridge-driven paths (_join_context_only 863-917, _join_cross_table 941-1021, _join_reload_per_row 1088-1212, _evaluate_outputs_compiled 1307-1418, _evaluate_with_bridge 1912-1955). Closing the 12-pct gap requires @pytest.mark.java live-bridge tests not landable in single-plan scope. Documented in 14-06-SUMMARY with concrete remediation paths for Plan 14-13 closeout.
 
 ### Roadmap Evolution
 
@@ -154,7 +158,8 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
 - Plan 14-05 complete (2026-05-10): 12 transform modules lifted to 100.0% (replace, python_row_component, pivot_to_columns_delimited, parse_record_set, row_generator, python_component, extract_positional_fields, extract_regex_fields, convert_type, extract_json_fields, extract_delimited_fields, filter_rows -- baseline 80-94% all the way to 100% line coverage). 12 commits (`81315d0` -> `e5e696e`). BUG-EJF-001 source fix in extract_json_fields._is_null. 5 D-C5 dead-code deletions (3 pd.isna try/except, 2 main_df backfill loops). 1256 transform tests pass under -n auto. Per-module gate PASS for the 12 in-scope modules. Other transform modules (map, join, python_dataframe_component, swift_*) still below 95% as expected; closed by Plans 14-06 / 14-07.
 - Plan 14-08 complete (2026-05-11): 12 file/* modules lifted from 81-94% to >=99.5% (10 at 100.0%, file_input_delimited 99.5%, file_output_positional 99.6%). 17 commits (`7733ee1` D-RULE3 unignore -> `2a0775b` final lift). STALE-FOD-001 D-C5 deletion (file_output_delimited.py:364 unreachable date-coerce catch-all). 3 new pipeline fixtures under `tests/fixtures/jobs/file/`. D-RULE3 .gitignore unblock for `!tests/fixtures/jobs/**/*.json` (Rule 3 deviation -- the project-wide *.json rule was silently ignoring every fixture). 1182 file tests pass under -n auto. Per-module gate PASS for the 12 in-scope modules; the 4 deep-gap modules (file_input_excel, file_input_json, file_input_raw, file_output_excel) remain below 95% per plan scope and are closed by Plan 14-09.
 - Plan 14-11 complete (2026-05-11): 8 converter-side modules lifted from 78-97% to >=97.2% (5 at 100.0%, expression_converter 98.9%, xml_map 98.1%, foreach 97.2%). 9 commits (`a2a897c` STALE-INT-001 -> `a5465cc` mssql_input). STALE-INT-001 deletion of legacy tests/converters/talend_to_v1/test_integration.py (importing absent src.converters.complex_converter -- a deferred-from-14-01 issue). New test module tests/converters/talend_to_v1/test_expression_converter.py (65 tests). 4 defensive unreachable lines documented as D-C5 candidates kept in source. Per-module gate PASS for the 8 in-scope modules; 2 out-of-scope transform modules (log_row 94.4%, join 94.7%) remain below 95% and are tracked for Plan 14-06.
-- Plans 14-06..14-07, 14-09..14-10, 14-12..14-13: pending. Next is Plan 14-06 (transform deep gaps non-SWIFT: map.py 77%, join.py 69%, python_dataframe_component.py 20%, log_row 94.4% spillover from 14-11) OR Plan 14-09 (file deep gaps: excel/json/raw).
+- Plan 14-06 complete (2026-05-11): 3 of 4 transform deep-gap modules at 100% line coverage (join.py 69.2%->100%, python_dataframe_component.py 19.6%->100%, log_row.py 96.7%->100%). map.py PARTIAL lift 73.8%->83.1% (147 missed lines remain, all in Java-bridge-driven paths: _join_context_only / _join_cross_table / _join_reload_per_row / _evaluate_outputs_compiled / _evaluate_with_bridge -- require @pytest.mark.java live-bridge tests). 9 commits (`8dac42c` BUG-PDC-001 -> `16556db` COV-MAP-001). 2 BUG-PDC source fixes: BUG-PDC-001 (PythonDataFrameComponent unregistered with REGISTRY -- engine.py silently dropped it as 'Unknown component type' in production!) + BUG-PDC-002 (missing abstract _validate_config). 1 D-C5 source cleanup: 3 sets of unreachable defensive branches deleted from join.py (_merge / lookup-key drops post-keep_cols filter, lk_col + '_lookup' / out_col-passthrough branches, ConfigurationError/DataValidationError re-raise). 2 new pipeline fixtures (transform/map_with_lookup.json, transform/join_with_reject.json) + 4 pipeline tests (D-C1) using run_job_fixture. map.py 95% gap deferred to Plan 14-13 closeout (either spawn 14-06b live-bridge sweep, fold into 14-13, or amend the per-module floor with documented carve-out).
+- Plans 14-07, 14-09..14-10, 14-12..14-13: pending. Next is Plan 14-09 (file deep gaps: excel/json/raw) OR Plan 14-07 (SWIFT).
 
 ### Phase 13 closed (2026-05-10)
 
@@ -181,6 +186,6 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
 
 ## Session Continuity
 
-Last session: 2026-05-11T20:30:00Z
-Stopped at: Phase 14 Plan 11 complete -- 8 converter-side modules lifted to >=97.2% (5 at 100%, 2 at 98%+, 1 at 97.2%); STALE-INT-001 legacy complex_converter import resolved; 9 commits
-Resume with: /gsd-execute-phase 14 (continue with Plan 14-06 transform deep gaps non-SWIFT, or Plan 14-09 file deep gaps excel/json/raw)
+Last session: 2026-05-11T19:36:00Z
+Stopped at: Phase 14 Plan 06 complete -- 3 of 4 transform deep-gap modules at 100%; map.py PARTIAL 73.8%->83.1% deferred (147 lines, all bridge-driven); 2 BUG-PDC fixes + 1 D-C5 cleanup; 9 commits
+Resume with: /gsd-execute-phase 14 (continue with Plan 14-09 file deep gaps excel/json/raw, or Plan 14-07 SWIFT)

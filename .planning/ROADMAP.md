@@ -356,7 +356,7 @@ Plans:
   - [x] 14-03-PLAN.md -- control subsystem (send_mail 60%) | SUMMARY: 14-03-SUMMARY.md
   - [x] 14-04-PLAN.md -- database subsystem (oracle_output 94.1% -> 99.5%, oracle_row 90.3% -> 100.0%; mocked oracledb) | SUMMARY: 14-04-SUMMARY.md
   - [x] 14-05-PLAN.md -- transform quick wins + medium gaps (12 modules 80-94% -> 100%; BUG-EJF-001 fix; 5 D-C5 deletions) | SUMMARY: 14-05-SUMMARY.md
-  - [ ] 14-06-PLAN.md -- transform deep gaps non-SWIFT (map, join, python_dataframe_component)
+  - [x] 14-06-PLAN.md -- transform deep gaps non-SWIFT (map, join, python_dataframe_component, log_row spillover) -- 3 of 4 modules at 100%; map.py PARTIAL 73.8% -> 83.1% (147 lines deferred to 14-13 closeout, all bridge-driven) | SUMMARY: 14-06-SUMMARY.md
   - [ ] 14-07-PLAN.md -- SWIFT (swift_transformer + swift_block_formatter + synthetic MT generator)
   - [x] 14-08-PLAN.md -- file quick wins (12 modules 81-94% -> >=99.5%; STALE-FOD-001 D-C5 deletion; D-RULE3 .gitignore unblock; 3 pipeline fixtures) | SUMMARY: 14-08-SUMMARY.md
   - [ ] 14-09-PLAN.md -- file deep gaps (file_input_excel, file_output_excel, file_input_json, file_input_raw)
@@ -364,7 +364,7 @@ Plans:
   - [x] 14-11-PLAN.md -- converter core + components (8 modules 78-97% -> >=97.2%; STALE-INT-001 legacy complex_converter removal) | SUMMARY: 14-11-SUMMARY.md
   - [ ] 14-12-PLAN.md -- closeout (14-COVERAGE.md, CLAUDE.md gate update)
 
-**Phase 14 Plan Progress** (7 of 12 complete):
+**Phase 14 Plan Progress** (8 of 12 complete):
 
 | Plan | Status | Tasks | Modules Lifted |
 |------|--------|------:|---------------:|
@@ -373,9 +373,10 @@ Plans:
 | 14-03 | Complete | 3/3 | 1 (send_mail 60% -> 100%) |
 | 14-04 | Complete | 3/3 | 2 (oracle_output 94.1% -> 99.5%, oracle_row 90.3% -> 100.0%) |
 | 14-05 | Complete | 13/13 | 12 (replace, python_row_component, pivot, parse_record_set, row_generator, python_component, extract_positional_fields, extract_regex_fields, convert_type, extract_json_fields, extract_delimited_fields, filter_rows -- all 80-94% -> 100%) |
+| 14-06 | Complete (3/4 + 1 deferred) | 9 commits | 3 (join.py 69.2% -> 100%, python_dataframe_component.py 19.6% -> 100%, log_row.py 96.7% -> 100%); map.py PARTIAL 73.8% -> 83.1% (147 lines deferred -- bridge-driven paths) |
 | 14-08 | Complete | 16/16 | 12 (file_list, file_unarchive, file_properties, file_copy, file_input_properties, fixed_flow_input, set_global_var, file_input_delimited, file_output_delimited, file_output_positional, file_input_positional, file_touch -- all 81-94% -> >=99.5%; 10 at 100%) |
 | 14-11 | Complete | 9/9 | 8 (converter 97.6% -> 100%, expression_converter 77.8% -> 98.9%, xml_map 87.9% -> 98.1%, replace 93.7% -> 100%, aggregate_row 90.5% -> 100%, foreach 94.4% -> 97.2%, file_input_excel 94.3% -> 100%, mssql_input 81% -> 100%) |
-| 14-06, 14-07, 14-09, 14-10, 14-12 | Pending | -- | -- |
+| 14-07, 14-09, 14-10, 14-12 | Pending | -- | -- |
 
 ### Phase 15: Integration Testing & Performance
 **Goal**: Real Talend jobs converted from .item XML run end-to-end through the Python engine and produce identical output to Talend, with acceptable performance for production workloads
