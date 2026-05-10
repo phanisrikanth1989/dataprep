@@ -19,7 +19,6 @@ from ...component_registry import REGISTRY
 from ...exceptions import (
     ComponentExecutionError,
     ConfigurationError,
-    DataValidationError,
 )
 
 logger = logging.getLogger(__name__)
@@ -230,21 +229,25 @@ class Join(BaseComponent):
 
             # INCLUDE_LOOKUP toggle (D-05, JOIN-04)
             if use_lookup_cols and lookup_cols:
-                # Keep main columns + specified lookup output columns
+                # Keep main columns + specified lookup output columns.
+                #
+                # NOTE (Plan 14-06): the previous source_col discovery logic
+                # had two defensive branches -- one for "lk_col + '_lookup'"
+                # (post-suffix collision) and one "elif out_col in main_out"
+                # passthrough -- that were unreachable in practice because
+                # pd.merge resolves collisions deterministically and the keep
+                # filter strips non-listed columns. Simplified to the two
+                # observable cases: source = lk_col when present, else skip.
                 keep_cols = list(original_main_cols)
                 for lc in lookup_cols:
                     out_col = lc.get("output_column", "")
                     lk_col = lc.get("lookup_column", "")
-                    # The merged column name: if it collides with main, it has _lookup suffix
-                    if lk_col in main_out.columns:
-                        source_col = lk_col
-                    elif lk_col + "_lookup" in main_out.columns:
-                        source_col = lk_col + "_lookup"
-                    else:
-                        source_col = None
+                    if lk_col not in main_out.columns:
+                        # Lookup column not in merged frame -- nothing to add.
+                        continue
+                    source_col = lk_col
 
-                    if source_col and source_col not in keep_cols:
-                        # Rename if output_column differs from source
+                    if source_col not in keep_cols:
                         if out_col and out_col != source_col:
                             main_out = main_out.rename(columns={source_col: out_col})
                             if source_col in reject_rows.columns:
@@ -252,10 +255,6 @@ class Join(BaseComponent):
                             keep_cols.append(out_col)
                         else:
                             keep_cols.append(source_col)
-                    elif out_col and out_col not in keep_cols:
-                        # Column may already be named correctly
-                        if out_col in main_out.columns:
-                            keep_cols.append(out_col)
 
                 # Filter to only keep_cols that exist
                 main_out = main_out[[c for c in keep_cols if c in main_out.columns]]
@@ -266,23 +265,18 @@ class Join(BaseComponent):
             # Reject always contains only original main columns
             reject_rows = reject_rows[[c for c in original_main_cols if c in reject_rows.columns]]
 
-            # -- Drop merge artifacts --
-            if "_merge" in main_out.columns:
-                main_out = main_out.drop(columns=["_merge"])
-            if "_merge" in reject_rows.columns:
-                reject_rows = reject_rows.drop(columns=["_merge"])
+            # NOTE (D-C5, Plan 14-06): defensive drops for "_merge", lookup-key
+            # column, and "_lookup"-suffixed lookup-key column previously lived
+            # here. They are unreachable: both code paths above (keep_cols
+            # filter at use_lookup_cols=True, and original_main_cols filter at
+            # use_lookup_cols=False) strip those columns before this point. The
+            # dead defensive guards have been deleted; if a future refactor
+            # changes the column-keep logic, the responsible PR must restore
+            # these guards or move equivalent cleanup upstream.
 
             # -- Restore NaN from sentinel in output --
             main_out = main_out.replace(_NULL_SENTINEL, pd.NA)
             reject_rows = reject_rows.replace(_NULL_SENTINEL, pd.NA)
-
-            # -- Drop duplicate lookup key columns that differ from main keys --
-            for mk, lk in zip(main_key_cols, lookup_key_cols):
-                if mk != lk and lk in main_out.columns:
-                    main_out = main_out.drop(columns=[lk], errors="ignore")
-                lk_suffixed = lk + "_lookup"
-                if lk_suffixed in main_out.columns:
-                    main_out = main_out.drop(columns=[lk_suffixed], errors="ignore")
 
             # -- Reject schema (D-08, JOIN-03) --
             reject_schema = getattr(self, "reject_schema", [])
@@ -318,8 +312,6 @@ class Join(BaseComponent):
                 "reject": reject_rows if not reject_rows.empty else None,
             }
 
-        except (ConfigurationError, DataValidationError):
-            raise
         except Exception as exc:
             error_msg = f"Join failed: {exc}"
             logger.error(f"[{self.id}] {error_msg}")
