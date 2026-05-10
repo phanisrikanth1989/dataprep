@@ -198,3 +198,59 @@ class TestStats:
         comp = _make_component(config={"filename": f}, global_map=gm)
         comp.execute(None)
         assert gm.get_nb_line_ok(comp.id) == 1
+
+
+# ------------------------------------------------------------------
+# Plan 14-08 coverage lift: missed-line clusters
+#   84-85 (os.stat OSError -> FileOperationError),
+#   131-132 (MD5 read OSError -> FileOperationError).
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCoverageLift1408:
+    """Targeted tests added in Plan 14-08 to lift file_properties.py to 100%."""
+
+    def test_oserror_on_stat_raises_file_operation_error(self, tmp_path, monkeypatch):
+        """os.stat OSError (other than FileNotFoundError) wraps as FileOperationError (84-85)."""
+        f = tmp_path / "perm.txt"
+        f.write_text("x")
+        comp = _make_component(config={"filename": str(f)})
+
+        original_stat = os.stat
+
+        def stat_raise(path, *args, **kwargs):
+            if str(path) == str(f):
+                raise PermissionError("permission denied simulation")
+            return original_stat(path, *args, **kwargs)
+
+        monkeypatch.setattr(os, "stat", stat_raise)
+        with pytest.raises(
+            (FileOperationError, ComponentExecutionError),
+            match="Cannot stat file",
+        ):
+            comp.execute(None)
+
+    def test_md5_read_failure_raises_file_operation_error(self, tmp_path, monkeypatch):
+        """MD5 read OSError wraps as FileOperationError (131-132)."""
+        f = tmp_path / "md5.txt"
+        f.write_text("hello")
+        comp = _make_component(config={"filename": str(f), "md5": True})
+
+        # Monkeypatch open() to raise when file_properties._calculate_md5 opens
+        # the file. We let stat() succeed (so we reach the md5 step), then fail
+        # the read.
+        import builtins
+        original_open = builtins.open
+
+        def selective_open(path, *args, **kwargs):
+            if str(path) == str(f) and ("rb" in args or kwargs.get("mode") == "rb"):
+                raise OSError("read failure simulation")
+            return original_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "open", selective_open)
+        with pytest.raises(
+            (FileOperationError, ComponentExecutionError),
+            match="Failed to calculate MD5",
+        ):
+            comp.execute(None)
