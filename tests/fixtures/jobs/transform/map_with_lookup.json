@@ -1,0 +1,180 @@
+{
+  "job_name": "Job_map_with_lookup",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {}
+  },
+  "components": [
+    {
+      "id": "tFileInputDelimited_main",
+      "type": "FileInputDelimited",
+      "original_type": "tFileInputDelimited",
+      "config": {
+        "filepath": "TBD_via_mutations",
+        "fieldseparator": ";",
+        "row_separator": "\\n",
+        "header_rows": 1,
+        "footer_rows": 0,
+        "encoding": "UTF-8",
+        "csv_option": false,
+        "remove_empty_row": true,
+        "die_on_error": false,
+        "check_fields_num": false,
+        "trim_all": false,
+        "trim_select": []
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {"name": "id", "type": "int", "nullable": false, "key": false},
+          {"name": "key", "type": "str", "nullable": false, "key": false},
+          {"name": "val", "type": "int", "nullable": false, "key": false}
+        ]
+      },
+      "inputs": [],
+      "outputs": ["row1"]
+    },
+    {
+      "id": "tFileInputDelimited_lookup",
+      "type": "FileInputDelimited",
+      "original_type": "tFileInputDelimited",
+      "config": {
+        "filepath": "TBD_via_mutations",
+        "fieldseparator": ";",
+        "row_separator": "\\n",
+        "header_rows": 1,
+        "footer_rows": 0,
+        "encoding": "UTF-8",
+        "csv_option": false,
+        "remove_empty_row": true,
+        "die_on_error": false,
+        "check_fields_num": false,
+        "trim_all": false,
+        "trim_select": []
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {"name": "key", "type": "str", "nullable": false, "key": false},
+          {"name": "label", "type": "str", "nullable": false, "key": false}
+        ]
+      },
+      "inputs": [],
+      "outputs": ["row2"]
+    },
+    {
+      "id": "tMap_1",
+      "type": "Map",
+      "original_type": "tMap",
+      "config": {
+        "component_type": "Map",
+        "inputs": {
+          "main": {
+            "name": "row1",
+            "filter": "",
+            "activate_filter": false,
+            "matching_mode": "UNIQUE_MATCH",
+            "lookup_mode": "LOAD_ONCE"
+          },
+          "lookups": [
+            {
+              "name": "row2",
+              "matching_mode": "UNIQUE_MATCH",
+              "lookup_mode": "LOAD_ONCE",
+              "filter": "",
+              "activate_filter": false,
+              "join_keys": [
+                {
+                  "lookup_column": "key",
+                  "expression": "{{java}}row1.key",
+                  "type": "str",
+                  "nullable": true,
+                  "operator": "="
+                }
+              ],
+              "join_mode": "LEFT_OUTER_JOIN"
+            }
+          ]
+        },
+        "variables": [],
+        "outputs": [
+          {
+            "name": "out_main",
+            "is_reject": false,
+            "inner_join_reject": false,
+            "filter": "",
+            "activate_filter": false,
+            "columns": [
+              {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": true},
+              {"name": "key", "expression": "{{java}}row1.key", "type": "str", "nullable": true},
+              {"name": "val", "expression": "{{java}}row1.val", "type": "int", "nullable": true},
+              {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": true}
+            ],
+            "catch_output_reject": false
+          }
+        ],
+        "die_on_error": true
+      },
+      "schema": {
+        "input": [],
+        "inputs": {
+          "row1": [
+            {"name": "id", "type": "int", "nullable": false, "key": false},
+            {"name": "key", "type": "str", "nullable": false, "key": false},
+            {"name": "val", "type": "int", "nullable": false, "key": false}
+          ],
+          "row2": [
+            {"name": "key", "type": "str", "nullable": false, "key": false},
+            {"name": "label", "type": "str", "nullable": false, "key": false}
+          ]
+        },
+        "output": [
+          {"name": "id", "type": "int", "nullable": true, "key": false},
+          {"name": "key", "type": "str", "nullable": true, "key": false},
+          {"name": "val", "type": "int", "nullable": true, "key": false},
+          {"name": "label", "type": "str", "nullable": true, "key": false}
+        ]
+      },
+      "inputs": ["row1", "row2"],
+      "outputs": ["out_main"]
+    },
+    {
+      "id": "tFileOutputDelimited_main",
+      "type": "FileOutputDelimited",
+      "original_type": "tFileOutputDelimited",
+      "config": {
+        "filepath": "TBD_via_mutations",
+        "fieldseparator": ";",
+        "row_separator": "\\n",
+        "encoding": "UTF-8",
+        "include_header": true,
+        "append": false,
+        "create_directory": true,
+        "split": false,
+        "file_exist_exception": false
+      },
+      "schema": {
+        "input": [
+          {"name": "id", "type": "int", "nullable": true, "key": false},
+          {"name": "key", "type": "str", "nullable": true, "key": false},
+          {"name": "val", "type": "int", "nullable": true, "key": false},
+          {"name": "label", "type": "str", "nullable": true, "key": false}
+        ],
+        "output": []
+      },
+      "inputs": ["out_main"],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {"name": "row1", "from": "tFileInputDelimited_main", "to": "tMap_1", "type": "flow"},
+    {"name": "row2", "from": "tFileInputDelimited_lookup", "to": "tMap_1", "type": "flow"},
+    {"name": "out_main", "from": "tMap_1", "to": "tFileOutputDelimited_main", "type": "flow"}
+  ],
+  "triggers": [],
+  "subjobs": {
+    "subjob_1": ["tFileInputDelimited_main", "tFileInputDelimited_lookup", "tMap_1", "tFileOutputDelimited_main"]
+  },
+  "java_config": {"enabled": false, "routines": [], "libraries": []}
+}
