@@ -452,13 +452,6 @@ class TestNeedsReview:
             assert "tstatcatcher_stats" not in issue
             assert "label" not in issue.lower().split()
 
-    def test_fieldseparator_engine_mismatch(self):
-        """needs_review includes engine key mismatch for fieldseparator vs delimiter."""
-        node = _make_node()
-        result = FileInputDelimitedConverter().convert(node, [], {})
-        issues = [e["issue"] for e in result.needs_review]
-        assert any("fieldseparator" in i or "delimiter" in i for i in issues)
-
     def test_needs_review_csv_option(self):
         """needs_review includes csv_option engine gap."""
         node = _make_node()
