@@ -355,7 +355,7 @@ Plans:
   - [x] 14-02-PLAN.md -- aggregate subsystem (aggregate_row 79%)
   - [x] 14-03-PLAN.md -- control subsystem (send_mail 60%) | SUMMARY: 14-03-SUMMARY.md
   - [x] 14-04-PLAN.md -- database subsystem (oracle_output 94.1% -> 99.5%, oracle_row 90.3% -> 100.0%; mocked oracledb) | SUMMARY: 14-04-SUMMARY.md
-  - [ ] 14-05-PLAN.md -- transform quick wins + medium gaps
+  - [x] 14-05-PLAN.md -- transform quick wins + medium gaps (12 modules 80-94% -> 100%; BUG-EJF-001 fix; 5 D-C5 deletions) | SUMMARY: 14-05-SUMMARY.md
   - [ ] 14-06-PLAN.md -- transform deep gaps non-SWIFT (map, join, python_dataframe_component)
   - [ ] 14-07-PLAN.md -- SWIFT (swift_transformer + swift_block_formatter + synthetic MT generator)
   - [ ] 14-08-PLAN.md -- file quick wins + medium gaps
@@ -364,7 +364,7 @@ Plans:
   - [ ] 14-11-PLAN.md -- converter core + components
   - [ ] 14-12-PLAN.md -- closeout (14-COVERAGE.md, CLAUDE.md gate update)
 
-**Phase 14 Plan Progress** (4 of 12 complete):
+**Phase 14 Plan Progress** (5 of 12 complete):
 
 | Plan | Status | Tasks | Modules Lifted |
 |------|--------|------:|---------------:|
@@ -372,7 +372,8 @@ Plans:
 | 14-02 | Complete | 2/2 | 1 (aggregate_row 79% -> >=95%) |
 | 14-03 | Complete | 3/3 | 1 (send_mail 60% -> 100%) |
 | 14-04 | Complete | 3/3 | 2 (oracle_output 94.1% -> 99.5%, oracle_row 90.3% -> 100.0%) |
-| 14-05..14-12 | Pending | -- | -- |
+| 14-05 | Complete | 13/13 | 12 (replace, python_row_component, pivot, parse_record_set, row_generator, python_component, extract_positional_fields, extract_regex_fields, convert_type, extract_json_fields, extract_delimited_fields, filter_rows -- all 80-94% -> 100%) |
+| 14-06..14-12 | Pending | -- | -- |
 
 ### Phase 15: Integration Testing & Performance
 **Goal**: Real Talend jobs converted from .item XML run end-to-end through the Python engine and produce identical output to Talend, with acceptable performance for production workloads

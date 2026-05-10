@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 14 Plan 04 complete -- oracle_output 94.1% -> 99.5%, oracle_row 90.3% -> 100.0% (no source changes; 2 commits)
-last_updated: "2026-05-10T17:43:32Z"
+stopped_at: Phase 14 Plan 05 complete -- 12 transform modules lifted to 100.0% (was 80-94%); BUG-EJF-001 source fix; 5 D-C5 dead-code deletions; 12 commits
+last_updated: "2026-05-10T18:08:30Z"
 last_activity: 2026-05-10
 progress:
   total_phases: 20
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-04-14)
 ## Current Position
 
 Phase: 14 (coverage-push-to-95-per-module-floor) — EXECUTING
-Plan: 5 of 12 (4 of 12 complete)
-Next: Phase 14 Plan 05 (transform quick wins + medium gaps, per ROADMAP)
+Plan: 6 of 12 (5 of 12 complete)
+Next: Phase 14 Plan 06 (transform deep gaps non-SWIFT: map.py, join.py, python_dataframe_component.py)
 Status: Ready to execute
 Last activity: 2026-05-10
 
@@ -74,6 +74,7 @@ Progress: [██████████] 100%
 | Phase 14 P02 | 35 | 2 tasks | 2 files |
 | Phase 14 P03 | 30 | 3 tasks | 2 files |
 | Phase 14 P04 | 30 | 3 tasks | 2 files |
+| Phase 14 P05 | 85 | 13 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -96,6 +97,8 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 14-02 D-C5 deletions: _build_agg_func unknown-function fallback (silent default-to-sum) -> explicit ConfigurationError; _process column-ordering safety loop removed
 - [Phase 14]: Plan 14-03 BUG-MAIL-001: send_mail.py attachment FileOperationError swallowed by outer except Exception block (rewrapped to ComponentExecutionError) -- root-cause fix via ``except ETLError: raise`` guard between attachment loop and SMTP-failure catch blocks; documented exception contract now reachable
 - [Phase 14]: Plan 14-04 -- direct oracledb.DB_TYPE_* attribute lookup pattern (vs patched constants) for type-binding tests resilient to oracledb version churn; FakeDatabaseError stand-in for mid-batch driver error simulation when oracledb.DatabaseError can't be raised without a real connection
+- [Phase 14]: Plan 14-05 BUG-EJF-001: extract_json_fields._is_null() only caught TypeError from bool(pd.isna(v)); pd.isna() on multi-element list returns ndarray whose bool() raises ValueError -- widened except to (TypeError, ValueError) per feedback_fix_source_no_fallbacks
+- [Phase 14]: Plan 14-05 D-C5 deletions: 5 unreachable defensive branches across extract_positional_fields/extract_regex_fields/extract_delimited_fields (pd.isna try/except for non-scalar containers; main_df backfill loops where columns are guaranteed present by construction)
 
 ### Roadmap Evolution
 
@@ -143,7 +146,8 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
 - Plan 14-02 complete (2026-05-10): aggregate_row 79% -> >=95%; BUG-AGG-001 fix; D-C5 deletions; 2 commits.
 - Plan 14-03 complete (2026-05-10): send_mail 60.2% -> 100.0%; BUG-MAIL-001 fix (attachment ETLError swallowed by outer except); 3 commits (`1c24b76`, `6b2b05c`, `d46907f`); per-module gate PASS for control subsystem (4/4 modules >=95%).
 - Plan 14-04 complete (2026-05-10): oracle_output 94.1% -> 99.5%, oracle_row 90.3% -> 100.0%; no source changes; 2 commits (`d54b5c1`, `43d0b54`); per-module gate PASS for database subsystem (3/3 modules >=95%); Phase 11 testcontainer suite still gracefully skips at collection-time when testcontainers not installed.
-- Plans 14-05..14-12: pending. Next is Plan 14-05 (transform quick wins + medium gaps, per ROADMAP).
+- Plan 14-05 complete (2026-05-10): 12 transform modules lifted to 100.0% (replace, python_row_component, pivot_to_columns_delimited, parse_record_set, row_generator, python_component, extract_positional_fields, extract_regex_fields, convert_type, extract_json_fields, extract_delimited_fields, filter_rows -- baseline 80-94% all the way to 100% line coverage). 12 commits (`81315d0` -> `e5e696e`). BUG-EJF-001 source fix in extract_json_fields._is_null. 5 D-C5 dead-code deletions (3 pd.isna try/except, 2 main_df backfill loops). 1256 transform tests pass under -n auto. Per-module gate PASS for the 12 in-scope modules. Other transform modules (map, join, python_dataframe_component, swift_*) still below 95% as expected; closed by Plans 14-06 / 14-07.
+- Plans 14-06..14-12: pending. Next is Plan 14-06 (transform deep gaps non-SWIFT: map.py 77%, join.py 69%, python_dataframe_component.py 20%).
 
 ### Phase 13 closed (2026-05-10)
 
@@ -170,6 +174,6 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
 
 ## Session Continuity
 
-Last session: 2026-05-10T17:43:32Z
-Stopped at: Phase 14 Plan 04 complete -- oracle_output 94.1% -> 99.5%, oracle_row 90.3% -> 100.0% (no source changes; 2 commits)
-Resume with: /gsd-execute-phase 14 (continue with Plan 14-05 transform quick wins + medium gaps)
+Last session: 2026-05-10T18:08:30Z
+Stopped at: Phase 14 Plan 05 complete -- 12 transform modules lifted to 100.0% (was 80-94%); BUG-EJF-001 source fix; 5 D-C5 dead-code deletions; 12 commits
+Resume with: /gsd-execute-phase 14 (continue with Plan 14-06 transform deep gaps non-SWIFT)
