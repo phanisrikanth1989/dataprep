@@ -547,3 +547,146 @@ class TestEvalExprHelper:
     def test_string_handling_len(self):
         result = _eval_expr('StringHandling.LEN("abc")', 0, "c", None, None, "comp")
         assert result == 3
+
+
+# ---------------------------------------------------------------------------
+# TestCoverageLift_14_05 (COV-RGN-001)
+#
+# Target missed lines from Phase 14 baseline:
+#   - 62-63 (StringHandling.SPACE arg eval failure -> repr(""))
+#   - 72    (StringHandling.LEN non-string-literal arg -> "len(...)" wrapper)
+#   - 120-140 ({{java}} bridge path: invocation, globalMap sync, JavaObject
+#              Date-like conversion, JavaObject str fallback)
+#   - 158   (eval-fallback string literal returned via stripped[1:-1] for
+#            quoted single-token expressions reaching the SyntaxError path)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCoverageLift1405:
+    """Targeted coverage for residual missed branches in row_generator.py."""
+
+    def test_string_handling_space_with_unparseable_arg_returns_empty(self):
+        # Hits lines 62-63: SPACE arg fails int(eval(...)) -> repr("").
+        # "abc" is not numeric and triggers the except branch.
+        result = _preprocess_expression("StringHandling.SPACE(abc)")
+        # Production replaces SPACE(...) with repr(""), so the post-processed
+        # expression contains an empty quoted string.
+        assert "''" in result or '""' in result
+
+    def test_string_handling_len_with_variable_arg_uses_len_wrapper(self):
+        # Hits line 72: LEN arg is not a string literal -> falls to len(arg).
+        result = _preprocess_expression("StringHandling.LEN(some_var)")
+        assert result == "len(some_var)"
+
+    def test_java_bridge_invocation_returns_primitive(self):
+        # Hits lines 111-122 + 131-140 partially: bridge path with primitive.
+        class _FakeBridge:
+            def __init__(self):
+                self.global_map = {}
+                self.calls = []
+
+            def execute_one_time_expression(self, expr):
+                self.calls.append(expr)
+                return "java-result"
+
+        bridge = _FakeBridge()
+        gm = GlobalMap()
+        gm.put("FOO", "BAR")
+        result = _eval_expr(
+            "{{java}}TalendString.getAsciiRandomString(8)",
+            0, "c", bridge, gm, "comp",
+        )
+        assert result == "java-result"
+        assert bridge.calls == ["TalendString.getAsciiRandomString(8)"]
+        # GlobalMap sync hit: bridge.global_map updated from gm._map (line 121).
+        assert bridge.global_map.get("FOO") == "BAR"
+
+    def test_java_bridge_invocation_returns_date_like_object(self):
+        # Hits lines 131-137: JavaObject path with getTime() -> ISO string.
+        class _FakeJavaDate:
+            def getTime(self):
+                # Epoch ms for 2026-01-15 00:00:00 UTC
+                return 1768435200000
+
+        class _FakeBridge:
+            def __init__(self):
+                self.global_map = {}
+
+            def execute_one_time_expression(self, expr):
+                return _FakeJavaDate()
+
+        result = _eval_expr(
+            "{{java}}TalendDate.getRandomDate()",
+            0, "c", _FakeBridge(), None, "comp",
+        )
+        # ISO datetime string produced by strftime("%Y-%m-%d %H:%M:%S").
+        assert isinstance(result, str)
+        assert result.startswith("2026-01-15")
+
+    def test_java_bridge_invocation_returns_unsupported_object_falls_back_to_str(self):
+        # Hits lines 138-139: JavaObject without getTime() -> str(result).
+        class _FakeJavaThing:
+            def __str__(self):
+                return "FakeJavaThing(x=1)"
+
+        class _FakeBridge:
+            def __init__(self):
+                self.global_map = {}
+
+            def execute_one_time_expression(self, expr):
+                return _FakeJavaThing()
+
+        result = _eval_expr(
+            "{{java}}foo.bar()",
+            0, "c", _FakeBridge(), None, "comp",
+        )
+        assert result == "FakeJavaThing(x=1)"
+
+    def test_eval_fallback_returns_quoted_literal_unwrapped(self):
+        # Hits line 158: stripped starts and ends with a quote -> [1:-1].
+        # Trigger SyntaxError fallback by passing an invalid Python expression
+        # that just happens to be a quoted string with a stray suffix.
+        # The simplest path: passing a single quoted string '\'hi\'' without
+        # the SyntaxError path is already covered by test_string_literal.
+        # We need a SyntaxError path that lands stripped='"abc"'.
+        # Two SyntaxError-then-quoted patterns: an unbalanced bracket inside a
+        # string literal? No -- valid string literal eval succeeds.
+        # The only way to land at line 158 is if eval raises SyntaxError on a
+        # processed expression that is itself a quoted string. That can happen
+        # when StringHandling.SPACE() preprocessing returns repr("") which is
+        # a valid eval target -- but combined with surrounding broken syntax
+        # we can land in the except block. Force it by passing a deliberately
+        # broken expression that ends with a quoted string after preprocessing.
+        # Simpler: directly call via a forced SyntaxError input where the
+        # processed string is, e.g., '"hi" +'. After SyntaxError the stripped
+        # is '"hi" +' which does not match the quote check. So we need a
+        # processed expression that BOTH raises SyntaxError on eval AND, when
+        # stripped, starts/ends with a matching quote.
+        # We can achieve this with a NameError path that lands on a quoted
+        # string. Currently the except clause matches (SyntaxError, NameError)
+        # so a quoted name like "'just_word'" -- but that's a valid string
+        # literal and eval succeeds returning 'just_word'.
+        # The line is genuinely defensive belt-and-suspenders code. To exercise
+        # it, monkeypatch eval to raise SyntaxError so the fallback runs on a
+        # quoted stripped value.
+        import builtins as _b
+        from src.v1.engine.components.transform import row_generator as _rg
+
+        original_eval = _rg.eval if hasattr(_rg, "eval") else _b.eval
+        # Module's eval is the builtin; patch the module reference.
+        # _eval_expr() uses builtin eval(processed, _EVAL_GLOBALS), so we
+        # patch builtins.eval scoped via monkeypatching _rg.__builtins__.
+        # The cleanest patch is on the module's eval reference since CPython
+        # resolves bare names via the module globals. _eval_expr uses bare
+        # ``eval`` so we add a module-level eval that raises SyntaxError.
+        _rg.eval = lambda *a, **kw: (_ for _ in ()).throw(SyntaxError("forced"))
+        try:
+            result = _eval_expr('"abc"', 0, "c", None, None, "comp")
+        finally:
+            # Restore: deleting the module-level eval reverts to builtin.
+            try:
+                del _rg.eval
+            except AttributeError:
+                pass
+        assert result == "abc"
