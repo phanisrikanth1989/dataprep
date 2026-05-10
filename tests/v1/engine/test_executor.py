@@ -713,3 +713,160 @@ class TestExecutorEdgeCases:
         stats = executor.execute_job()
         assert "execution_time" in executor.execution_stats.get("A", {})
         assert executor.execution_stats["A"]["execution_time"] >= 0
+
+
+# ---------------------------------------------------------------------------
+# Plan 14-10 lift: 91% -> 95%+ coverage extensions
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestStreamingResetExceptionDuringFinalization:
+    """A streaming sink whose reset() raises is logged but not re-raised (162-163)."""
+
+    def test_streaming_sink_reset_exception_logged(self, caplog):
+        executor = _build_executor(
+            components_config=[
+                {"id": "A", "type": "Stub", "outputs": ["f1"]},
+                {"id": "B", "type": "Stub", "inputs": ["f1"]},
+            ],
+            flows_config=[{"name": "f1", "from": "A", "to": "B", "type": "flow"}],
+            subjobs={"s1": ["A", "B"]},
+        )
+        # Mark B as a streaming sink and arrange reset() to raise
+        executor.components["B"]._streaming_write_started = True
+
+        original_reset = executor.components["B"].reset
+
+        def boom():
+            raise RuntimeError("reset failed during finalization")
+
+        executor.components["B"].reset = boom
+
+        # Job runs through to success; finalization logs but does not re-raise
+        with caplog.at_level("WARNING"):
+            stats = executor.execute_job()
+        assert stats["status"] == "success"
+        assert "reset failed during finalization" in caplog.text
+
+
+@pytest.mark.unit
+class TestComponentNotInComponentsDict:
+    """If a subjob_plan lists an ID that isn't in self.components, skip it (261-262)."""
+
+    def test_unknown_component_id_skipped_in_subjob(self, caplog):
+        executor = _build_executor(
+            components_config=[
+                {"id": "A", "type": "Stub"},
+                {"id": "B", "type": "Stub"},
+            ],
+            subjobs={"s1": ["A", "B"]},
+        )
+        # Drop B from the components registry but leave it in the subjob plan
+        del executor.components["B"]
+        with caplog.at_level("WARNING"):
+            stats = executor.execute_job()
+        # Stall detection should not flag B because it was logged-and-skipped
+        assert "not in components dict" in caplog.text
+        # A still executed
+        assert "A" in executor.executed_components
+
+
+@pytest.mark.unit
+class TestCollectTriggeredSubjobsEdges:
+    """Coverage for _collect_triggered_subjobs filter branches (lines 764, 768, 777-778, 816)."""
+
+    def test_on_subjob_error_fires_when_subjob_failed(self):
+        """OnSubjobError trigger fires exactly when subjob_result == 'error'
+        (covers lines 777-778)."""
+        executor = _build_executor(
+            components_config=[
+                {"id": "A", "type": "Stub", "config": {"should_fail": True, "die_on_error": True}},
+                {"id": "B", "type": "Stub"},
+            ],
+            triggers_config=[
+                {"type": "OnSubjobError", "from": "A", "to": "B"},
+            ],
+            subjobs={"s1": ["A"], "s2": ["B"]},
+        )
+        executor.execute_job()
+        # B should have been triggered by OnSubjobError
+        assert "B" in executor.executed_components
+
+    def test_check_trigger_via_manager_no_match_returns_false(self):
+        """If no trigger entry matches the edge in TriggerManager, returns False
+        (covers line 816). Use a synthetic edge with mismatched fields.
+        """
+        executor = _build_executor(
+            components_config=[{"id": "A", "type": "Stub"}],
+            subjobs={"s1": ["A"]},
+        )
+
+        class _Edge:
+            trigger_type = "OnSubjobOk"
+            from_component = "no_such"
+            to_component = "no_such_target"
+
+        # Direct call -- empty triggers list yields False
+        assert executor._check_trigger_via_manager(_Edge()) is False
+
+
+@pytest.mark.unit
+class TestCountAccountedComponents:
+    """_count_accounted_components rolls in skipped components (839-844)."""
+
+    def test_counts_executed_plus_skipped(self):
+        executor = _build_executor(
+            components_config=[
+                {"id": "A", "type": "Stub", "config": {"should_fail": True, "die_on_error": True}},
+                {"id": "B", "type": "Stub"},
+            ],
+            subjobs={"s1": ["A", "B"]},
+        )
+        executor.execute_job()
+        # A executed (with error) + B skipped -> 2 accounted
+        accounted = executor._count_accounted_components()
+        assert accounted == 2
+
+
+@pytest.mark.unit
+class TestStallDiagnosticsNoMissingInputs:
+    """_build_stall_diagnostics emits 'no missing inputs' line (877) when the
+    stuck component has no inputs configured."""
+
+    def test_stuck_component_with_no_inputs(self):
+        executor = _build_executor(
+            components_config=[
+                {"id": "A", "type": "Stub"},
+                {"id": "stuck", "type": "Stub"},  # no inputs
+            ],
+            subjobs={"s1": ["A"], "s2": ["stuck"]},
+            triggers_config=[
+                {"type": "OnSubjobOk", "from": "A", "to": "stuck"},
+            ],
+        )
+        # Force a stall by removing stuck from components after subjob is attempted.
+        # Easier path: build the diagnostics directly via private call
+        executor.execute_job_was_called = False
+        # Simulate stuck set with no inputs -> hit the else branch
+        msg = executor._build_stall_diagnostics({"stuck"})
+        assert "no missing inputs" in msg
+
+
+@pytest.mark.unit
+class TestLegacyLogIterationProgressShim:
+    """Legacy _log_iteration_progress shim (line 612) -- kept for back-compat."""
+
+    def test_log_iteration_progress_shim_is_callable(self, caplog):
+        from src.v1.engine.base_iterate_component import BaseIterateComponent
+        executor = _build_executor(
+            components_config=[{"id": "A", "type": "Stub"}],
+            subjobs={"s1": ["A"]},
+        )
+
+        class _FakeIter:
+            id = "iter_X"
+
+        with caplog.at_level("DEBUG"):
+            executor._log_iteration_progress(_FakeIter(), 1, 5)
+        assert "Iteration 1 / 5" in caplog.text
