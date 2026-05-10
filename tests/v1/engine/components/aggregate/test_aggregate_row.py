@@ -5,7 +5,13 @@ import pytest
 import numpy as np
 import pandas as pd
 
-from src.v1.engine.components.aggregate.aggregate_row import AggregateRow
+from src.v1.engine.components.aggregate.aggregate_row import (
+    AggregateRow,
+    _build_agg_func,
+    _decimal_mean,
+    _decimal_std,
+    _to_decimal,
+)
 from src.v1.engine.component_registry import REGISTRY
 from src.v1.engine.context_manager import ContextManager
 from src.v1.engine.exceptions import ConfigurationError
@@ -864,3 +870,460 @@ class TestRegistration:
     def test_registered_as_t_aggregate_row(self):
         cls = REGISTRY.get("tAggregateRow")
         assert cls is AggregateRow
+
+
+# ------------------------------------------------------------------
+# TestDecimalHelpers -- direct unit tests of module-level Decimal helpers
+# Covers missed lines 45, 48-49, 72, 88, 96 (None/NaN, parse-error, empty
+# series, mean=None propagation, n<=ddof in std).
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestDecimalHelpers:
+    """Direct unit tests of _to_decimal/_decimal_mean/_decimal_std edge paths.
+
+    These are pure helper functions; D-C1 unit-test coverage is the natural fit.
+    Realistic dtype mixes (object Series carrying mixed types) per D-C4.
+    """
+
+    def test_to_decimal_returns_none_for_python_none(self):
+        # line 45 -- None branch
+        assert _to_decimal(None) is None
+
+    def test_to_decimal_returns_none_for_float_nan(self):
+        # line 45 -- isnan branch
+        assert _to_decimal(float("nan")) is None
+
+    def test_to_decimal_returns_none_for_unparseable_string(self):
+        # lines 48-49 -- InvalidOperation/ValueError fallback
+        assert _to_decimal("not_a_number") is None
+
+    def test_to_decimal_returns_none_for_complex_object(self):
+        # lines 48-49 -- non-numeric object triggers Decimal(str(...)) failure
+        assert _to_decimal(object()) is None
+
+    def test_to_decimal_returns_decimal_for_int(self):
+        # positive control -- happy path returns Decimal
+        assert _to_decimal(42) == Decimal("42")
+
+    def test_to_decimal_returns_decimal_for_decimal_input(self):
+        assert _to_decimal(Decimal("3.14")) == Decimal("3.14")
+
+    def test_decimal_mean_returns_none_for_empty_series(self):
+        # line 72 -- count == 0 path (all-NaN drops to empty-effective)
+        s = pd.Series([np.nan, np.nan], dtype="float64")
+        assert _decimal_mean(s) is None
+
+    def test_decimal_mean_returns_none_for_truly_empty_series(self):
+        # line 72 -- count == 0 path with empty series
+        s = pd.Series([], dtype="float64")
+        assert _decimal_mean(s) is None
+
+    def test_decimal_std_returns_none_when_mean_is_none(self):
+        # line 88 -- mean is None branch
+        s = pd.Series([np.nan, np.nan], dtype="float64")
+        assert _decimal_std(s, ddof=1) is None
+
+    def test_decimal_std_returns_none_when_n_le_ddof(self):
+        # line 96 -- n (=1) <= ddof (=1)
+        s = pd.Series([100.0])
+        assert _decimal_std(s, ddof=1) is None
+
+    def test_decimal_std_population_handles_single_value(self):
+        # population_std (ddof=0): n=1 satisfies n > ddof -> result is 0.0
+        s = pd.Series([100.0])
+        result = _decimal_std(s, ddof=0)
+        assert result is not None
+        assert float(result) == pytest.approx(0.0)
+
+
+# ------------------------------------------------------------------
+# TestNullPropagationStringFunctions -- ignore_null=False for list/list_object/union
+# Covers missed lines 144, 155, 165 (string-aggregator non-skipna branch).
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestNullPropagationStringFunctions:
+    """ignore_null=False branches of list / list_object / union.
+
+    These do NOT drop NaN; pandas stringifies NaN as 'nan' which is preserved
+    in the joined output. Talend parity: list functions with ignore_null=False
+    surface every input row, including nulls.
+    """
+
+    def _df_with_str_nan(self):
+        # Object-dtype strings + np.nan -- the pandas-3.0 StringDtype path with
+        # pd.NA does not sort against str (raises TypeError under set/sorted).
+        # Object dtype with np.nan stringifies as "nan" -- the natural Talend
+        # parity for ignore_null=False (every row preserved including null token).
+        return pd.DataFrame({
+            "department": ["A", "A", "A"],
+            "product": ["x", np.nan, "y"],
+        })
+
+    def test_list_ignore_null_false_includes_null_token(self):
+        # line 144 -- list aggregator non-skipna branch (BUG-AGG-001 fix)
+        # Talend parity: java.lang.String.valueOf(null) -> "null"
+        config = dict(_DEFAULT_CONFIG)
+        config["operations"] = [
+            {"output_column": "items", "function": "list", "input_column": "product", "ignore_null": False},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(self._df_with_str_nan())
+        main = result["main"]
+        items = main.loc[main["dept"] == "A", "items"].iloc[0]
+        assert isinstance(items, str)
+        # 3 input rows preserved; nulls become the "null" token (Java parity)
+        assert items == "x,null,y"
+
+    def test_list_object_ignore_null_false_includes_null_token(self):
+        # line 155 -- list_object aggregator non-skipna branch (BUG-AGG-001 fix)
+        # Talend ArrayList.toString() over [x, null, y] -> "[x, null, y]"
+        config = dict(_DEFAULT_CONFIG)
+        config["operations"] = [
+            {"output_column": "items", "function": "list_object", "input_column": "product", "ignore_null": False},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(self._df_with_str_nan())
+        main = result["main"]
+        items = main.loc[main["dept"] == "A", "items"].iloc[0]
+        assert isinstance(items, str)
+        assert items == "[x, null, y]"
+
+    def test_union_ignore_null_false_includes_null_token(self):
+        # line 165 -- union aggregator non-skipna branch (BUG-AGG-001 fix)
+        # union: sorted(set(...)) over stringified tokens including "null"
+        config = dict(_DEFAULT_CONFIG)
+        config["operations"] = [
+            {"output_column": "items", "function": "union", "input_column": "product", "ignore_null": False},
+        ]
+        df = pd.DataFrame({
+            "department": ["A", "A", "A", "A"],
+            "product": ["x", "y", "x", np.nan],
+        })
+        comp = _make_component(config=config)
+        result = comp.execute(df)
+        main = result["main"]
+        items = main.loc[main["dept"] == "A", "items"].iloc[0]
+        assert isinstance(items, str)
+        # distinct stringified tokens: {"x", "y", "null"} -> sorted -> "null,x,y"
+        assert items == "null,x,y"
+
+
+# ------------------------------------------------------------------
+# TestFinancialPrecisionExtended -- Decimal population_std_dev / variance / min / max
+# Covers missed lines 202-237 (Decimal-precision branches for population_std_dev,
+# variance, min, max -- both skipna and not-skipna code paths).
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestFinancialPrecisionExtended:
+    """Decimal-precision branches: population_std_dev, variance, min, max.
+
+    AGGR-06 / AGGR-07: every numeric aggregator under use_financial_precision=True
+    returns Decimal, with documented null-propagation behavior under ignore_null=False.
+    """
+
+    def _decimal_df(self):
+        # Realistic shape: department + Decimal-flavored amount column (object dtype)
+        return pd.DataFrame({
+            "department": ["A", "A", "A", "B", "B"],
+            "amount": [Decimal("100.00"), Decimal("200.00"), Decimal("300.00"),
+                       Decimal("150.00"), Decimal("250.00")],
+        })
+
+    def _decimal_df_with_nan(self):
+        return pd.DataFrame({
+            "department": ["A", "A", "A"],
+            "amount": [Decimal("100.00"), np.nan, Decimal("300.00")],
+        })
+
+    def test_decimal_population_std_dev_skipna(self):
+        # line 203 -- population_std_dev skipna branch under financial precision
+        config = dict(_DEFAULT_CONFIG)
+        config["use_financial_precision"] = True
+        config["operations"] = [
+            {"output_column": "pop_std", "function": "population_std_dev",
+             "input_column": "amount", "ignore_null": True},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(self._decimal_df())
+        main = result["main"]
+        a_pop = main.loc[main["dept"] == "A", "pop_std"].iloc[0]
+        assert isinstance(a_pop, Decimal)
+        # population std of [100, 200, 300] = sqrt(((100-200)^2 + 0 + (300-200)^2) / 3)
+        # = sqrt(20000/3) ~ 81.65
+        assert float(a_pop) == pytest.approx(81.6497, rel=1e-3)
+
+    def test_decimal_population_std_dev_propagates_nan(self):
+        # line 204 -- population_std_dev not-skipna NaN-propagation branch
+        config = dict(_DEFAULT_CONFIG)
+        config["use_financial_precision"] = True
+        config["operations"] = [
+            {"output_column": "pop_std", "function": "population_std_dev",
+             "input_column": "amount", "ignore_null": False},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(self._decimal_df_with_nan())
+        main = result["main"]
+        a_pop = main.loc[main["dept"] == "A", "pop_std"].iloc[0]
+        # NaN in input -> propagate as None
+        assert a_pop is None
+
+    def test_decimal_variance_skipna(self):
+        # lines 206-220 -- Decimal variance skipna path
+        config = dict(_DEFAULT_CONFIG)
+        config["use_financial_precision"] = True
+        config["operations"] = [
+            {"output_column": "var", "function": "variance",
+             "input_column": "amount", "ignore_null": True},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(self._decimal_df())
+        main = result["main"]
+        a_var = main.loc[main["dept"] == "A", "var"].iloc[0]
+        assert isinstance(a_var, Decimal)
+        # sample var of [100, 200, 300] (ddof=1) = 10000
+        assert float(a_var) == pytest.approx(10000.0)
+
+    def test_decimal_variance_returns_none_when_mean_none(self):
+        # line 211 -- _dec_var: mean is None -> return None
+        # all-null group: _decimal_mean returns None, _dec_var returns None
+        df = pd.DataFrame({
+            "department": ["A", "A"],
+            "amount": [np.nan, np.nan],
+        })
+        config = dict(_DEFAULT_CONFIG)
+        config["use_financial_precision"] = True
+        config["operations"] = [
+            {"output_column": "var", "function": "variance",
+             "input_column": "amount", "ignore_null": True},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(df)
+        main = result["main"]
+        a_var = main.loc[main["dept"] == "A", "var"].iloc[0]
+        assert a_var is None
+
+    def test_decimal_variance_returns_none_when_n_le_one(self):
+        # line 219 -- _dec_var: n <= 1 -> return None (single-row group)
+        df = pd.DataFrame({
+            "department": ["A"],
+            "amount": [Decimal("100")],
+        })
+        config = dict(_DEFAULT_CONFIG)
+        config["use_financial_precision"] = True
+        config["operations"] = [
+            {"output_column": "var", "function": "variance",
+             "input_column": "amount", "ignore_null": True},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(df)
+        main = result["main"]
+        a_var = main.loc[main["dept"] == "A", "var"].iloc[0]
+        # single value -> variance undefined under ddof=1
+        assert a_var is None
+
+    def test_decimal_variance_propagates_nan(self):
+        # line 222 -- _dec_var not-skipna NaN-propagation branch
+        config = dict(_DEFAULT_CONFIG)
+        config["use_financial_precision"] = True
+        config["operations"] = [
+            {"output_column": "var", "function": "variance",
+             "input_column": "amount", "ignore_null": False},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(self._decimal_df_with_nan())
+        main = result["main"]
+        a_var = main.loc[main["dept"] == "A", "var"].iloc[0]
+        assert a_var is None
+
+    def test_decimal_min_skipna(self):
+        # lines 224-229 -- _dec_min skipna branch
+        config = dict(_DEFAULT_CONFIG)
+        config["use_financial_precision"] = True
+        config["operations"] = [
+            {"output_column": "min_amt", "function": "min",
+             "input_column": "amount", "ignore_null": True},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(self._decimal_df())
+        main = result["main"]
+        a_min = main.loc[main["dept"] == "A", "min_amt"].iloc[0]
+        assert isinstance(a_min, Decimal)
+        assert a_min == Decimal("100.00")
+
+    def test_decimal_min_all_null_returns_none(self):
+        # line 228 -- _dec_min empty-vals branch: all NaN -> None
+        df = pd.DataFrame({
+            "department": ["A", "A"],
+            "amount": [np.nan, np.nan],
+        })
+        config = dict(_DEFAULT_CONFIG)
+        config["use_financial_precision"] = True
+        config["operations"] = [
+            {"output_column": "min_amt", "function": "min",
+             "input_column": "amount", "ignore_null": True},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(df)
+        main = result["main"]
+        a_min = main.loc[main["dept"] == "A", "min_amt"].iloc[0]
+        assert a_min is None
+
+    def test_decimal_min_propagates_nan(self):
+        # line 230 -- _dec_min not-skipna NaN-propagation branch
+        config = dict(_DEFAULT_CONFIG)
+        config["use_financial_precision"] = True
+        config["operations"] = [
+            {"output_column": "min_amt", "function": "min",
+             "input_column": "amount", "ignore_null": False},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(self._decimal_df_with_nan())
+        main = result["main"]
+        a_min = main.loc[main["dept"] == "A", "min_amt"].iloc[0]
+        assert a_min is None
+
+    def test_decimal_max_skipna(self):
+        # lines 232-237 -- _dec_max skipna branch
+        config = dict(_DEFAULT_CONFIG)
+        config["use_financial_precision"] = True
+        config["operations"] = [
+            {"output_column": "max_amt", "function": "max",
+             "input_column": "amount", "ignore_null": True},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(self._decimal_df())
+        main = result["main"]
+        a_max = main.loc[main["dept"] == "A", "max_amt"].iloc[0]
+        assert isinstance(a_max, Decimal)
+        assert a_max == Decimal("300.00")
+
+    def test_decimal_max_all_null_returns_none(self):
+        # line 236 -- _dec_max empty-vals branch: all NaN -> None
+        df = pd.DataFrame({
+            "department": ["A", "A"],
+            "amount": [np.nan, np.nan],
+        })
+        config = dict(_DEFAULT_CONFIG)
+        config["use_financial_precision"] = True
+        config["operations"] = [
+            {"output_column": "max_amt", "function": "max",
+             "input_column": "amount", "ignore_null": True},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(df)
+        main = result["main"]
+        a_max = main.loc[main["dept"] == "A", "max_amt"].iloc[0]
+        assert a_max is None
+
+    def test_decimal_max_propagates_nan(self):
+        # line 238 -- _dec_max not-skipna NaN-propagation branch
+        config = dict(_DEFAULT_CONFIG)
+        config["use_financial_precision"] = True
+        config["operations"] = [
+            {"output_column": "max_amt", "function": "max",
+             "input_column": "amount", "ignore_null": False},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(self._decimal_df_with_nan())
+        main = result["main"]
+        a_max = main.loc[main["dept"] == "A", "max_amt"].iloc[0]
+        assert a_max is None
+
+    def test_decimal_sum_propagates_nan(self):
+        # line 192 -- Decimal sum not-skipna NaN-propagation branch
+        config = dict(_DEFAULT_CONFIG)
+        config["use_financial_precision"] = True
+        config["operations"] = [
+            {"output_column": "total", "function": "sum",
+             "input_column": "amount", "ignore_null": False},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(self._decimal_df_with_nan())
+        main = result["main"]
+        a_total = main.loc[main["dept"] == "A", "total"].iloc[0]
+        assert a_total is None
+
+    def test_decimal_avg_propagates_nan(self):
+        # line 196 -- Decimal avg not-skipna NaN-propagation branch
+        config = dict(_DEFAULT_CONFIG)
+        config["use_financial_precision"] = True
+        config["operations"] = [
+            {"output_column": "avg_amt", "function": "avg",
+             "input_column": "amount", "ignore_null": False},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(self._decimal_df_with_nan())
+        main = result["main"]
+        a_avg = main.loc[main["dept"] == "A", "avg_amt"].iloc[0]
+        assert a_avg is None
+
+    def test_decimal_std_propagates_nan(self):
+        # line 200 -- Decimal std not-skipna NaN-propagation branch
+        config = dict(_DEFAULT_CONFIG)
+        config["use_financial_precision"] = True
+        config["operations"] = [
+            {"output_column": "sd", "function": "std",
+             "input_column": "amount", "ignore_null": False},
+        ]
+        comp = _make_component(config=config)
+        result = comp.execute(self._decimal_df_with_nan())
+        main = result["main"]
+        a_sd = main.loc[main["dept"] == "A", "sd"].iloc[0]
+        assert a_sd is None
+
+
+# ------------------------------------------------------------------
+# TestValidationExtended -- _validate_config branches not covered by existing
+# TestValidation. Covers lines 299, 303 (op-not-dict, missing 'function' key).
+# All assertions use ConfigurationError (ETLError subclass) per D-C4.
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestValidationExtended:
+    """_validate_config branches not covered by TestValidation."""
+
+    def test_operation_not_dict_raises_configuration_error(self):
+        # line 299 -- "Operation {i} must be a dict"
+        config = dict(_DEFAULT_CONFIG)
+        config["operations"] = ["not_a_dict"]
+        comp = _make_component(config=config)
+        with pytest.raises(ConfigurationError, match="must be a dict"):
+            comp.execute(_sample_df())
+
+    def test_missing_function_key_raises_configuration_error(self):
+        # line 303 -- "Operation {i} missing required key 'function'"
+        config = dict(_DEFAULT_CONFIG)
+        config["operations"] = [
+            {"output_column": "x", "input_column": "amount"},
+        ]
+        comp = _make_component(config=config)
+        with pytest.raises(ConfigurationError, match="missing required key 'function'"):
+            comp.execute(_sample_df())
+
+    def test_validation_error_uses_etlerror_subclass(self):
+        # D-C4: assert exception type is an ETLError subclass, not bare Exception
+        from src.v1.engine.exceptions import ETLError
+        assert issubclass(ConfigurationError, ETLError)
+
+    def test_build_agg_func_unknown_function_raises_when_validation_bypassed(self):
+        """Phase 14-02 / D-C5: _build_agg_func raises ConfigurationError when
+        called directly with an unsupported function name (regression contract).
+
+        _validate_config is the front gate -- this test guards the second line
+        of defense should that gate regress. Calling _build_agg_func directly
+        bypasses validation, so the raise at end-of-function is reachable.
+        """
+        with pytest.raises(ConfigurationError, match="Unsupported aggregation function"):
+            _build_agg_func(
+                func_name="not_a_real_function",
+                ignore_null=True,
+                list_delimiter=",",
+                use_financial_precision=False,
+            )
