@@ -543,3 +543,71 @@ class TestContextMixin:
         assert hasattr(PythonRowComponent, "_get_context_dict")
         # NOT defined directly on the subclass (no copy).
         assert "_get_context_dict" not in PythonRowComponent.__dict__
+
+
+# ----------------------------------------------------------------
+# TestCoverageLift_14_05 (COV-PRC-001)
+#
+# Target missed lines:
+#   - 224-225 (_build_row_namespace: routines spread + nested mapping)
+#   - 281     (python_code is not a string -> ConfigurationError)
+#   - 285     (python_code empty after resolution -> ConfigurationError)
+# ----------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCoverageLift1405:
+    """Targeted coverage for residual missed branches in python_row_component.py."""
+
+    def test_routines_dict_is_spread_and_namespaced_in_namespace(self):
+        # Hits lines 224-225: ns["routines"] = routines + ns.update(routines).
+        # Inject a fake python_routine_manager that returns a non-empty mapping
+        # so the conditional branch fires.
+        config = dict(_DEFAULT_CONFIG)
+        # User code reads BOTH the bare-name and the namespaced view, asserting
+        # via output_row that both wires landed.
+        config["python_code"] = (
+            'output_row["bare"] = my_helper(input_row["a"])\n'
+            'output_row["nested"] = routines["my_helper"](input_row["a"])'
+        )
+        comp = _make_component(config=config)
+
+        class _FakeRoutineMgr:
+            def get_all_routines(self):
+                return {"my_helper": lambda x: x * 10}
+
+        comp.python_routine_manager = _FakeRoutineMgr()
+
+        df = pd.DataFrame({"a": [3]})
+        result = comp._process(input_data=df)
+        main = result["main"]
+        assert result["reject"] is None
+        assert main.iloc[0]["bare"] == 30
+        assert main.iloc[0]["nested"] == 30
+
+    def test_python_code_not_a_string_raises_configuration_error(self):
+        # Hits line 281: isinstance(python_code, str) is False.
+        config = {
+            "component_type": "PythonRowComponent",
+            "python_code": 42,  # int -- type mismatch (passes _validate_config truthy check)
+        }
+        comp = _make_component(config=config)
+        df = pd.DataFrame({"a": [1, 2]})
+        with pytest.raises(ConfigurationError) as excinfo:
+            comp._process(input_data=df)
+        assert "must be a string" in str(excinfo.value)
+        assert "tPythonRow_1" in str(excinfo.value)
+
+    def test_python_code_whitespace_only_raises_configuration_error(self):
+        # Hits line 285: python_code.strip() is empty after resolution.
+        config = {
+            "component_type": "PythonRowComponent",
+            "python_code": "   \n\t  ",  # truthy (passes _validate_config)
+                                          # but empty after strip()
+        }
+        comp = _make_component(config=config)
+        df = pd.DataFrame({"a": [1, 2]})
+        with pytest.raises(ConfigurationError) as excinfo:
+            comp._process(input_data=df)
+        assert "non-empty after resolution" in str(excinfo.value)
+        assert "tPythonRow_1" in str(excinfo.value)
