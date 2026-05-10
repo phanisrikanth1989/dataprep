@@ -1,0 +1,14 @@
+# SWIFT block-formatter layout that mirrors mt_basic but is intended to be
+# paired with synthetic mt202_cov messages whose block 3 carries 121:UETR
+# and 119:COV. The engine's _parse_block3 path runs whenever {3:...} is
+# present in the input -- the layout itself does not control whether block
+# 3 is parsed; we keep this file so tests can document intent and so
+# pipeline fixtures pick a different layout per test scenario.
+
+swift_layout:
+  block4_layout:
+    block4_20: "S"
+    block4_21: "S"
+    block4_32A: "S"
+    block4_52A: "S"
+    block4_58A: "S"
