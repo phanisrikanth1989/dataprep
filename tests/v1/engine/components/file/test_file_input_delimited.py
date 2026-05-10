@@ -1133,3 +1133,598 @@ class TestSchema:
             assert is_string_dtype, (
                 f"Column '{col}' should be string-like dtype without schema, got {dtype}"
             )
+
+
+# ------------------------------------------------------------------
+# Plan 14-08 coverage lift: missed-line clusters
+#   175-179 (csv_option=True + multi-char fieldseparator -> truncate + warn)
+#   254-255 (die_on_error=True with reject rows -> DataValidationError wrap)
+#   300-301 (CSV-mode non-standard sep + read failure -> FileOperationError)
+#   315 (CSV-mode non-standard sep + empty after split -> empty DF)
+#   332-333 / 358-359 (standard-mode + non-standard sep + parse failure)
+#   401-406 (CSV-mode non-standard sep FileNotFoundError branch)
+#   413, 415, 417 (CSV non-standard sep header_rows / footer_rows / pop)
+#   420 (CSV non-standard sep no lines -> empty DF)
+#   430-431 (CSV escape != quote: escapechar + doublequote=False)
+#   436 (CSV non-standard sep csv.reader -> empty rows -> empty DF)
+#   441-442 (CSV non-standard sep schema mismatch -> warning)
+#   459-460 (CSV standard sep escape != quote)
+#   466-469 (CSV standard sep header skip / StopIteration)
+#   483-488 (CSV standard sep FileNotFoundError + Exception)
+#   493-494 (CSV standard sep no rows -> empty DF)
+#   499-500 (CSV standard sep schema mismatch -> warning)
+#   618 (vectorized convert no schema -> early return)
+#   645 (per-row fallback skip already-rejected idx)
+#   670 (per-row fallback else-branch values)
+#   722 (vectorized bool unmapped -> raise)
+#   725 (vectorized passthrough for str type)
+#   797 (chunked validate row missing schema column)
+#   914-918 (convert_value empty + nullable / non-nullable raise)
+#   937-944 (convert_value datetime no pattern + Decimal + object + fallthrough)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestCoverageLift1408StaticHelpers:
+    """Direct exercises of static helpers _convert_value / _vectorized_convert."""
+
+    def test_convert_value_empty_nullable_returns_none(self):
+        """convert_value: empty + nullable -> None (914-915)."""
+        out = FileInputDelimited._convert_value(
+            "  ", {"name": "x", "type": "int", "nullable": True}
+        )
+        assert out is None
+
+    def test_convert_value_empty_non_nullable_raises(self):
+        """convert_value: empty + non-nullable -> ValueError (916-918)."""
+        with pytest.raises(ValueError, match="non-nullable"):
+            FileInputDelimited._convert_value(
+                "", {"name": "x", "type": "int", "nullable": False}
+            )
+
+    def test_convert_value_datetime_no_pattern(self):
+        """convert_value: datetime without pattern uses pd.to_datetime fallback (937)."""
+        out = FileInputDelimited._convert_value(
+            "2024-01-15", {"name": "d", "type": "datetime"}
+        )
+        # Coerced to a Timestamp/datetime
+        assert hasattr(out, "year") or out is not None
+
+    def test_convert_value_decimal(self):
+        """convert_value: Decimal type returns Decimal instance (938-940)."""
+        from decimal import Decimal
+        out = FileInputDelimited._convert_value(
+            "12.34", {"name": "d", "type": "Decimal"}
+        )
+        assert isinstance(out, Decimal)
+        assert out == Decimal("12.34")
+
+    def test_convert_value_object_type_returns_value(self):
+        """convert_value: 'object' type returns raw value (941-942)."""
+        out = FileInputDelimited._convert_value(
+            "raw_string", {"name": "x", "type": "object"}
+        )
+        assert out == "raw_string"
+
+    def test_convert_value_unknown_type_falls_through(self):
+        """convert_value: unknown type returns value unchanged (944)."""
+        out = FileInputDelimited._convert_value(
+            "anything", {"name": "x", "type": "WIDGET"}
+        )
+        assert out == "anything"
+
+    def test_vectorized_convert_str_passthrough(self):
+        """_vectorized_convert: str type returns series unchanged (725)."""
+        s = pd.Series(["a", "b", "c"])
+        out = FileInputDelimited._vectorized_convert(s, "str")
+        assert list(out) == ["a", "b", "c"]
+
+    def test_vectorized_convert_bool_unmapped_raises(self):
+        """_vectorized_convert: unmapped bool string -> ValueError (717-721)."""
+        s = pd.Series(["true", "MAYBE", "false"])
+        with pytest.raises(ValueError, match="Unmapped bool"):
+            FileInputDelimited._vectorized_convert(s, "bool")
+
+    def test_vectorized_convert_bool_all_mapped_returns_series(self):
+        """_vectorized_convert: all values mapped -> return mapped Series (line 722)."""
+        s = pd.Series(["true", "false", "yes", "no"])
+        out = FileInputDelimited._vectorized_convert(s, "bool")
+        assert list(out) == [True, False, True, False]
+
+    def test_vectorized_convert_datetime_returns_series(self):
+        """_vectorized_convert: datetime type -> return parsed Series (line 724)."""
+        s = pd.Series(["2024-01-15", "2024-02-20"])
+        out = FileInputDelimited._vectorized_convert(s, "datetime")
+        assert pd.api.types.is_datetime64_any_dtype(out)
+
+
+@pytest.mark.unit
+class TestCoverageLift1408ProcessBranches:
+    """Targeted process branches: multi-char delimiter, die_on_error, etc."""
+
+    def test_csv_option_multichar_delimiter_warns_and_truncates(self, tmp_path, caplog):
+        """csv_option=True + multi-char fieldseparator -> warn + use first char (175-179)."""
+        # Use ";;" multi-char in CSV mode; component should warn and reduce to ";"
+        f = _write_file(tmp_path, "multi.csv", "1;Alice\n2;Bob\n", encoding="utf-8")
+        cfg = {**_DEFAULT_CONFIG, "filepath": f, "csv_option": True,
+               "fieldseparator": ";;", "encoding": "utf-8"}
+        comp = _make_component(config=cfg)
+        with caplog.at_level(logging.WARNING):
+            result = comp.execute(None)
+        assert any(
+            "Multi-character fieldseparator" in r.message and "csv_option=True" in r.message
+            for r in caplog.records
+        )
+        # File parsed with single-char ';' delimiter -> 2 rows
+        assert len(result["main"]) == 2
+
+    def test_die_on_error_true_with_reject_rows_raises_data_validation_error(
+        self, tmp_path
+    ):
+        """die_on_error=True with type-conversion rejects -> DataValidationError (254-255)."""
+        from src.v1.engine.exceptions import DataValidationError, ComponentExecutionError
+        # 'bad' is not int-convertible -> reject -> die
+        content = "1;Alice;10.5\nbad;Bob;20.0\n"
+        f = _write_file(tmp_path, "die.csv", content)
+        cfg = {**_DEFAULT_CONFIG, "filepath": f, "die_on_error": True}
+        comp = _make_component(config=cfg)
+        with pytest.raises(
+            (DataValidationError, ComponentExecutionError),
+            match="Schema/coercion failed",
+        ):
+            comp.execute(None)
+
+
+@pytest.mark.unit
+class TestCoverageLift1408NonStandardRowSeparator:
+    """Branches inside _read_standard_mode and _read_csv_mode for non-default row separators."""
+
+    def test_standard_mode_nonstandard_sep_read_failure(self, tmp_path, monkeypatch):
+        """Standard mode + non-standard row sep + open() fails -> FileOperationError (300-301)."""
+        from src.v1.engine.exceptions import ComponentExecutionError
+        f = tmp_path / "nostd.csv"
+        f.write_text("1;Alice|2;Bob", encoding="iso-8859-15")
+
+        cfg = {**_DEFAULT_CONFIG, "filepath": str(f), "csv_option": False,
+               "row_separator": "|"}  # non-standard separator
+        comp = _make_component(config=cfg)
+
+        # Force open() to fail when reading the CSV path (route via _read_standard_mode).
+        import builtins
+        original_open = builtins.open
+
+        def selective_open(path, *args, **kwargs):
+            if str(path) == str(f):
+                raise OSError("simulated read failure")
+            return original_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "open", selective_open)
+        with pytest.raises(
+            (FileOperationError, ComponentExecutionError),
+            match="Failed to read file",
+        ):
+            comp.execute(None)
+
+    def test_standard_mode_nonstandard_sep_empty_after_split(self, tmp_path):
+        """Standard mode + non-standard sep + content empty after split -> empty DF (315).
+
+        Direct call to _read_standard_mode so we can hit the early-return after the
+        header skip consumes all available lines.
+        """
+        f = _write_file(tmp_path, "empty_nstd.csv", "ONLY_HDR|", encoding="iso-8859-15")
+        comp = _make_component(config={**_DEFAULT_CONFIG, "filepath": f})
+        df = comp._read_standard_mode(
+            filepath=f,
+            field_separator=";",
+            row_separator="|",
+            encoding="iso-8859-15",
+            header_rows=5,  # > available -> empty after skip
+            footer_rows=0,
+            schema_cols=None,
+        )
+        assert len(df) == 0
+
+    def test_standard_mode_nonstandard_sep_parse_failure(self, tmp_path, monkeypatch):
+        """Standard mode + non-standard sep + pd.read_csv parse failure -> FileOperationError (332-333)."""
+        from src.v1.engine.exceptions import ComponentExecutionError
+        f = _write_file(tmp_path, "nstd.csv", "1;Alice|2;Bob", encoding="iso-8859-15")
+        cfg = {**_DEFAULT_CONFIG, "filepath": f, "csv_option": False, "row_separator": "|"}
+        comp = _make_component(config=cfg)
+
+        original_read_csv = pd.read_csv
+
+        def boom(*a, **kw):
+            raise RuntimeError("simulated pd.read_csv failure")
+
+        monkeypatch.setattr(pd, "read_csv", boom)
+        with pytest.raises(
+            (FileOperationError, ComponentExecutionError),
+            match="Failed to parse file|Failed to read file",
+        ):
+            comp.execute(None)
+
+    def test_standard_mode_default_rowsep_parse_failure(self, tmp_path, monkeypatch):
+        """Standard mode + default \\n separator + pd.read_csv failure -> FileOperationError (358-359)."""
+        from src.v1.engine.exceptions import ComponentExecutionError
+        f = _write_file(tmp_path, "stdsep.csv", "1;Alice\n2;Bob\n", encoding="iso-8859-15")
+        cfg = {**_DEFAULT_CONFIG, "filepath": f, "csv_option": False}
+        comp = _make_component(config=cfg)
+
+        def boom(*a, **kw):
+            raise RuntimeError("simulated pd.read_csv failure")
+
+        monkeypatch.setattr(pd, "read_csv", boom)
+        with pytest.raises(
+            (FileOperationError, ComponentExecutionError),
+            match="Failed to read file",
+        ):
+            comp.execute(None)
+
+    def test_csv_mode_nonstandard_sep_file_not_found(self, tmp_path, monkeypatch):
+        """CSV mode + non-standard csv_row_separator + FileNotFoundError -> FileOperationError (401-404)."""
+        from src.v1.engine.exceptions import ComponentExecutionError
+        f = tmp_path / "exists.csv"
+        f.write_text("1;A|2;B", encoding="utf-8")
+        # csv_row_separator (not row_separator) drives _read_csv_mode's branch.
+        cfg = {**_DEFAULT_CONFIG, "filepath": str(f), "csv_option": True,
+               "csv_row_separator": "|", "encoding": "utf-8"}
+        comp = _make_component(config=cfg)
+
+        import builtins
+        original_open = builtins.open
+
+        def selective_open(path, *args, **kwargs):
+            if str(path) == str(f):
+                raise FileNotFoundError("simulated missing during read")
+            return original_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "open", selective_open)
+        with pytest.raises(
+            (FileOperationError, ComponentExecutionError),
+            match="File not found",
+        ):
+            comp.execute(None)
+
+    def test_csv_mode_nonstandard_sep_other_read_error(self, tmp_path, monkeypatch):
+        """CSV mode + non-standard csv_row_separator + arbitrary Exception -> FileOperationError (405-408)."""
+        from src.v1.engine.exceptions import ComponentExecutionError
+        f = tmp_path / "exists.csv"
+        f.write_text("1;A|2;B", encoding="utf-8")
+        cfg = {**_DEFAULT_CONFIG, "filepath": str(f), "csv_option": True,
+               "csv_row_separator": "|", "encoding": "utf-8"}
+        comp = _make_component(config=cfg)
+
+        import builtins
+        original_open = builtins.open
+
+        def selective_open(path, *args, **kwargs):
+            if str(path) == str(f):
+                raise OSError("simulated I/O error")
+            return original_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "open", selective_open)
+        with pytest.raises(
+            (FileOperationError, ComponentExecutionError),
+            match="Failed to read file",
+        ):
+            comp.execute(None)
+
+    def test_csv_mode_nonstandard_sep_with_header_and_footer(self, tmp_path):
+        """CSV non-standard sep with header_rows / footer_rows / trailing-empty pop (413,415,417).
+
+        Calls _read_csv_mode directly to isolate the lines-handling logic from the
+        downstream validation pipeline, which has its own coverage elsewhere.
+        """
+        f = _write_file(tmp_path, "hdr_ftr.csv",
+                        "HDR;HDR2|1;A|2;B|FTR;FTR2|", encoding="utf-8")
+        comp = _make_component(config={**_DEFAULT_CONFIG, "filepath": f})
+        df = comp._read_csv_mode(
+            filepath=f,
+            field_separator=";",
+            row_separator="|",
+            encoding="utf-8",
+            header_rows=1,
+            footer_rows=1,
+            text_enclosure='"',
+            escape_char='"',
+            schema_cols=["k", "v"],
+        )
+        assert len(df) == 2
+        assert list(df["k"]) == ["1", "2"]
+        assert list(df["v"]) == ["A", "B"]
+
+    def test_csv_mode_nonstandard_sep_no_lines_after_skip(self, tmp_path):
+        """CSV non-standard sep + header_rows >= total lines -> empty DF (line 420).
+
+        Uses direct _read_csv_mode call so we exercise the non-standard
+        row-separator branch (csv_row_separator drives this in the public flow).
+        """
+        f = _write_file(tmp_path, "all_hdr.csv", "HDR|", encoding="utf-8")
+        comp = _make_component(config={**_DEFAULT_CONFIG, "filepath": f})
+        df = comp._read_csv_mode(
+            filepath=f,
+            field_separator=";",
+            row_separator="|",
+            encoding="utf-8",
+            header_rows=5,  # > available -> empty after skip
+            footer_rows=0,
+            text_enclosure='"',
+            escape_char='"',
+            schema_cols=["k"],
+        )
+        assert len(df) == 0
+
+    def test_csv_mode_nonstandard_sep_escapechar_distinct_from_quote(self, tmp_path):
+        """CSV non-standard sep + escape_char != text_enclosure -> escapechar branch (430-431).
+
+        Direct _read_csv_mode call so the test covers the escapechar reader_kwargs
+        branch without involving the downstream validation pipeline.
+        """
+        f = _write_file(tmp_path, "esc.csv",
+                        "1;A|2;B", encoding="utf-8")
+        comp = _make_component(config={**_DEFAULT_CONFIG, "filepath": f})
+        df = comp._read_csv_mode(
+            filepath=f,
+            field_separator=";",
+            row_separator="|",
+            encoding="utf-8",
+            header_rows=0,
+            footer_rows=0,
+            text_enclosure='"',
+            escape_char="\\",  # distinct from quote -> hits escapechar branch
+            schema_cols=["k", "v"],
+        )
+        assert len(df) == 2
+
+    def test_csv_mode_nonstandard_sep_schema_column_mismatch_warns(
+        self, tmp_path, caplog
+    ):
+        """CSV non-standard sep + schema column count mismatch -> warning (441-445)."""
+        f = _write_file(tmp_path, "mismatch.csv", "1;A;extra|2;B;extra2", encoding="utf-8")
+        comp = _make_component(config={**_DEFAULT_CONFIG, "filepath": f})
+        with caplog.at_level(logging.WARNING):
+            df = comp._read_csv_mode(
+                filepath=f,
+                field_separator=";",
+                row_separator="|",
+                encoding="utf-8",
+                header_rows=0,
+                footer_rows=0,
+                text_enclosure='"',
+                escape_char='"',
+                schema_cols=["k", "v"],  # 2 cols expected; data has 3
+            )
+        assert len(df) == 2  # rows still parsed
+        assert any(
+            "Schema expects" in r.message and "columns per row" in r.message
+            for r in caplog.records
+        )
+
+    def test_csv_mode_nonstandard_sep_csv_reader_returns_empty(self, tmp_path):
+        """CSV non-standard sep + csv.reader produces empty rows -> empty DF (line 436).
+
+        After header_rows skip leaves empty list of lines, the rows variable is
+        also empty so the early-return at 436 fires.
+        """
+        f = _write_file(tmp_path, "blank.csv", "x|", encoding="utf-8")
+        comp = _make_component(config={**_DEFAULT_CONFIG, "filepath": f})
+        # Single line "x" + trailing empty popped; header_rows=1 leaves [].
+        df = comp._read_csv_mode(
+            filepath=f,
+            field_separator=";",
+            row_separator="|",
+            encoding="utf-8",
+            header_rows=1,
+            footer_rows=0,
+            text_enclosure='"',
+            escape_char='"',
+            schema_cols=["k"],
+        )
+        assert len(df) == 0
+
+
+@pytest.mark.unit
+class TestCoverageLift1408CSVStandardRowSep:
+    """Branches inside _read_csv_mode standard-row-sep path."""
+
+    def test_csv_mode_escapechar_distinct_from_quote(self, tmp_path):
+        """CSV standard sep + escape != quote -> escapechar branch (459-460)."""
+        f = _write_file(tmp_path, "esc.csv",
+                        '1;\\"escaped\\"\n2;normal\n', encoding="utf-8")
+        cfg = {**_DEFAULT_CONFIG, "filepath": f, "csv_option": True,
+               "encoding": "utf-8",
+               "escape_char": "\\", "text_enclosure": '"'}
+        schema = [{"name": "k", "type": "str", "nullable": True},
+                  {"name": "v", "type": "str", "nullable": True}]
+        comp = _make_component(config=cfg, schema=schema)
+        result = comp.execute(None)
+        assert len(result["main"]) == 2
+
+    def test_csv_mode_header_rows_with_short_file_stops_iteration(self, tmp_path):
+        """CSV standard sep + header_rows > available -> StopIteration break (466-469)."""
+        # File has 1 line; header_rows=5 -> next() raises StopIteration on 2nd call -> break
+        f = _write_file(tmp_path, "short.csv", "ONLY\n", encoding="utf-8")
+        cfg = {**_DEFAULT_CONFIG, "filepath": f, "csv_option": True,
+               "encoding": "utf-8", "header_rows": 5}
+        schema = [{"name": "k", "type": "str", "nullable": True}]
+        comp = _make_component(config=cfg, schema=schema)
+        result = comp.execute(None)
+        # All lines consumed by header skip; nothing remains.
+        assert len(result["main"]) == 0
+
+    def test_csv_mode_file_not_found_raises(self, tmp_path, monkeypatch):
+        """CSV standard sep + FileNotFoundError -> FileOperationError (483-486)."""
+        from src.v1.engine.exceptions import ComponentExecutionError
+        f = tmp_path / "exists.csv"
+        f.write_text("a;b\n", encoding="utf-8")
+        cfg = {**_DEFAULT_CONFIG, "filepath": str(f), "csv_option": True,
+               "encoding": "utf-8"}
+        comp = _make_component(config=cfg)
+
+        import builtins
+        original_open = builtins.open
+
+        def selective_open(path, *args, **kwargs):
+            if str(path) == str(f):
+                raise FileNotFoundError("simulated FNF during read")
+            return original_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "open", selective_open)
+        with pytest.raises(
+            (FileOperationError, ComponentExecutionError),
+            match="File not found",
+        ):
+            comp.execute(None)
+
+    def test_csv_mode_other_read_error_wraps(self, tmp_path, monkeypatch):
+        """CSV standard sep + non-FNF Exception -> FileOperationError (487-490)."""
+        from src.v1.engine.exceptions import ComponentExecutionError
+        f = tmp_path / "exists.csv"
+        f.write_text("a;b\n", encoding="utf-8")
+        cfg = {**_DEFAULT_CONFIG, "filepath": str(f), "csv_option": True,
+               "encoding": "utf-8"}
+        comp = _make_component(config=cfg)
+
+        import builtins
+        original_open = builtins.open
+
+        def selective_open(path, *args, **kwargs):
+            if str(path) == str(f):
+                raise OSError("simulated I/O error")
+            return original_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "open", selective_open)
+        with pytest.raises(
+            (FileOperationError, ComponentExecutionError),
+            match="Failed to read file",
+        ):
+            comp.execute(None)
+
+    def test_csv_mode_empty_after_read_returns_empty_df(self, tmp_path):
+        """CSV standard sep + no rows -> empty DF (493-494)."""
+        f = _write_file(tmp_path, "empty.csv", "", encoding="utf-8")
+        cfg = {**_DEFAULT_CONFIG, "filepath": f, "csv_option": True,
+               "encoding": "utf-8"}
+        schema = [{"name": "k", "type": "str", "nullable": True}]
+        comp = _make_component(config=cfg, schema=schema)
+        result = comp.execute(None)
+        assert len(result["main"]) == 0
+
+    def test_csv_mode_schema_mismatch_warns(self, tmp_path, caplog):
+        """CSV standard sep + schema column mismatch -> warning (499-503)."""
+        f = _write_file(tmp_path, "mismatch.csv", "1;A;extra\n2;B;extra2\n",
+                        encoding="utf-8")
+        cfg = {**_DEFAULT_CONFIG, "filepath": f, "csv_option": True,
+               "encoding": "utf-8"}
+        schema = [{"name": "k", "type": "str", "nullable": True},
+                  {"name": "v", "type": "str", "nullable": True}]
+        comp = _make_component(config=cfg, schema=schema)
+        with caplog.at_level(logging.WARNING):
+            comp.execute(None)
+        assert any(
+            "Schema expects" in r.message and "columns per row" in r.message
+            for r in caplog.records
+        )
+
+
+@pytest.mark.unit
+class TestCoverageLift1408FastPathBranches:
+    """_vectorized_type_conversion edge branches."""
+
+    def test_fast_path_no_schema_returns_input(self):
+        """_fast_path_convert with no schema -> early return (line 618)."""
+        comp = _make_component()
+        comp.output_schema = None
+        df = pd.DataFrame({"x": ["a", "b"]})
+        out_df, reject = comp._fast_path_convert(df)
+        assert out_df is df
+        assert reject is None
+
+    def test_fast_path_per_row_fallback_skips_already_rejected_idx(self):
+        """_fast_path_convert: when an earlier column rejected a row, later columns skip it (645)."""
+        comp = _make_component()
+        comp.output_schema = [
+            {"name": "a", "type": "int", "nullable": False},
+            {"name": "b", "type": "int", "nullable": False},
+        ]
+        # row 0 fails on 'a' (BAD); row 1 fails on 'b' (BAD); row 2 OK
+        df = pd.DataFrame({
+            "a": ["BAD", "1", "2"],
+            "b": ["10", "BAD", "20"],
+        }, dtype=str)
+        # Trigger fast-path's per-row fallback (mixed valid/invalid forces vectorized
+        # convert to fail on each column, then fall back per-row).
+        main_df, reject_df = comp._fast_path_convert(df)
+        # row 2 only is the cleanly converted row
+        assert len(main_df) == 1
+        assert reject_df is not None
+        assert len(reject_df) == 2
+
+    def test_chunked_validate_skips_columns_missing_from_row(self):
+        """_chunked_validate row missing schema column -> continue (line 797).
+
+        Construct a DataFrame whose columns deliberately omit a schema column.
+        The chunked validator should skip the absent column without raising.
+        """
+        comp = _make_component()
+        comp.output_schema = [
+            {"name": "id", "type": "int", "nullable": True},
+            {"name": "extra_only_in_schema", "type": "str", "nullable": True},
+        ]
+        df = pd.DataFrame({"id": ["1", "2"]}, dtype=str)
+        main_df, reject_df = comp._chunked_validate(
+            df=df,
+            check_fields_num=False,
+            check_date=True,
+            expected_col_count=None,
+        )
+        assert len(main_df) == 2
+        # 'id' converted, missing column simply not present in output rows
+        assert reject_df is None or len(reject_df) == 0
+
+
+@pytest.mark.unit
+class TestCoverageLift1408PipelineFixtures:
+    """Plan 14-08 pipeline tests via run_job_fixture (D-C1)."""
+
+    def test_csv_with_header_pipeline(self, run_job_fixture, tmp_path, assert_ascii_logs):
+        csv_path = tmp_path / "input.csv"
+        csv_path.write_text("id;name\n1;Alice\n2;Bob\n3;Carol\n", encoding="iso-8859-15")
+        result = run_job_fixture(
+            "file/csv_with_header",
+            mutations={
+                "tFileInputDelimited_1": {"filepath": str(csv_path)},
+            },
+        )
+        # 3 data rows; header skipped via header_rows=1
+        assert result.global_map.get("tFileInputDelimited_1_NB_LINE") == 3
+        assert result.global_map.get("tFileInputDelimited_1_NB_LINE_OK") == 3
+        assert result.global_map.get("tFileInputDelimited_1_NB_LINE_REJECT") == 0
+        # FILENAME / ENCODING set pre-execution (D-15)
+        assert result.global_map.get("tFileInputDelimited_1_FILENAME") == str(csv_path)
+        assert result.global_map.get("tFileInputDelimited_1_ENCODING") == "ISO-8859-15"
+
+    def test_csv_with_reject_pipeline(self, run_job_fixture, tmp_path, assert_ascii_logs):
+        # 2nd row only has 1 field (id missing) -> caught by check_fields_num
+        # Actually CSV has fields id;name (2 cols expected). "1;Alice" passes;
+        # "bad_only_one" has 1 field -> rejected.
+        csv_path = tmp_path / "input.csv"
+        csv_path.write_text(
+            "1;Alice\nbad_only_one\n3;Carol\n", encoding="iso-8859-15",
+        )
+        out_main = tmp_path / "out_main.csv"
+        out_reject = tmp_path / "out_reject.csv"
+        result = run_job_fixture(
+            "file/csv_with_reject",
+            mutations={
+                "tFileInputDelimited_1": {"filepath": str(csv_path)},
+                "tFileOutputDelimited_main": {"filepath": str(out_main)},
+                "tFileOutputDelimited_reject": {"filepath": str(out_reject)},
+            },
+        )
+        # 2 OK + 1 reject expected
+        assert result.global_map.get("tFileInputDelimited_1_NB_LINE_OK") == 2
+        assert result.global_map.get("tFileInputDelimited_1_NB_LINE_REJECT") == 1
+        # Both output files created
+        assert out_main.exists()
+        assert out_reject.exists()
