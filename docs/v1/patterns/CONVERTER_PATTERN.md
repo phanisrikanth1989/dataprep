@@ -160,3 +160,63 @@ class {ComponentName}Converter(ComponentConverter):
 10. **needs_review** entries have exactly 3 keys: `issue`, `component`, `severity` (always `"engine_gap"`)
 11. **No exception raising** -- return ComponentResult with warnings
 12. **Config keys are snake_case** -- converted from UPPER_CASE XML names
+
+---
+
+## Schema Patterns (4 Quadrants)
+
+The `schema.input` / `schema.output` shape depends on whether the component is a source, sink, transform, or utility:
+
+```python
+# Source component (produces data): input empty, output from FLOW
+schema={"input": [], "output": self._parse_schema(node)}
+
+# Sink/output component (consumes data): input from FLOW, output empty
+schema={"input": self._parse_schema(node), "output": []}
+
+# Transform component (passes through): both from FLOW
+schema_cols = self._parse_schema(node)
+schema={"input": schema_cols, "output": schema_cols}
+
+# Utility component (no data flow): both empty
+schema={"input": [], "output": []}
+```
+
+> **Note:** The `schema.input` values set by individual component converters are **overwritten** during pipeline Step 6b (`_propagate_input_schemas`). Each target component's `schema.input` is replaced with its upstream component's `schema.output`, derived from the flow connection graph. This means component converters only need to set `schema.output` correctly; the pipeline handles `schema.input` automatically.
+
+---
+
+## Hidden / Design-Time Parameters (NOT Extracted)
+
+Talend components include several parameter categories that are **not** extracted by the converter:
+
+| Category | Examples | Reason for exclusion |
+| ---------- | ---------- | ---------------------- |
+| Schema optimization | `SCHEMA_OPT_NUM` | Studio-only hint for schema preview sampling; no runtime effect |
+| Hidden UI controls | `USE_ITEMS`, `LOOP_QUERY_BASE`, `USE_XML_FIELD`, `XML_TEXT`, `XML_PREFIX`, `LINK_STYLE`, `LKUP_PARALLELIZE`, `ENABLE_AUTO_CONVERT_TYPE`, `LEVENSHTEIN`, `JACCARD`, `HASH_KEY_FROM_INPUT_CONNECTOR` | `show="false"` in component XML; never set by users |
+| Phantom parameters | `CONNECTION_FORMAT`, `TEMP_DIR`, `DESTINATION`, `USE_HEADER_AS_IS`, `TEMP_DIRECTORY`, `SPLIT_LIST`, `JDK_VERSION`, `VAR_TABLE_NAME`, `VAR_TABLE_SIZE_STATE` | Present in `.item` XML but absent from `_java.xml` definition or only used at design time |
+
+These parameters were previously extracted and flagged as `engine_gap` entries. They have been removed to reduce noise in the converted JSON output and eliminate false-positive needs_review entries.
+
+---
+
+## TABLE Parameter Parsing
+
+XmlParser stores TABLE params as flat lists of `{elementRef, value}` dicts:
+
+```python
+# Example: parse a TABLE with pairs of KEY/VALUE entries
+raw = self._get_param(node, "MY_TABLE", [])
+entries = []
+current_key = None
+for entry in raw:
+    if not isinstance(entry, dict):
+        continue
+    ref = entry.get("elementRef", "")
+    val = entry.get("value", "").strip('"')
+    if ref == "KEY":
+        current_key = val
+    elif ref == "VALUE" and current_key:
+        entries.append({"key": current_key, "value": val})
+        current_key = None
+```
