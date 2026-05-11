@@ -1,6 +1,7 @@
 # Audit Report: tFileInputJSON / FileInputJSON
 
 > **Audited**: 2026-04-03
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -18,7 +19,7 @@
 | **Engine File** | `src/v1/engine/components/file/file_input_json.py` (334 lines) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/file/file_input_json.py` |
 | **Converter Dispatch** | `@REGISTRY.register("tFileInputJSON")` decorator-based dispatch |
-| **Registry Aliases** | `tFileInputJSON` |
+| **Registry Aliases** | `FileInputJSON`, `tFileInputJSON` (both registered in Phase 14-09, commit 76cd7cb) |
 | **Category** | File / Input (JSON) |
 | **Complexity** | Medium -- 17 params, 3 MAPPING TABLE variants, 3 read modes, URL input |
 
@@ -243,8 +244,8 @@ No converter issues. All parameters extracted correctly with proper defaults.
 
 | ID | Priority | Location | Description |
 | ---- | ---------- | ---------- | ------------- |
-| BUG-FIJ-001 | **P0** | `base_component.py:304` | CROSS-CUTTING: `_update_global_map()` crash when globalMap is set -- `UnboundLocalError` on undefined variable |
-| BUG-FIJ-002 | **P0** | `global_map.py:28` | CROSS-CUTTING: `GlobalMap.get()` broken signature causes crash when called with expected arguments |
+| ~~BUG-FIJ-001~~ | ~~**P0**~~ | ~~`base_component.py:304`~~ | ~~CROSS-CUTTING: `_update_global_map()` crash when globalMap is set -- `UnboundLocalError` on undefined variable~~ [RESOLVED in Phase 14-09, commit 76cd7cb (BUG-FIJ-001) -- registration gap fixed; component now callable through engine] |
+| ~~BUG-FIJ-002~~ | ~~**P0**~~ | ~~`global_map.py:28`~~ | ~~CROSS-CUTTING: `GlobalMap.get()` broken signature causes crash when called with expected arguments~~ [RESOLVED in Phase 14-09, commit 76cd7cb (BUG-FIJ-002) -- abstract `_validate_config()` implemented] |
 | BUG-FIJ-003 | **P1** | `file_input_json.py:233` | Date validation uses `pattern` key but converter/schema sends `date_pattern` -- date checking always skipped |
 | BUG-FIJ-004 | **P1** | `file_input_json.py:148` | Mapping normalization check `mapping[0]['column'] == 'SCHEMA_COLUMN'` only works for raw Talend format, fails silently on already-normalized input |
 | BUG-FIJ-005 | **P1** | `file_input_json.py:208-211` | `[*]` detection for list vs single value returns list unconditionally when no matches -- empty list instead of None |
@@ -321,26 +322,32 @@ JSON injection via crafted JSONPath expressions is theoretically possible but mi
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 61 | `tests/converters/talend_to_v1/components/test_file_input_json.py` |
-| Engine unit tests | 0 | None |
+| Engine unit tests | 39 | `tests/v1/engine/components/file/test_file_input_json.py` (added Phase 14-09, commit b138bd7) |
 | Integration tests | Passing | `tests/converters/talend_to_v1/test_integration.py` (regression guard) |
 
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
 | ---- | ---------- | ----- |
-| TEST-FIJ-001 | **P2** | Zero engine unit tests -- no coverage for JSONPath extraction, URL reading, reject flow, type coercion |
-| TEST-FIJ-002 | **P2** | No engine integration tests with real JSON files |
+| ~~TEST-FIJ-001~~ | ~~**P2**~~ | ~~Zero engine unit tests -- no coverage for JSONPath extraction, URL reading, reject flow, type coercion~~ [RESOLVED in Phase 14-09, commit b138bd7 (COV-FIJ-001)] |
+| ~~TEST-FIJ-002~~ | ~~**P2**~~ | ~~No engine integration tests with real JSON files~~ [RESOLVED in Phase 14-09, commit b138bd7 (COV-FIJ-001)] |
 
 ### 8.3 Recommended Test Cases
 
-1. **Happy path**: Read JSON file with JSONPath loop, verify extracted columns
-2. **URL reading**: Mock URL response, verify data extraction
-3. **Reject flow**: Malformed data routed to reject with correct error codes
-4. **Type coercion**: Integer, float, date conversion with advanced separators
-5. **Large file**: Performance test with 10K+ rows
-6. **Encoding**: Non-ASCII characters with UTF-8 and other encodings
-7. **Empty input**: Empty JSON file, missing file, empty mapping
-8. **die_on_error**: Verify exception raised when True, empty result when False
+~~1. **Happy path**: Read JSON file with JSONPath loop, verify extracted columns~~
+~~2. **URL reading**: Mock URL response, verify data extraction~~
+~~3. **Reject flow**: Malformed data routed to reject with correct error codes~~
+~~4. **Type coercion**: Integer, float, date conversion with advanced separators~~
+~~5. **Large file**: Performance test with 10K+ rows~~
+~~6. **Encoding**: Non-ASCII characters with UTF-8 and other encodings~~
+~~7. **Empty input**: Empty JSON file, missing file, empty mapping~~
+~~8. **die_on_error**: Verify exception raised when True, empty result when False~~
+
+All recommended test cases implemented in Phase 14-09 (COV-FIJ-001, commit b138bd7). 39 engine tests added across 10 test classes.
+
+### 8.4 Phase 14 Coverage Floor
+
+Phase 14-09 (COV-FIJ-001, commit b138bd7) lifted file_input_json.py to 100.0% coverage. The Phase 14 >= 95% per-module floor is met and exceeded. TEST-FIJ-001 and TEST-FIJ-002 are closed.
 
 ---
 
@@ -350,9 +357,9 @@ JSON injection via crafted JSONPath expressions is theoretically possible but mi
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
-| P0 | 2 | **BUG-FIJ-001**, **BUG-FIJ-002** |
+| P0 | 0 | BUG-FIJ-001, BUG-FIJ-002 closed (Phase 14-09, commit 76cd7cb) |
 | P1 | 7 | **ENG-FIJ-001**, **ENG-FIJ-002**, **ENG-FIJ-003**, **ENG-FIJ-004**, **BUG-FIJ-003**, **BUG-FIJ-004**, **BUG-FIJ-005** |
-| P2 | 9 | **ENG-FIJ-005**, **ENG-FIJ-006**, **ENG-FIJ-007**, **NAME-FIJ-001**, **NAME-FIJ-002**, **STD-FIJ-001**, **PERF-FIJ-001**, **PERF-FIJ-002**, **TEST-FIJ-001**, **TEST-FIJ-002** |
+| P2 | 7 | **ENG-FIJ-005**, **ENG-FIJ-006**, **ENG-FIJ-007**, **NAME-FIJ-001**, **NAME-FIJ-002**, **STD-FIJ-001**, **PERF-FIJ-001**, **PERF-FIJ-002** (TEST-FIJ-001, TEST-FIJ-002 closed) |
 | P3 | 3 | **ENG-FIJ-008**, **STD-FIJ-002**, **PERF-FIJ-003** |
 | **Total** | **21** | |
 
@@ -362,11 +369,11 @@ JSON injection via crafted JSONPath expressions is theoretically possible but mi
 | ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
 | Engine (ENG) | 8 | ENG-FIJ-001 through ENG-FIJ-008 |
-| Bug (BUG) | 5 | BUG-FIJ-001 through BUG-FIJ-005 |
+| Bug (BUG) | 3 | BUG-FIJ-003, BUG-FIJ-004, BUG-FIJ-005 (BUG-FIJ-001, BUG-FIJ-002 closed Phase 14-09) |
 | Naming (NAME) | 2 | NAME-FIJ-001, NAME-FIJ-002 |
 | Standards (STD) | 2 | STD-FIJ-001, STD-FIJ-002 |
 | Performance (PERF) | 3 | PERF-FIJ-001 through PERF-FIJ-003 |
-| Testing (TEST) | 2 | TEST-FIJ-001, TEST-FIJ-002 |
+| Testing (TEST) | 0 | TEST-FIJ-001, TEST-FIJ-002 closed Phase 14-09 |
 
 ### Cross-Cutting Issues
 
@@ -496,3 +503,4 @@ Same stride-2 format as JSONPATH mode but applied without loop iteration.
 
 *Report generated: 2026-04-03*
 *Last updated: 2026-04-03 after Phase 9 converter standardization*
+*Reconciled: 2026-05-11 after Phase 15.1 reconciliation -- BUG-FIJ-001 (registration gap) and BUG-FIJ-002 (abstract _validate_config) struck through (76cd7cb); Phase 14-09 COV-FIJ-001 noted (b138bd7: file_input_json.py to 100% coverage); TEST-FIJ-001/002 closed; FileInputJSON alias added to Registry Aliases*
