@@ -30,8 +30,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 12: XML Components Audit, Harden & Output** (NEW) - Audit + fix tFileInputXML, tExtractXMLField, tXMLMap against Talend behavior; build tFileOutputXML engine + converter; comprehensive tests (completed 2026-05-08)
 - [x] **Phase 13: Test Stabilization & Bridge JAR Rebuild** (RESCOPED) - Clear inherited failing tests, rebuild Java bridge JAR to match Python contract, lock per-module coverage baseline before coverage push (completed 2026-05-10)
 - [x] **Phase 14: Coverage Push to 95% per-module floor** (NEW) - Every module under src/v1/engine and src/converters at >=95% line-coverage floor; paste-runnable gate command in CLAUDE.md and 14-COVERAGE.md verifies the floor (operational CI deferred to a future phase per D-E1) (completed 2026-05-11)
-- [ ] **Phase 15: Integration Testing & Performance** (RENUMBERED from old Phase 12) - End-to-end integration tests with real Talend jobs, output comparison, and performance optimization
-- [ ] **Phase 16: Documentation Sweep** (NEW) - Drop stale docs, write canonical set; scope decided after Phase 14
+- [ ] **Phase 15: Documentation Sweep** (SWAPPED with old Phase 15, 2026-05-11) - Nuke 22 top-level docs/ files, write 4 canonical docs (ARCHITECTURE / COMPONENT_REFERENCE / CONTRIBUTING / DEPLOYMENT) + root README, deep-review 11 docs/v1/standards-zone files, rename folder to docs/v1/patterns/
+- [ ] **Phase 15.1: Documentation Audit Reconciliation** (NEW, 2026-05-11) - Reconcile 89 files in docs/v1/audit/ against current code; stale claims marked resolved with phase ref
+- [ ] **Phase 16: Integration Testing & Performance (Manager)** (SWAPPED with old Phase 16, 2026-05-11) - Manager-led; real Talend job end-to-end runs + output diffs + tMap/tFilterRow perf refactor
 
 ## Phase Details
 

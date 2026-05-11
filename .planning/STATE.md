@@ -21,7 +21,7 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-14)
 
 **Core value:** Any Talend job using the target components must produce identical results when run through the Python engine
-**Current focus:** Phase 14 closed; ready to begin Phase 15 (integration testing & performance)
+**Current focus:** Phase 15 (Documentation Sweep) planned -- 10 plans, plan-check PASS WITH NOTES; ready to execute. Phase 15 and 16 swapped on 2026-05-11 (manager owns integration testing as new Phase 16; Phase 15.1 inserted for audit reconciliation).
 
 ## Current Position
 
