@@ -1,6 +1,7 @@
 # Audit Report: tFileInputRaw / FileInputRaw
 
 > **Audited**: 2026-04-03
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -18,7 +19,7 @@
 | **Engine File** | `src/v1/engine/components/file/file_input_raw.py` (149 lines) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/file/file_input_raw.py` |
 | **Converter Dispatch** | `@REGISTRY.register("tFileInputRaw")` decorator-based dispatch |
-| **Registry Aliases** | `tFileInputRaw` |
+| **Registry Aliases** | `FileInputRaw`, `tFileInputRaw` (both registered in Phase 14-07, commit 11e27fb) |
 | **Category** | File / Input |
 | **Complexity** | Low -- single-file reader with 6 unique parameters |
 
@@ -42,9 +43,15 @@
 | Engine Feature Parity | **Y** | 0 | 2 | 1 | 0 | Engine reads 4 of 6 unique params; ignores as_bytearray and as_inputstream; encoding default mismatch (UTF-8 vs ISO-8859-15) |
 | Code Quality | **Y** | 1 | 2 | 2 | 1 | debug_content() at INFO level; _validate_config() dead code; overly broad exception; base class cross-cutting bugs |
 | Performance & Memory | **Y** | 0 | 1 | 1 | 1 | No large-file protection; unconditional debug_content() overhead; DataFrame for single value |
-| Testing | **Y** | 0 | 0 | 2 | 0 | 35 converter unit tests across 8 test classes per gold standard; integration + regression guard passing; engine unit tests missing (P2) — no engine test coverage prevents Green |
+| Testing | **Y** | 0 | 0 | 2 | 0 | 35 converter unit tests across 8 test classes per gold standard; integration + regression guard passing; engine unit tests missing (P2) -- no engine test coverage prevents Green |
 
 **Overall: Yellow -- Converter fully standardized (Green); engine has known gaps documented via needs_review; engine/code quality/performance gaps keep overall at Yellow**
+
+**Phase 7.2-02 Group B verdict (2026-04-xx):** tFileInputRaw was reviewed in Phase 7.2-02 validate-config bug sweep. The component received a Group B verdict -- issues acknowledged, no immediate code change required at that time.
+
+**Phase 14-07 BUG-SWIFT-003 resolution (commit 11e27fb):** `FileInputRaw` and `tFileInputRaw` aliases registered in COMPONENT_REGISTRY; `_validate_config()` implemented (STD-FIR-001 closed).
+
+**Phase 14-09 COV-FIR-001 resolution (commit e9c2cbe):** 23 engine unit tests added; file_input_raw.py lifted to 100% coverage (TEST-FIR-001, TEST-FIR-002 closed).
 
 **Top Actions:**
 
@@ -215,7 +222,7 @@ None -- converter is fully standardized per gold standard patterns.
 
 | ID | Priority | Standard | Violation |
 | ---- | ---------- | ---------- | ----------- |
-| STD-FIR-001 | **P2** | `_validate_config()` lifecycle | Method defined (lines 46-74) but never called by base class `execute()` -- dead code |
+| ~~STD-FIR-001~~ | ~~**P2**~~ | ~~`_validate_config()` lifecycle~~ | ~~Method defined (lines 46-74) but never called by base class `execute()` -- dead code~~ [RESOLVED in Phase 14-07, commit 11e27fb (BUG-SWIFT-003)] |
 | STD-FIR-002 | **P3** | Custom exceptions | Uses generic `Exception` instead of `FileOperationError` from engine exceptions module |
 
 ### 6.4 Debug Artifacts
@@ -279,24 +286,30 @@ None -- converter is fully standardized per gold standard patterns.
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 35 | `tests/converters/talend_to_v1/components/test_file_input_raw.py` |
-| Engine unit tests | 0 | None |
+| Engine unit tests | 23 | `tests/v1/engine/components/file/test_file_input_raw.py` (added Phase 14-09, commit e9c2cbe) |
 | Integration tests | Included in regression guard | `tests/converters/talend_to_v1/test_converter_output_structure.py` |
 
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
 | ---- | ---------- | ----- |
-| TEST-FIR-001 | **P2** | No engine unit tests for FileInputRaw |
-| TEST-FIR-002 | **P2** | No error path tests for engine (die_on_error=True/False) |
+| ~~TEST-FIR-001~~ | ~~**P2**~~ | ~~No engine unit tests for FileInputRaw~~ [RESOLVED in Phase 14-09, commit e9c2cbe (COV-FIR-001)] |
+| ~~TEST-FIR-002~~ | ~~**P2**~~ | ~~No error path tests for engine (die_on_error=True/False)~~ [RESOLVED in Phase 14-09, commit e9c2cbe (COV-FIR-001)] |
 
 ### 8.3 Recommended Test Cases
 
-1. Engine: Read text file with default encoding (ISO-8859-15)
-2. Engine: Read binary file (as_string=False)
-3. Engine: die_on_error=True with missing file
-4. Engine: die_on_error=False with missing file (returns empty DataFrame)
-5. Engine: Large file handling (memory check)
-6. Engine: Non-ASCII content with various encodings
+~~1. Engine: Read text file with default encoding (ISO-8859-15)~~
+~~2. Engine: Read binary file (as_string=False)~~
+~~3. Engine: die_on_error=True with missing file~~
+~~4. Engine: die_on_error=False with missing file (returns empty DataFrame)~~
+~~5. Engine: Large file handling (memory check)~~
+~~6. Engine: Non-ASCII content with various encodings~~
+
+All recommended test cases implemented in Phase 14-09 (COV-FIR-001, commit e9c2cbe). 23 engine tests added across 7 test classes.
+
+### 8.4 Phase 14 Coverage Floor
+
+Phase 14-09 (COV-FIR-001, commit e9c2cbe) lifted file_input_raw.py to 100.0% coverage. The Phase 14 >= 95% per-module floor is met and exceeded. TEST-FIR-001 and TEST-FIR-002 are closed.
 
 ---
 
@@ -308,7 +321,7 @@ None -- converter is fully standardized per gold standard patterns.
 | ---------- | ------- | ----- |
 | P0 | 1 | **BUG-FIR-001** (cross-cutting) |
 | P1 | 5 | **ENG-FIR-001**, **ENG-FIR-002**, **BUG-FIR-002**, **BUG-FIR-003**, **PERF-FIR-001** |
-| P2 | 6 | **ENG-FIR-003**, **NAME-FIR-001**, **STD-FIR-001**, **PERF-FIR-002**, **TEST-FIR-001**, **TEST-FIR-002** |
+| P2 | 3 | **ENG-FIR-003**, **NAME-FIR-001**, **PERF-FIR-002** (STD-FIR-001, TEST-FIR-001, TEST-FIR-002 closed) |
 | P3 | 2 | **STD-FIR-002**, **PERF-FIR-003** |
 | **Total** | **14** | |
 
@@ -320,9 +333,9 @@ None -- converter is fully standardized per gold standard patterns.
 | Engine (ENG) | 3 | ENG-FIR-001, ENG-FIR-002, ENG-FIR-003 |
 | Bug (BUG) | 3 | BUG-FIR-001, BUG-FIR-002, BUG-FIR-003 |
 | Naming (NAME) | 1 | NAME-FIR-001 |
-| Standards (STD) | 2 | STD-FIR-001, STD-FIR-002 |
+| Standards (STD) | 1 | STD-FIR-002 (STD-FIR-001 closed Phase 14-07) |
 | Performance (PERF) | 3 | PERF-FIR-001, PERF-FIR-002, PERF-FIR-003 |
-| Testing (TEST) | 2 | TEST-FIR-001, TEST-FIR-002 |
+| Testing (TEST) | 0 | TEST-FIR-001, TEST-FIR-002 closed Phase 14-09 |
 
 ### Cross-Cutting Issues
 
@@ -384,3 +397,4 @@ None -- converter is fully standardized per gold standard patterns.
 
 *Report generated: 2026-04-03*
 *Last updated: 2026-04-03 after Phase 09 Plan 01 converter standardization*
+*Reconciled: 2026-05-11 after Phase 15.1 reconciliation -- Phase 7.2-02 Group B verdict noted; BUG-SWIFT-003 strike (11e27fb: FileInputRaw registered + _validate_config implemented, STD-FIR-001 closed); Phase 14-09 COV-FIR-001 noted (e9c2cbe: 100% coverage, TEST-FIR-001/002 closed); 1 non-ASCII em-dash fixed (D-C4)*
