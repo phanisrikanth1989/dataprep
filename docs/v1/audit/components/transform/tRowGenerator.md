@@ -1,6 +1,7 @@
 # Audit Report: tRowGenerator / RowGenerator
 
 > **Audited**: 2026-04-04
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Last Updated**: 2026-05-01 (engine rewrite + tests)
 > **Engine Version**: v1
@@ -53,7 +54,7 @@
 2. ~~Replace unsafe `eval()` in engine with sandboxed expression evaluator~~ DONE (restricted namespace + Java bridge)
 3. ~~Fix engine nb_rows default (1 -> 100) to match Talend~~ DONE
 4. ~~Fix engine schema config path~~ DONE (uses `self.output_schema`)
-5. Implement Talend routine libraries (Numeric.sequence, TalendDataGenerator, TalendDate) — P3, requires Java bridge wiring per-row
+5. Implement Talend routine libraries (Numeric.sequence, TalendDataGenerator, TalendDate) -- P3, requires Java bridge wiring per-row
 6. Replace unsafe `eval()` in engine with sandboxed expression evaluator
 7. Implement Talend routine libraries (Numeric.sequence, TalendDataGenerator, TalendDate)
 8. Fix engine nb_rows default (1 -> 100) to match Talend
@@ -269,7 +270,9 @@ Engine: `eval()` at line 149 executes arbitrary Python expressions without sandb
 | ----------- | ------- | ---------- |
 | Converter unit tests | 20 | `tests/converters/talend_to_v1/components/test_row_generator.py` |
 | Engine unit tests | 52 | `tests/v1/engine/components/transform/test_row_generator.py` |
-| Integration tests | 0 | None (covered by regression guard) |
+| Integration tests | 0 | -- |
+
+**Phase 14-05**: commit 0230733 (COV-RGN-001) lifted `row_generator.py` to 100% line coverage (Java bridge + StringHandling edges).
 
 ### 8.2 Test Gaps
 
@@ -283,7 +286,7 @@ None. All previous test gaps resolved.
 | TestValidation | 7 | Missing values, non-list values, nb_rows variants, Rule 12 context-var |
 | TestBasicGeneration | 7 | Shape, columns, reject key, zero rows, input ignored |
 | TestNbRows | 4 | Int, string, default 100, zero |
-| TestExpressions | 8 | Integer/float/string literals, random, bad expr → reject |
+| TestExpressions | 8 | Integer/float/string literals, random, bad expr -> reject |
 | TestStringHandling | 4 | SPACE, LEN (preprocess + execute) |
 | TestRejectFlow | 4 | All-accept, all-reject, same columns, partial |
 | TestGlobalMapVariables | 4 | NB_LINE, NB_LINE_OK, NB_LINE_REJECT |
@@ -355,4 +358,4 @@ None. All P0/P1/P2 issues resolved.
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-05-01 — engine REWRITTEN (Phase engine-restructure): full rewrite, @REGISTRY.register, _validate_config, restricted eval + Java bridge path, StringHandling pre-processing, nb_rows default 100, logger throughout. 52 engine unit tests added (8 classes, all passing). Issues reduced 8 → 1 (1 P3 remains: Java routine library). Overall Y → G.*
+*Last updated: 2026-05-11 -- reconciled (Phase 15.1-08); Phase 14-05 commit 0230733 (COV-RGN-001) lifted row_generator.py to 100% coverage. Engine originally REWRITTEN 2026-05-01 (Phase engine-restructure): full rewrite, @REGISTRY.register, _validate_config, restricted eval + Java bridge path, StringHandling pre-processing, nb_rows default 100, logger throughout. 52 engine unit tests added (8 classes, all passing). Issues reduced 8 -> 1 (1 P3 remains: Java routine library). Overall Y -> G.*
