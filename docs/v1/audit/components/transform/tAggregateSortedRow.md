@@ -1,6 +1,7 @@
 # Audit Report: tAggregateSortedRow / AggregateSortedRow
 
 > **Audited**: 2026-04-04
+> **Reconciled**: 2026-05-11
 > **Re-audited**: 2026-05-02 (engine fully rewritten -- all P1/P2 bugs resolved)
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
@@ -10,12 +11,12 @@
 >
 > **2026-05-02 update summary:** Engine fully rewritten (~240 lines replacing 413). All
 > five P1/P2 functional bugs (ENG-ASR-001..003, BUG-ASR-001, PERF-ASR-002) are RESOLVED.
-> Delegates to `_build_agg_func` / `_SUPPORTED_FUNCTIONS` from `aggregate_row.py` — zero
+> Delegates to `_build_agg_func` / `_SUPPORTED_FUNCTIONS` from `aggregate_row.py` -- zero
 > duplication. `@REGISTRY.register("AggregateSortedRow", "tAggregateSortedRow")` added.
 > `_validate_config()` now raises `ConfigurationError` (Rules 2, 7). Config format aligned
 > to converter output (groupbys as list-of-dicts, not flat strings). IGNORE_NULL wired per
 > operation. Group-by column renaming supported. 43 engine unit tests added, all passing.
-> Overall Y→G. Issues reduced 10→0.
+> Overall Y->G. Issues reduced 10->0.
 
 ---
 
@@ -50,19 +51,19 @@
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 3 unique + 2 framework params (100%); GROUPBYS stride-2, OPERATIONS stride-4 state-machine parser; function mapping (distinct->count_distinct, list_object->list); 1 static + 2 conditional needs_review |
-| Engine Feature Parity | **G** | 0 | 0 | 1 | 1 | IGNORE_NULL wired per operation (ENG-ASR-001 ✓); group-by column renaming supported (ENG-ASR-003 ✓); single-pass NamedAgg (PERF-ASR-002 ✓). Remaining gaps: sorted-stream O(1) memory opt deferred (P2); row_count limit deferred (P2) |
+| Engine Feature Parity | **G** | 0 | 0 | 1 | 1 | IGNORE_NULL wired per operation (ENG-ASR-001 [OK]); group-by column renaming supported (ENG-ASR-003 [OK]); single-pass NamedAgg (PERF-ASR-002 [OK]). Remaining gaps: sorted-stream O(1) memory opt deferred (P2); row_count limit deferred (P2) |
 | Code Quality | **G** | 0 | 0 | 0 | 0 | @REGISTRY.register added; _validate_config() raises ConfigurationError (Rules 2, 7); delegates to aggregate_row helpers (zero duplication) |
-| Performance & Memory | **G** | 0 | 0 | 1 | 0 | Single-pass pd.NamedAgg groupby (PERF-ASR-002 ✓); multiple-pass merge removed. Streaming O(1) memory opt deferred (P2, does not affect correctness) |
+| Performance & Memory | **G** | 0 | 0 | 1 | 0 | Single-pass pd.NamedAgg groupby (PERF-ASR-002 [OK]); multiple-pass merge removed. Streaming O(1) memory opt deferred (P2, does not affect correctness) |
 | Testing | **G** | 0 | 0 | 0 | 0 | 31 converter tests + 43 engine unit tests (new); all passing |
 
 **Overall: G (Green) -- Engine fully production-ready. All P1/P2 functional bugs resolved. 43 engine tests passing.**
 
 **Deferred (out of scope, correctness unaffected)**:
 
-1. ENG-ASR-002 / PERF-ASR-001: Sorted-input streaming O(1) memory optimisation — pandas groupby is always correct, just not memory-optimal for large sorted streams
-2. ENG-ASR-004: REJECT flow — architectural, not component-specific
-3. ENG-ASR-005: `row_count` row limit — low real-world usage, deferred
-4. ENG-ASR-007: `first/last` semantics — `iloc[0/-1]` is functionally identical for sorted input
+1. ENG-ASR-002 / PERF-ASR-001: Sorted-input streaming O(1) memory optimisation -- pandas groupby is always correct, just not memory-optimal for large sorted streams
+2. ENG-ASR-004: REJECT flow -- architectural, not component-specific
+3. ENG-ASR-005: `row_count` row limit -- low real-world usage, deferred
+4. ENG-ASR-007: `first/last` semantics -- `iloc[0/-1]` is functionally identical for sorted input
 
 ---
 
