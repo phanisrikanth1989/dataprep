@@ -1,6 +1,8 @@
 # Gold Standard: Test Case Pattern
 
-> Reference: test_schema_compliance_check.py (best example — TABLE fixtures, comprehensive coverage)
+*Last updated: 2026-05-11*
+
+> Reference: tests/converters/talend_to_v1/components/transform/test_schema_compliance_check.py (best example -- TABLE fixtures, comprehensive coverage)
 
 Every converter test file MUST follow this structure and cover these categories.
 
@@ -212,14 +214,14 @@ class TestPhantomParams:
 
 ## Rules
 
-1. **One test class per concern** — Registration, Defaults, Extraction, TABLE, Framework, Schema, NeedsReview, Completeness, PhantomParams
-2. **`_make_node()` fixture** at module level — always the same pattern with default params
-3. **TABLE fixture helpers** for components with TABLE params — `_make_table_data()` generates stride-correct data
+1. **One test class per concern** -- Registration, Defaults, Extraction, TABLE, Framework, Schema, NeedsReview, Completeness, PhantomParams
+2. **`_make_node()` fixture** at module level -- always the same pattern with default params
+3. **TABLE fixture helpers** for components with TABLE params -- `_make_table_data()` generates stride-correct data
 4. **Every parameter gets at least 2 tests**: default value + extracted value
 5. **Completeness test** asserts ALL expected config keys are present in output
 6. **Phantom params test** asserts params NOT in _java.xml are NOT extracted (if component had phantom params removed)
-7. **Framework param tests** always present — tstatcatcher_stats and label
+7. **Framework param tests** always present -- tstatcatcher_stats and label
 8. **NeedsReview tests** verify count, severity, component_id, and framework param exclusion
-9. **No mocking** of the converter itself — test the real `convert()` method
+9. **No mocking** of the converter itself -- test the real `convert()` method
 10. **Test class naming**: `Test{ComponentName}{Concern}` (e.g., `TestSleepConverterDefaults`)
-11. **Fixtures use realistic data** — SchemaColumn with proper types, TABLE data with proper stride
+11. **Fixtures use realistic data** -- SchemaColumn with proper types, TABLE data with proper stride
