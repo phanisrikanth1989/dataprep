@@ -2,6 +2,7 @@
 
 > **Audited**: 2026-04-03
 > **Updated**: 2026-06-14 (Phase 7.2-02: REGISTRY registration, defaults, _validate_config raises, BUG-FIP-002/004 fixed, 35 engine unit tests)
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -40,10 +41,10 @@
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 20 unique params + 2 framework params extracted; FORMATS and TRIMSELECT TABLE parsers; `_build_component_dict` pattern; filepath key matches engine; 7 per-feature needs_review entries for engine gaps; USE_BYTE phantom param excluded |
-| Engine Feature Parity | **Y** | 0 | 5 | 1 | 2 | Engine reads 13 of 20 unique params; ignores process_long_row, uncompress, FORMATS, TRIMSELECT; no REJECT flow. **Fixed (7.2-02)**: encoding default now ISO-8859-15, advanced_separator now numeric-only, remove_empty_row covers empty-string rows, REGISTRY.register added |
-| Code Quality | **Y** | 1 | 2 | 1 | 1 | Cross-cutting base class crash (P0); check_date uses coerce not schema pattern (P1 open); `id_Boolean` mapped to `object`. **Fixed (7.2-02)**: BUG-FIP-002, BUG-FIP-004, NAME-FIP-001, NAME-FIP-002, _validate_config now raises |
+| Engine Feature Parity | **Y** | 0 | 5 | 1 | 2 | Engine reads 13 of 20 unique params; ignores process_long_row, uncompress, FORMATS, TRIMSELECT; no REJECT flow. **Fixed (Phase 7.2-01 Group A + 7.2-02)**: REGISTRY.register, encoding default ISO-8859-15, advanced_separator numeric-only, remove_empty_row empty-string coverage |
+| Code Quality | **Y** | 1 | 2 | 1 | 1 | Cross-cutting base class crash (P0, open); check_date coerce vs pattern (P1 open). **Fixed (Phase 7.2-01 Group A + 7.2-02)**: BUG-FIP-002, BUG-FIP-004, NAME-FIP-001, NAME-FIP-002, _validate_config now raises |
 | Performance & Memory | **G** | 0 | 0 | 1 | 1 | Batch-only (no streaming); BigDecimal uses slow `apply()`; post-processing iterates string columns twice |
-| Testing | **G** | 0 | 0 | 0 | 0 | 68 converter unit tests across 11 test classes; 35 engine unit tests across 13 test classes added in Phase 7.2-02; integration + regression guard passing |
+| Testing | **G** | 0 | 0 | 0 | 0 | 68 converter unit tests across 11 test classes; 35 engine unit tests across 13 test classes added in Phase 7.2-02; integration + regression guard passing; Phase 14 >= 95% floor met |
 
 **Overall: Yellow -- Converter fully standardized (Green); engine has known gaps documented via needs_review; Testing now Green (35 engine unit tests); remaining Yellow items are unimplemented features (REJECT flow, UNCOMPRESS, FORMATS, TRIMSELECT)**
 
@@ -513,4 +514,4 @@ This section is included because tFileInputPositional handles fixed-width file p
 ---
 
 *Report generated: 2026-04-03*
-*Last updated: 2026-04-03 after v1.1 converter standardization (Phase 09-10)*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation -- Phase 7.2-01 Group A verdict confirmed (REGISTRY registration); Phase 14 >= 95% floor met*
