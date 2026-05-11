@@ -1,6 +1,7 @@
 # Audit Report: tFileOutputDelimited / FileOutputDelimited
 
 > **Audited**: 2026-04-04
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -18,7 +19,7 @@
 | **Engine File** | `src/v1/engine/components/file/file_output_delimited.py` (471 lines) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/file/file_output_delimited.py` (112 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tFileOutputDelimited")` decorator-based dispatch |
-| **Registry Aliases** | `tFileOutputDelimited` |
+| **Registry Aliases** | `FileOutputDelimited`, `tFileOutputDelimited` |
 | **Category** | File / Output |
 | **Complexity** | High -- sink component with 25 unique parameters, streaming mode, CSV quoting, file splitting, compression, advanced separators |
 
@@ -39,20 +40,20 @@
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 25 unique params + 2 framework params extracted; `_build_component_dict` pattern; 3 per-feature needs_review entries for engine default mismatches |
-| Engine Feature Parity | **Y** | 0 | 3 | 3 | 1 | 3 default mismatches (delimiter, encoding, include_header); compression/splitting/streaming not implemented; many converter config keys differ from engine expectations |
-| Code Quality | **Y** | 1 | 1 | 3 | 1 | Cross-cutting `_update_global_map()` crash (P0); indentation bug (P1); f-string logger (P2); dead `_validate_config` (P2); naming mismatch (P2); unused exception variable (P3) |
+| Engine Feature Parity | **Y** | 0 | 0 | 3 | 1 | **Fixed (Phase 4-02 + Phase 7.1-03)**: default mismatches (delimiter, encoding, include_header) resolved. Remaining: compression/splitting not implemented. |
+| Code Quality | **Y** | 0 | 0 | 3 | 1 | **Fixed (Phase 4-02 + Phase 7.1-03)**: cross-cutting P0 crash, indentation bug (P1). **Fixed (Phase 14-08)**: STALE-FOD-001 dead-code deletion. Remaining: f-string logger, naming mismatch. |
 | Performance & Memory | **G** | 0 | 0 | 1 | 0 | Streaming mode implemented; pandas to_csv handles large files well; potential memory issue with full DataFrame load before write (P2) |
-| Testing | **Y** | 0 | 0 | 1 | 0 | 53 converter unit tests across 9 test classes per gold standard; integration + regression guard passing; engine unit tests missing (P2) |
+| Testing | **G** | 0 | 0 | 0 | 0 | 53 converter tests + engine tests added; Phase 14 >= 95% floor met. |
 
-**Overall: Yellow -- Converter fully standardized (Green) with FILE_EXIST_EXCEPTION=True, fieldseparator=';', encoding='ISO-8859-15' per _java.xml; engine has 3 critical default mismatches and missing features documented via needs_review; engine/code quality gaps keep overall at Yellow**
+**Overall: Yellow -- Converter fully standardized (Green); P0/P1 engine and code issues resolved (Phase 4-02 + Phase 7.1-03); STALE-FOD-001 dead-code deleted (Phase 14-08); remaining P2/P3 are minor gaps.**
 
-**Top Actions:**
+**Resolved Actions (Phase 4-02 + Phase 7.1-03 + Phase 14-08):**
 
-1. Fix `_update_global_map()` crash in base class (P0, cross-cutting)
-2. Align engine default delimiter from ',' to ';' per _java.xml (P1, behavioral difference)
-3. Align engine default encoding from 'UTF-8' to 'ISO-8859-15' per _java.xml (P1, behavioral difference)
-4. Align engine default include_header from True to False per _java.xml (P1, behavioral difference)
-5. Add engine unit tests for FileOutputDelimited (P2, testing gap)
+1. ~~Fix `_update_global_map()` crash in base class (P0, cross-cutting)~~ [RESOLVED Phase 4-02]
+2. ~~Align engine default delimiter from ',' to ';' per _java.xml (P1)~~ [RESOLVED Phase 4-02]
+3. ~~Align engine default encoding from 'UTF-8' to 'ISO-8859-15' per _java.xml (P1)~~ [RESOLVED Phase 4-02]
+4. ~~Align engine default include_header from True to False per _java.xml (P1)~~ [RESOLVED Phase 4-02]
+5. ~~STALE-FOD-001: unreachable date-coerce catch-all~~ [RESOLVED Phase 14-08 (STALE-FOD-001), commit 57e4da3]
 
 ---
 
@@ -268,10 +269,10 @@ String parameters (filepath, fieldseparator, etc.) preserve context variable exp
 
 | ID | Priority | Description |
 | ---- | ---------- | ------------- |
-| ENG-FOD-001 | **P1** | Engine default delimiter=',' but Talend default FIELDSEPARATOR=';'. Jobs relying on default will produce comma-separated instead of semicolon-separated. |
-| ENG-FOD-002 | **P1** | Engine default encoding='UTF-8' but Talend default ENCODING='ISO-8859-15'. Jobs with non-ASCII characters may produce different output. |
-| ENG-FOD-003 | **P1** | Engine default include_header=True but Talend default INCLUDEHEADER=False. Jobs relying on default will include unexpected header row. |
-| ENG-FOD-004 | **P2** | Engine reads 'delimiter' config key but converter outputs 'fieldseparator'. Config key mismatch. |
+| ~~ENG-FOD-001~~ | ~~**P1**~~ | ~~Engine default delimiter=',' but Talend default FIELDSEPARATOR=';'. Jobs relying on default will produce comma-separated instead of semicolon-separated.~~ [RESOLVED in Phase 4-02] |
+| ~~ENG-FOD-002~~ | ~~**P1**~~ | ~~Engine default encoding='UTF-8' but Talend default ENCODING='ISO-8859-15'. Jobs with non-ASCII characters may produce different output.~~ [RESOLVED in Phase 4-02] |
+| ~~ENG-FOD-003~~ | ~~**P1**~~ | ~~Engine default include_header=True but Talend default INCLUDEHEADER=False. Jobs relying on default will include unexpected header row.~~ [RESOLVED in Phase 4-02] |
+| ~~ENG-FOD-004~~ | ~~**P2**~~ | ~~Engine reads 'delimiter' config key but converter outputs 'fieldseparator'. Config key mismatch.~~ [RESOLVED in Phase 7.1-03, commit 8c8a750] |
 | ENG-FOD-005 | **P2** | Engine does not implement COMPRESS -- ZIP-compressed output is silently ignored. |
 | ENG-FOD-006 | **P2** | Engine does not implement SPLIT -- file splitting is silently ignored. |
 | ENG-FOD-007 | **P3** | Engine does not implement FILE_EXIST_EXCEPTION -- file is always overwritten without checking existence. |
@@ -292,8 +293,9 @@ String parameters (filepath, fieldseparator, etc.) preserve context variable exp
 
 | ID | Priority | Location | Description |
 | ---- | ---------- | ---------- | ------------- |
-| BUG-FOD-001 | **P0** | `base_component.py:304` | CROSS-CUTTING: `_update_global_map()` crashes when globalMap is set. Affects NB_LINE statistics. |
-| BUG-FOD-002 | **P1** | `file_output_delimited.py:178-183` | `die_on_error` check and `raise` at wrong indentation level -- `raise FileOperationError` is outside the `except` block, causing NameError when `e` is undefined. |
+| ~~BUG-FOD-001~~ | ~~**P0**~~ | ~~`base_component.py:304`~~ | ~~CROSS-CUTTING: `_update_global_map()` crashes when globalMap is set. Affects NB_LINE statistics.~~ [RESOLVED in Phase 4-02] |
+| ~~BUG-FOD-002~~ | ~~**P1**~~ | ~~`file_output_delimited.py:178-183`~~ | ~~`die_on_error` check and `raise` at wrong indentation level -- `raise FileOperationError` is outside the `except` block, causing NameError when `e` is undefined.~~ [RESOLVED in Phase 7.1-03, commit 4792b67] |
+| ~~STALE-FOD-001~~ | ~~**chore**~~ | ~~`file_output_delimited.py:364`~~ | ~~Unreachable `except Exception` catch-all wrapping `pd.to_datetime(series, errors='coerce')` -- `errors='coerce'` never raises; defensive dead code.~~ [RESOLVED in Phase 14-08 (STALE-FOD-001), commit 57e4da3] |
 
 ### 6.2 Naming Consistency
 
@@ -364,14 +366,16 @@ See Section 11 Risk Assessment for detailed security analysis including delimite
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 53 | `tests/converters/talend_to_v1/components/test_file_output_delimited.py` |
-| Engine unit tests | 0 | None |
+| Engine unit tests | Added | `tests/v1/engine/components/file/test_file_output_delimited.py` (Phase 14-08 coverage lift) |
 | Integration tests | Yes | `tests/converters/talend_to_v1/test_integration.py` (399 passing) |
+
+**Phase 14 floor:** Module meets >= 95% per-module line coverage floor established in Phase 14. [RESOLVED in Phase 14-08, commit 4f89f02]
 
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
 | ---- | ---------- | ----- |
-| TEST-FOD-001 | **P2** | No engine unit tests for FileOutputDelimited. Need tests for: basic write, append mode, empty data handling, streaming mode, CSV quoting, encoding, delete empty file, directory creation. |
+| ~~TEST-FOD-001~~ | ~~**P2**~~ | ~~No engine unit tests for FileOutputDelimited.~~ [RESOLVED in Phase 14-08, commit 4f89f02 (COV-FOD-001)] |
 
 ### 8.3 Recommended Test Cases
 
@@ -393,11 +397,11 @@ See Section 11 Risk Assessment for detailed security analysis including delimite
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
-| P0 | 1 | **BUG-FOD-001** |
-| P1 | 4 | **ENG-FOD-001**, **ENG-FOD-002**, **ENG-FOD-003**, **BUG-FOD-002** |
-| P2 | 8 | **ENG-FOD-004**, **ENG-FOD-005**, **ENG-FOD-006**, **NAME-FOD-001**, **STD-FOD-001**, **STD-FOD-002**, **PERF-FOD-001**, **TEST-FOD-001** |
-| P3 | 1 | **ENG-FOD-007** |
-| **Total** | **14** | |
+| P0 | 0 | ~~BUG-FOD-001~~ [RESOLVED Phase 4-02] |
+| P1 | 0 | ~~ENG-FOD-001..003, BUG-FOD-002~~ [all RESOLVED Phase 4-02 + Phase 7.1-03] |
+| P2 | 4 | ENG-FOD-005, ENG-FOD-006, PERF-FOD-001, STD-FOD-001 |
+| P3 | 1 | ENG-FOD-007 |
+| **Total open** | **5** | (9 issues resolved: FOLD-01..06 + STALE-FOD-001 + ENG-FOD-004 + TEST-FOD-001) |
 
 ### By Category
 
@@ -423,20 +427,20 @@ See Section 11 Risk Assessment for detailed security analysis including delimite
 
 ### Immediate (Before Production)
 
-1. Fix `_update_global_map()` crash in base class (BUG-FOD-001, P0, cross-cutting)
-2. Align engine default delimiter to ';' (ENG-FOD-001, P1)
-3. Align engine default encoding to 'ISO-8859-15' (ENG-FOD-002, P1)
-4. Align engine default include_header to False (ENG-FOD-003, P1)
-5. Fix `raise` indentation in list-to-DataFrame conversion (BUG-FOD-002, P1)
+~~1. Fix `_update_global_map()` crash in base class (BUG-FOD-001, P0, cross-cutting)~~ [RESOLVED Phase 4-02]
+~~2. Align engine default delimiter to ';' (ENG-FOD-001, P1)~~ [RESOLVED Phase 4-02]
+~~3. Align engine default encoding to 'ISO-8859-15' (ENG-FOD-002, P1)~~ [RESOLVED Phase 4-02]
+~~4. Align engine default include_header to False (ENG-FOD-003, P1)~~ [RESOLVED Phase 4-02]
+~~5. Fix `raise` indentation in list-to-DataFrame conversion (BUG-FOD-002, P1)~~ [RESOLVED Phase 7.1-03, commit 4792b67]
 
 ### Short-term (Hardening)
 
-1. Align engine config key from 'delimiter' to 'fieldseparator' (ENG-FOD-004 / NAME-FOD-001, P2)
+~~1. Align engine config key from 'delimiter' to 'fieldseparator' (ENG-FOD-004 / NAME-FOD-001, P2)~~ [RESOLVED Phase 7.1-03, commit 8c8a750]
 2. Implement COMPRESS (ZIP output) (ENG-FOD-005, P2)
 3. Implement SPLIT (file splitting) (ENG-FOD-006, P2)
-4. Add engine unit tests (TEST-FOD-001, P2)
+~~4. Add engine unit tests (TEST-FOD-001, P2)~~ [RESOLVED Phase 14-08, commit 4f89f02 (COV-FOD-001)]
 5. Fix f-string logger calls (STD-FOD-001, P2)
-6. Fix inconsistent indentation (STD-FOD-002, P2)
+~~6. Fix inconsistent indentation (STD-FOD-002, P2)~~ [RESOLVED Phase 4-02]
 
 ### Long-term (Optimization)
 
@@ -494,4 +498,4 @@ See Section 11 Risk Assessment for detailed security analysis including delimite
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after converter rewrite to gold standard*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation -- FOLD-01..06 struck through (Phase 4-02 + Phase 7.1-03); STALE-FOD-001 dead-code deletion (Phase 14-08, commit 57e4da3); Phase 14-08 coverage lift (commit 4f89f02)*
