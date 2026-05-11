@@ -1,6 +1,7 @@
 # Audit Report: tFileInputXML / FileInputXML
 
 > **Audited**: 2026-04-03
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -15,7 +16,7 @@
 | ------- | ------- |
 | **Talend Name** | `tFileInputXML` |
 | **V1 Engine Class** | `FileInputXML` |
-| **Engine File** | `src/v1/engine/components/file/file_input_xml.py` (555 lines) |
+| **Engine File** | `src/v1/engine/components/file/file_input_xml.py` (372 lines -- migrated from stdlib to lxml in Phase 12-03) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/file/file_input_xml.py` (169 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tFileInputXML")` decorator-based dispatch |
 | **Registry Aliases** | `FileInputXML`, `tFileInputXML` |
@@ -25,7 +26,7 @@
 
 | File | Purpose |
 | ------ | --------- |
-| `src/v1/engine/components/file/file_input_xml.py` | Engine implementation (555 lines): 6 module-level helpers + 1 class with 4 methods |
+| `src/v1/engine/components/file/file_input_xml.py` | Engine implementation (372 lines -- Phase 12-03 lxml migration): lxml-based XPath engine replaces stdlib ElementTree |
 | `src/converters/talend_to_v1/components/file/file_input_xml.py` | Converter class (169 lines) |
 | `tests/converters/talend_to_v1/components/test_file_input_xml.py` | Converter tests (63 tests, 10 classes) |
 | `src/v1/engine/base_component.py` | Base class |
@@ -38,19 +39,22 @@
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 18 config keys extracted (16 unique + 2 framework). MAPPING triplet parser. 6 per-feature needs_review. TMP_FILENAME and SCHEMA_OPT_NUM removed. |
-| Engine Feature Parity | **Y** | 1 | 4 | 3 | 2 | No REJECT flow; no SAX/streaming; no date validation; namespace detection only root NS; bare `@attr` XPath broken |
-| Code Quality | **Y** | 1 | 3 | 4 | 2 | Cross-cutting `_update_global_map()` crash; `_validate_config()` dead code; parent traversal O(n^2); `zip()` drops columns silently |
-| Performance & Memory | **Y** | 0 | 1 | 2 | 1 | Full DOM parse via ElementTree; no SAX streaming option; O(n) parent scan per `../` per column per row |
-| Testing | **Y** | 0 | 1 | 1 | 0 | 63 converter tests across 10 classes; zero engine unit tests |
+| Engine Feature Parity | **Y** | 0 | 3 | 3 | 2 | No REJECT flow; no SAX/streaming; no date validation; namespace detection only root NS; bare `@attr` XPath broken. lxml migration (Phase 12-03) resolved P0 cross-cutting crash. |
+| Code Quality | **Y** | 0 | 2 | 4 | 2 | lxml migration (Phase 12-03) resolved stdlib XXE risk; `_validate_config()` dead code; parent traversal O(n^2); `zip()` drops columns silently |
+| Performance & Memory | **Y** | 0 | 1 | 2 | 1 | Full DOM parse via lxml; no SAX streaming option; O(n) parent scan per `../` per column per row |
+| Testing | **G** | 0 | 0 | 1 | 0 | 63 converter tests + 32 engine tests (Phase 12-03); >= 95% per-module floor (Phase 14) |
 
-Overall: YELLOW -- Converter production-ready; engine has P0 cross-cutting crash and functional gaps
+Overall: YELLOW -- Engine has functional gaps (no REJECT, no SAX, partial namespace). lxml migration (Phase 12-03) resolved security and cross-cutting P0.
 
-**Top Actions**:
+**Resolved actions** (per Phase 12-03 commit 43eccd6):
 
-1. Fix cross-cutting `_update_global_map()` crash (P0, affects all components)
-2. Implement REJECT flow support for XML parsing errors
-3. Add SAX/streaming mode for large XML files
-4. Add engine unit tests
+1. ~~Fix cross-cutting `_update_global_map()` crash (P0, affects all components)~~ [RESOLVED in Phase 1 (ENG-01)]
+2. ~~Add engine unit tests~~ [RESOLVED in Phase 12-03, commit 43eccd6 -- 32 engine tests added]
+
+**Remaining actions**:
+
+1. Implement REJECT flow support for XML parsing errors (ENG-FIX-002)
+2. Add SAX/streaming mode for large XML files (ENG-FIX-003)
 
 ---
 
@@ -214,7 +218,7 @@ None. All parameters correctly extracted with proper defaults and types.
 
 | ID | Priority | Description |
 | ---- | ---------- | ------------- |
-| ENG-FIX-001 | **P0** | Cross-cutting: `_update_global_map()` crashes when globalMap is set (base_component.py) |
+| ~~ENG-FIX-001~~ | ~~P0~~ | ~~Cross-cutting: `_update_global_map()` crashes when globalMap is set (base_component.py)~~ [RESOLVED in Phase 1 (ENG-01)] |
 | ENG-FIX-002 | **P1** | No REJECT flow support -- XML parsing errors either crash or return empty, never route to reject |
 | ENG-FIX-003 | **P1** | No SAX streaming mode -- all XML files loaded into memory as DOM tree regardless of GENERATION_MODE |
 | ENG-FIX-004 | **P1** | Namespace detection only finds root element namespace -- multi-namespace documents partially broken |
@@ -241,7 +245,7 @@ None. All parameters correctly extracted with proper defaults and types.
 
 | ID | Priority | Location | Description |
 | ---- | ---------- | ---------- | ------------- |
-| BUG-FIX-001 | **P0** | `base_component.py:304` | CROSS-CUTTING: `_update_global_map()` crash when globalMap is set |
+| ~~BUG-FIX-001~~ | ~~P0~~ | `base_component.py` | ~~CROSS-CUTTING: `_update_global_map()` crash when globalMap is set~~ [RESOLVED in Phase 1 (ENG-01)] |
 | BUG-FIX-002 | **P1** | `file_input_xml.py:478` | `zip(schema_order, schema_xpaths)` silently drops columns when counts differ |
 | BUG-FIX-003 | **P2** | `file_input_xml.py:24-51` | `extract_value()` returns attribute string concat instead of text for multi-attribute nodes |
 | BUG-FIX-004 | **P2** | `file_input_xml.py:57-71` | `normalize_nsmaps()` only detects root element namespace; misses child-declared namespaces |
@@ -264,7 +268,7 @@ None found. All logging uses proper `logger.debug()` / `logger.info()`.
 
 ### 6.5 Security
 
-See Section 11 for XML-specific security assessment (XXE, DTD attacks, namespace abuse).
+Phase 12-03 lxml migration (commit 43eccd6) replaces stdlib `xml.etree.ElementTree` with lxml, which provides defusedxml-equivalent DTD control options (`resolve_entities=False`, `no_network=True`). This closes the XXE attack surface that the stdlib parser exposed. See Section 11 for remaining XML security considerations (DTD attacks, namespace abuse, path traversal).
 
 ### 6.6 Logging Quality
 
@@ -316,15 +320,16 @@ See Section 11 for XML-specific security assessment (XXE, DTD attacks, namespace
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 63 | `tests/converters/talend_to_v1/components/test_file_input_xml.py` |
-| Engine unit tests | 0 | None |
-| Integration tests | 0 | None (covered by regression guard) |
+| Engine unit tests | 32 | `tests/v1/engine/components/file/test_file_input_xml.py` -- added Phase 12-03 (per-Talaxie-param classes) |
+| E2E integration tests | covered | `tests/v1/engine/components/file/test_xml_e2e.py` -- Phase 12-08 E2E suite |
 
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
 | ---- | ---------- | ----- |
-| TEST-FIX-001 | **P1** | Zero engine unit tests -- no test coverage for `_parse_xml()`, `_parse_xml_passthrough()`, namespace handling, parent navigation |
-| TEST-FIX-002 | **P2** | No integration test with real XML files testing converter+engine round-trip |
+| ~~TEST-FIX-001~~ | ~~P1~~ | ~~Zero engine unit tests~~ [RESOLVED in Phase 12-03, commit 43eccd6 -- 32 engine tests added (per-Talaxie-param classes)] |
+| TEST-FIX-002 | **P2** | No integration test with real XML files testing converter+engine round-trip (beyond Phase 12-08 E2E suite) |
+| -- | -- | Phase 14 >= 95% per-module line coverage floor achieved for this module. |
 
 ### 8.3 Recommended Test Cases
 
@@ -344,8 +349,8 @@ See Section 11 for XML-specific security assessment (XXE, DTD attacks, namespace
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
-| P0 | 1 | **BUG-FIX-001** |
-| P1 | 5 | **ENG-FIX-002**, **ENG-FIX-003**, **ENG-FIX-004**, **ENG-FIX-005**, **PERF-FIX-001**, **TEST-FIX-001** |
+| P0 | 0 | ~~BUG-FIX-001~~ [RESOLVED in Phase 1 (ENG-01)] |
+| P1 | 4 | **ENG-FIX-002**, **ENG-FIX-003**, **ENG-FIX-004**, **ENG-FIX-005**, **PERF-FIX-001** (~~TEST-FIX-001~~ resolved Phase 12-03) |
 | P2 | 7 | **ENG-FIX-006**, **ENG-FIX-007**, **ENG-FIX-008**, **BUG-FIX-003**, **BUG-FIX-004**, **NAME-FIX-001**, **STD-FIX-001**, **PERF-FIX-002**, **TEST-FIX-002** |
 | P3 | 3 | **ENG-FIX-009**, **ENG-FIX-010**, **PERF-FIX-003** |
 | **Total** | **16** | |
@@ -365,7 +370,7 @@ See Section 11 for XML-specific security assessment (XXE, DTD attacks, namespace
 
 | Canonical ID | Location | Impact on This Component |
 | ------------- | ---------- | -------------------------- |
-| XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set -- affects NB_LINE stat writing |
+| ~~XCUT-001~~ | `base_component.py` | ~~`_update_global_map()` crash when globalMap set~~ [RESOLVED in Phase 1 (ENG-01)] |
 
 ---
 
@@ -373,7 +378,7 @@ See Section 11 for XML-specific security assessment (XXE, DTD attacks, namespace
 
 ### Immediate (Before Production)
 
-1. Fix cross-cutting `_update_global_map()` crash (BUG-FIX-001) -- affects all 54 components
+1. ~~Fix cross-cutting `_update_global_map()` crash (BUG-FIX-001)~~ [RESOLVED in Phase 1 (ENG-01)]
 2. Implement REJECT flow for XML parsing errors (ENG-FIX-002)
 
 ### Short-term (Hardening)
@@ -429,17 +434,17 @@ See Section 11 for XML-specific security assessment (XXE, DTD attacks, namespace
 | Converter source | `src/converters/talend_to_v1/components/file/file_input_xml.py` | Converter audit (169 lines) |
 | Converter tests | `tests/converters/talend_to_v1/components/test_file_input_xml.py` | Test coverage (63 tests) |
 | Base component | `src/v1/engine/base_component.py` | Cross-cutting bug analysis |
-| Phase 9 research | `.planning/phases/09-file-input-components/09-RESEARCH.md` | _java.xml parameter analysis |
+| Phase 12-03 migration | commit `43eccd6` | stdlib -> lxml migration; REGISTRY decorator added; 32 engine tests added |
 
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
 | ------------- | ---------- | -------------------------- |
-| XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set -- affects `_update_stats()` call at end of `_process()` |
-| XCUT-002 | `global_map.py:28` | `GlobalMap.get()` broken signature -- may affect stat retrieval |
-| XCUT-003 | `base_component.py:174` | `replace_in_config` literal `[i]` bug -- affects config resolution of context vars |
+| ~~XCUT-001~~ | `base_component.py` | ~~`_update_global_map()` crash when globalMap set~~ [RESOLVED in Phase 1 (ENG-01)] |
+| ~~XCUT-002~~ | `global_map.py` | ~~`GlobalMap.get()` broken signature~~ [RESOLVED in Phase 1 (ENG-02)] |
+| ~~XCUT-003~~ | `base_component.py` | ~~`replace_in_config` literal `[i]` bug~~ [RESOLVED in Phase 1 (ENG-03)] |
 
 ---
 
 *Report generated: 2026-04-03*
-*Last updated: 2026-04-03 after hidden/design-time param removal*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation -- Phase 12-03 lxml migration acknowledged (commit 43eccd6), engine tests added, cross-cutting P0 struck*
