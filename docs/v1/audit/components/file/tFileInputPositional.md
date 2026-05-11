@@ -380,7 +380,7 @@ None found.
 | 9 | `TestTrimAll` | 2 | trim_all=True strips whitespace; trim_all=False preserves |
 | 10 | `TestRemoveEmptyRow` | 3 | remove_empty_row drops NaN rows and empty-string rows after trim (BUG-FIP-004) |
 | 11 | `TestAdvancedSeparator` | 3 | separator NOT applied to id_String; applied to id_BigDecimal (BUG-FIP-002); no-schema no-op |
-| 12 | `TestDieOnError` | — | (covered in TestBasicRead test 3) |
+| 12 | `TestDieOnError` | -- | (covered in TestBasicRead test 3) |
 | 13 | `TestStatistics` | 1 | comp.stats["NB_LINE"] / NB_LINE_OK / NB_LINE_REJECT after _process() |
 
 ---
