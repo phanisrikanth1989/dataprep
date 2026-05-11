@@ -6,12 +6,19 @@
 This guide is for human contributors writing or modifying the DataPrep engine, the
 Talend-to-V1 converter, or the test suite. Claude-driven contributors read `CLAUDE.md`
 first (codebase rules, conventions, architecture) and then this file for the
-human-facing process bits that `CLAUDE.md` does not cover: workflow recipes, test
-commands, git etiquette, and the cross-references that pull everything together.
+load-bearing project rules and the cross-references that pull everything together.
 
 `CLAUDE.md` is the source of truth for codebase rules. This file REFERENCES `CLAUDE.md`
 by section name -- it does not duplicate the content. When a section here says
 "see CLAUDE.md X" go read CLAUDE.md X.
+
+This file owns: the 10 load-bearing rules + git workflow. Other workflow content lives in:
+- `docs/guides/DEV_SETUP.md` -- environment setup, test commands, coverage gate invocation
+- `docs/guides/QUICKSTART.md` -- run a job end-to-end in 5 minutes
+- `docs/guides/AUTHORING_JOB_JSON.md` -- write job JSON by hand without a Talend source
+- `docs/ai-prompts/CREATE_COMPONENT.md` -- step-by-step new-component authoring
+- `docs/ai-prompts/EDIT_COMPONENT.md` -- safe edits to existing components
+- `docs/ai-prompts/DEBUG_JOB_FAILURE.md` -- diagnose a failing job
 
 ## Project Rules (Load-Bearing)
 
@@ -77,8 +84,7 @@ This rule is the LOAD-BEARING lesson from Phase 14. Read it twice.
   (file_input_json). In each case a subclass was importable but unusable. Three
   different plans hit it independently before Plan 14-12 made it a checklist item.
 - See `docs/v1/patterns/MANUAL_COMPONENT_AUTHORING.md` for the full authoring
-  contract (lands in plan 15-09; until then, see `docs/v1/STANDARDS.md` for the
-  predecessor doc).
+  contract (the 13 rules of BaseComponent subclassing).
 
 ### Rule 6: 95% per-module line coverage floor
 
@@ -86,6 +92,7 @@ This rule is the LOAD-BEARING lesson from Phase 14. Read it twice.
   `complex_converter/` tree) must clear 95.0% line coverage.
 - Paste-runnable gate: see CLAUDE.md "Coverage" section for the full pytest +
   `scripts/check_per_module_coverage.py` invocation. Run it locally before pushing.
+  `docs/guides/DEV_SETUP.md` walks through it step-by-step.
 - The gate script is `scripts/check_per_module_coverage.py`. It reads
   `coverage.json` and exits non-zero on any module below the floor.
 - Source of truth for the in-scope module set and the pragma allowlist:
@@ -147,31 +154,32 @@ This rule is the LOAD-BEARING lesson from Phase 14. Read it twice.
 
 ### Authoring a new component
 
-1. Read the authoring pattern doc: `docs/v1/patterns/MANUAL_COMPONENT_AUTHORING.md`
-   (lands in plan 15-09; until then `docs/v1/STANDARDS.md` is the closest standing
-   guide).
-2. Subclass `BaseComponent` (or `BaseIterateComponent` for iterate-style
-   components -- see CLAUDE.md "Key Abstractions").
-3. Decorate the class with `@REGISTRY.register("PascalCaseName", "tTalendName")`
-   from `src/v1/engine/component_registry.py`. List every Talend alias the
-   component should accept (see existing examples like `oracle_connection.py`).
-4. Implement `_validate_config()` raising `ConfigurationError` for every required
-   config key. Implement `_process()` returning `{"main": df, "reject": df_or_None,
-   "stats": {...}}`.
-5. Add unit tests for the component class AND a pipeline-fixture test under
-   `tests/fixtures/jobs/{subsystem}/` per Rule 8.
-6. Run the coverage gate (CLAUDE.md "Coverage"). New code must clear the 95% floor
-   on its own module.
-7. Commit atomically per Rule 4 -- one commit for the class, one for tests if
-   they are large, one for the fixture JSON if it stands on its own.
+Use `docs/ai-prompts/CREATE_COMPONENT.md` to drive the 8-step Talaxie-diff
+workflow (audit -> Talaxie research -> feature parity -> plan -> review -> code
+-> verify -> close). The prompt enforces the 13 BaseComponent rules
+(MANUAL_COMPONENT_AUTHORING.md) and the project rules above.
+
+If you are working without an AI assistant, the same canonical references apply:
+- `docs/v1/patterns/MANUAL_COMPONENT_AUTHORING.md` -- the 13 BaseComponent rules
+  + long-form authoring detail
+- `docs/v1/patterns/ENGINE_COMPONENT_PATTERN.md` -- engine-side pattern
+- `docs/v1/patterns/CONVERTER_PATTERN.md` -- converter-side pattern
+- `docs/v1/patterns/ENGINE_TEST_PATTERN.md` -- test layout and fixture conventions
+
+### Editing an existing component
+
+Use `docs/ai-prompts/EDIT_COMPONENT.md`. The prompt enforces Talend parity
+checks, the 13 BaseComponent rules, and Rule 10 (JSON FROZEN).
 
 ### Fixing a bug
+
+Use `docs/ai-prompts/DEBUG_JOB_FAILURE.md`. The prompt enforces reproduction +
+classification before any code edit. Manual version:
 
 1. Reproduce the bug with a failing test FIRST. If the bug is in a
    lifecycle-sensitive module, the failing test should be a pipeline-fixture test
    per Rule 8, not a mock-only unit test.
-2. Patch the root cause. Apply Rule 3 -- no downstream fallback shims. The
-   producer of the bad value is where the fix lands.
+2. Patch the root cause. Apply Rule 3 -- no downstream fallback shims.
 3. Run the full test suite and the coverage gate to verify no regressions and no
    coverage drift on neighboring modules.
 4. Commit atomically: one commit for the failing test (so the bisect log is clean),
@@ -185,40 +193,6 @@ The conventions live in `CLAUDE.md` (sections "Naming Patterns", "Code Style",
 references them; it does not own them. CLAUDE.md edits are a separate concern
 from a feature PR -- do not bundle a CLAUDE.md change into a feature branch.
 Raise convention changes as their own PR with an explicit rationale.
-
-## Tests
-
-### Test inventory
-
-- `tests/v1/engine/` -- engine and component unit / pipeline tests
-- `tests/converters/talend_to_v1/` -- converter unit and integration tests
-- `tests/integration/` -- end-to-end conversion + execution tests
-- `tests/fixtures/jobs/` -- JSON job configs consumed by `run_job_fixture`
-- `tests/fixtures/data/` -- input data files (CSV, Excel, JSON, XML) for pipeline tests
-- `tests/fixtures/swift/` -- SWIFT MT message fixtures and YAML configs
-- `tests/conftest.py` -- shared fixtures (`run_job_fixture`, `assert_ascii_logs`)
-
-### Running tests
-
-- Full suite (excluding the live Oracle path):
-  `python -m pytest tests/ -m "not oracle" -n auto`
-- Engine-only:
-  `python -m pytest tests/v1/engine/ -n auto`
-- Java bridge tests (requires JVM 11+ on PATH and the bridge JAR built):
-  `python -m pytest tests/ -m java`
-- Live Oracle tests (opt-in only; CI does not run these):
-  `python -m pytest tests/ -m oracle`
-- Parallel runner: pass `-n auto` to xdist for the full suite; serial for targeted
-  debugging.
-
-### Coverage
-
-The coverage gate is documented in CLAUDE.md "Coverage" -- run the paste-runnable
-command from that section to regenerate `coverage.json` and enforce the 95%
-per-module floor via `scripts/check_per_module_coverage.py`. `coverage.json` and
-`htmlcov/` are gitignored at the project root; per-phase acceptance artifacts
-(for example, `14-coverage.json`) are committed under
-`.planning/phases/{N}-{name}/` for historical reference.
 
 ## Style
 
@@ -273,15 +247,17 @@ review.
 - `CLAUDE.md` -- codebase and Claude-specific instructions; section anchors
   ("Error Handling", "Logging", "Coverage", "Conventions", "Architecture") are
   referenced throughout this file.
-- `docs/ARCHITECTURE.md` -- system architecture overview (landing later in
-  Phase 15).
-- `docs/COMPONENT_REFERENCE.md` -- registry-driven component inventory (landing
-  later in Phase 15).
-- `docs/DEPLOYMENT.md` -- runtime requirements and deployment notes (landing
-  later in Phase 15).
-- `docs/v1/patterns/` -- detailed authoring guides (post-rename location;
-  landing in plan 15-09; predecessor is `docs/v1/STANDARDS.md`).
-- `tests/fixtures/jobs/README.md` -- pipeline-fixture (job-config JSON) authoring
-  guide, cited from Rule 8.
+- `docs/ARCHITECTURE.md` -- system architecture overview
+- `docs/COMPONENT_REFERENCE.md` -- registry-driven component inventory
+- `docs/DEPLOYMENT.md` -- runtime requirements and production deployment notes
+- `docs/guides/DEV_SETUP.md` -- local dev environment, test commands, coverage gate
+- `docs/guides/QUICKSTART.md` -- end-to-end 5-minute walkthrough
+- `docs/guides/AUTHORING_JOB_JSON.md` -- hand-write job JSON without a Talend source
+- `docs/ai-prompts/CREATE_COMPONENT.md` -- AI prompt for new components
+- `docs/ai-prompts/EDIT_COMPONENT.md` -- AI prompt for safe component edits
+- `docs/ai-prompts/DEBUG_JOB_FAILURE.md` -- AI prompt for diagnosing failures
+- `docs/v1/patterns/` -- detailed authoring guides (MANUAL_COMPONENT_AUTHORING,
+  ENGINE_COMPONENT_PATTERN, CONVERTER_PATTERN, ENGINE_TEST_PATTERN)
+- `tests/fixtures/jobs/README.md` -- pipeline-fixture authoring guide cited from Rule 8
 - `scripts/check_per_module_coverage.py` -- the 95% per-module floor gate
-  enforced by Rule 6.
+  enforced by Rule 6
