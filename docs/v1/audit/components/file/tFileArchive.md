@@ -2,6 +2,7 @@
 
 > **Audited**: 2026-04-04  
 > **Updated**: 2026-05-04 (implementation complete)  
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Sonnet 4.6 (automated)  
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -49,11 +50,11 @@ Overall: **GREEN** -- Engine fully rewritten: REGISTRY decorator added, config k
 
 **Implementation Notes (2026-05-04):**
 
-- Renamed engine class `FileArchiveComponent` → `FileArchive` (old alias preserved in REGISTRY)
+- Renamed engine class `FileArchiveComponent` -> `FileArchive` (old alias preserved in REGISTRY)
 - Added `@REGISTRY.register("FileArchive", "FileArchiveComponent", "tFileArchive")` decorator
-- `_validate_config()` now raises `ConfigurationError` (was returning `List[str]`)
-- Config key `include_subdirectories` → `sub_directroy` (preserves Talend typo, matches converter)
-- Config key `compression_level` (int) → `level` (TEXT str, coerced in `_process()`)
+- `_validate_config()` now raises `ConfigurationError` (was returning `List[str]`) [RESOLVED in Phase 7.2-01]
+- Config key `include_subdirectories` -> `sub_directroy` (preserves Talend typo, matches converter)
+- Config key `compression_level` (int) -> `level` (TEXT str, coerced in `_process()`)
 - `mkdir=True/False` now respected (was always creating target directory)
 - `all_files=False + mask` now applies `fnmatch.fnmatch` file filtering
 - All bare Python exceptions replaced with `FileOperationError`
@@ -164,7 +165,7 @@ The `talend_to_v1` converter uses a dedicated `FileArchiveConverter` class regis
 | 12 | `ENCRYPT_FILES` | Yes | `encrypt_files` | `_get_bool()`, default `False` |
 | 13 | `ENCRYPT_METHOD` | Yes | `encrypt_method` | `_get_str()`, default `"ZIP4J_STANDARD"` |
 | 14 | `AES_KEY_STRENGTH` | Yes | `aes_key_strength` | `_get_str()`, default `"AES256"` |
-| 15 | `PASSWORD` | Yes | `password` | `_get_str()` → always empty -- cleared for security |
+| 15 | `PASSWORD` | Yes | `password` | `_get_str()` -- always empty -- cleared for security |
 | 16 | `ZIP64_MODE` | Yes | `zip64_mode` | `_get_str()`, default `"ASNEEDED"` |
 | 17 | `USE_SYNC_FLUSH` | Yes | `use_sync_flush` | `_get_bool()`, default `False` (advanced) |
 | F1 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Framework param, default `False` |
@@ -430,4 +431,4 @@ No concerns identified for a file utility component. File paths come from config
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after Phase 10 gold standard rewrite*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation*
