@@ -1,10 +1,11 @@
 # Audit Report: tSetGlobalVar / SetGlobalVar
 
 > **Audited**: 2026-04-04
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: PRODUCTION READINESS REVIEW
+> **Status**: GREEN -- all issues resolved 2026-05-01
 > **V1 only** -- this report is scoped to the v1 engine exclusively
 
 ---
@@ -18,7 +19,7 @@
 | **Engine File** | `src/v1/engine/components/file/set_global_var.py` (153 lines) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/file/set_global_var.py` (110 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tSetGlobalVar")` decorator-based dispatch |
-| **Registry Aliases** | `tSetGlobalVar` |
+| **Registry Aliases** | `SetGlobalVar`, `tSetGlobalVar` |
 | **Category** | Custom Code / Global Variable |
 | **Complexity** | Low -- utility component with 1 TABLE parameter (VARIABLES), no data flow schema |
 
@@ -40,7 +41,7 @@
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 1 TABLE param (VARIABLES with KEY/VALUE stride-2) + 2 framework params extracted; `_build_component_dict` pattern |
 | Engine Feature Parity | **G** | 0 | 0 | 0 | 0 | Reads `variables` (lowercase) with {key,value} shape; fallback accepts VARIABLES/name/VALUE; die_on_error supported; pass-through correct; NB_LINE always 0 |
-| Code Quality | **G** | 0 | 0 | 0 | 0 | `_validate_config()` raises ConfigurationError ✅; % logger formatting ✅; pandas import removed ✅; @REGISTRY.register() decorator ✅ |
+| Code Quality | **G** | 0 | 0 | 0 | 0 | `_validate_config()` raises ConfigurationError (OK); % logger formatting (OK); pandas import removed (OK); @REGISTRY.register() decorator (OK) |
 | Performance & Memory | **G** | 0 | 0 | 0 | 0 | Lightweight utility; no data processing; unused pandas import removed |
 | Testing | **G** | 0 | 0 | 0 | 0 | 23 converter tests across 9 test classes; 26 engine tests across 8 test classes |
 
@@ -307,4 +308,4 @@ All recommendations resolved by engine fix (2026-05-01). No outstanding actions.
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-05-01 -- Engine rewritten. All 9 issues resolved. 26 engine tests added. Overall upgraded Y -> G.*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation*

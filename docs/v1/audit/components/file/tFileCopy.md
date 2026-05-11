@@ -2,6 +2,7 @@
 
 > **Audited**: 2026-04-04
 > **Re-audited**: 2026-04-29 (engine remediation)
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -52,7 +53,7 @@ features.
 | **Engine File** | `src/v1/engine/components/file/file_copy.py` (133 lines) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/file/file_copy.py` (116 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tFileCopy")` decorator-based dispatch |
-| **Registry Aliases** | `tFileCopy` |
+| **Registry Aliases** | `FileCopy`, `tFileCopy` |
 | **Category** | File / Utility |
 | **Complexity** | Medium -- utility component with 12 unique parameters, no data flow schema, directory copy mode |
 
@@ -340,14 +341,14 @@ No concerns identified for standard file copy use. File paths come from configur
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 44 | `tests/converters/talend_to_v1/components/test_file_copy.py` |
-| Engine unit tests | 0 | None |
+| Engine unit tests | 17 | `tests/v1/engine/components/file/test_file_copy.py` (9 classes, added 2026-04-29) |
 | Integration tests | Shared | `tests/converters/talend_to_v1/test_integration.py` |
+
+**Phase 14-08 note**: Per-module coverage floor lifted to >=95% (Phase 14 gate). Engine unit tests were added in the 2026-04-29 re-audit. [RESOLVED in Phase 14-08]
 
 ### 8.2 Test Gaps
 
-| ID | Priority | Gap |
-| ---- | ---------- | ----- |
-| TEST-FC-001 | **P2** | No engine unit tests for FileCopy. Engine implementation not tested independently. |
+~~TEST-FC-001 (P2) -- No engine unit tests for FileCopy.~~ [RESOLVED in Phase 14-08]
 
 ### 8.3 Recommended Test Cases
 
@@ -445,4 +446,4 @@ No concerns identified for standard file copy use. File paths come from configur
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after Phase 10 gold standard rewrite*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation*

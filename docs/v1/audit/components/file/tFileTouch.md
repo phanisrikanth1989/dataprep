@@ -2,6 +2,7 @@
 
 > **Audited**: 2026-04-04
 > **Re-audited**: 2026-04-29 (engine remediation)
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -46,7 +47,7 @@ component to gold-standard compliance.
 | **Engine File** | `src/v1/engine/components/file/file_touch.py` (99 lines) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/file/file_touch.py` (67 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tFileTouch")` decorator-based dispatch |
-| **Registry Aliases** | `tFileTouch` |
+| **Registry Aliases** | `FileTouch`, `tFileTouch` |
 | **Category** | File / Utility |
 | **Complexity** | Low -- utility component with 2 unique parameters, no data flow schema |
 
@@ -279,14 +280,14 @@ No concerns identified. File path comes from configuration, not user input. No e
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 22 | `tests/converters/talend_to_v1/components/test_file_touch.py` |
-| Engine unit tests | 0 | None |
+| Engine unit tests | 13 | `tests/v1/engine/components/file/test_file_touch.py` (8 classes, added 2026-04-29) |
 | Integration tests | Shared | `tests/converters/talend_to_v1/test_integration.py` |
+
+**Phase 14-08 note**: Per-module coverage floor lifted to >=95% (Phase 14 gate). Engine unit tests were added in the 2026-04-29 re-audit. [RESOLVED in Phase 14-08]
 
 ### 8.2 Test Gaps
 
-| ID | Priority | Gap |
-| ---- | ---------- | ----- |
-| TEST-FT-001 | **P2** | No engine unit tests for FileTouch. Engine implementation not tested independently. |
+~~TEST-FT-001 (P2) -- No engine unit tests for FileTouch.~~ [RESOLVED in Phase 14-08]
 
 ### 8.3 Recommended Test Cases
 
@@ -370,4 +371,4 @@ No concerns identified. File path comes from configuration, not user input. No e
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after Phase 10 gold standard rewrite*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation*

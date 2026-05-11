@@ -2,10 +2,11 @@
 
 > **Audited**: 2026-04-03
 > **Last Updated**: 2026-04-05 (post-rewrite)
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Sonnet 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: GREEN — ENGINE REWRITE COMPLETE
+> **Status**: GREEN -- ENGINE REWRITE COMPLETE
 > **V1 only** -- this report is scoped to the v1 engine exclusively
 
 ---
@@ -19,7 +20,7 @@
 | **Engine File** | `src/v1/engine/components/file/file_properties.py` (179 lines) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/file/file_properties.py` (72 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tFileProperties")` decorator-based dispatch |
-| **Registry Aliases** | `tFileProperties` |
+| **Registry Aliases** | `FileProperties`, `tFileProperties` |
 | **Category** | File / Utility |
 | **Complexity** | Low -- utility component with 2 unique parameters |
 
@@ -45,7 +46,7 @@
 | Performance & Memory | **G** | 0 | 0 | 0 | 0 | Single os.stat() call; MD5 streamed in chunks; single-row DataFrame adequate |
 | Testing | **G** | 0 | 0 | 0 | 0 | 28 converter tests + new engine unit test suite (TestRegistry/Validate/Main/Md5/Errors/Stats) |
 
-**Overall: GREEN — Engine rewrite complete; all P0/P1 issues fixed; production ready**
+**Overall: GREEN -- Engine rewrite complete; all P0/P1 issues fixed; production ready**
 
 ---
 
@@ -280,15 +281,15 @@ None found. No print statements or TODO comments in engine code.
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 28 | `tests/converters/talend_to_v1/components/test_file_properties.py` |
-| Engine unit tests | 0 | None |
+| Engine unit tests | Added | `tests/v1/engine/components/file/test_file_properties.py` (added post-rewrite) |
 | Integration tests | Covered | `tests/converters/talend_to_v1/test_integration.py` (regression guard) |
+
+**Phase 14-08 note**: Per-module coverage floor lifted to >=95% (Phase 14 gate). [RESOLVED in Phase 14-08]
 
 ### 8.2 Test Gaps
 
-| ID | Priority | Gap |
-| ---- | ---------- | ----- |
-| TEST-FPR-001 | **P2** | No engine unit tests for FileProperties `_process()` method |
-| TEST-FPR-002 | **P2** | No engine test for MD5 computation accuracy |
+~~TEST-FPR-001 (P2) -- No engine unit tests for FileProperties.~~ [RESOLVED in Phase 14-08]
+~~TEST-FPR-002 (P2) -- No engine test for MD5 computation accuracy.~~ [RESOLVED in Phase 14-08]
 
 ### 8.3 Recommended Test Cases
 
@@ -376,4 +377,4 @@ None found. No print statements or TODO comments in engine code.
 ---
 
 *Report generated: 2026-04-03*
-*Last updated: 2026-04-03 after Phase 09 Plan 03 converter standardization*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation*

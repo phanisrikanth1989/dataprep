@@ -2,6 +2,7 @@
 
 > **Audited**: 2026-04-04  
 > **Updated**: 2026-05-04 (implementation complete)  
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Sonnet 4.6 (automated)  
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -49,10 +50,10 @@
 
 **Implementation Notes (2026-05-04):**
 
-- Renamed engine class `FileUnarchiveComponent` → `FileUnarchive` (old alias preserved in REGISTRY)
+- Renamed engine class `FileUnarchiveComponent` -> `FileUnarchive` (old alias preserved in REGISTRY)
 - Added `@REGISTRY.register("FileUnarchive", "FileUnarchiveComponent", "tFileUnarchive")` decorator
-- `_validate_config()` now raises `ConfigurationError` (was returning list)
-- Config key `extract_path` → `extractpath`; `check_password` → `checkpassword` (aligned with converter)
+- `_validate_config()` now raises `ConfigurationError` (was returning list) [RESOLVED in Phase 14-08]
+- Config key `extract_path` -> `extractpath`; `check_password` -> `checkpassword` (aligned with converter)
 - **ZIP-slip SECURITY FIX**: validates `os.path.abspath(member)` starts with `abs_output + os.sep` before extraction
 - Custom per-member extraction loop (replaces unsafe `extractall()`)
 - `rootname` prefix stripping implemented
@@ -403,4 +404,4 @@ Zip slip vulnerability (BUG-FUA-002): When `extract_path=True`, the engine calls
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after v1.1 converter standardization (phase 10, plan 05)*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation*
