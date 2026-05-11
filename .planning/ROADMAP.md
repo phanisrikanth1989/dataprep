@@ -445,9 +445,9 @@ Plans:
 - [x] 15.1-06-PLAN.md -- transform/ Java/Python/Swift code (7 docs)
 - [x] 15.1-07-PLAN.md -- transform/ heavy hitters (tMap, tFilterRow, tJoin, tXMLMap, tSortRow, tNormalize, tAggregateSortedRow) (7 docs)
 - [x] 15.1-08-PLAN.md -- transform/ light tail (14 docs)
-- [ ] 15.1-09-PLAN.md -- cross-cutting regeneration: SUMMARY_SCORECARD.md
-- [ ] 15.1-10-PLAN.md -- cross-cutting regeneration: CROSS_CUTTING_ISSUES.md
-- [ ] 15.1-11-PLAN.md -- cross-cutting regeneration: METHODOLOGY.md
+- [x] 15.1-09-PLAN.md -- cross-cutting regeneration: SUMMARY_SCORECARD.md
+- [x] 15.1-10-PLAN.md -- cross-cutting regeneration: CROSS_CUTTING_ISSUES.md
+- [x] 15.1-11-PLAN.md -- cross-cutting regeneration: METHODOLOGY.md
 - [ ] 15.1-12-PLAN.md -- closeout (autonomous: false per D-E6)
 
 ### Phase 16: Integration Testing & Performance
@@ -486,5 +486,5 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 13. Test Stabilization & Bridge JAR Rebuild | 10/9 | Complete   | 2026-05-10 |
 | 14. Coverage Push to 95% per-module floor | 12/12 | Complete   | 2026-05-11 |
 | 15. Documentation Sweep | 11/1 | Complete   | 2026-05-11 |
-| 15.1. Documentation Audit Reconciliation | 8/13 | In Progress|  |
+| 15.1. Documentation Audit Reconciliation | 11/13 | In Progress|  |
 | 16. Integration Testing & Performance (Manager) | 0/TBD | Not started | - |
