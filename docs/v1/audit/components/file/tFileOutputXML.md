@@ -251,9 +251,9 @@ No explicit pandas dtype coercion on write -- all column values converted via `s
 
 ---
 
-## 7. Test Coverage
+## 8. Testing
 
-### 7.1 Engine Test Suite
+### 8.1 Engine Test Suite
 
 **File**: `tests/v1/engine/components/file/test_file_output_xml.py`
 **Tests**: 43 tests across 18 classes
@@ -279,12 +279,12 @@ No explicit pandas dtype coercion on write -- all column values converted via `s
 | `TestInputIsDocument` | INPUT_IS_DOCUMENT passthrough with malformed-row skip |
 | `TestParamRootTagsMultiple` | Multiple ROOT_TAGS entries (only first used) |
 
-### 7.2 Coverage
+### 8.2 Coverage
 
 - Engine module coverage: >= 95% per-module line-coverage floor (Phase 14)
 - Converter module coverage: >= 95% per-module line-coverage floor (Phase 14)
 
-### 7.3 Testing Gaps
+### 8.3 Testing Gaps
 
 | ID | Severity | Description |
 | ---- | --------- | ------------- |
@@ -293,7 +293,7 @@ No explicit pandas dtype coercion on write -- all column values converted via `s
 
 ---
 
-## 8. Build and Conversion History
+## 7. Build and Conversion History
 
 | Event | Phase | Commit | Description |
 | ------- | ------- | ------- | ------------- |
@@ -306,7 +306,7 @@ No explicit pandas dtype coercion on write -- all column values converted via `s
 
 ---
 
-## 9. Cross-Cutting Issues
+## 9. Issues Summary
 
 See Appendix B (below) for cross-cutting issues tracked across all file/ components.
 
@@ -320,7 +320,7 @@ See Appendix B (below) for cross-cutting issues tracked across all file/ compone
 
 ---
 
-## 10. Production Readiness Assessment
+## 10. Recommendations
 
 ### 10.1 Summary
 
