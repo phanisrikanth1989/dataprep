@@ -2,6 +2,7 @@
 
 > **Audited**: 2026-04-04
 > **Last Updated**: 2026-05-03
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -413,16 +414,20 @@ None found. No print statements, no commented-out code, no TODO/FIXME comments.
 | `TestAutoSizeColumns` | 1 | `is_all_auto_szie` sets column widths |
 | `TestDeleteEmptyFile` | 2 | File deleted / kept per flag |
 | `TestFormulaRecalculation` | 1 | `calcMode=auto` |
-| `TestNaNHandling` | 2 | NaN/None → blank cell, partial-null row retained |
+| `TestNaNHandling` | 2 | NaN/None -> blank cell, partial-null row retained |
 | `TestErrorHandling` | 3 | bad dir, None input, registry execute |
 | `TestStatistics` | 2 | NB_LINE / NB_LINE_OK stats |
-| `TestDatePatternFormatting` | 3 | `date_pattern` → strftime string, NaT → blank, no-pattern unchanged |
+| `TestDatePatternFormatting` | 3 | `date_pattern` -> strftime string, NaT -> blank, no-pattern unchanged |
 | `TestDecimalPrecision` | 5 | precision=2/10, float, no-precision, `_build_col_formats` unit test |
 | `TestInputSchemaColumnOrdering` | 3 | input_schema order, output_schema fallback, df order fallback |
 
 ### 8.3 Test Gaps
 
 None blocking. TEST-FOE-001 closed 2026-05-03.
+
+### 8.4 Phase 14 Coverage Floor
+
+Engine unit tests lifted file_output_excel.py from 69.0% to 100.0% coverage in Phase 14-09 (COV-FOE-001, commit 5c4afa0). 38 additional tests added covering cell styles, formula handling, multi-sheet scenarios, and error-handling edge cases. The Phase 14 >= 95% per-module floor is met and exceeded.
 
 ---
 
@@ -537,3 +542,4 @@ None blocking. TEST-FOE-001 closed 2026-05-03.
 
 *Report generated: 2026-04-04*
 *Last updated: 2026-05-03 -- ENG-FOE-013 (date_pattern), ENG-FOE-014 (precision number format), ENG-FOE-015 (input_schema column ordering) fixed; 45 engine unit tests added; TEST-FOE-001 closed*
+*Reconciled: 2026-05-11 after Phase 15.1 reconciliation -- Phase 14-09 COV-FOE-001 noted (5c4afa0: file_output_excel.py 69.0% -> 100.0%); 3 non-ASCII right arrows fixed (D-C4)*
