@@ -1,7 +1,9 @@
 # Manual Component Authoring Guide
 
+*Last updated: 2026-05-11 (Phase 14 lessons folded in)*
+
 > For contributors writing engine components outside the GSD workflow.
-> Last updated: 2026-04-25 (Phase 7.1 lessons)
+> Last updated: 2026-05-11 (Phase 14 lessons folded in)
 
 ---
 
@@ -20,11 +22,11 @@ outside the GSD workflow, read this document before writing a single line of cod
 
 Before authoring any component, read these documents in order:
 
-1. `docs/v1/standards/ENGINE_COMPONENT_PATTERN.md` — the 11 rules, file structure, anti-patterns
-2. `docs/v1/standards/ENGINE_TEST_PATTERN.md` — test structure, required coverage classes, TDD gate
-3. `CLAUDE.md` (project root) — naming conventions, error handling, logging rules, import style
+1. `docs/v1/standards/ENGINE_COMPONENT_PATTERN.md` -- the 12 rules, file structure, anti-patterns
+2. `docs/v1/standards/ENGINE_TEST_PATTERN.md` -- test structure, required coverage classes, TDD gate, Phase 14 pipeline-test pattern
+3. `CLAUDE.md` (project root) -- naming conventions, error handling, logging rules, import style
 
-The converter side has its own pattern (`docs/v1/standards/CONVERTER_PATTERN.md`) — it is a
+The converter side has its own pattern (`docs/v1/standards/CONVERTER_PATTERN.md`) -- it is a
 different system and its rules do not apply to engine components.
 
 ---
@@ -41,7 +43,7 @@ extend a sibling component class.
 **Rule 2: _validate_config() is Required**
 Every component MUST implement `_validate_config()`. Check ALL config keys the component
 depends on. Raise `ConfigurationError` with a message that includes `self.id`. This method
-runs on the UNRESOLVED config (context variables not yet substituted) — validate structural
+runs on the UNRESOLVED config (context variables not yet substituted) -- validate structural
 correctness only, not resolved values.
 
 **Rule 3: _process() Returns Dict with 'main' Key**
@@ -64,7 +66,7 @@ re-execute and misses context substitution entirely.
 **Rule 6: Use GlobalMap for Inter-Component Communication**
 Use `self.global_map.put()` to set component-specific variables. Use `self.global_map.get()`
 to read variables from upstream components. Stats (NB_LINE, NB_LINE_OK, NB_LINE_REJECT) are
-handled automatically by BaseComponent. Always guard with `if self.global_map:` — components
+handled automatically by BaseComponent. Always guard with `if self.global_map:` -- components
 must work without one in tests.
 
 **Rule 7: Use Custom Exceptions**
@@ -92,7 +94,7 @@ Components are re-executed during iterate loops. Do NOT store mutable processing
 `self` that persists across `execute()` calls. All processing state MUST be local to
 `_process()`.
 
-**Rule 11 — DO NOT call `self.validate_schema()` inside `_process()`**
+**Rule 11 -- DO NOT call `self.validate_schema()` inside `_process()`**
 
 > **CRITICAL: This is the most commonly violated rule.**
 
@@ -239,6 +241,86 @@ def _process(self, input_data=None) -> dict:
 
 ---
 
+## Rule 13: Registry Membership AND Abstract Methods (dual invariant)
+
+> **CRITICAL: Both halves of this rule must hold; either alone leaves
+> the component silently broken in production.**
+
+Every `BaseComponent` (or `BaseIterateComponent`) subclass MUST honour
+the dual invariant:
+
+1. **REGISTRY membership.** The class MUST be decorated with
+   `@REGISTRY.register("PascalCaseName", "tTalendName")`. Import
+   `REGISTRY` from `src.v1.engine.component_registry`. The decorator
+   activates on import, so the module MUST also be imported from its
+   package `__init__.py` (otherwise the decorator never runs and the
+   class is invisible to the engine).
+2. **Abstract method satisfaction.** The class MUST implement
+   `_validate_config()` (raise `ConfigurationError` for missing/invalid
+   required keys) and `_process()` (return `dict` with at least a
+   `'main'` key). `BaseComponent` declares these abstract; Python's ABC
+   machinery refuses to instantiate a subclass that omits either.
+
+### Why this is a hard rule, not a guideline
+
+Phase 14 closed **four dual-bug instances** of THIS rule being violated
+in already-shipped code:
+
+| Bug ID | Component class | Source path |
+|--------|-----------------|-------------|
+| BUG-PDC-001 / BUG-PDC-002 | `PythonDataFrameComponent` | `src/v1/engine/components/transform/python_dataframe_component.py` |
+| BUG-SWIFT-001 / BUG-SWIFT-002 | `SwiftTransformer`, `SwiftBlockFormatter` | `src/v1/engine/components/transform/swift_transformer.py`, `.../swift_block_formatter.py` |
+| BUG-FIJ-001 / BUG-FIJ-002 | `FileInputJSON` | `src/v1/engine/components/file/file_input_json.py` |
+
+Each component had BOTH defects at the same time: missing
+`@REGISTRY.register` AND a `_validate_config()` /
+`_process()` gap. The components shipped with green unit tests.
+
+### Failure mode at runtime
+
+The engine looks up components via `REGISTRY.get(comp_type)`. An
+unregistered class is silently dropped with:
+
+```
+WARNING [engine] Unknown component type: <type>
+```
+
+The job continues without that component. Downstream components see
+an empty DataFrame (or no upstream at all) and either error
+mysteriously or produce wrong-but-plausible output. Production data
+pipelines have shipped quietly broken because of this.
+
+### Why mock-only tests miss the bug
+
+Tests that instantiate the class directly via a helper such as
+`_make_component()` bypass the engine REGISTRY lookup entirely and
+thus pass even when `@REGISTRY.register` is missing. This is the
+specific failure mode that Phase 14 attributed to the four BUG IDs
+above.
+
+### Enforcement at test time
+
+Use the pipeline-test pattern documented in
+`docs/v1/standards/ENGINE_TEST_PATTERN.md` ("Phase 14 Pipeline-Test
+Pattern" section). The `tests/conftest.py:run_job_fixture` fixture
+runs a fixture JSON through the full engine, exercising the REGISTRY
+lookup path. If a class is unregistered, the pipeline test fails
+loudly with `Unknown component type: <type>` -- which is the
+intended catch.
+
+### Cross-references
+
+- `src/v1/engine/component_registry.py` -- the `REGISTRY` singleton
+  and `register(*aliases)` decorator.
+- `src/v1/engine/base_component.py` -- declares `_validate_config()`
+  and `_process()` as abstract methods.
+- `docs/v1/standards/ENGINE_TEST_PATTERN.md` -- "Phase 14 Pipeline-Test
+  Pattern" section; how to author pipeline tests that catch this.
+- `.planning/phases/14-coverage-push-to-95-per-module-floor/14-PHASE-SUMMARY.md`
+  -- BUG-PDC-001/002, BUG-SWIFT-001/002, BUG-FIJ-001/002 evidence.
+
+---
+
 ## Stats Lifecycle
 
 BaseComponent owns stats. The lifecycle is:
@@ -310,7 +392,7 @@ Schema example:
 }
 ```
 
-Components do not need to implement this — `validate_schema()` handles it. Do not replicate
+Components do not need to implement this -- `validate_schema()` handles it. Do not replicate
 this logic in `_process()`.
 
 ---
@@ -335,7 +417,7 @@ Components MUST NOT add user columns named `errorMessage` or `errorCode`. If suc
 exist on input, the base class renames them to `*_user` with a warning before attaching its
 own diagnostic columns.
 
-Components do not need to implement this routing — the base class handles it in
+Components do not need to implement this routing -- the base class handles it in
 `_apply_output_schema_validation`. Set `die_on_error` in the job config JSON, not in
 component code.
 
@@ -350,7 +432,7 @@ What `_process()` MUST NOT assume:
 
 - That `input_data` contains all rows. In STREAMING mode it is one chunk.
 - That it can accumulate state across calls (Rule 10 prohibits this).
-- That it can call `_update_stats()` with the total input size — it only has the chunk.
+- That it can call `_update_stats()` with the total input size -- it only has the chunk.
 
 What the base class handles automatically:
 
@@ -360,7 +442,7 @@ What the base class handles automatically:
 
 If your component's algorithm requires the full DataFrame (e.g., SortRow, which must see all
 rows to produce a globally sorted result), set the execution mode to BATCH-only by overriding
-nothing — instead, document in the component's docstring that it requires full-DataFrame
+nothing -- instead, document in the component's docstring that it requires full-DataFrame
 processing. The engine will handle mode selection based on the configured threshold.
 
 ---
@@ -391,7 +473,7 @@ batch via `_sync_from_java()`. Components do not need to trigger this sync manua
 From the project's core value statement (CLAUDE.md):
 
 > Any Talend job using the target components must produce identical results when run through
-> the Python engine — feature parity with Talend is non-negotiable.
+> the Python engine -- feature parity with Talend is non-negotiable.
 
 This means:
 

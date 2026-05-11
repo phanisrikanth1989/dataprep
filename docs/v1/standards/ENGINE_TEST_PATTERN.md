@@ -1,5 +1,7 @@
 # Gold Standard: Engine Test Pattern
 
+*Last updated: 2026-05-11*
+
 > Reference: test_global_map.py (best example -- one-class-per-concern, fresh fixtures, comprehensive coverage)
 
 Every engine component test file MUST follow this structure and cover these categories.
@@ -638,3 +640,67 @@ Before submitting a component test file, verify these categories are covered:
 - [ ] **TestGlobalMapVariables** -- Stats pushed, component-specific vars set, works without GlobalMap
 - [ ] **TestSchemaHandling** -- Type coercion, nullable, non-nullable with NaN
 - [ ] **TestIterateReexecution** -- execute() after reset() produces correct results, stats reset, config unchanged
+
+---
+
+## Phase 14 Pipeline-Test Pattern (lifecycle-sensitive modules)
+
+Component unit tests built around `_make_component()` exercise the BaseComponent
+lifecycle, but they do NOT exercise the full engine REGISTRY lookup, trigger
+orchestration, schema-attachment, or context-resolution pipeline. For lifecycle-
+sensitive modules (executor, base_component, iterate, file I/O, trigger flow),
+unit tests MUST be augmented with pipeline tests that drive the full engine.
+
+### Pipeline-test fixtures
+
+Two pytest fixtures in `tests/conftest.py` carry this pattern:
+
+- `run_job_fixture` -- callable that loads a fixture JSON from
+  `tests/fixtures/jobs/{subsystem}/{behavior}.json` (format mirrors the
+  converter's JSON output), applies optional config mutations + context
+  overrides, invokes `ETLEngine.run_job(...)`, and returns a structured
+  result for assertion.
+- `assert_ascii_logs` -- captures DEBUG-level log records during a test and
+  asserts no Unicode characters appear in caplog output. Enforces ASCII
+  discipline (Rule 1: ASCII-only logging) at test time, not just at code
+  review time.
+
+### Why pipeline tests are mandatory (not optional)
+
+Mock-only / `_make_component()`-only tests PASS even when the class is
+unregistered with `@REGISTRY.register`. The engine's runtime lookup path
+silently drops unregistered classes with `WARNING [engine] Unknown component
+type: <type>`; the job continues without the component. Unit tests with
+direct instantiation bypass that lookup entirely.
+
+Phase 14 closed 4 dual-bug instances of exactly this failure mode in
+already-shipped code. Each was caught precisely BECAUSE pipeline tests
+exercised the full engine REGISTRY lookup path:
+
+- **BUG-PDC-001** / **BUG-PDC-002**: `PythonDataFrameComponent`
+  (`src/v1/engine/components/transform/python_dataframe_component.py`) was
+  missing both `@REGISTRY.register` and `_validate_config()` implementation.
+- **BUG-SWIFT-001** / **BUG-SWIFT-002**: `SwiftTransformer` and
+  `SwiftBlockFormatter` (`src/v1/engine/components/transform/swift_*.py`)
+  same dual gap.
+- **BUG-FIJ-001** / **BUG-FIJ-002**: `FileInputJSON`
+  (`src/v1/engine/components/file/file_input_json.py`) same dual gap.
+
+See `docs/v1/standards/MANUAL_COMPONENT_AUTHORING.md` Rule 13 for the
+authoring-side invariant; this section is the test-side enforcement.
+
+### Coverage gate
+
+Every test surface (unit + pipeline) contributes to the 95% per-module line-
+coverage floor enforced by `scripts/check_per_module_coverage.py` against the
+`coverage.json` report. The Phase 14 gate command is in `docs/CONTRIBUTING.md`
+Rule 6 (paste-runnable from the project root). The script exits non-zero with
+a per-module table if any in-scope module drops below 95% lines.
+
+### Fixture-authoring format
+
+Pipeline-test fixture jobs live under `tests/fixtures/jobs/{subsystem}/`
+(currently: `core/`, `file/`, `swift/`, `transform/`). The JSON format mirrors
+the converter's output so the same fixture exercises both converter-to-engine
+parity and the engine's full pipeline. See `tests/fixtures/jobs/README.md` for
+the canonical format + mutation conventions used by `run_job_fixture`.

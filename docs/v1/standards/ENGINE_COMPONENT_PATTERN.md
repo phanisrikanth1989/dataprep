@@ -1,6 +1,8 @@
 # Gold Standard: Engine Component Pattern
 
-> Reference: [best example component -- TBD until Phase 4]
+*Last updated: 2026-05-11*
+
+> Reference: src/v1/engine/components/file/file_input_delimited.py (post-Phase-7.1 mature; comprehensive pattern coverage; registered as `@REGISTRY.register("FileInputDelimited", "tFileInputDelimited")`)
 
 Every engine component MUST follow this structure.
 

@@ -1,11 +1,13 @@
-# Talend-to-V1 Converter — Usage Guide
+# Talend-to-V1 Converter -- Usage Guide
+
+*Last updated: 2026-05-11*
 
 ## Overview
 
 The `talend_to_v1` converter transforms Talend `.item` XML files into V1 engine JSON configurations. It replaces the old `complex_converter` with a clean, registry-based architecture.
 
 ```text
-Talend .item XML  ──>  talend_to_v1 converter  ──>  V1 engine JSON config
+Talend .item XML  -->  talend_to_v1 converter  -->  V1 engine JSON config
 ```
 
 ---
@@ -447,55 +449,55 @@ for entry in raw:
 
 ```text
 src/converters/talend_to_v1/
-├── __init__.py              # Public API: TalendToV1Converter, convert_job
-├── converter.py             # 12-step pipeline orchestrator
-├── xml_parser.py            # Talend XML → TalendNode data classes
-├── expression_converter.py  # Java expression detection/marking
-├── type_mapping.py          # Talend type → Python type (single source of truth)
-├── trigger_mapper.py        # Trigger parsing with PascalCase v1 naming
-├── validator.py             # 4-layer post-conversion validation
-└── components/
-    ├── base.py              # ComponentConverter ABC + shared helpers
-    ├── registry.py          # Decorator-based ConverterRegistry
-    ├── aggregate/           # tAggregateRow, tUniqueRow
-    ├── context/             # tContextLoad
-    ├── control/             # tDie, tWarn, tSleep, tSendMail, etc.
-    ├── file/                # 25 file I/O components
-    ├── transform/           # 35 transform components (including tMap, tXMLMap)
-    ├── database/            # 11 Oracle + MSSQL components
-    └── iterate/             # tFlowToIterate, tForeach
+|-- __init__.py              # Public API: TalendToV1Converter, convert_job
+|-- converter.py             # 12-step pipeline orchestrator
+|-- xml_parser.py            # Talend XML -> TalendNode data classes
+|-- expression_converter.py  # Java expression detection/marking
+|-- type_mapping.py          # Talend type -> Python type (single source of truth)
+|-- trigger_mapper.py        # Trigger parsing with PascalCase v1 naming
+|-- validator.py             # 4-layer post-conversion validation
+`-- components/
+    |-- base.py              # ComponentConverter ABC + shared helpers
+    |-- registry.py          # Decorator-based ConverterRegistry
+    |-- aggregate/           # tAggregateRow, tUniqueRow
+    |-- context/             # tContextLoad
+    |-- control/             # tDie, tWarn, tSleep, tSendMail, etc.
+    |-- file/                # 25 file I/O components
+    |-- transform/           # 35 transform components (including tMap, tXMLMap)
+    |-- database/            # 11 Oracle + MSSQL components
+    `-- iterate/             # tFlowToIterate, tForeach
 ```
 
 ### Conversion Pipeline
 
 ```text
 
- 1. XmlParser.parse(filepath)     → TalendJob (nodes, connections, context)
- 2. Convert context variables     → type mapping applied
+ 1. XmlParser.parse(filepath)     -> TalendJob (nodes, connections, context)
+ 2. Convert context variables     -> type mapping applied
  3. For each node:
-    ├─ REGISTRY.get(type)         → find converter class
-    ├─ converter.convert(node)    → ComponentResult (or _unsupported placeholder)
-    └─ collect warnings
+    |- REGISTRY.get(type)         -> find converter class
+    |- converter.convert(node)    -> ComponentResult (or _unsupported placeholder)
+    `- collect warnings
 
- 1. Parse flows from connections  → centrally, not per-component
- 2. Update component inputs/outputs from flows
- 3. Propagate input schemas       → set each target's schema.input from
-                                    its upstream component's schema.output
+ 5. Parse flows from connections  -> centrally, not per-component
+ 6. Update component inputs/outputs from flows
+ 6b. Propagate input schemas      -> set each target's schema.input from
+                                     its upstream component's schema.output
 
- 1. Parse triggers               → PascalCase naming (OnSubjobOk, etc.)
- 2. Detect subjobs               → DFS on flow connectivity
- 3. Detect Java requirement       → scan for Java component types + {{java}} markers
-4. Validate                     → 4-layer validation
-5. Return assembled config dict
+ 7-8. Parse triggers              -> PascalCase naming (OnSubjobOk, etc.)
+ 9.   Detect subjobs              -> DFS on flow connectivity
+ 10.  Detect Java requirement     -> scan for Java component types + {{java}} markers
+ 11.  Validate                    -> 4-layer validation
+ 12.  Return assembled config dict
 ```
 
-> **Step 6 detail:** After all components are parsed and connections are
+> **Step 6b detail:** After all components are parsed and connections are
 > wired, the pipeline walks every flow and sets the target component's
 > `schema.input` to the source component's `schema.output`.  This
 > ensures reshape components (e.g. tAggregateSortedRow, tAggregateRow,
 > tNormalize) whose output columns differ from their input columns get
-> the correct upstream schema — rather than echoing their own FLOW
-> metadata for both input and output.
+> the correct upstream schema -- rather than echoing their own FLOW
+> metadata for both input and output. See `converter.py:_propagate_input_schemas`.
 
 ---
 

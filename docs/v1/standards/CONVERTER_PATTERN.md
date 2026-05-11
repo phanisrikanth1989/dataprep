@@ -1,6 +1,8 @@
 # Gold Standard: Converter Code Pattern
 
-> Reference: tSchemaComplianceCheck converter (best example — TABLE parsing, RADIO fields, needs_review, framework params)
+*Last updated: 2026-05-11*
+
+> Reference: tSchemaComplianceCheck converter (src/converters/talend_to_v1/components/transform/schema_compliance_check.py -- TABLE parsing, RADIO fields, needs_review, framework params)
 
 Every talend_to_v1 component converter MUST follow this structure.
 
@@ -146,15 +148,15 @@ class {ComponentName}Converter(ComponentConverter):
 
 ## Rules
 
-1. **Module docstring** lists ALL config keys with XML name → config key mapping, types, and defaults
-2. **Imports** follow project convention: stdlib → third-party → local (relative)
+1. **Module docstring** lists ALL config keys with XML name -> config key mapping, types, and defaults
+2. **Imports** follow project convention: stdlib -> third-party -> local (relative)
 3. **TABLE constants** at module level with `_UPPER_SNAKE_CASE` naming
 4. **TABLE parser functions** at module level, prefixed with `_`, before the class
-5. **Class uses `@REGISTRY.register`** decorator — one component per class
-6. **Parameter extraction order**: core params → CLOSED_LIST/RADIO → TABLE → conditional → framework params (ALWAYS LAST)
+5. **Class uses `@REGISTRY.register`** decorator -- one component per class
+6. **Parameter extraction order**: core params -> CLOSED_LIST/RADIO -> TABLE -> conditional -> framework params (ALWAYS LAST)
 7. **Framework params** (`tstatcatcher_stats`, `label`) are ALWAYS extracted, ALWAYS last, NEVER get needs_review entries
-8. **`_get_str`, `_get_bool`, `_get_int`** from base class — never raw `params.get()` for scalar params (use `_get_param` only for CODE/IMPORT fields per Pitfall 6)
-9. **TABLE values must strip quotes** manually: `val.strip('"')` — XmlParser doesn't strip TABLE entry quotes
+8. **`_get_str`, `_get_bool`, `_get_int`** from base class -- never raw `params.get()` for scalar params (use `_get_param` only for CODE/IMPORT fields per Pitfall 6)
+9. **TABLE values must strip quotes** manually: `val.strip('"')` -- XmlParser doesn't strip TABLE entry quotes
 10. **needs_review** entries have exactly 3 keys: `issue`, `component`, `severity` (always `"engine_gap"`)
-11. **No exception raising** — return ComponentResult with warnings
-12. **Config keys are snake_case** — converted from UPPER_CASE XML names
+11. **No exception raising** -- return ComponentResult with warnings
+12. **Config keys are snake_case** -- converted from UPPER_CASE XML names
