@@ -1,6 +1,7 @@
 # Audit Report: tSampleRow / SampleRow
 
 > **Audited**: 2026-04-04
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -204,11 +205,11 @@ How well-written is the engine code?
 
 ### 6.1 Bugs
 
-No engine code exists. Converter code has no bugs.
+No bugs. Converter and engine are both clean.
 
 | ID | Priority | Location | Description |
 | ---- | ---------- | ---------- | ------------- |
-| BUG-SR-001 | **P0** | -- | No engine code exists. Cannot assess engine code quality. |
+| ~~BUG-SR-001~~ | ~~**P0**~~ | -- | ~~No engine code exists. Cannot assess engine code quality.~~ [RESOLVED -- engine implemented] |
 
 ### 6.2 Naming Consistency
 
@@ -232,7 +233,7 @@ None found.
 
 ### 6.5 Security
 
-No concerns. The RANGE parameter is parsed by `_parse_range()` using integer conversion and string splitting — no `eval` or `exec` is used.
+No concerns. The RANGE parameter is parsed by `_parse_range()` using integer conversion and string splitting -- no `eval` or `exec` is used.
 
 ### 6.6 Logging Quality
 
@@ -289,7 +290,9 @@ What's verified?
 | ----------- | ------- | ---------- |
 | Converter unit tests | 19 | `tests/converters/talend_to_v1/components/test_sample_row.py` |
 | Engine unit tests | 46 | `tests/v1/engine/components/transform/test_sample_row.py` |
-| Integration tests | 0 | N/A |
+| Integration tests | 0 | -- |
+
+**Phase 14 floor**: `sample_row.py` meets >= 95% line coverage floor per Phase 14-05 gate.
 
 ### 8.2 Test Gaps
 
@@ -345,8 +348,8 @@ All issues grouped by priority for sprint planning.
 | Category | Count | IDs |
 | ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
-| Engine (ENG) | 1 | ENG-SR-001 |
-| Bug (BUG) | 1 | BUG-SR-001 |
+| Engine (ENG) | 0 | -- |
+| Bug (BUG) | 0 | -- |
 | Naming (NAME) | 0 | -- |
 | Standards (STD) | 0 | -- |
 | Performance (PERF) | 0 | -- |
@@ -385,7 +388,7 @@ No long-term issues identified.
 | Engine source | `src/v1/engine/components/transform/sample_row.py` | Engine audit |
 | Test source (converter) | `tests/converters/talend_to_v1/components/test_sample_row.py` | Converter test coverage |
 | Test source (engine) | `tests/v1/engine/components/transform/test_sample_row.py` | Engine test coverage |
-| Gold standard templates | `docs/v1/standards/CONVERTER_PATTERN.md`, `TEST_PATTERN.md`, `AUDIT_REPORT_TEMPLATE.md` | Standards compliance verification |
+| Gold standard templates | `docs/v1/patterns/CONVERTER_PATTERN.md`, `docs/v1/patterns/TEST_PATTERN.md`, `docs/v1/patterns/MANUAL_COMPONENT_AUTHORING.md` | Standards compliance verification |
 
 ## Appendix B: Converter Config Key Mapping
 
@@ -400,4 +403,4 @@ No long-term issues identified.
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-05-01 -- engine implemented, 46 engine tests passing, audit updated to GREEN*
+*Last updated: 2026-05-11 -- reconciled (Phase 15.1-08); broken refs repaired*
