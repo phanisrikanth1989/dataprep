@@ -1,8 +1,9 @@
 # Audit Report: tMemorizeRows / MemorizeRows
 
-> **Audited**: 2026-04-04  
-> **Updated**: 2026-05-04 (implementation complete)  
-> **Auditor**: Claude Sonnet 4.6 (automated)  
+> **Audited**: 2026-04-04
+> **Updated**: 2026-05-04 (implementation complete)
+> **Reconciled**: 2026-05-11
+> **Auditor**: Claude Sonnet 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
 > **Status**: GREEN
@@ -46,7 +47,7 @@ How production-ready is this component at a glance?
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 2 of 2 _java.xml unique params extracted (100%); ROW_COUNT as str per TEXT type; SPECIFY_COLS TABLE parsed; phantom RESET_ON_CONDITION and CONDITION removed; module docstring follows CONVERTER_PATTERN.md |
 | Engine Feature Parity | **G** | 0 | 0 | 0 | 0 | Passthrough; row_count tail selection; specify_cols column filtering; globalMap `{id}_{col}_{offset}` variables published; missing offsets filled with None |
 | Code Quality | **G** | 0 | 0 | 0 | 0 | REGISTRY decorator; ConfigurationError raised; %-style logger; _update_stats(nb_line, nb_line, 0); all 12 authoring rules followed |
-| Performance & Memory | **G** | 0 | 0 | 0 | 1 | pandas tail() is O(1); globalMap put() per column × row_count; small overhead for large schemas |
+| Performance & Memory | **G** | 0 | 0 | 0 | 1 | pandas tail() is O(1); globalMap put() per column x row_count; small overhead for large schemas |
 | Testing | **G** | 0 | 0 | 0 | 0 | 12 test classes: registration, validation, passthrough, globalMap single/multi row, specify_cols, all cols default, row_count text, invalid row_count, stats, fewer rows than count |
 
 **Overall: GREEN** -- Engine implemented with full Talend feature parity: passthrough, row_count tail selection, specify_cols filtering, globalMap variable publishing.
@@ -60,7 +61,7 @@ How production-ready is this component at a glance?
 - `tail_df = input_data.tail(row_count)` selects last N rows
 - globalMap key pattern: `f"{self.id}_{col}_{offset}"` (offset 0 = most recent row)
 - Missing offsets (fewer rows than row_count) filled with `None`
-- `row_count="0"` raises `ConfigurationError` (must be ≥1)
+- `row_count="0"` raises `ConfigurationError` (must be >= 1)
 - `specify_cols` filters via `memorize_it=True/False` flags aligned with DataFrame column order
 - Added to `src/v1/engine/components/transform/__init__.py`
 
@@ -187,22 +188,22 @@ How faithfully does the v1 engine implement Talend behavior?
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
 | ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
-| 1 | Row memorization | **No** | N/A | No file | No engine class exists |
-| 2 | SPECIFY_COLS column filtering | **No** | N/A | No file | No engine class exists |
-| 3 | GlobalMap row access | **No** | N/A | No file | No engine class exists |
+| 1 | Row memorization | **Yes** | High | `memorize_rows.py:_process()` | tail() selects last N rows; offset 0 = most recent |
+| 2 | SPECIFY_COLS column filtering | **Yes** | High | `memorize_rows.py:_process()` | memorize_it flags aligned with DataFrame column order |
+| 3 | GlobalMap row access | **Yes** | High | `memorize_rows.py:_process()` | `f"{self.id}_{col}_{offset}"` pattern; missing offsets -> None |
 
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
 | ---- | ---------- | ------------- |
-| ENG-MEM-001 | **P0** | No engine implementation -- component cannot execute at runtime. All Talend features unimplemented. |
+| ~~ENG-MEM-001~~ | ~~P0~~ | ~~No engine implementation -- component cannot execute at runtime.~~ [RESOLVED -- engine implemented 2026-05-04] |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
 | ---------- | ------------- | ---------- | ----------------- | ------- |
-| `{id}_NB_LINE` | Yes | No | N/A | No engine exists |
-| `{id}_{column}_{offset}` | Yes | No | N/A | No engine exists |
+| `{id}_NB_LINE` | Yes | Yes | `_update_stats()` | Total rows processed |
+| `{id}_{column}_{offset}` | Yes | Yes | `global_map.put()` in `_process()` | All schema columns (or SPECIFY_COLS subset) |
 
 ---
 
@@ -214,7 +215,7 @@ How well-written is the engine code?
 
 | ID | Priority | Location | Description |
 | ---- | ---------- | ---------- | ------------- |
-| BUG-MEM-001 | **P0** | N/A | No engine code exists -- entire component is unimplemented |
+| ~~BUG-MEM-001~~ | ~~P0~~ | N/A | ~~No engine code exists -- entire component is unimplemented~~ [RESOLVED -- engine implemented 2026-05-04] |
 
 ### 6.2 Naming Consistency
 
@@ -284,14 +285,14 @@ What's verified?
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 34 | `tests/converters/talend_to_v1/components/test_memorize_rows.py` |
-| Engine unit tests | 0 | None -- no engine implementation |
-| Integration tests | 0 | None -- no engine implementation |
+| Engine unit tests | 12 classes | `tests/v1/engine/components/transform/test_memorize_rows.py` |
+| Integration tests | 0 | None (component-specific) |
 
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
 | ---- | ---------- | ----- |
-| TEST-MEM-001 | **P0** | No engine unit tests -- entire engine is unimplemented |
+| ~~TEST-MEM-001~~ | ~~P0~~ | ~~No engine unit tests -- entire engine is unimplemented~~ [RESOLVED -- 12 test classes added 2026-05-04] |
 
 ### 8.3 Recommended Test Cases
 
@@ -315,23 +316,23 @@ All issues grouped by priority for sprint planning.
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
-| P0 | 3 | **ENG-MEM-001**, **BUG-MEM-001**, **TEST-MEM-001** |
+| P0 | 0 | ~~ENG-MEM-001~~, ~~BUG-MEM-001~~, ~~TEST-MEM-001~~ (all resolved 2026-05-04) |
 | P1 | 0 | -- |
 | P2 | 0 | -- |
-| P3 | 0 | -- |
-| **Total** | **3** | |
+| P3 | 1 | PERF-MEM-001 (globalMap put() per column x row_count -- small overhead for large schemas) |
+| **Total** | **0** | (all P0s closed by 2026-05-04 implementation) |
 
 ### By Category
 
 | Category | Count | IDs |
 | ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
-| Engine (ENG) | 1 | ENG-MEM-001 |
-| Bug (BUG) | 1 | BUG-MEM-001 |
+| Engine (ENG) | 0 | ~~ENG-MEM-001~~ [RESOLVED -- engine implemented 2026-05-04] |
+| Bug (BUG) | 0 | ~~BUG-MEM-001~~ [RESOLVED -- engine implemented 2026-05-04] |
 | Naming (NAME) | 0 | -- |
 | Standards (STD) | 0 | -- |
-| Performance (PERF) | 0 | -- |
-| Testing (TEST) | 1 | TEST-MEM-001 |
+| Performance (PERF) | 1 | PERF-MEM-001 (minor) |
+| Testing (TEST) | 0 | ~~TEST-MEM-001~~ [RESOLVED -- 12 test classes added 2026-05-04] |
 
 ### Cross-Cutting Issues
 
@@ -343,19 +344,19 @@ No cross-cutting issues apply -- there is no engine implementation to be affecte
 
 What should be fixed, in what order?
 
-### Immediate (Before Production)
+### Completed (2026-05-04 implementation)
 
-1. **ENG-MEM-001 (P0)**: Implement concrete `MemorizeRows` engine class with row memorization, SPECIFY_COLS support, and globalMap variable output
-2. **BUG-MEM-001 (P0)**: Create engine code -- currently entirely missing
-3. **TEST-MEM-001 (P0)**: Add engine unit tests once engine is implemented
+- [DONE] ENG-MEM-001: Implemented `MemorizeRows` engine class (passthrough, tail selection, specify_cols, globalMap variables)
+- [DONE] BUG-MEM-001: Engine implemented -- no longer missing
+- [DONE] TEST-MEM-001: 12 engine test classes added
 
 ### Short-term (Hardening)
 
-No P1/P2 issues -- converter is complete and tested.
+No P1/P2 issues -- converter complete and engine implemented.
 
 ### Long-term (Optimization)
 
-No P3 issues identified.
+PERF-MEM-001: globalMap put() per column x row_count -- minor overhead for large schemas.
 
 ---
 
@@ -367,7 +368,7 @@ No P3 issues identified.
 | Converter source | `src/converters/talend_to_v1/components/transform/memorize_rows.py` | Converter audit |
 | Test source | `tests/converters/talend_to_v1/components/test_memorize_rows.py` | Test coverage audit |
 | Base class | `src/converters/talend_to_v1/components/base.py` | Helper methods, schema parsing |
-| Gold standard templates | `docs/v1/standards/CONVERTER_PATTERN.md`, `docs/v1/standards/TEST_PATTERN.md`, `docs/v1/standards/AUDIT_REPORT_TEMPLATE.md` | Standards compliance |
+| Gold standard templates | `docs/v1/patterns/CONVERTER_PATTERN.md`, `docs/v1/patterns/TEST_PATTERN.md`, `docs/v1/patterns/MANUAL_COMPONENT_AUTHORING.md` | Standards compliance (legacy template removed in Phase 15-07; use MANUAL_COMPONENT_AUTHORING.md Rules 1-13) |
 
 ## Appendix B: Cross-Cutting Issues
 
@@ -383,4 +384,4 @@ When an engine implementation is created, the standard cross-cutting bugs from `
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after v1.1 Phase 13 standardization (NEW audit report created)*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation. Engine implemented 2026-05-04 (ENG/BUG/TEST-MEM-001 all closed). Refs repaired: standards/ -> patterns/ and AUDIT_REPORT_TEMPLATE -> MANUAL_COMPONENT_AUTHORING.md.*
