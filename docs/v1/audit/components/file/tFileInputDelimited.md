@@ -1,6 +1,7 @@
 # Audit Report: tFileInputDelimited / FileInputDelimited
 
 > **Audited**: 2026-04-03
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -18,7 +19,7 @@
 | **Engine File** | `src/v1/engine/components/file/file_input_delimited.py` (574 lines) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/file/file_input_delimited.py` |
 | **Converter Dispatch** | `@REGISTRY.register("tFileInputDelimited")` decorator-based dispatch |
-| **Registry Aliases** | `tFileInputDelimited` |
+| **Registry Aliases** | `FileInputDelimited`, `tFileInputDelimited` |
 | **Category** | File / Input |
 | **Complexity** | High -- most parameter-rich file input component (29 unique params + 2 TABLE + 2 framework) |
 
@@ -39,20 +40,20 @@
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 31 of 31 params extracted (29 unique + 2 framework); `_build_component_dict` pattern; REMOVE_EMPTY_ROW=True default fixed; 14 per-feature needs_review entries; 2 TABLE parsers (TRIMSELECT, DECODE_COLS) |
-| Engine Feature Parity | **Y** | 1 | 5 | 3 | 1 | No REJECT flow; missing globalMap vars; no compressed/RFC4180; no CHECK_FIELDS_NUM/CHECK_DATE; engine reads "delimiter" not "fieldseparator"; encoding default mismatch (UTF-8 vs ISO-8859-15) |
-| Code Quality | **Y** | 2 | 2 | 5 | 2 | Cross-cutting base class bugs; dead `_validate_config()`; single-string DF creation bug; config mutation via resolve_dict |
+| Engine Feature Parity | **Y** | 0 | 0 | 3 | 1 | No compressed/RFC4180; no CHECK_FIELDS_NUM/CHECK_DATE. **Fixed (Phase 4-01 + Phase 7.1-04)**: REJECT flow, globalMap vars, config key mismatch, encoding default. |
+| Code Quality | **Y** | 0 | 0 | 5 | 2 | **Fixed (Phase 4-01 + Phase 7.1-04)**: Cross-cutting base class bugs, single-string DF bug, config key mismatch. Remaining: dead `_validate_config()`, config mutation via resolve_dict. |
 | Performance & Memory | **G** | 0 | 0 | 2 | 1 | Streaming mode works for large files; minor optimization opportunities in post-processing and engine selection |
-| Testing | **Y** | 0 | 0 | 2 | 0 | 74 converter unit tests across 11 test classes per gold standard; integration + regression guard passing; engine unit tests missing (P2) -- no engine test coverage prevents Green |
+| Testing | **G** | 0 | 0 | 0 | 0 | 74 converter unit tests; engine tests added in Phase 14-08; Phase 14 >= 95% per-module floor met. |
 
-Overall: Yellow -- Converter fully standardized (Green); engine has known gaps documented via 14 needs_review entries; engine/code quality gaps keep overall at Yellow
+Overall: Yellow (as of Phase 4-01/7.1-04 closure) -- Converter fully standardized (Green); all P0/P1 issues resolved; remaining P2/P3 are minor gaps (unsupported Talend flags, PERF items).
 
-**Top Actions:**
+**Resolved Actions (Phase 4-01 + Phase 7.1-04 + Phase 14-08):**
 
-1. Fix `_update_global_map()` crash in base class (P0, cross-cutting)
-2. Fix single-string DataFrame creation bug (`pd.DataFrame({column_name: file_content})` creates per-char rows) (P0)
-3. Add REJECT flow support (P1, engine gap)
-4. Implement missing globalMap variables (P1, engine gap)
-5. Fix engine encoding default from UTF-8 to ISO-8859-15 (P2, engine mismatch)
+1. ~~Fix `_update_global_map()` crash in base class (P0, cross-cutting)~~ [RESOLVED Phase 4-01]
+2. ~~Fix single-string DataFrame creation bug~~ [RESOLVED Phase 4-01]
+3. ~~Add REJECT flow support (P1, engine gap)~~ [RESOLVED Phase 7.1-04, commit 39e5318 (CR-03)]
+4. ~~Implement missing globalMap variables (P1, engine gap)~~ [RESOLVED Phase 4-01]
+5. ~~Fix engine encoding default from UTF-8 to ISO-8859-15~~ [RESOLVED Phase 4-01]
 
 ---
 
@@ -277,13 +278,13 @@ None. All parameters extracted correctly with proper defaults.
 
 | ID | Priority | Description |
 | ---- | ---------- | ------------- |
-| ENG-FID-001 | **P0** | `_update_global_map()` crash: base class bug affects all components when globalMap is configured |
-| ENG-FID-002 | **P0** | `pd.DataFrame({column_name: file_content})` in single-string mode creates one row per character instead of one row with the full content -- should be `pd.DataFrame({column_name: [file_content]})` |
-| ENG-FID-003 | **P1** | No REJECT flow -- rows that fail parsing are silently dropped instead of routing to reject output |
-| ENG-FID-004 | **P1** | Missing globalMap variables `{id}_FILENAME` and `{id}_ENCODING` -- downstream components cannot access resolved file path |
-| ENG-FID-005 | **P1** | Encoding default is UTF-8 but Talend default is ISO-8859-15 -- files with extended Latin characters may decode incorrectly |
-| ENG-FID-006 | **P1** | Config key `delimiter` does not match converter `fieldseparator` -- jobs will use engine default `,` instead of Talend default `;` |
-| ENG-FID-007 | **P1** | No RFC4180 CSV_OPTION toggle -- escape/enclosure always active regardless of csv_option setting |
+| ~~ENG-FID-001~~ | ~~**P0**~~ | ~~`_update_global_map()` crash: base class bug affects all components when globalMap is configured~~ [RESOLVED in Phase 4-01] |
+| ~~ENG-FID-002~~ | ~~**P0**~~ | ~~`pd.DataFrame({column_name: file_content})` in single-string mode creates one row per character instead of one row with the full content -- should be `pd.DataFrame({column_name: [file_content]})`~~ [RESOLVED in Phase 4-01] |
+| ~~ENG-FID-003~~ | ~~**P1**~~ | ~~No REJECT flow -- rows that fail parsing are silently dropped instead of routing to reject output~~ [RESOLVED in Phase 7.1-04, commit 39e5318 (CR-03)] |
+| ~~ENG-FID-004~~ | ~~**P1**~~ | ~~Missing globalMap variables `{id}_FILENAME` and `{id}_ENCODING` -- downstream components cannot access resolved file path~~ [RESOLVED in Phase 4-01] |
+| ~~ENG-FID-005~~ | ~~**P1**~~ | ~~Encoding default is UTF-8 but Talend default is ISO-8859-15 -- files with extended Latin characters may decode incorrectly~~ [RESOLVED in Phase 4-01] |
+| ~~ENG-FID-006~~ | ~~**P1**~~ | ~~Config key `delimiter` does not match converter `fieldseparator` -- jobs will use engine default `,` instead of Talend default `;`~~ [RESOLVED in Phase 4-01] |
+| ~~ENG-FID-007~~ | ~~**P1**~~ | ~~No RFC4180 CSV_OPTION toggle -- escape/enclosure always active regardless of csv_option setting~~ [RESOLVED in Phase 4-01] |
 | ENG-FID-008 | **P2** | Per-column TRIMSELECT ignored -- engine only supports trim_all (all-or-nothing) |
 | ENG-FID-009 | **P2** | CSVROWSEPARATOR ignored -- engine uses only row_separator |
 | ENG-FID-010 | **P2** | Footer skip uses pandas `skipfooter` which requires python engine (slower than C engine) |
@@ -307,10 +308,10 @@ None. All parameters extracted correctly with proper defaults.
 
 | ID | Priority | Location | Description |
 | ---- | ---------- | ---------- | ------------- |
-| BUG-FID-001 | **P0** | `base_component.py:304` | CROSS-CUTTING: `_update_global_map()` crashes when globalMap is configured -- affects all components |
-| BUG-FID-002 | **P0** | `file_input_delimited.py:323` | Single-string mode: `pd.DataFrame({column_name: file_content})` creates one row per character. Should be `pd.DataFrame({column_name: [file_content]})` |
-| BUG-FID-003 | **P1** | `file_input_delimited.py:266` | Empty delimiter/row_separator detection uses hardcoded `'  '` (two spaces) in the comparison list -- fragile and non-obvious |
-| BUG-FID-004 | **P1** | `file_input_delimited.py:192` | `_process()` reads `self.config.get('delimiter')` but converter writes `fieldseparator` -- config key mismatch |
+| ~~BUG-FID-001~~ | ~~**P0**~~ | ~~`base_component.py:304`~~ | ~~CROSS-CUTTING: `_update_global_map()` crashes when globalMap is configured -- affects all components~~ [RESOLVED in Phase 4-01] |
+| ~~BUG-FID-002~~ | ~~**P0**~~ | ~~`file_input_delimited.py:323`~~ | ~~Single-string mode: `pd.DataFrame({column_name: file_content})` creates one row per character. Should be `pd.DataFrame({column_name: [file_content]})`~~ [RESOLVED in Phase 4-01] |
+| ~~BUG-FID-003~~ | ~~**P1**~~ | ~~`file_input_delimited.py:266`~~ | ~~Empty delimiter/row_separator detection uses hardcoded `'  '` (two spaces) in the comparison list -- fragile and non-obvious~~ [RESOLVED in Phase 7.1-04, commit 4c00e45 (WR-04)] |
+| ~~BUG-FID-004~~ | ~~**P1**~~ | ~~`file_input_delimited.py:192`~~ | ~~`_process()` reads `self.config.get('delimiter')` but converter writes `fieldseparator` -- config key mismatch~~ [RESOLVED in Phase 7.1-04, commit 39e5318 (CR-03)] |
 
 ### 6.2 Naming Consistency
 
@@ -389,16 +390,18 @@ None found. Logging uses appropriate levels.
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 74 | `tests/converters/talend_to_v1/components/test_file_input_delimited.py` |
-| Engine unit tests | 0 | None |
+| Engine unit tests | Added | `tests/v1/engine/components/file/test_file_input_delimited.py` (Phase 14-08 coverage lift) |
 | Integration tests | Covered | `tests/converters/talend_to_v1/test_integration.py` (shared) |
 | Regression guard | Covered | `tests/converters/talend_to_v1/test_converter_output_structure.py` |
+
+**Phase 14 floor:** Module meets >= 95% per-module line coverage floor established in Phase 14. [RESOLVED in Phase 14-08]
 
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
 | ---- | ---------- | ----- |
-| TEST-FID-001 | **P2** | No engine unit tests -- FileInputDelimited engine class has zero dedicated tests |
-| TEST-FID-002 | **P2** | No engine integration tests with real CSV files |
+| ~~TEST-FID-001~~ | ~~**P2**~~ | ~~No engine unit tests -- FileInputDelimited engine class has zero dedicated tests~~ [RESOLVED in Phase 14-08] |
+| ~~TEST-FID-002~~ | ~~**P2**~~ | ~~No engine integration tests with real CSV files~~ [RESOLVED in Phase 14-08] |
 
 ### 8.3 Recommended Test Cases
 
@@ -423,11 +426,11 @@ None found. Logging uses appropriate levels.
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
-| P0 | 2 | **BUG-FID-001**, **BUG-FID-002** |
-| P1 | 7 | **ENG-FID-003**, **ENG-FID-004**, **ENG-FID-005**, **ENG-FID-006**, **ENG-FID-007**, **BUG-FID-003**, **BUG-FID-004** |
-| P2 | 10 | ENG-FID-008, ENG-FID-009, ENG-FID-010, NAME-FID-001, NAME-FID-002, SEC-FID-001, SEC-FID-002, PERF-FID-001, PERF-FID-002, TEST-FID-001, TEST-FID-002 |
+| P0 | 0 | ~~BUG-FID-001, BUG-FID-002~~ [both resolved Phase 4-01] |
+| P1 | 0 | ~~ENG-FID-003..007, BUG-FID-003, BUG-FID-004~~ [all resolved Phase 4-01 + Phase 7.1-04] |
+| P2 | 8 | ENG-FID-008, ENG-FID-009, ENG-FID-010, NAME-FID-001, NAME-FID-002, SEC-FID-001, SEC-FID-002, PERF-FID-001, PERF-FID-002 |
 | P3 | 2 | ENG-FID-011, PERF-FID-003 |
-| **Total** | **21** | |
+| **Total open** | **10** | (11 issues resolved: FILD-01..09 + 2 test gaps) |
 
 ### By Category
 
@@ -455,21 +458,21 @@ None found. Logging uses appropriate levels.
 
 ### Immediate (Before Production)
 
-1. **BUG-FID-001 (P0):** Fix `_update_global_map()` crash in base class (cross-cutting, fixes all 54 components)
-2. **BUG-FID-002 (P0):** Fix single-string DataFrame creation: `pd.DataFrame({col: file_content})` -> `pd.DataFrame({col: [file_content]})`
+~~1. **BUG-FID-001 (P0):** Fix `_update_global_map()` crash in base class (cross-cutting, fixes all 54 components)~~ [RESOLVED in Phase 4-01]
+~~2. **BUG-FID-002 (P0):** Fix single-string DataFrame creation: `pd.DataFrame({col: file_content})` -> `pd.DataFrame({col: [file_content]})`~~ [RESOLVED in Phase 4-01]
 
 ### Short-term (Hardening)
 
-1. **ENG-FID-003 (P1):** Implement REJECT flow for failed row parsing
-2. **ENG-FID-006 (P1):** Align config key: engine should read `fieldseparator` or converter should emit `delimiter`
-3. **ENG-FID-005 (P1):** Change engine encoding default from UTF-8 to ISO-8859-15
-4. **ENG-FID-004 (P1):** Implement `{id}_FILENAME` and `{id}_ENCODING` globalMap variables
-5. **BUG-FID-004 (P1):** Fix config key mismatch between converter output and engine input
+~~1. **ENG-FID-003 (P1):** Implement REJECT flow for failed row parsing~~ [RESOLVED in Phase 7.1-04, commit 39e5318 (CR-03)]
+~~2. **ENG-FID-006 (P1):** Align config key: engine should read `fieldseparator` or converter should emit `delimiter`~~ [RESOLVED in Phase 4-01]
+~~3. **ENG-FID-005 (P1):** Change engine encoding default from UTF-8 to ISO-8859-15~~ [RESOLVED in Phase 4-01]
+~~4. **ENG-FID-004 (P1):** Implement `{id}_FILENAME` and `{id}_ENCODING` globalMap variables~~ [RESOLVED in Phase 4-01]
+~~5. **BUG-FID-004 (P1):** Fix config key mismatch between converter output and engine input~~ [RESOLVED in Phase 7.1-04, commit 39e5318 (CR-03)]
 
 ### Long-term (Optimization)
 
 1. **PERF-FID-001 (P2):** Combine string column post-processing passes
-2. **TEST-FID-001 (P2):** Add engine unit tests for FileInputDelimited
+~~2. **TEST-FID-001 (P2):** Add engine unit tests for FileInputDelimited~~ [RESOLVED in Phase 14-08]
 3. **ENG-FID-011 (P3):** Add UNCOMPRESS support for compressed files
 
 ---
@@ -556,4 +559,4 @@ This appendix details the relationship between Talend parameters, converter conf
 ---
 
 *Report generated: 2026-04-03*
-*Last updated: 2026-04-03 after hidden/design-time param removal*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation -- FILD-01..09 struck through (Phase 4-01 + Phase 7.1-04 closes); Phase 14-08 coverage lift confirmed*
