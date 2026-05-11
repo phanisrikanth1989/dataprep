@@ -30,7 +30,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 12: XML Components Audit, Harden & Output** (NEW) - Audit + fix tFileInputXML, tExtractXMLField, tXMLMap against Talend behavior; build tFileOutputXML engine + converter; comprehensive tests (completed 2026-05-08)
 - [x] **Phase 13: Test Stabilization & Bridge JAR Rebuild** (RESCOPED) - Clear inherited failing tests, rebuild Java bridge JAR to match Python contract, lock per-module coverage baseline before coverage push (completed 2026-05-10)
 - [x] **Phase 14: Coverage Push to 95% per-module floor** (NEW) - Every module under src/v1/engine and src/converters at >=95% line-coverage floor; paste-runnable gate command in CLAUDE.md and 14-COVERAGE.md verifies the floor (operational CI deferred to a future phase per D-E1) (completed 2026-05-11)
-- [ ] **Phase 15: Documentation Sweep** (SWAPPED with old Phase 15, 2026-05-11) - Nuke 22 top-level docs/ files, write 4 canonical docs (ARCHITECTURE / COMPONENT_REFERENCE / CONTRIBUTING / DEPLOYMENT) + root README, deep-review 11 docs/v1/standards-zone files, rename folder to docs/v1/patterns/
+- [x] **Phase 15: Documentation Sweep** (SWAPPED with old Phase 15, 2026-05-11) - Nuke 22 top-level docs/ files, write 4 canonical docs (ARCHITECTURE / COMPONENT_REFERENCE / CONTRIBUTING / DEPLOYMENT) + root README, deep-review 11 docs/v1/standards-zone files, rename folder to docs/v1/patterns/ (completed 2026-05-11)
 - [ ] **Phase 15.1: Documentation Audit Reconciliation** (NEW, 2026-05-11) - Reconcile 89 files in docs/v1/audit/ against current code; stale claims marked resolved with phase ref
 - [ ] **Phase 16: Integration Testing & Performance (Manager)** (SWAPPED with old Phase 16, 2026-05-11) - Manager-led; real Talend job end-to-end runs + output diffs + tMap/tFilterRow perf refactor
 
@@ -412,7 +412,19 @@ Plans:
   2. Canonical doc set exists at docs/: ARCHITECTURE.md, COMPONENT_REFERENCE.md, CONTRIBUTING.md, DEPLOYMENT.md (written fresh from current code state)
   3. docs/v1/standards/ (8 files) + docs/v1/{STANDARDS.md, BaseComponent-Info.md, talend_to_v1_converter_guide.md} (3 files) reviewed deeply against code; stale/wrong content fixed; redundant files dropped (AUDIT_REPORT_TEMPLATE / METHODOLOGY are candidates); folder renamed if needed
   4. docs/v1/audit/ deferred to Phase 15.1 (out of Phase 15 scope; no docs/v1/audit/ files modified)
-**Plans**: TBD
+**Plans:** 10/10 plans complete
+Plans:
+- [x] 15-01-nuke-top-level-docs.md -- nuke 22 top-level docs/ files
+- [x] 15-02-architecture-canonical-doc.md -- docs/ARCHITECTURE.md
+- [x] 15-03-component-reference-canonical-doc.md -- docs/COMPONENT_REFERENCE.md (registry-driven inline)
+- [x] 15-04-contributing-canonical-doc.md -- docs/CONTRIBUTING.md (10 load-bearing rules)
+- [x] 15-05-deployment-canonical-doc.md -- docs/DEPLOYMENT.md (Linux + JVM 11+)
+- [x] 15-06-root-readme.md -- root README.md (minimal per D-D3)
+- [x] 15-07-standards-drop-set.md -- 4 redundant files dropped; broken-ref inventory for 15.1
+- [x] 15-08-standards-keep-fix-set.md -- 7 surviving files patched (Rule 13 added)
+- [x] 15-09-folder-rename-and-relocation.md -- standards/ -> patterns/ + BaseComponent-Info move
+- [x] 15-10-closeout.md -- REQUIREMENTS / ROADMAP / STATE updates + VERIFICATION + SUMMARY
+**Completed**: 2026-05-11 | **SUMMARY**: 15-PHASE-SUMMARY.md
 **Scope excludes** (locked 2026-05-11): CLAUDE.md; .planning/; .claude/; .gemini/; tests/fixtures/jobs/README.md (tooling-adjacent, stays); CI/lint automation (deferred); docs/v1/audit/ (Phase 15.1).
 
 ### Phase 15.1: Documentation Audit Reconciliation
@@ -461,6 +473,6 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 12. XML Components Audit, Harden & Output | 8/8 | Complete | 2026-05-08 |
 | 13. Test Stabilization & Bridge JAR Rebuild | 10/9 | Complete   | 2026-05-10 |
 | 14. Coverage Push to 95% per-module floor | 12/12 | Complete   | 2026-05-11 |
-| 15. Documentation Sweep | 0/TBD | Not started | - |
+| 15. Documentation Sweep | 10/10 | Complete | 2026-05-11 |
 | 15.1. Documentation Audit Reconciliation | 0/TBD | Not started | - |
 | 16. Integration Testing & Performance (Manager) | 0/TBD | Not started | - |
