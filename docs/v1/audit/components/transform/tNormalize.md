@@ -1,6 +1,7 @@
 # Audit Report: tNormalize / Normalize
 
 > **Audited**: 2026-04-04
+> **Reconciled**: 2026-05-11
 > **Last Updated**: 2026-06-13 -- Phase 13.1 engine hardening (itemseparator key fix, Rule 12, engine tests)
 > **Auditor**: Claude Sonnet 4.6 (automated)
 > **Engine Version**: v1
