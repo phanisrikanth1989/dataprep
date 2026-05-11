@@ -2,6 +2,7 @@
 
 > **Audited**: 2026-04-04
 > **Re-audited**: 2026-04-29 (engine remediation)
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -45,7 +46,7 @@ report are now resolved.
 | **Engine File** | `src/v1/engine/components/file/file_exist.py` (120 lines) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/file/file_exist.py` (67 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tFileExist")` decorator-based dispatch |
-| **Registry Aliases** | `tFileExist` (converter registry) |
+| **Registry Aliases** | `FileExistComponent`, `FileExist`, `tFileExist` |
 | **Category** | File / Management |
 
 ### Key Files
@@ -274,14 +275,14 @@ No performance concerns. tFileExist performs a single `os.path.exists()` or `os.
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 25 | `tests/converters/talend_to_v1/components/test_file_exist.py` |
-| Engine unit tests | 0 | None |
-| Integration tests | 0 | None (covered by regression guard suite) |
+| Engine unit tests | 14 | `tests/v1/engine/components/file/test_file_exist.py` (8 classes, added 2026-04-29) |
+| Integration tests | Added | `tests/v1/engine/components/file/test_file_exist.py` (ITER-08, ITER-09) [RESOLVED in Phase 10-08, commit db16020] |
+
+**Phase 10-08 note**: ITER-08 and ITER-09 (tFileExist integration tests) closed in Phase 10-08, commit `db16020`. [RESOLVED in Phase 10-08]
 
 ### 8.2 Test Gaps
 
-| ID | Priority | Gap |
-| ---- | ---------- | ----- |
-| TEST-FE-001 | **P1** | No engine unit tests for FileExistComponent -- file existence check, check_directory mode, missing config error, globalMap variables |
+~~TEST-FE-001 (P1) -- No engine unit tests for FileExistComponent.~~ [RESOLVED in Phase 10-08, commit db16020]
 
 ### 8.3 Recommended Test Cases
 
@@ -360,4 +361,4 @@ No performance concerns. tFileExist performs a single `os.path.exists()` or `os.
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after Phase 09-02 converter rewrite*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation*
