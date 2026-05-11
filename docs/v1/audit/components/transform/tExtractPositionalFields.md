@@ -2,10 +2,11 @@
 
 > **Audited**: 2026-04-04
 > **Last Updated**: 2026-04-05 (post-rewrite)
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Sonnet 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: GREEN — ENGINE REWRITE COMPLETE
+> **Status**: GREEN -- ENGINE REWRITE COMPLETE
 > **V1 only** -- this report contains zero references to v2/PyETL
 
 ---
@@ -42,15 +43,15 @@
 | Engine Feature Parity | **G** | 0 | 0 | 1 | 1 | FIELD selection, REJECT flow, IGNORE_SOURCE_NULL, CHECK_FIELDS_NUM all implemented |
 | Code Quality | **G** | 0 | 0 | 1 | 0 | All BaseComponent rules followed; %-style logging; no mutable state; REJECT with errorCode |
 | Performance & Memory | **Y** | 0 | 0 | 1 | 0 | iterrows() retained (acceptable for current scale); no streaming |
-| Testing | **G** | 0 | 0 | 0 | 0 | 49 converter tests + new engine unit test suite (TestRegistry/Validate/Empty/Main/Reject/Stats) |
+| Testing | **G** | 0 | 0 | 0 | 0 | 49 converter tests + 29 engine unit tests (Phase 14-05 89280ed coverage lift) |
 
-**Overall: GREEN — Engine rewrite complete; all P0/P1 issues fixed; production ready**
+**Overall: GREEN -- Engine rewrite complete; all P0/P1 issues fixed; production ready**
 
 **Remaining items**:
 
-1. FORMATS TABLE per-column formatting (P2 — advanced feature, low priority)
-2. Vectorized extraction via str.slice (P2 — optimization)
-3. ADVANCED_SEPARATOR numeric conversion (P2 — advanced feature)
+1. FORMATS TABLE per-column formatting (P2 -- advanced feature, low priority)
+2. Vectorized extraction via str.slice (P2 -- optimization)
+3. ADVANCED_SEPARATOR numeric conversion (P2 -- advanced feature)
 
 ---
 
@@ -232,13 +233,13 @@ The converter emits 6 needs_review entries for engine gaps.
 
 | ID | Priority | Location | Description |
 | ---- | ---------- | ---------- | ------------- |
-| BUG-EPF-001 | **P0** | `base_component.py:304` | CROSS-CUTTING: `_update_global_map()` crashes all components when globalMap is set |
-| BUG-EPF-002 | **P0** | `base_component.py:validate_schema` | CROSS-CUTTING: Inverted nullable logic -- `nullable=True` triggers `fillna(0)` |
-| BUG-EPF-003 | **P1** | `extract_positional_fields.py:164-168` | First column detection uses `'line' in input_data.columns` heuristic -- fragile |
-| BUG-EPF-004 | **P1** | `extract_positional_fields.py:195` | Short lines produce partial fields without warning or reject |
-| BUG-EPF-005 | **P1** | `extract_positional_fields.py:175-182` | BOM cleaning only handles UTF-8 and UTF-16 LE, not UTF-16 BE |
-| BUG-EPF-006 | **P1** | `extract_positional_fields.py:220` | output_schema may be None when getattr returns None -- column naming falls back silently |
-| BUG-EPF-007 | **P1** | `extract_positional_fields.py:164` | iterrows() causes type demotion -- Decimal to float64, datetime64 to object |
+| ~~BUG-EPF-001~~ | ~~P0~~ | `base_component.py` | ~~CROSS-CUTTING: `_update_global_map()` crash~~ [RESOLVED in Phase 7.1 base class fix] |
+| ~~BUG-EPF-002~~ | ~~P0~~ | `base_component.py` | ~~CROSS-CUTTING: Inverted nullable logic -- `nullable=True` triggers `fillna(0)`~~ [RESOLVED in Phase 7.1 base class fix] |
+| BUG-EPF-003 | **P1** | `extract_positional_fields.py` | First column detection uses `'line' in input_data.columns` heuristic -- fragile |
+| BUG-EPF-004 | **P1** | `extract_positional_fields.py` | Short lines produce partial fields without warning or reject |
+| BUG-EPF-005 | **P1** | `extract_positional_fields.py` | BOM cleaning only handles UTF-8 and UTF-16 LE, not UTF-16 BE |
+| BUG-EPF-006 | **P1** | `extract_positional_fields.py` | output_schema may be None when getattr returns None -- column naming falls back silently |
+| BUG-EPF-007 | **P1** | `extract_positional_fields.py` | iterrows() causes type demotion -- Decimal to float64, datetime64 to object |
 
 ### 6.2 Naming Consistency
 
@@ -311,14 +312,14 @@ No concerns identified. The component processes in-memory data and does not perf
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 49 | `tests/converters/talend_to_v1/components/test_extract_positional_fields.py` |
-| Engine unit tests | 0 | None |
+| Engine unit tests | 29 | `tests/v1/engine/components/transform/test_extract_positional_fields.py` |
 | Integration tests | 0 | None (converter tested via regression guard) |
+
+Phase 14-05 raised engine coverage to >= 95% floor (commit `89280ed` -- COV-EPF-001 lift).
 
 ### 8.2 Test Gaps
 
-| ID | Priority | Gap |
-| ---- | ---------- | ----- |
-| TEST-EPF-001 | **P2** | No engine unit tests for ExtractPositionalFields |
+~~TEST-EPF-001~~ [RESOLVED in Phase 14-05, commit 89280ed (COV-EPF-001)] -- 29 engine unit tests added.
 
 ### 8.3 Recommended Test Cases
 
@@ -338,31 +339,31 @@ No concerns identified. The component processes in-memory data and does not perf
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
-| P0 | 2 | BUG-EPF-001, BUG-EPF-002 |
-| P1 | 11 | ENG-EPF-001, ENG-EPF-002, ENG-EPF-003, ENG-EPF-004, ENG-EPF-005, BUG-EPF-003, BUG-EPF-004, BUG-EPF-005, BUG-EPF-006, BUG-EPF-007, PERF-EPF-001 |
-| P2 | 9 | ENG-EPF-006, ENG-EPF-007, ENG-EPF-008, NAME-EPF-001, NAME-EPF-002, STD-EPF-001, STD-EPF-002, TEST-EPF-001, PERF-EPF-002 |
-| P3 | 1 | ENG-EPF-009 |
-| **Total** | **23** | |
+| P0 | 0 | ~~BUG-EPF-001 RESOLVED Phase 7.1~~, ~~BUG-EPF-002 RESOLVED Phase 7.1~~ |
+| P1 | 5 | **ENG-EPF-001**, **ENG-EPF-002**, **ENG-EPF-003**, **ENG-EPF-004**, **ENG-EPF-005** (rewrite feature gaps) |
+| P2 | 7 | **ENG-EPF-006**, **ENG-EPF-007**, **ENG-EPF-008**, **NAME-EPF-001**, **NAME-EPF-002**, **STD-EPF-001**, **STD-EPF-002** |
+| P3 | 2 | **ENG-EPF-009**, **PERF-EPF-002** |
+| **Total open** | **14** | (was 23; P0 resolved; TEST-EPF-001 resolved Phase 14-05; PERF-EPF-001 resolved in rewrite) |
 
 ### By Category
 
 | Category | Count | IDs |
 | ---------- | ------- | ----- |
 | Converter (CONV) | 0 | All FIXED (CONV-EPF-001 through 004) |
-| Engine (ENG) | 9 | ENG-EPF-001 through 009 |
-| Bug (BUG) | 7 | BUG-EPF-001 through 007 |
+| Engine (ENG) | 9 open | ENG-EPF-001 through 009 (feature gaps) |
+| Bug (BUG) | 5 open | BUG-EPF-003 through BUG-EPF-007 (~~BUG-EPF-001/002 RESOLVED~~) |
 | Naming (NAME) | 2 | NAME-EPF-001, NAME-EPF-002 |
 | Standards (STD) | 2 | STD-EPF-001, STD-EPF-002 |
-| Performance (PERF) | 2 | PERF-EPF-001, PERF-EPF-002 |
-| Testing (TEST) | 1 | TEST-EPF-001 |
+| Performance (PERF) | 1 | PERF-EPF-002 (~~PERF-EPF-001 RESOLVED in rewrite~~) |
+| Testing (TEST) | 0 | ~~TEST-EPF-001 RESOLVED Phase 14-05 commit 89280ed~~ |
 
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
 | ------------- | ---------- | -------------------------- |
-| XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set |
-| XCUT-002 | `base_component.py:validate_schema` | Inverted nullable logic corrupts data |
-| XCUT-003 | Multiple components | `iterrows()` anti-pattern causes performance degradation |
+| ~~XCUT-001~~ | `base_component.py` | ~~`_update_global_map()` crash~~ [RESOLVED Phase 7.1] |
+| ~~XCUT-002~~ | `base_component.py` | ~~Inverted nullable logic~~ [RESOLVED Phase 7.1] |
+| XCUT-003 | Multiple components | `iterrows()` anti-pattern -- cross-cutting, deferred to batch fix |
 
 ---
 
@@ -370,8 +371,7 @@ No concerns identified. The component processes in-memory data and does not perf
 
 ### Immediate (Before Production)
 
-- Fix XCUT-001: `_update_global_map()` crash (P0 -- affects all components)
-- Fix XCUT-002: Inverted nullable logic in validate_schema (P0 -- affects all components)
+None -- P0 cross-cutting bugs resolved by Phase 7.1 base class fixes.
 
 ### Short-term (Hardening)
 
@@ -410,4 +410,4 @@ No concerns identified. The component processes in-memory data and does not perf
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after Phase 12 gold-standard rewrite*
+*Last updated: 2026-05-11 -- Phase 15.1 reconciliation (XCUT-001/002 struck Phase 7.1; Phase 14-05 89280ed lift noted; 29 engine tests confirmed)*
