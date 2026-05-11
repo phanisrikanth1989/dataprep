@@ -402,18 +402,7 @@ Plans:
 | 14-11 | Complete | 9/9 | 8 (converter core + components) |
 | 14-12 | Complete | 9/9 | 0 (closeout -- no module lifts; 1 incidental converter join.py 94.7% -> 100% via COV-CJ-001) |
 
-### Phase 15: Integration Testing & Performance
-**Goal**: Real Talend jobs converted from .item XML run end-to-end through the Python engine and produce identical output to Talend, with acceptable performance for production workloads
-**Depends on**: Phase 4, Phase 5, Phase 6, Phase 7, Phase 8, Phase 9, Phase 10, Phase 11, Phase 12, Phase 13, Phase 14
-**Requirements**: TEST-05, TEST-06, PERF-03, PERF-04
-**Success Criteria** (what must be TRUE):
-  1. Integration tests convert real .item samples from tests/talend_xml_samples/, execute them through the engine, and verify output correctness
-  2. Talend output comparison tests confirm identical results between Talend and the Python engine for the same input data and job configuration
-  3. tMap Python-side expression handling is expanded to reduce Java bridge round-trips for common expressions
-  4. tFilterRow uses compiled expressions with native pandas operations instead of per-row eval() for production-acceptable performance
-**Plans**: TBD
-
-### Phase 16: Documentation Sweep
+### Phase 15: Documentation Sweep
 **Goal**: Stale documentation is removed, canonical documentation set is in place covering architecture, component reference, deployment, and contributor guidance -- no rotted snapshot or demo files remain in docs/
 **Depends on**: Phase 14
 **Requirements**: DOCS-01, DOCS-02, DOCS-03 (new -- to be added during discuss-phase)
@@ -424,10 +413,22 @@ Plans:
   4. .docx files are converted to markdown or removed
 **Plans**: TBD
 
+### Phase 16: Integration Testing & Performance
+**Goal**: Real Talend jobs converted from .item XML run end-to-end through the Python engine and produce identical output to Talend, with acceptable performance for production workloads
+**Depends on**: Phase 4, Phase 5, Phase 6, Phase 7, Phase 8, Phase 9, Phase 10, Phase 11, Phase 12, Phase 13, Phase 14
+**Requirements**: TEST-05, TEST-06, PERF-03, PERF-04
+**Success Criteria** (what must be TRUE):
+  1. Integration tests convert real .item samples from tests/talend_xml_samples/, execute them through the engine, and verify output correctness
+  2. Talend output comparison tests confirm identical results between Talend and the Python engine for the same input data and job configuration
+  3. tMap Python-side expression handling is expanded to reduce Java bridge round-trips for common expressions
+  4. tFilterRow uses compiled expressions with native pandas operations instead of per-row eval() for production-acceptable performance
+**Plans**: TBD
+**Owner**: Manager-led (Talend reference outputs and production sample selection require Talend Open Studio access)
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 1. Phases 4, 6, 7, 10 can start after Phase 3. Phase 5 requires both Phase 2 and 3. Phase 8 can start after Phase 2. Phase 11 can start after Phase 1. Phases 12-16 are sequential: stabilize tests -> harden XML -> push coverage -> integration & perf -> docs sweep.
+Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 1. Phases 4, 6, 7, 10 can start after Phase 3. Phase 5 requires both Phase 2 and 3. Phase 8 can start after Phase 2. Phase 11 can start after Phase 1. Phases 12-16 are sequential: stabilize tests -> harden XML -> push coverage -> docs sweep -> integration & perf. (Phase 15 and 16 swapped 2026-05-11: integration testing requires Talend Open Studio access and is manager-owned, so docs sweep moves ahead.)
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -447,5 +448,5 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 12. XML Components Audit, Harden & Output | 8/8 | Complete | 2026-05-08 |
 | 13. Test Stabilization & Bridge JAR Rebuild | 10/9 | Complete   | 2026-05-10 |
 | 14. Coverage Push to 95% per-module floor | 12/12 | Complete   | 2026-05-11 |
-| 15. Integration Testing & Performance | 0/TBD | Not started | - |
-| 16. Documentation Sweep | 0/TBD | Not started | - |
+| 15. Documentation Sweep | 0/TBD | Not started | - |
+| 16. Integration Testing & Performance (Manager) | 0/TBD | Not started | - |
