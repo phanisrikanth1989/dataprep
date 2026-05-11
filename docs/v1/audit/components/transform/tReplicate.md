@@ -1,6 +1,7 @@
 # Audit Report: tReplicate / Replicate
 
 > **Audited**: 2026-04-04
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -39,12 +40,12 @@
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 0 unique + 2 framework params extracted (100%); _build_component_dict; passthrough schema; 2 per-feature needs_review for engine-only keys |
 | Code Quality | **G** | 0 | 0 | 0 | 0 | Gold standard converter pattern; clean, minimal, well-documented module docstring with config mapping |
-| Testing | **Y** | 0 | 0 | 1 | 0 | 23 converter tests across 7 test classes; no engine unit tests (TEST-RPL-001) |
-| Overall | **Y** | 0 | 0 | 1 | 0 | Converter production-ready; engine unit tests needed for Green |
+| Testing | **G** | 0 | 0 | 0 | 0 | 23 converter tests + 30 engine tests; Phase 14 95% floor met |
+| Overall | **G** | 0 | 0 | 0 | 0 | Converter production-ready; engine tests in place |
 
-**Overall: YELLOW -- Converter is gold standard; engine unit tests needed for full Green**
+**Overall: GREEN -- Converter gold standard; 30 engine tests added; Phase 14 coverage floor met**
 
-**Top Actions**: Add engine unit tests for Replicate component (TEST-RPL-001)
+**Top Actions**: No open actions
 
 ---
 
@@ -251,14 +252,16 @@ No concerns identified. tReplicate is a pure data passthrough with no file I/O, 
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 23 | `tests/converters/talend_to_v1/components/test_replicate.py` |
-| Engine unit tests | 0 | None |
-| Integration tests | 0 | None (component-specific) |
+| Engine unit tests | 30 | `tests/v1/engine/components/transform/test_replicate.py` |
+| Integration tests | 0 | -- |
+
+**Phase 14 floor**: `replicate.py` meets >= 95% line coverage floor per Phase 14-05 gate.
 
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
 | ---- | ---------- | ----- |
-| TEST-RPL-001 | **P2** | No engine unit tests for Replicate component |
+| ~~TEST-RPL-001~~ | ~~**P2**~~ | ~~No engine unit tests for Replicate component~~ [RESOLVED -- 30 engine tests added] |
 
 ### 8.3 Recommended Test Cases
 
@@ -278,9 +281,9 @@ No concerns identified. tReplicate is a pure data passthrough with no file I/O, 
 | ---------- | ------- | ----- |
 | P0 | 0 | -- |
 | P1 | 0 | -- |
-| P2 | 6 | ENG-RPL-001, ENG-RPL-002, ENG-RPL-003, ENG-RPL-004, BUG-RPL-001, STD-RPL-001, PERF-RPL-001, TEST-RPL-001 |
+| P2 | 7 | ENG-RPL-001, ENG-RPL-002, ENG-RPL-003, ENG-RPL-004, BUG-RPL-001, STD-RPL-001, PERF-RPL-001 |
 | P3 | 0 | -- |
-| **Total** | **8** | |
+| **Total** | **7** | (TEST-RPL-001 resolved) |
 
 ### By Category
 
@@ -290,7 +293,7 @@ No concerns identified. tReplicate is a pure data passthrough with no file I/O, 
 | Bug (BUG) | 1 | BUG-RPL-001 |
 | Standards (STD) | 1 | STD-RPL-001 |
 | Performance (PERF) | 1 | PERF-RPL-001 |
-| Testing (TEST) | 1 | TEST-RPL-001 |
+| Testing (TEST) | 0 | -- |
 
 ### Cross-Cutting Issues
 
@@ -309,7 +312,6 @@ No P0 or P1 issues. Converter is production-ready.
 
 ### Short-term (Hardening)
 
-- Add engine unit tests (TEST-RPL-001)
 - Address dead `_validate_config()` code (cross-cutting with other components)
 
 ### Long-term (Optimization)
@@ -340,4 +342,4 @@ No P0 or P1 issues. Converter is production-ready.
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after Phase 11 gold standard rewrite*
+*Last updated: 2026-05-11 -- reconciled (Phase 15.1-08)*
