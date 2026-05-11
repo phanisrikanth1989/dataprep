@@ -1,6 +1,7 @@
 # Audit Report: tFilterColumns / FilterColumns
 
 > **Audited**: 2026-04-04
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -39,12 +40,12 @@
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 0 unique + 2 framework params extracted (100%); _build_component_dict; passthrough schema; 2 per-feature needs_review for engine-only keys (mode, keep_row_order) |
 | Code Quality | **G** | 0 | 0 | 0 | 0 | Gold standard converter pattern; clean, minimal, well-documented module docstring with config mapping |
-| Testing | **Y** | 0 | 0 | 1 | 0 | 23 converter tests across 7 test classes; no engine unit tests (TEST-FC-001) |
-| Overall | **Y** | 0 | 0 | 1 | 0 | Converter production-ready; engine unit tests needed for Green |
+| Testing | **G** | 0 | 0 | 0 | 0 | 23 converter tests + 15 engine unit tests; Phase 14 >= 95% floor met |
+| Overall | **G** | 0 | 0 | 0 | 0 | Converter and engine both production-ready; schema-driven column filter |
 
-**Overall: YELLOW -- Converter is gold standard; engine unit tests needed for full Green**
+**Overall: GREEN -- Phase 7-02 rewrote engine to schema-driven selection (FCOL-01/02 resolved). Phase 14 coverage floor met.**
 
-**Top Actions**: Add engine unit tests for FilterColumns component (TEST-FC-001)
+**Top Actions**: None -- FCOL-01/02 resolved in Phase 7-02.
 
 ---
 
@@ -167,9 +168,9 @@ None. Converter is gold standard.
 
 | ID | Priority | Description |
 | ---- | ---------- | ------------- |
-| ENG-FC-001 | **P2** | Engine reads `mode` (default 'include') with include/exclude semantics. Talend has no mode parameter -- column filtering is purely schema-driven. |
-| ENG-FC-002 | **P2** | Engine reads `columns` (default []) as an explicit column name list. In Talend, columns are determined by the output schema, not a parameter. |
-| ENG-FC-003 | **P2** | Engine reads `keep_row_order` (default True) which has no _java.xml equivalent. Currently not used in engine logic (documented but no-op). |
+| ~~ENG-FC-001~~ | ~~P2~~ | ~~Engine reads `mode` (default 'include') with include/exclude semantics. Talend has no mode parameter -- column filtering is purely schema-driven.~~ [RESOLVED in Phase 7-02, commit 8531605 (FCOL-01)] |
+| ~~ENG-FC-002~~ | ~~P2~~ | ~~Engine reads `columns` (default []) as an explicit column name list. In Talend, columns are determined by the output schema, not a parameter.~~ [RESOLVED in Phase 7-02, commit 8531605 (FCOL-02)] |
+| ~~ENG-FC-003~~ | ~~P2~~ | ~~Engine reads `keep_row_order` (default True) which has no _java.xml equivalent. Currently not used in engine logic (documented but no-op).~~ [RESOLVED in Phase 7-02, commit 8531605 -- removed with mode/columns rewrite] |
 | ENG-FC-004 | **P2** | Engine returns empty DataFrame when no valid columns remain. Talend would fail schema validation at design time. |
 | ENG-FC-005 | **P2** | Mutable class default: `DEFAULT_COLUMNS = []` at class level (line 71). If ever mutated, shared across instances. |
 | ENG-FC-006 | **P2** | Empty DataFrame input returns `pd.DataFrame()` which loses column schema. Should preserve column structure. |
@@ -262,14 +263,14 @@ No concerns identified. tFilterColumns is a pure column projection with no file 
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 23 | `tests/converters/talend_to_v1/components/test_filter_columns.py` |
-| Engine unit tests | 0 | None |
+| Engine unit tests | 15 | `tests/v1/engine/components/transform/test_filter_columns.py` |
 | Integration tests | 0 | None (component-specific) |
 
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
 | ---- | ---------- | ----- |
-| TEST-FC-001 | **P2** | No engine unit tests for FilterColumns component |
+| ~~TEST-FC-001~~ | ~~P2~~ | ~~No engine unit tests for FilterColumns component~~ [RESOLVED -- 15 engine tests added; Phase 14 coverage floor met] |
 
 ### 8.3 Recommended Test Cases
 
@@ -356,4 +357,4 @@ No P0 or P1 issues. Converter is production-ready.
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after Phase 11 gold standard rewrite*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation. FCOL-01/02 closed by Phase 7-02 (commit 8531605). Engine tests present (Phase 14 floor met).*
