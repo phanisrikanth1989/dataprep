@@ -436,7 +436,19 @@ Plans:
   2. docs/v1/audit/CROSS_CUTTING_ISSUES.md reflects post-Phase-14 state (the ~200-250 cross-cutting issues closed by Phases 1-14 are marked resolved)
   3. docs/v1/audit/SUMMARY_SCORECARD.md regenerated against current code (status, coverage, registered/abstract-method correctness per component)
   4. docs/v1/audit/METHODOLOGY.md updated or confirmed as still accurate
-**Plans**: TBD
+**Plans**: 12 plans
+- [ ] 15.1-01-PLAN.md -- aggregate + context + iterate + database (7 docs)
+- [ ] 15.1-02-PLAN.md -- file/ housekeeping (10 docs)
+- [ ] 15.1-03-PLAN.md -- file/ delimited+positional+excel+raw+JSON (8 docs)
+- [ ] 15.1-04-PLAN.md -- file/ XML family + net-new tFileOutputXML + tFileList/Properties/FixedFlow (7 docs)
+- [ ] 15.1-05-PLAN.md -- transform/ extract+convert (7 docs)
+- [ ] 15.1-06-PLAN.md -- transform/ Java/Python/Swift code (7 docs)
+- [ ] 15.1-07-PLAN.md -- transform/ heavy hitters (tMap, tFilterRow, tJoin, tXMLMap, tSortRow, tNormalize, tAggregateSortedRow) (7 docs)
+- [ ] 15.1-08-PLAN.md -- transform/ light tail (14 docs)
+- [ ] 15.1-09-PLAN.md -- cross-cutting regeneration: SUMMARY_SCORECARD.md
+- [ ] 15.1-10-PLAN.md -- cross-cutting regeneration: CROSS_CUTTING_ISSUES.md
+- [ ] 15.1-11-PLAN.md -- cross-cutting regeneration: METHODOLOGY.md
+- [ ] 15.1-12-PLAN.md -- closeout (autonomous: false per D-E6)
 
 ### Phase 16: Integration Testing & Performance
 **Goal**: Real Talend jobs converted from .item XML run end-to-end through the Python engine and produce identical output to Talend, with acceptable performance for production workloads
