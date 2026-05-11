@@ -2,6 +2,7 @@
 
 > **Audited**: 2026-04-04
 > **Last Updated**: 2026-06-13 -- Phase 13.1 engine hardening (registry fix, merge flag, null-key rows, Rule 12, 41 engine tests)
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Sonnet 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -292,7 +293,7 @@ None. ~~TEST-DNR-001 FIXED~~ -- 41 engine unit tests added.
 | TestNullHandling | 3 | null_as_empty True/False |
 | TestKeyColumnDetection | 2 | multi-key, column order |
 | TestNullKeyRows | 1 | dropna=False preserves null key rows |
-| TestEdgeCases | 5 | None/empty input, single row, reject=None, numeric→string |
+| TestEdgeCases | 5 | None/empty input, single row, reject=None, numeric to string |
 | TestGlobalMapVariables | 4 | NB_LINE=input_rows, NB_LINE_OK=output_rows, REJECT=0 |
 | TestIterateReexecution | 2 | consistent results, accumulating stats (2+6=8) |
 
@@ -319,15 +320,16 @@ None. ~~TEST-DNR-001 FIXED~~ -- 41 engine unit tests added.
 | Performance (PERF) | 2 open | PERF-DNR-001, PERF-DNR-002 |
 | Testing (TEST) | 0 | ~~TEST-DNR-001 FIXED~~ |
 
-### Fixed This Cycle (Phase 13.1)
+### Fixed Previously
 
-| ID | Fix Applied |
-| ---- | ------------- |
-| ENG-DNR-001 | Added `@REGISTRY.register("Denormalize", "tDenormalize")` + REGISTRY import |
-| ENG-DNR-002 | Implemented `make_concat_func(delim, merge)` with first-seen-order dedup |
-| ENG-DNR-003 | `groupby(dropna=False, sort=False)` preserves null-key rows |
-| Code quality | `_validate_config()` returns None, raises ConfigurationError; no double validation; no manual `_update_stats()`; %-style logging |
-| TEST-DNR-001 | 41 engine unit tests added (11 test classes) |
+| ID | Phase | Fix Applied |
+| ---- | ------- | ------------- |
+| ENG-DNR-001 | Phase 13.1 | Added `@REGISTRY.register("Denormalize", "tDenormalize")` + REGISTRY import |
+| ENG-DNR-002 | Phase 13.1 | Implemented `make_concat_func(delim, merge)` with first-seen-order dedup |
+| ENG-DNR-003 | Phase 13.1 | `groupby(dropna=False, sort=False)` preserves null-key rows |
+| Code quality | Phase 13.1 | `_validate_config()` returns None, raises ConfigurationError; no double validation; no manual `_update_stats()`; %-style logging |
+| TEST-DNR-001 | Phase 13.1 | 41 engine unit tests added (11 test classes) |
+| Coverage lift | Phase 14-05 | Quick-win coverage sweep -- `denormalize.py` raised to >= 95% floor [RESOLVED in Phase 14-05] |
 
 ### Cross-Cutting Issues
 
@@ -370,4 +372,4 @@ Standard base class bugs (XCUT-001 through XCUT-005) apply to the engine compone
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-06-13 -- Phase 13.1 engine hardening (registry fix, merge flag, dropna=False, Rule 12 cleanup, 41 engine tests)*
+*Last updated: 2026-05-11 -- Phase 15.1 reconciliation (Phase 13.1 fixes confirmed current; Phase 14-05 quick-win coverage lift noted)*
