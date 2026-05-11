@@ -218,6 +218,7 @@ Requirements for engine restructure milestone. Each maps to roadmap phases.
 
 - [x] **DOCS-01**: All 22 top-level docs/ files deleted; 4 canonical docs (ARCHITECTURE.md, COMPONENT_REFERENCE.md, CONTRIBUTING.md, DEPLOYMENT.md) exist at docs/ root + root README.md; each has *Last updated:* header; each claim verified against current code.
 - [x] **DOCS-02**: `docs/v1/standards/` deep review complete; 4 files deleted (STANDARDS, METHODOLOGY, AUDIT_REPORT_TEMPLATE, NEXT_MILESTONE_GUIDE); 7 files fixed (ENGINE_COMPONENT_PATTERN, ENGINE_TEST_PATTERN, CONVERTER_PATTERN, TEST_PATTERN, MANUAL_COMPONENT_AUTHORING, BaseComponent-Info, talend_to_v1_converter_guide); folder renamed to `docs/v1/patterns/`; BaseComponent-Info moved into patterns/; broken-reference inventory captured for Phase 15.1 handoff.
+- [x] **DOCS-03**: Audit reconciliation complete: all 66 shipped audit docs + 1 net-new + 3 cross-cutting docs reflect post-Phase-14 reality; resolved issues struck-through with phase tag; net-new gaps tagged `[NEW IN 15.1]`. (Phase 15.1)
 
 ### Performance & Memory
 
@@ -417,6 +418,7 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | TEST-12 | Phase 14 | Complete |
 | DOCS-01 | Phase 15 | Complete |
 | DOCS-02 | Phase 15 | Complete |
+| DOCS-03 | Phase 15.1 | Complete |
 | PERF-01 | Phase 3 | Complete |
 | PERF-02 | Phase 8 | Pending |
 | PERF-03 | Phase 12 | Pending |
@@ -430,5 +432,5 @@ Deferred to future milestone. Tracked but not in current roadmap.
 **Note:** TEST-03 covers unit tests for target components and is split across Phase 4 (file I/O tests) and Phase 5 (tMap tests). All other requirements map to exactly one phase.
 
 ---
-*Requirements defined: 2026-04-14; TEST-11 + TEST-12 added 2026-05-10 with Phase 14 Plan 01; DOCS-01 + DOCS-02 added 2026-05-11 with Phase 15 closeout*
-*Last updated: 2026-05-11 after Phase 15 closure (DOCS-01, DOCS-02 marked Complete)*
+*Requirements defined: 2026-04-14; TEST-11 + TEST-12 added 2026-05-10 with Phase 14 Plan 01; DOCS-01 + DOCS-02 added 2026-05-11 with Phase 15 closeout; DOCS-03 added 2026-05-11 with Phase 15.1 closeout*
+*Last updated: 2026-05-11 after Phase 15.1 closure (DOCS-03 added and marked Complete)*
