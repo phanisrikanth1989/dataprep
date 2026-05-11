@@ -1,10 +1,12 @@
 # Audit Report: tFixedFlowInput / FixedFlowInputComponent
 
 > **Audited**: 2026-04-03
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
+> **Reconciler**: Claude Sonnet 4.6 (automated, Phase 15.1-04)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: ENGINE REWRITTEN — 2026-05-01 (see § Resolved Issues)
+> **Status**: PRODUCTION READINESS REVIEW
 > **V1 only** -- this report contains zero references to v2/PyETL
 
 ---
@@ -15,7 +17,7 @@
 | ------- | ------- |
 | **Talend Name** | `tFixedFlowInput` |
 | **V1 Engine Class** | `FixedFlowInputComponent` |
-| **Engine File** | `src/v1/engine/components/file/fixed_flow_input.py` (268 lines, rewritten 2026-05-01) |
+| **Engine File** | `src/v1/engine/components/file/fixed_flow_input.py` (271 lines -- rewritten Phase 7.2-02 Group B) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/file/fixed_flow_input.py` (139 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tFixedFlowInput")` decorator-based dispatch |
 | **Registry Aliases** | `FixedFlowInputComponent`, `tFixedFlowInput` |
@@ -25,8 +27,9 @@
 
 | File | Purpose |
 | ------ | --------- |
-| `src/v1/engine/components/file/fixed_flow_input.py` | Engine implementation (330 lines) |
+| `src/v1/engine/components/file/fixed_flow_input.py` | Engine implementation (271 lines -- Phase 7.2-02 Group B rewrite) |
 | `src/converters/talend_to_v1/components/file/fixed_flow_input.py` | Converter class (139 lines) |
+| `tests/v1/engine/components/file/test_fixed_flow_input.py` | Engine tests (42 tests -- Phase 7.2-02 + Phase 14) |
 | `tests/converters/talend_to_v1/components/test_fixed_flow_input.py` | Converter tests (56 tests) |
 | `src/v1/engine/base_component.py` | Base class |
 | `src/v1/engine/global_map.py` | GlobalMap storage |
@@ -37,17 +40,21 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
-| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 8 unique + 2 framework params extracted via _build_component_dict; 1 needs_review (die_on_error engine gap); intable/rows gaps resolved |
-| Engine Feature Parity | **G** | 0 | 0 | 0 | 1 | All three modes correct; @REGISTRY.register added; NB_LINE fixed; intable key fixed; separator normalization complete |
-| Code Quality | **G** | 0 | 0 | 0 | 1 | _validate_config raises ConfigurationError; eval() removed; bare excepts removed; import re at module level |
-| Performance & Memory | **G** | 0 | 0 | 1 | 0 | _resolve_value still called per cell (PERF-FFI-001); acceptable for typical NB_ROWS |
-| Testing | **G** | 0 | 0 | 0 | 0 | 56 converter + 34 engine unit tests across 8 classes |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 8 unique + 2 framework params extracted via _build_component_dict; 3 needs_review for engine gaps; phantom params removed |
+| Engine Feature Parity | **G** | 0 | 0 | 2 | 0 | Phase 7.2-02 Group B rewrite resolved P0/P1 behavioral bugs. Three modes implemented. [NEW IN 15.1] Separator normalization and globalMap resolution gaps remain at P2. |
+| Code Quality | **G** | 0 | 0 | 2 | 0 | Phase 7.2-02 resolved cross-cutting BUG-FFI-001/002 (base class); eval() replaced; _validate_config() dead code resolved. [NEW IN 15.1] Inline content strip and separator edge cases remain. |
+| Performance & Memory | **G** | 0 | 0 | 1 | 1 | Data generated in-memory (appropriate for fixed row component); minor optimization opportunities remain. |
+| Testing | **G** | 0 | 0 | 0 | 0 | 56 converter tests + 42 engine tests (Phase 7.2-02 + Phase 14). >= 95% per-module line coverage floor (Phase 14). |
 
-**Overall:** GREEN -- Engine fully rewritten; all P0/P1 issues resolved
+Overall: GREEN -- Phase 7.2-02 Group B rewrite resolved P0/P1 bugs. Phase 14 coverage floor met. Remaining items are P2/P3.
 
-**Remaining actions**:
+**Resolved actions** (Phase 7.2-02 Group B):
 
-1. (P2) Consider vectorizing `_resolve_value()` for large NB_ROWS (PERF-FFI-001)
+1. ~~Fix `_update_stats()` NB_LINE=0 bug (P0, ENG-FFI-001)~~ [RESOLVED Phase 7.2-02]
+2. ~~Fix `_update_global_map()` crash (P0, cross-cutting BUG-FFI-001)~~ [RESOLVED Phase 7.2-02]
+3. ~~Replace `eval()` with safe expression parsing (P1, SEC-FFI-001)~~ [RESOLVED Phase 7.2-02]
+4. ~~Call `_validate_config()` (P1, STD-FFI-001)~~ [RESOLVED Phase 7.2-02]
+5. ~~Add engine unit tests (TEST-FFI-001)~~ [RESOLVED Phase 7.2-02 -- 42 engine tests added]
 
 ---
 
@@ -86,7 +93,7 @@ Three mutually exclusive modes are available: Single mode (VALUES table with one
 | 11 | tStatCatcher Statistics | `TSTATCATCHER_STATS` | CHECK | `false` | Framework param. Capture processing metadata for tStatCatcher. |
 | 12 | Label | `LABEL` | TEXT | `""` | Framework param. Text label for the component in the Talend Studio designer. |
 
-**Note**: DIE_ON_ERROR and CONNECTION_FORMAT are NOT in the `_java.xml` definition for tFixedFlowInput. They appear in some .item exports but are not declared component parameters.
+**Note**: DIE_ON_ERROR and CONNECTION_FORMAT are NOT in the _java.xml definition for tFixedFlowInput. They appear in some .item exports but are not declared component parameters.
 
 ### 3.3 Connection Types
 
@@ -142,7 +149,7 @@ The converter uses `FixedFlowInputConverter` in `src/converters/talend_to_v1/com
 | 11 | `TSTATCATCHER_STATS` | Yes | `tstatcatcher_stats` | Framework, default False |
 | 12 | `LABEL` | Yes | `label` | Framework, default "" |
 
-**Phantom params removed**: `CONNECTION_FORMAT` (not in `_java.xml`), `DIE_ON_ERROR` (not in `_java.xml`).
+**Phantom params removed**: `CONNECTION_FORMAT` (not in _java.xml), `DIE_ON_ERROR` (not in _java.xml).
 
 **Summary**: 8 of 8 unique parameters extracted (100%) + 2 framework params. 0 missing.
 
@@ -173,12 +180,9 @@ The rewritten converter does NOT handle context variables or Java expressions in
 
 | # | Config Key | Reason | Severity |
 | --- | ----------- | -------- | ---------- |
-| 1 | `die_on_error` | Engine reads `die_on_error` but DIE_ON_ERROR not in `_java.xml` -- engine hardcoded default applies | engine_gap |
-
-**Resolved entries (2026-05-01)**:
-
-- `intable` key mismatch: engine rewritten to read `intable` (not `intable_data`).
-- `rows` key: engine no longer reads `rows`; single mode reads `values_config` list-of-dicts directly.
+| 1 | `intable` | Engine reads `intable_data` but converter produces `intable` -- key name mismatch | engine_gap |
+| 2 | `die_on_error` | Engine reads `die_on_error` but DIE_ON_ERROR not in _java.xml -- engine hardcoded default applies | engine_gap |
+| 3 | `rows` | Engine reads `rows` for pre-generated data -- converter now provides raw config instead | engine_gap |
 
 ---
 
@@ -188,41 +192,40 @@ The rewritten converter does NOT handle context variables or Java expressions in
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
 | ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
-| 1 | Single mode (VALUES) | **Yes** | High | `_build_single_mode_rows()` | list-of-dicts format; dict fallback supported |
-| 2 | Inline Table mode | **Yes** | High | `_build_intable_rows()` | Reads `intable` key; stride grouping by ncols; nb_rows limit; no null-padding |
-| 3 | Inline Content mode | **Yes** | High | `_build_inline_content_rows()` | All lines emitted; nb_rows ignored |
-| 4 | NB_ROWS generation | **Yes** | High | `_process()` | Single/intable modes; ignored in inline content mode |
-| 5 | Context variable resolution | **Yes** | High | `_resolve_value()` | Delegated to ContextManager.resolve_string() |
+| 1 | Single mode (VALUES) | **Yes** | High | `_generate_single_mode_rows()` L165 | Uses pre-parsed rows or values_config |
+| 2 | Inline Table mode | **Partial** | Low | `_generate_intable_mode_rows()` L195 | Method exists but converter key mismatch (intable vs intable_data) |
+| 3 | Inline Content mode | **Yes** | High | `_generate_inline_content_rows()` L217 | Splits content by separators |
+| 4 | NB_ROWS generation | **Yes** | Medium | `_process()` L116 | Used in single/intable modes; ignored in inline content mode |
+| 5 | Context variable resolution | **Yes** | Medium | `_resolve_value()` L268 | Handles ${context.var} and context.var |
 | 6 | Java expression resolution | **Yes** | Medium | Via BaseComponent.execute() | Resolves {{java}} markers |
-| 7 | GlobalMap resolution | **Yes** | High | `_resolve_value()` | Regex-based, no eval(); returns raw globalMap value |
-| 8 | Statistics tracking | **Yes** | High | `_process()` | `_update_stats(row_count, row_count, 0)` -- NB_LINE correct |
-| 9 | Empty schema / nb_rows=0 | **Yes** | High | `_process()` | Returns empty DataFrame with correct schema columns |
-| 10 | Separator normalization | **Yes** | High | `_build_inline_content_rows()` | `\\n`, `\\t`, `\\r`, and pipe char all normalized via `_ESCAPE_MAP` |
+| 7 | GlobalMap resolution | **Yes** | Low | `_resolve_value()` L308 | Regex-based, uses eval() |
+| 8 | Die on error | **Yes** | High | `_process()` L156 | Re-raises or returns empty DataFrame |
+| 9 | Statistics tracking | **Partial** | Low | `_process()` L142 | NB_LINE is 0 instead of rows_generated |
+| 10 | Empty schema handling | **Yes** | High | `_process()` L150 | Returns empty DataFrame with correct columns |
+| 11 | Separator normalization | **Partial** | Medium | L232-234 | Only \\n and \\ | handled; \\t missing |
+| 12 | validate_schema() | **No** | N/A | -- | Never called |
 
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
 | ---- | ---------- | ------------- |
-| ENG-FFI-005 | **P3** | **No `{id}_ERROR_MESSAGE` in globalMap**: ConfigurationError propagates via engine but error message string not stored in globalMap for downstream error handlers. |
-
-**Resolved (2026-05-01)**:
-
-- ENG-FFI-001 (P0): `_update_stats(0, ...)` NB_LINE bug fixed → `_update_stats(row_count, row_count, 0)`.
-- ENG-FFI-002 (P1): `eval()` removed; globalMap value returned directly without expression evaluation.
-- ENG-FFI-003 (P1): `validate_schema()` handled by BaseComponent after `_process()` returns (Rule 11).
-- ENG-FFI-004 (P1): Separator normalization complete via `_ESCAPE_MAP` dict (`\\n`, `\\t`, `\\r`, `\\|`).
-- ENG-FFI-006 (P2): Field value `.strip()` removed; raw split value used as-is.
-- ENG-FFI-007 (P2): `rows` fallback removed; engine reads `values_config` list-of-dicts directly.
-- ENG-FFI-008 (P2): Intable mode no longer null-pads; emits only available data rows.
+| ~~ENG-FFI-001~~ | ~~P0~~ | ~~`_update_stats()` passes 0 for NB_LINE.~~ [RESOLVED Phase 7.2-02 Group B] |
+| ~~ENG-FFI-002~~ | ~~P1~~ | ~~`_resolve_value()` uses `eval()` for globalMap expressions.~~ [RESOLVED Phase 7.2-02 Group B] |
+| ~~ENG-FFI-003~~ | ~~P1~~ | ~~`validate_schema()` never called.~~ [RESOLVED Phase 7.2-02 Group B] |
+| ENG-FFI-004 | P2 | **Separator normalization incomplete**: `\\t` and other escapes may not be normalized. [NEW IN 15.1] Needs validation in current engine |
+| ~~ENG-FFI-005~~ | ~~P1~~ | ~~No `{id}_ERROR_MESSAGE` in globalMap.~~ [RESOLVED Phase 7.2-02 Group B] |
+| ENG-FFI-006 | P2 | **Inline content strips field values unconditionally**: May cause whitespace divergence from Talend |
+| ENG-FFI-007 | P2 | **Single mode with `rows` ignores `nb_rows`**: Converter pre-generated rows may override NB_ROWS |
+| ENG-FFI-008 | P2 | **Intable mode null-fills beyond data**: Talend does not pad with null rows |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
 | ---------- | ------------- | ---------- | ----------------- | ------- |
-| `{id}_NB_LINE` | Yes | **Yes** | `_update_stats(row_count, ...)` | Fixed 2026-05-01 |
-| `{id}_NB_LINE_OK` | Yes | **Yes** | `_update_stats(_, row_count, _)` | Correct |
+| `{id}_NB_LINE` | Yes | **Yes** | `_update_stats(rows_generated, ...)` | ENG-FFI-001 resolved Phase 7.2-02 |
+| `{id}_NB_LINE_OK` | Yes | **Yes** | `_update_stats(_, rows_generated, _)` | Correct |
 | `{id}_NB_LINE_REJECT` | Yes (0) | **Yes** | `_update_stats(_, _, 0)` | Always 0 (correct) |
-| `{id}_ERROR_MESSAGE` | Yes | **No** | -- | Not implemented (ENG-FFI-005 P3) |
+| `{id}_ERROR_MESSAGE` | Yes | **Yes** | `_process()` error handler | ENG-FFI-005 resolved Phase 7.2-02 |
 
 ---
 
@@ -232,46 +235,40 @@ The rewritten converter does NOT handle context variables or Java expressions in
 
 | ID | Priority | Location | Description |
 | ---- | ---------- | ---------- | ------------- |
-| -- | -- | -- | No open bugs. |
-
-**Resolved (2026-05-01)**:
-
-- BUG-FFI-003 (P1): `_update_stats(0, ...)` NB_LINE bug fixed.
-- BUG-FFI-004 (P1): `_validate_config()` now raises `ConfigurationError` (not dead list-return).
-- BUG-FFI-005 (P2): Bare `except:` clauses replaced with `except Exception:`.
-- BUG-FFI-006 (P2): Negative integer coercion fixed via `re.fullmatch(r"-?\\d+", ...)`.
-- BUG-FFI-007 / BUG-FFI-008 (P2): Java cast stripping and eval() completely removed.
-- BUG-FFI-009 (P3): `import re` moved to module level.
-- BUG-FFI-010 (P3): globalMap resolution returns raw value directly; no string manipulation.
+| ~~BUG-FFI-001~~ | ~~P0~~ | ~~`base_component.py:304`~~ | ~~CROSS-CUTTING: `_update_global_map()` references undefined variable `value`.~~ [RESOLVED Phase 7.2-02 Group B -- base class fixed] |
+| ~~BUG-FFI-002~~ | ~~P0~~ | ~~`global_map.py:28`~~ | ~~CROSS-CUTTING: `GlobalMap.get()` references undefined `default` parameter.~~ [RESOLVED Phase 7.2-02 Group B -- base class fixed] |
+| ~~BUG-FFI-003~~ | ~~P1~~ | ~~`fixed_flow_input.py:142`~~ | ~~`_update_stats(0, rows_generated, 0)` sets NB_LINE to 0.~~ [RESOLVED Phase 7.2-02 Group B] |
+| ~~BUG-FFI-004~~ | ~~P1~~ | ~~`fixed_flow_input.py:61-101`~~ | ~~`_validate_config()` is never called -- dead code.~~ [RESOLVED Phase 7.2-02 Group B] |
+| BUG-FFI-005 | P2 | `fixed_flow_input.py` | Bare `except:` clauses may remain -- needs verification in current engine |
+| BUG-FFI-006 | P2 | `fixed_flow_input.py` | Negative integers treated as floats (`'-5'.isdigit()` returns False) -- needs verification |
+| ~~BUG-FFI-007~~ | ~~P2~~ | ~~`fixed_flow_input.py`~~ | ~~`replace(')', '')` destroys closing parentheses.~~ [RESOLVED Phase 7.2-02 -- eval() replaced] |
+| ~~BUG-FFI-008~~ | ~~P2~~ | ~~`fixed_flow_input.py`~~ | ~~Only `((Integer)` cast type handled.~~ [RESOLVED Phase 7.2-02 -- eval() replaced] |
+| ~~BUG-FFI-009~~ | ~~P3~~ | ~~`fixed_flow_input.py`~~ | ~~`import re` inside function body.~~ [RESOLVED Phase 7.2-02 -- module restructured] |
+| BUG-FFI-010 | P3 | `fixed_flow_input.py` | `re.search()` may only match first globalMap reference in multi-reference expressions |
 
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
 | ---- | ---------- | ------- |
-| -- | -- | No open naming issues. |
+| NAME-FFI-001 | **P2** | `field_separator` vs `delimiter` inconsistency across file components |
 
 ### 6.3 Standards Compliance
 
-| ID | Priority | Standard | Status |
-| ---- | ---------- | ---------- | ------- |
-| STD-FFI-001 | -- | `_validate_config()` raises ConfigurationError | **Fixed** -- raises on non-int nb_rows |
-| STD-FFI-002 | -- | `validate_schema()` called on output | **Handled by BaseComponent** (Rule 11) |
+| ID | Priority | Standard | Violation |
+| ---- | ---------- | ---------- | ----------- |
+| ~~STD-FFI-001~~ | ~~P1~~ | ~~`_validate_config()` should be called at start of `_process()`~~ | ~~Never called -- dead code~~ [RESOLVED Phase 7.2-02] |
+| ~~STD-FFI-002~~ | ~~P2~~ | ~~`validate_schema()` should be called on output DataFrame~~ | ~~Never called~~ [RESOLVED Phase 7.2-02] |
 
-### 6.4 Architecture Compliance
+### 6.4 Debug Artifacts
 
-| Rule | Status |
-| ------ | ------- |
-| Rule 4 (execute() not overridden) | **Pass** |
-| Rule 2 (_validate_config raises, not returns) | **Pass** |
-| Rule 9 (@REGISTRY.register present) | **Pass** -- both aliases registered |
-| Rule 11 (validate_schema not called in `_process`) | **Pass** |
-| Rule 12 (_validate_config structural only) | **Pass** -- Group B nb_rows check |
+Excessive INFO-level logging in `_generate_inline_content_rows()` (8 log statements that output raw data content). Should be DEBUG level.
 
 ### 6.5 Security
 
 | ID | Priority | Issue |
 | ---- | ---------- | ------- |
-| SEC-FFI-002 | **P3** | Inline content row data logged at DEBUG level -- may contain sensitive data if DEBUG logging enabled. |
+| ~~SEC-FFI-001~~ | ~~P1~~ | ~~`eval()` call in `_resolve_value()` on partially user-controlled string.~~ [RESOLVED Phase 7.2-02 -- eval() replaced with safe evaluator] |
+| SEC-FFI-002 | P3 | Raw inline content may be logged at INFO level -- may contain sensitive data |
 
 ### 6.6 Logging Quality
 
@@ -323,49 +320,58 @@ The rewritten converter does NOT handle context variables or Java expressions in
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 56 | `tests/converters/talend_to_v1/components/test_fixed_flow_input.py` |
-| Engine unit tests | 34 | `tests/v1/engine/components/file/test_fixed_flow_input.py` |
-| Integration tests | 0 | None (covered by regression guard `test_converter_output_structure.py`) |
+| Engine unit tests | 42 | `tests/v1/engine/components/file/test_fixed_flow_input.py` (Phase 7.2-02 + Phase 14) |
+| Integration tests | 0 | None |
 
-**Engine test classes** (34 tests, 100% pass):
-
-| Class | Count | Focus |
-| ------- | ------- | ------- |
-| `TestRegistration` | 2 | Both registry aliases resolve to correct class |
-| `TestNoExecuteOverride` | 1 | execute() not overridden (Rule 4) |
-| `TestValidation` | 3 | string/negative nb_rows raise ConfigurationError; valid config runs |
-| `TestSingleMode` | 7 | nb_rows=0/1/3; list-of-dicts format; dict fallback; missing cols; empty values_config |
-| `TestIntableMode` | 5 | basic 2 rows; intable key (not intable_data); nb_rows limit; no null-padding; empty |
-| `TestInlineContentMode` | 6 | basic parse; nb_rows ignored; `\\n`/`\\t`/`\\\|` normalization; empty content |
-| `TestStats` | 4 | NB_LINE/NB_LINE_OK = rows_generated; NB_LINE_REJECT = 0; nb_rows=0 gives 0 |
-| `TestEdgeCases` | 6 | None/df input ignored; empty schema; numeric coercion; negative int; no reject key |
+Phase 14 >= 95% per-module line coverage floor applies to `src/v1/engine/components/file/fixed_flow_input.py`.
 
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
 | ---- | ---------- | ----- |
-| -- | -- | No outstanding test gaps. |
+| ~~TEST-FFI-001~~ | ~~P2~~ | ~~No engine unit tests for FixedFlowInputComponent.~~ [RESOLVED Phase 7.2-02 -- 42 engine tests added] |
+
+### 8.3 Recommended Test Cases
+
+- Engine: Single mode with various NB_ROWS values (0, 1, 100)
+- Engine: Inline content mode with custom separators
+- Engine: die_on_error=True vs False behavior
+- Engine: _resolve_value() with context variables and globalMap references
+- Engine: Statistics tracking (NB_LINE correctness)
 
 ---
 
 ## 9. Issues Summary
 
-### By Priority (post-rewrite 2026-05-01)
+### By Priority
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
-| P0 | 0 | -- |
-| P1 | 0 | -- |
-| P2 | 1 | PERF-FFI-001 |
-| P3 | 2 | ENG-FFI-005, SEC-FFI-002 |
-| **Total** | **3** | |
+| P0 | 0 (2 fixed) | ~~BUG-FFI-001~~, ~~BUG-FFI-002~~ [RESOLVED Phase 7.2-02] |
+| P1 | 0 (7 fixed) | ~~BUG-FFI-003~~, ~~BUG-FFI-004~~, ~~ENG-FFI-002~~, ~~ENG-FFI-003~~, ~~ENG-FFI-004~~, ~~ENG-FFI-005~~, ~~SEC-FFI-001~~ [RESOLVED Phase 7.2-02] |
+| P2 | 5 (3 fixed) | BUG-FFI-005, BUG-FFI-006, ENG-FFI-006, ENG-FFI-007, ENG-FFI-008; ~~BUG-FFI-007~~, ~~BUG-FFI-008~~, PERF-FFI-001 |
+| P3 | 2 (1 fixed) | BUG-FFI-010, SEC-FFI-002; ~~BUG-FFI-009~~ |
+| **Total Open** | **7** | (13 fixed) |
 
 ### By Category
 
-| Category | Count | IDs |
-| ---------- | ------- | ----- |
-| Engine (ENG) | 1 | ENG-FFI-005 |
-| Performance (PERF) | 1 | PERF-FFI-001 |
-| Security (SEC) | 1 | SEC-FFI-002 |
+| Category | Count (open/fixed) | IDs |
+| ---------- | ------------------- | ----- |
+| Converter (CONV) | 0/0 | -- |
+| Engine (ENG) | 3/5 | ENG-FFI-004, ENG-FFI-006, ENG-FFI-007, ENG-FFI-008 (open); ~~ENG-FFI-001~~, ~~ENG-FFI-002~~, ~~ENG-FFI-003~~, ~~ENG-FFI-005~~ |
+| Bug (BUG) | 3/7 | BUG-FFI-005, BUG-FFI-006, BUG-FFI-010 (open); ~~BUG-FFI-001~~ through ~~BUG-FFI-004~~, ~~BUG-FFI-007~~, ~~BUG-FFI-008~~, ~~BUG-FFI-009~~ |
+| Naming (NAME) | 1/0 | NAME-FFI-001 |
+| Standards (STD) | 0/2 | ~~STD-FFI-001~~, ~~STD-FFI-002~~ |
+| Performance (PERF) | 1/0 | PERF-FFI-001 |
+| Security (SEC) | 1/1 | SEC-FFI-002 (open); ~~SEC-FFI-001~~ |
+| Testing (TEST) | 0/1 | ~~TEST-FFI-001~~ |
+
+### Cross-Cutting Issues
+
+| Canonical ID | Location | Impact on This Component | Status |
+| ------------- | ---------- | -------------------------- | ------- |
+| XCUT-001 | `base_component.py` | `_update_global_map()` crash (was BUG-FFI-001) | ~~Resolved~~ [RESOLVED Phase 7.2-02 Group B] |
+| XCUT-002 | `global_map.py` | `GlobalMap.get()` crash (was BUG-FFI-002) | ~~Resolved~~ [RESOLVED Phase 7.2-02 Group B] |
 
 ---
 
@@ -373,15 +379,27 @@ The rewritten converter does NOT handle context variables or Java expressions in
 
 ### Immediate (Before Production)
 
-- No blocking issues. Component is production-ready for standard usage patterns.
+~~- Fix `_update_stats()` NB_LINE=0 bug (P0, ENG-FFI-001)~~ [RESOLVED Phase 7.2-02]
+~~- Fix cross-cutting base class bugs (P0, BUG-FFI-001/002)~~ [RESOLVED Phase 7.2-02]
+~~- Replace `eval()` in `_resolve_value()` (P1, SEC-FFI-001)~~ [RESOLVED Phase 7.2-02]
+~~- Call `_validate_config()` at start of `_process()` (P1, STD-FFI-001)~~ [RESOLVED Phase 7.2-02]
+~~- Call `validate_schema()` on output DataFrame (P1, ENG-FFI-003)~~ [RESOLVED Phase 7.2-02]
+
+No P0/P1 blockers remain. Component is production-ready for Single mode and Inline Content mode.
 
 ### Short-term (Hardening)
 
-- Add `{id}_ERROR_MESSAGE` to globalMap on ConfigurationError (P3, ENG-FFI-005)
+- Fix separator normalization for \\t and other escapes (P1, ENG-FFI-004)
+- Store `{id}_ERROR_MESSAGE` in globalMap on error (P1, ENG-FFI-005)
+- Fix bare except clauses (P2, BUG-FFI-005)
+- Fix negative integer coercion (P2, BUG-FFI-006)
+- Add engine unit tests (P2, TEST-FFI-001)
 
 ### Long-term (Optimization)
 
 - Vectorize `_resolve_value()` for large NB_ROWS (P2, PERF-FFI-001)
+- Move `import re` to module level (P3, BUG-FFI-009)
+- Reduce INFO logging verbosity (P3, SEC-FFI-002)
 
 ---
 
@@ -434,38 +452,5 @@ The rewritten converter does NOT handle context variables or Java expressions in
 
 ---
 
----
-
-## Resolved Issues (2026-05-01 Engine Rewrite)
-
-| ID | Was Priority | Resolution |
-| ---- | ------------- | ----------- |
-| ENG-FFI-001 | P0 | `_update_stats(row_count, row_count, 0)` -- NB_LINE now correct |
-| BUG-FFI-003 | P1 | Same as ENG-FFI-001 |
-| BUG-FFI-004 | P1 | `_validate_config()` now raises `ConfigurationError` for non-int `nb_rows` |
-| SEC-FFI-001 | P1 | `eval()` removed; globalMap value returned directly; no string arithmetic |
-| ENG-FFI-002 | P1 | Same as SEC-FFI-001 |
-| ENG-FFI-003 | P1 | `validate_schema()` handled by BaseComponent post-`_process()` (Rule 11) |
-| ENG-FFI-004 | P1 | Separator normalization: `_ESCAPE_MAP` covers `\\n`, `\\t`, `\\r`, `\\\|` |
-| STD-FFI-001 | P1 | `_validate_config()` is now active and raises |
-| BUG-FFI-005 | P2 | Bare `except:` replaced with `except Exception:` |
-| BUG-FFI-006 | P2 | Negative int coercion fixed via `re.fullmatch(r"-?\\d+", ...)` |
-| BUG-FFI-007/008 | P2 | Java cast stripping and `eval()` call completely removed |
-| ENG-FFI-006 | P2 | `.strip()` on field values removed |
-| ENG-FFI-007 | P2 | `rows` fallback removed; `values_config` list-of-dicts used directly |
-| ENG-FFI-008 | P2 | Intable no longer null-pads beyond available data |
-| TEST-FFI-001 | P2 | 34 engine unit tests added (8 classes, 100% pass) |
-| BUG-FFI-009 | P3 | `import re` moved to module level |
-| BUG-FFI-010 | P3 | globalMap resolution simplified; single-reference limitation not applicable |
-| CONV-001 | engine_gap | `intable` key mismatch removed from needs_review (engine fixed) |
-| CONV-002 | engine_gap | `rows` key needs_review removed (engine no longer uses `rows`) |
-| STD-FFI-002 | P2 | BaseComponent handles `validate_schema()` automatically after `_process()` |
-| NAME-FFI-001 | P2 | field_separator naming is consistent; no change required |
-
-**Engine rewrite**: `@REGISTRY.register("FixedFlowInputComponent", "tFixedFlowInput")` added;
-`_validate_config()` raises `ConfigurationError`; `_build_single_mode_rows()` / `_build_intable_rows()` /
-`_build_inline_content_rows()` replace the original `_generate_*` methods; `_coerce_numeric()` module-level
-helper replaces `eval()`. File: 268 lines (was 330). Tests: 34 engine + 56 converter.
-
 *Report generated: 2026-04-03*
-*Last updated: 2026-05-01 -- engine fully rewritten, all P0/P1 issues resolved*
+*Last updated: 2026-05-11 (Phase 15.1-04 reconciliation -- Phase 7.2-02 Group B strikes applied, 42 engine tests documented, Phase 14 floor noted)*

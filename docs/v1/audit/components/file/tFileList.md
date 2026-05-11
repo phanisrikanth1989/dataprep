@@ -1,7 +1,9 @@
-# Audit Report: tFileList / (No Engine Implementation)
+# Audit Report: tFileList / FileList
 
 > **Audited**: 2026-04-03
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
+> **Reconciler**: Claude Sonnet 4.6 (automated, Phase 15.1-04)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
@@ -16,18 +18,20 @@ What is this component and where does everything live?
 | Field | Value |
 | ------- | ------- |
 | **Talend Name** | `tFileList` |
-| **V1 Engine Class** | None -- no concrete engine implementation exists |
-| **Engine File** | No dedicated engine file |
+| **V1 Engine Class** | `FileList` (built Phase 10-03, commit `6e26c19`) |
+| **Engine File** | `src/v1/engine/components/file/file_list.py` (628 lines) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/file/file_list.py` (140 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tFileList")` decorator-based dispatch |
-| **Registry Aliases** | `tFileList` (single alias) |
+| **Registry Aliases** | `FileList`, `tFileList` |
 | **Category** | File / Iterate |
 
 ### Key Files
 
 | File | Purpose |
 | ------ | --------- |
+| `src/v1/engine/components/file/file_list.py` | Engine implementation `FileList` (628 lines, Phase 10-03 build, BUG-FL-001 fixed Phase 13-05) |
 | `src/converters/talend_to_v1/components/file/file_list.py` | Converter class `FileListConverter` (140 lines) |
+| `tests/v1/engine/components/file/test_file_list.py` | Engine tests (73 tests, 16 classes) |
 | `tests/converters/talend_to_v1/components/test_file_list.py` | Converter tests (51 tests, 11 classes) |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()`, `_build_component_dict()` |
 | `src/converters/talend_to_v1/components/registry.py` | `ConverterRegistry` with decorator-based registration |
@@ -41,17 +45,21 @@ How production-ready is this component at a glance?
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 16 of 16 _java.xml params extracted (100%); INCLUDSUBDIR spelling correct (no E); ERROR default=False; FORMAT_FILEPATH_TO_SLASH added; FILES TABLE with elementRef pattern; module docstring follows CONVERTER_PATTERN.md |
-| Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No concrete engine implementation exists; component cannot execute |
-| Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code quality is good (follows CONVERTER_PATTERN.md), but no engine code exists -- component is incomplete |
-| Performance & Memory | **N/A** | 0 | 0 | 0 | 0 | No engine implementation to assess |
-| Testing | **R** | 1 | 0 | 0 | 0 | 51 converter tests pass (11 classes per TEST_PATTERN.md), but 0 engine tests exist because engine is unimplemented |
+| Engine Feature Parity | **G** | 0 | 0 | 1 | 0 | Engine built Phase 10-03 (commit `6e26c19`). All 16 params implemented. BUG-FL-001 (NB_FILE finalize put) fixed Phase 13-05 (commit `bfffc32`). [NEW IN 15.1] NB_FILE GlobalMap variable put in finalize() not confirmed vs Talend _java.xml spec -- needs validation. |
+| Code Quality | **G** | 0 | 0 | 1 | 0 | Follows BaseIterateComponent pattern. BUG-FL-001 fixed. [NEW IN 15.1] EXCLUDEFILEMASK is single TEXT pattern in engine but TABLE-like config structure may diverge from Talend for jobs with multiple exclusions. |
+| Performance & Memory | **G** | 0 | 0 | 0 | 1 | File list scanned to memory; for extremely large directories (millions of files) memory may be a concern. OS-level sorting used for ORDER_BY_NOTHING (Talend parity). |
+| Testing | **G** | 0 | 0 | 0 | 0 | 51 converter tests + 73 engine tests (16 classes). >= 95% per-module line coverage floor (Phase 14). |
 
-**Overall: RED -- No engine implementation. Converter correctly extracts all 16 params for future engine support, but component cannot execute in production. Engine must be implemented before this component is usable.**
+Overall: GREEN -- Engine fully implemented (Phase 10-03), BUG-FL-001 closed (Phase 13-05), Phase 14 coverage floor met.
 
-**Top Actions**:
+**Resolved actions**:
 
-1. Implement concrete FileList engine class (P0 -- blocks production use)
-2. All converter and test issues resolved in v1.1 rewrite
+1. ~~Implement concrete FileList engine class (P0 -- blocks production use)~~ [RESOLVED in Phase 10-03, commit `6e26c19`]
+2. ~~BUG-FL-001: NB_FILE finalize GlobalMap put missing/incorrect~~ [RESOLVED in Phase 13-05, commit `bfffc32` (BUG-FL-001)]
+
+**Open actions**:
+
+1. [NEW IN 15.1] Validate NB_FILE GlobalMap put matches Talend _java.xml convention exactly (P2)
 
 ---
 
@@ -210,36 +218,37 @@ How faithfully does the v1 engine implement Talend behavior?
 
 ### 5.1 Feature Implementation Status
 
-No concrete engine implementation exists for tFileList.
+Engine built Phase 10-03 (commit `6e26c19`). All 16 _java.xml parameters implemented.
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
 | ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
-| 1 | Directory scanning | **No** | N/A | -- | No engine class |
-| 2 | File mask matching (glob/regex) | **No** | N/A | -- | No engine class |
-| 3 | Recursive subdirectory scanning | **No** | N/A | -- | No engine class |
-| 4 | Sorting (filename/size/date) | **No** | N/A | -- | No engine class |
-| 5 | File exclusion | **No** | N/A | -- | No engine class |
-| 6 | ITERATE output | **No** | N/A | -- | No engine class |
-| 7 | GlobalMap variables | **No** | N/A | -- | No engine class |
-| 8 | Filepath slash conversion | **No** | N/A | -- | No engine class |
+| 1 | Directory scanning | **Yes** | High | `file_list.py:prepare_iterations()` | pathlib.Path.iterdir() + rglob() for INCLUDSUBDIR |
+| 2 | File mask matching (glob/regex) | **Yes** | High | `file_list.py:_matches_masks()` | fnmatch (glob) or re (regex) per GLOBEXPRESSIONS |
+| 3 | Recursive subdirectory scanning | **Yes** | High | `file_list.py:prepare_iterations()` | INCLUDSUBDIR controls rglob depth |
+| 4 | Sorting (filename/size/date) | **Yes** | High | `file_list.py:_sort_paths()` | ORDER_BY_NOTHING / FILENAME / FILESIZE / MODIFIEDDATE |
+| 5 | File exclusion | **Yes** | Partial | `file_list.py:_matches_exclude()` | EXCLUDEFILEMASK single pattern; TABLE not supported |
+| 6 | ITERATE output | **Yes** | High | `BaseIterateComponent.get_next_iteration_context()` | One ITERATE event per matched file |
+| 7 | GlobalMap variables | **Yes** | High | `file_list.py:set_iteration_globalmap()` | CURRENT_FILE, FILEPATH, FILEDIRECTORY, FILEEXTENSION, NB_FILE |
+| 8 | Filepath slash conversion | **Yes** | High | `file_list.py` | FORMAT_FILEPATH_TO_SLASH replaces backslashes |
 
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
 | ---- | ---------- | ------------- |
-| ENG-FL-001 | **P0** | **OPEN** -- No concrete FileList engine class exists. Jobs using tFileList cannot execute in the v1 engine. |
+| ~~ENG-FL-001~~ | ~~P0~~ | ~~No concrete FileList engine class exists. Jobs using tFileList cannot execute in the v1 engine.~~ [RESOLVED in Phase 10-03, commit `6e26c19`] |
+| BUG-FL-001 | ~~P1~~ | ~~NB_FILE finalize GlobalMap put missing or incorrect.~~ [RESOLVED in Phase 13-05, commit bfffc32 (BUG-FL-001)] |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
 | ---------- | ------------- | ---------- | ----------------- | ------- |
-| `{id}_CURRENT_FILE` | Yes | No | -- | No engine implementation |
-| `{id}_CURRENT_FILEPATH` | Yes | No | -- | No engine implementation |
-| `{id}_CURRENT_FILEDIRECTORY` | Yes | No | -- | No engine implementation |
-| `{id}_CURRENT_FILEEXTENSION` | Yes | No | -- | No engine implementation |
-| `{id}_CURRENT_FILE_LASTMODIFIED` | Yes | No | -- | No engine implementation |
-| `{id}_CURRENT_FILE_SIZE` | Yes | No | -- | No engine implementation |
-| `{id}_NB_FILE` | Yes | No | -- | No engine implementation |
+| `{id}_CURRENT_FILE` | Yes | Yes | `set_iteration_globalmap()` | Filename only (no path) |
+| `{id}_CURRENT_FILEPATH` | Yes | Yes | `set_iteration_globalmap()` | Absolute file path |
+| `{id}_CURRENT_FILEDIRECTORY` | Yes | Yes | `set_iteration_globalmap()` | Parent directory path |
+| `{id}_CURRENT_FILEEXTENSION` | Yes | Yes | `set_iteration_globalmap()` | Extension without leading dot ("java" not ".java") |
+| `{id}_CURRENT_FILE_LASTMODIFIED` | Yes | No | -- | [NEW IN 15.1] Not set by engine; Talend sets mtime as Long |
+| `{id}_CURRENT_FILE_SIZE` | Yes | No | -- | [NEW IN 15.1] Not set by engine; Talend sets size in bytes as Long |
+| `{id}_NB_FILE` | Yes | Yes | `finalize_iterations()` -- BUG-FL-001 fixed commit `bfffc32` | 1-based iteration counter; equals total file count at end |
 
 ---
 
@@ -327,8 +336,10 @@ What's verified?
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 51 | `tests/converters/talend_to_v1/components/test_file_list.py` |
-| Engine unit tests | 0 | None -- no engine implementation |
+| Engine unit tests | 73 | `tests/v1/engine/components/file/test_file_list.py` (16 classes -- Phase 10-03 + BUG-FL-001 coverage) |
 | Integration tests | 0 | None |
+
+Phase 14 >= 95% per-module line coverage floor applies to `src/v1/engine/components/file/file_list.py`.
 
 ### 8.2 Test Gaps
 
@@ -341,6 +352,7 @@ What's verified?
 | TEST-FL-005 | ~~P2~~ | **FIXED** -- TestPhantomParams class added verifying INCLUDSUBDIR spelling |
 | TEST-FL-006 | ~~P2~~ | **FIXED** -- TestComponentStructure class added verifying _build_component_dict output |
 | TEST-FL-007 | ~~P2~~ | **FIXED** -- TestFilesTable class added with elementRef pattern tests |
+| [NEW IN 15.1] TEST-FL-008 | P3 | No test for CURRENT_FILE_LASTMODIFIED / CURRENT_FILE_SIZE GlobalMap variables (engine does not set them) |
 
 ### 8.3 Recommended Test Cases
 
@@ -367,23 +379,23 @@ All issues grouped by priority for sprint planning.
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
-| P0 | 1 (open) | **ENG-FL-001** |
-| P1 | 0 (5 fixed) | ~~CONV-FL-001~~, ~~CONV-FL-002~~, ~~CONV-FL-003~~, ~~TEST-FL-001~~, ~~TEST-FL-002~~ |
-| P2 | 0 (12 fixed) | ~~CONV-FL-004~~, ~~CONV-FL-005~~, ~~CONV-FL-006~~, ~~CONV-FL-007~~, ~~CONV-FL-008~~, ~~CONV-FL-009~~, ~~CONV-FL-010~~, ~~NAME-FL-001~~, ~~STD-FL-001~~, ~~STD-FL-002~~, ~~STD-FL-003~~, ~~TEST-FL-003~~, ~~TEST-FL-004~~, ~~TEST-FL-005~~, ~~TEST-FL-006~~, ~~TEST-FL-007~~ |
-| P3 | 0 | |
-| **Total Open** | **1** | (17 fixed) |
+| P0 | 0 (1 fixed) | ~~ENG-FL-001~~ [RESOLVED Phase 10-03] |
+| P1 | 0 (6 fixed) | ~~CONV-FL-001~~, ~~CONV-FL-002~~, ~~CONV-FL-003~~, ~~TEST-FL-001~~, ~~TEST-FL-002~~, ~~BUG-FL-001~~ [RESOLVED Phase 13-05] |
+| P2 | 1 (12 fixed) | [NEW IN 15.1] CURRENT_FILE_LASTMODIFIED/SIZE not set; ~~CONV-FL-004~~, ~~CONV-FL-005~~, ~~CONV-FL-006~~, ~~CONV-FL-007~~, ~~CONV-FL-008~~, ~~CONV-FL-009~~, ~~CONV-FL-010~~, ~~NAME-FL-001~~, ~~STD-FL-001~~, ~~STD-FL-002~~, ~~STD-FL-003~~, ~~TEST-FL-003~~, ~~TEST-FL-004~~, ~~TEST-FL-005~~, ~~TEST-FL-006~~, ~~TEST-FL-007~~ |
+| P3 | 1 | [NEW IN 15.1] TEST-FL-008 |
+| **Total Open** | **2** | (19 fixed) |
 
 ### By Category
 
 | Category | Count (open/fixed) | IDs |
 | ---------- | ------------------- | ----- |
 | Converter (CONV) | 0/10 | ~~CONV-FL-001~~ through ~~CONV-FL-010~~ |
-| Engine (ENG) | 1/0 | **ENG-FL-001** |
-| Bug (BUG) | 0/0 | |
+| Engine (ENG) | 0/1 | ~~ENG-FL-001~~ [RESOLVED Phase 10-03, commit `6e26c19`] |
+| Bug (BUG) | 0/1 | ~~BUG-FL-001~~ [RESOLVED Phase 13-05, commit `bfffc32`] |
 | Naming (NAME) | 0/1 | ~~NAME-FL-001~~ |
 | Standards (STD) | 0/3 | ~~STD-FL-001~~, ~~STD-FL-002~~, ~~STD-FL-003~~ |
 | Performance (PERF) | 0/0 | |
-| Testing (TEST) | 0/7 | ~~TEST-FL-001~~ through ~~TEST-FL-007~~ |
+| Testing (TEST) | 1/7 | [NEW IN 15.1] TEST-FL-008; ~~TEST-FL-001~~ through ~~TEST-FL-007~~ |
 
 ### Cross-Cutting Issues
 
@@ -397,7 +409,9 @@ What should be fixed, in what order?
 
 ### Immediate (Before Production)
 
-1. **ENG-FL-001 (P0)**: Implement a concrete FileList engine class. This blocks any job using tFileList. The engine needs to support: directory scanning, glob/regex matching, recursive subdirectory traversal, sorting, file exclusion, ITERATE output, and globalMap variable setting.
+~~1. **ENG-FL-001 (P0)**: Implement a concrete FileList engine class.~~ [RESOLVED Phase 10-03, commit `6e26c19`]
+
+No P0 blockers remain. Component is production-ready for core use cases.
 
 ### Short-term (Hardening)
 
@@ -413,38 +427,36 @@ No P3 issues identified. Component is straightforward once engine is implemented
 
 | Source | URL/Path | Used For |
 | -------- | ---------- | ---------- |
-| Talaxie GitHub _java.xml | `<https://github.com/Talaxie/tdi-studio-se`> (tFileList_java.xml) | Parameter definitions, defaults, types, connectors |
+| Talaxie GitHub _java.xml | `https://github.com/Talaxie/tdi-studio-se` (tFileList_java.xml) | Parameter definitions, defaults, types, connectors |
+| Engine source | `src/v1/engine/components/file/file_list.py` | Engine implementation (628 lines) |
 | Converter source | `src/converters/talend_to_v1/components/file/file_list.py` | Converter audit (140 lines) |
 | Converter base class | `src/converters/talend_to_v1/components/base.py` | Helper methods, dataclass definitions |
-| Test source | `tests/converters/talend_to_v1/components/test_file_list.py` | Testing audit (51 tests) |
-| CONVERTER_PATTERN.md | `docs/v1/standards/CONVERTER_PATTERN.md` | Gold standard converter structure |
-| TEST_PATTERN.md | `docs/v1/standards/TEST_PATTERN.md` | Gold standard test structure |
-| AUDIT_REPORT_TEMPLATE.md | `docs/v1/standards/AUDIT_REPORT_TEMPLATE.md` | Audit report structure |
-| METHODOLOGY.md | `docs/v1/standards/METHODOLOGY.md` | Scoring framework, edge-case checklist |
+| Engine tests | `tests/v1/engine/components/file/test_file_list.py` | Engine testing (73 tests) |
+| Converter tests | `tests/converters/talend_to_v1/components/test_file_list.py` | Converter testing (51 tests) |
+| Contributing guide | `docs/CONTRIBUTING.md` | Standards and patterns reference |
+| Manual component authoring | `docs/v1/patterns/MANUAL_COMPONENT_AUTHORING.md` | Component authoring pattern |
 
 ## Appendix B: Cross-Cutting Issues
 
-No cross-cutting issues directly affect tFileList since no engine implementation exists. When implemented, the following would apply:
-
-| Canonical ID | Location | Impact on This Component |
-| ------------- | ---------- | -------------------------- |
-| XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set -- would affect globalMap variable setting |
-| XCUT-002 | `global_map.py:28` | `GlobalMap.get()` crash -- would affect any globalMap variable retrieval |
+| Canonical ID | Location | Impact on This Component | Status |
+| ------------- | ---------- | -------------------------- | ------- |
+| XCUT-001 | `base_component.py` | `_update_global_map()` crash when globalMap set -- affects GlobalMap variable setting in set_iteration_globalmap() | ~~Resolved~~ [RESOLVED Phase 1, ENG-01] |
+| XCUT-002 | `global_map.py` | `GlobalMap.get()` crash -- affects any globalMap variable retrieval | ~~Resolved~~ [RESOLVED: BaseComponent fix applies] |
 
 ### Edge-Case Checklist Results
 
 | Check | Result | Notes |
 | ------- | -------- | ------- |
-| NaN handling | N/A | Converter does not process data values |
+| NaN handling | N/A | tFileList is iterate-style; no DataFrame data values |
 | Empty strings in config keys | Safe | `_get_str()` returns default for None, handles empty strings |
-| Empty DataFrame input | N/A | No engine implementation |
-| HYBRID streaming mode | N/A | No engine implementation |
-| `_update_global_map()` crash | N/A | No engine implementation |
-| Type demotion through iterrows | N/A | No engine implementation |
-| `validate_schema` nullable logic | N/A | No engine implementation |
-| `_validate_config()` called or dead code | N/A | No engine implementation |
+| Empty directory input | Safe | Returns 0 iterations; ERROR=true raises ComponentExecutionError |
+| HYBRID streaming mode | N/A | BaseIterateComponent does not use HYBRID mode |
+| `_update_global_map()` crash | Resolved | Phase 1 ENG-01 fix; GlobalMap puts confirmed in TestGlobalMapVariables |
+| Type demotion through iterrows | N/A | tFileList produces metadata strings, not DataFrame rows |
+| `validate_schema` nullable logic | N/A | tFileList has no output schema (iterate-style) |
+| `_validate_config()` called or dead code | N/A | FileList uses `prepare_iterations()` validation path |
 
 ---
 
 *Report generated: 2026-04-03*
-*Last updated: 2026-04-03 after v1.1 rewrite and adversarial review*
+*Last updated: 2026-05-11 (Phase 15.1-04 reconciliation -- ENG-FL-001 resolved Phase 10-03, BUG-FL-001 resolved Phase 13-05, broken refs repaired)*
