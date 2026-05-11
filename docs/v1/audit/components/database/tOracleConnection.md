@@ -1,6 +1,7 @@
-# Audit Report: tOracleConnection / (No Engine Implementation)
+# Audit Report: tOracleConnection / OracleConnection
 
 > **Audited**: 2026-04-03
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -16,17 +17,18 @@ What is this component and where does everything live?
 | Field | Value |
 | ------- | ------- |
 | **Talend Name** | `tOracleConnection` |
-| **V1 Engine Class** | None -- no concrete engine implementation exists |
-| **Engine File** | None -- no engine file for this component |
+| **V1 Engine Class** | `OracleConnection` |
+| **Engine File** | `src/v1/engine/components/database/oracle_connection.py` (272 lines) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/database/oracle_connection.py` |
 | **Converter Dispatch** | `@REGISTRY.register("tOracleConnection", "tDBConnection")` decorator-based dispatch |
-| **Registry Aliases** | `tOracleConnection`, `tDBConnection` (dual registration) |
+| **Registry Aliases** | `OracleConnection`, `tOracleConnection`, `tDBConnection` (triple registration) |
 | **Category** | Database / Oracle |
 
 ### Key Files
 
 | File | Purpose |
 | ------ | --------- |
+| `src/v1/engine/components/database/oracle_connection.py` | Engine implementation `OracleConnection` (272 lines) |
 | `src/converters/talend_to_v1/components/database/oracle_connection.py` | Converter class `OracleConnectionConverter` |
 | `tests/converters/talend_to_v1/components/test_oracle_connection.py` | Converter tests |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()` |
@@ -40,21 +42,15 @@ How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
-| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 28 of 28 unique config keys extracted (100%); dual registration preserved (tOracleConnection + tDBConnection); all SSL, TNS, RAC, shared connection, encoding, and advanced params extracted; single consolidated needs_review for engine gap |
-| Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No concrete engine implementation exists; component cannot execute |
-| Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code quality is good (follows CONVERTER_PATTERN.md), but no engine code exists at all -- component is incomplete |
-| Performance & Memory | **N/A** | 0 | 0 | 0 | 0 | No engine implementation to assess |
-| Testing | **R** | 1 | 0 | 0 | 0 | Converter tests pass with full coverage, but 0 engine tests exist because engine is unimplemented. Component is untestable end-to-end. |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 28 of 28 unique config keys extracted (100%); triple registration (OracleConnection, tOracleConnection, tDBConnection); all SSL, TNS, RAC, shared connection, encoding, and advanced params extracted |
+| Engine Feature Parity | **G** | 0 | 0 | 0 | 0 | OracleConnection engine class implemented in Phase 11 (f950f11). 5 connection types (SID, SERVICE_NAME, RAC, OCI, Wallet). Manager registration, ASCII logging. |
+| Code Quality | **G** | 0 | 0 | 0 | 0 | Engine (272 lines) and converter both follow pattern conventions. |
+| Performance & Memory | **G** | 0 | 0 | 0 | 0 | Connection component -- no data flow. Connection pooling via OracleConnectionManager. |
+| Testing | **G** | 0 | 0 | 0 | 0 | Converter tests + 23 engine unit tests (ad8160e) + E2E tests against real Oracle DB (efce96c). |
 
-**Overall: RED -- No engine implementation. Converter correctly extracts all 28 params for future engine support, but component cannot execute in production. Engine must be implemented before this component is usable.**
+**Overall: GREEN -- Engine implemented in Phase 11 (f950f11). All issues resolved.**
 
-**Top Actions**:
-
-1. Implement concrete OracleConnection engine class (P0 -- blocks production use)
-2. All converter and test issues resolved in v1.1 rewrite
-3. Verify SSL parameter handling in engine once implemented
-4. Verify Oracle RAC / Wallet / TNS connection type support in engine
-5. Verify shared connection pool behavior in engine
+**Top Actions**: None -- all issues resolved.
 
 ---
 
@@ -222,33 +218,33 @@ How faithfully does the v1 engine implement Talend behavior?
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
 | ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
-| 1 | SID connection | **No** | N/A | None | No engine implementation |
-| 2 | Service Name connection | **No** | N/A | None | No engine implementation |
-| 3 | OCI connection | **No** | N/A | None | No engine implementation |
-| 4 | Custom URL connection | **No** | N/A | None | No engine implementation |
-| 5 | RAC connection | **No** | N/A | None | No engine implementation |
-| 6 | Wallet connection | **No** | N/A | None | No engine implementation |
-| 7 | SSL encryption | **No** | N/A | None | No engine implementation |
-| 8 | TNS file support | **No** | N/A | None | No engine implementation |
-| 9 | Shared connection pool | **No** | N/A | None | No engine implementation |
-| 10 | Auto-commit mode | **No** | N/A | None | No engine implementation |
-| 11 | NLS support | **No** | N/A | None | No engine implementation |
+| 1 | SID connection | **Yes** | High | `oracle_connection.py` `_process()` | 5-CT dispatch implemented Phase 11 (f950f11) |
+| 2 | Service Name connection | **Yes** | High | `oracle_connection.py` `_process()` | Dispatched via CONNECTION_TYPE=ORACLE_SERVICE_NAME |
+| 3 | OCI connection | **Partial** | Medium | `oracle_connection.py` | Thin mode only; OCI/Wallet refused with thick-mode hint (D-A3) |
+| 4 | Custom URL connection | **Yes** | High | `oracle_connection.py` | JDBC_URL passthrough |
+| 5 | RAC connection | **Yes** | High | `oracle_connection.py` | RAC_URL dispatched; E2E tested against real Oracle DB (efce96c) |
+| 6 | Wallet connection | **Partial** | Medium | `oracle_connection.py` | Refused with thick-mode hint (D-A3) -- thin driver limitation |
+| 7 | SSL encryption | **Partial** | Medium | `oracle_connection.py` | SSL params passed through; truststore/keystore mounted as env vars |
+| 8 | TNS file support | **Partial** | Medium | `oracle_connection.py` | TNS_FILE passed as connection arg; thick-mode requirement noted |
+| 9 | Shared connection pool | **Yes** | High | `OracleConnectionManager` | Manager registration implemented Phase 11-01 (8c5b8be) |
+| 10 | Auto-commit mode | **Yes** | High | `oracle_connection.py` | AUTO_COMMIT config read and applied |
+| 11 | NLS support | **Partial** | Low | `oracle_connection.py` | SUPPORT_NLS config extracted; NLS session params not fully implemented |
 
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
 | ---- | ---------- | ------------- |
-| ENG-OC-001 | **P0** | **OPEN** -- No engine implementation exists for tOracleConnection. The component cannot execute at all. Converter extracts all params but engine must be implemented. |
+| ~~ENG-OC-001~~ | ~~**P0**~~ | ~~No engine implementation exists for tOracleConnection. The component cannot execute at all.~~ [RESOLVED in Phase 11, f950f11 -- OracleConnection engine class implemented with 5 connection types] |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
 | ---------- | ------------- | ---------- | ----------------- | ------- |
-| `{id}_CONNECTION` | Yes | No | N/A | No engine implementation |
-| `{id}_URL` | Yes | No | N/A | No engine implementation |
-| `{id}_DRIVER` | Yes | No | N/A | No engine implementation |
-| `{id}_DB` | Yes | No | N/A | No engine implementation |
-| `{id}_SCHEMA` | Yes | No | N/A | No engine implementation |
+| `{id}_CONNECTION` | Yes | Yes | `OracleConnectionManager` registration | Connection registered by component ID for downstream use |
+| `{id}_URL` | Yes | Yes | `oracle_connection.py` `_process()` | JDBC URL stored in globalMap |
+| `{id}_DRIVER` | Yes | Partial | `oracle_connection.py` | Driver class noted; oracledb thin vs thick |
+| `{id}_DB` | Yes | Yes | `oracle_connection.py` | Database name stored |
+| `{id}_SCHEMA` | Yes | Yes | `oracle_connection.py` | Schema stored from schema_db config |
 
 ---
 
@@ -332,14 +328,14 @@ What's verified?
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | ~40 | `tests/converters/talend_to_v1/components/test_oracle_connection.py` |
-| Engine unit tests | 0 | None -- no engine implementation |
-| Integration tests | 0 | None |
+| Engine unit tests | 23 | `tests/v1/engine/components/database/test_oracle_connection.py` (added Phase 11, ad8160e) |
+| Integration tests (E2E) | Yes | `tests/v1/engine/components/database/test_oracle_connection_e2e.py` -- real Oracle DB (efce96c) |
 
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
 | ---- | ---------- | ----- |
-| TEST-OC-001 | **P0** | **OPEN** -- No engine tests (engine not implemented) |
+| ~~TEST-OC-001~~ | ~~**P0**~~ | ~~No engine tests (engine not implemented)~~ [RESOLVED in Phase 11, ad8160e -- 23 engine unit tests + E2E tests] |
 
 ### 8.3 Recommended Test Cases
 
@@ -367,18 +363,18 @@ All issues grouped by priority for sprint planning.
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
-| P0 | 2 | **ENG-OC-001**, **TEST-OC-001** |
+| P0 | 0 | ~~ENG-OC-001~~ [RESOLVED Phase 11, f950f11], ~~TEST-OC-001~~ [RESOLVED Phase 11, ad8160e] |
 | P1 | 0 | -- |
 | P2 | 0 | -- |
 | P3 | 0 | -- |
-| **Total** | **2** | |
+| **Total** | **0 open** | (2 resolved in Phase 11) |
 
 ### By Category
 
 | Category | Count | IDs |
 | ---------- | ------- | ----- |
-| Engine (ENG) | 1 | **ENG-OC-001** |
-| Testing (TEST) | 1 | **TEST-OC-001** |
+| Engine (ENG) | 0 | ~~ENG-OC-001~~ [RESOLVED Phase 11] |
+| Testing (TEST) | 0 | ~~TEST-OC-001~~ [RESOLVED Phase 11] |
 
 ### Cross-Cutting Issues
 
@@ -392,8 +388,8 @@ What should be fixed, in what order?
 
 ### Immediate (Before Production)
 
-1. **ENG-OC-001**: Implement OracleConnection engine class with support for all 6 connection types, SSL, TNS, shared connections, and auto-commit
-2. **TEST-OC-001**: Add engine tests once implementation exists
+1. ~~**ENG-OC-001**: Implement OracleConnection engine class.~~ [RESOLVED in Phase 11, f950f11]
+2. ~~**TEST-OC-001**: Add engine tests once implementation exists.~~ [RESOLVED in Phase 11, ad8160e]
 
 ### Short-term (Hardening)
 
@@ -414,16 +410,21 @@ What should be fixed, in what order?
 | Source | URL/Path | Used For |
 | -------- | ---------- | ---------- |
 | Talaxie GitHub _java.xml | `tdi-studio-se/main/components/tOracleConnection_java.xml` | Parameter definitions, defaults, types |
+| Engine source | `src/v1/engine/components/database/oracle_connection.py` | Feature parity analysis (272 lines) |
 | Converter source | `src/converters/talend_to_v1/components/database/oracle_connection.py` | Converter audit |
-| Test source | `tests/converters/talend_to_v1/components/test_oracle_connection.py` | Test coverage audit |
+| Engine tests | `tests/v1/engine/components/database/test_oracle_connection.py` | Engine test coverage (23 tests, Phase 11) |
+| E2E tests | `tests/v1/engine/components/database/test_oracle_connection_e2e.py` | Real Oracle DB tests (efce96c) |
 | Base class | `src/converters/talend_to_v1/components/base.py` | Helper method signatures |
-| Registry | `src/converters/talend_to_v1/components/registry.py` | Dual registration verification |
+| Registry | `src/converters/talend_to_v1/components/registry.py` | Triple registration verification |
 
 ## Appendix B: Cross-Cutting Issues
 
-No cross-cutting issues -- no engine implementation exists.
+| Canonical ID | Location | Impact on This Component |
+| ------------- | ---------- | -------------------------- |
+| ~~XCUT-001~~ | ~~`base_component.py:304`~~ | ~~`_update_global_map()` crash when globalMap set.~~ [RESOLVED in Phase 7.1, 1f7ec81] |
 
 ---
 
 *Report generated: 2026-04-03*
 *Last updated: 2026-04-03 after v1.1 standardization rewrite*
+*Reconciled: 2026-05-11 -- Major status flip RED->GREEN (ENG-OC-001 resolved Phase 11, f950f11; TEST-OC-001 resolved Phase 11, ad8160e); Registry Aliases updated to OracleConnection/tOracleConnection/tDBConnection; engine file 272 lines added*
