@@ -2,6 +2,7 @@
 
 > **Audited**: 2026-04-04
 > **Re-audited**: 2026-04-29 (engine remediation)
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -322,14 +323,14 @@ No path sanitization in engine -- user-provided paths are used directly with `os
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 31 | `tests/converters/talend_to_v1/components/test_file_delete.py` |
-| Engine unit tests | 0 | None |
+| Engine unit tests | 18 | `tests/v1/engine/components/file/test_file_delete.py` (9 classes, added 2026-04-29) |
 | Integration tests | Included | `tests/converters/talend_to_v1/test_integration.py` (regression guard) |
+
+**Phase 14-08 note**: Per-module coverage floor lifted to >=95% (Phase 14 gate). Engine unit tests were added in the 2026-04-29 re-audit. [RESOLVED in Phase 14-08]
 
 ### 8.2 Test Gaps
 
-| ID | Priority | Gap |
-| ---- | ---------- | ----- |
-| TEST-DEL-001 | **P2** | No engine unit tests for FileDelete `_process()` -- prevents Testing from reaching Green |
+~~TEST-DEL-001 (P2) -- No engine unit tests for FileDelete.~~ [RESOLVED in Phase 14-08]
 
 ### 8.3 Recommended Test Cases
 
@@ -421,4 +422,4 @@ No path sanitization in engine -- user-provided paths are used directly with `os
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after gold-standard converter rewrite*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation*
