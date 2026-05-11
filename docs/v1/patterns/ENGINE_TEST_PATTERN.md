@@ -686,7 +686,7 @@ exercised the full engine REGISTRY lookup path:
 - **BUG-FIJ-001** / **BUG-FIJ-002**: `FileInputJSON`
   (`src/v1/engine/components/file/file_input_json.py`) same dual gap.
 
-See `docs/v1/standards/MANUAL_COMPONENT_AUTHORING.md` Rule 13 for the
+See `docs/v1/patterns/MANUAL_COMPONENT_AUTHORING.md` Rule 13 for the
 authoring-side invariant; this section is the test-side enforcement.
 
 ### Coverage gate

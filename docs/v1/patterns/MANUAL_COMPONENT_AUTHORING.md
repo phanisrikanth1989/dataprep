@@ -22,11 +22,11 @@ outside the GSD workflow, read this document before writing a single line of cod
 
 Before authoring any component, read these documents in order:
 
-1. `docs/v1/standards/ENGINE_COMPONENT_PATTERN.md` -- the 12 rules, file structure, anti-patterns
-2. `docs/v1/standards/ENGINE_TEST_PATTERN.md` -- test structure, required coverage classes, TDD gate, Phase 14 pipeline-test pattern
+1. `docs/v1/patterns/ENGINE_COMPONENT_PATTERN.md` -- the 12 rules, file structure, anti-patterns
+2. `docs/v1/patterns/ENGINE_TEST_PATTERN.md` -- test structure, required coverage classes, TDD gate, Phase 14 pipeline-test pattern
 3. `CLAUDE.md` (project root) -- naming conventions, error handling, logging rules, import style
 
-The converter side has its own pattern (`docs/v1/standards/CONVERTER_PATTERN.md`) -- it is a
+The converter side has its own pattern (`docs/v1/patterns/CONVERTER_PATTERN.md`) -- it is a
 different system and its rules do not apply to engine components.
 
 ---
@@ -301,7 +301,7 @@ above.
 ### Enforcement at test time
 
 Use the pipeline-test pattern documented in
-`docs/v1/standards/ENGINE_TEST_PATTERN.md` ("Phase 14 Pipeline-Test
+`docs/v1/patterns/ENGINE_TEST_PATTERN.md` ("Phase 14 Pipeline-Test
 Pattern" section). The `tests/conftest.py:run_job_fixture` fixture
 runs a fixture JSON through the full engine, exercising the REGISTRY
 lookup path. If a class is unregistered, the pipeline test fails
@@ -314,7 +314,7 @@ intended catch.
   and `register(*aliases)` decorator.
 - `src/v1/engine/base_component.py` -- declares `_validate_config()`
   and `_process()` as abstract methods.
-- `docs/v1/standards/ENGINE_TEST_PATTERN.md` -- "Phase 14 Pipeline-Test
+- `docs/v1/patterns/ENGINE_TEST_PATTERN.md` -- "Phase 14 Pipeline-Test
   Pattern" section; how to author pipeline tests that catch this.
 - `.planning/phases/14-coverage-push-to-95-per-module-floor/14-PHASE-SUMMARY.md`
   -- BUG-PDC-001/002, BUG-SWIFT-001/002, BUG-FIJ-001/002 evidence.
