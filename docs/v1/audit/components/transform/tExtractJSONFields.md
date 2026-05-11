@@ -1,10 +1,11 @@
 # Audit Report: tExtractJSONFields / ExtractJSONFields
 
 > **Audited**: 2026-03-21
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: PRODUCTION READINESS REVIEW
+> **Status**: YELLOW -- PRODUCTION READINESS REVIEW
 > **V1 only** -- this report contains zero references to v2/PyETL
 > **Last updated**: 2026-04-22 after full refactor (stride-4 fix, engine rewrite, 72 tests)
 
@@ -202,7 +203,7 @@ Context variables (`context.var_name`) and Java expressions within parameter val
 | ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
 | 1 | JSONPath extraction | **Yes** | High | `_process()` | Uses `jsonpath_ng.parse()` pre-compiled per mapping entry |
 | 2 | XPath extraction | **Partial** | Low | `_process()` | read_by=XPATH dispatches to loop_query + mapping; processed as best-effort JSONPath (no lxml) |
-| 3 | Loop query iteration | **Yes** | High | `_process()` | No-match → 0 rows (Talend parity). Empty query → full document |
+| 3 | Loop query iteration | **Yes** | High | `_process()` | No-match -> 0 rows (Talend parity). Empty query -> full document |
 | 4 | Field mapping | **Yes** | High | `_process()` | Supports `schema_column` key; empty query = passthrough |
 | 5 | Die on error | **Yes** | High | `_process()` | Raises ComponentExecutionError when true |
 | 6 | Reject flow | **Yes** | High | `_process()` | errorCode + errorMessage + errorJSONField; NaN, None, malformed JSON all routed |
@@ -242,7 +243,7 @@ Context variables (`context.var_name`) and Java expressions within parameter val
 
 | ID | Priority | Location | Description |
 | ---- | ---------- | ---------- | ------------- |
-| BUG-EJF-001 | ~~P0~~ | **FIXED (2026-04-22)** | `_is_null()` helper guards NaN/None before `json.loads()`; None/NaN routes to reject |
+| ~~BUG-EJF-001~~ | ~~P0~~ | **FIXED (2026-04-22)** | ~~`_is_null()` helper guards NaN/None before `json.loads()`; None/NaN routes to reject~~ [RESOLVED in Phase 14-05, commit 280fd22 (BUG-EJF-001)] |
 | BUG-EJF-002 | ~~P0~~ | **CROSS-CUTTING** | `_update_global_map()` -- not specific to this component; tracked in base_component audit |
 | BUG-EJF-003 | ~~P0~~ | **FIXED (2026-04-22)** | `_is_relative_query()` removed; replaced by `use_loop_as_root` config key |
 | BUG-EJF-004 | **P1** | `_process()` | `input_data.iterrows()` causes type demotion -- Decimal becomes float64, datetime64 becomes object |
@@ -327,11 +328,13 @@ Multiple `logger.debug()` statements with detailed intermediate state are presen
 | Engine unit tests | 32 | `tests/v1/engine/components/transform/test_extract_json_fields.py` |
 | Integration tests | 0 | None (covered by regression guard) |
 
+Phase 14-05 raised engine coverage to >= 95% floor (commit `280fd22` -- COV-EJF-001 lift).
+
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
 | ---- | ---------- | ----- |
-| TEST-EJF-001 | ~~P1~~ | **FIXED (2026-04-22)** -- 32 engine unit tests added covering registry, validate_config, JSONPATH/XPATH modes, reject flow, loop semantics, jsonfield selection, use_loop_as_root, and stats |
+| ~~TEST-EJF-001~~ | ~~P1~~ | **FIXED (2026-04-22)** -- 32 engine unit tests added covering registry, validate_config, JSONPATH/XPATH modes, reject flow, loop semantics, jsonfield selection, use_loop_as_root, and stats. Phase 14-05 (280fd22) added 8 targeted coverage-lift tests. |
 
 ### 8.3 Recommended Test Cases
 
@@ -457,4 +460,4 @@ Multiple `logger.debug()` statements with detailed intermediate state are presen
 ---
 
 *Report generated: 2026-03-21*
-*Last updated: 2026-04-04 after hidden/design-time param removal*
+*Last updated: 2026-05-11 -- Phase 15.1 reconciliation (BUG-EJF-001 tagged commit 280fd22; Phase 14-05 coverage lift noted; 2026-03-21 audit date preserved)*
