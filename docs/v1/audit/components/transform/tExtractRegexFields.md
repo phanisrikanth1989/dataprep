@@ -2,10 +2,11 @@
 
 > **Audited**: 2026-04-04
 > **Last Updated**: 2026-04-05 (engine implementation created)
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Sonnet 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: GREEN — ENGINE IMPLEMENTATION COMPLETE
+> **Status**: GREEN -- ENGINE IMPLEMENTATION COMPLETE
 > **V1 only** -- this report covers the v1 engine exclusively
 
 ---
@@ -47,11 +48,11 @@ How production-ready is this component at a glance?
 | Performance & Memory | **Y** | 0 | 0 | 1 | 0 | iterrows() retained; no streaming |
 | Testing | **G** | 0 | 0 | 0 | 0 | 24 converter tests + new engine unit test suite (TestRegistry/Validate/Empty/Main/Reject/Stats) |
 
-**Overall: GREEN — Engine implementation complete; all features implemented; production ready**
+**Overall: GREEN -- Engine implementation complete; all features implemented; production ready**
 
 **Remaining items**:
 
-1. Vectorized regex matching (P2 — optimization for large datasets)
+1. Vectorized regex matching (P2 -- optimization for large datasets)
 
 ---
 
@@ -190,28 +191,31 @@ How faithfully does the v1 engine implement Talend behavior?
 
 ### 5.1 Feature Implementation Status
 
-No engine implementation exists. All features are unimplemented.
+Engine implemented (post-2026-04-05 via Phase 8090e9e rewrite + `bad0dd0` unescape fix).
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
 | ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
-| 1 | Regex field extraction | **No** | N/A | -- | No engine class exists |
-| 2 | Capture group mapping | **No** | N/A | -- | No engine class exists |
-| 3 | Die on error handling | **No** | N/A | -- | No engine class exists |
-| 4 | Check fields num validation | **No** | N/A | -- | No engine class exists |
-| 5 | Schema passthrough | **No** | N/A | -- | No engine class exists |
-| 6 | Reject flow | **No** | N/A | -- | No engine class exists |
+| 1 | Regex field extraction | **Yes** | High | `_process()` | `re.search()` with capture groups |
+| 2 | Capture group mapping | **Yes** | High | `_process()` | Position-based: group 1 -> first output column |
+| 3 | Die on error handling | **Yes** | High | `_process()` | Raises ConfigurationError/DataValidationError |
+| 4 | Check fields num validation | **Yes** | High | `_validate_config()` | Group count vs schema column count |
+| 5 | Schema passthrough | **Yes** | High | BaseComponent | input == output schema |
+| 6 | Reject flow | **Yes** | High | `_process()` | NULL_SOURCE, NO_MATCH, FIELD_COUNT_MISMATCH reason codes |
 
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
 | ---- | ---------- | ------------- |
-| ENG-ERF-001 | **P0** | No engine implementation exists. Component cannot execute at runtime. |
+| ~~ENG-ERF-001~~ | ~~P0~~ | ~~No engine implementation exists~~ [RESOLVED: ExtractRegexFields engine class implemented] |
+| PERF-ERF-001 | **P2** | iterrows() retained -- not vectorized for regex matching |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
 | ---------- | ------------- | ---------- | ----------------- | ------- |
-| `{id}_NB_LINE` | Yes | No | -- | No engine to set globalMap variables |
+| `{id}_NB_LINE` | Yes | Yes | Base class `_update_global_map()` | Total rows processed |
+| `{id}_NB_LINE_OK` | Yes | Yes | Base class `_update_global_map()` | Rows successfully matched |
+| `{id}_NB_LINE_REJECT` | Yes | Yes | Base class `_update_global_map()` | Rows routed to REJECT |
 
 ---
 
@@ -221,11 +225,10 @@ How well-written is the engine code?
 
 ### 6.1 Bugs
 
-No engine code exists. Converter code has no bugs.
-
 | ID | Priority | Location | Description |
 | ---- | ---------- | ---------- | ------------- |
-| BUG-ERF-001 | **P0** | -- | No engine code exists. Cannot assess engine code quality. |
+| ~~BUG-ERF-001~~ | ~~P0~~ | -- | ~~No engine code exists~~ [RESOLVED: engine class implemented] |
+| (TEST-REGEX-001) | -- | `test_extract_regex_fields.py` | Phase 13-06 TEST-CHANGE: test_regex_custom updated to assert Python-unescaped regex storage (Java `\\\\` -> Python `\\`) [RESOLVED in Phase 13-06, commit aa44a46 (TEST-REGEX-001)] |
 
 ### 6.2 Naming Consistency
 
@@ -278,21 +281,17 @@ No concerns identified. The REGEX parameter contains a regular expression that w
 
 ## 7. Performance & Memory
 
-Will it scale?
-
-No engine implementation exists -- performance cannot be assessed.
-
 | ID | Priority | Issue |
 | ---- | ---------- | ------- |
-| -- | -- | No engine code to assess |
+| PERF-ERF-001 | **P2** | iterrows() retained -- regex matching is row-by-row; optimization opportunity for large DataFrames |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
 | -------- | ------------ |
-| Streaming mode | N/A -- no engine implementation |
-| Memory threshold | N/A |
-| Large data handling | N/A |
+| Streaming mode | Not supported -- full DataFrame in memory |
+| Memory threshold | No limit |
+| Large data handling | Per-row regex matching; no chunked mode |
 
 ---
 
@@ -305,14 +304,15 @@ What's verified?
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 24 | `tests/converters/talend_to_v1/components/test_extract_regex_fields.py` |
-| Engine unit tests | 0 | None -- no engine implementation |
-| Integration tests | 0 | None -- no engine implementation |
+| Engine unit tests | 28 | `tests/v1/engine/components/transform/test_extract_regex_fields.py` |
+| Integration tests | 0 | None |
+
+Phase 14-05 raised engine coverage to >= 95% floor (commit `bf92a6b` -- COV-ERF-001 lift).
+Phase 13-06 TEST-REGEX-001 updated test_regex_custom to assert Python-unescaped storage (commit `aa44a46`).
 
 ### 8.2 Test Gaps
 
-| ID | Priority | Gap |
-| ---- | ---------- | ----- |
-| TEST-ERF-001 | **P0** | No engine tests exist because no engine implementation exists |
+~~TEST-ERF-001~~ [RESOLVED: engine tests added + Phase 14-05 coverage lift commit bf92a6b].
 
 ### 8.3 Test Classes (Converter)
 
@@ -353,27 +353,27 @@ All issues grouped by priority for sprint planning.
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
-| P0 | 3 | **ENG-ERF-001**, **BUG-ERF-001**, **TEST-ERF-001** |
+| P0 | 0 | -- (ENG-ERF-001 resolved; BUG-ERF-001 resolved; TEST-ERF-001 resolved) |
 | P1 | 0 | -- |
-| P2 | 0 | -- |
+| P2 | 1 | PERF-ERF-001 |
 | P3 | 0 | -- |
-| **Total** | **3** | |
+| **Total** | **1** | |
 
 ### By Category
 
 | Category | Count | IDs |
 | ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
-| Engine (ENG) | 1 | ENG-ERF-001 |
-| Bug (BUG) | 1 | BUG-ERF-001 |
+| Engine (ENG) | 0 | -- (ENG-ERF-001 resolved) |
+| Bug (BUG) | 0 | -- (BUG-ERF-001 resolved) |
 | Naming (NAME) | 0 | -- |
 | Standards (STD) | 0 | -- |
-| Performance (PERF) | 0 | -- |
-| Testing (TEST) | 1 | TEST-ERF-001 |
+| Performance (PERF) | 1 | PERF-ERF-001 |
+| Testing (TEST) | 0 | -- (TEST-ERF-001 resolved; TEST-REGEX-001 resolved) |
 
 ### Cross-Cutting Issues
 
-No engine implementation means no cross-cutting base class bugs apply. When an engine is implemented, the standard cross-cutting issues from `base_component.py` will need to be evaluated (e.g., `_update_global_map()` crash, `GlobalMap.get()` broken signature, `validate_schema` inverted nullable logic).
+No cross-cutting issues. Engine implementation follows base_component.py correctly.
 
 ---
 
@@ -383,11 +383,11 @@ What should be fixed, in what order?
 
 ### Immediate (Before Production)
 
-1. **Implement ExtractRegexFields engine class** (ENG-ERF-001, P0) -- component cannot execute without an engine. Must apply regex with capture groups to the specified source column, populate output columns from matches, route non-matching rows to reject flow, and set `{id}_NB_LINE` globalMap variable.
+None -- ENG-ERF-001, BUG-ERF-001, and TEST-ERF-001 are all resolved.
 
 ### Short-term (Hardening)
 
-No short-term issues -- converter and tests are gold standard quality.
+1. **Vectorize regex matching** (PERF-ERF-001, P2) -- replace iterrows() with vectorized `Series.str.extract()` for large DataFrame performance.
 
 ### Long-term (Optimization)
 
@@ -402,7 +402,8 @@ No long-term issues identified.
 | Talaxie GitHub _java.xml | `<https://github.com/Talaxie/tdi-studio-se/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tExtractRegexFields/tExtractRegexFields_java.xml`> | Parameter definitions, defaults, types |
 | Converter source | `src/converters/talend_to_v1/components/transform/extract_regex_fields.py` | Converter audit |
 | Test source | `tests/converters/talend_to_v1/components/test_extract_regex_fields.py` | Test coverage analysis |
-| Gold standard templates | `docs/v1/standards/CONVERTER_PATTERN.md`, `TEST_PATTERN.md`, `AUDIT_REPORT_TEMPLATE.md` | Standards compliance verification |
+| Pattern docs | `docs/v1/patterns/CONVERTER_PATTERN.md`, `docs/v1/patterns/TEST_PATTERN.md` | Standards compliance verification |
+| Authoring guide | `docs/v1/patterns/MANUAL_COMPONENT_AUTHORING.md` | Component authoring rules (replaces legacy audit template) |
 
 ## Appendix B: Converter Config Key Mapping
 
@@ -422,4 +423,4 @@ No long-term issues identified.
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after v1.1 Phase 12 tExtractRegexFields standardization*
+*Last updated: 2026-05-11 -- Phase 15.1-05 reconciliation (engine gap resolved, Phase 13-06 + Phase 14-05 coverage noted, broken refs repaired)*
