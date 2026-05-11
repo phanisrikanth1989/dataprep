@@ -36,6 +36,7 @@ from .extract_regex_fields import ExtractRegexFields
 from .filter_columns import FilterColumns
 from .memorize_rows import MemorizeRows
 from .parse_record_set import ParseRecordSet
+from .py_map import PyMap
 
 __all__ = [
     'AggregateSortedRow',
@@ -73,4 +74,5 @@ __all__ = [
     'FilterColumns',
     'MemorizeRows',
     'ParseRecordSet',
+    'PyMap',
 ]

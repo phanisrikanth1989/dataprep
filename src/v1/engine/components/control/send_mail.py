@@ -15,6 +15,7 @@ from email.mime.text import MIMEText
 from typing import Any, Dict, List, Optional
 
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
 from ...exceptions import (
     ComponentExecutionError,
     ConfigurationError,
@@ -25,6 +26,7 @@ from ...exceptions import (
 logger = logging.getLogger(__name__)
 
 
+@REGISTRY.register("SendMailComponent", "tSendMail")
 class SendMailComponent(BaseComponent):
     """
     Sends email messages via SMTP with support for authentication and attachments.
