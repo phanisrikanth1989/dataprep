@@ -1,6 +1,7 @@
 # Audit Report: tSplitRow / SplitRow
 
 > **Audited**: 2026-04-04
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -361,4 +362,4 @@ No items -- component is simple enough that optimization is unlikely to be neede
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-05-01 -- engine implemented, 28 engine tests passing, audit updated to GREEN*
+*Last updated: 2026-05-11 -- reconciled (Phase 15.1-08)*
