@@ -1,0 +1,383 @@
+{
+  "job_name": "Job_tOracleConnection_0.1",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {}
+  },
+  "components": [
+    {
+      "id": "tDBConnection_1",
+      "type": "tOracleConnection",
+      "original_type": "tOracleConnection",
+      "position": {
+        "x": 224,
+        "y": 128
+      },
+      "config": {
+        "connection_type": "ORACLE_SERVICE_NAME",
+        "db_version": "ORACLE_18",
+        "rac_url": "localhost",
+        "use_tns_file": false,
+        "tns_file": "",
+        "host": "localhost",
+        "port": "1521",
+        "dbname": "FREEPDB1",
+        "local_service_name": "FREEPDB1",
+        "schema_db": "SYSTEM",
+        "user": "system",
+        "password": "enc:system.encryption.key.v1:Du12ouE4dA38EguLc09h7GcCE8ofn3vf4KmQ8GWbKdjk9DjVzgNWCK/W8g==",
+        "jdbc_url": "jdbc:oracle:thin:USER/MDP@server",
+        "encoding": "ISO-8859-15",
+        "properties": "",
+        "use_shared_connection": false,
+        "shared_connection_name": "",
+        "specify_datasource_alias": false,
+        "datasource_alias": "",
+        "use_ssl": false,
+        "ssl_trustserver_truststore": "",
+        "need_client_auth": false,
+        "ssl_keystore": "",
+        "disable_cbc_protection": true,
+        "auto_commit": false,
+        "support_nls": false,
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [],
+        "output": []
+      },
+      "inputs": [],
+      "outputs": []
+    },
+    {
+      "id": "tDBInput_1",
+      "type": "tOracleInput",
+      "original_type": "tOracleInput",
+      "position": {
+        "x": 416,
+        "y": 128
+      },
+      "config": {
+        "use_existing_connection": true,
+        "connection": "tDBConnection_1",
+        "connection_type": "ORACLE_SID",
+        "db_version": "ORACLE_18",
+        "rac_url": "",
+        "host": "",
+        "port": "1521",
+        "dbname": "",
+        "local_service_name": "",
+        "schema_db": "",
+        "user": "",
+        "password": "enc:system.encryption.key.v1:dvcc0ezbCDUzjssjg3I/WLM/nBIeqM8vFxPOqLvg",
+        "jdbc_url": "jdbc:oracle:oci:/@talend",
+        "table": "",
+        "query": "select * from employee",
+        "specify_datasource_alias": false,
+        "datasource_alias": "",
+        "properties": "",
+        "is_convert_xmltype": false,
+        "convert_xmltype": [],
+        "encoding": "ISO-8859-15",
+        "use_cursor": false,
+        "cursor_size": 1000,
+        "trim_all_column": false,
+        "trim_column": [
+          {
+            "schema_column": "ID"
+          },
+          {
+            "trim": "false"
+          },
+          {
+            "schema_column": "NAME"
+          },
+          {
+            "trim": "false"
+          },
+          {
+            "schema_column": "DOB"
+          },
+          {
+            "trim": "false"
+          }
+        ],
+        "no_null_values": false,
+        "support_nls": false,
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {
+            "name": "ID",
+            "type": "Decimal",
+            "nullable": false,
+            "key": false,
+            "length": 20,
+            "precision": 0
+          },
+          {
+            "name": "NAME",
+            "type": "str",
+            "nullable": true,
+            "key": false,
+            "length": 255,
+            "precision": 0
+          },
+          {
+            "name": "DOB",
+            "type": "datetime",
+            "nullable": true,
+            "key": false,
+            "length": 0,
+            "precision": 0,
+            "date_pattern": "%d-%m-%Y"
+          }
+        ]
+      },
+      "inputs": [],
+      "outputs": [
+        "row1"
+      ]
+    },
+    {
+      "id": "tMap_1",
+      "type": "Map",
+      "original_type": "tMap",
+      "position": {
+        "x": 576,
+        "y": 128
+      },
+      "config": {
+        "inputs": {
+          "main": {
+            "name": "row1",
+            "filter": "",
+            "activate_filter": false,
+            "matching_mode": "UNIQUE_MATCH",
+            "lookup_mode": "LOAD_ONCE",
+            "size_state": "INTERMEDIATE",
+            "persistent": false,
+            "activate_condensed_tool": false,
+            "activate_global_map": false
+          },
+          "lookups": []
+        },
+        "variables": [],
+        "outputs": [
+          {
+            "name": "out",
+            "is_reject": false,
+            "inner_join_reject": false,
+            "filter": "",
+            "activate_filter": false,
+            "columns": [
+              {
+                "name": "ID",
+                "expression": "{{java}}row1.ID",
+                "type": "Decimal",
+                "nullable": true,
+                "operator": "",
+                "length": -1,
+                "precision": -1,
+                "pattern": ""
+              },
+              {
+                "name": "NAME",
+                "expression": "{{java}}row1.NAME",
+                "type": "str",
+                "nullable": true,
+                "operator": "",
+                "length": -1,
+                "precision": -1,
+                "pattern": ""
+              },
+              {
+                "name": "DOB",
+                "expression": "{{java}}row1.DOB",
+                "type": "datetime",
+                "nullable": true,
+                "operator": "",
+                "length": -1,
+                "precision": -1,
+                "pattern": ""
+              }
+            ],
+            "size_state": "INTERMEDIATE",
+            "catch_output_reject": false,
+            "activate_global_map": false
+          }
+        ],
+        "die_on_error": true,
+        "rows_buffer_size": "2000000",
+        "change_hash_and_equals_for_bigdecimal": true,
+        "enable_auto_convert_type": false,
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {},
+      "inputs": [
+        "row1"
+      ],
+      "outputs": [
+        "out"
+      ]
+    },
+    {
+      "id": "tFileOutputDelimited_1",
+      "type": "FileOutputDelimited",
+      "original_type": "tFileOutputDelimited",
+      "position": {
+        "x": 704,
+        "y": 128
+      },
+      "config": {
+        "usestream": false,
+        "streamname": "outputStream",
+        "filepath": "C:/Users/phani/Documents/talend_samples/database_components/tDBInput/output.dat",
+        "row_separator": "\\n",
+        "fieldseparator": ";",
+        "append": false,
+        "include_header": true,
+        "compress": false,
+        "advanced_separator": false,
+        "thousands_separator": ",",
+        "decimal_separator": ".",
+        "csv_option": false,
+        "escape_char": "\"",
+        "text_enclosure": "\"",
+        "os_line_separator": true,
+        "csvrowseparator": "\\n",
+        "create_directory": true,
+        "split": false,
+        "split_every": "1000",
+        "flushonrow": false,
+        "flush_row_count": "1",
+        "row_mode": false,
+        "encoding": "ISO-8859-15",
+        "delete_empty_file": false,
+        "file_exist_exception": false,
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "ID",
+            "type": "Decimal",
+            "nullable": false,
+            "key": false,
+            "length": 20,
+            "precision": 0
+          },
+          {
+            "name": "NAME",
+            "type": "str",
+            "nullable": true,
+            "key": false,
+            "length": 255,
+            "precision": 0
+          },
+          {
+            "name": "DOB",
+            "type": "datetime",
+            "nullable": true,
+            "key": false,
+            "length": 0,
+            "precision": 0,
+            "date_pattern": "%y%m%d"
+          }
+        ],
+        "output": []
+      },
+      "inputs": [
+        "out"
+      ],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {
+      "name": "row1",
+      "from": "tDBInput_1",
+      "to": "tMap_1",
+      "type": "flow"
+    },
+    {
+      "name": "out",
+      "from": "tMap_1",
+      "to": "tFileOutputDelimited_1",
+      "type": "flow"
+    }
+  ],
+  "triggers": [
+    {
+      "type": "OnSubjobOk",
+      "from": "tDBConnection_1",
+      "to": "tDBInput_1"
+    }
+  ],
+  "subjobs": {
+    "subjob_1": [
+      "tDBConnection_1"
+    ],
+    "subjob_2": [
+      "tDBInput_1",
+      "tMap_1",
+      "tFileOutputDelimited_1"
+    ]
+  },
+  "java_config": {
+    "enabled": true,
+    "routines": [
+      "routines.DataOperation",
+      "routines.Mathematical",
+      "routines.Numeric",
+      "routines.Relational",
+      "routines.StringHandling",
+      "routines.TalendDataGenerator",
+      "routines.TalendDate",
+      "routines.TalendStringUtil",
+      "routines.TalendString"
+    ],
+    "libraries": []
+  },
+  "_validation": {
+    "valid": true,
+    "summary": "Validation: 1 warning(s)",
+    "issues": [
+      {
+        "severity": "warning",
+        "component_id": "tMap_1",
+        "field": "schema",
+        "message": "Component 'tMap_1' has missing schema"
+      }
+    ]
+  },
+  "_needs_review": [
+    {
+      "issue": "No concrete engine implementation for tOracleConnection. All config keys are extracted for future engine support.",
+      "component": "tDBConnection_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "No concrete engine implementation for tOracleInput. All config keys are extracted for future engine support.",
+      "component": "tDBInput_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'rows_buffer_size' config key -- Engine does not read 'rows_buffer_size' -- no disk buffering support",
+      "component": "tMap_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'change_hash_and_equals_for_bigdecimal' config key -- Engine does not handle BigDecimal hash/equals behavior",
+      "component": "tMap_1",
+      "severity": "engine_gap"
+    }
+  ]
+}

@@ -1,0 +1,605 @@
+{
+  "job_name": "Job_tFlowToIterate_0.1",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {}
+  },
+  "components": [
+    {
+      "id": "tFileInputDelimited_1",
+      "type": "FileInputDelimited",
+      "original_type": "tFileInputDelimited",
+      "position": {
+        "x": 320,
+        "y": 160
+      },
+      "config": {
+        "filepath": "C:/Users/phani/Documents/talend_samples/iterate_components/tFlowToIterate/data/input.txt",
+        "csv_option": false,
+        "row_separator": "\\n",
+        "csv_row_separator": "\\n",
+        "fieldseparator": ",",
+        "escape_char": "\"",
+        "text_enclosure": "\"",
+        "header_rows": 1,
+        "footer_rows": 0,
+        "limit": "",
+        "remove_empty_row": true,
+        "uncompress": false,
+        "die_on_error": true,
+        "advanced_separator": false,
+        "thousands_separator": ",",
+        "decimal_separator": ".",
+        "random": false,
+        "nb_random": 10,
+        "trim_all": false,
+        "check_fields_num": false,
+        "check_date": false,
+        "encoding": "ISO-8859-15",
+        "split_record": false,
+        "enable_decode": false,
+        "trim_select": [
+          {
+            "column": "filepath",
+            "trim": false
+          },
+          {
+            "column": "filename",
+            "trim": false
+          },
+          {
+            "column": "dept",
+            "trim": false
+          }
+        ],
+        "decode_cols": [
+          {
+            "column": "filepath",
+            "decode": false
+          },
+          {
+            "column": "filename",
+            "decode": false
+          },
+          {
+            "column": "dept",
+            "decode": false
+          }
+        ],
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {
+            "name": "filepath",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "filename",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "dept",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          }
+        ]
+      },
+      "inputs": [],
+      "outputs": [
+        "row1"
+      ]
+    },
+    {
+      "id": "tFlowToIterate_1",
+      "type": "tFlowToIterate",
+      "original_type": "tFlowToIterate",
+      "position": {
+        "x": 512,
+        "y": 160
+      },
+      "config": {
+        "default_map": true,
+        "map_entries": [],
+        "tstatcatcher_stats": false,
+        "label": "Flow_To_Iterate"
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "filepath",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "filename",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "dept",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          }
+        ],
+        "output": [],
+        "inputs": {
+          "row1": [
+            {
+              "name": "filepath",
+              "type": "str",
+              "nullable": true,
+              "key": false
+            },
+            {
+              "name": "filename",
+              "type": "str",
+              "nullable": true,
+              "key": false
+            },
+            {
+              "name": "dept",
+              "type": "str",
+              "nullable": true,
+              "key": false
+            }
+          ]
+        }
+      },
+      "inputs": [
+        "row1"
+      ],
+      "outputs": [
+        "iterate1"
+      ]
+    },
+    {
+      "id": "tFileInputDelimited_2",
+      "type": "FileInputDelimited",
+      "original_type": "tFileInputDelimited",
+      "position": {
+        "x": 704,
+        "y": 160
+      },
+      "config": {
+        "filepath": "((String)globalMap.get(\"row1.filepath\"))",
+        "csv_option": false,
+        "row_separator": "\\n",
+        "csv_row_separator": "\\n",
+        "fieldseparator": ",",
+        "escape_char": "\"",
+        "text_enclosure": "\"",
+        "header_rows": 1,
+        "footer_rows": 0,
+        "limit": "",
+        "remove_empty_row": true,
+        "uncompress": false,
+        "die_on_error": true,
+        "advanced_separator": false,
+        "thousands_separator": ",",
+        "decimal_separator": ".",
+        "random": false,
+        "nb_random": 10,
+        "trim_all": false,
+        "check_fields_num": false,
+        "check_date": false,
+        "encoding": "ISO-8859-15",
+        "split_record": false,
+        "enable_decode": false,
+        "trim_select": [
+          {
+            "column": "id",
+            "trim": false
+          },
+          {
+            "column": "name",
+            "trim": false
+          },
+          {
+            "column": "dept",
+            "trim": false
+          },
+          {
+            "column": "salary",
+            "trim": false
+          }
+        ],
+        "decode_cols": [
+          {
+            "column": "id",
+            "decode": false
+          },
+          {
+            "column": "name",
+            "decode": false
+          },
+          {
+            "column": "dept",
+            "decode": false
+          },
+          {
+            "column": "salary",
+            "decode": false
+          }
+        ],
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {
+            "name": "id",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "dept",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "salary",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          }
+        ],
+        "inputs": {
+          "iterate1": []
+        }
+      },
+      "inputs": [
+        "iterate1"
+      ],
+      "outputs": [
+        "row2"
+      ]
+    },
+    {
+      "id": "tMap_1",
+      "type": "Map",
+      "original_type": "tMap",
+      "position": {
+        "x": 864,
+        "y": 160
+      },
+      "config": {
+        "inputs": {
+          "main": {
+            "name": "row2",
+            "filter": "",
+            "activate_filter": false,
+            "matching_mode": "UNIQUE_MATCH",
+            "lookup_mode": "LOAD_ONCE",
+            "size_state": "INTERMEDIATE",
+            "persistent": false,
+            "activate_condensed_tool": false,
+            "activate_global_map": false
+          },
+          "lookups": []
+        },
+        "variables": [],
+        "outputs": [
+          {
+            "name": "out",
+            "is_reject": false,
+            "inner_join_reject": false,
+            "filter": "",
+            "activate_filter": false,
+            "columns": [
+              {
+                "name": "id",
+                "expression": "{{java}}row2.id",
+                "type": "str",
+                "nullable": true,
+                "operator": "",
+                "length": -1,
+                "precision": -1,
+                "pattern": ""
+              },
+              {
+                "name": "name",
+                "expression": "{{java}}row2.name",
+                "type": "str",
+                "nullable": true,
+                "operator": "",
+                "length": -1,
+                "precision": -1,
+                "pattern": ""
+              },
+              {
+                "name": "dept",
+                "expression": "{{java}}row2.dept",
+                "type": "str",
+                "nullable": true,
+                "operator": "",
+                "length": -1,
+                "precision": -1,
+                "pattern": ""
+              },
+              {
+                "name": "salary",
+                "expression": "{{java}}row2.salary",
+                "type": "str",
+                "nullable": true,
+                "operator": "",
+                "length": -1,
+                "precision": -1,
+                "pattern": ""
+              },
+              {
+                "name": "filename",
+                "expression": "{{java}}(String)globalMap.get(\"row1.filename\")",
+                "type": "str",
+                "nullable": true,
+                "operator": "",
+                "length": -1,
+                "precision": -1,
+                "pattern": ""
+              },
+              {
+                "name": "filter_dept",
+                "expression": "{{java}}(String)globalMap.get(\"row1.dept\")",
+                "type": "str",
+                "nullable": true,
+                "operator": "",
+                "length": -1,
+                "precision": -1,
+                "pattern": ""
+              }
+            ],
+            "size_state": "INTERMEDIATE",
+            "catch_output_reject": false,
+            "activate_global_map": false
+          }
+        ],
+        "die_on_error": true,
+        "rows_buffer_size": "2000000",
+        "change_hash_and_equals_for_bigdecimal": true,
+        "enable_auto_convert_type": false,
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {},
+      "inputs": [
+        "row2"
+      ],
+      "outputs": [
+        "out"
+      ]
+    },
+    {
+      "id": "tFileOutputDelimited_1",
+      "type": "FileOutputDelimited",
+      "original_type": "tFileOutputDelimited",
+      "position": {
+        "x": 1024,
+        "y": 160
+      },
+      "config": {
+        "usestream": false,
+        "streamname": "outputStream",
+        "filepath": "C:/Users/phani/Documents/talend_samples/iterate_components/tFlowToIterate/data/output.dat",
+        "row_separator": "\\n",
+        "fieldseparator": "|",
+        "append": true,
+        "include_header": true,
+        "compress": false,
+        "advanced_separator": false,
+        "thousands_separator": ",",
+        "decimal_separator": ".",
+        "csv_option": false,
+        "escape_char": "\"",
+        "text_enclosure": "\"",
+        "os_line_separator": true,
+        "csvrowseparator": "\\n",
+        "create_directory": true,
+        "split": false,
+        "split_every": "1000",
+        "flushonrow": false,
+        "flush_row_count": "1",
+        "row_mode": false,
+        "encoding": "ISO-8859-15",
+        "delete_empty_file": false,
+        "file_exist_exception": true,
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "id",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "name",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "dept",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "salary",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "filename",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "filter_dept",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          }
+        ],
+        "output": []
+      },
+      "inputs": [
+        "out"
+      ],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {
+      "name": "row1",
+      "from": "tFileInputDelimited_1",
+      "to": "tFlowToIterate_1",
+      "type": "flow"
+    },
+    {
+      "name": "iterate1",
+      "from": "tFlowToIterate_1",
+      "to": "tFileInputDelimited_2",
+      "type": "iterate"
+    },
+    {
+      "name": "row2",
+      "from": "tFileInputDelimited_2",
+      "to": "tMap_1",
+      "type": "flow"
+    },
+    {
+      "name": "out",
+      "from": "tMap_1",
+      "to": "tFileOutputDelimited_1",
+      "type": "flow"
+    }
+  ],
+  "triggers": [],
+  "subjobs": {
+    "subjob_1": [
+      "tFileInputDelimited_1",
+      "tFlowToIterate_1",
+      "tFileInputDelimited_2",
+      "tMap_1",
+      "tFileOutputDelimited_1"
+    ]
+  },
+  "java_config": {
+    "enabled": true,
+    "routines": [
+      "routines.DataOperation",
+      "routines.Mathematical",
+      "routines.Numeric",
+      "routines.Relational",
+      "routines.StringHandling",
+      "routines.TalendDataGenerator",
+      "routines.TalendDate",
+      "routines.TalendStringUtil",
+      "routines.TalendString"
+    ],
+    "libraries": []
+  },
+  "_validation": {
+    "valid": true,
+    "summary": "Validation: 1 warning(s)",
+    "issues": [
+      {
+        "severity": "warning",
+        "component_id": "tMap_1",
+        "field": "schema",
+        "message": "Component 'tMap_1' has missing schema"
+      }
+    ]
+  },
+  "_needs_review": [
+    {
+      "issue": "Engine does not read 'split_record' config key -- engine has no explicit multi-line field toggle",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'random' config key -- engine does not support random line extraction",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'enable_decode' config key -- engine does not support hex/octal number parsing",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'advanced_separator' config key -- engine has partial support -- applies to all string columns, not just numeric",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'uncompress' config key -- engine does not support compressed file reading",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "No concrete engine implementation for tFlowToIterate -- only BaseIterateComponent abstract base exists. All config keys are extracted for future engine support.",
+      "component": "tFlowToIterate_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'split_record' config key -- engine has no explicit multi-line field toggle",
+      "component": "tFileInputDelimited_2",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'random' config key -- engine does not support random line extraction",
+      "component": "tFileInputDelimited_2",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'enable_decode' config key -- engine does not support hex/octal number parsing",
+      "component": "tFileInputDelimited_2",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'advanced_separator' config key -- engine has partial support -- applies to all string columns, not just numeric",
+      "component": "tFileInputDelimited_2",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'uncompress' config key -- engine does not support compressed file reading",
+      "component": "tFileInputDelimited_2",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'rows_buffer_size' config key -- Engine does not read 'rows_buffer_size' -- no disk buffering support",
+      "component": "tMap_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'change_hash_and_equals_for_bigdecimal' config key -- Engine does not handle BigDecimal hash/equals behavior",
+      "component": "tMap_1",
+      "severity": "engine_gap"
+    }
+  ]
+}
