@@ -1,7 +1,8 @@
 # Audit Report: tFileOutputPositional / FileOutputPositional
 
 > **Audited**: 2026-04-04
-> **Updated**: 2026-06-14 (Phase 7.2-02: FULL ENGINE REWRITE — all P0/P1/P2 engine and code-quality issues fixed; 44 engine unit tests added)
+> **Updated**: 2026-06-14 (Phase 7.2-02: FULL ENGINE REWRITE -- all P0/P1/P2 engine and code-quality issues fixed; 44 engine unit tests added)
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -19,7 +20,7 @@
 | **Engine File** | `src/v1/engine/components/file/file_output_positional.py` (468 lines) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/file/file_output_positional.py` (178 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tFileOutputPositional")` decorator-based dispatch |
-| **Registry Aliases** | `FileOutputPositional`, `tFileOutputPositional` — **FIXED in Phase 7.2-02** (was NOT registered) |
+| **Registry Aliases** | `FileOutputPositional`, `tFileOutputPositional` -- **FIXED in Phase 7.2-02** (was NOT registered) |
 | **Category** | File / Output (Positional) |
 | **Complexity** | Medium-High -- sink component with 20 unique parameters, FORMATS 5-field TABLE, engine 468 lines, but engine not registered |
 
@@ -42,10 +43,10 @@
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 20 unique params + 2 framework params extracted; FORMATS 5-field TABLE parser (stride-5); `_build_component_dict` pattern; sink schema (input populated, output empty); 11 per-feature needs_review entries |
 | Engine Feature Parity | **G** | 0 | 0 | 0 | 1 | **Fixed (7.2-02)**: REGISTRY registration (ENG-FOP-001), encoding default ISO-8859-15 (ENG-FOP-002), include_header default False (ENG-FOP-003), KEEP ALL/LEFT/MIDDLE/RIGHT (ENG-FOP-004), VALID_KEEP_OPTIONS fixed (ENG-FOP-005), CENTER alignment (ENG-FOP-006). Remaining P3: die_on_error phantom param |
 | Code Quality | **G** | 1 | 0 | 0 | 0 | Only open: XCUT-001 cross-cutting base class crash (P0). **Fixed (7.2-02)**: BUG-FOP-002 (VALID_KEEP_OPTIONS), BUG-FOP-003 (append+compress mode), NAME-FOP-001, NAME-FOP-002, STD-FOP-001 (f-strings) |
-| Performance & Memory | **G** | 0 | 0 | 0 | 1 | **Fixed (7.2-02)**: PERF-FOP-001 (iterrows→vectorized), PERF-FOP-002 (schema_map built once), PERF-FOP-003 (string +=→Series + operator). Remaining P3: batch-only, no streaming |
+| Performance & Memory | **G** | 0 | 0 | 0 | 1 | **Fixed (7.2-02)**: PERF-FOP-001 (iterrows->vectorized), PERF-FOP-002 (schema_map built once), PERF-FOP-003 (string +=->Series + operator). Remaining P3: batch-only, no streaming |
 | Testing | **G** | 0 | 0 | 0 | 0 | 48 converter unit tests; **44 engine unit tests across 13 test classes added in Phase 7.2-02**; integration + regression guard passing |
 
-**Overall: Green — Converter fully standardized; engine fully rewritten per MANUAL_COMPONENT_AUTHORING.md; all P0/P1/P2 issues resolved; 44 engine unit tests passing. Only open: XCUT-001 cross-cutting base class crash (P0).**
+**Overall: Green -- Converter fully standardized; engine fully rewritten per MANUAL_COMPONENT_AUTHORING.md; all P0/P1/P2 issues resolved; 44 engine unit tests passing. Only open: XCUT-001 cross-cutting base class crash (P0).**
 
 **Top Actions:**
 
@@ -204,7 +205,7 @@ The converter emits 12 per-feature needs_review entries for engine gaps:
 | 8 | `use_byte` | Engine measures column widths in characters, not bytes | engine_gap |
 | 9 | `row_mode` | Engine always writes in buffered row mode | engine_gap |
 | 10 | `flushonrow` / `flushonrow_num` | Engine implements flush-on-row via both `flushonrow`/`flushonrow_num` and `flush_on_row`/`flush_on_row_num` aliases | info |
-| 11 | `encoding` | Engine default is now 'ISO-8859-15' matching _java.xml — **FIXED** | resolved |
+| 11 | `encoding` | Engine default is now 'ISO-8859-15' matching _java.xml -- **FIXED** | resolved |
 
 ---
 
@@ -338,8 +339,11 @@ See Section 11 Risk Assessment for comprehensive security analysis.
 | ----------- | ------- | ---------- |
 | Converter unit tests | 48 | `tests/converters/talend_to_v1/components/test_file_output_positional.py` |
 | Engine unit tests | **44** | `tests/v1/engine/components/file/test_file_output_positional.py` (13 test classes; added Phase 7.2-02) |
+| Engine coverage lift | Added | Phase 14-08 lifted module to 99.6% (COV-FOP-001), commit 5860d4d |
 | Integration tests | Passing | `tests/converters/talend_to_v1/test_integration.py` |
 | Regression guard | Passing | `tests/converters/talend_to_v1/test_converter_output_structure.py` |
+
+**Phase 14 floor:** Module meets >= 95% per-module line coverage floor. [RESOLVED in Phase 14-08, commit 5860d4d (COV-FOP-001)]
 
 ### 8.2 Engine Test Classes (Phase 7.2-02)
 
@@ -353,9 +357,9 @@ See Section 11 Risk Assessment for comprehensive security analysis.
 | 6 | `TestAppendMode` | 2 | Append adds rows, no-append overwrites |
 | 7 | `TestEncoding` | 2 | Default is ISO-8859-15, explicit UTF-8 works |
 | 8 | `TestAlignment` | 5 | L, R, C, full-word LEFT, full-word CENTER |
-| 9 | `TestKeepModes` | 7 | ALL overflow, LEFT first N, RIGHT last N, MIDDLE center N, no truncation when fits, legacy 'A'→ALL, legacy 'C'→LEFT |
+| 9 | `TestKeepModes` | 7 | ALL overflow, LEFT first N, RIGHT last N, MIDDLE center N, no truncation when fits, legacy 'A'->ALL, legacy 'C'->LEFT |
 | 10 | `TestGzipCompression` | 3 | Valid gzip, compress without append overwrites (BUG-FOP-003), compress with append appends |
-| 11 | `TestDeleteEmptyFile` | 2 | Empty input deletes existing, without flag doesn’t delete |
+| 11 | `TestDeleteEmptyFile` | 2 | Empty input deletes existing, without flag doesn't delete |
 | 12 | `TestFlushOnRowAliases` | 2 | flushonrow and flush_on_row both work |
 | 13 | `TestStatistics` | 2 | comp.stats["NB_LINE"] checks after _process() |
 
@@ -469,15 +473,18 @@ The `FileOutputPositional` class is fully implemented (468 lines) in `src/v1/eng
 - **Exported** in `__all__` list (line 35)
 - **NOT registered** in `ETLEngine.COMPONENT_REGISTRY` in `src/v1/engine/engine.py`
 
-This appears to be an oversight during development. The class follows the same pattern as all other file components (inherits from BaseComponent, implements `_process()` and `_validate_config()`). Adding two lines to COMPONENT_REGISTRY would enable it:
-```python
-'FileOutputPositional': FileOutputPositional,
-'tFileOutputPositional': FileOutputPositional,
-```
+~~This appears to be an oversight during development. The class follows the same pattern as all other file components (inherits from BaseComponent, implements `_process()` and `_validate_config()`). Adding two lines to COMPONENT_REGISTRY would enable it:~~
+~~```python~~
+~~'FileOutputPositional': FileOutputPositional,~~
+~~'tFileOutputPositional': FileOutputPositional,~~
+~~```~~
+~~Note: The import in engine.py would also need to be added since only `file/__init__.py` currently imports the class.~~
 
-Note: The import in engine.py would also need to be added since only `file/__init__.py` currently imports the class.
+**[RESOLVED in Phase 7.2-02]**: `@REGISTRY.register('FileOutputPositional', 'tFileOutputPositional')` decorator added to the engine class. Registration gap closed. The static COMPONENT_REGISTRY dict no longer exists (replaced by decorator-based REGISTRY in Phase 15-02).
+
+Additionally, Phase 14-08 commit 5860d4d lifted the module to 99.6% line coverage (COV-FOP-001) -- 9 test classes, 43 of 44 originally-missed lines covered.
 
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after Phase 10 Plan 09 converter standardization*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation -- Phase 7.2-02 registration fix confirmed; Phase 14-08 coverage lift commit 5860d4d cited*
