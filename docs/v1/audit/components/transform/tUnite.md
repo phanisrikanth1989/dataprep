@@ -1,6 +1,7 @@
 # Audit Report: tUnite / Unite
 
 > **Audited**: 2026-04-04 | **Updated**: 2026-05-01
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -43,7 +44,7 @@
 | Code Quality | **G** | 0 | 0 | 0 | 0 | 71-line clean implementation; @REGISTRY.register; Rule 12 compliant _validate_config; no execute override |
 | Performance & Memory | **G** | 0 | 0 | 0 | 1 | PERF-UNI-001: pd.concat creates full copy (inherent to UNION ALL, not a defect) |
 | Testing | **G** | 0 | 0 | 0 | 0 | 18 converter tests; 18 engine unit tests across 8 test classes |
-| Overall | **G** | 0 | 0 | 0 | 1 | One P3 remains (pd.concat memory) — not a production blocker |
+| Overall | **G** | 0 | 0 | 0 | 1 | One P3 remains (pd.concat memory) -- not a production blocker |
 
 **Overall:** GREEN
 
@@ -309,10 +310,10 @@ None. All required test scenarios covered.
 
 | ID | Resolution |
 | ---- | ------------ |
-| ENG-UNI-001..ENG-UNI-008 | Engine rewritten — MERGE/sort/dedup/streaming removed. UNION ALL only. |
+| ENG-UNI-001..ENG-UNI-008 (UNIT-01/02) | Engine rewritten -- MERGE/sort/dedup/streaming removed. UNION ALL only. [RESOLVED in Phase 7-02, commit 8531605 (UNIT-01/UNIT-02)] |
 | BUG-UNI-001 | `_validate_config()` now correct (returns None, no-op) |
 | STD-UNI-001 | Same as above |
-| PERF-UNI-002 | MERGE mode removed — issue no longer applicable |
+| PERF-UNI-002 | MERGE mode removed -- issue no longer applicable. [RESOLVED in Phase 7-02, commit 8531605] |
 | TEST-UNI-001 | 18 engine unit tests added |
 
 ### Cross-Cutting Issues
@@ -394,4 +395,4 @@ No P0 or P1 issues. Converter is production-ready.
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after Phase 11 gold standard rewrite*
+*Last updated: 2026-05-11 -- reconciled (Phase 15.1-08); UNIT-01/02 tagged Phase 7-02 commit 8531605*
