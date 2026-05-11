@@ -437,14 +437,14 @@ Plans:
   3. docs/v1/audit/SUMMARY_SCORECARD.md regenerated against current code (status, coverage, registered/abstract-method correctness per component)
   4. docs/v1/audit/METHODOLOGY.md updated or confirmed as still accurate
 **Plans**: 12 plans
-- [ ] 15.1-01-PLAN.md -- aggregate + context + iterate + database (7 docs)
-- [ ] 15.1-02-PLAN.md -- file/ housekeeping (10 docs)
-- [ ] 15.1-03-PLAN.md -- file/ delimited+positional+excel+raw+JSON (8 docs)
-- [ ] 15.1-04-PLAN.md -- file/ XML family + net-new tFileOutputXML + tFileList/Properties/FixedFlow (7 docs)
-- [ ] 15.1-05-PLAN.md -- transform/ extract+convert (7 docs)
-- [ ] 15.1-06-PLAN.md -- transform/ Java/Python/Swift code (7 docs)
-- [ ] 15.1-07-PLAN.md -- transform/ heavy hitters (tMap, tFilterRow, tJoin, tXMLMap, tSortRow, tNormalize, tAggregateSortedRow) (7 docs)
-- [ ] 15.1-08-PLAN.md -- transform/ light tail (14 docs)
+- [x] 15.1-01-PLAN.md -- aggregate + context + iterate + database (7 docs)
+- [x] 15.1-02-PLAN.md -- file/ housekeeping (10 docs)
+- [x] 15.1-03-PLAN.md -- file/ delimited+positional+excel+raw+JSON (8 docs)
+- [x] 15.1-04-PLAN.md -- file/ XML family + net-new tFileOutputXML + tFileList/Properties/FixedFlow (7 docs)
+- [x] 15.1-05-PLAN.md -- transform/ extract+convert (7 docs)
+- [x] 15.1-06-PLAN.md -- transform/ Java/Python/Swift code (7 docs)
+- [x] 15.1-07-PLAN.md -- transform/ heavy hitters (tMap, tFilterRow, tJoin, tXMLMap, tSortRow, tNormalize, tAggregateSortedRow) (7 docs)
+- [x] 15.1-08-PLAN.md -- transform/ light tail (14 docs)
 - [ ] 15.1-09-PLAN.md -- cross-cutting regeneration: SUMMARY_SCORECARD.md
 - [ ] 15.1-10-PLAN.md -- cross-cutting regeneration: CROSS_CUTTING_ISSUES.md
 - [ ] 15.1-11-PLAN.md -- cross-cutting regeneration: METHODOLOGY.md
@@ -486,5 +486,5 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 13. Test Stabilization & Bridge JAR Rebuild | 10/9 | Complete   | 2026-05-10 |
 | 14. Coverage Push to 95% per-module floor | 12/12 | Complete   | 2026-05-11 |
 | 15. Documentation Sweep | 11/1 | Complete   | 2026-05-11 |
-| 15.1. Documentation Audit Reconciliation | 0/TBD | Not started | - |
+| 15.1. Documentation Audit Reconciliation | 8/13 | In Progress|  |
 | 16. Integration Testing & Performance (Manager) | 0/TBD | Not started | - |
