@@ -2,10 +2,11 @@
 
 > **Audited**: 2026-04-04
 > **Last Updated**: 2026-05-06 (Phase 7.x: limit=0 fix, XMLParser security hardening, engine tests added)
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Sonnet 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: GREEN — ENGINE REWRITE COMPLETE, SECURITY HARDENED
+> **Status**: GREEN -- ENGINE REWRITE COMPLETE, SECURITY HARDENED
 > **V1 only** -- this report contains zero references to v2/PyETL
 
 ---
@@ -38,18 +39,18 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
-| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 14 of 14 params extracted (100%); 6 hidden params removed; MAPPING stride-2 parser; 1 needs_review entry (limit semantic — informational) |
-| Engine Feature Parity | **G** | 0 | 0 | 0 | 1 | limit=0 fixed (ENG-EXF-001 ✓); lxml iter() used (BUG-EXF-002 ✓); xmlfield, REJECT, nodecheck, ignore_ns, die_on_error all implemented |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 14 of 14 params extracted (100%); 6 hidden params removed; MAPPING stride-2 parser; 1 needs_review entry (limit semantic -- informational) |
+| Engine Feature Parity | **G** | 0 | 0 | 0 | 1 | limit=0 fixed (ENG-EXF-001 [OK]); lxml iter() used (BUG-EXF-002 [OK]); xmlfield, REJECT, nodecheck, ignore_ns, die_on_error all implemented |
 | Code Quality | **G** | 0 | 0 | 0 | 0 | All BaseComponent rules followed; %-style logging; no mutable state; lxml 5.x compatible; XXE/DTD hardened |
-| Performance & Memory | **Y** | 0 | 0 | 1 | 0 | iterrows() retained (CROSS-CUTTING); XMLParser created per row (minor — security flags make it non-trivial to hoist) |
+| Performance & Memory | **Y** | 0 | 0 | 1 | 0 | iterrows() retained (CROSS-CUTTING); XMLParser created per row (minor -- security flags make it non-trivial to hoist) |
 | Testing | **G** | 0 | 0 | 0 | 0 | 50 converter tests + 23 engine tests (TestRegistry/Validate/Empty/Main/Reject/Limit/Stats); all 23 pass |
 
-**Overall: GREEN — Production ready**
+**Overall: GREEN -- Production ready**
 
 **Remaining items**:
 
-1. Get Nodes mode (informational only — P3)
-2. Vectorized XPath evaluation (P2 — optimization, CROSS-CUTTING)
+1. Get Nodes mode (informational only -- P3)
+2. Vectorized XPath evaluation (P2 -- optimization, CROSS-CUTTING)
 
 ---
 
@@ -191,7 +192,7 @@ No open converter issues. All parameters extracted correctly.
 | 2 | Loop XPath query | **Yes** | High | `_process()` line 214 | xpath() on parsed root |
 | 3 | Per-column XPath mapping | **Yes** | High | `_process()` lines 222-246 | Iterates mapping entries |
 | 4 | Node existence check | **Yes** | Medium | `_process()` lines 228-235 | nodecheck via xpath() |
-| 5 | Row limiting | **Yes** | High | `_process()` limit block | limit=0 → read nothing ✓; None/absent → unlimited ✓ (FIXED 2026-05-06) |
+| 5 | Row limiting | **Yes** | High | `_process()` limit block | limit=0 -> read nothing [OK]; None/absent -> unlimited [OK] (FIXED 2026-05-06) |
 | 6 | Die on error | **Yes** | High | `_process()` die_on_error branch | Raises DataValidationError |
 | 7 | Namespace stripping | **Yes** | High | `_process()` iter() block | Uses lxml 5.x-compatible `iter()` |
 | 8 | Reject output | **Yes** | High | `_make_reject_row()` | errorCode + errorMessage columns |
@@ -206,11 +207,11 @@ No open converter issues. All parameters extracted correctly.
 | ID | Priority | Description |
 | ---- | ---------- | ------------- |
 | ~~ENG-EXF-001~~ | ~~P0~~ | ~~`limit=0` treated as "no limit"~~ **FIXED 2026-05-06**: `limit=None` (unlimited) vs explicit `limit=0` (read nothing). |
-| ENG-EXF-002 | **P3** | Get Nodes feature (GET_NODES per-column checkbox) not implemented. Document-typed columns cannot retrieve full XML content. Informational — rarely used. |
+| ENG-EXF-002 | **P3** | Get Nodes feature (GET_NODES per-column checkbox) not implemented. Document-typed columns cannot retrieve full XML content. Informational -- rarely used. |
 | ~~ENG-EXF-003~~ | ~~P1~~ | ~~Uses deprecated `getiterator()`~~ **FIXED** (post-rewrite): replaced with lxml 5.x-compatible `iter()`. |
 | ENG-EXF-004 | **P3** | Namespace stripping walks entire tree per row. Acceptable for typical XML sizes; not a correctness issue. |
-| ~~ENG-EXF-005~~ | ~~P2~~ | ~~XMLParser `recover=True` with no security flags~~ **FIXED 2026-05-06**: `resolve_entities=False, load_dtd=False, no_network=True` added. |
-| ~~ENG-EXF-006~~ | ~~P2~~ | ~~No DTD processing control~~ **FIXED 2026-05-06**: `load_dtd=False` added to XMLParser. |
+| ~~ENG-EXF-005~~ | ~~P2~~ | ~~XMLParser `recover=True` with no security flags~~ **FIXED 2026-05-06**: `resolve_entities=False, load_dtd=False, no_network=True` added. [RESOLVED in Phase 12-04, commit c921545 (ENG-EXF-005)] |
+| ~~ENG-EXF-006~~ | ~~P2~~ | ~~No DTD processing control~~ **FIXED 2026-05-06**: `load_dtd=False` added to XMLParser. [RESOLVED in Phase 12-04, commit c921545 (ENG-EXF-006)] |
 | ENG-EXF-007 | **P3** | xml_field column falls back to `line` silently when not found. Acceptable default behavior. |
 | ENG-EXF-008 | **P3** | No support for XPath 2.0+ expressions (lxml only supports XPath 1.0). |
 
@@ -235,7 +236,7 @@ No open converter issues. All parameters extracted correctly.
 | BUG-EXF-003 | **P2** | `extract_xml_fields.py` | `pd.isna()` guard handles NaN; non-string types wrapped with `str()` before `.encode()`. Already mitigated in rewrite. |
 | ~~BUG-EXF-004~~ | ~~P1~~ | ~~`extract_xml_fields.py:207`~~ | ~~`xml_string.encode('utf-8')` crashes on non-string~~ **MITIGATED**: `str(xml_string).encode("utf-8")` used after NaN guard. |
 | ~~BUG-EXF-005~~ | ~~P1~~ | ~~`extract_xml_fields.py:218`~~ | ~~`if limit:` falsy for limit=0~~ **FIXED 2026-05-06**: `limit=None` sentinel + `if limit is not None` guard. |
-| BUG-EXF-006 | **P3** | `extract_xml_fields.py` | Per-row stats tracking — `rows_in` is the count of input rows, not output nodes. Correct for globalMap; stats may be surprising for multi-node XML. |
+| BUG-EXF-006 | **P3** | `extract_xml_fields.py` | Per-row stats tracking -- `rows_in` is the count of input rows, not output nodes. Correct for globalMap; stats may be surprising for multi-node XML. |
 
 ### 6.2 Naming Consistency
 
@@ -314,6 +315,9 @@ XMLParser hardened 2026-05-06: `resolve_entities=False, load_dtd=False, no_netwo
 | Engine unit tests | 23 | `tests/v1/engine/components/transform/test_extract_xml_fields.py` |
 | Integration tests | 0 | None (component-specific) |
 
+Phase 12-08 raised extract_xml_fields coverage to 96% (commit `838b24c` -- 7-module XML coverage gate).
+Phase 14 floor: extract_xml_fields not targeted by Phase 14-05 quick-wins (coverage already above 95% floor from Phase 12).
+
 ### 8.2 Test Gaps
 
 No open test gaps. All recommended test cases implemented.
@@ -331,7 +335,7 @@ No open test gaps. All recommended test cases implemented.
 | TestProcessEmpty | 2 | None input; empty DataFrame |
 | TestProcessMain | 4 | Basic extraction; single item; limit>0; xmlfield fallback to 'line' |
 | TestProcessReject | 4 | Null XML (NO_XML); invalid XML; die_on_error=True; nodecheck fail (NODECHECK_FAIL) |
-| TestLimit | 3 | limit=0 reads nothing ✓; limit='' unlimited ✓; limit=1 restricts ✓ |
+| TestLimit | 3 | limit=0 reads nothing [OK]; limit='' unlimited [OK]; limit=1 restricts [OK] |
 | TestStats | 2 | stats updated; stats zero on empty |
 
 ---
@@ -342,9 +346,9 @@ No open test gaps. All recommended test cases implemented.
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
-| P0 | 1 | **BUG-EXF-001** (CROSS-CUTTING `_update_global_map()` crash — tracked centrally) |
+| P0 | 1 | **BUG-EXF-001** (CROSS-CUTTING `_update_global_map()` crash -- tracked centrally) |
 | P1 | 0 | -- |
-| P2 | 1 | **PERF-EXF-002** (iterrows — CROSS-CUTTING) |
+| P2 | 1 | **PERF-EXF-002** (iterrows -- CROSS-CUTTING) |
 | P3 | 5 | **ENG-EXF-002** (Get Nodes), **ENG-EXF-004** (NS tree walk), **ENG-EXF-007** (xmlfield silent fallback), **ENG-EXF-008** (XPath 1.0 only), **BUG-EXF-006** (stats per-row vs per-node) |
 | **Total open** | **7** | (down from 19 at initial audit) |
 
@@ -352,11 +356,11 @@ No open test gaps. All recommended test cases implemented.
 
 | Fixed ID | Was | Fix |
 | --------- | ----- | ----- |
-| ENG-EXF-001 | P0 | limit=0 → read nothing (Talend parity) |
-| ENG-EXF-003 | P1 | getiterator() → iter() (lxml 5.x) |
-| ENG-EXF-005 | P2 | XMLParser XXE protection added |
-| ENG-EXF-006 | P2 | XMLParser DTD-bomb protection added |
-| BUG-EXF-002 | P0 | getiterator() → iter() |
+| ENG-EXF-001 | P0 | limit=0 -> read nothing (Talend parity) |
+| ENG-EXF-003 | P1 | getiterator() -> iter() (lxml 5.x) |
+| ENG-EXF-005 | P2 | XMLParser XXE protection added [Phase 12-04, commit c921545] |
+| ENG-EXF-006 | P2 | XMLParser DTD-bomb protection added [Phase 12-04, commit c921545] |
+| BUG-EXF-002 | P0 | getiterator() -> iter() |
 | BUG-EXF-004 | P1 | str(xml_string).encode() guards non-string types |
 | BUG-EXF-005 | P1 | limit sentinel None vs explicit 0 |
 | NAME-EXF-001 | P2 | xmlfield key match |
@@ -388,19 +392,19 @@ No open test gaps. All recommended test cases implemented.
 
 ### Immediate (Before Production)
 
-1. ~~**ENG-EXF-001 (P0)**~~: **DONE 2026-05-06** — limit=0 reads nothing per Talend semantics.
-2. **BUG-EXF-001 (P0)**: Fix cross-cutting `_update_global_map()` crash — tracked in CROSS_CUTTING_ISSUES.md.
-3. ~~**BUG-EXF-002 (P0)**~~: **DONE** (post-rewrite) — `iter()` replaces deprecated `getiterator()`.
+1. ~~**ENG-EXF-001 (P0)**~~: **DONE 2026-05-06** -- limit=0 reads nothing per Talend semantics.
+2. **BUG-EXF-001 (P0)**: Fix cross-cutting `_update_global_map()` crash -- tracked in CROSS_CUTTING_ISSUES.md.
+3. ~~**BUG-EXF-002 (P0)**~~: **DONE** (post-rewrite) -- `iter()` replaces deprecated `getiterator()`.
 
 ### Short-term (Hardening)
 
-1. ~~**ENG-EXF-002/003/004 (P1)**~~: **DONE** — lxml 5.x compatibility, NaN detection, str() guard all addressed in post-rewrite.
+1. ~~**ENG-EXF-002/003/004 (P1)**~~: **DONE** -- lxml 5.x compatibility, NaN detection, str() guard all addressed in post-rewrite.
 2. ~~**PERF-EXF-001 (P1)**~~: XMLParser security flags added; per-row creation acceptable.
-3. ~~**TEST-EXF-001 (P1)**~~: **DONE 2026-05-06** — 23 engine unit tests across 7 classes.
+3. ~~**TEST-EXF-001 (P1)**~~: **DONE 2026-05-06** -- 23 engine unit tests across 7 classes.
 
 ### Long-term (Optimization)
 
-1. **PERF-EXF-002 (P2)**: Replace iterrows() with vectorized XML processing (CROSS-CUTTING — defer to batch fix).
+1. **PERF-EXF-002 (P2)**: Replace iterrows() with vectorized XML processing (CROSS-CUTTING -- defer to batch fix).
 2. **ENG-EXF-002 (P3)**: Implement Get Nodes feature for Document-typed columns if needed.
 
 ---
@@ -411,8 +415,8 @@ No open test gaps. All recommended test cases implemented.
 
 | Risk | Likelihood | Impact | Mitigation |
 | ------ | ----------- | -------- | ------------ |
-| XXE (XML External Entity) injection | ~~Medium~~ **Low** | High | **MITIGATED 2026-05-06**: `resolve_entities=False, no_network=True` added to XMLParser. |
-| DTD processing risks | ~~Medium~~ **Low** | Medium | **MITIGATED 2026-05-06**: `load_dtd=False` added to XMLParser prevents DTD-bomb attacks. |
+| XXE (XML External Entity) injection | ~~Medium~~ **Low** | High | **MITIGATED 2026-05-06**: `resolve_entities=False, no_network=True` added to XMLParser. [Phase 12-04, commit c921545] |
+| DTD processing risks | ~~Medium~~ **Low** | Medium | **MITIGATED 2026-05-06**: `load_dtd=False` added to XMLParser prevents DTD-bomb attacks. [Phase 12-04, commit c921545] |
 | XPath injection via loop_query | Low | High | User-controlled `loop_query` expressions could be crafted to extract unintended data or cause excessive processing. Mitigation: validate XPath expressions before execution. |
 | Large XML document memory consumption | High | Medium | No size limit on XML content in columns. A single row with a 1GB XML string would be parsed entirely into memory. Mitigation: add configurable max XML size. |
 | Namespace handling inconsistencies | Medium | Low | `ignore_ns` strips namespaces by walking entire tree, which may not handle all namespace declaration patterns (e.g., default namespaces, namespace re-declarations). |
@@ -454,4 +458,4 @@ No open test gaps. All recommended test cases implemented.
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-05-06 — limit=0 fix (ENG-EXF-001), XMLParser security hardening (ENG-EXF-005/006), 23 engine tests added (TEST-EXF-001)*
+*Last updated: 2026-05-11 -- Phase 15.1-05 reconciliation (Phase 12-04 c921545 harden cited for ENG-EXF-005/006; Phase 12-08 838b24c coverage gate noted)*
