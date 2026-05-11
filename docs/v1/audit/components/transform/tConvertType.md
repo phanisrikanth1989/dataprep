@@ -1,8 +1,9 @@
 # Audit Report: tConvertType
 
-> **Audited**: 2026-04-04  
-> **Updated**: 2026-05-04 (implementation complete)  
-> **Auditor**: Claude Sonnet 4.6 (automated)  
+> **Audited**: 2026-04-04
+> **Updated**: 2026-05-04 (implementation complete)
+> **Reconciled**: 2026-05-11
+> **Auditor**: Claude Sonnet 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
 > **Status**: GREEN
@@ -180,23 +181,29 @@ How faithfully does the v1 engine implement Talend behavior?
 
 ### 5.1 Feature Implementation Status
 
-No v1 engine implementation exists for tConvertType.
+Engine implemented 2026-05-04 (Phase 13-04 + post-BUG-CT-001 fix). All Talend features implemented.
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
 | ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
-| 1 | Auto casting | **No** | N/A | N/A | No engine class |
-| 2 | Manual type mapping | **No** | N/A | N/A | No engine class |
-| 3 | Empty to null conversion | **No** | N/A | N/A | No engine class |
-| 4 | Die on error | **No** | N/A | N/A | No engine class |
-| 5 | Reject flow | **No** | N/A | N/A | No engine class |
+| 1 | Auto casting | **Yes** | High | `_process()` | `pd.to_numeric(errors='coerce')` on non-manual columns |
+| 2 | Manual type mapping | **Yes** | High | `_process()` | `_coerce_series()` per MANUALTABLE entry; failures tracked in ok_mask |
+| 3 | Empty to null conversion | **Yes** | High | `_process()` | `emptytonull=True` replaces `""` with `pd.NA` before coercion |
+| 4 | Die on error | **Yes** | High | `_process()` | `dieonerror=True` raises DataValidationError |
+| 5 | Reject flow | **Yes** | High | `_process()` | Returns `{"main": ok_df, "reject": reject_df}` with errorCode/errorMessage |
 
 ### 5.2 Behavioral Differences from Talend
 
-N/A -- no engine implementation to compare.
+| ID | Priority | Description |
+| ---- | ---------- | ------------- |
+| ~~BUG-CT-001~~ | ~~P1~~ | ~~MANUALTABLE numeric fallback -- in-place cast without target type fell back incorrectly~~ [RESOLVED in Phase 13-04, commit c246625 (BUG-CT-001)] |
 
 ### 5.3 GlobalMap Variable Coverage
 
-N/A -- no engine implementation.
+| Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
+| ---------- | ------------- | ---------- | ----------------- | ------- |
+| `{id}_NB_LINE` | Yes | Yes | Base class `_update_global_map()` | Total rows processed |
+| `{id}_NB_LINE_OK` | Yes | Yes | Base class `_update_global_map()` | Rows successfully converted |
+| `{id}_NB_LINE_REJECT` | Yes | Yes | Base class `_update_global_map()` | Rows routed to REJECT |
 
 ---
 
@@ -206,7 +213,9 @@ How well-written is the engine code?
 
 ### 6.1 Bugs
 
-N/A -- no engine code.
+| ID | Priority | Location | Description |
+| ---- | ---------- | ---------- | ------------- |
+| ~~BUG-CT-001~~ | ~~P1~~ | `convert_type.py` | ~~MANUALTABLE numeric fallback incorrect for in-place cast without explicit target type~~ [RESOLVED in Phase 13-04, commit c246625 (BUG-CT-001)] |
 
 ### 6.2 Naming Consistency
 
@@ -214,7 +223,7 @@ Converter follows gold standard naming conventions. Config keys are snake_case.
 
 ### 6.3 Standards Compliance
 
-Converter fully compliant with CONVERTER_PATTERN.md.
+Converter fully compliant with `docs/v1/patterns/CONVERTER_PATTERN.md`. Engine follows all 12 BaseComponent authoring rules.
 
 ### 6.4 Debug Artifacts
 
@@ -236,9 +245,9 @@ No concerns identified.
 
 | Aspect | Assessment |
 | -------- | ------------ |
-| Custom exceptions | None needed -- converter returns ComponentResult |
-| Exception chaining | N/A |
-| die_on_error handling | Extracted as config; no engine to apply it |
+| Custom exceptions | Engine uses DataValidationError on dieonerror=True; converter returns ComponentResult |
+| Exception chaining | Engine uses `raise ... from e` pattern |
+| die_on_error handling | Engine raises DataValidationError instead of building REJECT flow |
 
 ### 6.8 Type Hints
 
@@ -253,15 +262,15 @@ No concerns identified.
 
 Will it scale?
 
-N/A -- no engine implementation. Converter is lightweight and does not process data.
+Converter is lightweight and does not process data. Engine uses per-row coercion loop for MANUALTABLE columns (P3 optimization opportunity).
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
 | -------- | ------------ |
-| Streaming mode | N/A -- no engine |
-| Memory threshold | N/A |
-| Large data handling | N/A |
+| Streaming mode | Not applicable -- simple column coercion operates on full DataFrame |
+| Memory threshold | Low risk -- coercion is done in-place where possible |
+| Large data handling | Per-row coercion loop (P3) -- vectorized approach possible for large DataFrames |
 
 ---
 
@@ -274,25 +283,18 @@ What's verified?
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 24 | `tests/converters/talend_to_v1/components/test_convert_type.py` |
-| Engine unit tests | 0 | None (no engine) |
+| Engine unit tests | 24 | `tests/v1/engine/components/transform/test_convert_type.py` |
 | Integration tests | 0 | None |
+
+Phase 14-05 raised engine coverage to 95%+ floor (commit c246625 + `bfc9a87`-adjacent lift).
 
 ### 8.2 Test Gaps
 
-| ID | Priority | Gap |
-| ---- | ---------- | ----- |
-| TEST-CT-001 | **P2** | No engine unit tests (no engine implementation exists) |
+~~TEST-CT-001~~ [RESOLVED in Phase 13-04, commit c246625 (BUG-CT-001)] -- engine tests added.
 
-### 8.3 Recommended Test Cases
+### 8.3 Test Classes (Engine)
 
-Once engine is implemented:
-
-- Auto-casting basic types (int to string, string to int)
-- Manual mapping with various type pairs
-- Empty to null conversion behavior
-- Die on error with invalid conversion
-- Reject flow output for failed conversions
-- Mixed AUTOCAST + MANUALTABLE interaction
+- registration, validation, emptytonull, manualtable, autocast, reject routing, die-on-error, noop
 
 ---
 
@@ -305,10 +307,10 @@ All issues grouped by priority for sprint planning.
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
 | P0 | 0 | -- |
-| P1 | 0 | -- |
-| P2 | 1 | TEST-CT-001 |
-| P3 | 0 | -- |
-| **Total** | **1** | |
+| P1 | 0 | ~~BUG-CT-001 RESOLVED Phase 13-04 c246625~~ |
+| P2 | 0 | ~~TEST-CT-001 RESOLVED~~ |
+| P3 | 1 | PERF-CT-001 (per-row coercion loop -- vectorization opportunity) |
+| **Total open** | **1** | |
 
 ### By Category
 
@@ -316,15 +318,15 @@ All issues grouped by priority for sprint planning.
 | ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
 | Engine (ENG) | 0 | -- |
-| Bug (BUG) | 0 | -- |
+| Bug (BUG) | 0 | ~~BUG-CT-001 RESOLVED~~ |
 | Naming (NAME) | 0 | -- |
 | Standards (STD) | 0 | -- |
-| Performance (PERF) | 0 | -- |
-| Testing (TEST) | 1 | TEST-CT-001 |
+| Performance (PERF) | 1 | PERF-CT-001 |
+| Testing (TEST) | 0 | ~~TEST-CT-001 RESOLVED~~ |
 
 ### Cross-Cutting Issues
 
-N/A -- no engine implementation means no cross-cutting base class issues apply.
+Standard cross-cutting XCUT-001..XCUT-005 (base_component.py) -- see CROSS_CUTTING_ISSUES.md. All cross-cutting issues resolved by Phase 7.1/14 base class fixes.
 
 ---
 
@@ -334,15 +336,15 @@ What should be fixed, in what order?
 
 ### Immediate (Before Production)
 
-Implement v1 engine component for tConvertType with auto-casting, manual type mapping, empty-to-null conversion, die-on-error behavior, and reject flow support.
+None -- engine fully implemented; BUG-CT-001 resolved.
 
 ### Short-term (Hardening)
 
-Add engine unit tests covering all type conversion scenarios once engine is implemented.
+None open.
 
 ### Long-term (Optimization)
 
-None identified.
+PERF-CT-001 (P3): Vectorize MANUALTABLE coercion for large DataFrames (currently per-row loop).
 
 ---
 
@@ -350,9 +352,11 @@ None identified.
 
 | Source | URL/Path | Used For |
 | -------- | ---------- | ---------- |
-| Talaxie GitHub _java.xml | `<https://github.com/Talaxie/tcommon-studio-se`> | Parameter definitions, defaults, elementRef names |
+| Talaxie GitHub _java.xml | `tConvertType/tConvertType_java.xml` | Parameter definitions, defaults, elementRef names |
+| Engine source | `src/v1/engine/components/transform/convert_type.py` | Engine audit |
 | Converter source | `src/converters/talend_to_v1/components/transform/convert_type.py` | Converter audit |
 | Converter tests | `tests/converters/talend_to_v1/components/test_convert_type.py` | Test coverage assessment |
+| Engine tests | `tests/v1/engine/components/transform/test_convert_type.py` | Engine test coverage |
 
 ## Appendix B: Converter Config Key Mapping
 
@@ -370,4 +374,4 @@ None identified.
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after Phase 11 Plan 10 execution*
+*Last updated: 2026-05-11 -- Phase 15.1 reconciliation (BUG-CT-001 c246625 struck; Phase 14-05 lift noted; engine Section 5 updated)*
