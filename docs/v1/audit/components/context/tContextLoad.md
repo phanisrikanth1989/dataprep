@@ -1,6 +1,7 @@
 # Audit Report: tContextLoad / ContextLoad
 
 > **Audited**: 2026-04-03
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -15,17 +16,17 @@
 | ------- | ------- |
 | **Talend Name** | `tContextLoad` |
 | **V1 Engine Class** | `ContextLoad` |
-| **Engine File** | `src/v1/engine/components/context/context_load.py` (348 lines) |
+| **Engine File** | `src/v1/engine/components/context/context_load.py` (311 lines) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/context/context_load.py` (107 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tContextLoad")` decorator-based dispatch |
-| **Registry Aliases** | `tContextLoad` |
+| **Registry Aliases** | `ContextLoad`, `tContextLoad` |
 | **Category** | Context / Misc |
 
 ### Key Files
 
 | File | Purpose |
 | ------ | --------- |
-| `src/v1/engine/components/context/context_load.py` | Engine implementation (348 lines) |
+| `src/v1/engine/components/context/context_load.py` | Engine implementation (311 lines) |
 | `src/converters/talend_to_v1/components/context/context_load.py` | Converter class (107 lines) |
 | `tests/converters/talend_to_v1/components/test_context_load.py` | Converter tests |
 | `src/v1/engine/base_component.py` | Base class |
@@ -40,8 +41,8 @@
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 14 of 14 params extracted (100%). 6 needs_review entries for engine gaps. DIEONERROR fallback logic. All _java.xml params covered. |
 | Engine Feature Parity | **Y** | 0 | 3 | 2 | 1 | Engine reads 6 of 12 config keys. Does not read die_on_error, disable_warnings, disable_error, disable_info, load_new_variable, not_load_old_variable. No warning-level validation. |
-| Code Quality | **Y** | 1 | 2 | 2 | 1 | Cross-cutting `_update_global_map()` crash (P0). Row-by-row iterrows() in DataFrame/CSV processing. No `_validate_config()` call. |
-| Performance & Memory | **Y** | 0 | 1 | 1 | 0 | Row-by-row iterrows() for DataFrame and CSV input. No streaming support for large context files. |
+| Code Quality | **G** | 0 | 0 | 2 | 1 | P0 cross-cutting crash RESOLVED (Phase 7.1). P1 NaN/iterrows bugs RESOLVED (Phase 9 rewrite). NAME-CL-001 (P2) and STD-CL-001 (P2) remain open. |
+| Performance & Memory | **G** | 0 | 0 | 1 | 0 | iterrows() RESOLVED (Phase 9 rewrite). PERF-CL-002 (P2) memory-bound CSV load remains open. |
 | Testing | **G** | 0 | 0 | 0 | 0 | Comprehensive converter test suite with 9 test classes per TEST_PATTERN.md. No engine unit tests. |
 
 **Overall: YELLOW -- Converter is production-ready (Green). Engine has significant gaps: 6 config keys are ignored, no warning-level validation, cross-cutting base class bugs.**
@@ -239,9 +240,9 @@ The converter emits 6 needs_review entries for config keys that the engine does 
 
 | ID | Priority | Location | Description |
 | ---- | ---------- | ---------- | ------------- |
-| BUG-CL-001 | **P0** | `base_component.py:304` | CROSS-CUTTING: `_update_global_map()` references undefined `value` variable. Crashes ALL components when globalMap is set. Results lost, status stuck at RUNNING. |
-| BUG-CL-002 | **P1** | `context_load.py:129-131` | Row-by-row `iterrows()` in `_process_dataframe_input()` stringifies all values via `str(row['value'])`. NaN values become `"nan"` string, silently corrupting context variables. Should use `pd.isna()` check. |
-| BUG-CL-003 | **P1** | `context_load.py:227-229` | Same NaN-to-string issue in `_load_csv_context()`. `str(row['value'])` converts NaN to `"nan"`. |
+| ~~BUG-CL-001~~ | ~~**P0**~~ | ~~`base_component.py:304`~~ | ~~CROSS-CUTTING: `_update_global_map()` references undefined `value` variable. Crashes ALL components when globalMap is set. Results lost, status stuck at RUNNING.~~ [RESOLVED in Phase 7.1, 1f7ec81] |
+| ~~BUG-CL-002~~ | ~~**P1**~~ | ~~`context_load.py:129-131`~~ | ~~Row-by-row `iterrows()` in `_process_dataframe_input()` stringifies all values via `str(row['value'])`. NaN values become `"nan"` string, silently corrupting context variables.~~ [RESOLVED in Phase 9, 83b5243] |
+| ~~BUG-CL-003~~ | ~~**P1**~~ | ~~`context_load.py:227-229`~~ | ~~Same NaN-to-string issue in `_load_csv_context()`. `str(row['value'])` converts NaN to `"nan"`.~~ [RESOLVED in Phase 9, 83b5243] |
 
 ### 6.2 Naming Consistency
 
@@ -292,7 +293,7 @@ No concerns identified. File paths come from config (not user input). No `eval()
 
 | ID | Priority | Issue |
 | ---- | ---------- | ------- |
-| PERF-CL-001 | **P1** | `_process_dataframe_input()` and `_load_csv_context()` use row-by-row `iterrows()` for processing. For large DataFrames/CSV files with many context variables, this is O(n) with high constant factor. Should use vectorized pandas operations (`df.set_index('key')['value'].to_dict()`). |
+| ~~PERF-CL-001~~ | ~~**P1**~~ | ~~`_process_dataframe_input()` and `_load_csv_context()` use row-by-row `iterrows()` for processing.~~ [RESOLVED in Phase 9, 83b5243 -- vectorized pandas operations used in rewrite] |
 | PERF-CL-002 | **P2** | `_load_csv_context()` reads entire CSV into memory via `pd.read_csv()`. For very large context files this could be memory-intensive, though context files are typically small. |
 
 ### 7.1 Memory Management Assessment
@@ -343,25 +344,25 @@ Engine tests (not converter -- converter tests are complete):
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
-| P0 | 1 | **BUG-CL-001** |
-| P1 | 6 | **ENG-CL-001**, **ENG-CL-002**, **ENG-CL-003**, **BUG-CL-002**, **BUG-CL-003**, **PERF-CL-001** |
+| P0 | 0 | ~~BUG-CL-001~~ [RESOLVED Phase 7.1] |
+| P1 | 3 | **ENG-CL-001**, **ENG-CL-002**, **ENG-CL-003** (~~BUG-CL-002~~, ~~BUG-CL-003~~, ~~PERF-CL-001~~ resolved Phase 9) |
 | P2 | 5 | **ENG-CL-004**, **ENG-CL-005**, **NAME-CL-001**, **STD-CL-001**, **PERF-CL-002** |
 | P3 | 1 | **ENG-CL-006** |
-| **Total** | **13** | |
+| **Total** | **9 open** | (13 original; 4 resolved) |
 
 ### By Category
 
 | Category | Count | IDs |
 | ---------- | ------- | ----- |
 | Engine (ENG) | 6 | ENG-CL-001, ENG-CL-002, ENG-CL-003, ENG-CL-004, ENG-CL-005, ENG-CL-006 |
-| Bug (BUG) | 3 | BUG-CL-001, BUG-CL-002, BUG-CL-003 |
+| Bug (BUG) | 0 open | ~~BUG-CL-001~~ (Phase 7.1), ~~BUG-CL-002~~, ~~BUG-CL-003~~ (Phase 9) -- all resolved |
 | Naming (NAME) | 1 | NAME-CL-001 |
 | Standards (STD) | 1 | STD-CL-001 |
-| Performance (PERF) | 2 | PERF-CL-001, PERF-CL-002 |
+| Performance (PERF) | 1 | ~~PERF-CL-001~~ (Phase 9 resolved), PERF-CL-002 |
 
 ### Cross-Cutting Issues
 
-BUG-CL-001 is the cross-cutting `_update_global_map()` crash that affects ALL v1 engine components. It is tracked canonically in `docs/v1/audit/CROSS_CUTTING_ISSUES.md`.
+~~BUG-CL-001 is the cross-cutting `_update_global_map()` crash that affects ALL v1 engine components.~~ [RESOLVED in Phase 7.1, 1f7ec81] Tracked canonically in `docs/v1/audit/CROSS_CUTTING_ISSUES.md`.
 
 ---
 
@@ -369,15 +370,15 @@ BUG-CL-001 is the cross-cutting `_update_global_map()` crash that affects ALL v1
 
 ### Immediate (Before Production)
 
-1. **BUG-CL-001 (P0)**: Fix `_update_global_map()` undefined `value` variable in `base_component.py:304`. This is cross-cutting and blocks ALL components.
+1. ~~**BUG-CL-001 (P0)**: Fix `_update_global_map()` undefined `value` variable in `base_component.py:304`.~~ [RESOLVED in Phase 7.1, 1f7ec81]
 
 ### Short-term (Hardening)
 
 1. **ENG-CL-001 (P1)**: Implement `die_on_error` config reading in engine. When `false`, catch exceptions and log rather than re-raising.
 2. **ENG-CL-002 (P1)**: Implement `load_new_variable` validation -- compare incoming keys against job context variables.
 3. **ENG-CL-003 (P1)**: Implement `not_load_old_variable` validation -- compare job context variables against incoming keys.
-4. **BUG-CL-002/003 (P1)**: Add `pd.isna()` checks before stringifying values in `iterrows()` loops.
-5. **PERF-CL-001 (P1)**: Replace `iterrows()` with vectorized pandas operations for DataFrame/CSV processing.
+4. ~~**BUG-CL-002/003 (P1)**: Add `pd.isna()` checks before stringifying values in `iterrows()` loops.~~ [RESOLVED in Phase 9, 83b5243]
+5. ~~**PERF-CL-001 (P1)**: Replace `iterrows()` with vectorized pandas operations for DataFrame/CSV processing.~~ [RESOLVED in Phase 9, 83b5243]
 
 ### Long-term (Optimization)
 
@@ -392,19 +393,18 @@ BUG-CL-001 is the cross-cutting `_update_global_map()` crash that affects ALL v1
 | Source | URL/Path | Used For |
 | -------- | ---------- | ---------- |
 | Talaxie GitHub _java.xml | `<https://github.com/Talaxie/tdi-studio-se/`> (tContextLoad_java.xml) | Parameter definitions, defaults, types |
-| Engine source | `src/v1/engine/components/context/context_load.py` | Feature parity analysis (348 lines) |
+| Engine source | `src/v1/engine/components/context/context_load.py` | Feature parity analysis (311 lines) |
 | Converter source | `src/converters/talend_to_v1/components/context/context_load.py` | Converter audit (107 lines) |
 | Test source | `tests/converters/talend_to_v1/components/test_context_load.py` | Test coverage analysis |
 | Base class | `src/v1/engine/base_component.py` | Cross-cutting bug analysis |
 | Context manager | `src/v1/engine/context_manager.py` | Context variable storage analysis |
-| METHODOLOGY.md | `docs/v1/standards/METHODOLOGY.md` | Scoring framework, edge-case checklist |
-| AUDIT_REPORT_TEMPLATE.md | `docs/v1/standards/AUDIT_REPORT_TEMPLATE.md` | Report structure |
+| Authoring patterns | `docs/v1/patterns/MANUAL_COMPONENT_AUTHORING.md` | Scoring framework, edge-case checklist (formerly `docs/v1/standards/METHODOLOGY.md` -- renamed in Phase 15) |
 
 ## Appendix B: Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
 | ------------- | ---------- | -------------------------- |
-| XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set -- ContextLoad's `_update_component_stats()` calls `_update_stats()` which triggers the crash, losing the `NB_CONTEXT_LOADED` stat. |
+| ~~XCUT-001~~ | ~~`base_component.py:304`~~ | ~~`_update_global_map()` crash when globalMap set -- ContextLoad's `_update_component_stats()` calls `_update_stats()` which triggers the crash, losing the `NB_CONTEXT_LOADED` stat.~~ [RESOLVED in Phase 7.1, 1f7ec81] |
 | XCUT-002 | `base_component.py:351` | `validate_schema` inverted nullable logic -- not directly applicable since ContextLoad uses hardcoded empty schema, but would affect any future schema validation. |
 | XCUT-003 | `base_component.py:267-278` | `_execute_streaming` drops reject DataFrames -- ContextLoad returns only `main` so no reject data lost, but streaming mode could lose stats. |
 
@@ -412,11 +412,11 @@ BUG-CL-001 is the cross-cutting `_update_global_map()` crash that affects ALL v1
 
 | Check | Result | Details |
 | ------- | -------- | --------- |
-| NaN handling | **FAIL** | `str(row['value'])` converts NaN to `"nan"` string (BUG-CL-002, BUG-CL-003) |
+| NaN handling | **PASS** | ~~`str(row['value'])` converts NaN to `"nan"` string (BUG-CL-002, BUG-CL-003)~~ [RESOLVED in Phase 9, 83b5243 -- `pd.isna()` used] |
 | Empty strings in config keys | PASS | `filepath=""` handled with explicit check and warning |
 | Empty DataFrame input (0 rows) | PASS | Returns `{'main': pd.DataFrame()}` without error |
 | HYBRID streaming mode | N/A | ContextLoad is not typically used in streaming mode |
-| `_update_global_map()` crash | **FAIL** | Cross-cutting P0 bug (BUG-CL-001) |
+| `_update_global_map()` crash | **PASS** | ~~Cross-cutting P0 bug (BUG-CL-001)~~ [RESOLVED in Phase 7.1, 1f7ec81] |
 | Type demotion through iterrows | **FAIL** | `iterrows()` may demote Decimal/datetime types during value processing |
 | `validate_schema` nullable logic | N/A | ContextLoad uses hardcoded empty schema |
 | `_validate_config()` called | PASS (N/A) | ContextLoad does not define `_validate_config()` |
@@ -425,3 +425,4 @@ BUG-CL-001 is the cross-cutting `_update_global_map()` crash that affects ALL v1
 
 *Report generated: 2026-04-03*
 *Last updated: 2026-04-03 after full rewrite per D-12*
+*Reconciled: 2026-05-11 -- D-C1 strike-throughs (BUG-CL-001 Phase 7.1, BUG-CL-002/003/PERF-CL-001 Phase 9), line count 348->311, Registry Aliases updated, broken refs fixed*
