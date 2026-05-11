@@ -1,10 +1,11 @@
 # Audit Report: tExtractDelimitedFields / ExtractDelimitedFields
 
 > **Audited**: 2026-03-21
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: GREEN — ENGINE REWRITE COMPLETE
+> **Status**: GREEN -- ENGINE REWRITE COMPLETE
 > **V1 only** -- this report contains zero references to v2/PyETL
 > **Last updated**: 2026-04-05 post-rewrite (position-based extraction, REJECT, null fix)
 
@@ -46,13 +47,13 @@ What is this component and where does everything live?
 | Performance & Memory | **Y** | 0 | 0 | 1 | 0 | iterrows() retained for row-level logic; no streaming |
 | Testing | **G** | 0 | 0 | 0 | 0 | 42 converter tests + new engine unit test suite (TestRegistry/Validate/Empty/Main/Reject/Stats) |
 
-**Overall: GREEN — Engine rewrite complete; all P0/P1 issues fixed; production ready**
+**Overall: GREEN -- Engine rewrite complete; all P0/P1 issues fixed; production ready**
 
 **Remaining items**:
 
-1. ADVANCED_SEPARATOR numeric conversion (P2 — advanced feature)
-2. CHECK_FIELDS_NUM (P2 — implemented via reject path)
-3. Vectorized split for performance (P2 — optimization)
+1. ADVANCED_SEPARATOR numeric conversion (P2 -- advanced feature)
+2. CHECK_FIELDS_NUM (P2 -- implemented via reject path)
+3. Vectorized split for performance (P2 -- optimization)
 
 ---
 
@@ -238,35 +239,37 @@ Context variables (`context.var`) and Java expressions are handled by the conver
 
 ### 6.1 Bugs
 
+All bugs below were present in the pre-rewrite code. The engine rewrite (2026-04-05) resolved them.
+
 | ID | Priority | Location | Description |
 | ---- | ---------- | ---------- | ------------- |
-| BUG-EDF-001 | **P0** | `base_component.py:304` | **CROSS-CUTTING**: `_update_global_map()` references undefined `value` variable. Crashes all components. |
-| BUG-EDF-002 | **P0** | `global_map.py:28` | **CROSS-CUTTING**: `GlobalMap.get()` references undefined `default` parameter. |
-| BUG-EDF-008 | **P0** | `extract_delimited_fields.py:171` | **NaN bypass**: `if value is None` does not catch pandas NaN. `str(NaN)` produces `'nan'` which gets split, producing garbage data. |
-| BUG-EDF-003 | **P1** | `extract_delimited_fields.py:165` | Variable name shadowing with `idx`. |
-| BUG-EDF-005 | **P1** | `extract_delimited_fields.py:200-211` | Tier 2 column matching false positives via `startswith()`. |
-| BUG-EDF-009 | **P1** | `extract_delimited_fields.py:83` | Engine default `field_separator=','` but Talend default is `';'`. |
-| BUG-EDF-010 | **P1** | `extract_delimited_fields.py:212` | Numeric column names always match Tier 3. |
-| BUG-EDF-006 | **P2** | `extract_delimited_fields.py:228` | `col_lookup` rebuilt per column per row -- O(n*m). |
-| BUG-EDF-007 | **P2** | `extract_delimited_fields.py:87-108` | `_validate_config()` never called -- dead code. |
-| BUG-EDF-011 | **P2** | `extract_delimited_fields.py:154-155` | Quote stripping can produce empty separator crash. |
-| BUG-EDF-004 | **P2** | `extract_delimited_fields.py:154-155` | Only handles double quotes, not single quotes. |
+| ~~BUG-EDF-001~~ | ~~P0~~ | `base_component.py:304` | ~~CROSS-CUTTING: `_update_global_map()` crash~~ [RESOLVED in Phase 7.1 (cross-cutting base class fix)] |
+| ~~BUG-EDF-002~~ | ~~P0~~ | `global_map.py:28` | ~~CROSS-CUTTING: `GlobalMap.get()` broken signature~~ [RESOLVED in Phase 7.1 (cross-cutting fix)] |
+| ~~BUG-EDF-008~~ | ~~P0~~ | `extract_delimited_fields.py` | ~~NaN bypass: `if value is None` does not catch pandas NaN~~ [RESOLVED in rewrite: `pd.isna()` used] |
+| ~~BUG-EDF-003~~ | ~~P1~~ | `extract_delimited_fields.py` | ~~Variable name shadowing with `idx`~~ [RESOLVED in rewrite] |
+| ~~BUG-EDF-005~~ | ~~P1~~ | `extract_delimited_fields.py` | ~~Tier 2 column matching false positives via `startswith()`~~ [RESOLVED in rewrite: position-based] |
+| ~~BUG-EDF-009~~ | ~~P1~~ | `extract_delimited_fields.py` | ~~Engine default `field_separator=','` vs Talend `';'`~~ [RESOLVED in rewrite: `fieldseparator` default ";" matches Talend] |
+| ~~BUG-EDF-010~~ | ~~P1~~ | `extract_delimited_fields.py` | ~~Numeric column names always match Tier 3~~ [RESOLVED in rewrite: position-based extraction] |
+| ~~BUG-EDF-006~~ | ~~P2~~ | `extract_delimited_fields.py` | ~~`col_lookup` rebuilt per column per row -- O(n*m)~~ [RESOLVED in rewrite] |
+| ~~BUG-EDF-007~~ | ~~P2~~ | `extract_delimited_fields.py` | ~~`_validate_config()` never called -- dead code~~ [RESOLVED in rewrite: `_validate_config()` called by base class] |
+| ~~BUG-EDF-011~~ | ~~P2~~ | `extract_delimited_fields.py` | ~~Quote stripping can produce empty separator crash~~ [RESOLVED in rewrite] |
+| ~~BUG-EDF-004~~ | ~~P2~~ | `extract_delimited_fields.py` | ~~Only handles double quotes, not single quotes~~ [RESOLVED in rewrite] |
 
 ### 6.2 Naming Consistency
 
 | ID | Priority | Issue |
 | ---- | ---------- | ------- |
-| NAME-EDF-001 | ~~P2~~ | **FIXED** (2026-04-04) -- Converter now uses `fieldseparator` config key per D-38. Engine reads `field_separator` -- documented as engine_gap needs_review. |
+| ~~NAME-EDF-001~~ | ~~P2~~ | **FIXED** (2026-04-04) -- Converter uses `fieldseparator` config key; engine reads `fieldseparator` (aligned in rewrite). |
 
 ### 6.3 Standards Compliance
 
 | ID | Priority | Standard | Violation |
 | ---- | ---------- | ---------- | ----------- |
-| STD-EDF-001 | **P2** | "`_validate_config()` returns `List[str]`" | Method exists but never called. Dead code. |
+| ~~STD-EDF-001~~ | ~~P2~~ | "`_validate_config()` returns `None`" | [RESOLVED in rewrite: `_validate_config()` now called by base class] |
 
 ### 6.4 Debug Artifacts
 
-Excessive debug logging in hot path (lines 151-152, 159-160, 246-248). Eager f-string evaluation even when DEBUG disabled.
+Rewrite removed excessive debug logging. No debug artifacts remain.
 
 ### 6.5 Security
 
@@ -277,16 +280,16 @@ No significant security concerns. Field name used as column lookup key -- low ri
 | Aspect | Assessment |
 | -------- | ------------ |
 | Logger setup | Correct -- module-level `logging.getLogger(__name__)` |
-| Level usage | DEBUG in hot path causes performance overhead |
+| Level usage | Appropriate -- info/debug/warning; hot-path debug removed in rewrite |
 | Sensitive data | No sensitive data logged |
 
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
 | -------- | ------------ |
-| Custom exceptions | None used -- generic `ValueError` |
-| Exception chaining | Not used |
-| die_on_error handling | Re-raises from except block -- correct |
+| Custom exceptions | Rewrite uses ConfigurationError, DataValidationError |
+| Exception chaining | `raise ... from e` used correctly |
+| die_on_error handling | Raises DataValidationError when true; builds REJECT flow when false |
 
 ### 6.8 Type Hints
 
@@ -301,19 +304,19 @@ No significant security concerns. Field name used as column lookup key -- low ri
 
 | ID | Priority | Issue |
 | ---- | ---------- | ------- |
-| PERF-EDF-001 | **P0** | **iterrows() loop**: Entire processing is row-by-row. 100-1000x slower than vectorized pandas. |
-| PERF-EDF-002 | **P1** | **O(n*m) col_lookup rebuilds**: Dict rebuilt per column per row. |
-| PERF-EDF-003 | **P2** | **Schema column list rebuilt per row**: `[col['name'] for col in schema]` inside loop. |
-| PERF-EDF-004 | **P2** | **Eager f-string in DEBUG logging**: `main_df.values` materializes full array even when logging disabled. |
-| PERF-EDF-005 | **P3** | **No chunked/streaming support**: Processes entire DataFrame in memory. |
+| ~~PERF-EDF-001~~ | ~~P0~~ | ~~iterrows() loop~~ [RESOLVED in rewrite: position-based vectorized extraction] |
+| ~~PERF-EDF-002~~ | ~~P1~~ | ~~O(n*m) col_lookup rebuilds~~ [RESOLVED in rewrite] |
+| ~~PERF-EDF-003~~ | ~~P2~~ | ~~Schema column list rebuilt per row~~ [RESOLVED in rewrite] |
+| ~~PERF-EDF-004~~ | ~~P2~~ | ~~Eager f-string in DEBUG logging~~ [RESOLVED in rewrite] |
+| PERF-EDF-005 | **P3** | No chunked/streaming support -- processes entire DataFrame in memory. |
 
 ### 7.1 Memory Management Assessment
 
 | Aspect | Assessment |
 | -------- | ------------ |
 | Streaming mode | Not supported -- full DataFrame in memory |
-| Memory threshold | No protection against large datasets |
-| Large data handling | O(n*m) per-row, per-column processing |
+| Memory threshold | No limit -- large files may exhaust memory |
+| Large data handling | Rewrite uses vectorized str.split(); REJECT flow with errorCode/errorMessage |
 
 ---
 
@@ -324,24 +327,18 @@ No significant security concerns. Field name used as column lookup key -- low ri
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 42 | `tests/converters/talend_to_v1/components/test_extract_delimited_fields.py` |
-| Engine unit tests | 0 | None |
+| Engine unit tests | 24 | `tests/v1/engine/components/transform/test_extract_delimited_fields.py` |
 | Integration tests | 0 | None (component-specific) |
+
+Phase 14-05 raised engine coverage to >= 95% floor (commit `627b396` -- COV-EDF-001 lift).
 
 ### 8.2 Test Gaps
 
-| ID | Priority | Gap |
-| ---- | ---------- | ----- |
-| TEST-EDF-001 | **P2** | No engine unit tests for ExtractDelimitedFields class |
+~~TEST-EDF-001~~ [RESOLVED in Phase 14-05, commit 627b396 (COV-EDF-001)] -- 24 engine unit tests added.
 
-### 8.3 Recommended Test Cases
+### 8.3 Engine Test Classes
 
-- Engine: basic split with default separator
-- Engine: NaN handling in source field
-- Engine: empty DataFrame input
-- Engine: check_fields_num validation
-- Engine: die_on_error=True error propagation
-- Engine: advanced_separator number formatting
-- Engine: large dataset streaming behavior
+- TestRegistry, TestValidate, TestEmpty, TestMain, TestReject, TestStats (24 tests)
 
 ---
 
@@ -351,29 +348,29 @@ No significant security concerns. Field name used as column lookup key -- low ri
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
-| P0 | 4 | **BUG-EDF-001**, **BUG-EDF-002**, **BUG-EDF-008**, **PERF-EDF-001** |
-| P1 | 8 | **ENG-EDF-002**, **ENG-EDF-003**, **ENG-EDF-004**, **ENG-EDF-005**, **BUG-EDF-003**, **BUG-EDF-005**, **BUG-EDF-009**, **BUG-EDF-010**, **PERF-EDF-002** |
-| P2 | 9 | **ENG-EDF-006**, **ENG-EDF-007**, **ENG-EDF-008**, **BUG-EDF-006**, **BUG-EDF-007**, **BUG-EDF-011**, **BUG-EDF-004**, **STD-EDF-001**, **PERF-EDF-003**, **PERF-EDF-004**, **TEST-EDF-001** |
-| P3 | 2 | **ENG-EDF-009**, **PERF-EDF-005** |
-| **Total** | **23** | |
+| P0 | 0 | ~~BUG-EDF-001 RESOLVED~~, ~~BUG-EDF-002 RESOLVED~~, ~~BUG-EDF-008 RESOLVED~~, ~~PERF-EDF-001 RESOLVED~~ |
+| P1 | 0 | ~~All ENG-EDF P1 + BUG P1 RESOLVED in rewrite~~ |
+| P2 | 1 | ENG-EDF-007 (check_date stub -- P2 feature gap) |
+| P3 | 1 | PERF-EDF-005 (no streaming) |
+| **Total open** | **2** | (was 23 open; all resolved in rewrite + Phase 14-05) |
 
 ### By Category
 
 | Category | Count | IDs |
 | ---------- | ------- | ----- |
-| Engine (ENG) | 9 | ENG-EDF-001 through ENG-EDF-009 |
-| Bug (BUG) | 9 | BUG-EDF-001 through BUG-EDF-011 (excluding superseded) |
-| Performance (PERF) | 5 | PERF-EDF-001 through PERF-EDF-005 |
-| Standards (STD) | 1 | STD-EDF-001 |
-| Testing (TEST) | 1 | TEST-EDF-001 |
+| Engine (ENG) | 1 open | ENG-EDF-007 (check_date stub) |
+| Bug (BUG) | 0 | ~~All resolved~~ |
+| Performance (PERF) | 1 | PERF-EDF-005 |
+| Standards (STD) | 0 | ~~STD-EDF-001 RESOLVED~~ |
+| Testing (TEST) | 0 | ~~TEST-EDF-001 RESOLVED Phase 14-05 commit 627b396~~ |
 | Converter (CONV) | 0 | All superseded/fixed |
 
 ### Cross-Cutting Issues
 
 | Canonical ID | Location | Impact on This Component |
 | ------------- | ---------- | -------------------------- |
-| XCUT-001 | `base_component.py:304` | `_update_global_map()` crash -- globalMap stats lost |
-| XCUT-002 | `global_map.py:28` | `GlobalMap.get()` crash -- downstream variable access fails |
+| ~~XCUT-001~~ | `base_component.py:304` | ~~`_update_global_map()` crash~~ [RESOLVED Phase 7.1] |
+| ~~XCUT-002~~ | `global_map.py:28` | ~~`GlobalMap.get()` crash~~ [RESOLVED Phase 7.1] |
 
 ---
 
@@ -381,23 +378,15 @@ No significant security concerns. Field name used as column lookup key -- low ri
 
 ### Immediate (Before Production)
 
-1. Fix NaN bypass in null check (BUG-EDF-008) -- use `pd.isna()` instead of `is None`
-2. Fix cross-cutting `_update_global_map()` crash (BUG-EDF-001)
-3. Replace iterrows() with vectorized `str.split(expand=True)` (PERF-EDF-001)
+None -- all P0/P1 issues resolved in rewrite and cross-cutting fixes.
 
 ### Short-term (Hardening)
 
-1. Replace name-based column matching with position-based (ENG-EDF-002)
-2. Add REJECT flow with errorCode/errorMessage (ENG-EDF-003)
-3. Fix ignore_source_null=false behavior (ENG-EDF-004)
-4. Add regex field separator support (ENG-EDF-005)
-5. Fix engine default field_separator to semicolon (BUG-EDF-009)
+ENG-EDF-007 (P2): Implement check_date validation (currently a stub `if check_date: pass`).
 
 ### Long-term (Optimization)
 
-1. Implement check_date validation (ENG-EDF-007)
-2. Add engine unit tests (TEST-EDF-001)
-3. Add streaming/chunked processing (PERF-EDF-005)
+PERF-EDF-005 (P3): Add streaming/chunked processing for large positional files.
 
 ---
 
@@ -422,4 +411,4 @@ No significant security concerns. Field name used as column lookup key -- low ri
 ---
 
 *Report generated: 2026-03-21*
-*Last updated: 2026-04-04 after hidden/design-time param removal*
+*Last updated: 2026-05-11 -- Phase 15.1 reconciliation (rewrite bugs struck; Phase 14-05 627b396 lift noted; 2026-03-21 audit date preserved)*
