@@ -1,10 +1,11 @@
 # Audit Report: tFileInputFullRow / FileInputFullRowComponent
 
 > **Audited**: 2026-04-03 | **Updated**: 2026-04-04 (refactor complete)
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Sonnet 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: GREEN — ALL ISSUES RESOLVED
+> **Status**: GREEN -- ALL ISSUES RESOLVED
 > **V1 only** -- this report is scoped to the v1 engine exclusively
 
 ---
@@ -45,7 +46,7 @@
 | Performance & Memory | **G** | 0 | 0 | 0 | 0 | Whole-file read appropriate for component semantics; `pd.DataFrame({col: lines})` is optimal for single-column output |
 | Testing | **G** | 0 | 0 | 0 | 0 | 48 converter tests + 42 engine tests; all PASS; full coverage of registration, validation, reading, header/footer, empty-row, limit, random, stats, edge cases |
 
-**Overall: GREEN — All issues resolved. Component is production-ready.**
+**Overall: GREEN -- All issues resolved. Component is production-ready.**
 
 **Fixes Applied:**
 
@@ -53,7 +54,7 @@
 2. All P0/P1/P2/P3 engine bugs fixed
 3. All engine feature gaps (header_rows, footer_rows, random, nb_random) implemented
 4. Converter engine_gap `needs_review` entries removed
-5. 42 engine unit tests added — all passing
+5. 42 engine unit tests added -- all passing
 
 ---
 
@@ -151,7 +152,7 @@ DIE_ON_ERROR is NOT listed in the tFileInputFullRow _java.xml definition. Howeve
 
 ### 4.4 Engine Gap needs_review Entries
 
-None — engine now implements all parameters. The 4 engine_gap entries (header_rows, footer_rows, random, nb_random) were removed from the converter after the engine rewrite.
+None -- engine now implements all parameters. The 4 engine_gap entries (header_rows, footer_rows, random, nb_random) were removed from the converter after the engine rewrite.
 
 ### 4.5 Converter Issues
 
@@ -179,20 +180,20 @@ The engine reads a file line-by-line using configurable encoding and row separat
 
 ### 5.2 Engine Default Mismatches
 
-None — all defaults now match Talend `_java.xml` source of truth.
+None -- all defaults now match Talend `_java.xml` source of truth.
 
 ### 5.3 Engine Processing Flow
 
 1. Extract all config values with correct Talend-parity defaults
 2. Guard: raise `ConfigurationError` if `filename` is empty after resolution
-3. Decode `row_separator` escape sequences via `_ESCAPE_MAP` (`\\n`→`\n`, `\\r`→`\r`, `\\t`→`\t`)
-4. Parse `limit`: `""` and `"0"` → unlimited; non-numeric → `ConfigurationError`
+3. Decode `row_separator` escape sequences via `_ESCAPE_MAP` (`\\n`->`\n`, `\\r`->`\r`, `\\t`->`\t`)
+4. Parse `limit`: `""` and `"0"` -> unlimited; non-numeric -> `ConfigurationError`
 5. Open file with `newline=""` to preserve raw content
-6. Normalize `\r\n`→`\n` and `\r`→`\n` only when separator is `\n`
+6. Normalize `\r\n`->`\n` and `\r`->`\n` only when separator is `\n`
 7. Split content on `row_separator`; record `total_read`
 8. Slice `lines[header_rows:]` for header skipping
 9. Slice `lines[:-footer_rows]` for footer skipping
-10. Filter `ln != ""` if `remove_empty_row` (strictly empty only — Talend parity)
+10. Filter `ln != ""` if `remove_empty_row` (strictly empty only -- Talend parity)
 11. Apply `random.sample(lines, nb_random)` or `lines[:limit]`
 12. Determine column name from `output_schema[0]["name"]` or default `"line"`
 13. Build `pd.DataFrame({col_name: lines})`
@@ -204,10 +205,10 @@ None — all defaults now match Talend `_java.xml` source of truth.
 
 | ID | Priority | Status | Description |
 | ---- | ---------- | -------- | ------------- |
-| ENG-FIFR-001 | P1 | **FIXED** | Header row skipping — implemented via `lines[header_rows:]` |
-| ENG-FIFR-002 | P1 | **FIXED** | Footer row skipping — implemented via `lines[:-footer_rows]` |
-| ENG-FIFR-003 | P1 | **FIXED** | Random line extraction — implemented via `random.sample(lines, nb_random)` |
-| ENG-FIFR-004 | P1 | **N/A** | REJECT flow — confirmed NOT a Talend feature for this component (no REJECT connector in `_java.xml`) |
+| ENG-FIFR-001 | P1 | **FIXED** | Header row skipping -- implemented via `lines[header_rows:]` |
+| ENG-FIFR-002 | P1 | **FIXED** | Footer row skipping -- implemented via `lines[:-footer_rows]` |
+| ENG-FIFR-003 | P1 | **FIXED** | Random line extraction -- implemented via `random.sample(lines, nb_random)` |
+| ENG-FIFR-004 | P1 | **N/A** | REJECT flow -- confirmed NOT a Talend feature for this component (no REJECT connector in `_java.xml`) |
 | ENG-FIFR-005 | P2 | **FIXED** | Encoding default corrected to `"ISO-8859-15"` |
 | ENG-FIFR-006 | P2 | **FIXED** | `remove_empty_row` default corrected to `True` |
 
@@ -217,13 +218,13 @@ None — all defaults now match Talend `_java.xml` source of truth.
 
 | ID | Priority | Status | Description |
 | ---- | ---------- | -------- | ------------- |
-| BUG-FIFR-001 | P0 | **FIXED** | `_update_global_map()` crash — fixed in base class Phase 1 |
-| BUG-FIFR-002 | P1 | **FIXED** | `unicode_escape` crash risk — replaced with safe `_ESCAPE_MAP` dict substitution |
-| BUG-FIFR-003 | P1 | **FIXED** | `strip()` filtering whitespace-only lines — replaced with `ln != ""` (Talend parity) |
-| BUG-FIFR-004 | P2 | **FIXED** | Dead `validate_config()` wrapper — removed entirely |
-| BUG-FIFR-005 | P2 | **FIXED** | Dual validation methods — only `_validate_config()` remains, standards-compliant |
-| BUG-FIFR-006 | P2 | **FIXED** | `limit=0` read zero rows — `"0"` and `""` now both treated as unlimited |
-| BUG-FIFR-007 | P3 | **FIXED** | Hardcoded `"line"` column name — now reads from `output_schema[0]["name"]` |
+| BUG-FIFR-001 | P0 | **FIXED** | `_update_global_map()` crash -- fixed in base class Phase 1 |
+| BUG-FIFR-002 | P1 | **FIXED** | `unicode_escape` crash risk -- replaced with safe `_ESCAPE_MAP` dict substitution |
+| BUG-FIFR-003 | P1 | **FIXED** | `strip()` filtering whitespace-only lines -- replaced with `ln != ""` (Talend parity) |
+| BUG-FIFR-004 | P2 | **FIXED** | Dead `validate_config()` wrapper -- removed entirely |
+| BUG-FIFR-005 | P2 | **FIXED** | Dual validation methods -- only `_validate_config()` remains, standards-compliant |
+| BUG-FIFR-006 | P2 | **FIXED** | `limit=0` read zero rows -- `"0"` and `""` now both treated as unlimited |
+| BUG-FIFR-007 | P3 | **FIXED** | Hardcoded `"line"` column name -- now reads from `output_schema[0]["name"]` |
 
 ---
 
@@ -277,13 +278,13 @@ None — all defaults now match Talend `_java.xml` source of truth.
 
 ### 9.4 Testing Issues
 
-None — all testing issues resolved.
+None -- all testing issues resolved.
 
 ---
 
 ## 10. Recommendations
 
-No outstanding actions — all P0/P1/P2/P3 issues resolved. Component is production-ready.
+No outstanding actions -- all P0/P1/P2/P3 issues resolved. Component is production-ready.
 3. Fix limit=0 semantic to match Talend (0 = unlimited)
 4. Respect schema-defined column name instead of hardcoded 'line'
 5. Wire `_validate_config()` into base class lifecycle or remove dead code
