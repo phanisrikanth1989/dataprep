@@ -1,6 +1,7 @@
 # Audit Report: tChangeFileEncoding / ChangeFileEncoding
 
 > **Audited**: 2026-04-04 | **Updated**: 2026-05-02 (engine implemented -- all P0 issues resolved)
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -348,9 +349,9 @@ No long-term items identified.
 | Talaxie GitHub _java.xml | `<https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tChangeFileEncoding/tChangeFileEncoding_java.xml`> | Component definition, parameter defaults |
 | Converter source | `src/converters/talend_to_v1/components/transform/change_file_encoding.py` | Converter audit |
 | Converter tests | `tests/converters/talend_to_v1/components/test_change_file_encoding.py` | Test coverage assessment |
-| CONVERTER_PATTERN.md | `docs/v1/standards/CONVERTER_PATTERN.md` | Gold standard converter structure |
-| TEST_PATTERN.md | `docs/v1/standards/TEST_PATTERN.md` | Gold standard test structure |
-| METHODOLOGY.md | `docs/v1/standards/METHODOLOGY.md` | Scoring framework |
+| CONVERTER_PATTERN.md | `docs/v1/patterns/CONVERTER_PATTERN.md` | Gold standard converter structure |
+| TEST_PATTERN.md | `docs/v1/patterns/TEST_PATTERN.md` | Gold standard test structure |
+| METHODOLOGY.md | `docs/v1/audit/METHODOLOGY.md` | Scoring framework |
 
 ## Appendix B: Cross-Cutting Issues
 
@@ -361,4 +362,4 @@ No long-term items identified.
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after v1.1 Phase 13 full standardization (NEW audit created)*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation. Refs repaired: standards/ -> patterns/ and audit/METHODOLOGY.md.*
