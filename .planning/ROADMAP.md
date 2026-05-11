@@ -31,7 +31,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 13: Test Stabilization & Bridge JAR Rebuild** (RESCOPED) - Clear inherited failing tests, rebuild Java bridge JAR to match Python contract, lock per-module coverage baseline before coverage push (completed 2026-05-10)
 - [x] **Phase 14: Coverage Push to 95% per-module floor** (NEW) - Every module under src/v1/engine and src/converters at >=95% line-coverage floor; paste-runnable gate command in CLAUDE.md and 14-COVERAGE.md verifies the floor (operational CI deferred to a future phase per D-E1) (completed 2026-05-11)
 - [x] **Phase 15: Documentation Sweep** (SWAPPED with old Phase 15, 2026-05-11) - Nuke 22 top-level docs/ files, write 4 canonical docs (ARCHITECTURE / COMPONENT_REFERENCE / CONTRIBUTING / DEPLOYMENT) + root README, deep-review 11 docs/v1/standards-zone files, rename folder to docs/v1/patterns/ (completed 2026-05-11)
-- [ ] **Phase 15.1: Documentation Audit Reconciliation** (NEW, 2026-05-11) - Reconcile 89 files in docs/v1/audit/ against current code; stale claims marked resolved with phase ref
+- [x] **Phase 15.1: Documentation Audit Reconciliation** (NEW, 2026-05-11) - Reconcile 89 files in docs/v1/audit/ against current code; stale claims marked resolved with phase ref (completed 2026-05-11)
 - [ ] **Phase 16: Integration Testing & Performance (Manager)** (SWAPPED with old Phase 16, 2026-05-11) - Manager-led; real Talend job end-to-end runs + output diffs + tMap/tFilterRow perf refactor
 
 ## Phase Details
@@ -427,16 +427,16 @@ Plans:
 **Completed**: 2026-05-11 | **SUMMARY**: 15-PHASE-SUMMARY.md
 **Scope excludes** (locked 2026-05-11): CLAUDE.md; .planning/; .claude/; .gemini/; tests/fixtures/jobs/README.md (tooling-adjacent, stays); CI/lint automation (deferred); docs/v1/audit/ (Phase 15.1).
 
-### Phase 15.1: Documentation Audit Reconciliation
+### Phase 15.1: Documentation Audit Reconciliation (Complete 2026-05-11)
 **Goal**: Every per-component audit file in docs/v1/audit/components/ reflects the actual current state of the corresponding converter + engine code; cross-cutting summary documents match the post-Phase-14 reality
 **Depends on**: Phase 14, Phase 15
-**Requirements**: DOCS-03 (new -- to be added during discuss-phase)
+**Requirements**: DOCS-03 (Complete)
 **Success Criteria** (what must be TRUE):
-  1. All 86 docs/v1/audit/components/**.md files reconciled against current src/v1/engine/components/ and src/converters/talend_to_v1/components/; stale issues marked resolved with phase reference; net-new issues captured as fresh findings
-  2. docs/v1/audit/CROSS_CUTTING_ISSUES.md reflects post-Phase-14 state (the ~200-250 cross-cutting issues closed by Phases 1-14 are marked resolved)
-  3. docs/v1/audit/SUMMARY_SCORECARD.md regenerated against current code (status, coverage, registered/abstract-method correctness per component)
-  4. docs/v1/audit/METHODOLOGY.md updated or confirmed as still accurate
-**Plans**: 12 plans
+  1. All 86 docs/v1/audit/components/**.md files reconciled against current src/v1/engine/components/ and src/converters/talend_to_v1/components/; stale issues marked resolved with phase reference; net-new issues captured as fresh findings -- DONE (66 shipped + 20 non-shipped untouched per D-A5)
+  2. docs/v1/audit/CROSS_CUTTING_ISSUES.md reflects post-Phase-14 state (the ~200-250 cross-cutting issues closed by Phases 1-14 are marked resolved) -- DONE (28 struck, 14 STILL LIVE)
+  3. docs/v1/audit/SUMMARY_SCORECARD.md regenerated against current code (status, coverage, registered/abstract-method correctness per component) -- DONE (67 shipped / 20 non-shipped; 36G/29Y/2R)
+  4. docs/v1/audit/METHODOLOGY.md updated or confirmed as still accurate -- DONE (regenerated with Talaxie-diff 8-step workflow)
+**Plans**: 12 plans (12/12 complete)
 - [x] 15.1-01-PLAN.md -- aggregate + context + iterate + database (7 docs)
 - [x] 15.1-02-PLAN.md -- file/ housekeeping (10 docs)
 - [x] 15.1-03-PLAN.md -- file/ delimited+positional+excel+raw+JSON (8 docs)
@@ -448,7 +448,8 @@ Plans:
 - [x] 15.1-09-PLAN.md -- cross-cutting regeneration: SUMMARY_SCORECARD.md
 - [x] 15.1-10-PLAN.md -- cross-cutting regeneration: CROSS_CUTTING_ISSUES.md
 - [x] 15.1-11-PLAN.md -- cross-cutting regeneration: METHODOLOGY.md
-- [ ] 15.1-12-PLAN.md -- closeout (autonomous: false per D-E6)
+- [x] 15.1-12-PLAN.md -- closeout (autonomous: false per D-E6)
+**Completed**: 2026-05-11 | **SUMMARY**: 15.1-PHASE-SUMMARY.md
 
 ### Phase 16: Integration Testing & Performance
 **Goal**: Real Talend jobs converted from .item XML run end-to-end through the Python engine and produce identical output to Talend, with acceptable performance for production workloads
@@ -486,5 +487,5 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 13. Test Stabilization & Bridge JAR Rebuild | 10/9 | Complete   | 2026-05-10 |
 | 14. Coverage Push to 95% per-module floor | 12/12 | Complete   | 2026-05-11 |
 | 15. Documentation Sweep | 11/1 | Complete   | 2026-05-11 |
-| 15.1. Documentation Audit Reconciliation | 11/13 | In Progress|  |
+| 15.1. Documentation Audit Reconciliation | 12/12 | Complete | 2026-05-11 |
 | 16. Integration Testing & Performance (Manager) | 0/TBD | Not started | - |
