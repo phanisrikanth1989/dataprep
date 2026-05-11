@@ -1,7 +1,8 @@
 # Audit Report: tFileRowCount / FileRowCount
 
 > **Audited**: 2026-04-04
-> **Revised**: 2026-05-01 (engine rewrite — all engine violations fixed)
+> **Revised**: 2026-05-01 (engine rewrite -- all engine violations fixed)
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -52,8 +53,8 @@
 
 1. ~~Fix `_update_global_map()` crash in base class (P0, cross-cutting)~~ **RESOLVED** (base class fixed)
 2. ~~Implement `row_separator` support in engine (P1, engine gap)~~ **RESOLVED** (2026-05-01)
-3. ~~Add `die_on_error` handling in engine (P1, engine gap)~~ **RESOLVED** (phantom param — DIE_ON_ERROR not in _java.xml)
-4. ~~Add `{id}_ERROR_MESSAGE` globalMap variable in engine (P1, engine gap)~~ **RESOLVED** (not applicable — die_on_error is phantom)
+3. ~~Add `die_on_error` handling in engine (P1, engine gap)~~ **RESOLVED** (phantom param -- DIE_ON_ERROR not in _java.xml)
+4. ~~Add `{id}_ERROR_MESSAGE` globalMap variable in engine (P1, engine gap)~~ **RESOLVED** (not applicable -- die_on_error is phantom)
 5. ~~Add engine unit tests for FileRowCount (P2, testing gap)~~ **RESOLVED** (42 tests added 2026-05-01)
 
 ---
@@ -180,7 +181,7 @@ Utility component -- no data flow schema. Schema is `{"input": [], "output": []}
 | 5 | GlobalMap variables | **Yes** | High | `_process()` lines 113-117 | COUNT, NB_LINE, NB_LINE_OK, NB_LINE_REJECT all set |
 | 6 | Row separator | **Yes** | High | `_count_rows()` helper | Both common (`\n`,`\r`,`\r\n`) and custom separators supported via `_ESCAPE_MAP` normalisation |
 | 7 | Die on error | **N/A** | N/A | -- | DIE_ON_ERROR is a phantom parameter not present in `tFileRowCount_java.xml` |
-| 8 | ERROR_MESSAGE globalMap | **N/A** | N/A | -- | Not applicable — die_on_error is phantom for this component |
+| 8 | ERROR_MESSAGE globalMap | **N/A** | N/A | -- | Not applicable -- die_on_error is phantom for this component |
 
 ### 5.2 Behavioral Differences from Talend
 
@@ -201,7 +202,7 @@ Utility component -- no data flow schema. Schema is `{"input": [], "output": []}
 | `{id}_NB_LINE` | Yes | **Yes** | `_process()` line 114 | Total rows read from file (rows_in) |
 | `{id}_NB_LINE_OK` | Yes | **Yes** | `_process()` line 115 | Rows included in count (rows_out) |
 | `{id}_NB_LINE_REJECT` | Yes | **Yes** | `_process()` line 116 | Empty rows excluded (rows_rejected) |
-| `{id}_ERROR_MESSAGE` | N/A | N/A | -- | Not applicable — die_on_error is phantom for this component |
+| `{id}_ERROR_MESSAGE` | N/A | N/A | -- | Not applicable -- die_on_error is phantom for this component |
 
 ---
 
@@ -330,7 +331,7 @@ SEC-FRC-001 (P3): No path traversal protection on `filename`. Not a concern for 
 | P0 | 0 | ~~BUG-FRC-001~~ (resolved) |
 | P1 | 0 | ~~ENG-FRC-001, ENG-FRC-002, ENG-FRC-003, BUG-FRC-003, BUG-FRC-004, BUG-FRC-006~~ (all resolved) |
 | P2 | 0 | ~~ENG-FRC-005, BUG-FRC-007, BUG-FRC-010, BUG-FRC-011, BUG-FRC-002, NAME-FRC-001, NAME-FRC-002, TEST-FRC-001~~ (all resolved) |
-| P3 | 3 | **PERF-FRC-001** (custom separator memory), **PERF-FRC-002** (see §5.2), **SEC-FRC-001** (path traversal) |
+| P3 | 3 | **PERF-FRC-001** (custom separator memory), **PERF-FRC-002** (see Section 5.2), **SEC-FRC-001** (path traversal) |
 | **Total** | **3** | |
 
 ### By Category
@@ -389,4 +390,4 @@ None -- all P0/P1/P2 issues resolved as of 2026-05-01.
 ---
 
 *Report generated: 2026-03-21*
-*Last updated: 2026-04-04 after gold-standard rewrite (Phase 10, Plan 07)*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation*
