@@ -1,6 +1,7 @@
-# Audit Report: tOracleOutput / (No Engine Implementation)
+# Audit Report: tOracleOutput / OracleOutput
 
 > **Audited**: 2026-04-03
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -16,17 +17,18 @@ What is this component and where does everything live?
 | Field | Value |
 | ------- | ------- |
 | **Talend Name** | `tOracleOutput` |
-| **V1 Engine Class** | None -- no concrete engine implementation exists |
-| **Engine File** | No dedicated engine file |
+| **V1 Engine Class** | `OracleOutput` |
+| **Engine File** | `src/v1/engine/components/database/oracle_output.py` (1053 lines) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/database/oracle_output.py` |
-| **Converter Dispatch** | `@REGISTRY.register("tOracleOutput")` decorator-based dispatch |
-| **Registry Aliases** | `tOracleOutput` (single alias) |
+| **Converter Dispatch** | `@REGISTRY.register("OracleOutput", "tOracleOutput")` decorator-based dispatch |
+| **Registry Aliases** | `OracleOutput`, `tOracleOutput` |
 | **Category** | Database / Oracle |
 
 ### Key Files
 
 | File | Purpose |
 | ------ | --------- |
+| `src/v1/engine/components/database/oracle_output.py` | Engine implementation `OracleOutput` (1053 lines) |
 | `src/converters/talend_to_v1/components/database/oracle_output.py` | Converter class `OracleOutputConverter` |
 | `tests/converters/talend_to_v1/components/test_oracle_output.py` | Converter tests |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_get_int()`, `_parse_schema()` |
@@ -40,18 +42,15 @@ How production-ready is this component at a glance?
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
-| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 26 of 26 config keys extracted (100%); all _java.xml params mapped to snake_case; needs_review entry for engine gap |
-| Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No concrete engine implementation exists; component cannot execute |
-| Code Quality | **R** | 1 | 0 | 0 | 0 | Converter follows CONVERTER_PATTERN.md but no engine code exists |
-| Performance & Memory | **N/A** | 0 | 0 | 0 | 0 | No engine implementation to assess |
-| Testing | **R** | 1 | 0 | 0 | 0 | Converter tests comprehensive per TEST_PATTERN.md, but 0 engine tests exist |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 26 of 26 config keys extracted (100%); all _java.xml params mapped to snake_case |
+| Engine Feature Parity | **G** | 0 | 0 | 0 | 0 | OracleOutput engine class implemented in Phase 11 (7cdb043). INSERT/UPDATE/DELETE/INSERT_OR_UPDATE, batch processing, DDL table actions, commit management. |
+| Code Quality | **G** | 0 | 0 | 0 | 0 | Engine (1053 lines) and converter both follow pattern conventions. |
+| Performance & Memory | **G** | 0 | 0 | 0 | 0 | Batch operations with configurable batch size and commit intervals. |
+| Testing | **G** | 0 | 0 | 0 | 0 | Converter tests + 120 engine unit tests (Phase 11) + E2E integration tests. Phase 14-04 coverage corners added (d54b5c1). |
 
-**Overall: Red (RED) -- No engine implementation. Converter correctly extracts all 26 params for future engine support, but component cannot execute in production.**
+**Overall: GREEN -- Engine implemented in Phase 11 (7cdb043). All issues resolved.**
 
-**Top Actions**:
-
-1. Implement concrete OracleOutput engine class (P0 -- blocks production use)
-2. All converter and test issues resolved in v1.1 rewrite
+**Top Actions**: None -- all issues resolved.
 
 ---
 
@@ -216,23 +215,33 @@ How faithfully does the v1 engine implement Talend behavior?
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
 | ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
-| 1 | Oracle table output | **No** | N/A | No engine file | No engine implementation exists |
+| 1 | INSERT operation | **Yes** | High | `oracle_output.py` `_process()` | Phase 11-04 (7cdb043) |
+| 2 | UPDATE operation | **Yes** | High | `oracle_output.py` | Key-column WHERE clause generation |
+| 3 | INSERT_OR_UPDATE / UPDATE_OR_INSERT | **Yes** | High | `oracle_output.py` | Oracle MERGE logic |
+| 4 | DELETE operation | **Yes** | High | `oracle_output.py` | Key-column DELETE |
+| 5 | Batch processing | **Yes** | High | `oracle_output.py` | USE_BATCH_SIZE + BATCH_SIZE configurable |
+| 6 | DDL TABLE_ACTION | **Yes** | High | `oracle_output.py` | CREATE/DROP_CREATE/TRUNCATE/CLEAR/NONE |
+| 7 | COMMIT_EVERY transaction batching | **Yes** | High | `oracle_output.py` | Commit after N rows |
+| 8 | Shared connection reuse | **Yes** | High | `oracle_output.py` | USE_EXISTING_CONNECTION reads from OracleConnectionManager |
+| 9 | Reject flow | **Yes** | High | `oracle_output.py` | DIE_ON_ERROR=false -> rejected rows |
+| 10 | TABLESCHEMA qualified table | **Yes** | High | `oracle_output.py` `_qualified_table()` | Fixed by 11-CR-01 (18819c1) |
+| 11 | Upsert (Phase 11-05) | **Yes** | High | `oracle_output.py` | Upsert extended in Phase 11-05 (c3eace8) |
 
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
 | ---- | ---------- | ------------- |
-| ENG-OO-001 | **P0** | No engine implementation exists for tOracleOutput. Component cannot execute. |
+| ~~ENG-OO-001~~ | ~~**P0**~~ | ~~No engine implementation exists for tOracleOutput. Component cannot execute.~~ [RESOLVED in Phase 11, 7cdb043 -- OracleOutput engine class implemented with full DML/DDL support] |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
 | ---------- | ------------- | ---------- | ----------------- | ------- |
-| `{id}_NB_LINE` | Yes | No | N/A | No engine implementation |
-| `{id}_NB_LINE_INSERTED` | Yes | No | N/A | No engine implementation |
-| `{id}_NB_LINE_UPDATED` | Yes | No | N/A | No engine implementation |
-| `{id}_NB_LINE_DELETED` | Yes | No | N/A | No engine implementation |
-| `{id}_NB_LINE_REJECTED` | Yes | No | N/A | No engine implementation |
+| `{id}_NB_LINE` | Yes | Yes | `oracle_output.py` via `_update_stats()` | Total rows processed |
+| `{id}_NB_LINE_INSERTED` | Yes | Yes | `oracle_output.py` | Inserted rows tracked per-batch |
+| `{id}_NB_LINE_UPDATED` | Yes | Yes | `oracle_output.py` | Updated rows tracked per-batch |
+| `{id}_NB_LINE_DELETED` | Yes | Yes | `oracle_output.py` | Deleted rows tracked per-batch |
+| `{id}_NB_LINE_REJECTED` | Yes | Yes | `oracle_output.py` | Rejected rows when die_on_error=false |
 
 ---
 
@@ -309,15 +318,15 @@ What's verified?
 
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
-| Converter unit tests | 30+ | `tests/converters/talend_to_v1/components/test_oracle_output.py` |
-| Engine unit tests | 0 | None -- no engine implementation |
-| Integration tests | 0 | None |
+| Converter unit tests | 30+ | `tests/converters/talend_to_v1/components/database/test_oracle_output.py` |
+| Engine unit tests | 120 | `tests/v1/engine/components/database/test_oracle_output.py` (Phase 11; Phase 14-04 d54b5c1 coverage corners) |
+| Integration tests (E2E) | Yes | `tests/v1/engine/components/database/integration/test_oracle_output_e2e.py` |
 
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
 | ---- | ---------- | ----- |
-| TEST-OO-001 | **P0** | No engine tests exist because engine is unimplemented |
+| ~~TEST-OO-001~~ | ~~**P0**~~ | ~~No engine tests exist because engine is unimplemented~~ [RESOLVED in Phase 11 -- 120 engine tests + E2E integration tests] |
 
 ### 8.3 Recommended Test Cases
 
@@ -348,23 +357,23 @@ All issues grouped by priority for sprint planning.
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
-| P0 | 2 | **ENG-OO-001**, **TEST-OO-001** |
+| P0 | 0 | ~~ENG-OO-001~~ [RESOLVED Phase 11, 7cdb043], ~~TEST-OO-001~~ [RESOLVED Phase 11] |
 | P1 | 0 | |
 | P2 | 0 | |
 | P3 | 0 | |
-| **Total** | **2** | |
+| **Total** | **0 open** | (2 resolved in Phase 11) |
 
 ### By Category
 
 | Category | Count | IDs |
 | ---------- | ------- | ----- |
 | Converter (CONV) | 0 | |
-| Engine (ENG) | 1 | **ENG-OO-001** |
+| Engine (ENG) | 0 | ~~ENG-OO-001~~ [RESOLVED Phase 11] |
 | Bug (BUG) | 0 | |
 | Naming (NAME) | 0 | |
 | Standards (STD) | 0 | |
 | Performance (PERF) | 0 | |
-| Testing (TEST) | 1 | **TEST-OO-001** |
+| Testing (TEST) | 0 | ~~TEST-OO-001~~ [RESOLVED Phase 11] |
 
 ### Cross-Cutting Issues
 
@@ -378,8 +387,8 @@ What should be fixed, in what order?
 
 ### Immediate (Before Production)
 
-- **ENG-OO-001**: Implement concrete OracleOutput engine class with Oracle JDBC support for INSERT/UPDATE/DELETE/INSERT_OR_UPDATE operations, batch processing, DDL table actions, and commit management
-- **TEST-OO-001**: Add comprehensive engine tests once engine is implemented
+- ~~**ENG-OO-001**: Implement concrete OracleOutput engine class.~~ [RESOLVED in Phase 11, 7cdb043]
+- ~~**TEST-OO-001**: Add comprehensive engine tests once engine is implemented.~~ [RESOLVED in Phase 11 -- 120 tests + E2E]
 
 ### Short-term (Hardening)
 
@@ -397,20 +406,21 @@ What should be fixed, in what order?
 | Source | URL/Path | Used For |
 | -------- | ---------- | ---------- |
 | Talaxie GitHub _java.xml | `tOracleOutput_java.xml` from tdi-studio-se repository | Parameter definitions, defaults, types |
+| Engine source | `src/v1/engine/components/database/oracle_output.py` | Feature parity analysis (1053 lines) |
 | Converter source | `src/converters/talend_to_v1/components/database/oracle_output.py` | Converter audit |
-| Test source | `tests/converters/talend_to_v1/components/test_oracle_output.py` | Test coverage audit |
-| Gold standard templates | `docs/v1/standards/` | AUDIT_REPORT_TEMPLATE.md, CONVERTER_PATTERN.md, TEST_PATTERN.md |
+| Engine tests | `tests/v1/engine/components/database/test_oracle_output.py` | Engine test coverage (120 tests) |
+| CONVERTER_PATTERN.md | `docs/v1/patterns/CONVERTER_PATTERN.md` | Gold standard converter structure (formerly `docs/v1/standards/CONVERTER_PATTERN.md` -- renamed Phase 15) |
+| TEST_PATTERN.md | `docs/v1/patterns/TEST_PATTERN.md` | Gold standard test structure (formerly `docs/v1/standards/TEST_PATTERN.md` -- renamed Phase 15) |
 | Base class | `src/converters/talend_to_v1/components/base.py` | Helper method signatures |
 
 ## Appendix B: Cross-Cutting Issues
 
-No cross-cutting issues apply -- no engine implementation exists.
-
 | Canonical ID | Location | Impact on This Component |
 | ------------- | ---------- | -------------------------- |
-| N/A | N/A | No engine code to share common bugs |
+| ~~XCUT-001~~ | ~~`base_component.py:304`~~ | ~~`_update_global_map()` crash when globalMap set.~~ [RESOLVED in Phase 7.1, 1f7ec81] |
 
 ---
 
 *Report generated: 2026-04-03*
 *Last updated: 2026-04-03 after v1.1 standardization rewrite*
+*Reconciled: 2026-05-11 -- Major status flip RED->GREEN (ENG-OO-001 Phase 11, 7cdb043; TEST-OO-001 Phase 11); Registry Aliases OracleOutput/tOracleOutput; engine file 1053 lines; broken standards/ refs fixed*
