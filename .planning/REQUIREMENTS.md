@@ -214,6 +214,11 @@ Requirements for engine restructure milestone. Each maps to roadmap phases.
 - [x] **TEST-11**: Per-module line coverage of `src/v1/engine/` and `src/converters/` lifted to and verified at >=95% for every in-scope module (excluding `src/converters/complex_converter/` legacy modules); regression guard prevents any module from dropping below 95%; tests added are real-behavior (no `# pragma: no cover` outside the documented narrow allowlist of `__main__`, `@abstractmethod`, `ImportError` shims) (Phase 14)
 - [x] **TEST-12**: Paste-runnable coverage gate command documented in CLAUDE.md and `14-COVERAGE.md`; per-module floor enforcement script (`scripts/check_per_module_coverage.py`) parses `coverage.json` and exits non-zero if any in-scope module is below 95%; final `14-COVERAGE.md` shows post-lift per-module numbers replacing `13-COVERAGE-BASELINE.md` (Phase 14)
 
+### Documentation
+
+- [x] **DOCS-01**: All 22 top-level docs/ files deleted; 4 canonical docs (ARCHITECTURE.md, COMPONENT_REFERENCE.md, CONTRIBUTING.md, DEPLOYMENT.md) exist at docs/ root + root README.md; each has *Last updated:* header; each claim verified against current code.
+- [x] **DOCS-02**: `docs/v1/standards/` deep review complete; 4 files deleted (STANDARDS, METHODOLOGY, AUDIT_REPORT_TEMPLATE, NEXT_MILESTONE_GUIDE); 7 files fixed (ENGINE_COMPONENT_PATTERN, ENGINE_TEST_PATTERN, CONVERTER_PATTERN, TEST_PATTERN, MANUAL_COMPONENT_AUTHORING, BaseComponent-Info, talend_to_v1_converter_guide); folder renamed to `docs/v1/patterns/`; BaseComponent-Info moved into patterns/; broken-reference inventory captured for Phase 15.1 handoff.
+
 ### Performance & Memory
 
 - [x] **PERF-01**: Fix streaming mode — proper chunk processing without reject data loss
@@ -410,18 +415,20 @@ Deferred to future milestone. Tracked but not in current roadmap.
 | TEST-10 | Phase 13 | Complete |
 | TEST-11 | Phase 14 | Complete |
 | TEST-12 | Phase 14 | Complete |
+| DOCS-01 | Phase 15 | Complete |
+| DOCS-02 | Phase 15 | Complete |
 | PERF-01 | Phase 3 | Complete |
 | PERF-02 | Phase 8 | Pending |
 | PERF-03 | Phase 12 | Pending |
 | PERF-04 | Phase 12 | Pending |
 
 **Coverage:**
-- v1 requirements: 127 total
-- Mapped to phases: 127
+- v1 requirements: 129 total
+- Mapped to phases: 129
 - Unmapped: 0
 
 **Note:** TEST-03 covers unit tests for target components and is split across Phase 4 (file I/O tests) and Phase 5 (tMap tests). All other requirements map to exactly one phase.
 
 ---
-*Requirements defined: 2026-04-14; TEST-11 + TEST-12 added 2026-05-10 with Phase 14 Plan 01*
-*Last updated: 2026-05-11 after Phase 14 closure (TEST-11, TEST-12 marked Complete)*
+*Requirements defined: 2026-04-14; TEST-11 + TEST-12 added 2026-05-10 with Phase 14 Plan 01; DOCS-01 + DOCS-02 added 2026-05-11 with Phase 15 closeout*
+*Last updated: 2026-05-11 after Phase 15 closure (DOCS-01, DOCS-02 marked Complete)*
