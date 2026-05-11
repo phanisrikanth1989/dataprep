@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 15 context gathered
-last_updated: "2026-05-11T04:23:22.231Z"
-last_activity: 2026-05-11 -- Phase 15 execution started
+stopped_at: Phase 15 complete
+last_updated: "2026-05-11T05:30:00.000Z"
+last_activity: 2026-05-11 -- Phase 15 complete
 progress:
   total_phases: 21
-  completed_phases: 18
+  completed_phases: 19
   total_plans: 88
-  completed_plans: 104
+  completed_plans: 114
   percent: 100
 ---
 
@@ -21,17 +21,17 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-14)
 
 **Core value:** Any Talend job using the target components must produce identical results when run through the Python engine
-**Current focus:** Phase 15 — documentation-sweep
+**Current focus:** Phase 15 complete; next is Phase 15.1 (documentation audit reconciliation)
 
 ## Current Position
 
-Phase: 15 (documentation-sweep) — EXECUTING
-Plan: 1 of 10
-Next: Phase 15 (integration testing & performance) -- TEST-05, TEST-06, PERF-03, PERF-04
-Status: Executing Phase 15
-Last activity: 2026-05-11 -- Phase 15 execution started
+Phase: 15 (documentation-sweep) -- COMPLETE (2026-05-11)
+Plan: 10 of 10 complete
+Next: Phase 15.1 (documentation audit reconciliation) -- DOCS-03
+Status: Idle (Phase 15 closeout signed off)
+Last activity: 2026-05-11 -- Phase 15 complete
 
-Progress: [██████████] 100%
+Progress: [##########] 100%
 
 ## Performance Metrics
 
@@ -179,6 +179,21 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
 - COV-CJ-001 (2026-05-11): converter join.py 94.7% -> 100% via 1 test addition (`d661c1f`); incidental cleanup before closeout.
 - Plan 14-12 complete (2026-05-11): closeout shipped. 8 commits: chore(14-12) INFRA-CLOSE-001 commit 14-coverage.json (+ .gitignore D-RULE3 negation for .planning/phases/**/*coverage.json); docs(14-12) DOC-COV-001 14-COVERAGE.md; docs(14-12) DOC-CLAUDE-001 CLAUDE.md coverage section update; docs(14-12) DOC-REQ-001 TEST-11/TEST-12 -> Complete; docs(14-12) DOC-ROAD-001 ROADMAP Phase 14 SC#2 D-E1 wording + 12/12 Complete; docs(14-12) DOC-STATE-001 STATE.md Phase 14 -> complete; docs(14-12) DOC-VER-001 14-VERIFICATION.md acceptance evidence; docs(14-12) DOC-SUMMARY-001 14-PHASE-SUMMARY.md retrospective. Final gate command exits 0 with `PASS: all 181 in-scope modules at >= 95.0% line coverage`; overall 98.3% (16746/17033 stmts); 100 modules at perfect 100.0%; no-regression check confirms all Phase 13 PASS modules still PASS; iterate/context per locked Q2 merge both PASS; zero inline `# pragma: no cover` annotations in scope (D-C3 enforced via pyproject exclude_also). Phase 14 closed.
 
+### Phase 15 closed (2026-05-11)
+
+- 10 plans, 4 waves (0/1/2/3), ~30 commits total
+- 22 top-level docs/ files deleted; 4 canonical docs at docs/ root; root README.md added
+- 4 standards-zone files dropped (STANDARDS, METHODOLOGY, AUDIT_REPORT_TEMPLATE, NEXT_MILESTONE_GUIDE; 2187 lines removed)
+- 7 standards-zone files patched (TBD placeholder removed, Phase 14 pipeline-test pattern added, Rule 13 registry+abstract added, BaseComponent-Info gaps disambiguated, talend_to_v1_converter_guide swept)
+- Folder rename: docs/v1/standards/ -> docs/v1/patterns/ (history-preserving `git mv`)
+- File move: docs/v1/BaseComponent-Info.md -> docs/v1/patterns/BaseComponent-Info.md
+- talend_to_v1_converter_guide.md retained at docs/v1/ per planner D.7
+- 15-VERIFICATION.md + 15-PHASE-SUMMARY.md committed
+- REQUIREMENTS.md: DOCS-01 + DOCS-02 marked Complete (v1 requirement count 127 -> 129)
+- Doc-only phase per D-E3: zero src/ modifications; Phase 14 coverage gate still PASS at 95% per-module floor (181 in-scope modules, overall 98.3%)
+- Constraints honored: D-A4 (audit/ untouched), D-B4 (CLAUDE.md untouched), D-C1 (ASCII-only), D-C2 (Last-updated header on every new/edited doc), D-E1 (atomic commits), D-E2 (verify-before-claim), D-E3 (doc-only)
+- Phase 15.1 handoff: broken-cross-reference inventory enumerated in 15-07-SUMMARY.md (~25 unique audit/ files de-duplicated across 4 dropped docs; 23 audit/ files still reference docs/v1/standards/ path post-rename per 15-09-SUMMARY.md). Researcher's ~84 estimate corrected by ground-truth grep.
+
 ### Phase 14 closed (2026-05-11)
 
 - 12 plans + 14-06b follow-on + COV-CJ-001 incidental; ~88 commits
@@ -218,6 +233,6 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
 
 ## Session Continuity
 
-Last session: 2026-05-11T03:48:29.024Z
-Stopped at: Phase 15 context gathered
-Resume with: /gsd-discuss-phase 15 (integration testing & performance -- TEST-05, TEST-06, PERF-03, PERF-04). Phase 14's pipeline-test infra (tests/conftest.py + tests/fixtures/jobs/) is the natural foundation; Phase 15 extends with real .item samples + Talend output comparison.
+Last session: 2026-05-11T05:30:00.000Z
+Stopped at: Phase 15 complete
+Resume with: /gsd-discuss-phase 15.1 (documentation audit reconciliation -- DOCS-03). Use 15-07-SUMMARY.md broken-cross-reference inventory as the starting work-item list; ~25 unique audit/ files reference the 4 dropped standards-zone docs (de-duplicated count) and 23 audit/ files still reference the old docs/v1/standards/ path post-15-09 rename.
