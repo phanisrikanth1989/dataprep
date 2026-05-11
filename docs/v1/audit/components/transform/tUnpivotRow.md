@@ -1,11 +1,12 @@
 # Audit Report: tUnpivotRow / UnpivotRow
 
 > **Audited**: 2026-04-04
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated) -- GOLD STANDARD REWRITE
-> **Updated**: 2026-05-02 — Engine fully rewritten; all issues resolved; 29 engine tests added
+> **Updated**: 2026-05-02 -- Engine fully rewritten; all issues resolved; 29 engine tests added
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: GREEN — Production Ready
+> **Status**: GREEN -- Production Ready
 > **V1 only** -- this report contains zero references to v2/PyETL
 
 ---
@@ -44,7 +45,7 @@
 | Performance & Memory | **G** | 0 | 0 | 0 | 0 | No copy; no redundant sort; no no-op filter; single melt call |
 | Testing | **G** | 0 | 0 | 0 | 0 | 28 converter tests (Green) + 29 engine unit tests (Green, 5 classes) |
 
-**Overall: GREEN — Production Ready**
+**Overall: GREEN -- Production Ready**
 
 **All issues resolved in 2026-05-02 rewrite.**
 
@@ -194,15 +195,15 @@ None. The engine reads all 4 unique config params (`row_keys`, `pivot_key`, `piv
 
 | ID | Priority | Description |
 | ---- | ---------- | ------------- |
-| ~~ENG-UPR-001~~ | ~~P0~~ | **RESOLVED 2026-05-02** — Output is now `row_keys + [pivot_key, pivot_value]` only; no schema pollution |
-| ~~ENG-UPR-002~~ | ~~P1~~ | **RESOLVED 2026-05-02** — String coercion via null-safe `.map()` |
-| ~~ENG-UPR-003~~ | ~~P1~~ | **RESOLVED 2026-05-02** — `die_on_error` config key supported; falls back to empty on False |
-| ~~ENG-UPR-004~~ | ~~P1~~ | **RESOLVED 2026-05-02** — Returns `{"main": out, "reject": None}` |
-| ~~ENG-UPR-005~~ | ~~P1~~ | **RESOLVED 2026-05-02** — Column order is `row_keys + pivot_key + pivot_value`; BaseComponent enforces schema order |
-| ~~ENG-UPR-006~~ | ~~P2~~ | **RESOLVED 2026-05-02** — Empty input returns `pd.DataFrame()` — BaseComponent fills schema columns |
-| ~~ENG-UPR-007~~ | ~~P2~~ | **RESOLVED 2026-05-02** — `_original_order` temp column removed entirely; no longer used |
-| ~~ENG-UPR-008~~ | ~~P2~~ | **RESOLVED 2026-05-02** — No-op `isin()` filter removed |
-| ~~ENG-UPR-009~~ | ~~P3~~ | **RESOLVED 2026-05-02** — No unnecessary sort; melt preserves input row order |
+| ~~ENG-UPR-001~~ | ~~P0~~ | **RESOLVED 2026-05-02** -- Output is now `row_keys + [pivot_key, pivot_value]` only; no schema pollution |
+| ~~ENG-UPR-002~~ | ~~P1~~ | **RESOLVED 2026-05-02** -- String coercion via null-safe `.map()` |
+| ~~ENG-UPR-003~~ | ~~P1~~ | **RESOLVED 2026-05-02** -- `die_on_error` config key supported; falls back to empty on False |
+| ~~ENG-UPR-004~~ | ~~P1~~ | **RESOLVED 2026-05-02** -- Returns `{"main": out, "reject": None}` |
+| ~~ENG-UPR-005~~ | ~~P1~~ | **RESOLVED 2026-05-02** -- Column order is `row_keys + pivot_key + pivot_value`; BaseComponent enforces schema order |
+| ~~ENG-UPR-006~~ | ~~P2~~ | **RESOLVED 2026-05-02** -- Empty input returns `pd.DataFrame()` -- BaseComponent fills schema columns |
+| ~~ENG-UPR-007~~ | ~~P2~~ | **RESOLVED 2026-05-02** -- `_original_order` temp column removed entirely; no longer used |
+| ~~ENG-UPR-008~~ | ~~P2~~ | **RESOLVED 2026-05-02** -- No-op `isin()` filter removed |
+| ~~ENG-UPR-009~~ | ~~P3~~ | **RESOLVED 2026-05-02** -- No unnecessary sort; melt preserves input row order |
 
 ### 5.3 GlobalMap Variable Coverage
 
@@ -220,7 +221,7 @@ None. The engine reads all 4 unique config params (`row_keys`, `pivot_key`, `piv
 
 | ID | Priority | Location | Description |
 | ---- | ---------- | ---------- | ------------- |
-| ~~BUG-UPR-001~~ | ~~P2~~ | ~~`unpivot_row.py:175`~~ | **RESOLVED 2026-05-02** — No-op `isin()` filter removed |
+| ~~BUG-UPR-001~~ | ~~P2~~ | ~~`unpivot_row.py:175`~~ | **RESOLVED 2026-05-02** -- No-op `isin()` filter removed |
 
 ### 6.2 Naming Consistency
 
@@ -230,7 +231,7 @@ No naming issues found in the converter. Engine uses consistent naming.
 
 | ID | Priority | Standard | Violation |
 | ---- | ---------- | ---------- | ----------- |
-| ~~STD-UPR-001~~ | ~~P2~~ | ~~"Use ConfigurationError not ValueError"~~ | **RESOLVED 2026-05-02** — All errors now raise `ConfigurationError` with `self.id` prefix |
+| ~~STD-UPR-001~~ | ~~P2~~ | ~~"Use ConfigurationError not ValueError"~~ | **RESOLVED 2026-05-02** -- All errors now raise `ConfigurationError` with `self.id` prefix |
 
 ### 6.4 Debug Artifacts
 
@@ -252,9 +253,9 @@ No concerns identified. Component operates on in-memory DataFrames only.
 
 | Aspect | Assessment |
 | -------- | ------------ |
-| Custom exceptions | Uses ValueError -- should use ConfigurationError |
+| Custom exceptions | `ConfigurationError` with `self.id` prefix -- correct (resolved 2026-05-02) |
 | Exception chaining | Good -- raises original exception |
-| die_on_error handling | Missing -- always raises |
+| die_on_error handling | Supported -- reads `die_on_error` from config (resolved 2026-05-02) |
 
 ### 6.8 Type Hints
 
@@ -269,11 +270,11 @@ No concerns identified. Component operates on in-memory DataFrames only.
 
 | ID | Priority | Issue |
 | ---- | ---------- | ------- |
-| ~~PERF-UPR-001~~ | ~~P1~~ | **RESOLVED 2026-05-02** — `input_data.copy()` removed; melt creates its own DataFrame |
-| ~~PERF-UPR-002~~ | ~~P2~~ | **RESOLVED 2026-05-02** — Sort on `_original_order` removed along with the temp column |
-| ~~PERF-UPR-003~~ | ~~P2~~ | **RESOLVED 2026-05-02** — Single melt + one column-select; no chained copies |
-| ~~PERF-UPR-004~~ | ~~P2~~ | **RESOLVED 2026-05-02** — No-op `isin()` removed |
-| ~~PERF-UPR-005~~ | ~~P3~~ | **RESOLVED 2026-05-02** — Column order built once in final `out[row_keys + [pivot_key_col, pivot_value_col]]` |
+| ~~PERF-UPR-001~~ | ~~P1~~ | **RESOLVED 2026-05-02** -- `input_data.copy()` removed; melt creates its own DataFrame |
+| ~~PERF-UPR-002~~ | ~~P2~~ | **RESOLVED 2026-05-02** -- Sort on `_original_order` removed along with the temp column |
+| ~~PERF-UPR-003~~ | ~~P2~~ | **RESOLVED 2026-05-02** -- Single melt + one column-select; no chained copies |
+| ~~PERF-UPR-004~~ | ~~P2~~ | **RESOLVED 2026-05-02** -- No-op `isin()` removed |
+| ~~PERF-UPR-005~~ | ~~P3~~ | **RESOLVED 2026-05-02** -- Column order built once in final `out[row_keys + [pivot_key_col, pivot_value_col]]` |
 
 ### 7.1 Memory Management Assessment
 
@@ -299,7 +300,7 @@ No concerns identified. Component operates on in-memory DataFrames only.
 
 | ID | Priority | Gap |
 | ---- | ---------- | ----- |
-| ~~TEST-UPR-001~~ | ~~P2~~ | **RESOLVED 2026-05-02** — 29 engine unit tests added: TestRegistration (3), TestValidation (5), TestTalendParity (9), TestEdgeCases (7), TestStatistics (5). All 29 pass. |
+| ~~TEST-UPR-001~~ | ~~P2~~ | **RESOLVED 2026-05-02** -- 29 engine unit tests added: TestRegistration (3), TestValidation (5), TestTalendParity (9), TestEdgeCases (7), TestStatistics (5). All 29 pass. |
 
 ### 8.3 Recommended Test Cases
 
@@ -329,11 +330,11 @@ No concerns identified. Component operates on in-memory DataFrames only.
 | Category | Count | IDs |
 | ---------- | ------- | ----- |
 | Converter (CONV) | 0 | All superseded |
-| Engine (ENG) | 9 | ENG-UPR-001 through ENG-UPR-009 |
-| Bug (BUG) | 1 | BUG-UPR-001 |
-| Standards (STD) | 1 | STD-UPR-001 |
-| Performance (PERF) | 5 | PERF-UPR-001 through PERF-UPR-005 |
-| Testing (TEST) | 1 | TEST-UPR-001 |
+| Engine (ENG) | 0 | All resolved (ENG-UPR-001..009) |
+| Bug (BUG) | 0 | All resolved (BUG-UPR-001) |
+| Standards (STD) | 0 | All resolved (STD-UPR-001) |
+| Performance (PERF) | 0 | All resolved (PERF-UPR-001..005) |
+| Testing (TEST) | 0 | All resolved (TEST-UPR-001) |
 
 ### Cross-Cutting Issues
 
@@ -353,7 +354,7 @@ All 14 issues were resolved in the 2026-05-02 engine rewrite. No remaining actio
 Key changes made:
 - `@REGISTRY.register("UnpivotRow", "tUnpivotRow")` decorator added
 - `_validate_config()` returns `None`, raises `ConfigurationError` (Rules 2, 7, 12)
-- Output contains only `row_keys + [pivot_key, pivot_value]` — no pollution
+- Output contains only `row_keys + [pivot_key, pivot_value]` -- no pollution
 - `pivot_value` coerced to String via null-safe `.map()`
 - `die_on_error` config supported
 - `"reject": None` always in return dict
@@ -387,4 +388,4 @@ Key changes made:
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after gold standard rewrite (Phase 13 Plan 04)*
+*Last updated: 2026-05-11 -- reconciled (Phase 15.1-08); em-dashes fixed, stale Section 6.7 corrected*
