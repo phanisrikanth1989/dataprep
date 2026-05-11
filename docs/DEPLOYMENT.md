@@ -133,8 +133,8 @@ Override context variables at the engine CLI:
 python src/v1/engine/engine.py path/to/job.json --context_param DB_HOST=prod-db
 ```
 
-For the JSON schema and the full list of supported component types, see
-`docs/v1/talend_to_v1_converter_guide.md`.
+For the JSON schema, see `docs/guides/AUTHORING_JOB_JSON.md`. For the full list of
+supported component types, see `docs/COMPONENT_REFERENCE.md`.
 
 ## Running a Job
 
@@ -234,7 +234,9 @@ these block production deployment but each warrants tracking:
 - `docs/CONTRIBUTING.md` -- contributor rules (ASCII-only, atomic commits,
   registry + abstract-method discipline, 95% coverage floor).
 - `docs/COMPONENT_REFERENCE.md` -- registry-driven component inventory.
-- `docs/v1/talend_to_v1_converter_guide.md` -- job-config JSON schema and
-  external-consumer guide.
+- `docs/guides/QUICKSTART.md` -- five-minute end-to-end walkthrough (convert + run).
+- `docs/guides/AUTHORING_JOB_JSON.md` -- job-config JSON schema, written for
+  hand-authoring pipelines that have no Talend equivalent.
+- `docs/guides/DEV_SETUP.md` -- local dev environment, test commands, coverage gate.
 - `CLAUDE.md` -- Technology Stack section and Coverage section (the
   authoritative paste-runnable coverage gate command).
