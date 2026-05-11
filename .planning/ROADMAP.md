@@ -405,12 +405,24 @@ Plans:
 ### Phase 15: Documentation Sweep
 **Goal**: Stale documentation is removed, canonical documentation set is in place covering architecture, component reference, deployment, and contributor guidance -- no rotted snapshot or demo files remain in docs/
 **Depends on**: Phase 14
-**Requirements**: DOCS-01, DOCS-02, DOCS-03 (new -- to be added during discuss-phase)
+**Requirements**: DOCS-01, DOCS-02 (new -- to be added during discuss-phase)
 **Success Criteria** (what must be TRUE):
-  1. docs/ contains only living documentation; snapshot/demo files (FINAL_SUMMARY, IMPLEMENTATION_COMPLETE, LAYOUT_UPDATE, UI_*) are removed or rewritten
-  2. Canonical doc set exists: ARCHITECTURE, COMPONENT_REFERENCE, CONTRIBUTING, DEPLOYMENT (final scope decided during discuss-phase)
-  3. Every doc has a header note with last-updated date; CI lints stale docs against codebase symbols
-  4. .docx files are converted to markdown or removed
+  1. All 22 top-level docs/ files (20 .md + 2 .docx) deleted; the 4 canonical docs replace them
+  2. Canonical doc set exists at docs/: ARCHITECTURE.md, COMPONENT_REFERENCE.md, CONTRIBUTING.md, DEPLOYMENT.md (written fresh from current code state)
+  3. docs/v1/standards/ (8 files) + docs/v1/{STANDARDS.md, BaseComponent-Info.md, talend_to_v1_converter_guide.md} (3 files) reviewed deeply against code; stale/wrong content fixed; redundant files dropped (AUDIT_REPORT_TEMPLATE / METHODOLOGY are candidates); folder renamed if needed
+  4. docs/v1/audit/ deferred to Phase 15.1 (out of Phase 15 scope; no docs/v1/audit/ files modified)
+**Plans**: TBD
+**Scope excludes** (locked 2026-05-11): CLAUDE.md; .planning/; .claude/; .gemini/; tests/fixtures/jobs/README.md (tooling-adjacent, stays); CI/lint automation (deferred); docs/v1/audit/ (Phase 15.1).
+
+### Phase 15.1: Documentation Audit Reconciliation
+**Goal**: Every per-component audit file in docs/v1/audit/components/ reflects the actual current state of the corresponding converter + engine code; cross-cutting summary documents match the post-Phase-14 reality
+**Depends on**: Phase 14, Phase 15
+**Requirements**: DOCS-03 (new -- to be added during discuss-phase)
+**Success Criteria** (what must be TRUE):
+  1. All 86 docs/v1/audit/components/**.md files reconciled against current src/v1/engine/components/ and src/converters/talend_to_v1/components/; stale issues marked resolved with phase reference; net-new issues captured as fresh findings
+  2. docs/v1/audit/CROSS_CUTTING_ISSUES.md reflects post-Phase-14 state (the ~200-250 cross-cutting issues closed by Phases 1-14 are marked resolved)
+  3. docs/v1/audit/SUMMARY_SCORECARD.md regenerated against current code (status, coverage, registered/abstract-method correctness per component)
+  4. docs/v1/audit/METHODOLOGY.md updated or confirmed as still accurate
 **Plans**: TBD
 
 ### Phase 16: Integration Testing & Performance
@@ -449,4 +461,5 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 13. Test Stabilization & Bridge JAR Rebuild | 10/9 | Complete   | 2026-05-10 |
 | 14. Coverage Push to 95% per-module floor | 12/12 | Complete   | 2026-05-11 |
 | 15. Documentation Sweep | 0/TBD | Not started | - |
+| 15.1. Documentation Audit Reconciliation | 0/TBD | Not started | - |
 | 16. Integration Testing & Performance (Manager) | 0/TBD | Not started | - |
