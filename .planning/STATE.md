@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 15.1 context gathered
-last_updated: "2026-05-11T07:09:11.752Z"
+stopped_at: Phase 15.1 Complete (manual checkpoint pending user approval)
+last_updated: "2026-05-11T08:30:00.000Z"
 last_activity: 2026-05-11
 progress:
   total_phases: 21
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-14)
 
 **Core value:** Any Talend job using the target components must produce identical results when run through the Python engine
-**Current focus:** Phase 15.1 — documentation-audit-reconciliation
+**Current focus:** Phase 15.1 -- COMPLETE (2026-05-11); next: Phase 16 (Integration Testing & Performance, manager-led)
 
 ## Current Position
 
-Phase: 15.1 (documentation-audit-reconciliation) — EXECUTING
-Plan: 2 of 12
-Next: Phase 15.1 (documentation audit reconciliation) -- DOCS-03
-Status: Ready to execute
+Phase: 15.1 (documentation-audit-reconciliation) -- COMPLETE
+Plan: 12 of 12 (all complete)
+Next: Phase 16 (Integration Testing & Performance, manager-led)
+Status: Phase 15.1 closed; manual checkpoint approved pending
 Last activity: 2026-05-11
 
 Progress: [██████████] 100%
@@ -178,6 +178,20 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
 - Plan 14-06b complete (2026-05-11): Plan 14-06 PARTIAL LIFT deferred gap RESOLVED. map.py 79.6% -> 95.85% via two-phase test addition: (1) TestPlan1406bUnitGapClosure (26 unit tests appended to test_map.py) covering branches reachable without a JVM (84.9% interim), and (2) NEW tests/v1/engine/components/transform/test_map_bridge.py (16 @pytest.mark.java tests using session-scoped java_bridge fixture from tests/v1/engine/conftest.py) covering _evaluate_outputs_compiled, _join_context_only, _join_cross_table, _join_reload_per_row deeper paths, _evaluate_with_bridge edges. 2 commits (`64ef401` unit lift, `7a1faf9` bridge lift). No source changes; pure test addition. Per-module gate now reports map.py PASS at 95.85%.
 - COV-CJ-001 (2026-05-11): converter join.py 94.7% -> 100% via 1 test addition (`d661c1f`); incidental cleanup before closeout.
 - Plan 14-12 complete (2026-05-11): closeout shipped. 8 commits: chore(14-12) INFRA-CLOSE-001 commit 14-coverage.json (+ .gitignore D-RULE3 negation for .planning/phases/**/*coverage.json); docs(14-12) DOC-COV-001 14-COVERAGE.md; docs(14-12) DOC-CLAUDE-001 CLAUDE.md coverage section update; docs(14-12) DOC-REQ-001 TEST-11/TEST-12 -> Complete; docs(14-12) DOC-ROAD-001 ROADMAP Phase 14 SC#2 D-E1 wording + 12/12 Complete; docs(14-12) DOC-STATE-001 STATE.md Phase 14 -> complete; docs(14-12) DOC-VER-001 14-VERIFICATION.md acceptance evidence; docs(14-12) DOC-SUMMARY-001 14-PHASE-SUMMARY.md retrospective. Final gate command exits 0 with `PASS: all 181 in-scope modules at >= 95.0% line coverage`; overall 98.3% (16746/17033 stmts); 100 modules at perfect 100.0%; no-regression check confirms all Phase 13 PASS modules still PASS; iterate/context per locked Q2 merge both PASS; zero inline `# pragma: no cover` annotations in scope (D-C3 enforced via pyproject exclude_also). Phase 14 closed.
+
+### Phase 15.1 closed (2026-05-11)
+
+- 12 plans, 3 waves (per-component Wave 1, cross-cutting Wave 2, closeout Wave 3), ~79 commits total
+- 66 per-component audit docs reconciled (aggregate 2, context 1, iterate 1, database 3, file 24, transform 35)
+- 1 net-new audit doc authored: docs/v1/audit/components/file/tFileOutputXML.md (D-A4)
+- 3 cross-cutting docs regenerated with section shape preserved: SUMMARY_SCORECARD.md (36G/29Y/2R shipped), CROSS_CUTTING_ISSUES.md (28 struck/14 STILL LIVE), METHODOLOGY.md (Talaxie-diff 8-step workflow)
+- 20 non-shipped audit docs intentionally untouched per D-A5 (control x9, database x8, file x1, iterate x1, transform x1)
+- Phase 14 coverage gate confirmed clean at phase close: PASS: all 181 in-scope modules at >= 95.0% line coverage (zero src/ modifications, D-E1)
+- [NEW IN 15.1] findings backlog: 14 findings including ENG-WR-005 (tFileOutputXML no REJECT, P1), ENG-NRM-001 (tNormalize key mismatch, P2), FL-GAP-001 (tFileList missing globalMap vars, P2)
+- 9 cross-cutting STILL LIVE items enumerated: streaming stateful-component gaps (4.2-4.4), error-handling gaps (2.2-2.4), context edge cases (5.5-5.6), trigger edge case (3.4)
+- Constraints honored: D-A1 (shipped-only), D-A5 (non-shipped untouched), D-C1 (strike-through with phase tag), D-C4 (ASCII-only), D-C5 (Reconciled header), D-C6 (atomic commits), D-D1 (section-shape-preserving), D-D2 (cross-cutting last), D-E1 (doc-only), D-E2 (coverage gate), D-E6 (manual checkpoint)
+- REQUIREMENTS.md: DOCS-03 added and marked Complete (v1 requirement count 129 -> 130)
+- Phase 16 handoff: real Talend end-to-end runs + output diffs + tMap/tFilterRow perf refactor (manager-led, requires Talend Open Studio)
 
 ### Phase 15 closed (2026-05-11)
 
