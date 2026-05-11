@@ -1,11 +1,12 @@
 # Audit Report: tUniqRow / UniqueRow
 
 > **Audited**: 2026-04-03 | **Updated**: 2026-05-01
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
-> **V1 only** — this report contains zero references to v2/PyETL
+> **V1 only** -- this report contains zero references to v2/PyETL
 
 ---
 
@@ -15,7 +16,7 @@
 | ------- | ------- |
 | **Talend Name** | `tUniqRow` (aliases: `tUniqueRow`, `tUnqRow`) |
 | **V1 Engine Class** | `UniqueRow` |
-| **Engine File** | `src/v1/engine/components/aggregate/unique_row.py` (160 lines) |
+| **Engine File** | `src/v1/engine/components/aggregate/unique_row.py` (166 lines) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/aggregate/unique_row.py` (197 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tUniqueRow", "tUniqRow", "tUnqRow")` decorator-based dispatch |
 | **Registry Aliases** | `UniqueRow`, `tUniqRow`, `tUniqueRow`, `tUnqRow` (4 aliases) |
@@ -25,7 +26,7 @@
 
 | File | Purpose |
 | ------ | --------- |
-| `src/v1/engine/components/aggregate/unique_row.py` | Engine implementation (160 lines) |
+| `src/v1/engine/components/aggregate/unique_row.py` | Engine implementation (166 lines) |
 | `src/converters/talend_to_v1/components/aggregate/unique_row.py` | Converter class |
 | `tests/converters/talend_to_v1/components/test_unique_row.py` | Converter tests |
 | `tests/v1/engine/components/aggregate/test_unique_row.py` | Engine tests (35 tests) |
@@ -40,11 +41,11 @@
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 10 of 11 params extracted (1 phantom param excluded). UNIQUE_KEY TABLE parsed with stride-3. Per-column case sensitivity converted to global bool. 4 conditional needs_review entries for engine gaps. |
 | Engine Feature Parity | **Y** | 0 | 2 | 1 | 1 | Per-column CS: FIXED. UNIQUE/DUPLICATE routing: FIXED. IS_VIRTUAL_COMPONENT: open P1. BigDecimal: open P1. ONLY_ONCE approx: open P2. |
-| Code Quality | **G** | 0 | 0 | 0 | 0 | 160-line clean implementation. @REGISTRY.register 4 aliases. execute() override removed. _validate_config() contract fixed. key_columns dict-list parsing fixed. Temp column collision fixed. |
+| Code Quality | **G** | 0 | 0 | 0 | 0 | 166-line clean implementation. @REGISTRY.register 4 aliases. execute() override removed. _validate_config() contract fixed. key_columns dict-list parsing fixed. Temp column collision fixed. |
 | Performance & Memory | **G** | 0 | 0 | 0 | 0 | Triple-copy fixed (single copy only when case-insensitive). No inherent perf issues for in-memory use. |
 | Testing | **G** | 0 | 0 | 0 | 0 | 42 converter tests. 35 engine unit tests across 8 test classes. |
 
-Overall: **YELLOW** — Engine feature parity has 2 open P1s (IS_VIRTUAL, BigDecimal)
+Overall: **YELLOW** -- Engine feature parity has 2 open P1s (IS_VIRTUAL, BigDecimal)
 
 **Top Actions:**
 
@@ -245,16 +246,16 @@ The converter emits per-feature needs_review entries for specific engine gaps:
 
 | ID | Priority | Location | Description |
 | ---- | ---------- | ---------- | ------------- |
-| BUG-UNQ-001 | **P0 (CROSS-CUTTING)** | `base_component.py:304` | **RESOLVED in base class.** `_update_global_map()` crash when globalMap is set. |
+| ~~BUG-UNQ-001~~ | ~~**P0 (CROSS-CUTTING)**~~ | ~~`base_component.py:304`~~ | ~~`_update_global_map()` crash when globalMap is set.~~ [RESOLVED in Phase 13, 9cf0c91 (BUG-UNIQ-001)] |
 
 ### Resolved Code Quality Issues (2026-05-01)
 
 | ID | Was | Resolution |
 | ---- | ----- | ------------ |
-| (no ID — P0) | Missing `@REGISTRY.register()` decorator | FIXED: `@REGISTRY.register("UniqueRow", "tUniqRow", "tUniqueRow", "tUnqRow")` added |
-| (no ID — P0) | `execute()` override violating Rule 4 | FIXED: Override removed |
-| (no ID — P0) | `_validate_config()` returning `List[str]` | FIXED: Returns None, raises ConfigurationError |
-| (no ID — P0) | `key_columns` config mismatch (dict-list not parsed) | FIXED: Dicts and strings both handled |
+| (no ID -- P0) | Missing `@REGISTRY.register()` decorator | FIXED: `@REGISTRY.register("UniqueRow", "tUniqRow", "tUniqueRow", "tUnqRow")` added |
+| (no ID -- P0) | `execute()` override violating Rule 4 | FIXED: Override removed |
+| (no ID -- P0) | `_validate_config()` returning `List[str]` | FIXED: Returns None, raises ConfigurationError |
+| (no ID -- P0) | `key_columns` config mismatch (dict-list not parsed) | FIXED: Dicts and strings both handled |
 | BUG-UNQ-002 | Temp column collision (`_temp_{col}`) | FIXED: Changed to `__uniq_ci_{col}__` prefix |
 
 ### 6.2 Naming Consistency
@@ -363,7 +364,7 @@ No concerns identified. No `eval()`, `exec()`, or injection risks.
 
 | ID | Resolution |
 | ---- | ------------ |
-| BUG-UNQ-001 (P0 cross-cutting) | Tracked in base_component cross-cutting issues |
+| ~~BUG-UNQ-001 (P0 cross-cutting)~~ | ~~Tracked in base_component cross-cutting issues~~ [RESOLVED in Phase 13, 9cf0c91 (BUG-UNIQ-001)] |
 | Missing @REGISTRY.register (P0) | FIXED: @REGISTRY.register("UniqueRow", "tUniqRow", "tUniqueRow", "tUnqRow") |
 | execute() override (P0 Rule 4) | FIXED: Override removed |
 | _validate_config() contract (P0) | FIXED: Returns None, raises ConfigurationError |
@@ -383,7 +384,7 @@ These issues are shared with all other engine components:
 
 | Canonical ID | Location | Impact on This Component |
 | ------------- | ---------- | -------------------------- |
-| BUG-UNQ-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap is set — NB_UNIQUES/NB_DUPLICATES custom stats may be lost |
+| ~~BUG-UNQ-001~~ | ~~`base_component.py:304`~~ | ~~`_update_global_map()` crash when globalMap is set -- NB_UNIQUES/NB_DUPLICATES custom stats may be lost~~ [RESOLVED in Phase 13, 9cf0c91 (BUG-UNIQ-001)] |
 
 ---
 
@@ -391,23 +392,23 @@ These issues are shared with all other engine components:
 
 ### Immediate (Before Production)
 
-1. **Fix `_update_global_map()` crash (BUG-UNQ-001, P0)** — Cross-cutting fix in base_component.py. Blocks all components.
+1. ~~**Fix `_update_global_map()` crash (BUG-UNQ-001, P0)** -- Cross-cutting fix in base_component.py. Blocks all components.~~ [RESOLVED in Phase 13, 9cf0c91 (BUG-UNIQ-001)]
 
 ### Short-term (Hardening)
 
-1. **Implement per-column case sensitivity (ENG-UNQ-001, P1)** — Engine needs to support independent CASE_SENSITIVE per key column, not just global flag.
-2. **Add IS_VIRTUAL_COMPONENT disk mode (ENG-UNQ-002, P1)** — Memory-bound processing limits dataset sizes.
-3. **Add BigDecimal hash normalization (ENG-UNQ-003, P1)** — Needed for correct Decimal deduplication.
-4. **Reduce DataFrame copies (PERF-UNQ-001, P1)** — Use views or in-place operations where possible.
-5. **Fix UNIQUE/DUPLICATE connector naming (ENG-UNQ-004, NAME-UNQ-001, P2)** — Use named connectors matching Talend's UNIQUE/DUPLICATE.
-6. **Add engine unit tests (TEST-UNQ-001, P2)** — Test deduplication logic directly.
-7. **Avoid temp column collision (BUG-UNQ-002, P2)** — Use UUID-based temp column names.
+1. ~~**Implement per-column case sensitivity (ENG-UNQ-001, P1)**~~ [RESOLVED in Phase 13, 9cf0c91 (BUG-UNIQ-001)] -- Per-column col_case dict implemented.
+2. **Add IS_VIRTUAL_COMPONENT disk mode (ENG-UNQ-002, P1)** -- Memory-bound processing limits dataset sizes.
+3. **Add BigDecimal hash normalization (ENG-UNQ-003, P1)** -- Needed for correct Decimal deduplication.
+4. ~~**Reduce DataFrame copies (PERF-UNQ-001, P1)**~~ [RESOLVED in Phase 13] -- Single copy only when needed.
+5. ~~**Fix UNIQUE/DUPLICATE connector naming (ENG-UNQ-004, NAME-UNQ-001, P2)**~~ [RESOLVED] -- output_router.py updated.
+6. ~~**Add engine unit tests (TEST-UNQ-001, P2)**~~ [RESOLVED] -- 35 engine tests added.
+7. ~~**Avoid temp column collision (BUG-UNQ-002, P2)**~~ [RESOLVED] -- __uniq_ci_ prefix.
 
 ### Long-term (Optimization)
 
-1. **Add disk-based fallback (PERF-UNQ-003, P3)** — For datasets exceeding memory.
-2. **Add integration tests (TEST-UNQ-002, P3)** — Multi-component flow routing.
-3. **Remove engine-specific config keys (ENG-UNQ-006, NAME-UNQ-002, P3)** — Or document as engine extensions.
+1. **Add disk-based fallback (PERF-UNQ-003, P3)** -- For datasets exceeding memory.
+2. **Add integration tests (TEST-UNQ-002, P3)** -- Multi-component flow routing.
+3. **Remove engine-specific config keys (ENG-UNQ-006, NAME-UNQ-002, P3)** -- Or document as engine extensions.
 
 ---
 
@@ -419,7 +420,7 @@ These issues are shared with all other engine components:
 | Official Talend docs (8.0) | <https://help.qlik.com/talend/en-US/data-matching/8.0/tuniqrow-standard-properties> | Updated parameter definitions |
 | Talaxie GitHub _java.xml | <https://github.com/Talaxie/tdi-studio-se> (tUniqRow) | Component definition XML: params, types, defaults |
 | Job Script Reference | <https://help.talend.com/en-US/job-script-reference-guide/7.3/component-specific-settings-for-tuniqrow> | UNIQUE_KEY table structure, usage examples |
-| Engine source | `src/v1/engine/components/aggregate/unique_row.py` | Feature parity analysis (160 lines) |
+| Engine source | `src/v1/engine/components/aggregate/unique_row.py` | Feature parity analysis (166 lines) |
 | Converter source | `src/converters/talend_to_v1/components/aggregate/unique_row.py` | Converter audit |
 | Base component | `src/v1/engine/base_component.py` | Cross-cutting bug analysis |
 
@@ -427,12 +428,13 @@ These issues are shared with all other engine components:
 
 | Canonical ID | Location | Impact on This Component |
 | ------------- | ---------- | -------------------------- |
-| XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set — affects NB_UNIQUES/NB_DUPLICATES stats |
-| XCUT-002 | `global_map.py:28` | `GlobalMap.get()` undefined default — affects stat retrieval |
-| XCUT-003 | `base_component.py:351` | `validate_schema` inverted nullable — nullable columns get `fillna(0)` |
-| XCUT-004 | `base_component.py:267-278` | `_execute_streaming` drops rejects — DUPLICATE output lost in HYBRID mode |
+| XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set -- affects NB_UNIQUES/NB_DUPLICATES stats |
+| XCUT-002 | `global_map.py:28` | `GlobalMap.get()` undefined default -- affects stat retrieval |
+| XCUT-003 | `base_component.py:351` | `validate_schema` inverted nullable -- nullable columns get `fillna(0)` |
+| XCUT-004 | `base_component.py:267-278` | `_execute_streaming` drops rejects -- DUPLICATE output lost in HYBRID mode |
 
 ---
 
 _Report generated: 2026-04-03_
 _Last updated: 2026-04-03 after hidden/design-time param removal_
+_Reconciled: 2026-05-11 -- D-C1 strike-throughs applied, line count updated (160->166), ASCII fix applied_
