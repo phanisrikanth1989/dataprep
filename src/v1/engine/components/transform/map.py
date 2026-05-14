@@ -17,6 +17,7 @@ Config keys consumed (8 total):
 """
 import logging
 import re
+import types
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -26,6 +27,7 @@ import pandas as pd
 from ...base_component import BaseComponent, ExecutionMode
 from ...component_registry import REGISTRY
 from ...exceptions import ConfigurationError, ComponentExecutionError, DataValidationError
+from ._code_component_mixin import _SAFE_NAMESPACE_GLOBALS, _build_safe_builtins
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +73,56 @@ _LOCALITY_CONTEXT = "context"        # only context/globalMap/Var refs, no row d
 _LOCALITY_MAIN_SIDE = "main_side"    # only main + previously-joined lookups (in joined_df)
 _LOCALITY_LOOKUP_SIDE = "lookup_side"  # only the current lookup
 _LOCALITY_TWO_SIDED = "two_sided"    # references both main side and current lookup
+
+
+class _VarBag:
+    """Live attribute-access wrapper around a single shared dict.
+
+    Used for the tMap ``Var`` namespace in the Python-eval path.
+    Sequential variable evaluations mutate the same backing dict via
+    ``__setattr__``, so later variable expressions see earlier assignments
+    through ``__getattr__``.
+
+    Why not ``types.SimpleNamespace``?  SimpleNamespace.__init__(**d) copies
+    keys onto the instance at construction time.  Mutating the original dict
+    afterwards does NOT propagate.  That breaks chained Var eval:
+    ``Var.v2 = Var.v1 + "_USD"`` would see ``Var.v1`` as undefined because
+    the SimpleNamespace was constructed before v1 was assigned.
+
+    Args:
+        d: Optional initial dict. A new empty dict is created if None.
+    """
+
+    __slots__ = ("_d",)
+
+    def __init__(self, d: dict | None = None) -> None:
+        object.__setattr__(self, "_d", d if d is not None else {})
+
+    def __getattr__(self, name: str) -> Any:
+        # Called only when normal attribute lookup fails (not in __slots__).
+        try:
+            return object.__getattribute__(self, "_d")[name]
+        except KeyError:
+            raise AttributeError(name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        object.__getattribute__(self, "_d")[name] = value
+
+
+class _NullNamespace:
+    """Read-only namespace where every attribute access returns ``None``.
+
+    Used for lookup tables that had no rows (empty lookup or unmatched
+    left-outer-join rows).  Talend left-outer semantics return ``null``
+    for all lookup columns when there is no match; this class replicates
+    that by silently returning ``None`` for any attribute reference.
+    """
+
+    def __getattr__(self, name: str) -> None:  # noqa: ANN001
+        return None
+
+    def __setattr__(self, name: str, value: Any) -> None:  # noqa: ANN001
+        pass  # discard -- null namespaces are read-only
 
 
 def _infer_arrow_schema_dict(df: pd.DataFrame) -> dict[str, str]:
@@ -577,16 +629,27 @@ class Map(BaseComponent):
         #       Arrow serialisation for every subsequent bridge call, and
         #   (c) cause the first call to initialise the Groovy runtime JVM
         #       (10-30 s one-time cost) before the compiled script even starts.
+        #
+        # D-02 Python-eval path: use _evaluate_variables_py (returns per-row
+        # dict, no bridge needed) so _evaluate_outputs_py can build the correct
+        # _VarBag per row (sequential Var chaining via live attribute access).
+        py_var_columns: dict[str, list] = {}
         if variables_config and not _use_compiled:
-            joined_df = self._evaluate_variables(
+            py_var_columns = self._evaluate_variables_py(
                 joined_df, variables_config, main_name, joined_lookup_names
             )
 
-        # Steps 6-8: Evaluate outputs (compiled script or simple column refs)
-        result = self._evaluate_outputs(
-            joined_df, outputs_config, variables_config,
-            main_name, joined_lookup_names
-        )
+        # Steps 6-8: Evaluate outputs (compiled script or Python eval)
+        if _use_compiled:
+            result = self._evaluate_outputs(
+                joined_df, outputs_config, variables_config,
+                main_name, joined_lookup_names
+            )
+        else:
+            result = self._evaluate_outputs_py(
+                joined_df, outputs_config, py_var_columns,
+                main_name, joined_lookup_names
+            )
 
         # Step 9: Route inner join rejects
         self._route_inner_join_rejects(
@@ -632,8 +695,9 @@ class Map(BaseComponent):
     ) -> pd.DataFrame:
         """Apply a filter expression to a DataFrame.
 
-        Uses Java bridge preprocessing for complex expressions, or
-        direct column access for simple column references.
+        Dispatches based on marker presence (D-02):
+        - No ``{{java}}`` marker -> pure-Python eval via ``_apply_filter_py``.
+        - ``{{java}}`` marker present (simple col ref or complex) -> Java bridge.
 
         Args:
             df: DataFrame to filter.
@@ -644,7 +708,15 @@ class Map(BaseComponent):
         Returns:
             Filtered DataFrame.
         """
+        if not filter_expr:
+            return df
+
+        has_marker = filter_expr.startswith(_JAVA_MARKER)
         expr = self._strip_java_marker(filter_expr)
+
+        if not has_marker:
+            # No-marker path: pure-Python eval (D-02).
+            return self._apply_filter_py(df, expr, table_name)
 
         if self._is_simple_column_ref(expr):
             match = _SIMPLE_COLUMN_RE.match(expr.strip())
@@ -664,7 +736,7 @@ class Map(BaseComponent):
                 )
                 return df
 
-        # Complex expression -- use Java bridge.
+        # Complex expression with marker -- use Java bridge.
         # Note: table_name is used as main_name because this method is called
         # for both main-table and lookup-table filtering. D-04 is addressed by
         # callers passing the full joined_lookup_names list (which already
@@ -712,11 +784,15 @@ class Map(BaseComponent):
         Returns:
             Filtered lookup DataFrame (rows matching the filter).
         """
-        resolved_expr = self._substitute_row_refs(
-            self._strip_java_marker(filter_expr),
-            main_row,
-            main_name,
-        )
+        # Substitute row refs on the bare expression (no marker), then
+        # re-attach the marker so _apply_filter can correctly dispatch.
+        # Without this, a {{java}}-marked expression forwarded here after
+        # stripping would fall through to _apply_filter_py (Python path),
+        # breaking bridge-evaluated RELOAD_AT_EACH_ROW filters.
+        has_marker = filter_expr.startswith(_JAVA_MARKER)
+        bare_expr = self._strip_java_marker(filter_expr)
+        substituted = self._substitute_row_refs(bare_expr, main_row, main_name)
+        resolved_expr = (_JAVA_MARKER + substituted) if has_marker else substituted
 
         # Null-safe evaluation: if the resolved expression contains
         # a None literal from a NaN/null main row value, the downstream
@@ -1882,8 +1958,16 @@ class Map(BaseComponent):
                 main_name, lookup_names
             )
         else:
-            result = self._evaluate_outputs_simple(
-                joined_df, outputs_config, main_name, lookup_names
+            # Python-eval path (no markers anywhere -> bridge not needed).
+            # Variables were already evaluated by _process via _evaluate_variables_py;
+            # re-evaluate here in case _evaluate_outputs is called standalone.
+            var_columns: dict[str, list] = {}
+            if variables_config:
+                var_columns = self._evaluate_variables_py(
+                    joined_df, variables_config, main_name, lookup_names
+                )
+            result = self._evaluate_outputs_py(
+                joined_df, outputs_config, var_columns, main_name, lookup_names
             )
 
         return result
@@ -1988,21 +2072,338 @@ class Map(BaseComponent):
 
         return result
 
-    def _evaluate_outputs_simple(
+    # ------------------------------------------------------------------
+    # Python Expression Evaluation (no-marker path, D-02)
+    # ------------------------------------------------------------------
+
+    def _build_row_dicts_for_py(
+        self,
+        row: pd.Series,
+        main_name: str,
+        lookup_names: list[str],
+        df: pd.DataFrame,
+    ) -> dict[str, dict]:
+        """Build per-table row dicts from a joined row Series.
+
+        Splits columns prefixed by lookup names into per-table dicts so
+        tMap expressions can reference ``row1.col`` (attribute access via
+        the SimpleNamespace wrapper) and ``row2.col`` for lookups.
+
+        Variables (``Var.*`` columns) are intentionally excluded; they are
+        handled separately via the ``_VarBag`` in the caller's namespace.
+
+        Args:
+            row: A single row from the joined DataFrame.
+            main_name: Main table name.
+            lookup_names: Lookup table names.
+            df: The joined DataFrame (used for column listing).
+
+        Returns:
+            Dict of table_name -> {col -> value}.
+        """
+        row_dicts: dict[str, dict] = {}
+
+        lookup_prefixes = tuple(f"{ln}." for ln in lookup_names)
+        main_row: dict[str, Any] = {}
+        for col in df.columns:
+            val = row[col] if col in row.index else np.nan
+            if col.startswith("Var."):
+                pass  # handled via _VarBag
+            elif not col.startswith(lookup_prefixes):
+                main_row[col] = val
+        row_dicts[main_name] = main_row
+
+        for ln in lookup_names:
+            prefix = f"{ln}."
+            lookup_row: dict[str, Any] = {}
+            for col in df.columns:
+                if col.startswith(prefix):
+                    plain = col[len(prefix):]
+                    val = row[col] if col in row.index else np.nan
+                    lookup_row[plain] = val
+            row_dicts[ln] = lookup_row
+
+        return row_dicts
+
+    def _build_namespace(
+        self,
+        row_dicts: dict[str, dict],
+        var_bag: "_VarBag",
+    ) -> dict[str, Any]:
+        """Build the eval namespace for a single row (Python-eval path).
+
+        Per PATTERNS.md ``row1.col`` compatibility note:
+        - The converter emits ``row1.col`` (attribute) not ``row1['col']``.
+        - Rows are wrapped in ``types.SimpleNamespace`` (read-only per row,
+          so copy semantics are fine).
+        - The ``Var`` namespace uses ``_VarBag`` for live attribute access
+          (sequential mutation must be visible to later var expressions).
+
+        Args:
+            row_dicts: Mapping of table_name -> {col -> value} per row.
+            var_bag: Shared ``_VarBag`` instance for the current row.
+
+        Returns:
+            Namespace dict ready for ``eval()``.
+        """
+        ns: dict[str, Any] = {}
+        ns.update(_SAFE_NAMESPACE_GLOBALS)
+        ns["__builtins__"] = _build_safe_builtins()
+        # tMap converter emits ``row1.col`` (attribute), not ``row1['col']``.
+        # Wrap each row dict in SimpleNamespace so attribute access works.
+        # An empty row_data dict means the lookup had no data in the joined_df
+        # (empty lookup / unmatched left-outer row).  Use _NullNamespace so
+        # that ``row2.label`` returns ``None`` instead of AttributeError --
+        # this matches Talend left-outer semantics where unmatched rows yield
+        # null for all lookup columns.
+        for table_name, row_data in row_dicts.items():
+            if row_data:
+                ns[table_name] = types.SimpleNamespace(**row_data)
+            else:
+                ns[table_name] = _NullNamespace()
+        # Var uses _VarBag for live access -- subsequent variable evaluations
+        # on the same row must see earlier assignments.
+        ns["Var"] = var_bag
+        ns["Decimal"] = Decimal
+        if self.context_manager:
+            try:
+                ctx_dict = self.context_manager.get_all()
+                ns["context"] = types.SimpleNamespace(**ctx_dict)
+            except Exception:
+                ns["context"] = types.SimpleNamespace()
+        else:
+            ns["context"] = types.SimpleNamespace()
+        if self.global_map:
+            ns["globalMap"] = self.global_map
+        return ns
+
+    def _eval_expr(
+        self,
+        expr: str,
+        ns: dict[str, Any],
+        output_name: str = "",
+        col_name: str = "",
+    ) -> Any:
+        """Safely evaluate a Python expression in a sandboxed namespace.
+
+        Args:
+            expr: Python expression string (no ``{{java}}`` marker).
+            ns: Eval namespace dict.
+            output_name: Output name (for error messages).
+            col_name: Column/variable name (for error messages).
+
+        Returns:
+            Evaluated value, or ``None`` when ``die_on_error`` is False
+            and evaluation raises.
+
+        Raises:
+            ComponentExecutionError: When ``die_on_error`` is True and
+                evaluation fails.
+        """
+        try:
+            return eval(expr, ns)  # noqa: S307
+        except Exception as exc:
+            msg = (
+                f"[{self.id}] Expression eval failed for "
+                f"output='{output_name}' col='{col_name}': "
+                f"{type(exc).__name__}: {exc} | expr={expr!r}"
+            )
+            if self.die_on_error:
+                raise ComponentExecutionError(self.id, msg, cause=exc) from exc
+            logger.warning(msg)
+            return None
+
+    def _apply_filter_py(
+        self,
+        df: pd.DataFrame,
+        filter_expr: str,
+        table_name: str,
+    ) -> pd.DataFrame:
+        """Apply a Python filter expression to a DataFrame (no-marker path).
+
+        Evaluates ``filter_expr`` per row; rows where the expression is
+        truthy are kept.  Non-truthy or error rows are dropped (no-match
+        semantics matching Talend null-never-matches).
+
+        Handles two calling contexts:
+
+        1. **Joined DataFrame** (main + prefixed lookup columns): columns in
+           ``df`` include ``{lookup_name}.{col}`` prefixes.  The full
+           ``_build_row_dicts_for_py`` path splits them correctly.
+
+        2. **Single-table DataFrame** (unfiltered main_df or lookup_df):
+           columns have NO prefix.  In this case ``table_name`` IS the
+           table, so we put all columns directly into ``ns[table_name]``
+           and also at top level for convenience.
+
+        Args:
+            df: DataFrame to filter.
+            filter_expr: Python boolean expression string (no marker).
+            table_name: Name of the table (used as the namespace key).
+
+        Returns:
+            Filtered DataFrame.
+        """
+        if df.empty or not filter_expr:
+            return df
+
+        # Determine all known lookup names from config (for joined-df context).
+        lookup_names: list[str] = []
+        if self.config:
+            for lkp in self.config.get("inputs", {}).get("lookups", []):
+                lookup_names.append(lkp.get("name", ""))
+
+        # Detect whether we are in a joined-df context or a single-table context.
+        # A joined-df has at least one column starting with a lookup prefix.
+        prefix_in_cols = any(
+            col.startswith(f"{ln}.")
+            for ln in lookup_names
+            for col in df.columns
+        ) if lookup_names else False
+
+        mask = []
+        for _, row in df.iterrows():
+            var_bag = _VarBag()
+            if prefix_in_cols:
+                # Joined-df context: split prefixed columns by table.
+                main_name = (
+                    self.config["inputs"]["main"]["name"]
+                    if self.config else table_name
+                )
+                row_dicts = self._build_row_dicts_for_py(
+                    row, main_name, lookup_names, df
+                )
+            else:
+                # Single-table context: all columns belong to table_name.
+                # Build a direct column -> value mapping for the table.
+                table_dict = row.to_dict()
+                # Build row_dicts for any other known tables as empty, plus
+                # the actual table.
+                row_dicts = {table_name: table_dict}
+                # Also populate other table names as empty (in case the
+                # expression references them but they have no data here).
+                main_name = (
+                    self.config["inputs"]["main"]["name"]
+                    if self.config else table_name
+                )
+                if main_name != table_name:
+                    row_dicts[main_name] = {}
+                for ln in lookup_names:
+                    if ln != table_name:
+                        row_dicts[ln] = {}
+
+            ns = self._build_namespace(row_dicts, var_bag)
+            # Also expose plain column names at top level for convenience.
+            ns.update(row.to_dict())
+            try:
+                result = eval(filter_expr, ns)  # noqa: S307
+                mask.append(bool(result))
+            except Exception:
+                mask.append(False)
+
+        filtered = df[mask].copy()
+        logger.info(
+            f"[{self.id}] Python filter on '{table_name}': "
+            f"{len(df)} -> {len(filtered)} rows"
+        )
+        return filtered
+
+    def _evaluate_variables_py(
+        self,
+        joined_df: pd.DataFrame,
+        variables_config: list[dict],
+        main_name: str,
+        lookup_names: list[str],
+    ) -> dict[str, list]:
+        """Evaluate variable definitions row-by-row (Python-eval path).
+
+        Variables are evaluated sequentially so later variables can
+        reference earlier ones via ``Var.<name>`` (live attribute access
+        via ``_VarBag``).
+
+        Args:
+            joined_df: Joined DataFrame with all lookup columns.
+            variables_config: List of variable config dicts.
+            main_name: Main table name.
+            lookup_names: Lookup table names.
+
+        Returns:
+            Dict mapping variable name to list of per-row values.
+        """
+        var_names = [v["name"] for v in variables_config if v.get("name")]
+        var_columns: dict[str, list] = {n: [] for n in var_names}
+
+        for _, row in joined_df.iterrows():
+            row_dicts = self._build_row_dicts_for_py(
+                row, main_name, lookup_names, joined_df
+            )
+            var_bag = _VarBag()
+            for var in variables_config:
+                var_name = var.get("name", "")
+                var_expr = var.get("expression", "")
+                if not var_name or not var_expr:
+                    continue
+                # Strip any stray marker (no-marker path should have none,
+                # but be defensive).
+                expr = self._strip_java_marker(var_expr)
+                ns = self._build_namespace(row_dicts, var_bag)
+                val = self._eval_expr(expr, ns, "__variables__", var_name)
+                setattr(var_bag, var_name, val)
+                if var_name in var_columns:
+                    var_columns[var_name].append(val)
+
+        logger.debug(
+            f"[{self.id}] Python-eval: evaluated {len(var_names)} variables "
+            f"across {len(joined_df)} rows"
+        )
+        return var_columns
+
+    def _eval_output_row(
+        self,
+        col_defs: list[dict],
+        ns: dict[str, Any],
+        out_name: str,
+    ) -> dict[str, Any]:
+        """Evaluate all column expressions for a single output row.
+
+        Args:
+            col_defs: Column definition list from output config.
+            ns: Eval namespace for this row.
+            out_name: Output name (for error messages).
+
+        Returns:
+            Dict of column name -> evaluated value.
+        """
+        row_dict: dict[str, Any] = {}
+        for col_cfg in col_defs:
+            col_name = col_cfg["name"]
+            col_expr = col_cfg.get("expression", "")
+            if not col_expr:
+                row_dict[col_name] = None
+                continue
+            expr = self._strip_java_marker(col_expr)
+            row_dict[col_name] = self._eval_expr(expr, ns, out_name, col_name)
+        return row_dict
+
+    def _evaluate_outputs_py(
         self,
         joined_df: pd.DataFrame,
         outputs_config: list[dict],
+        var_columns: dict[str, list],
         main_name: str,
         lookup_names: list[str],
     ) -> dict[str, pd.DataFrame]:
-        """Evaluate outputs using simple column references.
+        """Evaluate output column expressions (Python-eval path, no-marker branch).
 
-        Fallback when Java bridge is not available. Only handles simple
-        table.column references; complex expressions are skipped with a warning.
+        Per-row output column eval, output filter dispatch, and reject routing
+        to the first ``is_reject`` output.  Honors the skip-when-already-populated
+        guard: ``is_reject`` outputs are initialised empty exactly once; rows
+        filtered out by an earlier output are appended to the first reject output.
 
         Args:
             joined_df: Joined DataFrame.
-            outputs_config: Output config list.
+            outputs_config: List of output config dicts.
+            var_columns: Pre-computed variable values per row (name -> [val]).
             main_name: Main table name.
             lookup_names: Lookup table names.
 
@@ -2013,61 +2414,74 @@ class Map(BaseComponent):
 
         for output_cfg in outputs_config:
             out_name = output_cfg["name"]
-            is_reject = output_cfg.get("is_reject", False)
-            is_inner_reject = output_cfg.get("inner_join_reject", False)
 
-            # Skip reject outputs -- they are populated from rejects
-            if is_reject or is_inner_reject:
-                result[out_name] = pd.DataFrame(
-                    columns=[c["name"] for c in output_cfg["columns"]]
-                )
+            # Reject outputs are populated by _route_* methods or by earlier
+            # outputs' filter routing.  Initialise to empty only if not yet
+            # set (skip-when-already-populated guard: avoid overwriting rows
+            # routed by a preceding output filter).
+            if output_cfg.get("is_reject") or output_cfg.get("inner_join_reject"):
+                if out_name not in result:
+                    result[out_name] = pd.DataFrame(
+                        columns=[c["name"] for c in output_cfg["columns"]]
+                    )
                 continue
 
-            out_df = pd.DataFrame()
-            for col_cfg in output_cfg["columns"]:
-                col_name = col_cfg["name"]
-                col_expr = col_cfg.get("expression", "")
-                expr = self._strip_java_marker(col_expr)
+            out_rows: list[dict] = []
+            reject_rows: list[dict] = []
+            col_defs = output_cfg["columns"]
+            activate_filter = output_cfg.get("activate_filter", False)
+            out_filter = output_cfg.get("filter", "")
 
-                if self._is_simple_column_ref(expr):
-                    match = _SIMPLE_COLUMN_RE.match(expr.strip())
-                    if match:
-                        table, column = match.group(1), match.group(2)
-                        src_col = self._find_column(joined_df, table, column)
-                        if src_col:
-                            out_df[col_name] = joined_df[src_col].values
-                        else:
-                            out_df[col_name] = None
-                elif expr.startswith("Var."):
-                    # Variable reference
-                    var_col = expr
-                    if var_col in joined_df.columns:
-                        out_df[col_name] = joined_df[var_col].values
-                    else:
-                        out_df[col_name] = None
-                else:
-                    # D-04: use _bridge_eval to ensure full lookup_names passed
-                    eval_result = self._bridge_eval(
-                        joined_df, {col_name: expr}, lookup_names
-                    )
-                    if col_name in eval_result:
-                        out_df[col_name] = eval_result[col_name]
-                    else:
-                        logger.warning(
-                            f"[{self.id}] Cannot evaluate expression "
-                            f"for column '{col_name}' in output '{out_name}' "
-                            f"-- Java bridge not available"
-                        )
-                        out_df[col_name] = None
-
-            # Apply output filter
-            if (output_cfg.get("activate_filter")
-                    and output_cfg.get("filter")):
-                out_df = self._apply_output_filter(
-                    out_df, output_cfg, result, main_name, lookup_names
+            for row_idx, row in enumerate(joined_df.itertuples(index=False)):
+                row_series = joined_df.iloc[row_idx]
+                row_dicts = self._build_row_dicts_for_py(
+                    row_series, main_name, lookup_names, joined_df
                 )
 
+                # Build _VarBag for this row from pre-computed variable values.
+                var_bag = _VarBag()
+                for v_name, v_vals in var_columns.items():
+                    if row_idx < len(v_vals):
+                        setattr(var_bag, v_name, v_vals[row_idx])
+
+                ns = self._build_namespace(row_dicts, var_bag)
+
+                # Evaluate output filter first (per Talend: filter-then-emit).
+                if activate_filter and out_filter:
+                    try:
+                        keep = bool(eval(out_filter, ns))  # noqa: S307
+                    except Exception:
+                        keep = False
+                    if not keep:
+                        reject_row = self._eval_output_row(col_defs, ns, out_name)
+                        reject_rows.append(reject_row)
+                        continue
+
+                out_row = self._eval_output_row(col_defs, ns, out_name)
+                out_rows.append(out_row)
+
+            out_df = (
+                pd.DataFrame(out_rows, columns=[c["name"] for c in col_defs])
+                if out_rows
+                else pd.DataFrame(columns=[c["name"] for c in col_defs])
+            )
             result[out_name] = out_df
+
+            # Route filter-rejected rows to the first is_reject output.
+            if reject_rows:
+                reject_df = pd.DataFrame(
+                    reject_rows, columns=[c["name"] for c in col_defs]
+                )
+                for oc in outputs_config:
+                    if oc.get("is_reject") and not oc.get("inner_join_reject"):
+                        rej_name = oc["name"]
+                        if rej_name in result and not result[rej_name].empty:
+                            result[rej_name] = pd.concat(
+                                [result[rej_name], reject_df], ignore_index=True
+                            )
+                        else:
+                            result[rej_name] = reject_df
+                        break
 
         return result
 
