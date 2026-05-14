@@ -9,7 +9,8 @@ Config keys consumed (8 total):
   variables         (list)  -- variable definitions with expressions
   outputs           (list)  -- output tables with column expressions, filters, reject flags
   die_on_error      (bool, default True)  -- raise on expression error
-  rows_buffer_size  (str, default "2000000")  -- buffer size hint
+  output_chunk_size (str, default "50000")    -- compiled output script chunk size (D-05)
+  rows_buffer_size  (str, legacy alias for output_chunk_size, default "50000")
   enable_auto_convert_type  (bool, default False)  -- auto-cast join key types
   parallel_execution (bool, default True)  -- parallel forEach in compiled scripts
   label             (str, default "")  -- component label
@@ -155,8 +156,8 @@ class Map(BaseComponent):
         """
         if self.context_manager is None:
             return
-        for key in ("die_on_error", "rows_buffer_size", "label",
-                     "enable_auto_convert_type"):
+        for key in ("die_on_error", "rows_buffer_size", "output_chunk_size", "label",
+                     "enable_auto_convert_type", "cross_join_chunk_size"):
             if key in self.config and isinstance(self.config[key], str):
                 self.config[key] = self.context_manager.resolve_string(
                     self.config[key]
@@ -379,14 +380,40 @@ class Map(BaseComponent):
             # Read lookup mode BEFORE filter application
             lookup_mode = lookup_config.get("lookup_mode", _LOAD_ONCE)
 
-            # Apply lookup filter (skip for RELOAD -- per-row loop needs full lookup)
+            # Determine join_keys early (needed for filter-locality check below)
+            join_keys = lookup_config.get("join_keys", [])
+
+            # Apply lookup filter with locality awareness (D-03).
+            # For empty join_keys + activate_filter: the filter may be two-sided
+            # (referencing both row1 and row2), which means it CANNOT be applied
+            # to the lookup alone -- it must be used as the match condition inside
+            # the chunked cross-product. Classify the filter locality first.
+            # For non-empty join_keys: apply the filter pre-join as before.
             if (lookup_config.get("activate_filter")
                     and lookup_config.get("filter")
                     and lookup_mode != _RELOAD_AT_EACH_ROW):
-                lookup_df = self._apply_filter(
-                    lookup_df, lookup_config["filter"],
-                    lookup_name, joined_lookup_names
-                )
+                if not join_keys:
+                    # Empty-keys path: check filter locality before applying.
+                    # Two-sided or main-side filters cannot be applied to lookup
+                    # alone; they are handled inside the empty-keys dispatch below.
+                    filter_expr = lookup_config["filter"]
+                    filter_locality = self._classify_key_locality(
+                        filter_expr, main_name, lookup_name, joined_lookup_names
+                    )
+                    if filter_locality == _LOCALITY_LOOKUP_SIDE:
+                        # Lookup-side-only filter: safe to pre-filter the lookup
+                        # (reduces cross-product size before join).
+                        lookup_df = self._apply_filter(
+                            lookup_df, filter_expr, lookup_name, joined_lookup_names
+                        )
+                    # else: two_sided / main_side / context filters are deferred
+                    # to the empty-keys cross-product dispatch below.
+                else:
+                    # Non-empty join_keys: apply filter unconditionally as before.
+                    lookup_df = self._apply_filter(
+                        lookup_df, lookup_config["filter"],
+                        lookup_name, joined_lookup_names
+                    )
 
             # Route to appropriate join handler
 
@@ -397,12 +424,62 @@ class Map(BaseComponent):
             else:
                 # D-03: locality-based per-key classification replaces the old
                 # coarse _classify_join_type bucket.
-                join_keys = lookup_config.get("join_keys", [])
                 if not join_keys:
-                    # Empty join_keys -> pure cross product (cartesian join)
-                    joined_df, rejects = self._join_cross_table(
-                        joined_df, lookup_df, lookup_config, joined_lookup_names
+                    # D-03 empty-keys dispatch (issue 2c fix).
+                    # Empty join_keys -> dispatch based on filter presence and locality.
+                    # The lookup-side-only filter was already applied above (pre-filter).
+                    # Two-sided / main-side / context filters are used as match conditions.
+                    match_expr: Optional[str] = None
+                    if (lookup_config.get("activate_filter")
+                            and lookup_config.get("filter")):
+                        filter_expr = lookup_config["filter"]
+                        filter_locality = self._classify_key_locality(
+                            filter_expr, main_name, lookup_name, joined_lookup_names
+                        )
+                        if filter_locality != _LOCALITY_LOOKUP_SIDE:
+                            # Two-sided, main-side, or context filter -> use as
+                            # match condition in the chunked cross-product.
+                            match_expr = filter_expr
+                        # else: already pre-applied above; pure cartesian now.
+                    else:
+                        logger.warning(
+                            f"[{self.id}] Pure cartesian join with lookup "
+                            f"'{lookup_name}' (no keys, no filter) -- O(n*m)."
+                        )
+
+                    lookup_df_prefixed = self._prefix_lookup_columns(lookup_df, lookup_name)
+                    cross_result = self._chunked_cross_product(
+                        joined_df, lookup_df_prefixed,
+                        match_expr=match_expr,
+                        main_name=main_name,
+                        lookup_name=lookup_name,
+                        joined_lookup_names=joined_lookup_names,
                     )
+
+                    join_mode = lookup_config.get("join_mode", "LEFT_OUTER_JOIN")
+                    rejects = None
+                    if join_mode == "INNER_JOIN":
+                        main_cols = list(joined_df.columns)
+                        if not cross_result.empty:
+                            matched_main = cross_result[main_cols].drop_duplicates()
+                            joined_with_flag = joined_df.merge(
+                                matched_main.assign(__matched__=True),
+                                on=main_cols, how="left",
+                            )
+                            unmatched = joined_with_flag[
+                                joined_with_flag["__matched__"].isna()
+                            ].drop(columns=["__matched__"])
+                            if not unmatched.empty:
+                                rejects = unmatched.copy()
+                        else:
+                            rejects = joined_df.copy()
+
+                    if cross_result.empty and join_mode != "INNER_JOIN":
+                        rejects = None
+                        # Keep joined_df unchanged (no match from this lookup)
+                    else:
+                        joined_df = cross_result
+
                 else:
                     localities = [
                         self._classify_key_locality(
@@ -1288,8 +1365,108 @@ class Map(BaseComponent):
         return result, None
 
     # ------------------------------------------------------------------
-    # Cross-Table Join
+    # Cross-Table Join (D-05: memory-bounded chunked implementation)
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _compute_cross_chunk_size(lookup_rows: int) -> int:
+        """Auto-tune cross-product chunk size to bound peak memory to ~100M cells.
+
+        Formula (D-05):
+            chunk_size = max(100, min(10_000, 100_000_000 // max(1, lookup_rows)))
+
+        This caps peak intermediate-frame cells at ~100M regardless of lookup
+        size, mirroring Talend's row-by-row streaming behavior.
+
+        Args:
+            lookup_rows: Number of rows in the lookup DataFrame.
+
+        Returns:
+            Chunk size for main DataFrame slicing in cross-product.
+        """
+        return max(100, min(10_000, 100_000_000 // max(1, lookup_rows)))
+
+    def _chunked_cross_product(
+        self,
+        main_df: pd.DataFrame,
+        lookup_df: pd.DataFrame,
+        match_expr: Optional[str],
+        main_name: str,
+        lookup_name: str,
+        joined_lookup_names: list[str],
+    ) -> pd.DataFrame:
+        """Memory-bounded chunked cross-product (D-05).
+
+        Iterates main_df in chunks, computes per-chunk cross-product with
+        lookup_df, optionally applies match_expr as a filter via bridge eval,
+        and concatenates surviving rows. This mirrors Talend's row-by-row
+        streaming behavior while bounding peak intermediate-frame memory.
+
+        If cross_join_chunk_size is set in config, that value is used instead
+        of the auto-tuned value from _compute_cross_chunk_size.
+
+        Args:
+            main_df: Main (left) DataFrame to iterate in chunks.
+            lookup_df: Lookup (right) DataFrame. Already prefixed if applicable.
+            match_expr: Expression string (with or without {{java}} marker) to
+                evaluate as match condition, or None for pure cartesian join.
+            main_name: Name of the main table (used for bridge eval).
+            lookup_name: Name of the lookup table (used for bridge eval).
+            joined_lookup_names: Full list of already-joined lookup names (D-04).
+
+        Returns:
+            Concatenated DataFrame of all rows that survived the (optional)
+            match condition. Empty frame with main_df columns if no matches.
+        """
+        if lookup_df.empty:
+            # Cross-product with empty lookup is always empty.
+            return main_df.iloc[0:0]
+
+        # Allow config override; auto-tune as fallback (D-05).
+        chunk_size = int(
+            self.config.get(
+                "cross_join_chunk_size",
+                self._compute_cross_chunk_size(len(lookup_df)),
+            )
+        )
+
+        stripped_expr: Optional[str] = None
+        if match_expr is not None:
+            stripped_expr = self._strip_java_marker(match_expr)
+
+        result_chunks: list[pd.DataFrame] = []
+
+        for start in range(0, len(main_df), chunk_size):
+            chunk = main_df.iloc[start:start + chunk_size]
+            chunk_cross = pd.merge(chunk, lookup_df, how="cross")
+
+            if stripped_expr is None:
+                # Pure cartesian -- no filtering needed.
+                result_chunks.append(chunk_cross)
+                continue
+
+            # Evaluate match expression on this chunk's cross-product.
+            # D-04: pass joined_lookup_names + [lookup_name] so prior-joined
+            # lookup refs (e.g. row3.col) are visible to the bridge.
+            eval_results = self._bridge_eval(
+                chunk_cross,
+                {"__match__": stripped_expr},
+                joined_lookup_names + [lookup_name],
+            )
+
+            if "__match__" in eval_results:
+                mask = (
+                    pd.Series(eval_results["__match__"])
+                    .fillna(False)
+                    .astype(bool)
+                    .values
+                )
+                result_chunks.append(chunk_cross[mask])
+
+        if not result_chunks:
+            return main_df.iloc[0:0]
+
+        return pd.concat(result_chunks, ignore_index=True)
 
     def _join_cross_table(
         self,
@@ -1298,9 +1475,11 @@ class Map(BaseComponent):
         lookup_config: dict,
         joined_lookup_names: Optional[list[str]] = None,
     ) -> tuple[pd.DataFrame, Optional[pd.DataFrame]]:
-        """Join where keys reference both main and lookup columns.
+        """Join where keys reference both main and lookup columns (two-sided).
 
-        Uses Java bridge preprocessing for expression evaluation.
+        Delegates to _chunked_cross_product for memory-bounded execution (D-05).
+        Join key expressions are combined into a single match condition that is
+        evaluated per-chunk instead of materializing the full cross-product.
 
         Args:
             joined_df: Current joined DataFrame.
@@ -1314,78 +1493,74 @@ class Map(BaseComponent):
             Tuple of (joined result, inner join rejects or None).
         """
         lookup_name = lookup_config["name"]
-        join_keys = lookup_config["join_keys"]
+        join_keys = lookup_config.get("join_keys", [])
         join_mode = lookup_config.get("join_mode", "LEFT_OUTER_JOIN")
         matching_mode = lookup_config.get("matching_mode", _UNIQUE_MATCH)
+        _joined_lookup_names = joined_lookup_names or []
 
         self._check_size_guard(len(joined_df), len(lookup_df), matching_mode)
 
         logger.warning(
             f"[{self.id}] Cross-table join with '{lookup_name}' "
-            f"-- O(n*m) evaluation ({len(joined_df)} x {len(lookup_df)} rows)"
+            f"-- chunked O(n*m) evaluation ({len(joined_df)} x {len(lookup_df)} rows)"
         )
 
-        # Apply matching mode to lookup first
+        # Apply matching mode to lookup first (dedup before cross-product)
         key_cols = [jk["lookup_column"] for jk in join_keys]
         lookup_df = self._apply_matching_mode(lookup_df, key_cols, matching_mode)
 
-        # Prefix lookup columns
-        lookup_df = self._prefix_lookup_columns(lookup_df, lookup_name)
+        # Prefix lookup columns before cross-product so column names in the
+        # cross frame match what downstream code and bridge expressions expect.
+        lookup_df_prefixed = self._prefix_lookup_columns(lookup_df, lookup_name)
 
-        # Cross join and evaluate expressions
-        joined_df_cross = joined_df.assign(__cross_key__=1)
-        lookup_df_cross = lookup_df.assign(__cross_key__=1)
-        cross = pd.merge(joined_df_cross, lookup_df_cross, on="__cross_key__")
-        cross = cross.drop(columns=["__cross_key__"])
-
-        if cross.empty:
+        if lookup_df_prefixed.empty:
             if join_mode == "INNER_JOIN":
                 return pd.DataFrame(columns=joined_df.columns), joined_df.copy()
             return joined_df, None
 
-        # Evaluate all join key expressions on the cross product.
-        # D-04: pass joined_lookup_names + [lookup_name] so expressions that
-        # reference previously-joined lookups (e.g. row3.region when row3 was
-        # joined before this one) are resolved correctly by the bridge.
-        exprs = {}
-        for i, jk in enumerate(join_keys):
-            expr = self._strip_java_marker(jk["expression"])
-            exprs[f"__jk_{i}__"] = expr
-
-        full_lookup_names = (joined_lookup_names or []) + [lookup_name]
-        eval_results = self._bridge_eval(cross, exprs, full_lookup_names)
-
-        # Build match mask
-        match_mask = pd.Series([True] * len(cross), index=cross.index)
-        for i, jk in enumerate(join_keys):
-            expr_key = f"__jk_{i}__"
-            lookup_col = f"{lookup_name}.{jk['lookup_column']}"
-            if expr_key in eval_results:
-                eval_vals = pd.Series(eval_results[expr_key], index=cross.index)
-                if lookup_col in cross.columns:
-                    match_mask = match_mask & (
-                        eval_vals.astype(str) == cross[lookup_col].astype(str)
-                    )
-
-        matched = cross[match_mask].copy()
+        # Build a combined match expression from all join key pairs.
+        # Each key pair: evaluated_expr == lookup_name.lookup_column.
+        # If join_keys is empty (pure cartesian path), match_expr is None.
+        if join_keys:
+            # Combine per-key comparisons into one AND expression evaluated in
+            # _chunked_cross_product. Each key expression is compared against
+            # the prefixed lookup column value.
+            # We use a sentinel-based approach: evaluate each join key expression
+            # via bridge and compare against the prefixed lookup column.
+            # For two-sided keys, pass the joined cross-product to the bridge.
+            matched = self._chunked_cross_product_with_keys(
+                joined_df, lookup_df_prefixed, join_keys,
+                lookup_name, _joined_lookup_names, join_mode,
+            )
+        else:
+            # Empty join_keys -> pure cartesian (called from internal fallback only)
+            matched = self._chunked_cross_product(
+                joined_df, lookup_df_prefixed,
+                match_expr=None,
+                main_name=self.config["inputs"]["main"]["name"],
+                lookup_name=lookup_name,
+                joined_lookup_names=_joined_lookup_names,
+            )
 
         rejects = None
         if join_mode == "INNER_JOIN":
-            # After cross join, matched has a new RangeIndex (0..N*M-1) that
-            # does NOT correspond to joined_df's index.  Compare on column
-            # values to find which original main rows got at least one match.
+            # Compare on column values to find which original main rows got at
+            # least one match (matched has new RangeIndex from concat).
             main_cols = list(joined_df.columns)
-            matched_main_rows = matched[main_cols].drop_duplicates()
-            joined_with_flag = joined_df.merge(
-                matched_main_rows.assign(__matched__=True),
-                on=main_cols,
-                how="left",
-            )
-            unmatched = joined_with_flag[
-                joined_with_flag["__matched__"].isna()
-            ].drop(columns=["__matched__"])
-            if not unmatched.empty:
-                rejects = unmatched.copy()
+            if not matched.empty:
+                matched_main_rows = matched[main_cols].drop_duplicates()
+                joined_with_flag = joined_df.merge(
+                    matched_main_rows.assign(__matched__=True),
+                    on=main_cols,
+                    how="left",
+                )
+                unmatched = joined_with_flag[
+                    joined_with_flag["__matched__"].isna()
+                ].drop(columns=["__matched__"])
+                if not unmatched.empty:
+                    rejects = unmatched.copy()
+            else:
+                rejects = joined_df.copy()
 
         if matched.empty and join_mode != "INNER_JOIN":
             return joined_df, None
@@ -1395,6 +1570,83 @@ class Map(BaseComponent):
             f"{len(matched)} rows"
         )
         return matched, rejects
+
+    def _chunked_cross_product_with_keys(
+        self,
+        main_df: pd.DataFrame,
+        lookup_df_prefixed: pd.DataFrame,
+        join_keys: list[dict],
+        lookup_name: str,
+        joined_lookup_names: list[str],
+        join_mode: str,
+    ) -> pd.DataFrame:
+        """Cross-product with per-key expression evaluation (two-sided joins).
+
+        Iterates main_df in chunks, evaluates each join key expression via
+        the bridge, and filters rows where all key expressions match the
+        corresponding prefixed lookup column values.
+
+        This is the inner logic of _join_cross_table for the case where
+        join_keys is non-empty.
+
+        Args:
+            main_df: Main DataFrame.
+            lookup_df_prefixed: Lookup DataFrame with prefixed column names.
+            join_keys: List of join key dicts with 'expression' and 'lookup_column'.
+            lookup_name: Name of the lookup table.
+            joined_lookup_names: Already-joined lookup names (D-04).
+            join_mode: Join mode string (affects empty-result handling).
+
+        Returns:
+            Concatenated DataFrame of matched rows.
+        """
+        main_name = self.config["inputs"]["main"]["name"]
+        chunk_size = int(
+            self.config.get(
+                "cross_join_chunk_size",
+                self._compute_cross_chunk_size(len(lookup_df_prefixed)),
+            )
+        )
+        full_lookup_names = joined_lookup_names + [lookup_name]
+        result_chunks: list[pd.DataFrame] = []
+
+        for start in range(0, len(main_df), chunk_size):
+            chunk = main_df.iloc[start:start + chunk_size]
+            chunk_cross = pd.merge(chunk, lookup_df_prefixed, how="cross")
+
+            if chunk_cross.empty:
+                continue
+
+            # Evaluate all join key expressions on this chunk's cross-product.
+            # D-04: pass joined_lookup_names + [lookup_name] so expressions that
+            # reference previously-joined lookups resolve correctly.
+            exprs = {}
+            for i, jk in enumerate(join_keys):
+                expr = self._strip_java_marker(jk["expression"])
+                exprs[f"__jk_{i}__"] = expr
+
+            eval_results = self._bridge_eval(chunk_cross, exprs, full_lookup_names)
+
+            # Build match mask: all key expressions must match their lookup column
+            match_mask = pd.Series([True] * len(chunk_cross), index=chunk_cross.index)
+            for i, jk in enumerate(join_keys):
+                expr_key = f"__jk_{i}__"
+                lookup_col = f"{lookup_name}.{jk['lookup_column']}"
+                if expr_key in eval_results:
+                    eval_vals = pd.Series(eval_results[expr_key], index=chunk_cross.index)
+                    if lookup_col in chunk_cross.columns:
+                        match_mask = match_mask & (
+                            eval_vals.astype(str) == chunk_cross[lookup_col].astype(str)
+                        )
+
+            matched_chunk = chunk_cross[match_mask]
+            if not matched_chunk.empty:
+                result_chunks.append(matched_chunk)
+
+        if not result_chunks:
+            return pd.DataFrame(columns=list(main_df.columns) + list(lookup_df_prefixed.columns))
+
+        return pd.concat(result_chunks, ignore_index=True)
 
     # ------------------------------------------------------------------
     # RELOAD_AT_EACH_ROW Join (MAP-08)
@@ -1689,7 +1941,15 @@ class Map(BaseComponent):
             )
 
         # Execute in chunks
-        chunk_size = int(self.config.get("rows_buffer_size", _DEFAULT_CHUNK_SIZE))
+        # D-05: 'output_chunk_size' is the new canonical key.
+        # 'rows_buffer_size' is the legacy alias for back-compat with
+        # already-converted JSON jobs (no re-conversion needed).
+        chunk_size = int(
+            self.config.get(
+                "output_chunk_size",
+                self.config.get("rows_buffer_size", _DEFAULT_CHUNK_SIZE),
+            )
+        )
         try:
             raw_result = self.java_bridge.execute_compiled_tmap_chunked(
                 component_id=self.id,

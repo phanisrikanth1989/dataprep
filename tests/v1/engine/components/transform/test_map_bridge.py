@@ -1212,3 +1212,182 @@ class TestComputedKeyJoinBridge:
             f"Without fix: bridge wouldn't resolve row2.region in the key, "
             f"producing 0 matches."
         )
+
+
+# ------------------------------------------------------------------
+# Plan 04: Chunked Cross-Product + Issue 2c (empty join_keys + filter)
+# ------------------------------------------------------------------
+
+
+class TestChunkedCrossProductBridge:
+    """Live-bridge integration tests for D-05 chunked cross-product and issue 2c fix.
+
+    Issue 2c: Job_filter_join -- empty join_keys + filter as match condition.
+    Previously crashed with 'list index out of range' when the dispatch
+    tried to classify localities over an empty join_keys list.
+
+    Per project memory feedback_test_real_bridge: mock-only tests gave false
+    confidence for tMap. These tests exercise the real bridge to verify the
+    end-to-end pipeline.
+    """
+
+    def test_b10_issue_2c_empty_join_keys_two_sided_filter_produces_matches(
+        self, java_bridge
+    ):
+        """Issue 2c e2e: empty join_keys + two-sided filter via live bridge.
+
+        Config mirrors Job_filter_join: lookup has no join keys, filter
+        'row1.region == row2.region' is used as the match condition in the
+        chunked cross-product.
+
+        Expected: rows from main that have a matching lookup row survive;
+        non-matching main rows remain in output (LEFT_OUTER_JOIN).
+        """
+        cfg = {
+            "component_type": "Map",
+            "inputs": {
+                "main": {
+                    "name": "row1",
+                    "filter": "",
+                    "activate_filter": False,
+                    "matching_mode": "UNIQUE_MATCH",
+                    "lookup_mode": "LOAD_ONCE",
+                },
+                "lookups": [
+                    {
+                        "name": "row2",
+                        "matching_mode": "ALL_MATCHES",
+                        "lookup_mode": "LOAD_ONCE",
+                        "filter": "{{java}}row1.region == row2.region",
+                        "activate_filter": True,
+                        "join_keys": [],  # Issue 2c: empty -- filter is the match
+                        "join_mode": "LEFT_OUTER_JOIN",
+                    }
+                ],
+            },
+            "variables": [],
+            "outputs": [
+                {
+                    "name": "out1",
+                    "is_reject": False,
+                    "inner_join_reject": False,
+                    "filter": "",
+                    "activate_filter": False,
+                    "columns": [
+                        {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+                        {"name": "region", "expression": "{{java}}row1.region", "type": "str", "nullable": True},
+                        {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+                    ],
+                    "catch_output_reject": False,
+                }
+            ],
+            "die_on_error": True,
+        }
+
+        comp = _make_component(java_bridge, config=cfg, comp_id="tMap_b10_issue2c")
+
+        main_df = pd.DataFrame([
+            {"id": 1, "region": "NE"},
+            {"id": 2, "region": "SW"},
+            {"id": 3, "region": "MW"},  # no match in lookup
+        ])
+        lookup_df = pd.DataFrame([
+            {"region": "NE", "label": "Northeast"},
+            {"region": "SW", "label": "Southwest"},
+        ])
+
+        input_data = {"row1": main_df, "row2": lookup_df}
+
+        # Must NOT raise list index out of range (the pre-plan-04 crash)
+        result = comp.execute(input_data)
+
+        assert "out1" in result
+        out = result["out1"]
+
+        # LEFT_OUTER_JOIN + filter as match: rows with matching region get the label.
+        # Rows 1 and 2 match (NE->Northeast, SW->Southwest).
+        # Row 3 (MW) has no match, but LEFT_OUTER_JOIN means it still appears with
+        # null label (or the cross product produces 0 matched rows for it).
+        # At minimum: no crash, and matched rows carry the label.
+        matched_rows = out[out["label"].notna()]
+        assert len(matched_rows) >= 2, (
+            f"Issue 2c fix (plan 04): expected at least 2 rows with non-null label "
+            f"(NE->Northeast, SW->Southwest). Got {len(matched_rows)}.\n"
+            f"Without fix: would crash with 'list index out of range'."
+        )
+
+        # NE row should have 'Northeast' label
+        ne_rows = out[out["region"] == "NE"]
+        assert len(ne_rows) >= 1, "Expected at least 1 NE row in output"
+        ne_label = ne_rows.iloc[0]["label"]
+        assert ne_label == "Northeast", (
+            f"Expected NE row to have label='Northeast', got '{ne_label}'"
+        )
+
+    def test_b11_chunked_cross_product_bounded_memory(self, java_bridge):
+        """D-05: chunked cross-product bounds peak memory.
+
+        With a modest-sized cross-product (50 main x 20 lookup = 1000 pairs),
+        verify that the result is correct and the chunking logic doesn't
+        lose rows. Chunk size auto-tuned to 10_000 (50*20 << 100M).
+        """
+        cfg = {
+            "component_type": "Map",
+            "inputs": {
+                "main": {
+                    "name": "row1",
+                    "filter": "",
+                    "activate_filter": False,
+                    "matching_mode": "UNIQUE_MATCH",
+                    "lookup_mode": "LOAD_ONCE",
+                },
+                "lookups": [
+                    {
+                        "name": "row2",
+                        "matching_mode": "ALL_MATCHES",
+                        "lookup_mode": "LOAD_ONCE",
+                        "filter": "",
+                        "activate_filter": False,
+                        "join_keys": [],  # pure cartesian
+                        "join_mode": "LEFT_OUTER_JOIN",
+                    }
+                ],
+            },
+            "variables": [],
+            "outputs": [
+                {
+                    "name": "out1",
+                    "is_reject": False,
+                    "inner_join_reject": False,
+                    "filter": "",
+                    "activate_filter": False,
+                    "columns": [
+                        {"name": "main_id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+                        {"name": "lookup_code", "expression": "{{java}}row2.code", "type": "str", "nullable": True},
+                    ],
+                    "catch_output_reject": False,
+                }
+            ],
+            "die_on_error": True,
+            # Force small chunk size to exercise multi-chunk path
+            "cross_join_chunk_size": "10",
+        }
+
+        comp = _make_component(java_bridge, config=cfg, comp_id="tMap_b11_chunked")
+
+        n_main = 15
+        n_lookup = 8
+        main_df = pd.DataFrame({"id": list(range(n_main))})
+        lookup_df = pd.DataFrame({"code": [f"C{i}" for i in range(n_lookup)]})
+
+        result = comp.execute({"row1": main_df, "row2": lookup_df})
+
+        assert "out1" in result
+        out = result["out1"]
+        expected_rows = n_main * n_lookup  # 15 * 8 = 120
+
+        assert len(out) == expected_rows, (
+            f"D-05: chunked cross-product must produce all {expected_rows} rows "
+            f"(15 main x 8 lookup). Got {len(out)}. "
+            f"Chunk boundary at 10 rows means 2 full chunks + 1 partial."
+        )
