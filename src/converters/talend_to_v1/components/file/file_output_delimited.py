@@ -38,6 +38,7 @@ from typing import Any, Dict, List
 
 from ..base import ComponentConverter, ComponentResult, TalendConnection, TalendNode
 from ..registry import REGISTRY
+from ...expression_converter import ExpressionConverter
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +59,16 @@ class FileOutputDelimitedConverter(ComponentConverter):
         # ---- 1. Core parameters ----
         config: Dict[str, Any] = {}
         config["usestream"] = self._get_bool(node, "USESTREAM", False)
-        config["streamname"] = self._get_str(node, "STREAMNAME", "outputStream")
-        config["filepath"] = self._get_str(node, "FILENAME", "")
+        # D-06: Mark streamname and filepath with {{java}} if they contain Java
+        # expressions (concat with +, ternaries, method calls, routine calls).
+        # ContextManager handles plain context.var refs; only operator-bearing
+        # expressions need the bridge round-trip.
+        config["streamname"] = ExpressionConverter.mark_java_expression(
+            self._get_str(node, "STREAMNAME", "outputStream")
+        )
+        config["filepath"] = ExpressionConverter.mark_java_expression(
+            self._get_str(node, "FILENAME", "")
+        )
         config["row_separator"] = self._get_str(node, "ROWSEPARATOR", "\\n")
         config["fieldseparator"] = self._get_str(node, "FIELDSEPARATOR", ";")
         config["append"] = self._get_bool(node, "APPEND", False)
