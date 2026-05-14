@@ -87,7 +87,7 @@
               "join_keys": [
                 {
                   "lookup_column": "key",
-                  "expression": "{{java}}row1.key",
+                  "expression": "row1.key",
                   "type": "str",
                   "nullable": true,
                   "operator": "="
@@ -106,10 +106,10 @@
             "filter": "",
             "activate_filter": false,
             "columns": [
-              {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": true},
-              {"name": "key", "expression": "{{java}}row1.key", "type": "str", "nullable": true},
-              {"name": "val", "expression": "{{java}}row1.val", "type": "int", "nullable": true},
-              {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": true}
+              {"name": "id", "expression": "row1.id", "type": "int", "nullable": true},
+              {"name": "key", "expression": "row1.key", "type": "str", "nullable": true},
+              {"name": "val", "expression": "row1.val", "type": "int", "nullable": true},
+              {"name": "label", "expression": "row2.label", "type": "str", "nullable": true}
             ],
             "catch_output_reject": false
           }

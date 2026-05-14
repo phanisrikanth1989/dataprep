@@ -54,7 +54,6 @@ _JOIN_CROSS_TABLE = "cross_table"
 
 # Chunk size for preprocessing and compiled script execution
 _DEFAULT_CHUNK_SIZE = 50000
-_DEFAULT_CHUNK_THRESHOLD = 100000  # Only chunk if DataFrame exceeds this
 
 # Parallel stream processing for compiled script execution.
 # True = IntStream.parallel().forEach() for high throughput (thread-safe:
@@ -300,6 +299,16 @@ class Map(BaseComponent):
                     f"or invalid 'columns'"
                 )
 
+        # D-01: Hard-fail when any {{java}} marker is present but bridge is unavailable.
+        # This fires at _validate_config time (called from execute() before _process)
+        # so the job fails fast rather than silently emitting empty cells.
+        if self._has_any_java_marker() and self.java_bridge is None:
+            raise ConfigurationError(
+                f"[{self.id}] tMap config contains {{{{java}}}} expressions but Java bridge is "
+                "unavailable. Either start the bridge (java_config.enabled=true) "
+                "or remove Java expressions from the job."
+            )
+
     # ------------------------------------------------------------------
     # Core Processing
     # ------------------------------------------------------------------
@@ -421,9 +430,11 @@ class Map(BaseComponent):
         )
 
         # Decide execution path once so both Step 5 and Step 6 use the same decision.
-        _use_compiled = (
-            self._has_java_expressions(outputs_config)
-            and self.java_bridge is not None
+        # D-02: marker-presence anywhere in config is the sole dispatch signal.
+        _use_compiled = self._has_any_java_marker()
+        # Hard-fail already enforced in _validate_config; assertion is defense-in-depth.
+        assert (not _use_compiled) or (self.java_bridge is not None), (
+            "Marker-present + bridge-missing should have failed in _validate_config"
         )
 
         # Step 5: Evaluate variables.
@@ -1245,10 +1256,11 @@ class Map(BaseComponent):
         """
         result: dict[str, pd.DataFrame] = {}
 
-        # Check if we can use compiled script execution
-        has_java_expressions = self._has_java_expressions(outputs_config)
+        # D-02: marker-presence anywhere is the sole dispatch signal (set in _process).
+        # Re-derive here for the case where _evaluate_outputs is called standalone.
+        _use_compiled = self._has_any_java_marker()
 
-        if has_java_expressions and self.java_bridge is not None:
+        if _use_compiled:
             result = self._evaluate_outputs_compiled(
                 joined_df, outputs_config, variables_config,
                 main_name, lookup_names
@@ -1932,27 +1944,57 @@ class Map(BaseComponent):
                 )
             return {}
 
-    def _has_java_expressions(self, outputs_config: list[dict]) -> bool:
-        """Check if any output column has a Java expression.
+    def _has_any_java_marker(self) -> bool:
+        """Check whether ANY expression-bearing config field starts with {{java}}.
 
-        Args:
-            outputs_config: Output config list.
+        Scans all marker-bearing fields in self.config:
+          - inputs.main.filter
+          - inputs.lookups[*].filter
+          - inputs.lookups[*].join_keys[*].expression
+          - variables[*].expression
+          - outputs[*].filter
+          - outputs[*].columns[*].expression
+
+        Per D-01/D-02: the marker itself is the routing signal. No per-column
+        simplicity check; any single {{java}} prefix anywhere forces the
+        compiled Groovy path.
 
         Returns:
-            True if any column expression starts with {{java}}.
+            True if any field starts with the {{java}} marker.
         """
-        for output in outputs_config:
-            for col in output.get("columns", []):
-                expr = col.get("expression", "")
-                if expr.startswith(_JAVA_MARKER):
-                    stripped = self._strip_java_marker(expr)
-                    if not self._is_simple_column_ref(stripped):
-                        return True
-            filter_expr = output.get("filter", "")
-            if filter_expr.startswith(_JAVA_MARKER):
-                stripped = self._strip_java_marker(filter_expr)
-                if not self._is_simple_column_ref(stripped):
+        cfg = self.config
+
+        # -- main filter --
+        main_filter = cfg.get("inputs", {}).get("main", {}).get("filter", "")
+        if isinstance(main_filter, str) and main_filter.startswith(_JAVA_MARKER):
+            return True
+
+        # -- lookup filters and join key expressions --
+        for lookup in cfg.get("inputs", {}).get("lookups", []):
+            lf = lookup.get("filter", "")
+            if isinstance(lf, str) and lf.startswith(_JAVA_MARKER):
+                return True
+            for jk in lookup.get("join_keys", []):
+                jk_expr = jk.get("expression", "")
+                if isinstance(jk_expr, str) and jk_expr.startswith(_JAVA_MARKER):
                     return True
+
+        # -- variable expressions --
+        for var in cfg.get("variables", []):
+            v_expr = var.get("expression", "")
+            if isinstance(v_expr, str) and v_expr.startswith(_JAVA_MARKER):
+                return True
+
+        # -- output filters and column expressions --
+        for output in cfg.get("outputs", []):
+            out_filter = output.get("filter", "")
+            if isinstance(out_filter, str) and out_filter.startswith(_JAVA_MARKER):
+                return True
+            for col in output.get("columns", []):
+                col_expr = col.get("expression", "")
+                if isinstance(col_expr, str) and col_expr.startswith(_JAVA_MARKER):
+                    return True
+
         return False
 
     # ------------------------------------------------------------------

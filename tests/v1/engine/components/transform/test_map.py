@@ -46,6 +46,74 @@ _DEFAULT_CONFIG = {
                 "join_keys": [
                     {
                         "lookup_column": "key",
+                        "expression": "row1.key",
+                        "type": "str",
+                        "nullable": True,
+                        "operator": "=",
+                    }
+                ],
+                "join_mode": "LEFT_OUTER_JOIN",
+            }
+        ],
+    },
+    "variables": [],
+    "outputs": [
+        {
+            "name": "out1",
+            "is_reject": False,
+            "inner_join_reject": False,
+            "filter": "",
+            "activate_filter": False,
+            "columns": [
+                {
+                    "name": "id",
+                    "expression": "row1.id",
+                    "type": "int",
+                    "nullable": True,
+                },
+                {
+                    "name": "val",
+                    "expression": "row1.val",
+                    "type": "int",
+                    "nullable": True,
+                },
+                {
+                    "name": "label",
+                    "expression": "row2.label",
+                    "type": "str",
+                    "nullable": True,
+                },
+            ],
+            "catch_output_reject": False,
+        }
+    ],
+    "die_on_error": True,
+}
+
+# _DEFAULT_CONFIG_WITH_JAVA is the original {{java}}-marked version of _DEFAULT_CONFIG.
+# Used only by tests that explicitly verify bridge-required behavior (TestHasAnyJavaMarker).
+# Unit tests that test join/lookup/output behavior use _DEFAULT_CONFIG (no markers)
+# so they exercise the no-marker (simple) path without requiring the Java bridge.
+_DEFAULT_CONFIG_WITH_JAVA = {
+    "component_type": "Map",
+    "inputs": {
+        "main": {
+            "name": "row1",
+            "filter": "",
+            "activate_filter": False,
+            "matching_mode": "UNIQUE_MATCH",
+            "lookup_mode": "LOAD_ONCE",
+        },
+        "lookups": [
+            {
+                "name": "row2",
+                "matching_mode": "UNIQUE_MATCH",
+                "lookup_mode": "LOAD_ONCE",
+                "filter": "",
+                "activate_filter": False,
+                "join_keys": [
+                    {
+                        "lookup_column": "key",
                         "expression": "{{java}}row1.key",
                         "type": "str",
                         "nullable": True,
@@ -189,9 +257,16 @@ class TestValidation:
             comp.execute(_make_input_dict())
 
     def test_valid_config_does_not_raise(self):
-        comp = _make_component()
+        """No-marker config with no bridge -> succeeds via simple path."""
+        comp = _make_component()  # no java_bridge, no-marker config (_DEFAULT_CONFIG)
         result = comp.execute(_make_input_dict())
         assert "out1" in result
+
+    def test_java_marker_config_requires_bridge(self):
+        """D-01: config with {{java}} markers but no bridge -> ConfigurationError."""
+        comp = _make_component(config=copy.deepcopy(_DEFAULT_CONFIG_WITH_JAVA))
+        with pytest.raises(ConfigurationError, match="Java bridge"):
+            comp.execute(_make_input_dict())
 
 
 @pytest.mark.unit
@@ -216,8 +291,8 @@ class TestDefaults:
         config["inputs"]["lookups"] = []
         # Output maps directly from main
         config["outputs"][0]["columns"] = [
-            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
-            {"name": "val", "expression": "{{java}}row1.val", "type": "int", "nullable": True},
+            {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+            {"name": "val", "expression": "row1.val", "type": "int", "nullable": True},
         ]
         comp = _make_component(config=config)
         main_df = _make_main_df()
@@ -236,7 +311,8 @@ class TestLifecycle:
 
     def test_resolve_expressions_skips_java_markers(self):
         """_resolve_expressions does NOT use parent Java resolution."""
-        comp = _make_component()
+        # Use the java-marker config to verify {{java}} is preserved as-is.
+        comp = _make_component(config=copy.deepcopy(_DEFAULT_CONFIG_WITH_JAVA))
         # Simulate what execute() does
         comp.config = copy.deepcopy(comp._original_config)
         # Should not raise even though config has {{java}} markers
@@ -263,7 +339,7 @@ class TestLifecycle:
             "filter": "",
             "activate_filter": False,
             "columns": [
-                {"name": "val", "expression": "{{java}}row1.val", "type": "int", "nullable": True},
+                {"name": "val", "expression": "row1.val", "type": "int", "nullable": True},
             ],
             "catch_output_reject": False,
         })
@@ -484,7 +560,7 @@ class TestNullKeys:
             "filter": "",
             "activate_filter": False,
             "columns": [
-                {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+                {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
             ],
             "catch_output_reject": False,
         })
@@ -533,8 +609,8 @@ class TestInnerJoinReject:
             "filter": "",
             "activate_filter": False,
             "columns": [
-                {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
-                {"name": "val", "expression": "{{java}}row1.val", "type": "int", "nullable": True},
+                {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+                {"name": "val", "expression": "row1.val", "type": "int", "nullable": True},
             ],
             "catch_output_reject": False,
         })
@@ -573,7 +649,7 @@ class TestInnerJoinReject:
             "filter": "",
             "activate_filter": False,
             "columns": [
-                {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+                {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
             ],
             "catch_output_reject": False,
         })
@@ -593,7 +669,7 @@ class TestInnerJoinReject:
             "filter": "",
             "activate_filter": False,
             "columns": [
-                {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+                {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
             ],
             "catch_output_reject": False,
         })
@@ -631,7 +707,7 @@ class TestInnerJoinReject:
             "join_keys": [
                 {
                     "lookup_column": "code",
-                    "expression": "{{java}}row1.key",
+                    "expression": "row1.key",
                     "type": "str",
                     "nullable": True,
                     "operator": "=",
@@ -646,7 +722,7 @@ class TestInnerJoinReject:
             "filter": "",
             "activate_filter": False,
             "columns": [
-                {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+                {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
             ],
             "catch_output_reject": False,
         })
@@ -678,7 +754,7 @@ class TestMultiOutput:
             "filter": "",
             "activate_filter": False,
             "columns": [
-                {"name": "val", "expression": "{{java}}row1.val", "type": "int", "nullable": True},
+                {"name": "val", "expression": "row1.val", "type": "int", "nullable": True},
             ],
             "catch_output_reject": False,
         })
@@ -699,7 +775,7 @@ class TestMultiOutput:
             "filter": "",
             "activate_filter": False,
             "columns": [
-                {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+                {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
             ],
             "catch_output_reject": False,
         })
@@ -744,8 +820,8 @@ class TestMultiInput:
         config = copy.deepcopy(_DEFAULT_CONFIG)
         config["inputs"]["lookups"] = []
         config["outputs"][0]["columns"] = [
-            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
-            {"name": "val", "expression": "{{java}}row1.val", "type": "int", "nullable": True},
+            {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+            {"name": "val", "expression": "row1.val", "type": "int", "nullable": True},
         ]
         comp = _make_component(config=config)
         main_df = _make_main_df()
@@ -773,7 +849,7 @@ class TestMultiInput:
             "join_keys": [
                 {
                     "lookup_column": "code",
-                    "expression": "{{java}}row1.key",
+                    "expression": "row1.key",
                     "type": "str",
                     "nullable": True,
                     "operator": "=",
@@ -782,7 +858,7 @@ class TestMultiInput:
             "join_mode": "LEFT_OUTER_JOIN",
         })
         config["outputs"][0]["columns"].append(
-            {"name": "desc", "expression": "{{java}}row3.desc", "type": "str", "nullable": True}
+            {"name": "desc", "expression": "row3.desc", "type": "str", "nullable": True}
         )
         main_df = _make_main_df()
         lookup1 = _make_lookup_df()
@@ -807,10 +883,10 @@ class TestVariables:
         """Variable expressions evaluated and accessible in output columns."""
         config = copy.deepcopy(_DEFAULT_CONFIG)
         config["variables"] = [
-            {"name": "myVar", "expression": "{{java}}row1.val", "type": "int"},
+            {"name": "myVar", "expression": "row1.val", "type": "int"},
         ]
         config["outputs"][0]["columns"].append(
-            {"name": "var_col", "expression": "{{java}}Var.myVar", "type": "int", "nullable": True}
+            {"name": "var_col", "expression": "Var.myVar", "type": "int", "nullable": True}
         )
         comp = _make_component(config=config)
         result = comp.execute(_make_input_dict())
@@ -822,11 +898,11 @@ class TestVariables:
         """Variable referencing earlier variable works."""
         config = copy.deepcopy(_DEFAULT_CONFIG)
         config["variables"] = [
-            {"name": "v1", "expression": "{{java}}row1.val", "type": "int"},
-            {"name": "v2", "expression": "{{java}}Var.v1", "type": "int"},
+            {"name": "v1", "expression": "row1.val", "type": "int"},
+            {"name": "v2", "expression": "Var.v1", "type": "int"},
         ]
         config["outputs"][0]["columns"].append(
-            {"name": "chained", "expression": "{{java}}Var.v2", "type": "int", "nullable": True}
+            {"name": "chained", "expression": "Var.v2", "type": "int", "nullable": True}
         )
         comp = _make_component(config=config)
         result = comp.execute(_make_input_dict())
@@ -845,10 +921,10 @@ class TestVariables:
         """Variables can reference lookup columns."""
         config = copy.deepcopy(_DEFAULT_CONFIG)
         config["variables"] = [
-            {"name": "lookupVal", "expression": "{{java}}row2.label", "type": "str"},
+            {"name": "lookupVal", "expression": "row2.label", "type": "str"},
         ]
         config["outputs"][0]["columns"].append(
-            {"name": "var_label", "expression": "{{java}}Var.lookupVal", "type": "str", "nullable": True}
+            {"name": "var_label", "expression": "Var.lookupVal", "type": "str", "nullable": True}
         )
         comp = _make_component(config=config)
         result = comp.execute(_make_input_dict())
@@ -871,7 +947,7 @@ class TestCatchOutputReject:
             "filter": "",
             "activate_filter": False,
             "columns": [
-                {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+                {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
                 {"name": "errorMessage", "expression": "", "type": "str", "nullable": True},
             ],
             "catch_output_reject": True,
@@ -891,7 +967,7 @@ class TestCatchOutputReject:
             "filter": "",
             "activate_filter": False,
             "columns": [
-                {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+                {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
                 {"name": "errorMessage", "expression": "", "type": "str", "nullable": True},
             ],
             "catch_output_reject": True,
@@ -903,7 +979,7 @@ class TestCatchOutputReject:
             "filter": "",
             "activate_filter": False,
             "columns": [
-                {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+                {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
             ],
             "catch_output_reject": False,
         })
@@ -923,7 +999,7 @@ class TestCatchOutputReject:
             "filter": "",
             "activate_filter": False,
             "columns": [
-                {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+                {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
                 {"name": "errorMessage", "expression": "", "type": "str", "nullable": True},
             ],
             "catch_output_reject": True,
@@ -1055,8 +1131,8 @@ class TestReloadAtEachRow:
             "filter": "",
             "activate_filter": False,
             "columns": [
-                {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
-                {"name": "key", "expression": "{{java}}row1.key", "type": "str", "nullable": True},
+                {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+                {"name": "key", "expression": "row1.key", "type": "str", "nullable": True},
             ],
             "catch_output_reject": False,
         })
@@ -1082,14 +1158,14 @@ class TestReloadAtEachRow:
         config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
         config["inputs"]["lookups"][0]["join_keys"] = [{
             "lookup_column": "dept_id",
-            "expression": "{{java}}row1.dept_id",
+            "expression": "row1.dept_id",
             "type": "int",
             "nullable": False,
             "operator": "=",
         }]
         config["outputs"][0]["columns"] = [
-            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
-            {"name": "dept_name", "expression": "{{java}}row2.dept_name", "type": "str", "nullable": True},
+            {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+            {"name": "dept_name", "expression": "row2.dept_name", "type": "str", "nullable": True},
         ]
         main_df = pd.DataFrame({
             "id": [1, 2, 3],
@@ -1157,12 +1233,12 @@ class TestReloadAtEachRow:
         # (correct), the per-row loop sees ALL lookup rows and applies filter
         # per-row, so key="B" (active=True) matches but key="A" (active=False)
         # also shows up as unmatched in LEFT_OUTER_JOIN (not rejected).
-        config["inputs"]["lookups"][0]["filter"] = "{{java}}row2.active"
+        config["inputs"]["lookups"][0]["filter"] = "row2.active"
         config["inputs"]["lookups"][0]["join_mode"] = "LEFT_OUTER_JOIN"
         config["outputs"][0]["columns"] = [
-            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
-            {"name": "key", "expression": "{{java}}row1.key", "type": "str", "nullable": True},
-            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+            {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+            {"name": "key", "expression": "row1.key", "type": "str", "nullable": True},
+            {"name": "label", "expression": "row2.label", "type": "str", "nullable": True},
         ]
         main_df = pd.DataFrame([
             {"id": 1, "key": "A", "val": 100},
@@ -1202,19 +1278,19 @@ class TestReloadAtEachRow:
         config = copy.deepcopy(_DEFAULT_CONFIG)
         config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
         config["inputs"]["lookups"][0]["activate_filter"] = True
-        config["inputs"]["lookups"][0]["filter"] = "{{java}}row1.region == row2.region"
+        config["inputs"]["lookups"][0]["filter"] = "row1.region == row2.region"
         config["inputs"]["lookups"][0]["join_keys"] = [{
             "lookup_column": "key",
-            "expression": "{{java}}row1.key",
+            "expression": "row1.key",
             "type": "str",
             "nullable": False,
             "operator": "=",
         }]
         config["inputs"]["lookups"][0]["join_mode"] = "LEFT_OUTER_JOIN"
         config["outputs"][0]["columns"] = [
-            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
-            {"name": "region", "expression": "{{java}}row1.region", "type": "str", "nullable": True},
-            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+            {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+            {"name": "region", "expression": "row1.region", "type": "str", "nullable": True},
+            {"name": "label", "expression": "row2.label", "type": "str", "nullable": True},
         ]
         main_df = pd.DataFrame([
             {"id": 1, "key": "A", "region": "US", "val": 100},
@@ -1278,18 +1354,18 @@ class TestReloadAtEachRow:
         config = copy.deepcopy(_DEFAULT_CONFIG)
         config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
         config["inputs"]["lookups"][0]["activate_filter"] = True
-        config["inputs"]["lookups"][0]["filter"] = "{{java}}row1.threshold <= row2.score"
+        config["inputs"]["lookups"][0]["filter"] = "row1.threshold <= row2.score"
         config["inputs"]["lookups"][0]["join_keys"] = [{
             "lookup_column": "key",
-            "expression": "{{java}}row1.key",
+            "expression": "row1.key",
             "type": "str",
             "nullable": False,
             "operator": "=",
         }]
         config["inputs"]["lookups"][0]["join_mode"] = "LEFT_OUTER_JOIN"
         config["outputs"][0]["columns"] = [
-            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
-            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+            {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+            {"name": "label", "expression": "row2.label", "type": "str", "nullable": True},
         ]
         main_df = pd.DataFrame([
             {"id": 1, "key": "A", "threshold": 50, "val": 100},
@@ -1349,12 +1425,12 @@ class TestReloadAtEachRow:
         config = copy.deepcopy(_DEFAULT_CONFIG)
         config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
         config["inputs"]["lookups"][0]["activate_filter"] = True
-        config["inputs"]["lookups"][0]["filter"] = "{{java}}row2.active"
+        config["inputs"]["lookups"][0]["filter"] = "row2.active"
         config["inputs"]["lookups"][0]["join_mode"] = "LEFT_OUTER_JOIN"
         config["outputs"][0]["columns"] = [
-            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
-            {"name": "key", "expression": "{{java}}row1.key", "type": "str", "nullable": True},
-            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+            {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+            {"name": "key", "expression": "row1.key", "type": "str", "nullable": True},
+            {"name": "label", "expression": "row2.label", "type": "str", "nullable": True},
         ]
         main_df = pd.DataFrame([
             {"id": 1, "key": "A", "val": 100},
@@ -1381,9 +1457,9 @@ class TestReloadAtEachRow:
         config = copy.deepcopy(_DEFAULT_CONFIG)
         config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
         config["outputs"][0]["columns"] = [
-            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
-            {"name": "key", "expression": "{{java}}row1.key", "type": "str", "nullable": True},
-            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+            {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+            {"name": "key", "expression": "row1.key", "type": "str", "nullable": True},
+            {"name": "label", "expression": "row2.label", "type": "str", "nullable": True},
         ]
         main_df = pd.DataFrame([
             {"id": 1, "key": "A", "val": 100},
@@ -1412,14 +1488,14 @@ class TestReloadAtEachRow:
         config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
         config["inputs"]["lookups"][0]["join_keys"] = [{
             "lookup_column": "key",
-            "expression": "{{java}}row1.key",
+            "expression": "row1.key",
             "type": "int",
             "nullable": False,
             "operator": "=",
         }]
         config["outputs"][0]["columns"] = [
-            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
-            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+            {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+            {"name": "label", "expression": "row2.label", "type": "str", "nullable": True},
         ]
         main_df = pd.DataFrame({"id": [1, 2], "key": [1, 2], "val": [100, 200]})
         # Force float dtype on lookup key
@@ -1444,14 +1520,14 @@ class TestReloadAtEachRow:
         config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
         config["inputs"]["lookups"][0]["join_keys"] = [{
             "lookup_column": "key",
-            "expression": "{{java}}row1.key",
+            "expression": "row1.key",
             "type": "str",
             "nullable": False,
             "operator": "=",
         }]
         config["outputs"][0]["columns"] = [
-            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
-            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+            {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+            {"name": "label", "expression": "row2.label", "type": "str", "nullable": True},
         ]
         main_df = pd.DataFrame({"id": [1], "key": ["42"], "val": [100]})
         lookup_df = pd.DataFrame({"key": [42], "label": ["Answer"]})
@@ -1468,22 +1544,22 @@ class TestReloadAtEachRow:
         config["inputs"]["lookups"][0]["join_keys"] = [
             {
                 "lookup_column": "dept_id",
-                "expression": "{{java}}row1.dept_id",
+                "expression": "row1.dept_id",
                 "type": "int",
                 "nullable": False,
                 "operator": "=",
             },
             {
                 "lookup_column": "region",
-                "expression": "{{java}}row1.region",
+                "expression": "row1.region",
                 "type": "str",
                 "nullable": False,
                 "operator": "=",
             },
         ]
         config["outputs"][0]["columns"] = [
-            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
-            {"name": "dept_name", "expression": "{{java}}row2.dept_name", "type": "str", "nullable": True},
+            {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+            {"name": "dept_name", "expression": "row2.dept_name", "type": "str", "nullable": True},
         ]
         main_df = pd.DataFrame({
             "id": [1, 2],
@@ -1520,9 +1596,9 @@ class TestReloadAtEachRow:
         config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
         config["inputs"]["lookups"][0]["join_mode"] = "LEFT_OUTER_JOIN"
         config["outputs"][0]["columns"] = [
-            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
-            {"name": "key", "expression": "{{java}}row1.key", "type": "str", "nullable": True},
-            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+            {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+            {"name": "key", "expression": "row1.key", "type": "str", "nullable": True},
+            {"name": "label", "expression": "row2.label", "type": "str", "nullable": True},
         ]
         main_df = pd.DataFrame([
             {"id": 1, "key": "A", "val": 100},
@@ -1554,10 +1630,10 @@ class TestReloadAtEachRow:
         config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
         config["inputs"]["lookups"][0]["join_mode"] = "LEFT_OUTER_JOIN"
         config["outputs"][0]["columns"] = [
-            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
-            {"name": "key", "expression": "{{java}}row1.key", "type": "str", "nullable": True},
-            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
-            {"name": "score", "expression": "{{java}}row2.score", "type": "int", "nullable": True},
+            {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+            {"name": "key", "expression": "row1.key", "type": "str", "nullable": True},
+            {"name": "label", "expression": "row2.label", "type": "str", "nullable": True},
+            {"name": "score", "expression": "row2.score", "type": "int", "nullable": True},
         ]
         main_df = pd.DataFrame([
             {"id": 1, "key": "A", "val": 100},
@@ -1595,12 +1671,12 @@ class TestReloadAtEachRow:
         config = copy.deepcopy(_DEFAULT_CONFIG)
         config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
         config["inputs"]["lookups"][0]["activate_filter"] = True
-        config["inputs"]["lookups"][0]["filter"] = '{{java}}row1.key == "row1.key"'
+        config["inputs"]["lookups"][0]["filter"] = 'row1.key == "row1.key"'
         config["inputs"]["lookups"][0]["join_mode"] = "LEFT_OUTER_JOIN"
         config["outputs"][0]["columns"] = [
-            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
-            {"name": "key", "expression": "{{java}}row1.key", "type": "str", "nullable": True},
-            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+            {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+            {"name": "key", "expression": "row1.key", "type": "str", "nullable": True},
+            {"name": "label", "expression": "row2.label", "type": "str", "nullable": True},
         ]
         main_df = pd.DataFrame([
             {"id": 1, "key": "A", "val": 100},
@@ -1645,18 +1721,18 @@ class TestReloadAtEachRow:
         config = copy.deepcopy(_DEFAULT_CONFIG)
         config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
         config["inputs"]["lookups"][0]["activate_filter"] = True
-        config["inputs"]["lookups"][0]["filter"] = "{{java}}row1.threshold > row2.score"
+        config["inputs"]["lookups"][0]["filter"] = "row1.threshold > row2.score"
         config["inputs"]["lookups"][0]["join_keys"] = [{
             "lookup_column": "key",
-            "expression": "{{java}}row1.key",
+            "expression": "row1.key",
             "type": "str",
             "nullable": False,
             "operator": "=",
         }]
         config["inputs"]["lookups"][0]["join_mode"] = "LEFT_OUTER_JOIN"
         config["outputs"][0]["columns"] = [
-            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
-            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+            {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+            {"name": "label", "expression": "row2.label", "type": "str", "nullable": True},
         ]
         main_df = pd.DataFrame({
             "id": [1, 2],
@@ -1729,15 +1805,15 @@ class TestReloadAtEachRow:
         config["inputs"]["lookups"][0]["matching_mode"] = "ALL_MATCHES"
         config["inputs"]["lookups"][0]["join_keys"] = [{
             "lookup_column": "dept",
-            "expression": "{{java}}row1.dept",
+            "expression": "row1.dept",
             "type": "str",
             "nullable": False,
             "operator": "=",
         }]
         config["inputs"]["lookups"][0]["join_mode"] = "LEFT_OUTER_JOIN"
         config["outputs"][0]["columns"] = [
-            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
-            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+            {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+            {"name": "label", "expression": "row2.label", "type": "str", "nullable": True},
         ]
         main_df = pd.DataFrame([
             {"id": 1, "dept": "Eng", "val": 100},
@@ -1764,18 +1840,18 @@ class TestReloadAtEachRow:
         config = copy.deepcopy(_DEFAULT_CONFIG)
         config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
         config["inputs"]["lookups"][0]["activate_filter"] = True
-        config["inputs"]["lookups"][0]["filter"] = "{{java}}row1.name == row2.name"
+        config["inputs"]["lookups"][0]["filter"] = "row1.name == row2.name"
         config["inputs"]["lookups"][0]["join_keys"] = [{
             "lookup_column": "key",
-            "expression": "{{java}}row1.key",
+            "expression": "row1.key",
             "type": "str",
             "nullable": False,
             "operator": "=",
         }]
         config["inputs"]["lookups"][0]["join_mode"] = "LEFT_OUTER_JOIN"
         config["outputs"][0]["columns"] = [
-            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
-            {"name": "label", "expression": "{{java}}row2.label", "type": "str", "nullable": True},
+            {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+            {"name": "label", "expression": "row2.label", "type": "str", "nullable": True},
         ]
         # Main row value has a double-quote character
         main_df = pd.DataFrame([
@@ -1856,7 +1932,7 @@ class TestGlobalMapVariables:
             "filter": "",
             "activate_filter": False,
             "columns": [
-                {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+                {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
             ],
             "catch_output_reject": False,
         })
@@ -1885,7 +1961,7 @@ class TestGlobalMapVariables:
             "filter": "",
             "activate_filter": False,
             "columns": [
-                {"name": "val", "expression": "{{java}}row1.val", "type": "int", "nullable": True},
+                {"name": "val", "expression": "row1.val", "type": "int", "nullable": True},
             ],
             "catch_output_reject": False,
         })
@@ -1896,7 +1972,7 @@ class TestGlobalMapVariables:
             "filter": "",
             "activate_filter": False,
             "columns": [
-                {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+                {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
             ],
             "catch_output_reject": False,
         })
@@ -1954,7 +2030,7 @@ class TestColumnPrefixing:
             "join_keys": [
                 {
                     "lookup_column": "code",
-                    "expression": "{{java}}row1.key",
+                    "expression": "row1.key",
                     "type": "str",
                     "nullable": True,
                     "operator": "=",
@@ -1963,7 +2039,7 @@ class TestColumnPrefixing:
             "join_mode": "LEFT_OUTER_JOIN",
         })
         config["outputs"][0]["columns"].append(
-            {"name": "desc", "expression": "{{java}}row3.desc", "type": "str", "nullable": True}
+            {"name": "desc", "expression": "row3.desc", "type": "str", "nullable": True}
         )
         lookup2 = pd.DataFrame([
             {"code": "A", "desc": "Alpha_desc"},
@@ -2002,7 +2078,7 @@ class TestSmartJoinRouting:
         config["inputs"]["lookups"][0]["join_keys"] = [
             {
                 "lookup_column": "region",
-                "expression": '{{java}}context.get("region")',
+                "expression": 'context.get("region")',
                 "type": "str",
                 "nullable": True,
                 "operator": "=",
@@ -2021,7 +2097,7 @@ class TestSmartJoinRouting:
         config["inputs"]["lookups"][0]["join_keys"] = [
             {
                 "lookup_column": "code",
-                "expression": "{{java}}row1.a + row2.b",
+                "expression": "row1.a + row2.b",
                 "type": "str",
                 "nullable": True,
                 "operator": "=",
@@ -2086,7 +2162,7 @@ class TestEdgeCases:
             "filter": "",
             "activate_filter": False,
             "columns": [
-                {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+                {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
             ],
             "catch_output_reject": False,
         })
@@ -2123,8 +2199,8 @@ class TestEdgeCases:
 
         config = copy.deepcopy(_DEFAULT_CONFIG)
         config["outputs"][0]["columns"] = [
-            {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
-            {"name": "label", "expression": "{{java}}row2.lk_col_0", "type": "int", "nullable": True},
+            {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+            {"name": "label", "expression": "row2.lk_col_0", "type": "int", "nullable": True},
         ]
         comp = _make_component(config=config)
         result = comp.execute(_make_input_dict(main_df=main_df, lookup_df=lookup))
@@ -2253,7 +2329,7 @@ class TestCompiledScriptGeneration:
             "filter": "",
             "activate_filter": False,
             "columns": [
-                {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+                {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
             ],
             "catch_output_reject": True,
         })
@@ -2968,7 +3044,7 @@ class TestSimpleHelpers:
 
     def test_strip_java_marker(self):
         comp = self._helper()
-        assert comp._strip_java_marker("{{java}}row1.id") == "row1.id"
+        assert comp._strip_java_marker("row1.id") == "row1.id"
         assert comp._strip_java_marker("plain_expr") == "plain_expr"
 
     def test_is_simple_column_ref_yes(self):
@@ -3125,8 +3201,8 @@ class TestEqualityJoinExtra:
             "filter": "",
             "activate_filter": False,
             "columns": [
-                {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
-                {"name": "key", "expression": "{{java}}row1.key", "type": "str", "nullable": True},
+                {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+                {"name": "key", "expression": "row1.key", "type": "str", "nullable": True},
             ],
             "catch_output_reject": False,
         })
@@ -3248,7 +3324,7 @@ class TestApplyOutputFilterShortCircuits:
         comp = self._helper()
         df = pd.DataFrame(columns=["id"])
         result = comp._apply_output_filter(
-            df, {"name": "out1", "filter": "{{java}}row1.id"}, {}, "row1", []
+            df, {"name": "out1", "filter": "row1.id"}, {}, "row1", []
         )
         # Empty df short-circuits
         assert result is df
@@ -3330,7 +3406,7 @@ class TestEmptyMainAfterFilter:
         # Configure main to have an "always false" filter (simple column ref returning bool)
         config["inputs"]["main"]["activate_filter"] = True
         # Use a simple-column-ref filter on a column that's always 0 -> all filtered out
-        config["inputs"]["main"]["filter"] = "{{java}}row1.always_false"
+        config["inputs"]["main"]["filter"] = "row1.always_false"
         comp = _make_component(config=config)
         # Main has an 'always_false' column with 0/falsy values
         main_df = pd.DataFrame({
@@ -3575,7 +3651,7 @@ class TestPlan1406bUnitGapClosure:
             "columns": [
                 {"name": "a", "expression": "", "type": "str"},  # empty
                 {"name": "b", "expression": "   ", "type": "str"},  # whitespace
-                {"name": "c", "expression": "{{java}}row1.id", "type": "int"},
+                {"name": "c", "expression": "row1.id", "type": "int"},
             ],
             "catch_output_reject": False,
         }]
@@ -3592,10 +3668,10 @@ class TestPlan1406bUnitGapClosure:
             "name": "out1",
             "is_reject": False,
             "inner_join_reject": False,
-            "filter": "{{java}}row1.id > 0",
+            "filter": "row1.id > 0",
             "activate_filter": True,
             "columns": [
-                {"name": "a", "expression": "{{java}}row1.id", "type": "int"},
+                {"name": "a", "expression": "row1.id", "type": "int"},
             ],
             "catch_output_reject": False,
         }]
@@ -3612,7 +3688,7 @@ class TestPlan1406bUnitGapClosure:
             "filter": "",
             "activate_filter": False,
             "columns": [
-                {"name": "a", "expression": "{{java}}row1.id", "type": "int"},
+                {"name": "a", "expression": "row1.id", "type": "int"},
             ],
             "catch_output_reject": False,
         }]
@@ -3620,7 +3696,7 @@ class TestPlan1406bUnitGapClosure:
         variables = [
             {"name": "v_empty", "expression": ""},  # falsy -> outer `if var_expr:` skips
             {"name": "v_ws", "expression": "   "},  # truthy, but stripped to empty -> "null"
-            {"name": "v_normal", "expression": "{{java}}row1.id * 2"},
+            {"name": "v_normal", "expression": "row1.id * 2"},
         ]
         script = comp._build_compiled_script(outputs, variables, "row1", [])
         # v_empty NOT emitted (outer guard skips)
@@ -3705,7 +3781,7 @@ class TestPlan1406bUnitGapClosure:
             "filter": "",
             "activate_filter": False,
             "columns": [
-                {"name": "id", "expression": "{{java}}row1.id", "type": "int"},
+                {"name": "id", "expression": "row1.id", "type": "int"},
             ],
         })
         comp = _make_component(config=config)
@@ -3742,7 +3818,7 @@ class TestPlan1406bUnitGapClosure:
             "filter": "",
             "activate_filter": False,
             "columns": [
-                {"name": "id", "expression": "{{java}}row1.id", "type": "int"},
+                {"name": "id", "expression": "row1.id", "type": "int"},
             ],
         })
         comp = _make_component(config=config)
@@ -3813,5 +3889,168 @@ class TestPlan1406bUnitGapClosure:
         out = result["out1"]
         # Main val (10/20) preserved; lookup val (99) dropped via __dup__
         assert list(out["val"]) == [10, 20]
+
+
+# ==============================================================================
+# TestHasAnyJavaMarker -- D-01 universal marker rule + D-02 dispatch (05.3-01)
+# ==============================================================================
+
+
+def _make_no_marker_config():
+    """Build a tMap config where NO field starts with {{java}}.
+
+    All output expressions are bare column refs, no filters, no variables.
+    """
+    return {
+        "component_type": "Map",
+        "inputs": {
+            "main": {
+                "name": "row1",
+                "filter": "",
+                "activate_filter": False,
+                "matching_mode": "UNIQUE_MATCH",
+                "lookup_mode": "LOAD_ONCE",
+            },
+            "lookups": [],
+        },
+        "variables": [],
+        "outputs": [
+            {
+                "name": "out1",
+                "is_reject": False,
+                "inner_join_reject": False,
+                "filter": "",
+                "activate_filter": False,
+                "columns": [
+                    {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+                    {"name": "val", "expression": "row1.val", "type": "int", "nullable": True},
+                ],
+                "catch_output_reject": False,
+            }
+        ],
+        "die_on_error": True,
+    }
+
+
+def _make_configured(cfg, java_bridge=None):
+    """Create a Map component with self.config pre-populated.
+
+    BaseComponent defers config population to execute() time (ENG-09/ENG-21).
+    For unit tests that call methods on self.config directly, we must manually
+    set comp.config = deepcopy(cfg) after construction.
+    """
+    comp = _make_component(config=cfg, java_bridge=java_bridge)
+    comp.config = copy.deepcopy(cfg)
+    return comp
+
+
+class TestHasAnyJavaMarker:
+    """Unit tests for Map._has_any_java_marker (D-01/D-02 universal marker rule)."""
+
+    def test_no_marker_returns_false(self):
+        """Test 1: config with all-literal/bare-ref outputs -> returns False."""
+        cfg = _make_no_marker_config()
+        comp = _make_configured(cfg)
+        assert comp._has_any_java_marker() is False
+
+    def test_output_column_marker_returns_true(self):
+        """Test 2: one output column expression starts with {{java}} -> returns True."""
+        cfg = _make_no_marker_config()
+        cfg["outputs"][0]["columns"][0]["expression"] = "{{java}}row1.id"
+        comp = _make_configured(cfg)
+        assert comp._has_any_java_marker() is True
+
+    def test_output_filter_marker_returns_true(self):
+        """Test 3: outputs[0]['filter'] starts with {{java}} -> returns True."""
+        cfg = _make_no_marker_config()
+        cfg["outputs"][0]["filter"] = "{{java}}row1.val > 0"
+        comp = _make_configured(cfg)
+        assert comp._has_any_java_marker() is True
+
+    def test_variable_marker_returns_true(self):
+        """Test 4: variables[0]['expression'] starts with {{java}} -> returns True."""
+        cfg = _make_no_marker_config()
+        cfg["variables"] = [{"name": "v1", "expression": "{{java}}row1.val * 2", "type": "int"}]
+        comp = _make_configured(cfg)
+        assert comp._has_any_java_marker() is True
+
+    def test_join_key_marker_returns_true(self):
+        """Test 5: inputs.lookups[0].join_keys[0]['expression'] starts with {{java}} -> returns True."""
+        cfg = _make_no_marker_config()
+        cfg["inputs"]["lookups"] = [
+            {
+                "name": "row2",
+                "matching_mode": "UNIQUE_MATCH",
+                "lookup_mode": "LOAD_ONCE",
+                "filter": "",
+                "activate_filter": False,
+                "join_keys": [
+                    {
+                        "lookup_column": "key",
+                        "expression": "{{java}}row1.key.trim()",
+                        "type": "str",
+                        "nullable": True,
+                        "operator": "=",
+                    }
+                ],
+                "join_mode": "LEFT_OUTER_JOIN",
+            }
+        ]
+        comp = _make_configured(cfg)
+        assert comp._has_any_java_marker() is True
+
+    def test_lookup_filter_marker_returns_true(self):
+        """Test 6: inputs.lookups[0]['filter'] starts with {{java}} -> returns True."""
+        cfg = _make_no_marker_config()
+        cfg["inputs"]["lookups"] = [
+            {
+                "name": "row2",
+                "matching_mode": "UNIQUE_MATCH",
+                "lookup_mode": "LOAD_ONCE",
+                "filter": "{{java}}row2.active == true",
+                "activate_filter": True,
+                "join_keys": [
+                    {
+                        "lookup_column": "key",
+                        "expression": "row1.key",
+                        "type": "str",
+                        "nullable": True,
+                        "operator": "=",
+                    }
+                ],
+                "join_mode": "LEFT_OUTER_JOIN",
+            }
+        ]
+        comp = _make_configured(cfg)
+        assert comp._has_any_java_marker() is True
+
+    def test_main_filter_marker_returns_true(self):
+        """Test 7: inputs.main['filter'] starts with {{java}} -> returns True."""
+        cfg = _make_no_marker_config()
+        cfg["inputs"]["main"]["filter"] = "{{java}}row1.id > 0"
+        comp = _make_configured(cfg)
+        assert comp._has_any_java_marker() is True
+
+    def test_hard_fail_marker_present_bridge_none(self):
+        """Test 8: config has {{java}} and java_bridge is None -> ConfigurationError at _validate_config.
+
+        D-01: hard-fail fires during _validate_config (called from execute())
+        rather than silently emitting empty cells.
+        """
+        # Use _DEFAULT_CONFIG_WITH_JAVA which retains {{java}} markers.
+        cfg = copy.deepcopy(_DEFAULT_CONFIG_WITH_JAVA)
+        # Use _make_configured so self.config is populated for _validate_config call.
+        comp = _make_configured(cfg, java_bridge=None)
+        with pytest.raises(ConfigurationError, match="Java bridge"):
+            comp._validate_config()
+
+    def test_no_fail_when_bridge_present(self):
+        """Test 9: same {{java}} config + bridge attached -> no raise."""
+        from unittest.mock import MagicMock
+        cfg = copy.deepcopy(_DEFAULT_CONFIG_WITH_JAVA)  # has {{java}} markers
+        mock_bridge = MagicMock()
+        comp = _make_configured(cfg, java_bridge=mock_bridge)
+        # Should not raise -- bridge is available
+        comp._validate_config()  # no exception
 
 

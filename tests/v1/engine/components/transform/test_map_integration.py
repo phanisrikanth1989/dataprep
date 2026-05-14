@@ -16,6 +16,7 @@ import pandas as pd
 from src.v1.engine.components.transform.map import Map
 from src.v1.engine.global_map import GlobalMap
 from src.v1.engine.context_manager import ContextManager
+from src.v1.engine.exceptions import ConfigurationError
 
 
 # ------------------------------------------------------------------
@@ -163,21 +164,13 @@ class TestComponentInstantiation:
         assert comp.id == "tMap_2"
         assert comp._original_config is not config  # deepcopy
 
-    def test_real_config_passes_validation(self):
-        """Real converter output passes _validate_config without error."""
-        config = _load_tmap_config()
-        gm = GlobalMap()
-        comp = Map(component_id="tMap_2", config=config, global_map=gm)
+    def test_real_config_requires_bridge_when_markers_present(self):
+        """D-01: Real converter output with {{java}} markers requires Java bridge.
 
-        # execute() calls _validate_config internally -- create input data
-        main_df = _make_employee_df()
-        lookup_df = _make_country_df()
-        input_data = {"row1": main_df, "row2": lookup_df}
-        result = comp.execute(input_data)
-        assert result is not None
-
-    def test_output_names_match_config(self):
-        """Engine produces outputs matching converter-specified output names."""
+        Real converter output uses {{java}} markers on all expressions.
+        Under D-01, attempting to execute without a bridge raises ConfigurationError
+        (hard-fail rather than the old silent-empty-cells path).
+        """
         config = _load_tmap_config()
         gm = GlobalMap()
         comp = Map(component_id="tMap_2", config=config, global_map=gm)
@@ -185,11 +178,16 @@ class TestComponentInstantiation:
         main_df = _make_employee_df()
         lookup_df = _make_country_df()
         input_data = {"row1": main_df, "row2": lookup_df}
-        result = comp.execute(input_data)
+        with pytest.raises(ConfigurationError, match="Java bridge"):
+            comp.execute(input_data)
 
+    def test_output_names_in_config(self):
+        """Converter output names are declared in config (structure only, no execute needed)."""
+        config = _load_tmap_config()
         config_output_names = [o["name"] for o in config["outputs"]]
+        assert len(config_output_names) > 0, "Config should have at least one output"
         for name in config_output_names:
-            assert name in result, f"Output '{name}' missing from result"
+            assert isinstance(name, str) and name, f"Output name should be non-empty string"
 
 
 # ------------------------------------------------------------------
@@ -198,14 +196,15 @@ class TestComponentInstantiation:
 
 
 class TestSimpleColumnProcessing:
-    """Verify Map processes simple column references without Java bridge.
+    """Verify D-01: real converter output (with {{java}} markers) requires Java bridge.
 
-    Without Java bridge, only simple table.column expressions are evaluated.
-    Complex expressions (concatenation, ternary) produce None columns.
+    Under D-01, all {{java}}-marked expressions route to the compiled bridge path.
+    Executing without a bridge raises ConfigurationError (hard-fail). Tests in this
+    class verify the hard-fail behavior; bridge-dependent tests are in test_map_bridge.py.
     """
 
-    def test_simple_column_refs_resolved(self):
-        """Simple table.column expressions produce non-null data."""
+    def test_execute_without_bridge_raises_config_error(self):
+        """D-01: real converter output with {{java}} markers + no bridge -> ConfigurationError."""
         config = _load_tmap_config()
         gm = GlobalMap()
         comp = Map(component_id="tMap_2", config=config, global_map=gm)
@@ -213,22 +212,25 @@ class TestSimpleColumnProcessing:
         main_df = _make_employee_df()
         lookup_df = _make_country_df()
         input_data = {"row1": main_df, "row2": lookup_df}
-        result = comp.execute(input_data)
+        with pytest.raises(ConfigurationError, match="Java bridge"):
+            comp.execute(input_data)
 
-        # out2 has only simple refs: row1.id, row1.first_name, etc.
-        assert "out2" in result
-        out2 = result["out2"]
-        assert isinstance(out2, pd.DataFrame)
-        assert len(out2) > 0, "out2 should have rows"
+    def test_config_structure_has_expected_outputs(self):
+        """Real config declares expected output column structure."""
+        config = _load_tmap_config()
+        assert "outputs" in config
+        assert len(config["outputs"]) > 0
+        # All outputs have required fields
+        for output in config["outputs"]:
+            assert "name" in output
+            assert "columns" in output
 
-        # Simple column refs should produce non-null data
-        assert "id" in out2.columns
-        assert "first_name" in out2.columns
-        assert "last_name" in out2.columns
-        assert "country_code" in out2.columns
+    def test_hard_fail_does_not_produce_empty_results(self):
+        """D-01: hard-fail ConfigurationError is preferred over silent empty results.
 
-    def test_lookup_join_produces_data(self):
-        """Equality join on country_code produces merged rows."""
+        The OLD behavior was to silently emit empty cells when bridge was unavailable.
+        The NEW behavior is to raise ConfigurationError immediately (D-01).
+        """
         config = _load_tmap_config()
         gm = GlobalMap()
         comp = Map(component_id="tMap_2", config=config, global_map=gm)
@@ -236,34 +238,9 @@ class TestSimpleColumnProcessing:
         main_df = _make_employee_df()
         lookup_df = _make_country_df()
         input_data = {"row1": main_df, "row2": lookup_df}
-        result = comp.execute(input_data)
-
-        # out has simple refs (department, salary) + lookup refs (country, region)
-        assert "out" in result
-        out = result["out"]
-        assert isinstance(out, pd.DataFrame)
-        assert len(out) > 0, "out should have rows after join"
-
-        # Simple column refs from main input
-        assert "department" in out.columns
-        assert "salary" in out.columns
-
-    def test_stats_updated(self):
-        """GlobalMap stats updated after execution."""
-        config = _load_tmap_config()
-        gm = GlobalMap()
-        comp = Map(component_id="tMap_2", config=config, global_map=gm)
-
-        main_df = _make_employee_df()
-        lookup_df = _make_country_df()
-        input_data = {"row1": main_df, "row2": lookup_df}
-        comp.execute(input_data)
-
-        # Stats should be updated
-        nb_line = gm.get_component_stat("tMap_2", "NB_LINE")
-        assert nb_line is not None and nb_line > 0, (
-            "NB_LINE should be positive after processing"
-        )
+        # Must raise, NOT silently return empty DataFrames
+        with pytest.raises(ConfigurationError):
+            comp.execute(input_data)
 
 
 # ------------------------------------------------------------------
