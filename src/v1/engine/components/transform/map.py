@@ -784,11 +784,15 @@ class Map(BaseComponent):
         Returns:
             Filtered lookup DataFrame (rows matching the filter).
         """
-        resolved_expr = self._substitute_row_refs(
-            self._strip_java_marker(filter_expr),
-            main_row,
-            main_name,
-        )
+        # Substitute row refs on the bare expression (no marker), then
+        # re-attach the marker so _apply_filter can correctly dispatch.
+        # Without this, a {{java}}-marked expression forwarded here after
+        # stripping would fall through to _apply_filter_py (Python path),
+        # breaking bridge-evaluated RELOAD_AT_EACH_ROW filters.
+        has_marker = filter_expr.startswith(_JAVA_MARKER)
+        bare_expr = self._strip_java_marker(filter_expr)
+        substituted = self._substitute_row_refs(bare_expr, main_row, main_name)
+        resolved_expr = (_JAVA_MARKER + substituted) if has_marker else substituted
 
         # Null-safe evaluation: if the resolved expression contains
         # a None literal from a NaN/null main row value, the downstream
