@@ -3488,11 +3488,21 @@ class TestPlan1406bUnitGapClosure:
     # ---------- _apply_filter complex-filter branches ---------------
 
     def test_apply_filter_simple_col_not_found(self, caplog):
-        """Lines 521-524: filter column not present -> warning, return df unchanged."""
+        """Plan 05 update: filter expression with {{java}} marker + col not found
+        -> warning, return df unchanged.
+
+        Note: Without {{java}} marker, _apply_filter now routes to the Python-eval
+        path (_apply_filter_py) which evaluates the expression directly and returns
+        no-match rows on AttributeError. To test the 'not found -> unchanged' path,
+        we must use a {{java}}-marked simple col ref (the bridge path).
+        """
         comp = self._helper()
+        comp.java_bridge = None  # No bridge for this test
         df = pd.DataFrame({"id": [1, 2], "key": ["A", "B"]})
+        # {{java}}-marked simple col ref: uses the simple-col-ref path in _apply_filter
+        # when the column is not found -> warning, return df unchanged.
         with caplog.at_level(logging.WARNING):
-            result = comp._apply_filter(df, "row1.not_there", "row1", [])
+            result = comp._apply_filter(df, "{{java}}row1.not_there", "row1", [])
         assert len(result) == 2
         assert any("not found" in r.message for r in caplog.records)
 
@@ -3687,12 +3697,20 @@ class TestPlan1406bUnitGapClosure:
         # v_normal emitted with stripped expression
         assert 'Var.put("v_normal", row1.id * 2);' in script
 
-    # ---------- _evaluate_outputs_simple Var.<col> missing branch --
+    # ---------- _evaluate_outputs_py Var.<col> behavior (replaces _evaluate_outputs_simple) --
 
     def test_evaluate_outputs_simple_var_missing_from_df(self):
-        """Lines 1410-1411: output expression `Var.<col>` not in joined_df -> None."""
+        """Plan 05: _evaluate_outputs_simple deleted; test equivalent via _evaluate_outputs_py.
+
+        Var.missing is not in var_columns -> expression eval raises AttributeError
+        -> with die_on_error=False -> None value for the column.
+        """
         comp = self._helper()
-        joined_df = pd.DataFrame({"row1.id": [1, 2]})
+        comp.config["die_on_error"] = False
+        # _eval_expr reads self.die_on_error (set by execute()); set it directly
+        # since we are calling _evaluate_outputs_py without going through execute().
+        comp.die_on_error = False
+        joined_df = pd.DataFrame({"id": [1, 2]})
         outputs = [{
             "name": "out1",
             "is_reject": False,
@@ -3703,15 +3721,19 @@ class TestPlan1406bUnitGapClosure:
                 {"name": "v", "expression": "Var.missing", "type": "str"},
             ],
         }]
-        result = comp._evaluate_outputs_simple(joined_df, outputs, "row1", [])
+        # var_columns is empty -> Var.missing raises AttributeError -> None
+        result = comp._evaluate_outputs_py(joined_df, outputs, {}, "row1", [])
         assert "out1" in result
-        # Var.missing not in joined_df -> column filled with None
+        # Var.missing not in var_columns -> None (die_on_error=False)
         assert result["out1"]["v"].isna().all()
 
     def test_evaluate_outputs_simple_var_present(self):
-        """Lines 1407-1409: Var.<col> present in joined_df -> values copied."""
+        """Plan 05: _evaluate_outputs_simple deleted; test equivalent via _evaluate_outputs_py.
+
+        Var.x in var_columns -> values correctly used per row.
+        """
         comp = self._helper()
-        joined_df = pd.DataFrame({"row1.id": [1, 2], "Var.x": [10, 20]})
+        joined_df = pd.DataFrame({"id": [1, 2]})
         outputs = [{
             "name": "out1",
             "is_reject": False,
@@ -3722,21 +3744,18 @@ class TestPlan1406bUnitGapClosure:
                 {"name": "x", "expression": "Var.x", "type": "int"},
             ],
         }]
-        result = comp._evaluate_outputs_simple(joined_df, outputs, "row1", [])
+        # var_columns provided with x values per row
+        var_columns = {"x": [10, 20]}
+        result = comp._evaluate_outputs_py(joined_df, outputs, var_columns, "row1", [])
         assert list(result["out1"]["x"]) == [10, 20]
 
     def test_evaluate_outputs_simple_complex_with_bridge_result(self):
-        """Line 1418: complex expr, bridge returns the column -> copy values."""
+        """Plan 05: _evaluate_outputs_simple deleted; test equivalent via _evaluate_outputs_py.
+
+        Complex expression evaluated via Python eval (no-marker path).
+        """
         comp = self._helper()
-
-        class _MockBridge:
-            def execute_tmap_preprocessing(self, df, expressions, main_table_name,
-                                           lookup_table_names=None, schema=None):
-                # Echo back keys with simple values
-                return {k: np.array([100] * len(df)) for k in expressions}
-
-        comp.java_bridge = _MockBridge()
-        joined_df = pd.DataFrame({"row1.id": [1, 2]})
+        joined_df = pd.DataFrame({"id": [1, 2]})
         outputs = [{
             "name": "out1",
             "is_reject": False,
@@ -3747,8 +3766,8 @@ class TestPlan1406bUnitGapClosure:
                 {"name": "doubled", "expression": "row1.id * 2", "type": "int"},
             ],
         }]
-        result = comp._evaluate_outputs_simple(joined_df, outputs, "row1", [])
-        assert list(result["out1"]["doubled"]) == [100, 100]
+        result = comp._evaluate_outputs_py(joined_df, outputs, {}, "row1", [])
+        assert list(result["out1"]["doubled"]) == [2, 4]
 
     # ---------- _apply_output_filter reject append --------------------
 
@@ -5770,7 +5789,9 @@ class TestIssue5Reproduction:
         output_dir.mkdir()
         output_csv = output_dir / "result.csv"
 
-        # Build a minimal job config without {{java}} markers
+        # Build a minimal job config without {{java}} markers.
+        # Flow/trigger/subjobs structure mirrors the real converter output
+        # (see /tmp/repro/Job_clean.json for the canonical shape).
         job_config = {
             "job_name": "test_no_marker",
             "job_type": "Standard",
@@ -5782,6 +5803,8 @@ class TestIssue5Reproduction:
                     "type": "FileInputDelimited",
                     "original_type": "tFileInputDelimited",
                     "position": {"x": 64, "y": 128},
+                    "inputs": [],
+                    "outputs": ["row1"],
                     "config": {
                         "filepath": str(input_csv),
                         "fieldseparator": ",",
@@ -5802,6 +5825,8 @@ class TestIssue5Reproduction:
                     "type": "Map",
                     "original_type": "tMap",
                     "position": {"x": 200, "y": 128},
+                    "inputs": ["row1"],
+                    "outputs": ["out"],
                     "config": {
                         "inputs": {
                             "main": {
@@ -5850,6 +5875,8 @@ class TestIssue5Reproduction:
                     "type": "FileOutputDelimited",
                     "original_type": "tFileOutputDelimited",
                     "position": {"x": 400, "y": 128},
+                    "inputs": ["out"],
+                    "outputs": [],
                     "config": {
                         "filepath": str(output_csv),
                         "fieldseparator": ",",
@@ -5869,29 +5896,31 @@ class TestIssue5Reproduction:
                 },
             ],
             "flows": [
-                {"from": "file_in_1", "to": "tMap_1", "type": "Main",
-                 "from_connector": "FLOW", "to_connector": "FLOW"},
-                {"from": "tMap_1", "to": "file_out_1", "type": "Main",
-                 "from_connector": "out", "to_connector": "FLOW"},
+                {"name": "row1", "from": "file_in_1", "to": "tMap_1", "type": "flow"},
+                {"name": "out", "from": "tMap_1", "to": "file_out_1", "type": "flow"},
             ],
-            "triggers": [
-                {"from": "file_in_1", "to": "tMap_1", "type": "OnSubjobOk"},
-                {"from": "tMap_1", "to": "file_out_1", "type": "OnSubjobOk"},
-            ],
+            "triggers": [],
+            "subjobs": {
+                "subjob_1": ["file_in_1", "tMap_1", "file_out_1"],
+            },
+            "java_config": {"enabled": False, "routines": [], "libraries": []},
         }
 
         config_file = tmp_path / "job_no_marker.json"
         config_file.write_text(json.dumps(job_config))
 
         # Run through the engine
+        # Determine project root: test file is at
+        # <root>/tests/v1/engine/components/transform/test_map.py
+        # so parents[5] is the worktree root.
+        import pathlib as _pathlib
+        _test_file = _pathlib.Path(__file__).resolve()
+        _project_root = _test_file.parents[5]
         proc = subprocess.run(
             [sys.executable, "-m", "src.v1.engine.engine", str(config_file)],
             capture_output=True,
             text=True,
-            cwd=str(
-                # Go up from tests/ to project root
-                __import__("pathlib").Path(__file__).parents[4]
-            ),
+            cwd=str(_project_root),
         )
 
         assert proc.returncode == 0, (
