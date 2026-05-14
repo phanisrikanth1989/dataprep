@@ -903,7 +903,7 @@ class TestD04JoinedLookupNamesPlumbing:
         ])
 
         input_data = {
-            "main": main_df,
+            "row1": main_df,
             "row2": lookup2_df,
             "row3": lookup3_df,
         }

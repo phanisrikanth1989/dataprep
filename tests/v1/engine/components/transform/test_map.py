@@ -2054,61 +2054,42 @@ class TestColumnPrefixing:
 
 @pytest.mark.unit
 class TestSmartJoinRouting:
-    """Smart join classification tests."""
+    """Smart join classification tests (updated for D-03 locality classifier).
 
-    def test_simple_column_ref_uses_equality(self):
-        """Expression like 'row1.key' classified as equality join."""
+    _classify_join_type was removed in Plan 05.3-02 and replaced with
+    _classify_key_locality (per-key locality classification). These tests
+    are updated to verify the equivalent locality behavior.
+    """
+
+    def test_simple_column_ref_is_main_side_locality(self):
+        """Expression like 'row1.key' is _LOCALITY_MAIN_SIDE (D-03 replacement)."""
+        from src.v1.engine.components.transform.map import _LOCALITY_MAIN_SIDE
         comp = _make_component()
         comp.config = copy.deepcopy(comp._original_config)
-        join_keys = comp.config["inputs"]["lookups"][0]["join_keys"]
-        join_type = comp._classify_join_type(join_keys)
-        assert join_type == "equality"
+        # row1.key -> main side
+        locality = comp._classify_key_locality("row1.key", "row1", "row2", [])
+        assert locality == _LOCALITY_MAIN_SIDE
 
-    def test_context_ref_classified_correctly(self):
-        """Expression with only context references classified as context_only.
+    def test_context_ref_is_context_locality(self):
+        """Expression with only context references is _LOCALITY_CONTEXT (D-03).
 
-        Note: 'context.region' matches table.column regex and is treated as
-        equality. A pure context expression like '${context.region}' or
-        'context.get("region")' that does NOT match table.column pattern
-        is classified as context_only.
+        Previously 'context_only'; now classified per-key as _LOCALITY_CONTEXT.
         """
-        config = copy.deepcopy(_DEFAULT_CONFIG)
-        # Use an expression that does NOT match _SIMPLE_COLUMN_RE
-        # but only references context -- e.g. a method call pattern
-        config["inputs"]["lookups"][0]["join_keys"] = [
-            {
-                "lookup_column": "region",
-                "expression": 'context.get("region")',
-                "type": "str",
-                "nullable": True,
-                "operator": "=",
-            }
-        ]
-        comp = _make_component(config=config)
+        from src.v1.engine.components.transform.map import _LOCALITY_CONTEXT
+        comp = _make_component()
         comp.config = copy.deepcopy(comp._original_config)
-        join_type = comp._classify_join_type(
-            comp.config["inputs"]["lookups"][0]["join_keys"]
+        locality = comp._classify_key_locality(
+            'context.get("region")', "row1", "row2", []
         )
-        assert join_type == "context_only"
+        assert locality == _LOCALITY_CONTEXT
 
-    def test_cross_table_ref_classified_correctly(self):
-        """Expression with complex logic classified as cross_table."""
-        config = copy.deepcopy(_DEFAULT_CONFIG)
-        config["inputs"]["lookups"][0]["join_keys"] = [
-            {
-                "lookup_column": "code",
-                "expression": "row1.a + row2.b",
-                "type": "str",
-                "nullable": True,
-                "operator": "=",
-            }
-        ]
-        comp = _make_component(config=config)
+    def test_cross_table_ref_is_two_sided_locality(self):
+        """Expression referencing both main and lookup is _LOCALITY_TWO_SIDED (D-03)."""
+        from src.v1.engine.components.transform.map import _LOCALITY_TWO_SIDED
+        comp = _make_component()
         comp.config = copy.deepcopy(comp._original_config)
-        join_type = comp._classify_join_type(
-            comp.config["inputs"]["lookups"][0]["join_keys"]
-        )
-        assert join_type == "cross_table"
+        locality = comp._classify_key_locality("row1.a + row2.b", "row1", "row2", [])
+        assert locality == _LOCALITY_TWO_SIDED
 
     def test_equality_join_produces_correct_result(self):
         """End-to-end equality join with pandas merge."""
@@ -4356,7 +4337,7 @@ class TestJoinDispatchLocality:
         ])
 
         input_data = {
-            "main": main_df,
+            "row1": main_df,
             "row2": lookup2_df,
             "row3": lookup3_df,
         }
