@@ -73,9 +73,46 @@ def _set_context_var(config: Dict[str, Any], var_name: str, value: str) -> None:
     ctx[var_name] = {"value": value, "type": "str"}
 
 
-def _run_job(config: Dict[str, Any]) -> ETLEngine:
-    """Run the ETL engine and return the engine instance."""
-    engine = ETLEngine(copy.deepcopy(config))
+class _BridgeShim:
+    """Minimal JavaBridgeManager shim that wraps a live bridge.
+
+    Used to wire the session-scoped bridge fixture into an ETLEngine that
+    was initialized with java_config.enabled=False. The engine's
+    ContextManager and BaseComponent both call get_bridge() / is_available()
+    on the manager -- this shim satisfies that interface.
+    """
+
+    def __init__(self, bridge):
+        self._bridge = bridge
+
+    def get_bridge(self):
+        return self._bridge
+
+    def is_available(self) -> bool:
+        return True
+
+
+def _run_job(config: Dict[str, Any], java_bridge=None) -> ETLEngine:
+    """Run the ETL engine and return the engine instance.
+
+    When ``java_bridge`` is provided the function disables the job's
+    java_config so ETLEngine does NOT start its own JavaBridgeManager
+    (which would cause port contention in parallel test runs under -n auto),
+    then wires the session bridge into every component and into the
+    ContextManager via a lightweight shim.
+    """
+    cfg = copy.deepcopy(config)
+    if java_bridge is not None:
+        cfg.setdefault("java_config", {})["enabled"] = False
+
+    engine = ETLEngine(cfg)
+
+    if java_bridge is not None:
+        shim = _BridgeShim(java_bridge)
+        engine.context_manager.java_bridge_manager = shim
+        for comp in engine.components.values():
+            comp.java_bridge = java_bridge
+
     stats = engine.execute()
     if stats.get("status") == "error":
         raise RuntimeError(
@@ -110,7 +147,7 @@ class TestIssue6FilepathExpr:
 
         expected_path = tmp_path / "output_via_expr.csv"
 
-        _run_job(config)
+        _run_job(config, java_bridge=java_bridge)
 
         # The file must exist at the RESOLVED path
         assert expected_path.exists(), (

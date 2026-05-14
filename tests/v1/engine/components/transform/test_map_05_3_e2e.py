@@ -59,12 +59,52 @@ def _load_config(name: str) -> Dict[str, Any]:
         return json.load(f)
 
 
-def _run_job(config: Dict[str, Any]) -> ETLEngine:
+class _BridgeShim:
+    """Minimal JavaBridgeManager shim that wraps a live bridge.
+
+    Used to wire the session-scoped bridge fixture into an ETLEngine that
+    was initialized with java_config.enabled=False. The engine's
+    ContextManager and BaseComponent both call get_bridge() / is_available()
+    on the manager -- this shim satisfies that interface.
+    """
+
+    def __init__(self, bridge):
+        self._bridge = bridge
+
+    def get_bridge(self):
+        return self._bridge
+
+    def is_available(self) -> bool:
+        return True
+
+
+def _run_job(config: Dict[str, Any], java_bridge=None) -> ETLEngine:
     """Run the ETL engine with a config dict and return the engine instance.
+
+    When ``java_bridge`` is provided the function disables the job's
+    java_config so ETLEngine does NOT start its own JavaBridgeManager
+    (which would cause port contention in parallel test runs under -n auto),
+    then wires the session bridge into every component and into the
+    ContextManager via a lightweight shim. This matches the production path
+    exactly -- ETLEngine wires ``manager.bridge`` to components after init.
 
     Raises on error stats so tests see the failure immediately.
     """
-    engine = ETLEngine(copy.deepcopy(config))
+    cfg = copy.deepcopy(config)
+    if java_bridge is not None:
+        # Disable auto-start: prevent ETLEngine.__init__ from calling
+        # JavaBridgeManager.start() which would compete for JVM ports.
+        cfg.setdefault("java_config", {})["enabled"] = False
+
+    engine = ETLEngine(cfg)
+
+    if java_bridge is not None:
+        # Wire the session bridge into context manager and all components.
+        shim = _BridgeShim(java_bridge)
+        engine.context_manager.java_bridge_manager = shim
+        for comp in engine.components.values():
+            comp.java_bridge = java_bridge
+
     stats = engine.execute()
     if stats.get("status") == "error":
         raise RuntimeError(
@@ -126,7 +166,7 @@ class TestIssue1CleanBaseline:
         config = _load_config("clean")
         out_main, out2 = _wire_clean_job(config, tmp_path)
 
-        _run_job(config)
+        _run_job(config, java_bridge=java_bridge)
 
         assert out_main.exists(), "out.csv should exist"
         rows = _read_csv(out_main)
@@ -153,7 +193,7 @@ class TestIssue2aMainSideTrim:
         config = _load_config("join_trim")
         out_main, _ = _wire_two_input_job(config, tmp_path)
 
-        _run_job(config)
+        _run_job(config, java_bridge=java_bridge)
 
         assert out_main.exists(), "out.csv should exist"
         rows = _read_csv(out_main)
@@ -176,7 +216,7 @@ class TestIssue2bRoutineJoinKey:
         config = _load_config("join_routine")
         out_main, _ = _wire_two_input_job(config, tmp_path)
 
-        _run_job(config)
+        _run_job(config, java_bridge=java_bridge)
 
         assert out_main.exists(), "out.csv should exist"
         rows = _read_csv(out_main)
@@ -200,7 +240,7 @@ class TestIssue2cFilterJoinNoCrash:
         out_main, _ = _wire_two_input_job(config, tmp_path)
 
         # Must NOT raise
-        _run_job(config)
+        _run_job(config, java_bridge=java_bridge)
 
         assert out_main.exists(), "out.csv should exist after filter-only join"
         rows = _read_csv(out_main)
@@ -236,7 +276,7 @@ class TestIssue3LookupToLookupTrim:
         _set_component_filepath(config, "tLogRow_1", str(out_main))
         _set_component_filepath(config, "tLogRow_2", str(out2))
 
-        _run_job(config)
+        _run_job(config, java_bridge=java_bridge)
 
         assert out_main.exists(), "out.csv should exist"
         rows = _read_csv(out_main)
@@ -274,7 +314,7 @@ class TestIssue5ChainedVarsSimpleOutputs:
         config = _load_config("vars_simple")
         out_main, _ = _wire_two_input_job(config, tmp_path)
 
-        _run_job(config)
+        _run_job(config, java_bridge=java_bridge)
 
         assert out_main.exists(), "out.csv should exist"
         rows = _read_csv(out_main)
