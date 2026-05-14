@@ -2054,61 +2054,42 @@ class TestColumnPrefixing:
 
 @pytest.mark.unit
 class TestSmartJoinRouting:
-    """Smart join classification tests."""
+    """Smart join classification tests (updated for D-03 locality classifier).
 
-    def test_simple_column_ref_uses_equality(self):
-        """Expression like 'row1.key' classified as equality join."""
+    _classify_join_type was removed in Plan 05.3-02 and replaced with
+    _classify_key_locality (per-key locality classification). These tests
+    are updated to verify the equivalent locality behavior.
+    """
+
+    def test_simple_column_ref_is_main_side_locality(self):
+        """Expression like 'row1.key' is _LOCALITY_MAIN_SIDE (D-03 replacement)."""
+        from src.v1.engine.components.transform.map import _LOCALITY_MAIN_SIDE
         comp = _make_component()
         comp.config = copy.deepcopy(comp._original_config)
-        join_keys = comp.config["inputs"]["lookups"][0]["join_keys"]
-        join_type = comp._classify_join_type(join_keys)
-        assert join_type == "equality"
+        # row1.key -> main side
+        locality = comp._classify_key_locality("row1.key", "row1", "row2", [])
+        assert locality == _LOCALITY_MAIN_SIDE
 
-    def test_context_ref_classified_correctly(self):
-        """Expression with only context references classified as context_only.
+    def test_context_ref_is_context_locality(self):
+        """Expression with only context references is _LOCALITY_CONTEXT (D-03).
 
-        Note: 'context.region' matches table.column regex and is treated as
-        equality. A pure context expression like '${context.region}' or
-        'context.get("region")' that does NOT match table.column pattern
-        is classified as context_only.
+        Previously 'context_only'; now classified per-key as _LOCALITY_CONTEXT.
         """
-        config = copy.deepcopy(_DEFAULT_CONFIG)
-        # Use an expression that does NOT match _SIMPLE_COLUMN_RE
-        # but only references context -- e.g. a method call pattern
-        config["inputs"]["lookups"][0]["join_keys"] = [
-            {
-                "lookup_column": "region",
-                "expression": 'context.get("region")',
-                "type": "str",
-                "nullable": True,
-                "operator": "=",
-            }
-        ]
-        comp = _make_component(config=config)
+        from src.v1.engine.components.transform.map import _LOCALITY_CONTEXT
+        comp = _make_component()
         comp.config = copy.deepcopy(comp._original_config)
-        join_type = comp._classify_join_type(
-            comp.config["inputs"]["lookups"][0]["join_keys"]
+        locality = comp._classify_key_locality(
+            'context.get("region")', "row1", "row2", []
         )
-        assert join_type == "context_only"
+        assert locality == _LOCALITY_CONTEXT
 
-    def test_cross_table_ref_classified_correctly(self):
-        """Expression with complex logic classified as cross_table."""
-        config = copy.deepcopy(_DEFAULT_CONFIG)
-        config["inputs"]["lookups"][0]["join_keys"] = [
-            {
-                "lookup_column": "code",
-                "expression": "row1.a + row2.b",
-                "type": "str",
-                "nullable": True,
-                "operator": "=",
-            }
-        ]
-        comp = _make_component(config=config)
+    def test_cross_table_ref_is_two_sided_locality(self):
+        """Expression referencing both main and lookup is _LOCALITY_TWO_SIDED (D-03)."""
+        from src.v1.engine.components.transform.map import _LOCALITY_TWO_SIDED
+        comp = _make_component()
         comp.config = copy.deepcopy(comp._original_config)
-        join_type = comp._classify_join_type(
-            comp.config["inputs"]["lookups"][0]["join_keys"]
-        )
-        assert join_type == "cross_table"
+        locality = comp._classify_key_locality("row1.a + row2.b", "row1", "row2", [])
+        assert locality == _LOCALITY_TWO_SIDED
 
     def test_equality_join_produces_correct_result(self):
         """End-to-end equality join with pandas merge."""
@@ -4054,3 +4035,313 @@ class TestHasAnyJavaMarker:
         comp._validate_config()  # no exception
 
 
+# ------------------------------------------------------------------
+# TestClassifyKeyLocality (D-03: per-key locality classifier)
+# ------------------------------------------------------------------
+
+
+class TestClassifyKeyLocality:
+    """Unit tests for Map._classify_key_locality (D-03).
+
+    Each test corresponds to one of the 12 documented behaviors in the
+    05.3-02-PLAN.md task definition.
+    """
+
+    def _make_comp(self):
+        """Return a configured Map instance (config is pre-populated)."""
+        cfg = copy.deepcopy(_DEFAULT_CONFIG)
+        return _make_configured(cfg)
+
+    def test_01_literal_is_context(self):
+        """Test 1: literal string -> _LOCALITY_CONTEXT."""
+        from src.v1.engine.components.transform.map import _LOCALITY_CONTEXT
+        comp = self._make_comp()
+        result = comp._classify_key_locality("'NJ'", "row1", "row2", [])
+        assert result == _LOCALITY_CONTEXT
+
+    def test_02_context_ref_is_context(self):
+        """Test 2: context.foo -> _LOCALITY_CONTEXT."""
+        from src.v1.engine.components.transform.map import _LOCALITY_CONTEXT
+        comp = self._make_comp()
+        result = comp._classify_key_locality("context.foo", "row1", "row2", [])
+        assert result == _LOCALITY_CONTEXT
+
+    def test_03_globalmap_ref_is_context(self):
+        """Test 3: globalMap.get('x') -> _LOCALITY_CONTEXT."""
+        from src.v1.engine.components.transform.map import _LOCALITY_CONTEXT
+        comp = self._make_comp()
+        result = comp._classify_key_locality(
+            "globalMap.get('x')", "row1", "row2", []
+        )
+        assert result == _LOCALITY_CONTEXT
+
+    def test_04_var_ref_is_context(self):
+        """Test 4: Var.foo -> _LOCALITY_CONTEXT."""
+        from src.v1.engine.components.transform.map import _LOCALITY_CONTEXT
+        comp = self._make_comp()
+        result = comp._classify_key_locality("Var.foo", "row1", "row2", [])
+        assert result == _LOCALITY_CONTEXT
+
+    def test_05_main_only_is_main_side(self):
+        """Test 5: row1.col (main only) -> _LOCALITY_MAIN_SIDE."""
+        from src.v1.engine.components.transform.map import _LOCALITY_MAIN_SIDE
+        comp = self._make_comp()
+        result = comp._classify_key_locality("row1.col", "row1", "row2", [])
+        assert result == _LOCALITY_MAIN_SIDE
+
+    def test_06_main_with_transform_is_main_side(self):
+        """Test 6: row1.col.trim() -> _LOCALITY_MAIN_SIDE."""
+        from src.v1.engine.components.transform.map import _LOCALITY_MAIN_SIDE
+        comp = self._make_comp()
+        result = comp._classify_key_locality("row1.col.trim()", "row1", "row2", [])
+        assert result == _LOCALITY_MAIN_SIDE
+
+    def test_07_lookup_only_is_lookup_side(self):
+        """Test 7: row2.col (current lookup only) -> _LOCALITY_LOOKUP_SIDE."""
+        from src.v1.engine.components.transform.map import _LOCALITY_LOOKUP_SIDE
+        comp = self._make_comp()
+        result = comp._classify_key_locality("row2.col", "row1", "row2", [])
+        assert result == _LOCALITY_LOOKUP_SIDE
+
+    def test_08_lookup_with_transform_is_lookup_side(self):
+        """Test 8: row2.col.trim() -> _LOCALITY_LOOKUP_SIDE."""
+        from src.v1.engine.components.transform.map import _LOCALITY_LOOKUP_SIDE
+        comp = self._make_comp()
+        result = comp._classify_key_locality("row2.col.trim()", "row1", "row2", [])
+        assert result == _LOCALITY_LOOKUP_SIDE
+
+    def test_09_both_sides_is_two_sided(self):
+        """Test 9: row1.col + row2.col -> _LOCALITY_TWO_SIDED."""
+        from src.v1.engine.components.transform.map import _LOCALITY_TWO_SIDED
+        comp = self._make_comp()
+        result = comp._classify_key_locality(
+            "row1.col + row2.col", "row1", "row2", []
+        )
+        assert result == _LOCALITY_TWO_SIDED
+
+    def test_10_joined_lookup_acts_as_main(self):
+        """Test 10: row3.col with row3 in joined_lookup_names -> _LOCALITY_MAIN_SIDE."""
+        from src.v1.engine.components.transform.map import _LOCALITY_MAIN_SIDE
+        comp = self._make_comp()
+        # row3 was previously joined -- it lives in joined_df (main side)
+        result = comp._classify_key_locality("row3.col", "row1", "row2", ["row3"])
+        assert result == _LOCALITY_MAIN_SIDE
+
+    def test_11_joined_lookup_plus_current_is_two_sided(self):
+        """Test 11: row3.col + row2.col with row3 joined -> _LOCALITY_TWO_SIDED."""
+        from src.v1.engine.components.transform.map import _LOCALITY_TWO_SIDED
+        comp = self._make_comp()
+        result = comp._classify_key_locality(
+            "row3.col + row2.col", "row1", "row2", ["row3"]
+        )
+        assert result == _LOCALITY_TWO_SIDED
+
+    def test_12_java_marker_stripped_before_classify(self):
+        """Test 12: {{java}}row1.col -> marker stripped -> _LOCALITY_MAIN_SIDE."""
+        from src.v1.engine.components.transform.map import _LOCALITY_MAIN_SIDE
+        comp = self._make_comp()
+        result = comp._classify_key_locality(
+            "{{java}}row1.col", "row1", "row2", []
+        )
+        assert result == _LOCALITY_MAIN_SIDE
+
+
+# ------------------------------------------------------------------
+# TestBridgeEvalHelper (D-04: _bridge_eval single source of truth)
+# ------------------------------------------------------------------
+
+
+class TestBridgeEvalHelper:
+    """Unit tests for Map._bridge_eval helper (D-04).
+
+    Verifies that _bridge_eval is a thin wrapper that delegates to
+    _evaluate_with_bridge with the correct main_name from config.
+    """
+
+    def test_bridge_eval_delegates_to_evaluate_with_bridge(self):
+        """_bridge_eval forwards (df, exprs, joined_lookup_names) to
+        _evaluate_with_bridge with main_name from config."""
+        from unittest.mock import MagicMock, patch
+        cfg = copy.deepcopy(_DEFAULT_CONFIG)
+        comp = _make_configured(cfg)
+
+        df = pd.DataFrame([{"row1.key": "A"}])
+        exprs = {"__test__": "row1.key"}
+        joined = ["row3"]
+
+        with patch.object(comp, "_evaluate_with_bridge", return_value={"__test__": ["A"]}) as mock_ewb:
+            result = comp._bridge_eval(df, exprs, joined)
+            mock_ewb.assert_called_once_with(df, exprs, "row1", joined)
+        assert result == {"__test__": ["A"]}
+
+    def test_bridge_eval_empty_joined_names(self):
+        """_bridge_eval with empty joined_lookup_names passes [] to bridge."""
+        from unittest.mock import MagicMock, patch
+        cfg = copy.deepcopy(_DEFAULT_CONFIG)
+        comp = _make_configured(cfg)
+
+        df = pd.DataFrame([{"row1.key": "A"}])
+        exprs = {"__k__": "row1.key"}
+
+        with patch.object(comp, "_evaluate_with_bridge", return_value={}) as mock_ewb:
+            comp._bridge_eval(df, exprs, [])
+            mock_ewb.assert_called_once_with(df, exprs, "row1", [])
+
+
+# ------------------------------------------------------------------
+# TestClassifyJoinTypeDeleted (D-03: old method removed)
+# ------------------------------------------------------------------
+
+
+class TestClassifyJoinTypeDeleted:
+    """Verify _classify_join_type no longer exists on Map (D-03 cleanup)."""
+
+    def test_classify_join_type_does_not_exist(self):
+        """_classify_join_type must be deleted -- only _classify_key_locality exists."""
+        cfg = copy.deepcopy(_DEFAULT_CONFIG)
+        comp = _make_configured(cfg)
+        assert not hasattr(comp, "_classify_join_type"), (
+            "_classify_join_type must be deleted; use _classify_key_locality instead"
+        )
+
+
+# ------------------------------------------------------------------
+# TestJoinDispatchLocality (D-03: dispatch routes through new localities)
+# ------------------------------------------------------------------
+
+
+class TestJoinDispatchLocality:
+    """Test that the join dispatch correctly routes based on locality classifications.
+
+    Uses no-bridge configs (bare ref expressions, no {{java}} markers) to
+    verify the dispatch logic without requiring a live JVM.
+    """
+
+    def _make_two_lookup_config(self):
+        """Config with two lookups: row2 (first) and row3 (second = lookup-to-lookup)."""
+        return {
+            "component_type": "Map",
+            "inputs": {
+                "main": {
+                    "name": "row1",
+                    "filter": "",
+                    "activate_filter": False,
+                    "matching_mode": "UNIQUE_MATCH",
+                    "lookup_mode": "LOAD_ONCE",
+                },
+                "lookups": [
+                    {
+                        "name": "row2",
+                        "matching_mode": "UNIQUE_MATCH",
+                        "lookup_mode": "LOAD_ONCE",
+                        "filter": "",
+                        "activate_filter": False,
+                        "join_keys": [
+                            {
+                                "lookup_column": "region",
+                                "expression": "row1.region",
+                                "type": "str",
+                                "nullable": True,
+                                "operator": "=",
+                            }
+                        ],
+                        "join_mode": "LEFT_OUTER_JOIN",
+                    },
+                    {
+                        "name": "row3",
+                        "matching_mode": "UNIQUE_MATCH",
+                        "lookup_mode": "LOAD_ONCE",
+                        "filter": "",
+                        "activate_filter": False,
+                        "join_keys": [
+                            {
+                                "lookup_column": "region",
+                                "expression": "row2.region",
+                                "type": "str",
+                                "nullable": True,
+                                "operator": "=",
+                            }
+                        ],
+                        "join_mode": "LEFT_OUTER_JOIN",
+                    },
+                ],
+            },
+            "variables": [],
+            "outputs": [
+                {
+                    "name": "out1",
+                    "is_reject": False,
+                    "inner_join_reject": False,
+                    "filter": "",
+                    "activate_filter": False,
+                    "columns": [
+                        {
+                            "name": "id",
+                            "expression": "row1.id",
+                            "type": "int",
+                            "nullable": True,
+                        },
+                        {
+                            "name": "label2",
+                            "expression": "row2.label",
+                            "type": "str",
+                            "nullable": True,
+                        },
+                        {
+                            "name": "label3",
+                            "expression": "row3.label",
+                            "type": "str",
+                            "nullable": True,
+                        },
+                    ],
+                    "catch_output_reject": False,
+                }
+            ],
+            "die_on_error": True,
+        }
+
+    def test_two_lookup_row2_key_is_main_side(self):
+        """row2's join key row1.region is _LOCALITY_MAIN_SIDE.
+
+        This verifies that when the second lookup (row3) references row2,
+        the locality classifier treats row2 as main-side (already joined).
+        """
+        from src.v1.engine.components.transform.map import _LOCALITY_MAIN_SIDE
+        cfg = self._make_two_lookup_config()
+        comp = _make_configured(cfg)
+        # At the time row3 is being classified, row2 has already been joined
+        locality = comp._classify_key_locality("row2.region", "row1", "row3", ["row2"])
+        assert locality == _LOCALITY_MAIN_SIDE
+
+    def test_two_lookup_pipeline_produces_joined_rows(self):
+        """Two-lookup pipeline with bare refs executes without bridge.
+
+        row1.region -> join row2 -> row2.region -> join row3.
+        The second join key is row2.region, which is main_side because row2
+        was already joined. Should route to _join_equality path.
+        """
+        cfg = self._make_two_lookup_config()
+        comp = _make_component(config=cfg)
+
+        main_df = pd.DataFrame([
+            {"id": 1, "region": "NE"},
+            {"id": 2, "region": "SW"},
+        ])
+        lookup2_df = pd.DataFrame([
+            {"region": "NE", "label": "Northeast"},
+            {"region": "SW", "label": "Southwest"},
+        ])
+        lookup3_df = pd.DataFrame([
+            {"region": "NE", "label": "North_East_Abbr"},
+            {"region": "SW", "label": "South_West_Abbr"},
+        ])
+
+        input_data = {
+            "row1": main_df,
+            "row2": lookup2_df,
+            "row3": lookup3_df,
+        }
+        result = comp.execute(input_data)
+        assert "out1" in result
+        out = result["out1"]
+        assert len(out) == 2  # both rows matched both lookups

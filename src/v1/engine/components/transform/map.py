@@ -47,11 +47,6 @@ _LOAD_ONCE = "LOAD_ONCE"
 _RELOAD_AT_EACH_ROW = "RELOAD_AT_EACH_ROW"
 _CACHE_OR_RELOAD = "CACHE_OR_RELOAD"
 
-# Join types from smart routing
-_JOIN_EQUALITY = "equality"
-_JOIN_CONTEXT_ONLY = "context_only"
-_JOIN_CROSS_TABLE = "cross_table"
-
 # Chunk size for preprocessing and compiled script execution
 _DEFAULT_CHUNK_SIZE = 50000
 
@@ -69,6 +64,12 @@ _FAIL_RESULT_ROWS = 100_000_000
 
 # Java marker prefix
 _JAVA_MARKER = "{{java}}"
+
+# Locality buckets for per-key join classification (D-03)
+_LOCALITY_CONTEXT = "context"        # only context/globalMap/Var refs, no row data
+_LOCALITY_MAIN_SIDE = "main_side"    # only main + previously-joined lookups (in joined_df)
+_LOCALITY_LOOKUP_SIDE = "lookup_side"  # only the current lookup
+_LOCALITY_TWO_SIDED = "two_sided"    # references both main side and current lookup
 
 
 def _infer_arrow_schema_dict(df: pd.DataFrame) -> dict[str, str]:
@@ -394,21 +395,68 @@ class Map(BaseComponent):
                     joined_df, lookup_df, lookup_config
                 )
             else:
-                join_type = self._classify_join_type(
-                    lookup_config["join_keys"]
-                )
-                if join_type == _JOIN_EQUALITY:
-                    joined_df, rejects = self._join_equality(
-                        joined_df, lookup_df, lookup_config
-                    )
-                elif join_type == _JOIN_CONTEXT_ONLY:
-                    joined_df, rejects = self._join_context_only(
-                        joined_df, lookup_df, lookup_config
+                # D-03: locality-based per-key classification replaces the old
+                # coarse _classify_join_type bucket.
+                join_keys = lookup_config.get("join_keys", [])
+                if not join_keys:
+                    # Empty join_keys -> pure cross product (cartesian join)
+                    joined_df, rejects = self._join_cross_table(
+                        joined_df, lookup_df, lookup_config, joined_lookup_names
                     )
                 else:
-                    joined_df, rejects = self._join_cross_table(
-                        joined_df, lookup_df, lookup_config
-                    )
+                    localities = [
+                        self._classify_key_locality(
+                            jk["expression"], main_name, lookup_name,
+                            joined_lookup_names
+                        )
+                        for jk in join_keys
+                    ]
+                    if any(loc == _LOCALITY_TWO_SIDED for loc in localities):
+                        # Any two-sided key -> cross-product evaluation
+                        joined_df, rejects = self._join_cross_table(
+                            joined_df, lookup_df, lookup_config, joined_lookup_names
+                        )
+                    elif all(
+                        loc in (_LOCALITY_CONTEXT, _LOCALITY_MAIN_SIDE)
+                        for loc in localities
+                    ):
+                        # All keys are context or main-side.
+                        # Check if all are simple column refs -> _join_equality.
+                        # If some are computed main-side exprs:
+                        #   TODO(05.3-03): route to _join_main_side_computed_key
+                        exprs_stripped = [
+                            self._strip_java_marker(jk["expression"])
+                            for jk in join_keys
+                        ]
+                        if all(self._is_simple_column_ref(e) for e in exprs_stripped):
+                            joined_df, rejects = self._join_equality(
+                                joined_df, lookup_df, lookup_config
+                            )
+                        else:
+                            # TODO(05.3-03): route to _join_main_side_computed_key
+                            joined_df, rejects = self._join_cross_table(
+                                joined_df, lookup_df, lookup_config, joined_lookup_names
+                            )
+                    elif all(loc == _LOCALITY_LOOKUP_SIDE for loc in localities):
+                        # All keys are lookup-side only.
+                        exprs_stripped = [
+                            self._strip_java_marker(jk["expression"])
+                            for jk in join_keys
+                        ]
+                        if all(self._is_simple_column_ref(e) for e in exprs_stripped):
+                            joined_df, rejects = self._join_equality(
+                                joined_df, lookup_df, lookup_config
+                            )
+                        else:
+                            # TODO(05.3-03): route to _join_lookup_side_computed_key
+                            joined_df, rejects = self._join_cross_table(
+                                joined_df, lookup_df, lookup_config, joined_lookup_names
+                            )
+                    else:
+                        # Mixed context + lookup-side -- treat as cross-table
+                        joined_df, rejects = self._join_cross_table(
+                            joined_df, lookup_df, lookup_config, joined_lookup_names
+                        )
 
             if rejects is not None and not rejects.empty:
                 inner_join_reject_dfs[lookup_name] = rejects
@@ -534,7 +582,11 @@ class Map(BaseComponent):
                 )
                 return df
 
-        # Complex expression -- use Java bridge
+        # Complex expression -- use Java bridge.
+        # Note: table_name is used as main_name because this method is called
+        # for both main-table and lookup-table filtering. D-04 is addressed by
+        # callers passing the full joined_lookup_names list (which already
+        # happened correctly at map.py:385-388, the "already correct call site").
         result = self._evaluate_with_bridge(
             df, {"__filter__": expr}, table_name, lookup_names
         )
@@ -706,35 +758,6 @@ class Map(BaseComponent):
         return _ROW_REF_PATTERN.sub(_replace_ref, expr)
 
     # ------------------------------------------------------------------
-    # Join Classification and Routing
-    # ------------------------------------------------------------------
-
-    def _classify_join_type(self, join_keys: list[dict]) -> str:
-        """Classify join keys into equality, context_only, or cross_table.
-
-        Args:
-            join_keys: List of join key dicts with 'expression' field.
-
-        Returns:
-            One of: "equality", "context_only", "cross_table".
-        """
-        has_equality = False
-        has_context = False
-
-        for jk in join_keys:
-            expr = self._strip_java_marker(jk["expression"])
-            if self._is_simple_column_ref(expr):
-                has_equality = True
-            elif self._is_context_only_expression(expr):
-                has_context = True
-            else:
-                return _JOIN_CROSS_TABLE
-
-        if has_context and not has_equality:
-            return _JOIN_CONTEXT_ONLY
-        return _JOIN_EQUALITY
-
-    # ------------------------------------------------------------------
     # Equality Join (pandas merge)
     # ------------------------------------------------------------------
 
@@ -851,6 +874,9 @@ class Map(BaseComponent):
 
     # ------------------------------------------------------------------
     # Context-Only Join
+    # DEPRECATED(05.3-02): unrouted; all-context keys now route to
+    # _join_equality (the hash-join handles context-only keys correctly).
+    # Deferred deletion to a future cleanup task -- do NOT remove here.
     # ------------------------------------------------------------------
 
     def _join_context_only(
@@ -936,6 +962,7 @@ class Map(BaseComponent):
         joined_df: pd.DataFrame,
         lookup_df: pd.DataFrame,
         lookup_config: dict,
+        joined_lookup_names: Optional[list[str]] = None,
     ) -> tuple[pd.DataFrame, Optional[pd.DataFrame]]:
         """Join where keys reference both main and lookup columns.
 
@@ -945,6 +972,9 @@ class Map(BaseComponent):
             joined_df: Current joined DataFrame.
             lookup_df: Lookup DataFrame.
             lookup_config: Lookup configuration dict.
+            joined_lookup_names: Full list of already-joined lookup names (D-04).
+                Must include ALL prior-joined lookups so the bridge can resolve
+                references like row3.col when row3 was joined before current.
 
         Returns:
             Tuple of (joined result, inner join rejects or None).
@@ -979,16 +1009,17 @@ class Map(BaseComponent):
                 return pd.DataFrame(columns=joined_df.columns), joined_df.copy()
             return joined_df, None
 
-        # Evaluate all join key expressions on the cross product
-        main_name = self.config["inputs"]["main"]["name"]
+        # Evaluate all join key expressions on the cross product.
+        # D-04: pass joined_lookup_names + [lookup_name] so expressions that
+        # reference previously-joined lookups (e.g. row3.region when row3 was
+        # joined before this one) are resolved correctly by the bridge.
         exprs = {}
         for i, jk in enumerate(join_keys):
             expr = self._strip_java_marker(jk["expression"])
             exprs[f"__jk_{i}__"] = expr
 
-        eval_results = self._evaluate_with_bridge(
-            cross, exprs, main_name, [lookup_name]
-        )
+        full_lookup_names = (joined_lookup_names or []) + [lookup_name]
+        eval_results = self._bridge_eval(cross, exprs, full_lookup_names)
 
         # Build match mask
         match_mask = pd.Series([True] * len(cross), index=cross.index)
@@ -1214,9 +1245,8 @@ class Map(BaseComponent):
                     else:
                         joined_df[col_name] = None
             else:
-                result = self._evaluate_with_bridge(
-                    joined_df, {col_name: expr}, main_name, lookup_names
-                )
+                # D-04: pass full lookup_names so prior-joined lookups are visible
+                result = self._bridge_eval(joined_df, {col_name: expr}, lookup_names)
                 if col_name in result:
                     joined_df[col_name] = result[col_name]
                 else:
@@ -1422,9 +1452,9 @@ class Map(BaseComponent):
                     else:
                         out_df[col_name] = None
                 else:
-                    # Try Java bridge preprocessing for single expression
-                    eval_result = self._evaluate_with_bridge(
-                        joined_df, {col_name: expr}, main_name, lookup_names
+                    # D-04: use _bridge_eval to ensure full lookup_names passed
+                    eval_result = self._bridge_eval(
+                        joined_df, {col_name: expr}, lookup_names
                     )
                     if col_name in eval_result:
                         out_df[col_name] = eval_result[col_name]
@@ -1472,9 +1502,8 @@ class Map(BaseComponent):
             return out_df
 
         expr = self._strip_java_marker(filter_expr)
-        eval_result = self._evaluate_with_bridge(
-            out_df, {"__out_filter__": expr}, main_name, lookup_names
-        )
+        # D-04: use _bridge_eval to ensure full lookup_names passed
+        eval_result = self._bridge_eval(out_df, {"__out_filter__": expr}, lookup_names)
 
         if "__out_filter__" in eval_result:
             mask = pd.Series(eval_result["__out_filter__"]).fillna(False).values
@@ -1944,6 +1973,31 @@ class Map(BaseComponent):
                 )
             return {}
 
+    def _bridge_eval(
+        self,
+        df: pd.DataFrame,
+        exprs: dict[str, str],
+        joined_lookup_names: list[str],
+    ) -> dict:
+        """Single-source-of-truth wrapper around _evaluate_with_bridge (D-04).
+
+        Every tMap bridge call must go through here so joined_lookup_names is
+        consistently the full prior-join list. Callers that evaluate on a
+        cross-product that includes the current lookup should pass
+        ``joined_lookup_names + [current_lookup_name]`` as the third argument.
+
+        Args:
+            df: DataFrame to evaluate against.
+            exprs: Dict of expr_id -> expression_string.
+            joined_lookup_names: Full list of already-joined lookup names that
+                should be visible to the bridge (D-04).
+
+        Returns:
+            Dict of expr_id -> list of results.
+        """
+        main_name = self.config["inputs"]["main"]["name"]
+        return self._evaluate_with_bridge(df, exprs, main_name, joined_lookup_names)
+
     def _has_any_java_marker(self) -> bool:
         """Check whether ANY expression-bearing config field starts with {{java}}.
 
@@ -2049,6 +2103,50 @@ class Map(BaseComponent):
         ]
 
         return len(row_references) == 0
+
+    def _classify_key_locality(
+        self,
+        expr: str,
+        main_name: str,
+        current_lookup: str,
+        joined_lookup_names: list[str],
+    ) -> str:
+        """Classify a single join key expression by locality (D-03).
+
+        Strips the {{java}} marker before classification. Each expression is
+        classified into exactly one of the four locality buckets based on which
+        row references it contains.
+
+        Args:
+            expr: Join key expression (may have {{java}} prefix).
+            main_name: Name of the main input table.
+            current_lookup: Name of the lookup currently being joined.
+            joined_lookup_names: Names of lookups already joined (in joined_df).
+
+        Returns:
+            One of: _LOCALITY_CONTEXT, _LOCALITY_MAIN_SIDE,
+            _LOCALITY_LOOKUP_SIDE, _LOCALITY_TWO_SIDED.
+        """
+        stripped = self._strip_java_marker(expr).strip()
+        matches = _ROW_REF_PATTERN.findall(stripped)
+        # matches returns tuples (table_name, column_name); filter out
+        # context/globalMap/Var which are not row references.
+        row_refs = {m[0] for m in matches if m[0] not in ("context", "globalMap", "Var")}
+
+        if not row_refs:
+            return _LOCALITY_CONTEXT
+
+        # joined_df contains main + all previously-joined lookups -- they are all
+        # "main side" relative to the current lookup being joined.
+        main_side_tables = {main_name, *joined_lookup_names}
+        refs_main = bool(row_refs & main_side_tables)
+        refs_lookup = current_lookup in row_refs
+
+        if refs_main and refs_lookup:
+            return _LOCALITY_TWO_SIDED
+        if refs_lookup:
+            return _LOCALITY_LOOKUP_SIDE
+        return _LOCALITY_MAIN_SIDE
 
     def _find_column(
         self, df: pd.DataFrame, table: str, column: str
