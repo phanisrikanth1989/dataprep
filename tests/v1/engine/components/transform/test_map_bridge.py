@@ -922,3 +922,293 @@ class TestD04JoinedLookupNamesPlumbing:
         )
         regions = set(matched_rows["region"].tolist())
         assert regions == {"NE", "SW"}
+
+
+# ------------------------------------------------------------------
+# TestComputedKeyJoinBridge (Plan 05.3-03)
+# ------------------------------------------------------------------
+
+
+class TestComputedKeyJoinBridge:
+    """Live-bridge integration tests for the computed-key join paths (D-03).
+
+    Tests behaviors 1 (main-side .trim()), 3 (lookup-side .trim()), and 7
+    (joined_lookups plumbing in computed-key context). These exercise the real
+    Java bridge, which is required per feedback_test_real_bridge: mock-only
+    tests gave false confidence for tMap (Phase 5.1).
+
+    Issues fixed:
+      2a: main-side .trim() join key produced 0 matches -> now O(n+m) merge
+      2b: routine call as join key -> same O(n+m) path
+    """
+
+    def _make_trim_join_config(self, join_expr: str, lookup_name: str = "row2") -> dict:
+        """Config for a simple one-lookup join with a computed join key."""
+        return {
+            "component_type": "Map",
+            "inputs": {
+                "main": {
+                    "name": "row1",
+                    "filter": "",
+                    "activate_filter": False,
+                    "matching_mode": "UNIQUE_MATCH",
+                    "lookup_mode": "LOAD_ONCE",
+                },
+                "lookups": [
+                    {
+                        "name": lookup_name,
+                        "matching_mode": "UNIQUE_MATCH",
+                        "lookup_mode": "LOAD_ONCE",
+                        "filter": "",
+                        "activate_filter": False,
+                        "join_keys": [
+                            {
+                                "lookup_column": "region",
+                                "expression": join_expr,
+                                "type": "str",
+                                "nullable": True,
+                                "operator": "=",
+                            }
+                        ],
+                        "join_mode": "LEFT_OUTER_JOIN",
+                    }
+                ],
+            },
+            "variables": [],
+            "outputs": [
+                {
+                    "name": "out1",
+                    "is_reject": False,
+                    "inner_join_reject": False,
+                    "filter": "",
+                    "activate_filter": False,
+                    "columns": [
+                        {
+                            "name": "id",
+                            "expression": "{{java}}row1.id",
+                            "type": "int",
+                            "nullable": True,
+                        },
+                        {
+                            "name": "region",
+                            "expression": "{{java}}row1.region",
+                            "type": "str",
+                            "nullable": True,
+                        },
+                        {
+                            "name": "label",
+                            "expression": f"{{{{java}}}}{lookup_name}.label",
+                            "type": "str",
+                            "nullable": True,
+                        },
+                    ],
+                    "catch_output_reject": False,
+                }
+            ],
+            "die_on_error": True,
+        }
+
+    def test_b1_main_side_trim_produces_matched_rows(self, java_bridge):
+        """Issue 2a: main-side .trim() join key produces matched rows.
+
+        main_df {region: '  NJ  '} joins lookup_df {region: 'NJ'}.
+        Without plan 03 fix: fell through to _join_cross_table (O(n*m)).
+        With plan 03 fix: _join_main_side_computed_key batch-evals the trim
+        expression once, adds temp column, pd.merge -> 1 matched row.
+        """
+        join_expr = "{{java}}row1.region.trim()"
+        cfg = self._make_trim_join_config(join_expr)
+        comp = _make_component(java_bridge, config=cfg, comp_id="tMap_b1_main_trim")
+
+        main_df = pd.DataFrame([
+            {"id": 1, "region": "  NJ  "},
+            {"id": 2, "region": "  TX  "},
+            {"id": 3, "region": "  CA  "},
+        ])
+        lookup_df = pd.DataFrame([
+            {"region": "NJ", "label": "New Jersey"},
+            {"region": "TX", "label": "Texas"},
+        ])
+
+        input_data = {"row1": main_df, "row2": lookup_df}
+        result = comp.execute(input_data)
+
+        assert "out1" in result
+        out = result["out1"]
+
+        # NJ and TX match; CA does not (LEFT_OUTER_JOIN -> NaN label).
+        matched = out[out["label"].notna()]
+        assert len(matched) == 2, (
+            f"Issue 2a fix: expected 2 matched rows (NJ and TX). "
+            f"Got {len(matched)}. Without fix this would be 0 due to "
+            f"cross-table bridge plumbing bug."
+        )
+        labels = set(matched["label"].tolist())
+        assert labels == {"New Jersey", "Texas"}
+
+    def test_b3_lookup_side_trim_produces_matched_rows(self, java_bridge):
+        """Symmetric case: lookup-side .trim() join key produces matched rows.
+
+        main_df {region: 'NJ'} joins lookup_df {region: '  NJ  '}.
+        join key: row2.region.trim() == row1.region.
+        _join_lookup_side_computed_key batch-evals trim on lookup_df,
+        adds temp column, pd.merge -> 1 matched row.
+        """
+        join_expr = "{{java}}row2.region.trim()"
+        cfg = self._make_trim_join_config(join_expr)
+        comp = _make_component(java_bridge, config=cfg, comp_id="tMap_b3_lookup_trim")
+
+        main_df = pd.DataFrame([
+            {"id": 1, "region": "NJ"},
+            {"id": 2, "region": "TX"},
+        ])
+        lookup_df = pd.DataFrame([
+            {"region": "  NJ  ", "label": "New Jersey"},
+            {"region": "  TX  ", "label": "Texas"},
+        ])
+
+        input_data = {"row1": main_df, "row2": lookup_df}
+        result = comp.execute(input_data)
+
+        assert "out1" in result
+        out = result["out1"]
+
+        matched = out[out["label"].notna()]
+        assert len(matched) == 2, (
+            f"Lookup-side trim fix: expected 2 matched rows. Got {len(matched)}."
+        )
+        labels = set(matched["label"].tolist())
+        assert labels == {"New Jersey", "Texas"}
+
+    def test_b7_joined_lookups_in_bridge_call(self, java_bridge):
+        """Test 7: when computed join key references previously-joined lookup,
+        the bridge call receives joined_lookup_names per D-04.
+
+        3-input config: row1 -> join row2 (simple) -> join row3 with computed
+        key referencing row2 (already-joined). The join key for row3 is
+        row2.region.trim() (main-side computed, but uses a prior-joined lookup).
+        """
+        cfg = {
+            "component_type": "Map",
+            "inputs": {
+                "main": {
+                    "name": "row1",
+                    "filter": "",
+                    "activate_filter": False,
+                    "matching_mode": "UNIQUE_MATCH",
+                    "lookup_mode": "LOAD_ONCE",
+                },
+                "lookups": [
+                    {
+                        "name": "row2",
+                        "matching_mode": "UNIQUE_MATCH",
+                        "lookup_mode": "LOAD_ONCE",
+                        "filter": "",
+                        "activate_filter": False,
+                        "join_keys": [
+                            {
+                                "lookup_column": "region",
+                                "expression": "{{java}}row1.region",
+                                "type": "str",
+                                "nullable": True,
+                                "operator": "=",
+                            }
+                        ],
+                        "join_mode": "LEFT_OUTER_JOIN",
+                    },
+                    {
+                        "name": "row3",
+                        "matching_mode": "UNIQUE_MATCH",
+                        "lookup_mode": "LOAD_ONCE",
+                        "filter": "",
+                        "activate_filter": False,
+                        "join_keys": [
+                            {
+                                "lookup_column": "region",
+                                # Main-side computed key referencing row2 (already-joined)
+                                "expression": "{{java}}row2.region.trim()",
+                                "type": "str",
+                                "nullable": True,
+                                "operator": "=",
+                            }
+                        ],
+                        "join_mode": "LEFT_OUTER_JOIN",
+                    },
+                ],
+            },
+            "variables": [],
+            "outputs": [
+                {
+                    "name": "out1",
+                    "is_reject": False,
+                    "inner_join_reject": False,
+                    "filter": "",
+                    "activate_filter": False,
+                    "columns": [
+                        {
+                            "name": "id",
+                            "expression": "{{java}}row1.id",
+                            "type": "int",
+                            "nullable": True,
+                        },
+                        {
+                            "name": "region",
+                            "expression": "{{java}}row1.region",
+                            "type": "str",
+                            "nullable": True,
+                        },
+                        {
+                            "name": "label2",
+                            "expression": "{{java}}row2.label",
+                            "type": "str",
+                            "nullable": True,
+                        },
+                        {
+                            "name": "label3",
+                            "expression": "{{java}}row3.label",
+                            "type": "str",
+                            "nullable": True,
+                        },
+                    ],
+                    "catch_output_reject": False,
+                }
+            ],
+            "die_on_error": True,
+        }
+        comp = _make_component(java_bridge, config=cfg, comp_id="tMap_b7_joined_ref")
+
+        main_df = pd.DataFrame([
+            {"id": 1, "region": "NE"},
+            {"id": 2, "region": "SW"},
+        ])
+        # row2 has trimmed regions (exact match with row1)
+        lookup2_df = pd.DataFrame([
+            {"region": "NE", "label": "Northeast"},
+            {"region": "SW", "label": "Southwest"},
+        ])
+        # row3 has trimmed regions (join key is row2.region.trim() -- row2.region
+        # is "NE" or "SW" after joining, already trimmed, so still matches)
+        lookup3_df = pd.DataFrame([
+            {"region": "NE", "label": "NE_code"},
+            {"region": "SW", "label": "SW_code"},
+        ])
+
+        input_data = {
+            "row1": main_df,
+            "row2": lookup2_df,
+            "row3": lookup3_df,
+        }
+        result = comp.execute(input_data)
+
+        assert "out1" in result
+        out = result["out1"]
+
+        # Both rows should match all lookups
+        assert len(out) == 2, f"Expected 2 rows. Got {len(out)}."
+        matched_label3 = out[out["label3"].notna()]
+        assert len(matched_label3) == 2, (
+            f"D-04/plan03 fix: expected 2 rows with non-null label3. "
+            f"Got {len(matched_label3)}. "
+            f"Without fix: bridge wouldn't resolve row2.region in the key, "
+            f"producing 0 matches."
+        )

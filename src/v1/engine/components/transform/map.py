@@ -421,9 +421,8 @@ class Map(BaseComponent):
                         for loc in localities
                     ):
                         # All keys are context or main-side.
-                        # Check if all are simple column refs -> _join_equality.
-                        # If some are computed main-side exprs:
-                        #   TODO(05.3-03): route to _join_main_side_computed_key
+                        # If all are simple column refs -> _join_equality (fast path).
+                        # If any are computed -> _join_main_side_computed_key (D-03).
                         exprs_stripped = [
                             self._strip_java_marker(jk["expression"])
                             for jk in join_keys
@@ -433,9 +432,12 @@ class Map(BaseComponent):
                                 joined_df, lookup_df, lookup_config
                             )
                         else:
-                            # TODO(05.3-03): route to _join_main_side_computed_key
-                            joined_df, rejects = self._join_cross_table(
-                                joined_df, lookup_df, lookup_config, joined_lookup_names
+                            # D-03: at least one main-side key is computed.
+                            # Batch-eval keys once on joined_df, then pd.merge (O(n+m)).
+                            joined_df, rejects = self._join_main_side_computed_key(
+                                joined_df, lookup_df, join_keys,
+                                main_name, lookup_name, joined_lookup_names,
+                                lookup_config
                             )
                     elif all(loc == _LOCALITY_LOOKUP_SIDE for loc in localities):
                         # All keys are lookup-side only.
@@ -448,9 +450,12 @@ class Map(BaseComponent):
                                 joined_df, lookup_df, lookup_config
                             )
                         else:
-                            # TODO(05.3-03): route to _join_lookup_side_computed_key
-                            joined_df, rejects = self._join_cross_table(
-                                joined_df, lookup_df, lookup_config, joined_lookup_names
+                            # D-03: at least one lookup-side key is computed.
+                            # Batch-eval keys once on lookup_df, then pd.merge (O(n+m)).
+                            joined_df, rejects = self._join_lookup_side_computed_key(
+                                joined_df, lookup_df, join_keys,
+                                main_name, lookup_name, joined_lookup_names,
+                                lookup_config
                             )
                     else:
                         # Mixed context + lookup-side -- treat as cross-table
@@ -867,6 +872,335 @@ class Map(BaseComponent):
 
         logger.info(
             f"[{self.id}] Equality join with '{lookup_name}': "
+            f"{len(merged)} rows"
+            + (f", {len(rejects)} inner join rejects" if rejects is not None else "")
+        )
+        return merged, rejects
+
+    # ------------------------------------------------------------------
+    # Computed-Key Joins (Plan 05.3-03, D-03)
+    # ------------------------------------------------------------------
+
+    def _join_main_side_computed_key(
+        self,
+        joined_df: pd.DataFrame,
+        lookup_df: pd.DataFrame,
+        join_keys: list[dict],
+        main_name: str,
+        lookup_name: str,
+        joined_lookup_names: list[str],
+        lookup_config: dict,
+    ) -> tuple[pd.DataFrame, Optional[pd.DataFrame]]:
+        """Equality join where all keys are main-side with at least one computed.
+
+        Batch-evaluates the join key expressions ONCE on joined_df (passing
+        joined_lookup_names so the bridge can resolve prior-joined lookup refs
+        per D-04), adds results as temporary columns, then delegates to a
+        standard pd.merge (O(n+m) -- Talend hashmap parity).
+
+        This replaces the _join_cross_table fallback for this case. Mirrors
+        the full _join_equality structure (matching mode, null pre-filter,
+        inner-join reject routing, column cleanup).
+
+        Args:
+            joined_df: Current joined DataFrame (main + all previously-joined lookups).
+            lookup_df: Lookup DataFrame.
+            join_keys: List of join key dicts from lookup config.
+            main_name: Main input table name.
+            lookup_name: Name of the current lookup being joined.
+            joined_lookup_names: Names of all previously-joined lookups (D-04).
+            lookup_config: Full lookup configuration dict.
+
+        Returns:
+            Tuple of (joined result, inner join rejects or None).
+        """
+        join_mode = lookup_config.get("join_mode", "LEFT_OUTER_JOIN")
+        matching_mode = lookup_config.get("matching_mode", _UNIQUE_MATCH)
+        auto_convert = self.config.get("enable_auto_convert_type", False)
+
+        # Step 1: batch-eval all main-side join key expressions on joined_df.
+        # D-04: pass joined_lookup_names so the bridge can resolve refs to
+        # previously-joined lookups (e.g. row3.col where row3 was joined earlier).
+        exprs = {
+            f"__jk_main_{i}__": self._strip_java_marker(jk["expression"])
+            for i, jk in enumerate(join_keys)
+        }
+        eval_results = self._bridge_eval(joined_df, exprs, joined_lookup_names)
+
+        # Step 2: add computed values as temporary columns on a copy of joined_df
+        # (avoid mutating the caller's frame).
+        joined_df = joined_df.copy()
+        temp_key_cols = []
+        for i in range(len(join_keys)):
+            temp_col = f"__jk_main_{i}__"
+            temp_key_cols.append(temp_col)
+            if temp_col in eval_results:
+                joined_df[temp_col] = eval_results[temp_col]
+            else:
+                joined_df[temp_col] = [None] * len(joined_df)
+
+        # Step 3: right-side keys are the literal lookup column names.
+        right_keys = [jk["lookup_column"] for jk in join_keys]
+
+        # Apply matching mode dedup to lookup
+        lookup_df = self._apply_matching_mode(lookup_df, right_keys, matching_mode)
+
+        # Size guard for ALL_MATCHES
+        if matching_mode == _ALL_MATCHES:
+            self._check_size_guard(len(joined_df), len(lookup_df), matching_mode)
+
+        # Prefix lookup columns to avoid collisions
+        lookup_df = self._prefix_lookup_columns(lookup_df, lookup_name)
+        prefixed_right_keys = [f"{lookup_name}.{k}" for k in right_keys]
+
+        # Auto type conversion (MAP-06)
+        if auto_convert:
+            joined_df, lookup_df = self._auto_convert_join_keys(
+                joined_df, lookup_df, temp_key_cols, prefixed_right_keys
+            )
+
+        # Null key pre-filter (MAP-03) using the computed temp columns
+        main_nonnull, main_null = self._prefilter_null_keys(joined_df, temp_key_cols)
+        lookup_nonnull, _ = self._prefilter_null_keys(lookup_df, prefixed_right_keys)
+
+        # Perform pandas merge using temp columns as left keys
+        if main_nonnull.empty:
+            merged = pd.DataFrame(
+                columns=list(joined_df.columns) + list(lookup_df.columns)
+            )
+            rejects = main_null.copy() if join_mode == "INNER_JOIN" else None
+        else:
+            merged = pd.merge(
+                main_nonnull, lookup_nonnull,
+                left_on=temp_key_cols, right_on=prefixed_right_keys,
+                how="left", indicator=True, suffixes=("", "__dup__")
+            )
+
+            # Track inner join rejects (MAP-02)
+            rejects = None
+            if join_mode == "INNER_JOIN":
+                unmatched_mask = merged["_merge"] == "left_only"
+                if unmatched_mask.any():
+                    rejects = merged.loc[unmatched_mask].drop(
+                        columns=["_merge"]
+                    ).copy()
+                # Also add null-key main rows to rejects
+                if not main_null.empty:
+                    if rejects is not None:
+                        rejects = pd.concat(
+                            [rejects, main_null], ignore_index=True
+                        )
+                    else:
+                        rejects = main_null.copy()
+                # Keep only matched rows for inner join
+                merged = merged.loc[~unmatched_mask].copy()
+
+            # Drop merge indicator
+            if "_merge" in merged.columns:
+                merged = merged.drop(columns=["_merge"])
+
+        # For left outer join, re-add null-key rows (they get NaN lookup cols)
+        if join_mode != "INNER_JOIN" and not main_null.empty:
+            merged = pd.concat([merged, main_null], ignore_index=True)
+
+        # Step 4: drop temp key columns from output
+        drop_cols = temp_key_cols + [c for c in merged.columns if c.endswith("__dup__")]
+        existing_drop = [c for c in drop_cols if c in merged.columns]
+        if existing_drop:
+            merged = merged.drop(columns=existing_drop)
+
+        # Reindex rejects to drop temp columns if present
+        if rejects is not None:
+            reject_drop = [c for c in temp_key_cols if c in rejects.columns]
+            if reject_drop:
+                rejects = rejects.drop(columns=reject_drop)
+
+        logger.info(
+            f"[{self.id}] Main-side computed-key join with '{lookup_name}': "
+            f"{len(merged)} rows"
+            + (f", {len(rejects)} inner join rejects" if rejects is not None else "")
+        )
+        return merged, rejects
+
+    def _join_lookup_side_computed_key(
+        self,
+        joined_df: pd.DataFrame,
+        lookup_df: pd.DataFrame,
+        join_keys: list[dict],
+        main_name: str,
+        lookup_name: str,
+        joined_lookup_names: list[str],
+        lookup_config: dict,
+    ) -> tuple[pd.DataFrame, Optional[pd.DataFrame]]:
+        """Equality join where all keys are lookup-side with at least one computed.
+
+        Symmetric counterpart to _join_main_side_computed_key. Batch-evaluates
+        the join key expressions ONCE on lookup_df. The lookup has no joined-with-
+        others context, so the bridge is called with the lookup as the "main" table
+        and an empty lookup_names list.
+
+        This is correct because the lookup-side expressions reference only the
+        current lookup's columns (e.g. row2.region.trim()). The main table is not
+        in scope for these expressions.
+
+        Note: We call _evaluate_with_bridge directly here (bypassing _bridge_eval)
+        because _bridge_eval always uses the config's main_name as the table name.
+        For lookup-side eval, we need to pass lookup_name as main_table_name so
+        the bridge registers the lookup's columns under row2.col (not row1.col).
+
+        Args:
+            joined_df: Current joined DataFrame (main + all previously-joined lookups).
+            lookup_df: Lookup DataFrame.
+            join_keys: List of join key dicts from lookup config.
+            main_name: Main input table name (unused for eval, kept for signature parity).
+            lookup_name: Name of the current lookup being joined.
+            joined_lookup_names: Names of all previously-joined lookups (D-04).
+            lookup_config: Full lookup configuration dict.
+
+        Returns:
+            Tuple of (joined result, inner join rejects or None).
+        """
+        join_mode = lookup_config.get("join_mode", "LEFT_OUTER_JOIN")
+        matching_mode = lookup_config.get("matching_mode", _UNIQUE_MATCH)
+        auto_convert = self.config.get("enable_auto_convert_type", False)
+
+        # Step 1: batch-eval lookup-side join key expressions on lookup_df.
+        # The lookup has no "already-joined" context, so pass [] as lookup_names.
+        # We call _evaluate_with_bridge directly (not _bridge_eval) because
+        # _bridge_eval always uses the config's main_name; here we need to pass
+        # lookup_name as main_table_name so the bridge resolves row2.col etc.
+        exprs = {
+            f"__jk_lookup_{i}__": self._strip_java_marker(jk["expression"])
+            for i, jk in enumerate(join_keys)
+        }
+        eval_results = self._evaluate_with_bridge(
+            lookup_df, exprs, lookup_name, []
+        )
+
+        # Step 2: add computed values as temporary columns on a copy of lookup_df.
+        lookup_df = lookup_df.copy()
+        temp_key_cols = []
+        for i in range(len(join_keys)):
+            temp_col = f"__jk_lookup_{i}__"
+            temp_key_cols.append(temp_col)
+            if temp_col in eval_results:
+                lookup_df[temp_col] = eval_results[temp_col]
+            else:
+                lookup_df[temp_col] = [None] * len(lookup_df)
+
+        # Step 3: left-side keys are real column names from joined_df.
+        # Extract the lookup_column from join_keys as the right side reference,
+        # but the actual right key we merge on is the temp computed column.
+        # The main-side match value comes from the join_key's lookup_column
+        # (what the main row's expression was supposed to equal).
+        # For lookup-side computed keys, the join_key.expression is on the lookup
+        # (e.g. row2.region.trim()). The lookup_column is what the main side has
+        # as-is (e.g. main's 'region' column). We need to determine the left key.
+        #
+        # Since this is an equality join where lookup expr == main column,
+        # the main side uses a simple column ref (otherwise it'd be two-sided).
+        # Extract main-side column refs from join_keys if they exist; otherwise
+        # use the lookup_column name as a guess (matching _join_equality logic).
+        left_keys = []
+        right_keys = [jk["lookup_column"] for jk in join_keys]
+        for jk in join_keys:
+            # For lookup-side computed keys, the "expression" is on the lookup.
+            # The matching main-side value is the lookup_column itself (implicitly).
+            # In Talend, a lookup-side key like row2.region.trim() pairs with
+            # the main row's field that was named in the config as lookup_column.
+            # We look for that column name in joined_df.
+            col_name = jk["lookup_column"]
+            found = self._find_column(joined_df, main_name, col_name)
+            if found is not None:
+                left_keys.append(found)
+            else:
+                # Try to find it as a bare column name in joined_df
+                if col_name in joined_df.columns:
+                    left_keys.append(col_name)
+                else:
+                    left_keys.append(col_name)
+
+        # Apply matching mode dedup to lookup (before prefixing)
+        lookup_df = self._apply_matching_mode(lookup_df, right_keys, matching_mode)
+
+        # Size guard for ALL_MATCHES
+        if matching_mode == _ALL_MATCHES:
+            self._check_size_guard(len(joined_df), len(lookup_df), matching_mode)
+
+        # Prefix lookup columns to avoid collisions
+        lookup_df = self._prefix_lookup_columns(lookup_df, lookup_name)
+        # The temp key columns also got prefixed -- update temp_key_cols
+        prefixed_temp_key_cols = [f"{lookup_name}.{c}" for c in temp_key_cols]
+
+        # Auto type conversion (MAP-06)
+        if auto_convert:
+            joined_df, lookup_df = self._auto_convert_join_keys(
+                joined_df, lookup_df, left_keys, prefixed_temp_key_cols
+            )
+
+        # Null key pre-filter (MAP-03) using the computed temp columns
+        main_nonnull, main_null = self._prefilter_null_keys(joined_df, left_keys)
+        lookup_nonnull, _ = self._prefilter_null_keys(
+            lookup_df, prefixed_temp_key_cols
+        )
+
+        # Perform pandas merge using temp computed columns as right keys
+        if main_nonnull.empty:
+            merged = pd.DataFrame(
+                columns=list(joined_df.columns) + list(lookup_df.columns)
+            )
+            rejects = main_null.copy() if join_mode == "INNER_JOIN" else None
+        else:
+            merged = pd.merge(
+                main_nonnull, lookup_nonnull,
+                left_on=left_keys, right_on=prefixed_temp_key_cols,
+                how="left", indicator=True, suffixes=("", "__dup__")
+            )
+
+            # Track inner join rejects (MAP-02)
+            rejects = None
+            if join_mode == "INNER_JOIN":
+                unmatched_mask = merged["_merge"] == "left_only"
+                if unmatched_mask.any():
+                    rejects = merged.loc[unmatched_mask].drop(
+                        columns=["_merge"]
+                    ).copy()
+                # Also add null-key main rows to rejects
+                if not main_null.empty:
+                    if rejects is not None:
+                        rejects = pd.concat(
+                            [rejects, main_null], ignore_index=True
+                        )
+                    else:
+                        rejects = main_null.copy()
+                # Keep only matched rows for inner join
+                merged = merged.loc[~unmatched_mask].copy()
+
+            # Drop merge indicator
+            if "_merge" in merged.columns:
+                merged = merged.drop(columns=["_merge"])
+
+        # For left outer join, re-add null-key rows (they get NaN lookup cols)
+        if join_mode != "INNER_JOIN" and not main_null.empty:
+            merged = pd.concat([merged, main_null], ignore_index=True)
+
+        # Step 4: drop temp key columns from output
+        drop_cols = (
+            prefixed_temp_key_cols
+            + [c for c in merged.columns if c.endswith("__dup__")]
+        )
+        existing_drop = [c for c in drop_cols if c in merged.columns]
+        if existing_drop:
+            merged = merged.drop(columns=existing_drop)
+
+        # Reindex rejects to drop temp columns if present
+        if rejects is not None:
+            reject_drop = [c for c in prefixed_temp_key_cols if c in rejects.columns]
+            if reject_drop:
+                rejects = rejects.drop(columns=reject_drop)
+
+        logger.info(
+            f"[{self.id}] Lookup-side computed-key join with '{lookup_name}': "
             f"{len(merged)} rows"
             + (f", {len(rejects)} inner join rejects" if rejects is not None else "")
         )
