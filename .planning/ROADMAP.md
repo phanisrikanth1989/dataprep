@@ -130,14 +130,14 @@ Plans:
 **Plans:** 8 plans
 
 Plans:
-- [ ] 05.3-01-PLAN.md -- Universal {{java}} marker rule + dispatch infra (D-01, D-02)
-- [ ] 05.3-02-PLAN.md -- Locality-based join classifier + joined_lookups plumbing (D-03, D-04)
-- [ ] 05.3-03-PLAN.md -- Computed-key joins for single-side complex keys (D-03)
-- [ ] 05.3-04-PLAN.md -- Memory-bounded chunked cross-product + back-compat config (D-05)
-- [ ] 05.3-05-PLAN.md -- Pure-Python eval path for the no-marker branch (D-02)
-- [ ] 05.3-06-PLAN.md -- file_output_delimited filepath expression fix (D-06)
-- [ ] 05.3-07-PLAN.md -- Promote 7 reproduction fixtures + e2e regression tests + memory-bound perf test
-- [ ] 05.3-08-PLAN.md -- OPEN_DECISION: Issue 4 empty-lookup nullable=false fix (D-07, blocked on user choice)
+- [x] 05.3-01-PLAN.md -- Universal {{java}} marker rule + dispatch infra (D-01, D-02)
+- [x] 05.3-02-PLAN.md -- Locality-based join classifier + joined_lookups plumbing (D-03, D-04)
+- [x] 05.3-03-PLAN.md -- Computed-key joins for single-side complex keys (D-03)
+- [x] 05.3-04-PLAN.md -- Memory-bounded chunked cross-product + back-compat config (D-05)
+- [x] 05.3-05-PLAN.md -- Pure-Python eval path for the no-marker branch (D-02)
+- [x] 05.3-06-PLAN.md -- file_output_delimited filepath expression fix (D-06)
+- [x] 05.3-07-PLAN.md -- Promote 7 reproduction fixtures + e2e regression tests + memory-bound perf test
+- [~] 05.3-08-PLAN.md -- DEFERRED: Issue 4 empty-lookup nullable=false fix (D-07, deferred to follow-up phase per 2026-05-15 decision)
 
 ### Phase 05.1: Java Bridge tMap Fix (INSERTED)
 
