@@ -724,31 +724,37 @@ class TestEvaluateWithBridgeEdgeCases:
         )
         assert out == {}
 
-    def test_has_java_expressions_filter_branch(self, java_bridge):
-        """Lines 1951-1955: output filter starts with {{java}} marker -> True."""
+    def test_has_any_java_marker_replaces_has_java_expressions(self, java_bridge):
+        """D-01/D-02: _has_any_java_marker scans all fields; any {{java}} -> True.
+
+        Replaces the old _has_java_expressions which had per-column simplicity
+        filtering. Under D-01, the marker itself is the routing signal -- no
+        per-column simplicity check.
+        """
+        import copy
         config = _base_config()
         comp = _make_component(java_bridge, config=config,
                                comp_id="tMap_has_java")
-        # All-simple-column outputs: should return False
-        outputs_simple = [{
-            "name": "out1",
-            "filter": "",
-            "columns": [{"name": "a", "expression": "{{java}}row1.a"}],
-        }]
-        assert comp._has_java_expressions(outputs_simple) is False
 
-        # Filter is a complex java expression -> True via filter branch
-        outputs_filter = [{
-            "name": "out1",
-            "filter": "{{java}}row1.a > 1",
-            "columns": [{"name": "a", "expression": "{{java}}row1.a"}],
-        }]
-        assert comp._has_java_expressions(outputs_filter) is True
+        # No marker anywhere -> False
+        cfg_no_marker = copy.deepcopy(config)
+        for out in cfg_no_marker.get("outputs", []):
+            for col in out.get("columns", []):
+                col["expression"] = col["expression"].replace("{{java}}", "")
+            out["filter"] = out.get("filter", "").replace("{{java}}", "")
+        for lk in cfg_no_marker.get("inputs", {}).get("lookups", []):
+            for jk in lk.get("join_keys", []):
+                jk["expression"] = jk["expression"].replace("{{java}}", "")
+        comp.config = cfg_no_marker
+        assert comp._has_any_java_marker() is False
 
-        # Filter is a simple column ref under {{java}} -> False (not complex)
-        outputs_filter_simple = [{
-            "name": "out1",
-            "filter": "{{java}}row1.flag",
-            "columns": [{"name": "a", "expression": "{{java}}row1.a"}],
-        }]
-        assert comp._has_java_expressions(outputs_filter_simple) is False
+        # Any {{java}} on a simple column ref -> True (unlike old method which returned False)
+        cfg_simple_marker = copy.deepcopy(config)
+        comp.config = cfg_simple_marker
+        assert comp._has_any_java_marker() is True
+
+        # {{java}} on output filter -> True
+        cfg_filter = copy.deepcopy(config)
+        cfg_filter["outputs"][0]["filter"] = "{{java}}row1.a > 1"
+        comp.config = cfg_filter
+        assert comp._has_any_java_marker() is True
