@@ -1,0 +1,4 @@
+id;first_name;last_name;email;department;salary
+1;John;Smith;john.smith@example.com;Engineering;85000
+2;Jane;Doe;jane.doe@example.com;Marketing;65000
+3;Pierre;Dupont;pierre.dupont@example.com;Engineering;90000
