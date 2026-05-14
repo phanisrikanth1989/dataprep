@@ -302,6 +302,71 @@ class TestNeedsReview:
             assert "label" not in issue.lower().split()
 
 
+class TestFilepathMarker:
+    """Verify mark_java_expression is applied to filepath and streamname.
+
+    D-06: The converter must use ExpressionConverter.mark_java_expression for
+    filepath (FILENAME) so the engine can detect when bridge evaluation is needed.
+    """
+
+    # ---- filepath tests ----
+
+    def test_filepath_literal_no_marker(self):
+        """Test 1: Literal path -- no {{java}} marker."""
+        node = _make_node(params={"FILENAME": '"/tmp/data.csv"'})
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        filepath = result.component["config"]["filepath"]
+        assert filepath == "/tmp/data.csv"
+        assert not filepath.startswith("{{java}}")
+
+    def test_filepath_context_only_no_marker(self):
+        """Test 2: context-only path -- ContextManager handles, no bridge needed."""
+        node = _make_node(params={"FILENAME": '"context.outdir"'})
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        filepath = result.component["config"]["filepath"]
+        assert filepath == "context.outdir"
+        assert not filepath.startswith("{{java}}")
+
+    def test_filepath_concat_expression_marked(self):
+        """Test 3: filepath with + operator -- must get {{java}} marker."""
+        node = _make_node(params={"FILENAME": '"context.dir + context.name + context.ext"'})
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        filepath = result.component["config"]["filepath"]
+        assert filepath.startswith("{{java}}")
+        assert "context.dir" in filepath
+
+    def test_filepath_routine_call_marked(self):
+        """Test 4: routine call in filepath -- must get {{java}} marker."""
+        node = _make_node(params={"FILENAME": '"MyRoutines.fmt(context.x)"'})
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        filepath = result.component["config"]["filepath"]
+        assert filepath.startswith("{{java}}")
+
+    def test_filepath_ternary_marked(self):
+        """Test 5: ternary expression in filepath -- must get {{java}} marker."""
+        node = _make_node(params={"FILENAME": '"context.x ? \\"a.csv\\" : \\"b.csv\\""'})
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        filepath = result.component["config"]["filepath"]
+        assert filepath.startswith("{{java}}")
+
+    # ---- streamname tests ----
+
+    def test_streamname_literal_no_marker(self):
+        """Test 6a: literal streamname -- no {{java}} marker."""
+        node = _make_node(params={"STREAMNAME": '"outputStream"'})
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        streamname = result.component["config"]["streamname"]
+        assert streamname == "outputStream"
+        assert not streamname.startswith("{{java}}")
+
+    def test_streamname_expression_marked(self):
+        """Test 6b: streamname with + operator -- must get {{java}} marker."""
+        node = _make_node(params={"STREAMNAME": '"context.prefix + \\"Stream\\""'})
+        result = FileOutputDelimitedConverter().convert(node, [], {})
+        streamname = result.component["config"]["streamname"]
+        assert streamname.startswith("{{java}}")
+
+
 class TestCompleteness:
     """Verify all expected config keys are present."""
 

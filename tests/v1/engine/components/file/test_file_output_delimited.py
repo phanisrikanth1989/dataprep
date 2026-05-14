@@ -1759,3 +1759,146 @@ class TestCoverageLift1408SplitPipeline:
         assert produced == ["split0.csv", "split1.csv", "split2.csv"]
         # Total rows written across splits
         assert result.global_map.get("tFileOutputDelimited_1_NB_LINE") == 5
+
+
+# ------------------------------------------------------------------
+# TestJavaExprFilepath -- D-06 engine: honor {{java}} marker on filepath
+# ------------------------------------------------------------------
+
+import unittest.mock as mock
+
+
+def _make_component_with_bridge(config, java_bridge):
+    """Create a FileOutputDelimited with a mock java_bridge injected."""
+    gm = GlobalMap()
+    cm = ContextManager()
+    comp = FileOutputDelimited(
+        component_id="tFOD_expr",
+        config=config,
+        global_map=gm,
+        context_manager=cm,
+    )
+    comp.java_bridge = java_bridge
+    return comp
+
+
+@pytest.mark.unit
+class TestJavaExprFilepath:
+    """Engine honors {{java}} marker on filepath/streamname via bridge round-trip.
+
+    D-06: After context resolution, if filepath still starts with {{java}},
+    send to bridge for evaluation. Hard-fail if bridge unavailable.
+    """
+
+    def test_literal_filepath_no_bridge_call(self, tmp_path):
+        """Test 1: literal filepath -- no {{java}} marker -- no bridge call."""
+        filepath = str(tmp_path / "output.csv")
+        config = {**_DEFAULT_CONFIG, "filepath": filepath, "file_exist_exception": False}
+        comp = _make_component_with_bridge(config, java_bridge=None)
+        df = _make_input_df()
+        # Should succeed without bridge
+        result = comp.execute(df)
+        assert result["main"] is not None
+        assert (tmp_path / "output.csv").exists()
+
+    def test_context_resolved_filepath_no_bridge_call(self, tmp_path):
+        """Test 2: context-only filepath, resolved before _process -- no bridge."""
+        filepath = str(tmp_path / "context_resolved.csv")
+        # Filepath is already a plain string (context resolution happened in execute())
+        config = {**_DEFAULT_CONFIG, "filepath": filepath, "file_exist_exception": False}
+        comp = _make_component_with_bridge(config, java_bridge=None)
+        result = comp.execute(_make_input_df())
+        assert result["main"] is not None
+        assert (tmp_path / "context_resolved.csv").exists()
+
+    def test_marked_filepath_with_bridge_evaluates(self, tmp_path):
+        """Test 3: filepath with {{java}} marker and bridge present -- bridge evaluates it."""
+        expected_path = str(tmp_path / "bridge_resolved.csv")
+        mock_bridge = mock.MagicMock()
+        config = {
+            **_DEFAULT_CONFIG,
+            "filepath": "{{java}}context.dir + \"/\" + context.name + \".csv\"",
+            "file_exist_exception": False,
+        }
+        comp = _make_component_with_bridge(config, java_bridge=mock_bridge)
+        # Patch _resolve_java_expr_param to return known path
+        with mock.patch.object(comp, "_resolve_java_expr_param", return_value=expected_path):
+            result = comp.execute(_make_input_df())
+        assert result["main"] is not None
+        assert (tmp_path / "bridge_resolved.csv").exists()
+
+    def test_marked_filepath_bridge_none_raises_config_error(self, tmp_path):
+        """Test 4: filepath with {{java}} marker and bridge=None -- raises ConfigurationError."""
+        config = {
+            **_DEFAULT_CONFIG,
+            "filepath": "{{java}}context.dir + context.name + context.ext",
+            "file_exist_exception": False,
+        }
+        comp = _make_component_with_bridge(config, java_bridge=None)
+        with pytest.raises(ConfigurationError, match="Java bridge"):
+            comp.execute(_make_input_df())
+
+    def test_marked_filepath_bridge_failure_raises_component_error(self, tmp_path):
+        """Test 5: bridge raises during eval -- wraps in ComponentExecutionError."""
+        mock_bridge = mock.MagicMock()
+        mock_bridge.execute_tmap_preprocessing.side_effect = RuntimeError("bridge down")
+        config = {
+            **_DEFAULT_CONFIG,
+            "filepath": "{{java}}context.dir + \"/\" + context.name + \".csv\"",
+            "file_exist_exception": False,
+        }
+        comp = _make_component_with_bridge(config, java_bridge=mock_bridge)
+        with pytest.raises(ComponentExecutionError):
+            comp.execute(_make_input_df())
+
+    def test_issue_6_reproduction_no_literal_plus(self, tmp_path):
+        """Test 6: Issue 6 -- filepath must resolve to actual path, not contain literal +."""
+        expected_path = str(tmp_path / "output_via_expr.csv")
+        mock_bridge = mock.MagicMock()
+        # Bridge returns the evaluated concatenated path
+        mock_bridge.execute_tmap_preprocessing.return_value = {
+            "__param__": [expected_path],
+        }
+        config = {
+            **_DEFAULT_CONFIG,
+            "filepath": "{{java}}context.outdir + \"/\" + context.name + \".csv\"",
+            "file_exist_exception": False,
+        }
+        comp = _make_component_with_bridge(config, java_bridge=mock_bridge)
+        result = comp.execute(_make_input_df())
+        assert result["main"] is not None
+        # The resolved file must exist at the actual path
+        assert (tmp_path / "output_via_expr.csv").exists()
+        # The path must NOT contain literal + operators
+        written_path = str(tmp_path / "output_via_expr.csv")
+        assert "+" not in written_path
+        assert "context.outdir" not in written_path
+
+    def test_streamname_marked_with_bridge(self, tmp_path):
+        """Test 7: streamname with {{java}} marker is resolved by bridge.
+
+        Uses `usestream=False` so streamname resolution happens but the deferred
+        usestream feature doesn't actually stream. Verifies _resolve_java_expr_param
+        is called for {{java}}-marked streamname.
+        """
+        mock_bridge = mock.MagicMock()
+        mock_bridge.execute_tmap_preprocessing.return_value = {
+            "__param__": ["myResolvedStream"],
+        }
+        filepath = str(tmp_path / "output.csv")
+        config = {
+            **_DEFAULT_CONFIG,
+            "filepath": filepath,
+            "usestream": False,
+            "streamname": "{{java}}context.prefix + \"Stream\"",
+            "file_exist_exception": False,
+        }
+        comp = _make_component_with_bridge(config, java_bridge=mock_bridge)
+        # For streamname: patch _resolve_java_expr_param to confirm it's called
+        with mock.patch.object(
+            comp, "_resolve_java_expr_param", wraps=lambda v, n: "myResolvedStream" if v.startswith("{{java}}") else v
+        ) as mock_resolve:
+            result = comp.execute(_make_input_df())
+        assert result["main"] is not None
+        # _resolve_java_expr_param must have been called for the streamname
+        mock_resolve.assert_any_call("{{java}}context.prefix + \"Stream\"", "streamname")
