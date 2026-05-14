@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Phase 15.1 closed; manual checkpoint approved pending
+status: planning
 stopped_at: Phase 15.1 context gathered
-last_updated: "2026-05-11T08:16:19.078Z"
+last_updated: "2026-05-14T18:43:00.435Z"
 last_activity: 2026-05-11
 progress:
-  total_phases: 21
+  total_phases: 22
   completed_phases: 20
   total_plans: 101
   completed_plans: 128
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-04-14)
 Phase: 15.1 (documentation-audit-reconciliation) -- COMPLETE
 Plan: 12 of 12 (all complete)
 Next: Phase 16 (Integration Testing & Performance, manager-led)
-Status: Phase 15.1 closed; manual checkpoint approved pending
+Status: Phase 05.3 (URGENT) inserted; ready to plan
 Last activity: 2026-05-11
 
 Progress: [██████████] 100%
@@ -128,6 +128,7 @@ Recent decisions affecting current work:
 - Phase 05.1 inserted after Phase 5: Java Bridge tMap Fix (URGENT) -- Phase 2 rewrite broke RowWrapper Arrow type conversion and compiled tMap script execution. Must fix before Phase 6+.
 - Phase 07.1 inserted after Phase 7: Manager Audit & BaseComponent Fixes (URGENT) -- Manager-commit audit (range 52dbada..f0f6351, 19 commits, 28 files) surfaced 48 in-scope regressions and gaps including BaseComponent crashes (CR-01, CR-02), Phase 4 file I/O regressions (CR-03, CR-06, CR-09), Phase 6 AggregateRow Talend-parity violations (CR-05), broken Java build on Mac/Linux (CR-04 pom.xml), and a not-production-ready new Normalize component. API findings (27) skipped per direction. See .planning/review/TRIAGE.md for the full triage matrix and .planning/review/manager-commits-REVIEW*.md for evidence. Must complete before Phase 8.
 - Phase 07.2 inserted after Phase 7: validate-config bug sweep -- move pre-resolution content checks to _process across 11 components (URGENT)
+- Phase 05.3 inserted after Phase 5: tMap Join Correctness, Marker Rule, and Filepath Expression (URGENT)
 
 ### Pending Todos
 

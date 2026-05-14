@@ -122,6 +122,23 @@ Plans:
 - [x] 05-02-PLAN.md -- Exhaustive unit test suite (60-100 tests)
 - [x] 05-03-PLAN.md -- Converter update for MAP-06 + integration tests
 
+### Phase 05.3: tMap Join Correctness, Marker Rule, and Filepath Expression (INSERTED)
+
+**Goal:** Restore tMap join correctness and performance to match Talend semantics, eliminate silent-empty / silent-wrong-result failure modes via a universal {{java}} marker rule, and fix the filepath expression bug in tFileOutputDelimited (six issues reproduced end-to-end via real .item -> converter -> engine pipelines).
+**Requirements**: D-01, D-02, D-03, D-04, D-05, D-06, D-07 (D-07 OPEN -- user choice required)
+**Depends on:** Phase 5
+**Plans:** 8 plans
+
+Plans:
+- [ ] 05.3-01-PLAN.md -- Universal {{java}} marker rule + dispatch infra (D-01, D-02)
+- [ ] 05.3-02-PLAN.md -- Locality-based join classifier + joined_lookups plumbing (D-03, D-04)
+- [ ] 05.3-03-PLAN.md -- Computed-key joins for single-side complex keys (D-03)
+- [ ] 05.3-04-PLAN.md -- Memory-bounded chunked cross-product + back-compat config (D-05)
+- [ ] 05.3-05-PLAN.md -- Pure-Python eval path for the no-marker branch (D-02)
+- [ ] 05.3-06-PLAN.md -- file_output_delimited filepath expression fix (D-06)
+- [ ] 05.3-07-PLAN.md -- Promote 7 reproduction fixtures + e2e regression tests + memory-bound perf test
+- [ ] 05.3-08-PLAN.md -- OPEN_DECISION: Issue 4 empty-lookup nullable=false fix (D-07, blocked on user choice)
+
 ### Phase 05.1: Java Bridge tMap Fix (INSERTED)
 
 **Goal**: Fix the Java bridge compiled script execution for tMap. Phase 2's rewrite broke RowWrapper Arrow type conversion (returns raw Arrow Text objects instead of Java Strings) and removed the 3-arg constructor that compiled tMap scripts depended on. Restore proper type-specific extraction, ensure compiled scripts work with correct Java types, verify with real .item file pipeline.
