@@ -818,6 +818,11 @@ class JavaBridge:
                 )
 
         arrow_table = pa.Table.from_pandas(coerced_df, schema=arrow_schema, safe=False)
+        # pandas 3.0 StringDtype columns produce chunked arrays that PyArrow
+        # serializes as multiple record batches. The Java bridge reads only the
+        # first batch (one loadNextBatch() call), so combine_chunks() is needed
+        # to guarantee a single-batch IPC stream regardless of column dtype.
+        arrow_table = arrow_table.combine_chunks()
         sink = pa.BufferOutputStream()
         writer = ipc.new_stream(sink, arrow_table.schema)
         writer.write_table(arrow_table)
