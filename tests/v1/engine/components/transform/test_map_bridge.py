@@ -758,3 +758,167 @@ class TestEvaluateWithBridgeEdgeCases:
         cfg_filter["outputs"][0]["filter"] = "{{java}}row1.a > 1"
         comp.config = cfg_filter
         assert comp._has_any_java_marker() is True
+
+
+# ------------------------------------------------------------------
+# TestD04JoinedLookupNamesPlumbing (D-04: bridge always sees full joined list)
+# ------------------------------------------------------------------
+
+
+class TestD04JoinedLookupNamesPlumbing:
+    """Issue 3 end-to-end test: lookup-to-lookup with transformed join key.
+
+    Reproduces the D-04 bug where _join_cross_table passed only
+    [lookup_name] to _evaluate_with_bridge instead of the full
+    joined_lookup_names list. When the second lookup's join key
+    expression references a previously-joined lookup (e.g. row2.region),
+    the bridge needs row2 in its lookup_names list to resolve the reference.
+
+    With the D-04 fix (all bridge call sites pass full joined_lookup_names),
+    the join produces matched rows. Without the fix, the bridge cannot resolve
+    row2.region and the match mask is all-False (0 matched rows).
+    """
+
+    def _make_l2l_config(self, second_join_expr: str) -> dict:
+        """3-input (main + row2 + row3) config where the second join key
+        uses an expression on the first lookup (row2).
+
+        second_join_expr: the join key expression for the row3 lookup.
+        """
+        return {
+            "component_type": "Map",
+            "inputs": {
+                "main": {
+                    "name": "row1",
+                    "filter": "",
+                    "activate_filter": False,
+                    "matching_mode": "UNIQUE_MATCH",
+                    "lookup_mode": "LOAD_ONCE",
+                },
+                "lookups": [
+                    {
+                        "name": "row2",
+                        "matching_mode": "UNIQUE_MATCH",
+                        "lookup_mode": "LOAD_ONCE",
+                        "filter": "",
+                        "activate_filter": False,
+                        "join_keys": [
+                            {
+                                "lookup_column": "region",
+                                "expression": "{{java}}row1.region",
+                                "type": "str",
+                                "nullable": True,
+                                "operator": "=",
+                            }
+                        ],
+                        "join_mode": "LEFT_OUTER_JOIN",
+                    },
+                    {
+                        "name": "row3",
+                        "matching_mode": "UNIQUE_MATCH",
+                        "lookup_mode": "LOAD_ONCE",
+                        "filter": "",
+                        "activate_filter": False,
+                        "join_keys": [
+                            {
+                                "lookup_column": "region",
+                                "expression": second_join_expr,
+                                "type": "str",
+                                "nullable": True,
+                                "operator": "=",
+                            }
+                        ],
+                        "join_mode": "LEFT_OUTER_JOIN",
+                    },
+                ],
+            },
+            "variables": [],
+            "outputs": [
+                {
+                    "name": "out1",
+                    "is_reject": False,
+                    "inner_join_reject": False,
+                    "filter": "",
+                    "activate_filter": False,
+                    "columns": [
+                        {
+                            "name": "id",
+                            "expression": "{{java}}row1.id",
+                            "type": "int",
+                            "nullable": True,
+                        },
+                        {
+                            "name": "region",
+                            "expression": "{{java}}row1.region",
+                            "type": "str",
+                            "nullable": True,
+                        },
+                        {
+                            "name": "label2",
+                            "expression": "{{java}}row2.label",
+                            "type": "str",
+                            "nullable": True,
+                        },
+                        {
+                            "name": "label3",
+                            "expression": "{{java}}row3.label",
+                            "type": "str",
+                            "nullable": True,
+                        },
+                    ],
+                    "catch_output_reject": False,
+                }
+            ],
+            "die_on_error": True,
+        }
+
+    def test_d04_lookup_to_lookup_transformed_key_matches(self, java_bridge):
+        """Issue 3: row3 join key references row2 (previously-joined lookup).
+
+        With D-04 fix: _bridge_eval passes full joined_lookup_names (including
+        row2) so the bridge resolves row2.region correctly -> match produced.
+
+        Without D-04 fix: bridge only sees [row3], cannot resolve row2.region,
+        expression evaluates to None, match mask is all-False, 0 rows returned.
+        """
+        import pandas as pd
+
+        # Second lookup join key uses the first lookup's column (issue 3 scenario)
+        second_join_expr = "{{java}}row2.region"
+        cfg = self._make_l2l_config(second_join_expr)
+        comp = _make_component(java_bridge, config=cfg, comp_id="tMap_d04_test")
+
+        main_df = pd.DataFrame([
+            {"id": 1, "region": "NE"},
+            {"id": 2, "region": "SW"},
+            {"id": 3, "region": "MW"},
+        ])
+        lookup2_df = pd.DataFrame([
+            {"region": "NE", "label": "Northeast"},
+            {"region": "SW", "label": "Southwest"},
+        ])
+        lookup3_df = pd.DataFrame([
+            {"region": "NE", "label": "NE_code"},
+            {"region": "SW", "label": "SW_code"},
+        ])
+
+        input_data = {
+            "main": main_df,
+            "row2": lookup2_df,
+            "row3": lookup3_df,
+        }
+        result = comp.execute(input_data)
+        assert "out1" in result, "out1 output must exist"
+        out = result["out1"]
+        # With D-04 fix: rows 1 and 2 match both lookups -> 2 matched rows.
+        # Row 3 (region=MW) matches neither lookup -> appears in output with NaN
+        # labels (LEFT_OUTER_JOIN behavior).
+        # The critical assertion: matched rows have non-null label3 values.
+        matched_rows = out[out["label3"].notna()]
+        assert len(matched_rows) == 2, (
+            f"Expected 2 rows with matched label3 (issue 3 D-04 fix). "
+            f"Got {len(matched_rows)} matched rows. "
+            f"Without D-04 fix this would be 0."
+        )
+        regions = set(matched_rows["region"].tolist())
+        assert regions == {"NE", "SW"}
