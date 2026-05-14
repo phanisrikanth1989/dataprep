@@ -49,7 +49,7 @@ import pandas as pd
 
 from ...base_component import BaseComponent
 from ...component_registry import REGISTRY
-from ...exceptions import ConfigurationError, FileOperationError
+from ...exceptions import ComponentExecutionError, ConfigurationError, FileOperationError
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,11 @@ _DEFERRED_FEATURES = {
     "flushonrow": "flush-on-row buffering",
     "advanced_separator": "Advanced numeric separators",
 }
+
+# D-06: Java expression marker -- if filepath or streamname starts with this,
+# the value needs Java bridge evaluation (operator-bearing expression that
+# ContextManager cannot resolve purely as a context variable substitution).
+_JAVA_MARKER = "{{java}}"
 
 # CSV row separator closed-list mapping
 _CSV_ROW_SEPARATORS = {
@@ -141,6 +146,70 @@ class FileOutputDelimited(BaseComponent):
         return bool(v)
 
     # ------------------------------------------------------------------
+    # Java Expression Resolution (D-06)
+    # ------------------------------------------------------------------
+
+    def _resolve_java_expr_param(self, value: str, name: str) -> str:
+        """Evaluate a {{java}}-marked parameter via the Java bridge.
+
+        If ``value`` starts with the ``{{java}}`` marker, strip the prefix and
+        send the bare expression to the bridge for context-free evaluation.
+        Uses a 1-row placeholder DataFrame because the bridge API is
+        DataFrame-shaped and the expression has no row context.
+
+        If ``value`` does not start with the marker, return it unchanged.
+
+        Args:
+            value: Config parameter value, possibly prefixed with ``{{java}}``.
+            name: Parameter name (used in error messages).
+
+        Returns:
+            Evaluated string when marker is present; original value otherwise.
+
+        Raises:
+            ConfigurationError: If marker present but Java bridge is unavailable.
+            ComponentExecutionError: If bridge evaluation raises.
+        """
+        if not isinstance(value, str) or not value.startswith(_JAVA_MARKER):
+            return value
+
+        if self.java_bridge is None:
+            raise ConfigurationError(
+                f"[{self.id}] Param '{name}' has value {value!r} requiring "
+                f"Java bridge evaluation but Java bridge is unavailable. "
+                f"Either start the bridge (java_config.enabled=true) or "
+                f"remove the Java expression from the job config."
+            )
+
+        expr = value[len(_JAVA_MARKER):]
+        # Pass a 1-row placeholder DataFrame with a dummy column; Arrow IPC
+        # serialization requires at least one column (zero-column DFs don't
+        # survive the round-trip).
+        placeholder = pd.DataFrame([{"__placeholder__": 1}])
+        try:
+            eval_result = self.java_bridge.execute_tmap_preprocessing(
+                df=placeholder,
+                expressions={"__param__": expr},
+                main_table_name="__none__",
+                lookup_table_names=[],
+                schema={},
+            )
+        except Exception as exc:
+            raise ComponentExecutionError(
+                self.id,
+                f"Failed to evaluate '{name}' expression {expr!r}: "
+                f"{type(exc).__name__}: {exc}",
+                cause=exc,
+            ) from exc
+
+        if "__param__" not in eval_result or not len(eval_result["__param__"]):
+            raise ComponentExecutionError(
+                self.id,
+                f"Bridge returned no result for '{name}' expression: {expr!r}",
+            )
+        return str(eval_result["__param__"][0])
+
+    # ------------------------------------------------------------------
     # Configuration Validation
     # ------------------------------------------------------------------
 
@@ -200,6 +269,7 @@ class FileOutputDelimited(BaseComponent):
 
         # ---- Read non-bool config values ----
         filepath = self.config.get("filepath", "")
+        streamname = self.config.get("streamname", "outputStream")
         fieldseparator = self.config.get("fieldseparator", ";")
         row_separator = self.config.get("row_separator", "\\n")
         encoding = self.config.get("encoding", "ISO-8859-15")
@@ -207,6 +277,15 @@ class FileOutputDelimited(BaseComponent):
         text_enclosure = self.config.get("text_enclosure", '"')
         csvrowseparator = self.config.get("csvrowseparator", "LF")
         split_every = self.config.get("split_every", "1000")
+
+        # ---- D-06: Honor {{java}} marker on expression-bearing string params ----
+        # Context resolution (ContextManager.resolve_dict) already ran in execute()
+        # and substituted plain context.var references. If filepath or streamname
+        # still carry the {{java}} marker after context resolution, they contain
+        # operator-bearing Java expressions (concatenation, ternaries, method calls)
+        # that need bridge evaluation.
+        filepath = self._resolve_java_expr_param(filepath, "filepath")
+        streamname = self._resolve_java_expr_param(streamname, "streamname")
 
         # ---- Warn on deferred features (ENG-WR-11: use _bool) ----
         for flag, description in _DEFERRED_FEATURES.items():
