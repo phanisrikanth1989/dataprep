@@ -2385,6 +2385,78 @@ class Map(BaseComponent):
             row_dict[col_name] = self._eval_expr(expr, ns, out_name, col_name)
         return row_dict
 
+    def _evaluate_output_columns_py(
+        self,
+        row_source: pd.DataFrame,
+        output_cfg: dict,
+        var_columns: dict[str, list],
+        main_name: str,
+        lookup_names: list[str],
+    ) -> pd.DataFrame:
+        """Evaluate one output's column expressions over an arbitrary row source.
+
+        Thin loop wrapper around ``_eval_output_row``: iterates the rows of
+        ``row_source``, builds a per-row eval namespace (row dicts + _VarBag
+        of variable values), evaluates each column expression, and
+        materialises the result via a single ``pd.DataFrame(rows, columns=...)``
+        allocation.  Empty fast path returns ``pd.DataFrame(columns=col_names)``
+        when ``row_source`` is empty.
+
+        This helper is the shared building block for the Python-eval path
+        across all output kinds -- normal outputs (called by
+        ``_evaluate_outputs_py``) and the three reject routing sites
+        (inner-join reject, filter reject, catch-output reject) that Plans
+        02-04 wire in.
+
+        Args:
+            row_source: DataFrame to iterate; one output row is emitted per
+                input row.  Can be the full ``joined_df``, an
+                inner-join-reject row source, a failed-filter row source, or
+                a catch-output row source.
+            output_cfg: The output configuration dict (must contain ``name``
+                and ``columns``).
+            var_columns: Pre-computed variable values per row
+                (name -> [val]).  Indexed positionally against ``row_source``.
+            main_name: Main table name (for row-dict construction).
+            lookup_names: Lookup table names (for row-dict construction).
+
+        Returns:
+            A single-allocation DataFrame with one row per ``row_source``
+            row and one column per ``output_cfg['columns']`` entry.  Empty
+            ``row_source`` yields an empty DataFrame with the declared
+            column schema.
+        """
+        col_defs = output_cfg["columns"]
+        out_name = output_cfg["name"]
+        col_names = [c["name"] for c in col_defs]
+
+        # Empty fast path: skip iteration, return empty schema-only frame.
+        if row_source.empty:
+            return pd.DataFrame(columns=col_names)
+
+        out_rows: list[dict] = []
+        for row_idx, _row in enumerate(row_source.itertuples(index=False)):
+            row_series = row_source.iloc[row_idx]
+            row_dicts = self._build_row_dicts_for_py(
+                row_series, main_name, lookup_names, row_source
+            )
+
+            # Build _VarBag for this row from pre-computed variable values.
+            var_bag = _VarBag()
+            for v_name, v_vals in var_columns.items():
+                if row_idx < len(v_vals):
+                    setattr(var_bag, v_name, v_vals[row_idx])
+
+            ns = self._build_namespace(row_dicts, var_bag)
+            out_row = self._eval_output_row(col_defs, ns, out_name)
+            out_rows.append(out_row)
+
+        return (
+            pd.DataFrame(out_rows, columns=col_names)
+            if out_rows
+            else pd.DataFrame(columns=col_names)
+        )
+
     def _evaluate_outputs_py(
         self,
         joined_df: pd.DataFrame,
@@ -2399,6 +2471,12 @@ class Map(BaseComponent):
         to the first ``is_reject`` output.  Honors the skip-when-already-populated
         guard: ``is_reject`` outputs are initialised empty exactly once; rows
         filtered out by an earlier output are appended to the first reject output.
+
+        Non-filter outputs (``activate_filter`` is False) delegate to
+        ``_evaluate_output_columns_py``; outputs with an active filter retain
+        the inline per-row loop here because it must split each row between
+        the output frame and the filter-reject frame in lockstep.  Plan 03
+        will lift the filter path onto the shared helper.
 
         Args:
             joined_df: Joined DataFrame.
@@ -2426,13 +2504,24 @@ class Map(BaseComponent):
                     )
                 continue
 
-            out_rows: list[dict] = []
-            reject_rows: list[dict] = []
             col_defs = output_cfg["columns"]
             activate_filter = output_cfg.get("activate_filter", False)
             out_filter = output_cfg.get("filter", "")
 
-            for row_idx, row in enumerate(joined_df.itertuples(index=False)):
+            # Non-filter outputs delegate to the shared helper (Plan 05.4-01).
+            if not (activate_filter and out_filter):
+                result[out_name] = self._evaluate_output_columns_py(
+                    joined_df, output_cfg, var_columns, main_name, lookup_names
+                )
+                continue
+
+            # Active-filter outputs keep the inline loop so kept/rejected rows
+            # can be split in one pass.  Plan 05.4-03 lifts this onto
+            # _evaluate_output_columns_py via a precomputed keep-mask.
+            out_rows: list[dict] = []
+            reject_rows: list[dict] = []
+
+            for row_idx, _row in enumerate(joined_df.itertuples(index=False)):
                 row_series = joined_df.iloc[row_idx]
                 row_dicts = self._build_row_dicts_for_py(
                     row_series, main_name, lookup_names, joined_df
@@ -2447,15 +2536,14 @@ class Map(BaseComponent):
                 ns = self._build_namespace(row_dicts, var_bag)
 
                 # Evaluate output filter first (per Talend: filter-then-emit).
-                if activate_filter and out_filter:
-                    try:
-                        keep = bool(eval(out_filter, ns))  # noqa: S307
-                    except Exception:
-                        keep = False
-                    if not keep:
-                        reject_row = self._eval_output_row(col_defs, ns, out_name)
-                        reject_rows.append(reject_row)
-                        continue
+                try:
+                    keep = bool(eval(out_filter, ns))  # noqa: S307
+                except Exception:
+                    keep = False
+                if not keep:
+                    reject_row = self._eval_output_row(col_defs, ns, out_name)
+                    reject_rows.append(reject_row)
+                    continue
 
                 out_row = self._eval_output_row(col_defs, ns, out_name)
                 out_rows.append(out_row)
