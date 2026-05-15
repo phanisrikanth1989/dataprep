@@ -478,14 +478,21 @@ class TestAllMatches:
         out = result["out1"]
         assert len(out) == 2
 
-    def test_all_matches_size_guard_warns(self, caplog):
-        """Large cartesian triggers warning."""
+    def test_all_matches_size_guard_warns(self, caplog, monkeypatch):
+        """Large cartesian triggers warning.
+
+        Patches `_WARN_RESULT_ROWS` down to 1000 so we can verify the same
+        guard code path with a 50x30=1500-row product instead of 12M rows.
+        monkeypatch.setattr auto-restores the constant on teardown.
+        """
+        import src.v1.engine.components.transform.map as map_module
+        monkeypatch.setattr(map_module, "_WARN_RESULT_ROWS", 1000)
+
         config = copy.deepcopy(_DEFAULT_CONFIG)
         config["inputs"]["lookups"][0]["matching_mode"] = "ALL_MATCHES"
-        # Create datasets whose product exceeds _WARN_RESULT_ROWS (10M)
-        # Use 4000 x 3000 = 12M
-        main_df = pd.DataFrame({"id": range(4000), "key": ["A"] * 4000, "val": range(4000)})
-        lookup_df = pd.DataFrame({"key": ["A"] * 3000, "label": [f"L{i}" for i in range(3000)]})
+        # 50 x 30 = 1500 -- exceeds patched _WARN_RESULT_ROWS=1000
+        main_df = pd.DataFrame({"id": range(50), "key": ["A"] * 50, "val": range(50)})
+        lookup_df = pd.DataFrame({"key": ["A"] * 30, "label": [f"L{i}" for i in range(30)]})
 
         comp = _make_component(config=config)
         with caplog.at_level(logging.WARNING):
