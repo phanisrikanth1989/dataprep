@@ -6356,3 +6356,148 @@ class TestInnerJoinRejectPy:
             f"Expected _NullRow contract phrase in warning; got: "
             f"{warning_text!r}"
         )
+
+
+# ----------------------------------------------------------------------
+# Plan 05.4-03: Filter-reject column-expression evaluation (is_reject)
+# ----------------------------------------------------------------------
+
+
+def _make_filter_reject_config(source_columns, reject_columns,
+                                main_filter_active=True,
+                                source_filter="row1.score > 50"):
+    """Build a Map config for filter-reject (is_reject) Python-eval tests.
+
+    The source output declares ``activate_filter=True`` plus a filter
+    expression; the reject output declares ``is_reject=True`` and its own
+    column list (which may differ from the source output's columns).
+    Both lists are passed in explicitly so individual tests can vary them.
+    """
+    cfg = {
+        "component_type": "Map",
+        "die_on_error": False,
+        "inputs": {
+            "main": {
+                "name": "row1",
+                "filter": "",
+                "activate_filter": False,
+                "matching_mode": "UNIQUE_MATCH",
+                "lookup_mode": "LOAD_ONCE",
+            },
+            "lookups": [],
+        },
+        "variables": [],
+        "outputs": [
+            {
+                "name": "out1",
+                "is_reject": False,
+                "inner_join_reject": False,
+                "filter": source_filter,
+                "activate_filter": main_filter_active,
+                "columns": source_columns,
+            },
+            {
+                "name": "rej1",
+                "is_reject": True,
+                "inner_join_reject": False,
+                "filter": "",
+                "activate_filter": False,
+                "columns": reject_columns,
+            },
+        ],
+    }
+    return cfg
+
+
+@pytest.mark.unit
+class TestFilterRejectPy:
+    """Plan 05.4-03 RED -- is_reject filter-reject schema correctness.
+
+    Pins the contract that when a source output rejects rows via its
+    ``activate_filter`` predicate, the rejected rows are routed to the
+    first ``is_reject`` output AFTER evaluating that reject output's OWN
+    column expressions (not the source output's column expressions).
+
+    Under the current code (Python-eval path, lines ~2633-2647 of map.py),
+    filter-rejected rows are emitted using the source output's ``col_defs``
+    -- so a reject output declaring its own ``tag`` literal (e.g.
+    ``"FILTER_FAIL"``) or a column not present in the source output
+    (e.g. ``code = 42``) is silently dropped.  These tests FAIL under
+    that legacy routing and PASS once the Task 2 rewrite calls
+    ``_evaluate_output_columns_py`` against the reject output's config.
+    """
+
+    def test_filter_reject_uses_reject_output_schema(self):
+        """Filter-rejected rows must produce the REJECT output's declared
+        columns and literal values -- not the source output's columns.
+
+        - Source output ``out1`` declares ``(id, tag="KEEP")``.
+        - Reject output ``rej1`` declares ``(id, tag="FILTER_FAIL", code=42)``.
+        - Input has one row that fails the filter (score <= 50).
+        - The reject DataFrame must carry 3 columns matching ``rej1``'s
+          schema with the reject-side literal values, not the source-side
+          ``"KEEP"`` literal or a 2-column shape.
+        """
+        source_columns = [
+            {"name": "id", "expression": "row1.id", "type": "int"},
+            {"name": "tag", "expression": "'KEEP'", "type": "str"},
+        ]
+        reject_columns = [
+            {"name": "id", "expression": "row1.id", "type": "int"},
+            {"name": "tag", "expression": "'FILTER_FAIL'", "type": "str"},
+            {"name": "code", "expression": "42", "type": "int"},
+        ]
+        cfg = _make_filter_reject_config(source_columns, reject_columns)
+        comp = _make_component(config=cfg)
+
+        main_df = pd.DataFrame([
+            {"id": 1, "score": 80},   # passes filter (score > 50)
+            {"id": 2, "score": 30},   # fails filter -> rej1
+        ])
+        result = comp.execute({"row1": main_df})
+
+        assert "rej1" in result, "Reject output 'rej1' missing from result"
+        rej = result["rej1"]
+        # Reject DataFrame must reflect the REJECT output's declared schema
+        # (3 columns), not the source output's (2 columns).
+        assert list(rej.columns) == ["id", "tag", "code"], (
+            f"Expected reject columns [id, tag, code]; got "
+            f"{list(rej.columns)!r}"
+        )
+        # Reject-side literal expressions must be evaluated against the
+        # failed-filter row, not copied from the source output's row.
+        assert rej["tag"].tolist() == ["FILTER_FAIL"], (
+            f"Expected tag='FILTER_FAIL'; got {rej['tag'].tolist()!r} "
+            f"(source output's 'KEEP' leaked through)"
+        )
+        assert rej["code"].tolist() == [42], (
+            f"Expected code=42; got {rej['code'].tolist()!r}"
+        )
+        assert rej["id"].tolist() == [2]
+
+    def test_filter_pass_goes_to_main(self):
+        """Rows that PASS the filter must populate the main output, not
+        the reject output.  Pins that filter routing splits the input
+        correctly (no row leaks across outputs)."""
+        source_columns = [
+            {"name": "id", "expression": "row1.id", "type": "int"},
+            {"name": "tag", "expression": "'KEEP'", "type": "str"},
+        ]
+        reject_columns = [
+            {"name": "id", "expression": "row1.id", "type": "int"},
+            {"name": "tag", "expression": "'FILTER_FAIL'", "type": "str"},
+            {"name": "code", "expression": "42", "type": "int"},
+        ]
+        cfg = _make_filter_reject_config(source_columns, reject_columns)
+        comp = _make_component(config=cfg)
+
+        main_df = pd.DataFrame([
+            {"id": 1, "score": 80},
+            {"id": 2, "score": 30},
+        ])
+        result = comp.execute({"row1": main_df})
+
+        assert "out1" in result
+        out = result["out1"]
+        assert out["id"].tolist() == [1]
+        assert out["tag"].tolist() == ["KEEP"]
