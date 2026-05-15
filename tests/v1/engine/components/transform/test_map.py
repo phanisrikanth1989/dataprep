@@ -6141,3 +6141,218 @@ class TestEvaluateOutputsSimpleDeleted:
         assert hasattr(Map, "_eval_expr"), (
             "_eval_expr must exist on Map (plan 05 deliverable)"
         )
+
+
+# ----------------------------------------------------------------------
+# Plan 05.4-02: Inner-join-reject column-expression evaluation (Python)
+# ----------------------------------------------------------------------
+
+
+def _make_map_comp_for_reject(reject_columns, lookup_names=("row2",),
+                              die_on_error=False):
+    """Build a Map component for inner-join-reject Python-eval tests.
+
+    Constructs a no-marker config (Python-eval path) with one inner-join
+    reject output whose column list is ``reject_columns``.  ``lookup_names``
+    declares the lookups in config so the reject row source's lookup-prefix
+    splitting works as in production.  ``java_bridge`` is left unset.
+    """
+    lookups = []
+    for ln in lookup_names:
+        lookups.append({
+            "name": ln,
+            "matching_mode": "UNIQUE_MATCH",
+            "lookup_mode": "LOAD_ONCE",
+            "filter": "",
+            "activate_filter": False,
+            "join_keys": [
+                {
+                    "lookup_column": "key",
+                    "expression": "row1.key",
+                    "type": "str",
+                    "nullable": True,
+                    "operator": "=",
+                }
+            ],
+            "join_mode": "INNER_JOIN",
+        })
+    cfg = {
+        "component_type": "Map",
+        "die_on_error": die_on_error,
+        "inputs": {
+            "main": {
+                "name": "row1",
+                "filter": "",
+                "activate_filter": False,
+                "matching_mode": "UNIQUE_MATCH",
+                "lookup_mode": "LOAD_ONCE",
+            },
+            "lookups": lookups,
+        },
+        "variables": [],
+        "outputs": [
+            {
+                "name": "rej",
+                "is_reject": False,
+                "inner_join_reject": True,
+                "filter": "",
+                "activate_filter": False,
+                "columns": reject_columns,
+                "catch_output_reject": False,
+            }
+        ],
+    }
+    comp = _make_component(config=cfg)
+    # Pre-populate working config + die_on_error: BaseComponent.execute()
+    # populates self.config from _original_config on each call; for direct
+    # method-level tests we mimic that step manually so the methods under
+    # test can read self.config["inputs"] etc. without going through
+    # execute().
+    comp.config = copy.deepcopy(comp._original_config)
+    comp.die_on_error = die_on_error
+    return comp
+
+
+@pytest.mark.unit
+class TestInnerJoinRejectPy:
+    """Plan 05.4-02 RED -- inner_join_reject column-expression evaluation.
+
+    Pins the contract that ``_route_inner_join_rejects`` evaluates each
+    reject output's own column expressions (literals, renames, refs) per
+    row -- not the legacy name-based column copy.  Also pins the ``_NullRow``
+    sentinel contract for failing-lookup namespace bindings (D-04).
+    """
+
+    def test_null_row_class_exists(self):
+        """_NullRow must be importable from the map module (D-04)."""
+        from src.v1.engine.components.transform.map import _NullRow  # noqa: F401
+
+    def test_null_row_raises_attribute_error_with_ascii_message(self):
+        """_NullRow.__getattr__ must raise AttributeError with an ASCII
+        message containing 'was not matched' and 'unavailable on reject row'.
+        """
+        from src.v1.engine.components.transform.map import _NullRow
+        nr = _NullRow()
+        with pytest.raises(AttributeError) as excinfo:
+            _ = nr.some_col
+        msg = str(excinfo.value)
+        assert "was not matched" in msg
+        assert "unavailable on reject row" in msg
+        # ASCII-only (per project memory feedback_ascii_logging.md).
+        assert msg.encode("ascii", errors="strict")
+
+    def test_inner_join_reject_evaluates_literal_column(self):
+        """Inner-join-reject output with a hard-coded literal column must
+        populate that literal value, not None.
+
+        FAILS under the legacy name-based copy (column 'status' is not in
+        the rejects DataFrame so it gets ``None``).  PASSES once
+        ``_route_inner_join_rejects`` calls ``_evaluate_output_columns_py``.
+        """
+        comp = _make_map_comp_for_reject(
+            reject_columns=[
+                {"name": "status", "expression": "'REJECTED'", "type": "str"},
+                {"name": "orig_id", "expression": "row1.id", "type": "int"},
+            ],
+            lookup_names=("row2",),
+        )
+        # Rejects DataFrame: main columns only (lookup failed entirely).
+        rejects_df = pd.DataFrame([{"id": 5, "key": "X", "val": 99}])
+        inner_join_reject_dfs = {"row2": rejects_df}
+        outputs_config = comp.config["outputs"]
+        result: dict = {}
+        comp._route_inner_join_rejects(
+            result, inner_join_reject_dfs, outputs_config
+        )
+        assert "rej" in result
+        rej = result["rej"]
+        assert list(rej.columns) == ["status", "orig_id"]
+        assert rej["status"].tolist() == ["REJECTED"]
+        assert rej["orig_id"].tolist() == [5]
+
+    def test_inner_join_reject_empty_fast_path(self):
+        """Empty inner_join_reject_dfs must return without modifying result."""
+        comp = _make_map_comp_for_reject(
+            reject_columns=[
+                {"name": "status", "expression": "'REJECTED'", "type": "str"},
+            ],
+        )
+        result: dict = {}
+        comp._route_inner_join_rejects(
+            result, {}, comp.config["outputs"]
+        )
+        assert result == {}
+
+    def test_inner_join_reject_failing_lookup_ref_raises(self, caplog):
+        """D-04 _NullRow injection contract.
+
+        Two lookups (row2 = failing, row3 = matched).  Reject row source
+        carries main columns + row3.* (matched) but NOT row2.* (failed).
+        Reject output references ``row2.name`` -- which must raise via
+        ``_NullRow``.
+
+        - With ``die_on_error=True``: ``_route_inner_join_rejects`` raises
+          ``ComponentExecutionError`` (AttributeError from _NullRow.row2.name
+          surfaces through the existing per-row error handling).
+        - With ``die_on_error=False``: the AttributeError is caught by
+          ``_eval_expr`` which logs a WARNING and substitutes ``None``;
+          the warning text must mention "was not matched" (proving the
+          _NullRow path was taken, not the silent-None _NullNamespace).
+
+        FAILS under _NullNamespace (silent None, no warning text mentioning
+        "was not matched").
+        """
+        # Rejects DataFrame: carries main cols + row3 matched cols, but no
+        # row2.* cols (row2 was the failing inner-join lookup).
+        rejects_df = pd.DataFrame(
+            [{"id": 5, "key": "X", "val": 99, "row3.name": "row3_match"}]
+        )
+        inner_join_reject_dfs = {"row2": rejects_df}
+
+        reject_columns = [
+            {"name": "main_id", "expression": "row1.id", "type": "int"},
+            {"name": "row3_val", "expression": "row3.name", "type": "str"},
+            {"name": "row2_val", "expression": "row2.name", "type": "str"},
+        ]
+
+        # --- die_on_error=True branch: raises ComponentExecutionError ---
+        comp_die = _make_map_comp_for_reject(
+            reject_columns=reject_columns,
+            lookup_names=("row2", "row3"),
+            die_on_error=True,
+        )
+        with pytest.raises(ComponentExecutionError):
+            comp_die._route_inner_join_rejects(
+                {}, inner_join_reject_dfs, comp_die.config["outputs"]
+            )
+
+        # --- die_on_error=False branch: warning logged, None substituted ---
+        comp_soft = _make_map_comp_for_reject(
+            reject_columns=reject_columns,
+            lookup_names=("row2", "row3"),
+            die_on_error=False,
+        )
+        caplog.clear()
+        with caplog.at_level(logging.WARNING,
+                             logger="src.v1.engine.components.transform.map"):
+            result_soft: dict = {}
+            comp_soft._route_inner_join_rejects(
+                result_soft, inner_join_reject_dfs,
+                comp_soft.config["outputs"]
+            )
+        rej_soft = result_soft["rej"]
+        # main_id and row3_val resolve; row2_val is None (AttributeError
+        # caught by _eval_expr -> warning + None).
+        assert rej_soft["main_id"].tolist() == [5]
+        assert rej_soft["row3_val"].tolist() == ["row3_match"]
+        assert rej_soft["row2_val"].tolist() == [None]
+        # The warning text must mention the _NullRow contract phrase
+        # ("was not matched") -- proving _NullRow was injected for the
+        # failing lookup, not the silent-None _NullNamespace.
+        warning_text = " ".join(
+            r.getMessage() for r in caplog.records if r.levelno == logging.WARNING
+        )
+        assert "was not matched" in warning_text, (
+            f"Expected _NullRow contract phrase in warning; got: "
+            f"{warning_text!r}"
+        )
