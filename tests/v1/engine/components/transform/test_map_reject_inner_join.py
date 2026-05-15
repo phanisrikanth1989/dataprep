@@ -384,3 +384,72 @@ class TestRejectFragmentationWarning:
         assert set(["id", "status", "extra1", "extra2", "extra3"]).issubset(
             set(rej.columns)
         ), f"Reject columns mismatch: {list(rej.columns)!r}"
+
+
+# ---------------------------------------------------------------------------
+# Plan 05.5-04 R7: reject-output column expressions referencing
+# context.X and globalMap.X must resolve at row-evaluation time.
+# ---------------------------------------------------------------------------
+
+
+class TestInnerJoinRejectContextSync:
+    """R7 -- reject-output column with both context.X and globalMap.X.
+
+    Plan 05.5-04 wires ``_push_runtime_state_to_bridge`` into the
+    reject-mode invocation of ``execute_compiled_tmap_chunked``
+    (map.py L2177). This test pins that the reject DataFrame's column
+    value built from a mixed context + globalMap expression resolves
+    correctly.
+    """
+
+    def test_inner_join_reject_with_context_and_globalmap(self, java_bridge):
+        cm = ContextManager()
+        cm.set("suffix", "_REJ", value_type="id_String")
+        gm = GlobalMap()
+        gm.put("env", "PROD")
+
+        config = _build_config(
+            join_path="equality", col_kind="same_name_ref"
+        )
+        # Replace the reject columns: include id + a mixed-source label.
+        config["outputs"][1]["columns"] = [
+            {"name": "id", "expression": "{{java}}row1.id", "type": "int"},
+            {
+                "name": "tag",
+                "expression": (
+                    "{{java}}String.valueOf(row1.id) "
+                    "+ String.valueOf(context.suffix) "
+                    "+ String.valueOf(globalMap.get(\"env\"))"
+                ),
+                "type": "str",
+            },
+        ]
+
+        comp = Map(
+            component_id="tMap_055_r7_inner",
+            config=config,
+            global_map=gm,
+            context_manager=cm,
+        )
+        comp.java_bridge = java_bridge
+
+        # id=1 matches MATCH_ONLY; id=99 rejects.
+        main_df = pd.DataFrame([
+            {"id": 1, "country_code": "MATCH_ONLY"},
+            {"id": 99, "country_code": "OTHER"},
+        ])
+        lookup_df = pd.DataFrame(
+            [{"country_code": "MATCH_ONLY", "label": "Match Only Row"}]
+        )
+
+        result = comp.execute({"row1": main_df, "row2": lookup_df})
+        rej = result.get("rej")
+        assert rej is not None and len(rej) == 1, (
+            f"Expected exactly 1 reject row (id=99); got "
+            f"{len(rej) if rej is not None else 'None'}"
+        )
+        assert rej["id"].iloc[0] == 99
+        assert rej["tag"].iloc[0] == "99_REJPROD", (
+            f"R7 inner-join reject context+globalMap regressed: got "
+            f"{rej['tag'].iloc[0]!r}"
+        )

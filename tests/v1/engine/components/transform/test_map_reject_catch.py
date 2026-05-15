@@ -268,3 +268,85 @@ class TestCatchOutputReject:
                 f"Catch column {col!r} missing from result; columns="
                 f"{list(catch.columns)!r}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Plan 05.5-04 R7: catch-output reject column expression with context.X
+# and globalMap.X. Compiled path -- exercises the reject-mode invocation
+# at map.py L2177 where _push_runtime_state_to_bridge fires.
+# ---------------------------------------------------------------------------
+
+
+class TestCatchOutputRejectContextSync:
+    """R7 -- catch_output_reject user column references context.X +
+    globalMap.X under the live JVM bridge.
+
+    Plan 05.5-04 wires ``_push_runtime_state_to_bridge`` at the compiled-
+    path active (L2143) AND reject-mode (L2177) bridge invocations.
+    This test pins that a catch output whose user-column expression
+    references context.X AND globalMap.X compiles cleanly under the live
+    JVM bridge and surfaces a catch DataFrame with the declared columns +
+    at least one row when a runtime error fires.
+
+    Why the value-level check is intentionally weak: per Phase 05.4-04
+    SUMMARY ("Issues Encountered"), the compiled-path bridge currently
+    does NOT unpack ``__errors__`` row data back to Python -- so
+    ``_route_catch_output_rejects`` synthesises a catch frame from a
+    framework default whose row data is null. End-to-end value
+    verification (the 'tag' column reflecting ``_REJ`` + ``PROD``) is
+    gated on Plan 05.5-02's ``__errors__`` Arrow round-trip and is
+    verified by Plan 05.5-08. What THIS test verifies: the helper push
+    at the reject site doesn't break compilation OR catch routing -- both
+    would regress if the push clobbered ``__rejectMode__`` or threw
+    during dict writes.
+    """
+
+    def test_catch_reject_with_context_and_globalmap(self, java_bridge):
+        cm = ContextManager()
+        cm.set("suffix", "_REJ", value_type="id_String")
+        gm = GlobalMap()
+        gm.put("env", "PROD")
+
+        config = _make_catch_config([
+            {"name": "id", "expression": "{{java}}row1.id", "type": "int"},
+            {
+                "name": "tag",
+                "expression": (
+                    "{{java}}String.valueOf(row1.id) "
+                    "+ String.valueOf(context.suffix) "
+                    "+ String.valueOf(globalMap.get(\"env\"))"
+                ),
+                "type": "str",
+            },
+        ])
+        comp = Map(
+            component_id="tMap_055_r7_catch",
+            config=config,
+            global_map=gm,
+            context_manager=cm,
+        )
+        comp.java_bridge = java_bridge
+
+        # id=0 triggers ArithmeticException in the main output's
+        # `10 / row1.id`; id=1 and id=2 succeed.
+        main_df = pd.DataFrame([{"id": 1}, {"id": 0}, {"id": 2}])
+        result = comp.execute({"row1": main_df})
+
+        catch = result.get("catch")
+        # User-declared columns present (compilation succeeded with the
+        # push helper engaged at the reject-mode site).
+        assert catch is not None, "catch_output_reject 'catch' missing"
+        assert "id" in catch.columns
+        assert "tag" in catch.columns
+        # At least one catch row from id=0's div-by-zero -- proves the
+        # reject-mode invocation still fires through the helper push and
+        # ``__rejectMode__`` survives the per-key context writes
+        # (SPEC Constraint L128, per-key writes preserve orthogonal keys).
+        assert len(catch) >= 1, (
+            f"Expected >= 1 catch row from id=0 div-by-zero; got "
+            f"{len(catch)} rows: {catch.to_dict(orient='records')}"
+        )
+        # NOTE: live context+globalMap value verification (e.g. tag ==
+        # "0_REJPROD") is Plan 05.5-08's gate -- it depends on Plan
+        # 05.5-02's __errors__ Arrow round-trip wiring the error row data
+        # back into Python.
