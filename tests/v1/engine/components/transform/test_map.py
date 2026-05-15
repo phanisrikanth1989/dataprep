@@ -5430,6 +5430,69 @@ class TestVarBag:
 
 
 @pytest.mark.unit
+class TestEvaluateOutputColumnsPy:
+    """Tests for _evaluate_output_columns_py helper (plan 05.4-01 deliverable).
+
+    Validates the per-output column evaluator extracted from
+    _evaluate_outputs_py.  This helper takes an arbitrary row_source
+    DataFrame, evaluates one output's column expressions over it, and
+    returns a single-allocation pd.DataFrame.
+    """
+
+    def test_method_exists(self):
+        """_evaluate_output_columns_py must be an instance method on Map."""
+        comp = _make_component(config=_make_no_marker_config())
+        assert hasattr(comp, "_evaluate_output_columns_py"), (
+            "Map must expose _evaluate_output_columns_py as an instance method"
+        )
+        assert callable(getattr(comp, "_evaluate_output_columns_py"))
+
+    def test_single_row_literal_column(self):
+        """Calling helper with a one-row source returns a one-row DataFrame
+        with the evaluated column value."""
+        comp = _make_component(config=_make_no_marker_config())
+        row_source = pd.DataFrame([{"id": 42}])
+        output_cfg = {
+            "name": "out",
+            "is_reject": False,
+            "inner_join_reject": False,
+            "filter": "",
+            "activate_filter": False,
+            "columns": [
+                {"name": "out_id", "expression": "row1.id", "type": "int"},
+            ],
+        }
+        out_df = comp._evaluate_output_columns_py(
+            row_source, output_cfg, {}, "row1", []
+        )
+        assert isinstance(out_df, pd.DataFrame)
+        assert len(out_df) == 1
+        assert list(out_df.columns) == ["out_id"]
+        assert out_df["out_id"].iloc[0] == 42
+
+    def test_empty_row_source_returns_empty_schema(self):
+        """Empty row_source returns an empty DataFrame with declared columns."""
+        comp = _make_component(config=_make_no_marker_config())
+        row_source = pd.DataFrame(columns=["id"])
+        output_cfg = {
+            "name": "out",
+            "is_reject": False,
+            "inner_join_reject": False,
+            "filter": "",
+            "activate_filter": False,
+            "columns": [
+                {"name": "x", "expression": "row1.id", "type": "int"},
+            ],
+        }
+        out_df = comp._evaluate_output_columns_py(
+            row_source, output_cfg, {}, "row1", []
+        )
+        assert isinstance(out_df, pd.DataFrame)
+        assert len(out_df) == 0
+        assert list(out_df.columns) == ["x"]
+
+
+@pytest.mark.unit
 class TestPyEvalHelpers:
     """Tests for Python-eval path helpers on Map (plan 05 deliverable).
 
