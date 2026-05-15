@@ -1222,3 +1222,70 @@ class TestCoverageLift1405:
         comp.java_bridge = _FakeBridge()
         mask = comp._handle_advanced(_sample_df())
         assert mask.tolist() == [True, False, False, True, False]
+
+
+# ------------------------------------------------------------------
+# TestAdvancedCondContext -- Phase 05.5-05 R4 spike tests (real bridge)
+# ------------------------------------------------------------------
+
+
+class TestAdvancedCondContext:
+    """R4 -- FilterRows advanced_cond with context.X / globalMap.X.
+
+    Spike tests E1/E2 from 05.5-SPEC.md L29. The advanced_cond Java
+    expression references context / globalMap which arrive at the
+    compiled Groovy script as null without _push_runtime_state_to_bridge.
+
+    Both tests use the session-scoped ``java_bridge`` fixture provided by
+    tests/v1/engine/conftest.py.
+    """
+
+    @pytest.mark.java
+    def test_e1_context_in_filter(self, java_bridge):
+        cm = ContextManager()
+        cm.set("threshold", 50, "id_Integer")
+        cfg = {
+            "component_type": "FilterRows",
+            "use_advanced": True,
+            "advanced_cond": "{{java}}row1.score > context.threshold",
+            "conditions": [],
+        }
+        comp = FilterRows(
+            component_id="tFilterRows_e1",
+            config=cfg,
+            global_map=GlobalMap(),
+            context_manager=cm,
+        )
+        comp.java_bridge = java_bridge
+        df = pd.DataFrame([
+            {"id": 1, "score": 80},
+            {"id": 2, "score": 30},
+        ])
+        result = comp.execute(df)
+        assert len(result["main"]) == 1
+        assert result["main"]["score"].iloc[0] == 80
+
+    @pytest.mark.java
+    def test_e2_globalmap_in_filter(self, java_bridge):
+        gm = GlobalMap()
+        gm.put("threshold", 50)
+        cfg = {
+            "component_type": "FilterRows",
+            "use_advanced": True,
+            "advanced_cond": "{{java}}row1.score > globalMap.get(\"threshold\")",
+            "conditions": [],
+        }
+        comp = FilterRows(
+            component_id="tFilterRows_e2",
+            config=cfg,
+            global_map=gm,
+            context_manager=ContextManager(),
+        )
+        comp.java_bridge = java_bridge
+        df = pd.DataFrame([
+            {"id": 1, "score": 80},
+            {"id": 2, "score": 30},
+        ])
+        result = comp.execute(df)
+        assert len(result["main"]) == 1
+        assert result["main"]["score"].iloc[0] == 80
