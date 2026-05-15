@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 05.4 context gathered
-last_updated: "2026-05-15T13:47:38.341Z"
-last_activity: 2026-05-15 -- Phase 05.4 execution started
+stopped_at: Phase 05.4 complete (8/8 plans)
+last_updated: "2026-05-15T14:30:00.000Z"
+last_activity: 2026-05-15 -- Phase 05.4 complete (11/11 SPEC criteria PASS; map.py 88.3% -> 88.7%)
 progress:
   total_phases: 23
   completed_phases: 21
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-04-14)
 
 ## Current Position
 
-Phase: 05.4 (tmap-reject-correctness-and-groovy-safety) — EXECUTING
-Plan: 1 of 8
+Phase: 05.4 (tmap-reject-correctness-and-groovy-safety) — COMPLETE
+Plan: 8 of 8
 Next: Phase 16 (Integration Testing & Performance, manager-led)
-Status: Executing Phase 05.4
-Last activity: 2026-05-15 -- Phase 05.4 execution started
+Status: Phase 05.4 closed; next milestone work is manager-owned Phase 16
+Last activity: 2026-05-15 -- Phase 05.4 complete (8 plans, 5 waves, 11/11 SPEC criteria PASS)
 
 Progress: [██████████] 100%
 
@@ -180,6 +180,31 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
 - COV-CJ-001 (2026-05-11): converter join.py 94.7% -> 100% via 1 test addition (`d661c1f`); incidental cleanup before closeout.
 - Plan 14-12 complete (2026-05-11): closeout shipped. 8 commits: chore(14-12) INFRA-CLOSE-001 commit 14-coverage.json (+ .gitignore D-RULE3 negation for .planning/phases/**/*coverage.json); docs(14-12) DOC-COV-001 14-COVERAGE.md; docs(14-12) DOC-CLAUDE-001 CLAUDE.md coverage section update; docs(14-12) DOC-REQ-001 TEST-11/TEST-12 -> Complete; docs(14-12) DOC-ROAD-001 ROADMAP Phase 14 SC#2 D-E1 wording + 12/12 Complete; docs(14-12) DOC-STATE-001 STATE.md Phase 14 -> complete; docs(14-12) DOC-VER-001 14-VERIFICATION.md acceptance evidence; docs(14-12) DOC-SUMMARY-001 14-PHASE-SUMMARY.md retrospective. Final gate command exits 0 with `PASS: all 181 in-scope modules at >= 95.0% line coverage`; overall 98.3% (16746/17033 stmts); 100 modules at perfect 100.0%; no-regression check confirms all Phase 13 PASS modules still PASS; iterate/context per locked Q2 merge both PASS; zero inline `# pragma: no cover` annotations in scope (D-C3 enforced via pyproject exclude_also). Phase 14 closed.
 
+### Phase 05.4 closed (2026-05-15)
+
+- 8 plans, 5 waves
+- Goal: restore tMap reject-routing fidelity (3 reject mechanisms) + Groovy-safety audit + reject-path fragmentation cleanup. Regression introduced by Phase 5 "rewrite from scratch" commit `9ab8120`; both `origin/main` and Talaxie codegen got it right; current branch was the outlier.
+- 11/11 SPEC.md acceptance criteria PASS per `05.4-VERIFICATION.md` (with 6 strict-xfail tests pinning two documented compiled-path deferrals)
+- Key deliverables:
+  - `_evaluate_output_columns_py` shared helper extracted (D-01)
+  - `_route_inner_join_rejects` rewritten with `_NullRow` sentinel for partial-match binding (R1, R5, R7)
+  - `is_reject` filter-reject routing in `_evaluate_outputs_py` + `_apply_output_filter` rewritten (R2)
+  - `_route_catch_output_rejects` rewritten with D-06 reserved-column policy (R3)
+  - `_groovy_escape_expression` helper + 10 retrofitted embed sites in `_build_compiled_script` (R6)
+  - Per-reject-output method emission in compiled script + Option A dual-invocation dispatch (D-09)
+  - 5 new test files (60+ tests) + e2e fixture `Job_05_4_inner_reject.item` (D-08)
+  - D-10 assertion strengthening at 4 sites in `test_map_bridge.py`
+  - 05.4-GROOVY-AUDIT.md enumerating Groovy-vs-Java parsing differences
+- Coverage: map.py 88.3% (Phase 05.3 baseline) -> 88.7% (improved by +0.4pp; SPEC R11 met). py_map.py 81.1% -> 80.6% (pre-existing below floor, not introduced by 05.4). No new below-floor modules.
+- Test counts: full suite 8231 passed, 5 skipped, 7 xfailed under -n auto. Phase 05.4 java-marked subset: 48 passed, 6 xfailed (all strict, all documented).
+- Requirements: R1-R7 met. MAP-02 and MAP-05 in REQUIREMENTS.md were already Complete at Phase 5 close; Phase 05.4 fixes a regression in their implementation without changing the requirement status.
+- Deferred items (3, all documented):
+  - Compiled-path active-mode filter-reject (4 strict-xfail tests; requires `_build_compiled_script` to emit filter-reject inside `rejectMode=false` row loop)
+  - Compiled-path D-06 enforcement (2 strict-xfail tests; requires Java bridge to unpack `__errors__` row data back to Python)
+  - Cross-table predicate boolean-vs-key-value quirk (inline pinned; pre-existing semantic mismatch, out of scope)
+- Plus pre-deferred: 4 other fragmentation sites in join-construction code; Phase 05.3 D-07 empty-lookup nullable=false.
+- Phase 16 handoff: real Talend end-to-end runs + output diffs + tMap/tFilterRow perf refactor (manager-led, requires Talend Open Studio).
+
 ### Phase 15.1 closed (2026-05-11)
 
 - 12 plans, 3 waves (per-component Wave 1, cross-cutting Wave 2, closeout Wave 3), ~79 commits total
@@ -248,6 +273,6 @@ Phase 8 deferred (single item -- non-blocking for Phase 10):
 
 ## Session Continuity
 
-Last session: 2026-05-15T13:12:08.545Z
-Stopped at: Phase 05.4 context gathered
-Resume with: /gsd-discuss-phase 15.1 (documentation audit reconciliation -- DOCS-03). Use 15-07-SUMMARY.md broken-cross-reference inventory as the starting work-item list; ~25 unique audit/ files reference the 4 dropped standards-zone docs (de-duplicated count) and 23 audit/ files still reference the old docs/v1/standards/ path post-15-09 rename.
+Last session: 2026-05-15T14:30:00.000Z
+Stopped at: Phase 05.4 complete (8/8 plans; verification report + phase summary committed)
+Resume with: Phase 16 (Integration Testing & Performance, manager-led) requires Talend Open Studio access and is out of GSD-executor scope. For follow-up work on the documented Phase 05.4 deferrals (compiled-path active-mode filter-reject; compiled-path D-06 reserved-column enforcement; cross-table boolean predicate; remaining 4 fragmentation sites; Phase 05.3 D-07 empty-lookup nullable=false), spin up new phases per /gsd-init-phase.

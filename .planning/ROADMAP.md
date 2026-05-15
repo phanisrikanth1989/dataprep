@@ -32,6 +32,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 14: Coverage Push to 95% per-module floor** (NEW) - Every module under src/v1/engine and src/converters at >=95% line-coverage floor; paste-runnable gate command in CLAUDE.md and 14-COVERAGE.md verifies the floor (operational CI deferred to a future phase per D-E1) (completed 2026-05-11)
 - [x] **Phase 15: Documentation Sweep** (SWAPPED with old Phase 15, 2026-05-11) - Nuke 22 top-level docs/ files, write 4 canonical docs (ARCHITECTURE / COMPONENT_REFERENCE / CONTRIBUTING / DEPLOYMENT) + root README, deep-review 11 docs/v1/standards-zone files, rename folder to docs/v1/patterns/ (completed 2026-05-11)
 - [x] **Phase 15.1: Documentation Audit Reconciliation** (NEW, 2026-05-11) - Reconcile 89 files in docs/v1/audit/ against current code; stale claims marked resolved with phase ref (completed 2026-05-11)
+- [x] **Phase 05.3: tMap Join Correctness, Marker Rule, and Filepath Expression** (INSERTED) - Universal {{java}} marker rule + locality-based join classifier + memory-bounded cross-product + python-eval path + filepath expression fix (completed 2026-05-15)
+- [x] **Phase 05.4: tMap Reject Correctness and Groovy Safety** (INSERTED) - Restore reject-routing fidelity (3 mechanisms) + Groovy-safety audit + reject-path fragmentation cleanup (completed 2026-05-15)
 - [ ] **Phase 16: Integration Testing & Performance (Manager)** (SWAPPED with old Phase 16, 2026-05-11) - Manager-led; real Talend job end-to-end runs + output diffs + tMap/tFilterRow perf refactor
 
 ## Phase Details
@@ -147,14 +149,15 @@ Plans:
 **Plans:** 8 plans
 
 Plans:
-- [ ] 05.4-01-PLAN.md -- Extract _evaluate_output_columns_py helper (refactor, no behavior change)
-- [ ] 05.4-02-PLAN.md -- Rewrite _route_inner_join_rejects: call helper + _NullRow sentinel (R1, R4, R5, R7)
-- [ ] 05.4-03-PLAN.md -- Rewrite is_reject filter-reject routing in _evaluate_outputs_py + _apply_output_filter (R2, R4, R7)
-- [ ] 05.4-04-PLAN.md -- Rewrite _route_catch_output_rejects: user columns + reserved-column policy (R3, R4, R6, R7)
-- [ ] 05.4-05-PLAN.md -- Groovy-safety audit + _groovy_escape_expression + 6 embed sites + 05.4-GROOVY-AUDIT.md (R6)
-- [ ] 05.4-06-PLAN.md -- Per-reject-output method emission in compiled script + dual-invocation dispatch Option A (D-09)
-- [ ] 05.4-07-PLAN.md -- Full test matrix (20+12+10+Groovy-safety) + e2e fixture + D-10 assertion strengthening (D-08, D-10)
-- [ ] 05.4-08-PLAN.md -- Phase verification + coverage gate + SUMMARY (all R1-R7)
+- [x] 05.4-01-PLAN.md -- Extract _evaluate_output_columns_py helper (refactor, no behavior change)
+- [x] 05.4-02-PLAN.md -- Rewrite _route_inner_join_rejects: call helper + _NullRow sentinel (R1, R4, R5, R7)
+- [x] 05.4-03-PLAN.md -- Rewrite is_reject filter-reject routing in _evaluate_outputs_py + _apply_output_filter (R2, R4, R7)
+- [x] 05.4-04-PLAN.md -- Rewrite _route_catch_output_rejects: user columns + reserved-column policy (R3, R4, R6, R7)
+- [x] 05.4-05-PLAN.md -- Groovy-safety audit + _groovy_escape_expression + 6 embed sites + 05.4-GROOVY-AUDIT.md (R6)
+- [x] 05.4-06-PLAN.md -- Per-reject-output method emission in compiled script + dual-invocation dispatch Option A (D-09)
+- [x] 05.4-07-PLAN.md -- Full test matrix (20+12+10+Groovy-safety) + e2e fixture + D-10 assertion strengthening (D-08, D-10)
+- [x] 05.4-08-PLAN.md -- Phase verification + coverage gate + SUMMARY (all R1-R7)
+**Completed**: 2026-05-15 | **SUMMARY**: 05.4-PHASE-SUMMARY.md
 
 ### Phase 05.1: Java Bridge tMap Fix (INSERTED)
 
@@ -522,4 +525,6 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 14. Coverage Push to 95% per-module floor | 12/12 | Complete   | 2026-05-11 |
 | 15. Documentation Sweep | 11/1 | Complete   | 2026-05-11 |
 | 15.1. Documentation Audit Reconciliation | 12/12 | Complete | 2026-05-11 |
+| 05.3. tMap Join Correctness, Marker Rule, and Filepath Expression | 8/8 | Complete | 2026-05-15 |
+| 05.4. tMap Reject Correctness and Groovy Safety | 8/8 | Complete | 2026-05-15 |
 | 16. Integration Testing & Performance (Manager) | 0/TBD | Not started | - |
