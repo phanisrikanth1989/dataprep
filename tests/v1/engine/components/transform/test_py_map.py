@@ -912,3 +912,87 @@ class TestPyMapContext:
         assert isinstance(root, AttributeError), (
             f"expected AttributeError in cause chain, got {type(cause).__name__}: {cause}"
         )
+
+
+class TestContextGlobalMapViews:
+    """Direct unit coverage for _ContextView / _GlobalMapView edge branches.
+
+    Plan 05.5-08 Task 1: cover the None-state and missing-key branches
+    introduced by Plan 05.5-03 so py_map.py stays at >= 80.6% line
+    coverage (Phase 14 baseline).
+    """
+
+    def test_context_view_attribute_no_manager(self):
+        from src.v1.engine.components.transform.py_map import _ContextView
+
+        view = _ContextView(None)
+        with pytest.raises(AttributeError, match="not configured"):
+            _ = view.suffix
+
+    def test_context_view_item_no_manager(self):
+        from src.v1.engine.components.transform.py_map import _ContextView
+
+        view = _ContextView(None)
+        with pytest.raises(KeyError):
+            _ = view["suffix"]
+
+    def test_context_view_item_missing_key(self):
+        from src.v1.engine.components.transform.py_map import _ContextView
+
+        cm = ContextManager()
+        cm.set("threshold", "50")
+        view = _ContextView(cm)
+        assert view["threshold"] == "50"
+        with pytest.raises(KeyError):
+            _ = view["missing"]
+
+    def test_global_map_view_get_no_global_map(self):
+        from src.v1.engine.components.transform.py_map import _GlobalMapView
+
+        view = _GlobalMapView(None)
+        assert view.get("env") is None
+        assert view.get("env", "fallback") == "fallback"
+
+    def test_global_map_view_attribute_no_global_map(self):
+        from src.v1.engine.components.transform.py_map import _GlobalMapView
+
+        view = _GlobalMapView(None)
+        with pytest.raises(AttributeError, match="not configured"):
+            _ = view.env
+
+    def test_global_map_view_attribute_present(self):
+        from src.v1.engine.components.transform.py_map import _GlobalMapView
+
+        gm = GlobalMap()
+        gm.put("env", "prod")
+        view = _GlobalMapView(gm)
+        assert view.env == "prod"
+
+    def test_global_map_view_item_no_global_map(self):
+        from src.v1.engine.components.transform.py_map import _GlobalMapView
+
+        view = _GlobalMapView(None)
+        with pytest.raises(KeyError):
+            _ = view["env"]
+
+    def test_global_map_view_item_missing_key(self):
+        from src.v1.engine.components.transform.py_map import _GlobalMapView
+
+        gm = GlobalMap()
+        gm.put("env", "prod")
+        view = _GlobalMapView(gm)
+        assert view["env"] == "prod"
+        with pytest.raises(KeyError):
+            _ = view["missing"]
+
+
+class TestRowAttributeMissing:
+    """Cover _Row.__getattr__ KeyError -> AttributeError branch (L77-80)."""
+
+    def test_row_missing_attribute_raises(self):
+        from src.v1.engine.components.transform.py_map import _Row
+
+        row = _Row({"id": 42})
+        assert row.id == 42
+        with pytest.raises(AttributeError, match="no column"):
+            _ = row.missing
