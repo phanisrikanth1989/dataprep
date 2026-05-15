@@ -3365,12 +3365,30 @@ class TestRouteCatchOutputRejects:
         assert len(result["rej"]) == 2
 
     def test_adds_default_error_message_when_missing(self):
+        """When the catch output declares an ``errorMessage`` column and
+        the bridge did not supply per-row error text, the framework
+        fills it with the default ``"Expression evaluation error"``
+        string (D-06 reserved-column policy with empty source data).
+
+        Updated by phase 05.4-04: ``errorMessage`` is now only populated
+        when the user declares that column in the output schema.  The
+        legacy verbatim-copy code unconditionally appended an
+        ``errorMessage`` column even when not in the schema -- that
+        behavior was incorrect per D-06 and is removed.
+        """
         comp = self._helper()
-        err_df = pd.DataFrame({"id": [1]})  # no errorMessage column
+        err_df = pd.DataFrame({"id": [1]})  # no errorMessage column on source
         result = {}
         comp._route_catch_output_rejects(
-            result, {"__errors__": err_df},
-            [{"name": "rej", "catch_output_reject": True, "columns": []}],
+            result,
+            {"__errors__": err_df},
+            [{
+                "name": "rej",
+                "catch_output_reject": True,
+                "columns": [
+                    {"name": "errorMessage", "expression": "", "type": "str"},
+                ],
+            }],
         )
         assert "errorMessage" in result["rej"].columns
         assert result["rej"]["errorMessage"].iloc[0] == "Expression evaluation error"
@@ -6501,3 +6519,179 @@ class TestFilterRejectPy:
         out = result["out1"]
         assert out["id"].tolist() == [1]
         assert out["tag"].tolist() == ["KEEP"]
+
+
+# ----------------------------------------------------------------------
+# Plan 05.4-04: Catch-output-reject column-expression evaluation
+# ----------------------------------------------------------------------
+
+
+def _make_catch_reject_config(catch_columns):
+    """Build a Map config with one catch_output_reject output.
+
+    The catch output's column list is supplied by the caller so each test
+    can vary it (user-defined columns, reserved column overrides, etc.).
+    The config uses no markers (Python-eval path) so the routing function
+    can be invoked directly without requiring a Java bridge.
+    """
+    return {
+        "component_type": "Map",
+        "die_on_error": False,
+        "inputs": {
+            "main": {
+                "name": "row1",
+                "filter": "",
+                "activate_filter": False,
+                "matching_mode": "UNIQUE_MATCH",
+                "lookup_mode": "LOAD_ONCE",
+            },
+            "lookups": [],
+        },
+        "variables": [],
+        "outputs": [
+            {
+                "name": "catch",
+                "is_reject": False,
+                "inner_join_reject": False,
+                "filter": "",
+                "activate_filter": False,
+                "columns": catch_columns,
+                "catch_output_reject": True,
+            }
+        ],
+    }
+
+
+def _make_catch_reject_comp(catch_columns, die_on_error=False):
+    """Build a Map component pre-populated for direct catch-reject tests."""
+    cfg = _make_catch_reject_config(catch_columns)
+    cfg["die_on_error"] = die_on_error
+    comp = _make_component(config=cfg)
+    # Mirror BaseComponent.execute() config population (see
+    # _make_map_comp_for_reject above).
+    comp.config = copy.deepcopy(comp._original_config)
+    comp.die_on_error = die_on_error
+    return comp
+
+
+@pytest.mark.unit
+class TestCatchOutputRejectPy:
+    """Plan 05.4-04 RED -- catch_output_reject column-expression evaluation.
+
+    Pins the contract that ``_route_catch_output_rejects`` evaluates each
+    catch output's user-defined column expressions per row (D-01, D-03),
+    while ``errorMessage`` and ``errorStackTrace`` are framework-reserved
+    columns whose values WIN over any user-supplied expression (D-06,
+    mirroring Talaxie ``tMap_main.inc.javajet:1925-1988``).
+
+    These tests FAIL under the legacy verbatim-copy implementation (which
+    returns ``error_df.copy()`` and only conditionally appends a literal
+    ``"Expression evaluation error"``) and PASS once the Task 2 rewrite
+    delegates user columns to ``_evaluate_output_columns_py``.
+    """
+
+    def test_catch_reject_user_columns_evaluated(self):
+        """User-defined catch columns must be evaluated against the error row.
+
+        - Catch output declares (original_id=row1.id, custom_tag='"ERR"').
+        - error_df has one row {id: 5, name: "Alice"}.
+        - Result: original_id=[5], custom_tag=["ERR"] (not None, not copied
+          verbatim from error_df).
+        """
+        catch_columns = [
+            {"name": "original_id", "expression": "row1.id", "type": "int"},
+            {"name": "custom_tag", "expression": "'ERR'", "type": "str"},
+        ]
+        comp = _make_catch_reject_comp(catch_columns)
+
+        error_df = pd.DataFrame([{"id": 5, "name": "Alice"}])
+        raw_result = {"__errors__": error_df}
+
+        result: dict = {}
+        comp._route_catch_output_rejects(
+            result, raw_result, comp.config["outputs"]
+        )
+
+        assert "catch" in result, "Catch output missing from result"
+        catch = result["catch"]
+        assert list(catch.columns) == ["original_id", "custom_tag"], (
+            f"Expected reject columns [original_id, custom_tag]; got "
+            f"{list(catch.columns)!r}"
+        )
+        assert catch["original_id"].tolist() == [5], (
+            f"Expected original_id=[5]; got {catch['original_id'].tolist()!r} "
+            f"(user expression 'row1.id' not evaluated)"
+        )
+        assert catch["custom_tag"].tolist() == ["ERR"], (
+            f"Expected custom_tag=['ERR']; got "
+            f"{catch['custom_tag'].tolist()!r} "
+            f"(literal user expression not evaluated)"
+        )
+
+    def test_catch_reject_error_message_reserved(self):
+        """User-defined ``errorMessage`` expression must be overwritten by
+        the framework value (D-06 reserved-column policy).
+
+        - Catch output declares (original_id=row1.id, errorMessage="42").
+        - Result: errorMessage column is NOT "42" -- the framework
+          overwrites it with a default error string.  This mirrors
+          Talaxie's tMap_main.inc.javajet:1925-1988 which skips
+          errorMessage / errorStackTrace during user-expression evaluation
+          and assigns the exception text afterwards.
+        """
+        catch_columns = [
+            {"name": "original_id", "expression": "row1.id", "type": "int"},
+            {"name": "errorMessage", "expression": "'42'", "type": "str"},
+        ]
+        comp = _make_catch_reject_comp(catch_columns)
+
+        error_df = pd.DataFrame([{"id": 7, "name": "Bob"}])
+        raw_result = {"__errors__": error_df}
+
+        result: dict = {}
+        comp._route_catch_output_rejects(
+            result, raw_result, comp.config["outputs"]
+        )
+
+        assert "catch" in result
+        catch = result["catch"]
+        assert "errorMessage" in catch.columns, (
+            "Framework must keep the reserved 'errorMessage' column"
+        )
+        # Framework value WINS -- user expression "42" must NOT appear.
+        em_values = catch["errorMessage"].tolist()
+        assert em_values != ["42"], (
+            f"User expression leaked through: errorMessage={em_values!r}; "
+            f"framework value must win per D-06"
+        )
+        # original_id still resolves from the user expression.
+        assert catch["original_id"].tolist() == [7]
+
+    def test_catch_reject_empty_error_df_skips(self):
+        """Empty error_df fast path: result is not modified."""
+        catch_columns = [
+            {"name": "original_id", "expression": "row1.id", "type": "int"},
+        ]
+        comp = _make_catch_reject_comp(catch_columns)
+
+        raw_result = {"__errors__": pd.DataFrame(columns=["id"])}
+        result: dict = {}
+        comp._route_catch_output_rejects(
+            result, raw_result, comp.config["outputs"]
+        )
+        assert result == {}, (
+            f"Empty error_df must short-circuit; got {result!r}"
+        )
+
+    def test_catch_reject_missing_errors_key_skips(self):
+        """raw_result without __errors__ key: result is not modified."""
+        catch_columns = [
+            {"name": "original_id", "expression": "row1.id", "type": "int"},
+        ]
+        comp = _make_catch_reject_comp(catch_columns)
+
+        result: dict = {}
+        comp._route_catch_output_rejects(
+            result, {}, comp.config["outputs"]
+        )
+        assert result == {}
