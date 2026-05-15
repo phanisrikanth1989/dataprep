@@ -2251,7 +2251,9 @@ class Map(BaseComponent):
                 )
 
         # Handle catch output reject (MAP-05)
-        self._route_catch_output_rejects(result, raw_result, outputs_config)
+        self._route_catch_output_rejects(
+            result, raw_result, outputs_config, joined_df=joined_df
+        )
 
         return result
 
@@ -2921,10 +2923,12 @@ class Map(BaseComponent):
         result: dict,
         raw_result: dict,
         outputs_config: list[dict],
+        joined_df: "pd.DataFrame | None" = None,
     ) -> None:
         """Route expression error rows to catch output reject outputs.
 
-        Phase 05.4-04 (R3, R7, D-01, D-03, D-06) rewrite:
+        Phase 05.4-04 (R3, R7, D-01, D-03, D-06) rewrite + Phase 05.5-07
+        DataFrame-primary promotion:
 
         For each ``catch_output_reject: True`` output, evaluate that
         output's own user-defined column expressions per row against the
@@ -2945,16 +2949,22 @@ class Map(BaseComponent):
         ``raw_result["__errors__"]`` is the per-row error data emitted by
         the compiled bridge script.  Two shapes are accepted:
 
-          - ``pd.DataFrame``: rows align with the input rows that errored
-            (preferred shape; what ``_evaluate_outputs_compiled`` will
-            unpack into when bridge wiring catches up).
-          - ``dict``: the raw Groovy emission shape (``count``,
-            ``indices``, ``messages``).  ``messages`` is a dict keyed by
-            row index; values become the framework ``errorMessage``
-            column.  When this shape is supplied without an ``error_df``,
-            user-defined column expressions cannot reference row data --
-            those columns evaluate against an empty row dict and yield
-            ``None`` via ``_NullNamespace`` semantics.
+          - ``pd.DataFrame`` (PRIMARY path, Plan 05.5-02): a 3-column
+            Arrow batch ``(rowIndex int, errorMessage str,
+            errorStackTrace str)`` emitted by ``JavaBridge.
+            convertTMapOutputsToArrow``.  ``rowIndex`` is the join key
+            back to ``joined_df``; failing rows are selected via
+            ``joined_df.iloc[rowIndex]`` so user-defined catch column
+            expressions (e.g. ``row1.id``) resolve against the actual
+            failing input row.
+          - ``dict`` (FALLBACK / stale-JAR path): the raw Groovy
+            emission shape ``(count, indices, messages)``.  ``messages``
+            is a map keyed by row index; values become the framework
+            ``errorMessage`` column.  When this shape is supplied, user
+            expressions referencing ``row1.*`` resolve to ``None`` via
+            ``_NullNamespace`` semantics because no input rows are
+            attached.  An ASCII-only WARN is logged so operators can
+            spot stale Java bridge JARs.
 
         ``var_columns`` is intentionally ``{}``: per-row variable values
         were computed against the matched DataFrame and are not defined
@@ -2964,6 +2974,13 @@ class Map(BaseComponent):
             result: Current result dict to update in place.
             raw_result: Raw result from compiled script execution.
             outputs_config: Output config list.
+            joined_df: Original input DataFrame fed to
+                ``execute_compiled_tmap_chunked`` (the active-mode pass).
+                Used by the DataFrame branch to select failing rows by
+                ``rowIndex`` so user-column expressions evaluate against
+                real row data.  ``None`` is tolerated for back-compat
+                with callers that pre-date Plan 05.5-07 (the dict-shape
+                fallback never needed it).
         """
         error_key = "__errors__"
         if error_key not in raw_result:
@@ -2974,43 +2991,107 @@ class Map(BaseComponent):
             return
 
         # Unpack the payload into (error_df, per_row_messages, per_row_traces).
-        # The bridge currently emits the dict shape; future wiring may
-        # promote __errors__ into a DataFrame.  Handle both.
+        # PRIMARY path: DataFrame shape from Plan 05.5-02 Arrow emission.
+        # FALLBACK path: dict shape (stale-JAR / pre-05.5-02 builds).
         error_df: pd.DataFrame
         per_row_messages: list[str]
         per_row_traces: list[str]
         if isinstance(error_payload, pd.DataFrame):
             if error_payload.empty:
                 return
-            error_df = error_payload
-            # DataFrame shape may carry errorMessage / errorStackTrace
-            # columns directly from the bridge -- use them as the
-            # framework value source when present.
-            if "errorMessage" in error_df.columns:
+            errors_arrow_df = error_payload
+            # Plan 05.5-02 emits errorMessage / errorStackTrace alongside
+            # rowIndex.  Pull them out as the framework value source.
+            if "errorMessage" in errors_arrow_df.columns:
                 per_row_messages = [
                     "" if v is None else str(v)
-                    for v in error_df["errorMessage"].tolist()
+                    for v in errors_arrow_df["errorMessage"].tolist()
                 ]
             else:
                 per_row_messages = []
-            if "errorStackTrace" in error_df.columns:
+            if "errorStackTrace" in errors_arrow_df.columns:
                 per_row_traces = [
                     "" if v is None else str(v)
-                    for v in error_df["errorStackTrace"].tolist()
+                    for v in errors_arrow_df["errorStackTrace"].tolist()
                 ]
             else:
                 per_row_traces = []
+            # If __errors__ carries rowIndex AND joined_df is available,
+            # select the failing rows from joined_df so user-column
+            # expressions resolve against actual input row data (D-06
+            # end-to-end round-trip).
+            if (
+                "rowIndex" in errors_arrow_df.columns
+                and joined_df is not None
+                and not joined_df.empty
+            ):
+                row_idx_list = errors_arrow_df["rowIndex"].tolist()
+                # Defensive bounds clamp -- a stale/corrupt rowIndex
+                # value must not raise IndexError out of the helper.
+                joined_len = len(joined_df)
+                safe_indices = [
+                    int(i) for i in row_idx_list
+                    if isinstance(i, (int, float))
+                    and 0 <= int(i) < joined_len
+                ]
+                if len(safe_indices) != len(row_idx_list):
+                    logger.warning(
+                        "[%s] __errors__ carried %d rowIndex values; "
+                        "%d were out-of-bounds for joined_df (len=%d) "
+                        "and were dropped",
+                        self.id,
+                        len(row_idx_list),
+                        len(row_idx_list) - len(safe_indices),
+                        joined_len,
+                    )
+                error_df = joined_df.iloc[safe_indices].reset_index(
+                    drop=True
+                )
+                # Re-align per_row_messages / per_row_traces to the
+                # filtered rows -- if any rowIndex was dropped, drop the
+                # corresponding message / trace too.
+                kept_positions = [
+                    i for i, rx in enumerate(row_idx_list)
+                    if isinstance(rx, (int, float))
+                    and 0 <= int(rx) < joined_len
+                ]
+                if per_row_messages:
+                    per_row_messages = [
+                        per_row_messages[i] for i in kept_positions
+                        if i < len(per_row_messages)
+                    ]
+                if per_row_traces:
+                    per_row_traces = [
+                        per_row_traces[i] for i in kept_positions
+                        if i < len(per_row_traces)
+                    ]
+            else:
+                # No rowIndex column OR no joined_df -- fall back to
+                # using the Arrow frame itself as row_source.  User
+                # expressions referencing row1.* will resolve to None
+                # via _NullNamespace.
+                error_df = errors_arrow_df
         elif isinstance(error_payload, dict):
-            # Raw Groovy emission shape: count + indices + messages dict.
+            # FALLBACK: raw Groovy emission shape.  Plan 05.5-02's
+            # Arrow-emission branch in JavaBridge.convertTMapOutputsToArrow
+            # should have produced a DataFrame -- a dict here means the
+            # consumer is running against a stale Java bridge JAR (pre
+            # Plan 05.5-02).  Warn so operators rebuild via mvn package.
+            logger.warning(
+                "[%s] __errors__ arrived as legacy Groovy dict shape; "
+                "Java bridge JAR may be stale (Plan 05.5-02). Routing "
+                "via fallback -- user-column expressions referencing "
+                "row1.* will not resolve.",
+                self.id,
+            )
             messages_map = error_payload.get("messages", {}) or {}
             if not messages_map:
                 return
             indices = list(error_payload.get("indices") or messages_map.keys())
             # Build a synthetic error_df keyed by row index; columns are
-            # not known here (the bridge skips __errors__ in Arrow
-            # serialisation, so the row data is unavailable on the
-            # Python side).  User expressions referencing row1.* will
-            # resolve to None via _NullNamespace.
+            # not known here (no row data is recoverable from the dict
+            # shape).  User expressions referencing row1.* will resolve
+            # to None via _NullNamespace.
             error_df = pd.DataFrame(index=range(len(indices)))
             per_row_messages = [
                 str(messages_map.get(idx, "")) for idx in indices
