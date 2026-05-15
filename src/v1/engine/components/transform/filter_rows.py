@@ -374,6 +374,40 @@ class FilterRows(BaseComponent):
         else:
             super()._resolve_java_expressions()
 
+    def _push_runtime_state_to_bridge(self) -> None:
+        """Flush ContextManager + GlobalMap state into the Java bridge.
+
+        Mirror of Map._push_runtime_state_to_bridge (Plan 05.5-04). Must be
+        called immediately before execute_tmap_preprocessing in
+        _handle_advanced so the compiled Groovy script for advanced_cond
+        resolves context.X and globalMap.X references to live values.
+
+        Per-key direct writes preserve type fidelity (bypassing the
+        bridge setter str-coercion bug -- see 05.5-SPEC.md L127 and
+        05.5-RESEARCH.md Pitfall 1). Per-key semantics also preserve any
+        pre-existing bridge state (e.g. __rejectMode__ flag set inside
+        execute_compiled_tmap_chunked).
+
+        Type-aware push: id_Float values are wrapped via
+        gateway.jvm.java.lang.Float to force Java Float on the wire
+        (Py4J defaults to Double for native Python floats).
+        """
+        if self.java_bridge is None:
+            return
+        if self.context_manager is not None:
+            types = getattr(self.context_manager, "context_types", {})
+            for k, v in self.context_manager.get_all().items():
+                t = types.get(k)
+                if t == "id_Float" and isinstance(v, float):
+                    self.java_bridge.context[k] = (
+                        self.java_bridge.gateway.jvm.java.lang.Float(v)
+                    )
+                else:
+                    self.java_bridge.context[k] = v
+        if self.global_map is not None:
+            for k, v in self.global_map.get_all().items():
+                self.java_bridge.global_map[k] = v
+
     def _handle_advanced(self, df: pd.DataFrame) -> pd.Series:
         """Evaluate advanced Java expression per-row and return boolean mask.
 
@@ -432,6 +466,8 @@ class FilterRows(BaseComponent):
                 col: _DTYPE_MAP.get(str(df[col].dtype), "str")
                 for col in df.columns
             }
+            # R4: flush context/globalMap into bridge before Groovy preprocessing
+            self._push_runtime_state_to_bridge()
             results = self.java_bridge.execute_tmap_preprocessing(
                 df,
                 {"_filter": expression},
