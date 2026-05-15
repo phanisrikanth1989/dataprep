@@ -3073,6 +3073,96 @@ class TestSimpleHelpers:
 
 
 # ------------------------------------------------------------------
+# TestGroovyEscapeExpression (Plan 05.4-05, D-07)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestGroovyEscapeExpression:
+    """_groovy_escape_expression escapes Groovy-special chars inside string
+    literals while leaving non-string regions untouched.
+
+    Locked dispositions live in .planning/phases/05.4-tmap-reject-correctness-
+    and-groovy-safety/05.4-GROOVY-AUDIT.md.  These tests are the runtime gate
+    for each character-class row in that audit's matrix.
+    """
+
+    def _helper(self):
+        return _make_component()
+
+    def test_groovy_escape_dollar_inside_string_literal(self):
+        """`$` inside a double-quoted string literal must be escaped to `\\$`
+        so Groovy does not attempt GString interpolation."""
+        comp = self._helper()
+        assert comp._groovy_escape_expression('"Total: $100"') == '"Total: \\$100"'
+
+    def test_groovy_escape_dollar_in_identifier_not_escaped(self):
+        """`$` outside a string literal is a legal identifier character in
+        both Java and Groovy -- it must NOT be transformed."""
+        comp = self._helper()
+        assert comp._groovy_escape_expression("$tmp + 1") == "$tmp + 1"
+
+    def test_groovy_escape_only_inside_string_region(self):
+        """Mixed expression: `$` inside the quoted region is escaped, the `$`
+        identifier outside the region is left alone."""
+        comp = self._helper()
+        assert (
+            comp._groovy_escape_expression('"price: $" + amount')
+            == '"price: \\$" + amount'
+        )
+
+    def test_groovy_escape_no_strings_passes_through(self):
+        """An expression with no string literals is returned unchanged."""
+        comp = self._helper()
+        expr = "row1.id + row2.val * 2"
+        assert comp._groovy_escape_expression(expr) == expr
+
+    def test_groovy_escape_empty_string_literal(self):
+        """An empty string literal is preserved verbatim."""
+        comp = self._helper()
+        assert comp._groovy_escape_expression('""') == '""'
+
+    def test_groovy_escape_handles_escaped_quote_then_dollar(self):
+        """An escaped quote (\\") inside a string must not terminate the
+        string region -- a subsequent `$` is still escaped."""
+        comp = self._helper()
+        # Raw Java source: "he said \"hi $bob\""
+        java_src = '"he said \\"hi $bob\\""'
+        expected = '"he said \\"hi \\$bob\\""'
+        assert comp._groovy_escape_expression(java_src) == expected
+
+    def test_groovy_escape_handles_escaped_backslash(self):
+        """Backslash escape sequences must consume two characters as a unit
+        so they cannot mis-detect string boundaries."""
+        comp = self._helper()
+        # "C:\\path $var" -- the \\ is a literal backslash, the $ is inside
+        # the string so it must be escaped.
+        java_src = '"C:\\\\path $var"'
+        expected = '"C:\\\\path \\$var"'
+        assert comp._groovy_escape_expression(java_src) == expected
+
+    def test_groovy_escape_multiple_string_literals(self):
+        """Multiple separate string literals each have their own `$` escaped."""
+        comp = self._helper()
+        java_src = '"$a" + "$b"'
+        expected = '"\\$a" + "\\$b"'
+        assert comp._groovy_escape_expression(java_src) == expected
+
+    def test_groovy_escape_dollar_then_brace_inside_string(self):
+        """`${expr}` style interpolation inside a string literal is also
+        neutralised by escaping the leading `$`."""
+        comp = self._helper()
+        java_src = '"hello ${ignored}"'
+        expected = '"hello \\${ignored}"'
+        assert comp._groovy_escape_expression(java_src) == expected
+
+    def test_groovy_escape_empty_expression(self):
+        """Empty input yields empty output."""
+        comp = self._helper()
+        assert comp._groovy_escape_expression("") == ""
+
+
+# ------------------------------------------------------------------
 # TestPrefilterNullKeys
 # ------------------------------------------------------------------
 
