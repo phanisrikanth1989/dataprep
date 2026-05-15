@@ -166,19 +166,6 @@ class TestCatchOutputReject:
             f"{catch['errorMessage'].tolist()!r}"
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Compiled-path catch_output_reject D-06 enforcement gap: the "
-            "Groovy script treats catch outputs as active outputs and "
-            "evaluates user expressions on errorStackTrace; "
-            "_route_catch_output_rejects can only intercept when the "
-            "bridge unpacks __errors__ row data into a DataFrame, which it "
-            "currently does not (see Phase 05.4-04 SUMMARY 'Issues "
-            "Encountered'). Tracked in 05.4-07-SUMMARY.md and deferred "
-            "until the bridge wires __errors__ back to Python."
-        ),
-    )
     def test_catch_error_stack_trace_present(self, java_bridge):
         """errorStackTrace is framework-populated when declared.
 
@@ -204,17 +191,6 @@ class TestCatchOutputReject:
                 f"NOT intercepted (D-06 violation); values={st_values!r}"
             )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Compiled-path catch_output_reject D-06 enforcement gap: see "
-            "test_catch_error_stack_trace_present rationale. "
-            "_route_catch_output_rejects (Phase 05.4-04 deliverable) is "
-            "wired-ready for the future DataFrame payload but the current "
-            "bridge omits __errors__ row data, so the user-supplied "
-            "errorMessage expression leaks through unfiltered."
-        ),
-    )
     def test_catch_reserved_column_user_expr_ignored(self, java_bridge):
         """D-06: user expressions on errorMessage are intentionally ignored.
 
