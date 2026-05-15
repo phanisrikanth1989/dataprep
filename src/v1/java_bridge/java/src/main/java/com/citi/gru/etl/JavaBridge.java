@@ -842,8 +842,64 @@ public class JavaBridge {
             String outputName = entry.getKey();
             Map<String, Object> outputResult = entry.getValue();
 
-            // Skip __errors__ metadata
+            // Emit __errors__ as a structured Arrow batch with fixed schema
+            // (rowIndex int, errorMessage str, errorStackTrace str). The
+            // compiled Groovy script emits this entry as
+            //   { count: int,
+            //     indices: ArrayList<Integer>,
+            //     messages: Map<Integer, String> }
+            // and does NOT currently emit stackTraces, so the stack-trace
+            // column is filled with empty strings (defensive, never null).
+            // See Phase 05.5 Plan 02 R8 / SPEC R8.
             if ("__errors__".equals(outputName)) {
+                int errCount = ((Number) outputResult.get("count")).intValue();
+                @SuppressWarnings("unchecked")
+                List<Integer> errIndices = (List<Integer>) outputResult
+                        .getOrDefault("indices", new ArrayList<Integer>());
+                @SuppressWarnings("unchecked")
+                Map<Integer, String> errMessages = (Map<Integer, String>) outputResult
+                        .getOrDefault("messages", new HashMap<Integer, String>());
+                @SuppressWarnings("unchecked")
+                List<String> errStacks = (List<String>) outputResult
+                        .getOrDefault("stackTraces", new ArrayList<String>());
+
+                // Fixed schema in declared insertion order. LinkedHashMap
+                // preserves column order through ArrowSerializer (same
+                // pattern as the happy-path branch below).
+                Map<String, String> errSchema = new LinkedHashMap<>();
+                errSchema.put("rowIndex", "int");
+                errSchema.put("errorMessage", "str");
+                errSchema.put("errorStackTrace", "str");
+
+                Object[] rowIdxArr = new Object[errCount];
+                Object[] errMsgArr = new Object[errCount];
+                Object[] errStackArr = new Object[errCount];
+                for (int i = 0; i < errCount; i++) {
+                    Integer idx = errIndices.get(i);
+                    rowIdxArr[i] = idx;
+                    String msg = errMessages.get(idx);
+                    errMsgArr[i] = msg != null ? msg : "";
+                    errStackArr[i] = i < errStacks.size() ? errStacks.get(i) : "";
+                }
+
+                Map<String, Object[]> errColumnData = new LinkedHashMap<>();
+                errColumnData.put("rowIndex", rowIdxArr);
+                errColumnData.put("errorMessage", errMsgArr);
+                errColumnData.put("errorStackTrace", errStackArr);
+
+                logger.fine("[JavaBridge] Output '__errors__': " + errCount
+                        + " failed rows");
+
+                try (VectorSchemaRoot errRoot = ArrowSerializer
+                        .createOutputRootFromData(allocator, errColumnData, errSchema)) {
+                    ByteArrayOutputStream errOutputStream = new ByteArrayOutputStream();
+                    ArrowStreamWriter errWriter = new ArrowStreamWriter(
+                            errRoot, null, errOutputStream);
+                    errWriter.start();
+                    errWriter.writeBatch();
+                    errWriter.close();
+                    outputArrowData.put("__errors__", errOutputStream.toByteArray());
+                }
                 continue;
             }
 
