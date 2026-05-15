@@ -40,6 +40,8 @@ false confidence for tMap historically (Phase 5.1). Live-bridge
 """
 import copy
 import logging
+from datetime import date, datetime
+from decimal import Decimal
 
 import numpy as np
 import pandas as pd
@@ -1735,3 +1737,348 @@ class TestPhase055ContextSync:
         main_df = pd.DataFrame([{"id": 1, "label": "abc"}])
         result = comp.execute({"row1": main_df})
         assert result["out1"]["decorated"].iloc[0] == "ABC"
+
+
+# ------------------------------------------------------------------
+# Plan 05.5-06 R6 type-fidelity matrix: 9 type rows × 2 namespaces ×
+# 2 surfaces = 36 cells, plus 4 datetime-format rows × 2 namespaces =
+# 8 cells. 44 total. SPEC L62-79 / RESEARCH L346-351 (Pitfall 4).
+# ------------------------------------------------------------------
+
+
+# Reasons for the cells that empirically xfail on the current branch
+# (probed live against the JVM bridge on 2026-05-15; see
+# 05.5-06-SUMMARY.md "Empirical xfail justifications" section).
+_XFAIL_FLOAT_PY4J_UNBOX = (
+    "Py4J auto-unboxes java.lang.Float into a Python float on the "
+    "input-converter path; Plan 05.5-04's id_Float wrap "
+    "(`gateway.jvm.java.lang.Float(v)`) returns a Python float as "
+    "verified by `type()` -- so the value arrives in Groovy as "
+    "java.lang.Double regardless of the wrap. Closing the gap "
+    "requires a Java-side Float box reconstruction in "
+    "JavaBridge.setContext (not a Python-side wrap). Out of scope for "
+    "Phase 05.5; tracked for a follow-up bridge phase."
+)
+_XFAIL_FLOAT_GM_NO_TYPE_REGISTRY = (
+    "GlobalMap has no Talend type registry (it is a plain dict per "
+    "src/v1/engine/global_map.py); id_Float distinction is only "
+    "available on the context.X path (and even there it fails due to "
+    "Py4J auto-unbox -- see _XFAIL_FLOAT_PY4J_UNBOX). Type-fidelity "
+    "for globalMap.id_Float requires a future GlobalMap type-tagging "
+    "phase."
+)
+_XFAIL_DATE_CTX_STR_COERCION = (
+    "ContextManager.set(value, value_type='id_Date') invokes "
+    "_convert_type which uses _TYPE_CONVERTERS['id_Date']=str -- the "
+    "Python date / datetime is coerced to a string at the "
+    "ContextManager level BEFORE the Plan 05.5-04 helper push runs. "
+    "The Py4J DateConverter registered in Plan 05.5-01 therefore "
+    "never fires for this code path; the value arrives in Groovy as "
+    "java.lang.String. Closing the gap requires a context_types-aware "
+    "push that bypasses ContextManager._convert_type for date types "
+    "OR removing the str converter from id_Date and delegating "
+    "format conversion entirely to component-side parseDate. Either "
+    "is a Phase 05.6+ change."
+)
+_XFAIL_DATE_GM_CONVERTER_DISPATCH = (
+    "globalMap path: writing a raw datetime.date / datetime.datetime "
+    "into bridge.global_map[k] triggers Py4J's input-converter "
+    "dispatch which calls `convert(gateway_client, value)` -- the "
+    "Plan 05.5-01 DateConverter / DatetimeConverter accesses "
+    "`gateway_client.jvm` but Py4J passes the GatewayClient (no .jvm "
+    "attribute) instead of the JavaGateway. Empirically this raises "
+    "AttributeError mid-execute, bubbling up as "
+    "ComponentExecutionError. Fix is converter-side: rebuild the "
+    "Date via the gateway_client's plain-protocol API (e.g. via "
+    "java_collections_converter) rather than .jvm. Out of scope; "
+    "follow-up to Plan 05.5-01."
+)
+
+
+# Marker-bound type row builder: each entry has the 4 attributes the
+# parametrize fan-out needs PLUS a per-namespace marks tuple so cells
+# with known issues carry their xfail reason on the right axis.
+
+# Row schema:
+#   label, value, type_id, java_instanceof_type,
+#   ctx_column_marks, ctx_filter_marks, gm_column_marks, gm_filter_marks
+#
+# The xfail axis is surface-aware:
+#   - Float (column-only): instanceof Float fails due to Py4J unbox,
+#     but the filter ``ns.X != null`` still passes because the value
+#     arrives as a non-null java.lang.Double. So only the column cell
+#     is xfailed.
+#   - id_Date context (column-only): value is str-coerced at the
+#     ContextManager level so instanceof Date fails on column surface,
+#     but the filter still sees a non-null String and passes.
+#   - id_Date globalMap (BOTH surfaces): writing a date into
+#     global_map[k] triggers the Py4J converter dispatch which raises
+#     mid-call with `GatewayClient has no attribute jvm`. The whole
+#     tMap execution explodes regardless of surface, so filter is
+#     xfailed too.
+_TYPE_ROWS_RAW = [
+    ("integer_small",   42,                                "id_Integer",   "Integer",               (), (), (), ()),
+    ("long_large",      9_000_000_000,                     "id_Long",      "Long",                  (), (), (), ()),
+    ("string",          "hello",                           "id_String",    "String",                (), (), (), ()),
+    ("float",           1.5,                               "id_Float",     "Float",
+        (pytest.mark.xfail(strict=True, reason=_XFAIL_FLOAT_PY4J_UNBOX),),
+        (),
+        (pytest.mark.xfail(strict=True, reason=_XFAIL_FLOAT_GM_NO_TYPE_REGISTRY),),
+        (),
+    ),
+    ("double",          1.5,                               "id_Double",    "Double",                (), (), (), ()),
+    ("bigdecimal",      Decimal("12345.6789"),             "id_BigDecimal","java.math.BigDecimal",  (), (), (), ()),
+    ("date_pydate",     date(2026, 5, 15),                 "id_Date",      "java.util.Date",
+        (pytest.mark.xfail(strict=True, reason=_XFAIL_DATE_CTX_STR_COERCION),),
+        (),
+        (pytest.mark.xfail(strict=True, reason=_XFAIL_DATE_GM_CONVERTER_DISPATCH),),
+        (pytest.mark.xfail(strict=True, reason=_XFAIL_DATE_GM_CONVERTER_DISPATCH),),
+    ),
+    ("date_pydatetime", datetime(2026, 5, 15, 12, 30, 45), "id_Date",      "java.util.Date",
+        (pytest.mark.xfail(strict=True, reason=_XFAIL_DATE_CTX_STR_COERCION),),
+        (),
+        (pytest.mark.xfail(strict=True, reason=_XFAIL_DATE_GM_CONVERTER_DISPATCH),),
+        (pytest.mark.xfail(strict=True, reason=_XFAIL_DATE_GM_CONVERTER_DISPATCH),),
+    ),
+    # None row -- assertion shape is different (null-check, not instanceof);
+    # the test body branches on `value is None`. No xfail expected.
+    ("none",            None,                              "id_String",    None,                    (), (), (), ()),
+]
+
+
+def _build_type_cell_params():
+    """Expand 9 rows × 2 namespaces × 2 surfaces into 36 pytest.param entries.
+
+    Each cell carries its own marks (xfail-with-reason if empirically
+    failing on the current branch). The xfail axis is **surface-aware**:
+    only the column surface exercises type fidelity via ``instanceof``,
+    so an xfail attached on the column surface does NOT apply to the
+    matching filter surface (the filter only tests ``ns.X != null``,
+    which still passes even if the value's Java type is wrong). This is
+    why we expand all 4 axes flat instead of stacking ``@parametrize``.
+    """
+    params = []
+    for (label, value, type_id, jcheck,
+         ctx_col_marks, ctx_filter_marks,
+         gm_col_marks, gm_filter_marks) in _TYPE_ROWS_RAW:
+        marks_grid = {
+            ("context", "column"): ctx_col_marks,
+            ("context", "filter"): ctx_filter_marks,
+            ("globalMap", "column"): gm_col_marks,
+            ("globalMap", "filter"): gm_filter_marks,
+        }
+        for ns in ("context", "globalMap"):
+            for surface in ("column", "filter"):
+                params.append(
+                    pytest.param(
+                        surface, label, value, type_id, jcheck, ns,
+                        id=f"{surface}-{label}-{ns}",
+                        marks=marks_grid[(ns, surface)],
+                    )
+                )
+    return params
+
+
+def _ns_accessor(namespace: str) -> str:
+    """Return the Groovy accessor expression for the named namespace."""
+    return "context.X" if namespace == "context" else 'globalMap.get("X")'
+
+
+def _populate_namespace(cm: ContextManager, gm: GlobalMap,
+                         namespace: str, value, type_id: str) -> None:
+    """Write ``X = value`` into the named namespace."""
+    if namespace == "context":
+        cm.set("X", value, value_type=type_id)
+    else:
+        gm.put("X", value)
+
+
+def _type_matrix_column_cfg(namespace: str, value, jcheck) -> dict:
+    """Build the column-surface tMap config.
+
+    For None: assert null vs not_null via simple equality check.
+    For all other values: instanceof check.
+    """
+    accessor = _ns_accessor(namespace)
+    if value is None:
+        expr = (f'{{{{java}}}}({accessor} == null) '
+                f'? "null" : "not_null"')
+    else:
+        expr = (f'{{{{java}}}}(({accessor}) instanceof {jcheck}) '
+                f'? "true" : "false"')
+    cfg = _ctx_sync_config_column(expr)
+    cfg["outputs"][0]["columns"][0]["name"] = "result"
+    return cfg
+
+
+def _type_matrix_filter_cfg(namespace: str, value) -> dict:
+    """Build the input-filter-surface tMap config.
+
+    Filter: ``ns.X != null`` -- row passes through iff value is non-null.
+    """
+    accessor = _ns_accessor(namespace)
+    filter_expr = f'{{{{java}}}}{accessor} != null'
+    cfg = _ctx_sync_config_input_filter(filter_expr)
+    return cfg
+
+
+class TestPhase055TypeMatrix:
+    """Plan 05.5-06 R6 type-fidelity matrix.
+
+    44 cells total:
+
+    - 36 type-fidelity cells = 9 type rows × 2 namespaces × 2 surfaces
+      (column expression, input filter). Each non-None cell asserts the
+      Groovy-side Java type via ``instanceof <Type>`` and expects the
+      column value ``"true"`` (column surface) or 1 row passing through
+      (filter surface). The None cell asserts the null-handling
+      contract: column value is ``"null"`` and the filter drops the row.
+
+    - 8 datetime-format cells = 4 format variants × 2 namespaces. Each
+      cell pushes a Python str under id_Date and asserts that
+      ``routines.TalendDate.parseDate(format, ns.X)`` returns non-null
+      (column value ``"parsed"``).
+
+    Cells that empirically fail on the current branch carry an explicit
+    ``pytest.mark.xfail(strict=True, reason=...)`` with a written
+    justification (see ``_XFAIL_*`` constants). The R6 acceptance gate
+    in 05.5-08-VERIFICATION evaluates the tally:
+
+    - PASS: cell passes
+    - XFAIL: cell fails for the documented reason (escalated per SPEC
+      R6 escalation policy)
+    - FAIL: blocks the plan (any unjustified failure must be either
+      auto-fixed upstream or pinned with a written xfail reason)
+    """
+
+    @pytest.mark.parametrize(
+        "surface,label,value,type_id,jcheck,namespace",
+        _build_type_cell_params(),
+    )
+    def test_type_cell(self, java_bridge, surface, label, value, type_id,
+                        jcheck, namespace):
+        """One cell in the 36-cell type-fidelity matrix.
+
+        Cell ID format: ``<surface>-<label>-<namespace>``
+        (e.g. ``column-integer_small-context``,
+        ``filter-date_pydate-globalMap``).
+        """
+        cm = ContextManager()
+        gm = GlobalMap()
+        _populate_namespace(cm, gm, namespace, value, type_id)
+
+        if surface == "column":
+            cfg = _type_matrix_column_cfg(namespace, value, jcheck)
+        else:  # filter
+            cfg = _type_matrix_filter_cfg(namespace, value)
+
+        comp = _make_component(
+            java_bridge, config=cfg,
+            context_manager=cm, global_map=gm,
+            comp_id=f"tMap_055_06_{surface}_{label}_{namespace}",
+        )
+        result = comp.execute({"row1": pd.DataFrame([{"id": 1}])})
+
+        if surface == "column":
+            actual = result["out1"]["result"].iloc[0]
+            if value is None:
+                assert actual == "null", (
+                    f"None cell {label}/{namespace}: expected column "
+                    f"'null', got {actual!r}"
+                )
+            else:
+                assert actual == "true", (
+                    f"R6 type-fidelity regression: cell "
+                    f"{label}/{namespace} expected instanceof "
+                    f"{jcheck} to be true, got {actual!r}"
+                )
+        else:  # filter
+            if value is None:
+                # filter drops null-typed rows (ns.X != null is false)
+                assert len(result["out1"]) == 0, (
+                    f"None cell {label}/{namespace} filter: expected "
+                    f"0 rows (null != null is false), got "
+                    f"{len(result['out1'])}"
+                )
+            else:
+                assert len(result["out1"]) == 1, (
+                    f"R6 type-fidelity regression: cell "
+                    f"{label}/{namespace} filter dropped the row "
+                    f"because {namespace}.X resolved to null."
+                )
+
+    # ------------------------------------------------------------------
+    # 8 datetime-format cells: 4 formats x 2 namespaces.
+    #
+    # Each cell pushes a Python str under id_Date (the "path (a)"
+    # disposition for Pitfall 4 in RESEARCH.md L346-351) and asserts
+    # that ``routines.TalendDate.parseDate(format, ns.X)`` returns
+    # non-null. Path (b) -- Python date / datetime arriving as
+    # java.util.Date -- is covered by the date_pydate / date_pydatetime
+    # rows in the 36-cell matrix above (currently xfailed; see
+    # _XFAIL_DATE_* constants).
+    #
+    # 4 locked formats per SPEC L76:
+    #   - ISO datetime:  "yyyy-MM-dd HH:mm:ss"
+    #   - ISO date-only: "yyyy-MM-dd"
+    #   - US:            "MM/dd/yyyy"
+    #   - European:      "dd/MM/yyyy HH:mm"
+    # ------------------------------------------------------------------
+
+    _DATE_FORMATS = [
+        pytest.param("2026-05-15 12:30:45", "yyyy-MM-dd HH:mm:ss",
+                      id="iso_datetime"),
+        pytest.param("2026-05-15", "yyyy-MM-dd", id="iso_date"),
+        pytest.param("05/15/2026", "MM/dd/yyyy", id="us"),
+        pytest.param("15/05/2026 12:30", "dd/MM/yyyy HH:mm",
+                      id="european"),
+    ]
+
+    @pytest.mark.parametrize("date_str,format_str", _DATE_FORMATS)
+    @pytest.mark.parametrize("namespace", ["context", "globalMap"])
+    def test_datetime_format_parse(self, java_bridge, date_str,
+                                     format_str, namespace):
+        """R6 datetime-format cell.
+
+        Pushes the str ``date_str`` under id_Date in ``namespace`` and
+        asserts that ``routines.TalendDate.parseDate(format_str,
+        ns.X)`` returns non-null. This is the "path (a)" disposition
+        for Pitfall 4 (RESEARCH.md L346-351): when the value is a
+        string in the locked format, parseDate(String, String) works
+        directly because Groovy's static binding accepts a CharSequence
+        for the second arg.
+
+        For the globalMap variant, the accessor is cast via
+        ``(String)globalMap.get("X")`` because globalMap.get returns
+        Object and parseDate's overload resolution needs an explicit
+        String.
+        """
+        cm = ContextManager()
+        gm = GlobalMap()
+        if namespace == "context":
+            cm.set("X", date_str, value_type="id_Date")
+            accessor = "context.X"
+        else:
+            gm.put("X", date_str)
+            accessor = '(String)globalMap.get("X")'
+
+        expr = (
+            f'{{{{java}}}}routines.TalendDate.parseDate('
+            f'"{format_str}", {accessor}) != null '
+            f'? "parsed" : "null"'
+        )
+        cfg = _ctx_sync_config_column(expr)
+        cfg["outputs"][0]["columns"][0]["name"] = "result"
+
+        comp = _make_component(
+            java_bridge, config=cfg,
+            context_manager=cm, global_map=gm,
+            comp_id=f"tMap_055_06_fmt_{namespace}",
+        )
+        result = comp.execute({"row1": pd.DataFrame([{"id": 1}])})
+        actual = result["out1"]["result"].iloc[0]
+        assert actual == "parsed", (
+            f"R6 datetime-format regression: cell "
+            f"fmt={format_str!r} ns={namespace} expected "
+            f"parseDate to return non-null, got {actual!r}"
+        )
