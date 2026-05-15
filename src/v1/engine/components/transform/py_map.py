@@ -80,6 +80,84 @@ class _Row(dict):
             raise AttributeError(f"Row has no column '{name}'") from None
 
 
+class _ContextView:
+    """Live view of ContextManager for the PyMap eval namespace.
+
+    Supports both Talend-style attribute access (``context.X``) and
+    dict-style item access (``context['X']``). Missing keys raise
+    ``AttributeError`` / ``KeyError`` respectively for deterministic
+    error surfaces inside user expressions -- no silent ``None``.
+
+    Read-only from the eval namespace's perspective: there is no
+    ``__setattr__`` / ``__setitem__`` -- expressions cannot mutate
+    underlying ContextManager state through this view.
+    """
+
+    def __init__(self, context_manager: Any) -> None:
+        # Bypass __setattr__ semantics (no custom setter defined, but
+        # using object.__setattr__ keeps the intent explicit and would
+        # protect against a future override).
+        object.__setattr__(self, "_cm", context_manager)
+
+    def __getattr__(self, key: str) -> Any:
+        cm = object.__getattribute__(self, "_cm")
+        if cm is None:
+            raise AttributeError(
+                f"context is not configured for this component ({key!r})"
+            )
+        all_ctx = cm.get_all()
+        if key not in all_ctx:
+            raise AttributeError(f"context has no variable {key!r}")
+        return all_ctx[key]
+
+    def __getitem__(self, key: str) -> Any:
+        cm = object.__getattribute__(self, "_cm")
+        if cm is None:
+            raise KeyError(key)
+        all_ctx = cm.get_all()
+        if key not in all_ctx:
+            raise KeyError(key)
+        return all_ctx[key]
+
+
+class _GlobalMapView:
+    """Live view of GlobalMap for the PyMap eval namespace.
+
+    Mirrors Talend's globalMap surface inside Python expressions:
+      - ``globalMap.get(key, default)``  -- method form (preferred)
+      - ``globalMap.X``                  -- attribute form (sugar)
+      - ``globalMap['X']``               -- item form (dict-style)
+
+    Read-only from the eval namespace's perspective.
+    """
+
+    def __init__(self, global_map: Any) -> None:
+        object.__setattr__(self, "_gm", global_map)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        gm = object.__getattribute__(self, "_gm")
+        if gm is None:
+            return default
+        return gm.get(key, default)
+
+    def __getattr__(self, key: str) -> Any:
+        gm = object.__getattribute__(self, "_gm")
+        if gm is None:
+            raise AttributeError(
+                f"globalMap is not configured for this component ({key!r})"
+            )
+        return gm.get(key)
+
+    def __getitem__(self, key: str) -> Any:
+        gm = object.__getattribute__(self, "_gm")
+        if gm is None:
+            raise KeyError(key)
+        all_gm = gm.get_all()
+        if key not in all_gm:
+            raise KeyError(key)
+        return all_gm[key]
+
+
 @REGISTRY.register("PyMap")
 class PyMap(BaseComponent):
     """Pure-Python multi-flow data mapping component.
@@ -398,6 +476,10 @@ class PyMap(BaseComponent):
         ns["Var"] = var_dict
         # Standard helpers not in _SAFE_NAMESPACE_GLOBALS
         ns["Decimal"] = Decimal
+        # Talend-style context / globalMap views (Phase 05.5 R5).
+        # PyMap is pure Python -- this is namespace-binding, not bridge sync.
+        ns["context"] = _ContextView(self.context_manager)
+        ns["globalMap"] = _GlobalMapView(self.global_map)
         return ns
 
     def _eval_expr(

@@ -788,3 +788,127 @@ class TestStats:
         comp.execute({"row1": _main_df()})
         assert comp.stats["NB_LINE_OK"] == 3
         assert comp.stats["NB_LINE_REJECT"] == 0
+
+
+# ------------------------------------------------------------------
+# Context / GlobalMap in eval namespace (Phase 05.5 R5)
+# ------------------------------------------------------------------
+
+
+def _ctx_and_gm(context_kv: dict, gm_kv: dict):
+    """Build a populated ContextManager + GlobalMap for R5 tests.
+
+    Uses ContextManager.set(key, value, value_type) -- positional third arg
+    (verified at src/v1/engine/context_manager.py:151). Matches existing
+    test patterns in test_file_archive.py and test_context_load.py.
+    """
+    cm = ContextManager()
+    for k, v in context_kv.items():
+        cm.set(k, v, "id_String")
+    gm = GlobalMap()
+    for k, v in gm_kv.items():
+        gm.put(k, v)
+    return cm, gm
+
+
+def _ctx_pymap_config(expression: str) -> dict:
+    """Single-column py_map config with the expression under test."""
+    return {
+        "component_type": "PyMap",
+        "inputs": {
+            "main": {
+                "name": "row1",
+                "filter": "",
+                "activate_filter": False,
+            },
+            "lookups": [],
+        },
+        "variables": [],
+        "outputs": [
+            {
+                "name": "out1",
+                "is_reject": False,
+                "inner_join_reject": False,
+                "filter": "",
+                "activate_filter": False,
+                "columns": [
+                    {"name": "decorated", "expression": expression},
+                ],
+            }
+        ],
+        "die_on_error": True,
+    }
+
+
+@pytest.mark.unit
+class TestPyMapContext:
+    """R5: context and globalMap are bound into the per-row eval namespace.
+
+    Pure-Python tests -- no @pytest.mark.java (py_map does not use the
+    Java bridge). Verifies that user expressions in py_map columns can
+    reference context.X (attribute), context['X'] (item), and
+    globalMap.get('X') (method) with the same Talend-style semantics
+    tMap provides via its Groovy bindings.
+    """
+
+    def test_context_attribute_access(self):
+        """context.X attribute access resolves to ContextManager value."""
+        cm, gm = _ctx_and_gm(
+            {"suffix": "_DEV", "threshold": "50"},
+            {"env": "prod"},
+        )
+        cfg = _ctx_pymap_config("str(row1['id']) + context.suffix")
+        comp = _make_pymap(config=cfg, context_manager=cm, global_map=gm)
+        df = pd.DataFrame([{"id": 42}])
+        result = comp.execute({"row1": df})
+        assert result["out1"]["decorated"].iloc[0] == "42_DEV"
+
+    def test_context_item_access(self):
+        """context['X'] item access works equivalently to attribute access."""
+        cm, gm = _ctx_and_gm(
+            {"threshold": "50"},
+            {},
+        )
+        cfg = _ctx_pymap_config("context['threshold']")
+        comp = _make_pymap(config=cfg, context_manager=cm, global_map=gm)
+        df = pd.DataFrame([{"id": 1}])
+        result = comp.execute({"row1": df})
+        assert result["out1"]["decorated"].iloc[0] == "50"
+
+    def test_global_map_get_method(self):
+        """globalMap.get('X') returns the live GlobalMap value."""
+        cm, gm = _ctx_and_gm(
+            {},
+            {"env": "prod"},
+        )
+        cfg = _ctx_pymap_config("str(row1['id']) + '_' + globalMap.get('env')")
+        comp = _make_pymap(config=cfg, context_manager=cm, global_map=gm)
+        df = pd.DataFrame([{"id": 7}])
+        result = comp.execute({"row1": df})
+        assert result["out1"]["decorated"].iloc[0] == "7_prod"
+
+    def test_missing_context_key_raises_attributeerror(self):
+        """context.nonexistent must raise AttributeError (deterministic).
+
+        Wrapped by ComponentExecutionError in die_on_error=True mode --
+        the original cause must be AttributeError, NOT NameError or a
+        silent None.
+        """
+        cm, gm = _ctx_and_gm(
+            {"suffix": "_DEV"},
+            {},
+        )
+        cfg = _ctx_pymap_config("context.nonexistent")
+        comp = _make_pymap(config=cfg, context_manager=cm, global_map=gm)
+        df = pd.DataFrame([{"id": 1}])
+        with pytest.raises(ComponentExecutionError) as exc_info:
+            comp.execute({"row1": df})
+        # Verify the underlying cause is AttributeError, not NameError.
+        cause = exc_info.value.__cause__ or exc_info.value.__context__
+        # ComponentExecutionError wraps the eval failure; walk the chain.
+        root = cause
+        while root is not None and not isinstance(root, AttributeError):
+            root = getattr(root, "__cause__", None) or getattr(root, "__context__", None)
+        assert isinstance(root, AttributeError), (
+            f"expected AttributeError in cause chain, got {type(cause).__name__}: {cause}"
+        )
