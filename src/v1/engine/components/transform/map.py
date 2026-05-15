@@ -125,6 +125,33 @@ class _NullNamespace:
         pass  # discard -- null namespaces are read-only
 
 
+class _NullRow:
+    """Sentinel for a lookup row that was not matched in an inner join.
+
+    Unlike ``_NullNamespace`` (which silently returns ``None`` to mirror
+    Talend left-outer-join semantics), ``_NullRow`` raises
+    ``AttributeError`` to signal that a column reference on a failed
+    inner-join lookup is an expression-evaluation error.  The error
+    propagates through the existing per-column ``_eval_expr`` machinery
+    -- with ``die_on_error=True`` it surfaces as
+    ``ComponentExecutionError``; with ``die_on_error=False`` it is logged
+    as a warning and the column resolves to ``None``.  This matches the
+    Talend inner-join-reject semantic where dereferencing the failing
+    lookup is an error, not a silent null (D-04 of phase 05.4-02).
+
+    ASCII-only error message (per project convention -- RHEL log targets
+    must remain pure ASCII).
+    """
+
+    def __getattr__(self, name: str) -> None:  # noqa: ANN001
+        raise AttributeError(
+            f"lookup was not matched; column '{name}' unavailable on reject row"
+        )
+
+    def __setattr__(self, name: str, value: Any) -> None:  # noqa: ANN001
+        pass  # discard -- null rows are read-only
+
+
 def _infer_arrow_schema_dict(df: pd.DataFrame) -> dict[str, str]:
     """Infer the bridge-side type string for each column of ``df``.
 
@@ -2153,6 +2180,7 @@ class Map(BaseComponent):
         self,
         row_dicts: dict[str, dict],
         var_bag: "_VarBag",
+        failed_lookups: "set[str] | None" = None,
     ) -> dict[str, Any]:
         """Build the eval namespace for a single row (Python-eval path).
 
@@ -2166,6 +2194,15 @@ class Map(BaseComponent):
         Args:
             row_dicts: Mapping of table_name -> {col -> value} per row.
             var_bag: Shared ``_VarBag`` instance for the current row.
+            failed_lookups: Optional set of lookup names that failed an
+                inner join for this row (D-04 of phase 05.4-02).  When a
+                table name appears in this set its namespace binding is a
+                ``_NullRow`` sentinel (raises ``AttributeError`` on any
+                attribute access) instead of the default ``_NullNamespace``
+                (silent ``None``).  This distinguishes inner-join-reject
+                semantics ("reference to failing lookup is an error") from
+                left-outer-join semantics ("unmatched lookup columns are
+                null").  Default ``None`` means no failed lookups.
 
         Returns:
             Namespace dict ready for ``eval()``.
@@ -2173,15 +2210,21 @@ class Map(BaseComponent):
         ns: dict[str, Any] = {}
         ns.update(_SAFE_NAMESPACE_GLOBALS)
         ns["__builtins__"] = _build_safe_builtins()
+        failed_lookups = failed_lookups or set()
         # tMap converter emits ``row1.col`` (attribute), not ``row1['col']``.
         # Wrap each row dict in SimpleNamespace so attribute access works.
         # An empty row_data dict means the lookup had no data in the joined_df
         # (empty lookup / unmatched left-outer row).  Use _NullNamespace so
         # that ``row2.label`` returns ``None`` instead of AttributeError --
         # this matches Talend left-outer semantics where unmatched rows yield
-        # null for all lookup columns.
+        # null for all lookup columns.  For lookups listed in failed_lookups
+        # (inner-join-reject row source, D-04) bind a _NullRow sentinel
+        # instead so that ``row2.label`` raises -- matching Talend's
+        # inner-join semantic that the failing lookup is an error to deref.
         for table_name, row_data in row_dicts.items():
-            if row_data:
+            if table_name in failed_lookups:
+                ns[table_name] = _NullRow()
+            elif row_data:
                 ns[table_name] = types.SimpleNamespace(**row_data)
             else:
                 ns[table_name] = _NullNamespace()
@@ -2416,6 +2459,7 @@ class Map(BaseComponent):
         var_columns: dict[str, list],
         main_name: str,
         lookup_names: list[str],
+        failed_lookups: "set[str] | None" = None,
     ) -> pd.DataFrame:
         """Evaluate one output's column expressions over an arbitrary row source.
 
@@ -2443,6 +2487,13 @@ class Map(BaseComponent):
                 (name -> [val]).  Indexed positionally against ``row_source``.
             main_name: Main table name (for row-dict construction).
             lookup_names: Lookup table names (for row-dict construction).
+            failed_lookups: Optional set of lookup names that failed an
+                inner join for this row source (D-04 of phase 05.4-02).
+                Forwarded to ``_build_namespace`` which binds ``_NullRow``
+                (raises ``AttributeError`` on attribute access) for those
+                table names instead of the default ``_NullNamespace``
+                (silent ``None``).  Used by ``_route_inner_join_rejects``;
+                normal-output callers leave this ``None``.
 
         Returns:
             A single-allocation DataFrame with one row per ``row_source``
@@ -2471,7 +2522,7 @@ class Map(BaseComponent):
                 if row_idx < len(v_vals):
                     setattr(var_bag, v_name, v_vals[row_idx])
 
-            ns = self._build_namespace(row_dicts, var_bag)
+            ns = self._build_namespace(row_dicts, var_bag, failed_lookups)
             out_row = self._eval_output_row(col_defs, ns, out_name)
             out_rows.append(out_row)
 
@@ -2701,44 +2752,99 @@ class Map(BaseComponent):
         inner_join_reject_dfs: dict[str, pd.DataFrame],
         outputs_config: list[dict],
     ) -> None:
-        """Route inner join reject rows to appropriate outputs.
+        """Route inner join reject rows to ``inner_join_reject`` outputs.
+
+        Phase 05.4-02 (R1, R7, D-02, D-03, D-04, D-05) rewrite:
+
+        For each ``inner_join_reject: True`` output, evaluate that output's
+        own column expressions per row against the failing-lookup rejects
+        DataFrame -- via ``_evaluate_output_columns_py``.  This replaces the
+        legacy name-based column copy (which dropped hard-coded literals,
+        renamed simple refs, and ``{{java}}`` expressions to ``None``) and
+        the incremental ``reject_df[col] = ...`` writes (which fragmented
+        the result DataFrame, emitting ``PerformanceWarning``).
+
+        The ``inner_join_reject_dfs`` mapping carries per-failing-lookup
+        rejects: each entry's rows had main columns + any previously
+        matched lookup columns but are missing the failing lookup's columns
+        (D-05 partial-match binding).  This routine processes each failing
+        lookup separately so the per-row failed-lookup identity is
+        preserved -- ``_NullRow`` is bound only for the failing lookup
+        (D-04), while previously-matched lookups remain as data namespaces.
+
+        ``var_columns`` is intentionally ``{}``: per-row variable values
+        were computed against the joined (matched) DataFrame and are not
+        defined for unmatched rows in the reject row source.  Reject output
+        expressions that reference ``Var.*`` will resolve to ``None`` via
+        ``_VarBag.__getattr__`` semantics.
 
         Args:
-            result: Current result dict to update.
-            inner_join_reject_dfs: Dict of reject DataFrames per lookup.
-            outputs_config: Output config list.
+            result: Current result dict to update in place.  When an output
+                already has rows from the matched path they are concatenated
+                with the rejects in a single allocation; otherwise the
+                rejects frame becomes the output frame.
+            inner_join_reject_dfs: Dict mapping the failing lookup's name to
+                its rejects DataFrame.
+            outputs_config: The component's full output list (filtered here
+                for ``inner_join_reject: True`` entries).
         """
         if not inner_join_reject_dfs:
             return
 
-        # Combine all inner join rejects
-        all_rejects = pd.concat(
-            list(inner_join_reject_dfs.values()), ignore_index=True
-        )
+        main_name = self.config["inputs"]["main"]["name"]
+        lookup_names = [
+            lk["name"]
+            for lk in self.config["inputs"].get("lookups", [])
+        ]
 
         for output_cfg in outputs_config:
-            if output_cfg.get("inner_join_reject"):
-                out_name = output_cfg["name"]
-                # Select only columns defined in this output
-                out_cols = [c["name"] for c in output_cfg["columns"]]
-                reject_df = pd.DataFrame()
-                for col_name in out_cols:
-                    if col_name in all_rejects.columns:
-                        reject_df[col_name] = all_rejects[col_name].values
-                    else:
-                        reject_df[col_name] = None
-
-                if out_name in result and not result[out_name].empty:
-                    result[out_name] = pd.concat(
-                        [result[out_name], reject_df], ignore_index=True
-                    )
-                else:
-                    result[out_name] = reject_df
-
-                logger.info(
-                    f"[{self.id}] Routed {len(reject_df)} inner join "
-                    f"rejects to output '{out_name}'"
+            if not output_cfg.get("inner_join_reject"):
+                continue
+            out_name = output_cfg["name"]
+            per_lookup_frames: list[pd.DataFrame] = []
+            total_rows = 0
+            for failing_lookup, rejects_df in inner_join_reject_dfs.items():
+                if rejects_df is None or rejects_df.empty:
+                    continue
+                # _NullRow injection: only the failing lookup raises on
+                # attribute access; previously-matched lookups keep their
+                # data bindings (D-05).
+                evaluated = self._evaluate_output_columns_py(
+                    rejects_df,
+                    output_cfg,
+                    {},  # var_columns: not defined for reject rows
+                    main_name,
+                    lookup_names,
+                    failed_lookups={failing_lookup},
                 )
+                if not evaluated.empty:
+                    per_lookup_frames.append(evaluated)
+                    total_rows += len(evaluated)
+
+            if not per_lookup_frames:
+                continue
+
+            col_names = [c["name"] for c in output_cfg["columns"]]
+            reject_df = (
+                pd.concat(per_lookup_frames, ignore_index=True)
+                if len(per_lookup_frames) > 1
+                else per_lookup_frames[0]
+            )
+            # Single-allocation concat with any matched-path rows.
+            if out_name in result and not result[out_name].empty:
+                result[out_name] = pd.concat(
+                    [result[out_name], reject_df], ignore_index=True
+                )
+            else:
+                # Preserve declared column order even when matched path
+                # left no frame (the helper already emits the right
+                # columns, but the explicit reindex is cheap insurance).
+                result[out_name] = reject_df.reindex(columns=col_names)
+
+            logger.info(
+                "[%s] Routed %d inner join rejects to output '%s'",
+                self.id, total_rows, out_name,
+            )
 
     # ------------------------------------------------------------------
     # Compiled Script Generation
