@@ -124,6 +124,16 @@ Plans:
 - [x] 05-02-PLAN.md -- Exhaustive unit test suite (60-100 tests)
 - [x] 05-03-PLAN.md -- Converter update for MAP-06 + integration tests
 
+### Phase 05.5: tMap Context/GlobalMap Bridge Sync + __errors__ Arrow Round-trip (INSERTED)
+
+**Goal:** Fix per-row Java expression evaluation in tMap/py_map/filter_rows so `context.*` and `globalMap.*` references resolve correctly inside compiled Groovy scripts and bridge preprocessing — restoring the call-site sync pattern that existed on `main` and was lost in the engine restructure. Also fix Java-side `__errors__` Arrow serialization to enable D-06 reserved-column round-trip and close 2 of the 05.4 strict-xfails.
+**Requirements**: TBD
+**Depends on:** Phase 05.4
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 05.5 to break down)
+
 ### Phase 05.3: tMap Join Correctness, Marker Rule, and Filepath Expression (INSERTED)
 
 **Goal:** Restore tMap join correctness and performance to match Talend semantics, eliminate silent-empty / silent-wrong-result failure modes via a universal {{java}} marker rule, and fix the filepath expression bug in tFileOutputDelimited (six issues reproduced end-to-end via real .item -> converter -> engine pipelines).

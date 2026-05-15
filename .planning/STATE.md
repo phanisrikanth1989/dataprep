@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Phase 05.4 complete (8/8 plans)
-last_updated: "2026-05-15T14:30:00.000Z"
-last_activity: 2026-05-15 -- Phase 05.4 complete (11/11 SPEC criteria PASS; map.py 88.3% -> 88.7%)
+status: Phase 05.4 closed; next milestone work is manager-owned Phase 16
+stopped_at: Phase 05.4 complete (8/8 plans; verification report + phase summary committed)
+last_updated: "2026-05-15T17:00:49.381Z"
+last_activity: 2026-05-15 -- Phase 05.4 complete (8 plans, 5 waves, 11/11 SPEC criteria PASS)
 progress:
-  total_phases: 23
-  completed_phases: 21
+  total_phases: 24
+  completed_phases: 22
   total_plans: 117
-  completed_plans: 136
+  completed_plans: 145
   percent: 100
 ---
 
@@ -129,6 +129,7 @@ Recent decisions affecting current work:
 - Phase 07.1 inserted after Phase 7: Manager Audit & BaseComponent Fixes (URGENT) -- Manager-commit audit (range 52dbada..f0f6351, 19 commits, 28 files) surfaced 48 in-scope regressions and gaps including BaseComponent crashes (CR-01, CR-02), Phase 4 file I/O regressions (CR-03, CR-06, CR-09), Phase 6 AggregateRow Talend-parity violations (CR-05), broken Java build on Mac/Linux (CR-04 pom.xml), and a not-production-ready new Normalize component. API findings (27) skipped per direction. See .planning/review/TRIAGE.md for the full triage matrix and .planning/review/manager-commits-REVIEW*.md for evidence. Must complete before Phase 8.
 - Phase 07.2 inserted after Phase 7: validate-config bug sweep -- move pre-resolution content checks to _process across 11 components (URGENT)
 - Phase 05.3 inserted after Phase 5: tMap Join Correctness, Marker Rule, and Filepath Expression (URGENT)
+- Phase 05.5 inserted after Phase 05.4: tMap context/globalMap bridge sync + __errors__ Arrow round-trip — fix per-row Java eval context/globalMap propagation (12-test spike regression) and Java-side __errors__ serialization (URGENT)
 
 ### Pending Todos
 
