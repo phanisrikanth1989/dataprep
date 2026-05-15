@@ -2590,11 +2590,18 @@ class Map(BaseComponent):
                 )
                 continue
 
-            # Active-filter outputs keep the inline loop so kept/rejected rows
-            # can be split in one pass.  Plan 05.4-03 lifts this onto
-            # _evaluate_output_columns_py via a precomputed keep-mask.
+            # Active-filter outputs keep an inline filter loop so kept/rejected
+            # rows can be split in one pass.  Plan 05.4-03: filter-rejected
+            # rows are collected as RAW ROW SOURCE dicts (full joined_df row
+            # = main + all lookups, per D-02) so the reject output's own
+            # column expressions can be evaluated against them via
+            # _evaluate_output_columns_py.  This replaces the legacy "emit
+            # rejected rows using the SOURCE output's col_defs" pattern,
+            # which silently dropped reject-side-only columns (e.g. literal
+            # tags, codes not present in the source output).
             out_rows: list[dict] = []
-            reject_rows: list[dict] = []
+            reject_source_rows: list[dict] = []
+            reject_source_indices: list[int] = []
 
             for row_idx, _row in enumerate(joined_df.itertuples(index=False)):
                 row_series = joined_df.iloc[row_idx]
@@ -2616,8 +2623,11 @@ class Map(BaseComponent):
                 except Exception:
                     keep = False
                 if not keep:
-                    reject_row = self._eval_output_row(col_defs, ns, out_name)
-                    reject_rows.append(reject_row)
+                    # Collect the raw joined_df row (D-02): full row context
+                    # (main + all lookups).  The reject output's expressions
+                    # are evaluated against this row source AFTER the loop.
+                    reject_source_rows.append(row_series.to_dict())
+                    reject_source_indices.append(row_idx)
                     continue
 
                 out_row = self._eval_output_row(col_defs, ns, out_name)
@@ -2630,20 +2640,33 @@ class Map(BaseComponent):
             )
             result[out_name] = out_df
 
-            # Route filter-rejected rows to the first is_reject output.
-            if reject_rows:
-                reject_df = pd.DataFrame(
-                    reject_rows, columns=[c["name"] for c in col_defs]
+            # Route filter-rejected rows to the first is_reject output via
+            # _evaluate_output_columns_py against the REJECT output's config
+            # (D-01).  Pre-slice var_columns to the failing-row indices so
+            # the reject helper sees per-row Var values aligned to the
+            # filter-rejected subset.
+            if reject_source_rows:
+                rej_row_source = pd.DataFrame(
+                    reject_source_rows, columns=list(joined_df.columns)
                 )
+                rej_var_columns: dict[str, list] = {
+                    v_name: [v_vals[i] for i in reject_source_indices
+                             if i < len(v_vals)]
+                    for v_name, v_vals in var_columns.items()
+                }
                 for oc in outputs_config:
                     if oc.get("is_reject") and not oc.get("inner_join_reject"):
                         rej_name = oc["name"]
+                        rej_df = self._evaluate_output_columns_py(
+                            rej_row_source, oc, rej_var_columns,
+                            main_name, lookup_names
+                        )
                         if rej_name in result and not result[rej_name].empty:
                             result[rej_name] = pd.concat(
-                                [result[rej_name], reject_df], ignore_index=True
+                                [result[rej_name], rej_df], ignore_index=True
                             )
                         else:
-                            result[rej_name] = reject_df
+                            result[rej_name] = rej_df
                         break
 
         return result
@@ -2684,18 +2707,37 @@ class Map(BaseComponent):
             passed = out_df[mask].copy()
             failed = out_df[~mask].copy()
 
-            # Route failed rows to reject outputs
+            # Route failed rows to reject outputs (Plan 05.4-03 / D-01):
+            # Evaluate the reject output's OWN column expressions against
+            # the failed rows via _evaluate_output_columns_py, instead of
+            # blindly assigning the source output's filtered DataFrame.
+            # ``var_columns`` is intentionally ``{}``: the compiled path
+            # consumes the bridge result map directly; per-row Var values
+            # were materialised inside the Groovy script and are not
+            # available to re-pass here.  Reject expressions referencing
+            # ``Var.*`` resolve via ``_VarBag.__getattr__`` to ``None`` --
+            # matching the inner-join-reject convention (see
+            # ``_route_inner_join_rejects`` docstring).
             if not failed.empty:
                 outputs_config = self.config.get("outputs", [])
+                main_name = self.config["inputs"]["main"]["name"]
+                lookup_names_list = [
+                    lk["name"]
+                    for lk in self.config["inputs"].get("lookups", [])
+                ]
                 for oc in outputs_config:
                     if oc.get("is_reject") and not oc.get("inner_join_reject"):
                         rej_name = oc["name"]
+                        rej_df = self._evaluate_output_columns_py(
+                            failed, oc, {}, main_name, lookup_names_list
+                        )
                         if rej_name in result:
                             result[rej_name] = pd.concat(
-                                [result[rej_name], failed], ignore_index=True
+                                [result[rej_name], rej_df], ignore_index=True
                             )
                         else:
-                            result[rej_name] = failed
+                            result[rej_name] = rej_df
+                        break
 
             return passed
 
