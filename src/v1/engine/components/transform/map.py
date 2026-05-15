@@ -2043,6 +2043,41 @@ class Map(BaseComponent):
 
         return result
 
+    def _push_runtime_state_to_bridge(self) -> None:
+        """Flush ContextManager + GlobalMap state into the Java bridge.
+
+        Must be called immediately before any bridge invocation that runs
+        per-row Groovy evaluation. Writes typed values directly into the
+        bridge's internal dicts (NOT via set_context / set_global_map,
+        which coerce values to str -- breaks R6 type fidelity).
+
+        Per-key writes preserve any pre-existing bridge state including
+        the ``__rejectMode__`` flag that ``execute_compiled_tmap_chunked``
+        sets inside its own body (D-09 in Phase 05.4-06). ``bridge.context.clear()``
+        followed by reassignment is FORBIDDEN per SPEC Constraint (L128).
+
+        Type-aware push: ``id_Float`` values are wrapped via
+        ``gateway.jvm.java.lang.Float`` to force Java ``Float`` on the wire
+        (Py4J defaults to ``Double`` -- Pitfall 3 in 05.5-RESEARCH.md).
+        Date / datetime values flow through the Py4J input converters
+        registered in ``JavaBridge.start`` (Plan 05.5-01).
+        """
+        if self.java_bridge is None:
+            return
+        if self.context_manager is not None:
+            types = getattr(self.context_manager, "context_types", {})
+            for k, v in self.context_manager.get_all().items():
+                t = types.get(k)
+                if t == "id_Float" and isinstance(v, float):
+                    self.java_bridge.context[k] = (
+                        self.java_bridge.gateway.jvm.java.lang.Float(v)
+                    )
+                else:
+                    self.java_bridge.context[k] = v
+        if self.global_map is not None:
+            for k, v in self.global_map.get_all().items():
+                self.java_bridge.global_map[k] = v
+
     def _evaluate_outputs_compiled(
         self,
         joined_df: pd.DataFrame,
@@ -2139,6 +2174,8 @@ class Map(BaseComponent):
             )
         )
         # ---- First invocation: active-output pass over joined_df. ------
+        # R1: flush context/globalMap before per-row Groovy evaluation.
+        self._push_runtime_state_to_bridge()
         try:
             raw_result = self.java_bridge.execute_compiled_tmap_chunked(
                 component_id=self.id,
@@ -2173,6 +2210,8 @@ class Map(BaseComponent):
             )
             if reject_source is not None and not reject_source.empty:
                 reject_schema_dict = _infer_arrow_schema_dict(reject_source)
+                # R1 + R7: flush context/globalMap before reject-mode pass.
+                self._push_runtime_state_to_bridge()
                 try:
                     reject_raw = self.java_bridge.execute_compiled_tmap_chunked(
                         component_id=self.id,
@@ -3603,6 +3642,8 @@ class Map(BaseComponent):
         # Build schema dict for Arrow
         schema_dict = _infer_arrow_schema_dict(df)
 
+        # R1: flush context/globalMap before bridge preprocessing.
+        self._push_runtime_state_to_bridge()
         try:
             return self.java_bridge.execute_tmap_preprocessing(
                 df=df,

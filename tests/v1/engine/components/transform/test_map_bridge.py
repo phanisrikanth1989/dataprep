@@ -1450,3 +1450,288 @@ class TestChunkedCrossProductBridge:
             f"(15 main x 8 lookup). Got {len(out)}. "
             f"Chunk boundary at 10 rows means 2 full chunks + 1 partial."
         )
+
+
+# ------------------------------------------------------------------
+# TestPhase055ContextSync (Plan 05.5-04 — R1 + R2 + R3)
+# ------------------------------------------------------------------
+#
+# Spike-tests promoted to canonical acceptance for the call-site
+# context/globalMap bridge sync (SPEC L19-30). 11 tests, all
+# @pytest.mark.java because they assert the row-level Groovy evaluation
+# resolved context.X / globalMap.X to the live ContextManager / GlobalMap
+# values.
+#
+# Failure shape pre-fix:
+#   - Column / variable expressions resolve context.X to null. With
+#     defensive String.valueOf() wrap, the value materialises as the
+#     literal string "null" instead of "_DEV". Assertion catches the
+#     wrong-value.
+#   - Filter expressions evaluate "<filter> == 'KEEP'" against null,
+#     which fails for every row -> output frame is empty (0 rows).
+#   - Routine on row data (the regression guard) is unaffected by the
+#     context-sync gap because routines bind statically via Groovy
+#     addRoutinesToBinding; that test passes both pre- and post-fix.
+#
+# Failure shape post-fix:
+#   - All 11 tests pass against the real bridge.
+
+
+def _ctx_sync_config_column(expression: str, col_type: str = "str") -> dict:
+    """Build a minimal column-expression config (no lookups)."""
+    return {
+        "component_type": "Map",
+        "die_on_error": True,
+        "inputs": {
+            "main": {
+                "name": "row1",
+                "filter": "",
+                "activate_filter": False,
+                "matching_mode": "UNIQUE_MATCH",
+                "lookup_mode": "LOAD_ONCE",
+            },
+            "lookups": [],
+        },
+        "variables": [],
+        "outputs": [
+            {
+                "name": "out1",
+                "is_reject": False,
+                "inner_join_reject": False,
+                "filter": "",
+                "activate_filter": False,
+                "columns": [
+                    {"name": "decorated", "expression": expression,
+                     "type": col_type, "nullable": True},
+                ],
+                "catch_output_reject": False,
+            }
+        ],
+    }
+
+
+def _ctx_sync_config_input_filter(filter_expr: str) -> dict:
+    """Build a config with an active input filter referencing context/globalMap."""
+    cfg = _ctx_sync_config_column("{{java}}row1.id", col_type="int")
+    cfg["outputs"][0]["columns"] = [
+        {"name": "id", "expression": "{{java}}row1.id", "type": "int"},
+    ]
+    cfg["inputs"]["main"]["filter"] = filter_expr
+    cfg["inputs"]["main"]["activate_filter"] = True
+    return cfg
+
+
+def _ctx_sync_config_output_filter(filter_expr: str) -> dict:
+    """Build a config with an active output filter referencing context/globalMap."""
+    cfg = _ctx_sync_config_column("{{java}}row1.id", col_type="int")
+    cfg["outputs"][0]["columns"] = [
+        {"name": "id", "expression": "{{java}}row1.id", "type": "int"},
+    ]
+    cfg["outputs"][0]["filter"] = filter_expr
+    cfg["outputs"][0]["activate_filter"] = True
+    return cfg
+
+
+def _ctx_sync_config_variable(var_expr: str) -> dict:
+    """Build a config with one variable; downstream column reads Var.envTag."""
+    cfg = _ctx_sync_config_column("{{java}}row1.id", col_type="int")
+    cfg["variables"] = [
+        {"name": "envTag", "expression": var_expr, "type": "str"},
+    ]
+    cfg["outputs"][0]["columns"] = [
+        {"name": "id", "expression": "{{java}}row1.id", "type": "int"},
+        {"name": "tag", "expression": "{{java}}Var.get(\"envTag\")",
+         "type": "str"},
+    ]
+    return cfg
+
+
+class TestPhase055ContextSync:
+    """Plan 05.5-04 spike tests promoted to canonical acceptance.
+
+    Covers SPEC R1 (column expressions), R2 (input/output filters),
+    R3 (variables) via 11 cells:
+
+      A1 — column expression with context.X
+      A2 — column expression with globalMap.get("X")
+      A3 — column expression with routines.StringHandling.UPCASE(context.X)
+      A4 — column expression with routines.StringHandling.UPCASE(globalMap.get)
+      B1 — input filter with context.X
+      B2 — input filter with globalMap.get("X")
+      C1 — output filter with context.X
+      C2 — output filter with globalMap.get("X")
+      D1 — variable expression with context.X (downstream column reads Var)
+      D2 — variable expression with globalMap.get("X")
+      routine_on_row_still_works — regression guard for Pitfall 6 (routine
+          binding for row.X expressions, unrelated to context sync)
+    """
+
+    # ----- A1-A4 column-expression cells -----
+
+    def test_a1_context_in_column(self, java_bridge):
+        cm = ContextManager()
+        cm.set("suffix", "_DEV", value_type="id_String")
+        gm = GlobalMap()
+        cfg = _ctx_sync_config_column(
+            "{{java}}String.valueOf(row1.id) + String.valueOf(context.suffix)"
+        )
+        comp = _make_component(java_bridge, config=cfg,
+                               context_manager=cm, global_map=gm,
+                               comp_id="tMap_055_a1")
+        result = comp.execute({"row1": pd.DataFrame([{"id": 42}])})
+        assert result["out1"]["decorated"].iloc[0] == "42_DEV", (
+            f"R1 column-expression context sync regressed: got "
+            f"{result['out1']['decorated'].iloc[0]!r}"
+        )
+
+    def test_a2_globalmap_in_column(self, java_bridge):
+        cm = ContextManager()
+        gm = GlobalMap()
+        gm.put("env", "PROD")
+        cfg = _ctx_sync_config_column(
+            "{{java}}String.valueOf(row1.id) + \"_\""
+            " + String.valueOf(globalMap.get(\"env\"))"
+        )
+        comp = _make_component(java_bridge, config=cfg,
+                               context_manager=cm, global_map=gm,
+                               comp_id="tMap_055_a2")
+        result = comp.execute({"row1": pd.DataFrame([{"id": 7}])})
+        assert result["out1"]["decorated"].iloc[0] == "7_PROD"
+
+    def test_a3_routine_with_context(self, java_bridge):
+        cm = ContextManager()
+        cm.set("env", "prod", value_type="id_String")
+        gm = GlobalMap()
+        cfg = _ctx_sync_config_column(
+            "{{java}}routines.StringHandling.UPCASE((String)context.env)"
+        )
+        comp = _make_component(java_bridge, config=cfg,
+                               context_manager=cm, global_map=gm,
+                               comp_id="tMap_055_a3")
+        result = comp.execute({"row1": pd.DataFrame([{"id": 1}])})
+        assert result["out1"]["decorated"].iloc[0] == "PROD"
+
+    def test_a4_routine_with_globalmap(self, java_bridge):
+        cm = ContextManager()
+        gm = GlobalMap()
+        gm.put("env", "stage")
+        cfg = _ctx_sync_config_column(
+            "{{java}}routines.StringHandling.UPCASE("
+            "(String)globalMap.get(\"env\"))"
+        )
+        comp = _make_component(java_bridge, config=cfg,
+                               context_manager=cm, global_map=gm,
+                               comp_id="tMap_055_a4")
+        result = comp.execute({"row1": pd.DataFrame([{"id": 1}])})
+        assert result["out1"]["decorated"].iloc[0] == "STAGE"
+
+    # ----- B1, B2 input-filter cells -----
+
+    def test_b1_input_filter_context(self, java_bridge):
+        cm = ContextManager()
+        cm.set("tag", "KEEP", value_type="id_String")
+        gm = GlobalMap()
+        cfg = _ctx_sync_config_input_filter(
+            "{{java}}String.valueOf(context.tag) == \"KEEP\""
+        )
+        comp = _make_component(java_bridge, config=cfg,
+                               context_manager=cm, global_map=gm,
+                               comp_id="tMap_055_b1")
+        main_df = pd.DataFrame([{"id": 1}, {"id": 2}, {"id": 3}])
+        result = comp.execute({"row1": main_df})
+        assert sorted(result["out1"]["id"].tolist()) == [1, 2, 3], (
+            "R2 input-filter context sync regressed: filter dropped all rows "
+            "because context.tag resolved to null."
+        )
+
+    def test_b2_input_filter_globalmap(self, java_bridge):
+        cm = ContextManager()
+        gm = GlobalMap()
+        gm.put("tag", "KEEP")
+        cfg = _ctx_sync_config_input_filter(
+            "{{java}}String.valueOf(globalMap.get(\"tag\")) == \"KEEP\""
+        )
+        comp = _make_component(java_bridge, config=cfg,
+                               context_manager=cm, global_map=gm,
+                               comp_id="tMap_055_b2")
+        main_df = pd.DataFrame([{"id": 1}, {"id": 2}])
+        result = comp.execute({"row1": main_df})
+        assert sorted(result["out1"]["id"].tolist()) == [1, 2]
+
+    # ----- C1, C2 output-filter cells -----
+
+    def test_c1_output_filter_context(self, java_bridge):
+        cm = ContextManager()
+        cm.set("tag", "KEEP", value_type="id_String")
+        gm = GlobalMap()
+        cfg = _ctx_sync_config_output_filter(
+            "{{java}}String.valueOf(context.tag) == \"KEEP\""
+        )
+        comp = _make_component(java_bridge, config=cfg,
+                               context_manager=cm, global_map=gm,
+                               comp_id="tMap_055_c1")
+        main_df = pd.DataFrame([{"id": 1}, {"id": 2}, {"id": 3}])
+        result = comp.execute({"row1": main_df})
+        assert sorted(result["out1"]["id"].tolist()) == [1, 2, 3]
+
+    def test_c2_output_filter_globalmap(self, java_bridge):
+        cm = ContextManager()
+        gm = GlobalMap()
+        gm.put("tag", "KEEP")
+        cfg = _ctx_sync_config_output_filter(
+            "{{java}}String.valueOf(globalMap.get(\"tag\")) == \"KEEP\""
+        )
+        comp = _make_component(java_bridge, config=cfg,
+                               context_manager=cm, global_map=gm,
+                               comp_id="tMap_055_c2")
+        main_df = pd.DataFrame([{"id": 1}, {"id": 2}])
+        result = comp.execute({"row1": main_df})
+        assert sorted(result["out1"]["id"].tolist()) == [1, 2]
+
+    # ----- D1, D2 variable cells -----
+
+    def test_d1_variable_with_context(self, java_bridge):
+        cm = ContextManager()
+        cm.set("env", "DEV", value_type="id_String")
+        gm = GlobalMap()
+        cfg = _ctx_sync_config_variable(
+            "{{java}}\"prefix_\" + String.valueOf(context.env)"
+        )
+        comp = _make_component(java_bridge, config=cfg,
+                               context_manager=cm, global_map=gm,
+                               comp_id="tMap_055_d1")
+        result = comp.execute({"row1": pd.DataFrame([{"id": 1}])})
+        assert result["out1"]["tag"].iloc[0] == "prefix_DEV"
+
+    def test_d2_variable_with_globalmap(self, java_bridge):
+        cm = ContextManager()
+        gm = GlobalMap()
+        gm.put("env", "STAGE")
+        cfg = _ctx_sync_config_variable(
+            "{{java}}\"prefix_\" + String.valueOf(globalMap.get(\"env\"))"
+        )
+        comp = _make_component(java_bridge, config=cfg,
+                               context_manager=cm, global_map=gm,
+                               comp_id="tMap_055_d2")
+        result = comp.execute({"row1": pd.DataFrame([{"id": 1}])})
+        assert result["out1"]["tag"].iloc[0] == "prefix_STAGE"
+
+    # ----- Regression guard (Pitfall 6) -----
+
+    def test_routine_on_row_still_works(self, java_bridge):
+        """Routines bound statically by Groovy (addRoutinesToBinding) keep
+        working on row data even when context sync is broken. This test
+        passes pre-fix AND post-fix; it guards Pitfall 6 (don't break the
+        routine binding pathway while wiring context sync).
+        """
+        cm = ContextManager()
+        gm = GlobalMap()
+        cfg = _ctx_sync_config_column(
+            "{{java}}routines.StringHandling.UPCASE(row1.label)",
+        )
+        comp = _make_component(java_bridge, config=cfg,
+                               context_manager=cm, global_map=gm,
+                               comp_id="tMap_055_routine")
+        main_df = pd.DataFrame([{"id": 1, "label": "abc"}])
+        result = comp.execute({"row1": main_df})
+        assert result["out1"]["decorated"].iloc[0] == "ABC"

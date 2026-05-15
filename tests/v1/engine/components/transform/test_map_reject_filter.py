@@ -465,3 +465,72 @@ class TestFilterRejectCompiled:
         rej = result["rej1"]
         # Java string concat coerces int -> str: 42 + "_REJ" -> "42_REJ"
         assert rej["label"].tolist() == ["42_REJ"]
+
+
+# ---------------------------------------------------------------------------
+# Plan 05.5-04 R7: filter-reject column expression with context.X and
+# globalMap.X. Python-eval path only -- the 4 compiled-path filter-reject
+# xfails are RETAINED per R9 decision in 05.5-XFAIL-REVIEW.md (orthogonal
+# root cause in _build_compiled_script's active-mode reject emission).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestFilterRejectContextSync:
+    """R7 -- is_reject filter-reject column reads context.X and globalMap.X.
+
+    Python-eval path: no ``{{java}}`` markers anywhere in the config, so
+    the row-level evaluation engages ``_evaluate_outputs_py`` which builds
+    a namespace with ``context`` (as ``SimpleNamespace`` over
+    ``context_manager.get_all()``) and ``globalMap`` (the live GlobalMap
+    object). The compiled-path filter-reject xfails stay pinned (R9 path
+    (b)) -- this test only verifies the Python path.
+    """
+
+    def test_filter_reject_with_context_and_globalmap(self):
+        from src.v1.engine.global_map import GlobalMap as _GM
+        cm = ContextManager()
+        cm.set("suffix", "_REJ", value_type="id_String")
+        gm = _GM()
+        gm.put("env", "PROD")
+
+        cfg = _make_filter_reject_config(
+            source_columns=[
+                {"name": "id", "expression": "row1.id", "type": "int"},
+                {"name": "tag", "expression": "'KEEP'", "type": "str"},
+            ],
+            reject_columns=[
+                {"name": "id", "expression": "row1.id", "type": "int"},
+                # Pure Python: str cast + concat with context + globalMap.
+                {
+                    "name": "label",
+                    "expression": (
+                        "str(row1.id) + context.suffix"
+                        " + globalMap.get('env')"
+                    ),
+                    "type": "str",
+                },
+            ],
+        )
+        comp = Map(
+            component_id="tMap_055_r7_filter",
+            config=cfg,
+            global_map=gm,
+            context_manager=cm,
+        )
+
+        main_df = pd.DataFrame([
+            {"id": 1, "score": 80},   # passes (score > 50)
+            {"id": 2, "score": 30},   # rejects
+        ])
+        result = comp.execute({"row1": main_df})
+        rej = result.get("rej1")
+        assert rej is not None and len(rej) == 1, (
+            f"Expected 1 reject row; got "
+            f"{len(rej) if rej is not None else 'None'}"
+        )
+        assert rej["id"].iloc[0] == 2
+        assert rej["label"].iloc[0] == "2_REJPROD", (
+            f"R7 Python-path filter-reject context+globalMap regressed: "
+            f"got {rej['label'].iloc[0]!r}"
+        )
