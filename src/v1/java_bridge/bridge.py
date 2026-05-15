@@ -30,6 +30,13 @@ from .type_mapping import (
 
 logger = logging.getLogger(__name__)
 
+# Py4J Base64-encodes byte[] arguments and stores the encoded length as a
+# signed 32-bit Java int (max ~2.14 GB). Encoded size = ceil(raw / 3) * 4.
+# We cap the *raw* Arrow payload at ~1.5 GB so that after Base64 expansion
+# (~2.0 GB) we stay safely below the 2 GB int limit and avoid
+# java.lang.NegativeArraySizeException at py4j.Base64.decode().
+_PY4J_BYTE_ARG_SAFE_LIMIT = 1_500_000_000
+
 
 def _coerce_global_map_for_java(d: dict[str, Any]) -> dict[str, Any]:
     """Coerce string values representing numbers to Python int/float.
@@ -550,31 +557,65 @@ class JavaBridge:
             Mapping of output_name -> DataFrame (combined from all chunks).
         """
         total_rows = len(df)
+        # Diagnostic: log effective chunk_size + frame shape so we can tell
+        # whether the caller's `output_chunk_size` override actually reached
+        # us, and how wide each row is before serialization.
+        try:
+            mem_mb = df.memory_usage(deep=True).sum() / 1e6
+        except Exception:
+            mem_mb = -1.0
         logger.info(
-            "[execute_compiled_tmap_chunked] %d rows in chunks of %d",
+            "[execute_compiled_tmap_chunked] component=%s rows=%d cols=%d "
+            "chunk_size=%d in-memory=%.1f MB (~%.0f KB/row)",
+            component_id,
             total_rows,
+            len(df.columns),
             chunk_size,
+            mem_mb,
+            (mem_mb * 1000 / max(total_rows, 1)) if mem_mb > 0 else -1,
         )
 
         schema_dict = schema if schema else self._infer_schema_dict(df)
         output_dfs_list: dict[str, list[pd.DataFrame]] = {}
-        num_chunks = (total_rows + chunk_size - 1) // chunk_size
 
-        for chunk_idx in range(num_chunks):
+        # Build the initial list of (start, end) row ranges. Ranges may be
+        # split further at runtime if a chunk's Arrow payload would exceed
+        # the Py4J Base64 byte[] limit (see _PY4J_BYTE_ARG_SAFE_LIMIT).
+        pending_ranges: list[tuple[int, int]] = []
+        for chunk_idx in range((total_rows + chunk_size - 1) // chunk_size):
             start_idx = chunk_idx * chunk_size
             end_idx = min(start_idx + chunk_size, total_rows)
+            pending_ranges.append((start_idx, end_idx))
+
+        processed = 0
+        while pending_ranges:
+            start_idx, end_idx = pending_ranges.pop(0)
             chunk_df = df.iloc[start_idx:end_idx]
 
-            logger.debug(
-                "  Chunk %d/%d: rows %d to %d (%d rows)",
-                chunk_idx + 1,
-                num_chunks,
-                start_idx,
-                end_idx,
-                len(chunk_df),
-            )
-
             arrow_bytes = self._df_to_arrow_bytes(chunk_df, schema_dict)
+
+            # Pre-flight guard: if the raw Arrow payload alone would overflow
+            # Py4J's Base64 length field, split the range in half and retry.
+            # Refuse to split below 1 row -- a single row exceeding the limit
+            # is unrecoverable and must surface as a clear error.
+            if len(arrow_bytes) > _PY4J_BYTE_ARG_SAFE_LIMIT and (end_idx - start_idx) > 1:
+                mid = start_idx + (end_idx - start_idx) // 2
+                logger.warning(
+                    "[execute_compiled_tmap_chunked] chunk rows %d-%d Arrow size "
+                    "%.2f GB exceeds Py4J safe limit %.2f GB; splitting in half",
+                    start_idx, end_idx,
+                    len(arrow_bytes) / 1e9,
+                    _PY4J_BYTE_ARG_SAFE_LIMIT / 1e9,
+                )
+                pending_ranges.insert(0, (mid, end_idx))
+                pending_ranges.insert(0, (start_idx, mid))
+                continue
+
+            logger.debug(
+                "  Chunk rows %d-%d (%d rows, %.1f MB Arrow)",
+                start_idx, end_idx, end_idx - start_idx,
+                len(arrow_bytes) / 1e6,
+            )
 
             def _call(ab=arrow_bytes):
                 return self.java_bridge.executeCompiledTMap(
@@ -584,7 +625,29 @@ class JavaBridge:
                     _coerce_global_map_for_java(self.global_map),
                 )
 
-            result_map = self._call_java_with_sync(_call)
+            try:
+                result_map = self._call_java_with_sync(_call)
+            except Exception as e:
+                # Recovery: if Java raised NegativeArraySizeException (or any
+                # error mentioning Base64), the row-count heuristic was too
+                # optimistic for this chunk's actual byte width. Halve the
+                # range and retry, unless we are already at 1 row.
+                msg = str(e)
+                is_base64_overflow = (
+                    "NegativeArraySizeException" in msg
+                    or "py4j.Base64" in msg
+                )
+                if is_base64_overflow and (end_idx - start_idx) > 1:
+                    mid = start_idx + (end_idx - start_idx) // 2
+                    logger.warning(
+                        "[execute_compiled_tmap_chunked] Py4J Base64 overflow on "
+                        "rows %d-%d; halving and retrying",
+                        start_idx, end_idx,
+                    )
+                    pending_ranges.insert(0, (mid, end_idx))
+                    pending_ranges.insert(0, (start_idx, mid))
+                    continue
+                raise
 
             for output_name, output_bytes in result_map.items():
                 if output_bytes and len(output_bytes) > 0:
@@ -602,6 +665,12 @@ class JavaBridge:
                 if output_name not in output_dfs_list:
                     output_dfs_list[output_name] = []
                 output_dfs_list[output_name].append(chunk_output_df)
+
+            processed += end_idx - start_idx
+            logger.debug(
+                "[execute_compiled_tmap_chunked] processed %d / %d rows",
+                processed, total_rows,
+            )
 
         output_dfs: dict[str, pd.DataFrame] = {}
         for output_name, df_list in output_dfs_list.items():
