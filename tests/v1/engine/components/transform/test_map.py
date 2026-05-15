@@ -3365,12 +3365,30 @@ class TestRouteCatchOutputRejects:
         assert len(result["rej"]) == 2
 
     def test_adds_default_error_message_when_missing(self):
+        """When the catch output declares an ``errorMessage`` column and
+        the bridge did not supply per-row error text, the framework
+        fills it with the default ``"Expression evaluation error"``
+        string (D-06 reserved-column policy with empty source data).
+
+        Updated by phase 05.4-04: ``errorMessage`` is now only populated
+        when the user declares that column in the output schema.  The
+        legacy verbatim-copy code unconditionally appended an
+        ``errorMessage`` column even when not in the schema -- that
+        behavior was incorrect per D-06 and is removed.
+        """
         comp = self._helper()
-        err_df = pd.DataFrame({"id": [1]})  # no errorMessage column
+        err_df = pd.DataFrame({"id": [1]})  # no errorMessage column on source
         result = {}
         comp._route_catch_output_rejects(
-            result, {"__errors__": err_df},
-            [{"name": "rej", "catch_output_reject": True, "columns": []}],
+            result,
+            {"__errors__": err_df},
+            [{
+                "name": "rej",
+                "catch_output_reject": True,
+                "columns": [
+                    {"name": "errorMessage", "expression": "", "type": "str"},
+                ],
+            }],
         )
         assert "errorMessage" in result["rej"].columns
         assert result["rej"]["errorMessage"].iloc[0] == "Expression evaluation error"

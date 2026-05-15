@@ -2755,11 +2755,44 @@ class Map(BaseComponent):
     ) -> None:
         """Route expression error rows to catch output reject outputs.
 
-        Catch output outputs receive rows where expression evaluation
-        threw an exception, with an added errorMessage column.
+        Phase 05.4-04 (R3, R7, D-01, D-03, D-06) rewrite:
+
+        For each ``catch_output_reject: True`` output, evaluate that
+        output's own user-defined column expressions per row against the
+        error rows -- via ``_evaluate_output_columns_py``.  Two column
+        names are framework-reserved:
+
+          - ``errorMessage``: populated with the exception message.
+          - ``errorStackTrace``: populated with the stack trace string.
+
+        If the user declares these names with their own expressions, the
+        framework value WINS (matches Talaxie ``tMap_main.inc.javajet:
+        1925-1988``).  The reserved-column overwrite is a single
+        column-level assignment on the already-materialised DataFrame --
+        NOT inside a per-row loop -- so the result is built in one bulk
+        allocation plus at most two scalar column fills (R7
+        single-allocation guarantee).
+
+        ``raw_result["__errors__"]`` is the per-row error data emitted by
+        the compiled bridge script.  Two shapes are accepted:
+
+          - ``pd.DataFrame``: rows align with the input rows that errored
+            (preferred shape; what ``_evaluate_outputs_compiled`` will
+            unpack into when bridge wiring catches up).
+          - ``dict``: the raw Groovy emission shape (``count``,
+            ``indices``, ``messages``).  ``messages`` is a dict keyed by
+            row index; values become the framework ``errorMessage``
+            column.  When this shape is supplied without an ``error_df``,
+            user-defined column expressions cannot reference row data --
+            those columns evaluate against an empty row dict and yield
+            ``None`` via ``_NullNamespace`` semantics.
+
+        ``var_columns`` is intentionally ``{}``: per-row variable values
+        were computed against the matched DataFrame and are not defined
+        for error rows.
 
         Args:
-            result: Current result dict to update.
+            result: Current result dict to update in place.
             raw_result: Raw result from compiled script execution.
             outputs_config: Output config list.
         """
@@ -2767,22 +2800,128 @@ class Map(BaseComponent):
         if error_key not in raw_result:
             return
 
-        error_df = raw_result[error_key]
-        if error_df is None or (isinstance(error_df, pd.DataFrame) and error_df.empty):
+        error_payload = raw_result[error_key]
+        if error_payload is None:
             return
 
+        # Unpack the payload into (error_df, per_row_messages, per_row_traces).
+        # The bridge currently emits the dict shape; future wiring may
+        # promote __errors__ into a DataFrame.  Handle both.
+        error_df: pd.DataFrame
+        per_row_messages: list[str]
+        per_row_traces: list[str]
+        if isinstance(error_payload, pd.DataFrame):
+            if error_payload.empty:
+                return
+            error_df = error_payload
+            # DataFrame shape may carry errorMessage / errorStackTrace
+            # columns directly from the bridge -- use them as the
+            # framework value source when present.
+            if "errorMessage" in error_df.columns:
+                per_row_messages = [
+                    "" if v is None else str(v)
+                    for v in error_df["errorMessage"].tolist()
+                ]
+            else:
+                per_row_messages = []
+            if "errorStackTrace" in error_df.columns:
+                per_row_traces = [
+                    "" if v is None else str(v)
+                    for v in error_df["errorStackTrace"].tolist()
+                ]
+            else:
+                per_row_traces = []
+        elif isinstance(error_payload, dict):
+            # Raw Groovy emission shape: count + indices + messages dict.
+            messages_map = error_payload.get("messages", {}) or {}
+            if not messages_map:
+                return
+            indices = list(error_payload.get("indices") or messages_map.keys())
+            # Build a synthetic error_df keyed by row index; columns are
+            # not known here (the bridge skips __errors__ in Arrow
+            # serialisation, so the row data is unavailable on the
+            # Python side).  User expressions referencing row1.* will
+            # resolve to None via _NullNamespace.
+            error_df = pd.DataFrame(index=range(len(indices)))
+            per_row_messages = [
+                str(messages_map.get(idx, "")) for idx in indices
+            ]
+            per_row_traces = []
+        else:
+            # Unknown payload shape -- skip without raising.
+            logger.warning(
+                "[%s] __errors__ payload has unexpected type %s; skipping "
+                "catch output routing",
+                self.id, type(error_payload).__name__,
+            )
+            return
+
+        main_name = self.config["inputs"]["main"]["name"]
+        lookup_names = [
+            lk["name"]
+            for lk in self.config["inputs"].get("lookups", [])
+        ]
+
         for output_cfg in outputs_config:
-            if output_cfg.get("catch_output_reject"):
-                out_name = output_cfg["name"]
-                if isinstance(error_df, pd.DataFrame):
-                    output_df = error_df.copy()
-                    if "errorMessage" not in output_df.columns:
-                        output_df["errorMessage"] = "Expression evaluation error"
-                    result[out_name] = output_df
-                    logger.info(
-                        f"[{self.id}] Routed {len(error_df)} error rows "
-                        f"to catch output '{out_name}'"
+            if not output_cfg.get("catch_output_reject"):
+                continue
+            out_name = output_cfg["name"]
+            col_defs = output_cfg["columns"]
+            col_names = [c["name"] for c in col_defs]
+
+            # D-06: skip reserved column names during user-expression
+            # evaluation; the framework fills them afterwards.  Build a
+            # filtered output config that excludes the reserved names.
+            non_reserved_cols = [
+                c for c in col_defs
+                if c["name"] not in ("errorMessage", "errorStackTrace")
+            ]
+            eval_cfg = {**output_cfg, "columns": non_reserved_cols}
+
+            # Evaluate user-defined columns via the shared per-output
+            # evaluator (single-allocation; D-01, D-03).
+            user_df = self._evaluate_output_columns_py(
+                error_df,
+                eval_cfg,
+                {},  # var_columns: not defined for error rows
+                main_name,
+                lookup_names,
+            )
+
+            # Reserved-column overwrite (D-06): single column-level
+            # assignment on the already-materialised DataFrame.  Not a
+            # per-row loop -- R7 single-allocation guarantee preserved.
+            n_rows = len(user_df)
+            if "errorMessage" in col_names:
+                if per_row_messages:
+                    user_df["errorMessage"] = (
+                        per_row_messages[:n_rows]
+                        + ["Expression evaluation error"]
+                        * max(0, n_rows - len(per_row_messages))
                     )
+                else:
+                    user_df["errorMessage"] = "Expression evaluation error"
+            if "errorStackTrace" in col_names:
+                if per_row_traces:
+                    user_df["errorStackTrace"] = (
+                        per_row_traces[:n_rows]
+                        + [""] * max(0, n_rows - len(per_row_traces))
+                    )
+                else:
+                    user_df["errorStackTrace"] = ""
+
+            # Reorder columns to match the declared output schema.  The
+            # helper returned them in the non_reserved order; reserved
+            # columns were appended via the assignments above.  Use the
+            # declared col_names ordering so the result frame matches
+            # output_cfg exactly.
+            user_df = user_df.reindex(columns=col_names)
+
+            result[out_name] = user_df
+            logger.info(
+                "[%s] Routed %d error rows to catch output '%s'",
+                self.id, n_rows, out_name,
+            )
 
     # ------------------------------------------------------------------
     # Inner Join Reject Routing
