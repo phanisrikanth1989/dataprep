@@ -5,7 +5,9 @@ synchronization after every Java call. Zero print() statements -- all
 output goes through the logging module.
 """
 
+import calendar
 import collections
+import datetime
 import io
 import logging
 import os
@@ -20,6 +22,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.ipc as ipc
 from py4j.java_gateway import JavaGateway, GatewayParameters
+from py4j.protocol import register_input_converter
 
 from .type_mapping import (
     PYTHON_TO_JAVA,
@@ -80,6 +83,54 @@ _PYTHON_TO_JAVA_LOG_LEVEL: dict[int, str] = {
 }
 
 
+# ----------------------------------------------------------------------
+# Py4J input converters for datetime.date / datetime.datetime
+# ----------------------------------------------------------------------
+#
+# Pattern reference: pyspark.sql.types DatetimeConverter / DateConverter
+# (see Phase 05.5 RESEARCH.md L69-97). Registration is process-global per
+# py4j docs -- one register_input_converter call at JavaBridge.start()
+# covers every subsequent gateway client started in the same Python
+# process. Subclass (DatetimeConverter) is registered FIRST so it takes
+# precedence over DateConverter for datetime.datetime instances.
+
+class DatetimeConverter:
+    """Py4J input converter: datetime.datetime -> java.util.Date.
+
+    Registered before DateConverter so the subclass branch wins for
+    datetime instances. Aware datetimes use UTC; naive datetimes use
+    the host's local timezone via time.mktime (mirrors PySpark).
+    """
+
+    def can_convert(self, obj):
+        return isinstance(obj, datetime.datetime)
+
+    def convert(self, obj, gateway_client):
+        if obj.tzinfo is not None:
+            seconds = calendar.timegm(obj.utctimetuple())
+        else:
+            seconds = time.mktime(obj.timetuple())
+        millis = int(seconds * 1000 + obj.microsecond // 1000)
+        return gateway_client.jvm.java.util.Date(millis)
+
+
+class DateConverter:
+    """Py4J input converter: datetime.date -> java.util.Date at midnight UTC.
+
+    Excludes datetime.datetime (handled by DatetimeConverter).
+    """
+
+    def can_convert(self, obj):
+        return (
+            isinstance(obj, datetime.date)
+            and not isinstance(obj, datetime.datetime)
+        )
+
+    def convert(self, obj, gateway_client):
+        seconds = calendar.timegm(obj.timetuple())
+        return gateway_client.jvm.java.util.Date(int(seconds * 1000))
+
+
 class JavaBridge:
     """Bridge between Python and Java using Py4J with Arrow for data transfer.
 
@@ -89,6 +140,11 @@ class JavaBridge:
     Arrow schemas are built from explicit type mappings (via type_mapping.py),
     never inferred from DataFrame data.
     """
+
+    # Class-level flag -- Py4J input-converter registration is process-global,
+    # so we register exactly once across all JavaBridge instances in the same
+    # Python process. Flipped to True after the first successful start().
+    _converters_registered: bool = False
 
     def __init__(self) -> None:
         """Initialize the bridge. Call ``start()`` to launch the JVM."""
@@ -210,6 +266,19 @@ class JavaBridge:
                 self.java_bridge = self.gateway.entry_point
                 # Test connection
                 _ = self.java_bridge.getContext()
+
+                # Register Py4J input converters for datetime.date /
+                # datetime.datetime exactly once per Python process. Order
+                # matters: DatetimeConverter (subclass match) is registered
+                # FIRST so it wins over DateConverter for datetime instances.
+                if not JavaBridge._converters_registered:
+                    register_input_converter(DatetimeConverter())
+                    register_input_converter(DateConverter())
+                    JavaBridge._converters_registered = True
+                    logger.info(
+                        "[OK] Registered Py4J date/datetime input converters"
+                    )
+
                 self._started = True
 
                 # Sync log level
