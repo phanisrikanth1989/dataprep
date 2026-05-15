@@ -2006,3 +2006,79 @@ class TestPhase055TypeMatrix:
                     f"{label}/{namespace} filter dropped the row "
                     f"because {namespace}.X resolved to null."
                 )
+
+    # ------------------------------------------------------------------
+    # 8 datetime-format cells: 4 formats x 2 namespaces.
+    #
+    # Each cell pushes a Python str under id_Date (the "path (a)"
+    # disposition for Pitfall 4 in RESEARCH.md L346-351) and asserts
+    # that ``routines.TalendDate.parseDate(format, ns.X)`` returns
+    # non-null. Path (b) -- Python date / datetime arriving as
+    # java.util.Date -- is covered by the date_pydate / date_pydatetime
+    # rows in the 36-cell matrix above (currently xfailed; see
+    # _XFAIL_DATE_* constants).
+    #
+    # 4 locked formats per SPEC L76:
+    #   - ISO datetime:  "yyyy-MM-dd HH:mm:ss"
+    #   - ISO date-only: "yyyy-MM-dd"
+    #   - US:            "MM/dd/yyyy"
+    #   - European:      "dd/MM/yyyy HH:mm"
+    # ------------------------------------------------------------------
+
+    _DATE_FORMATS = [
+        pytest.param("2026-05-15 12:30:45", "yyyy-MM-dd HH:mm:ss",
+                      id="iso_datetime"),
+        pytest.param("2026-05-15", "yyyy-MM-dd", id="iso_date"),
+        pytest.param("05/15/2026", "MM/dd/yyyy", id="us"),
+        pytest.param("15/05/2026 12:30", "dd/MM/yyyy HH:mm",
+                      id="european"),
+    ]
+
+    @pytest.mark.parametrize("date_str,format_str", _DATE_FORMATS)
+    @pytest.mark.parametrize("namespace", ["context", "globalMap"])
+    def test_datetime_format_parse(self, java_bridge, date_str,
+                                     format_str, namespace):
+        """R6 datetime-format cell.
+
+        Pushes the str ``date_str`` under id_Date in ``namespace`` and
+        asserts that ``routines.TalendDate.parseDate(format_str,
+        ns.X)`` returns non-null. This is the "path (a)" disposition
+        for Pitfall 4 (RESEARCH.md L346-351): when the value is a
+        string in the locked format, parseDate(String, String) works
+        directly because Groovy's static binding accepts a CharSequence
+        for the second arg.
+
+        For the globalMap variant, the accessor is cast via
+        ``(String)globalMap.get("X")`` because globalMap.get returns
+        Object and parseDate's overload resolution needs an explicit
+        String.
+        """
+        cm = ContextManager()
+        gm = GlobalMap()
+        if namespace == "context":
+            cm.set("X", date_str, value_type="id_Date")
+            accessor = "context.X"
+        else:
+            gm.put("X", date_str)
+            accessor = '(String)globalMap.get("X")'
+
+        expr = (
+            f'{{{{java}}}}routines.TalendDate.parseDate('
+            f'"{format_str}", {accessor}) != null '
+            f'? "parsed" : "null"'
+        )
+        cfg = _ctx_sync_config_column(expr)
+        cfg["outputs"][0]["columns"][0]["name"] = "result"
+
+        comp = _make_component(
+            java_bridge, config=cfg,
+            context_manager=cm, global_map=gm,
+            comp_id=f"tMap_055_06_fmt_{namespace}",
+        )
+        result = comp.execute({"row1": pd.DataFrame([{"id": 1}])})
+        actual = result["out1"]["result"].iloc[0]
+        assert actual == "parsed", (
+            f"R6 datetime-format regression: cell "
+            f"fmt={format_str!r} ns={namespace} expected "
+            f"parseDate to return non-null, got {actual!r}"
+        )
