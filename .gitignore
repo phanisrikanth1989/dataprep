@@ -27,3 +27,5 @@ src/v1/java_bridge/java/dependency-reduced-pom.xml
 .coverage
 .coverage.*
 htmlcov/
+/coverage.json
+/cov_*.json
