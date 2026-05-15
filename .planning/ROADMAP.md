@@ -142,9 +142,19 @@ Plans:
 ### Phase 05.4: tMap Reject Correctness and Groovy Safety (INSERTED)
 
 **Goal:** Restore reject-routing fidelity to Talend semantics across all three tMap reject mechanisms (inner_join_reject, is_reject filter-reject, catch_output_reject), perform a full Groovy-safety audit of expression embedding in the compiled script generator, and eliminate the pandas fragmentation warning emitted by reject routing. Regression introduced by commit 9ab8120 (phase 5 rewrite "from scratch"); main branch and Talaxie codegen both got it right; current branch is the outlier.
-**Requirements:** TBD via SPEC.md + discuss-phase
+**Requirements:** R1, R2, R3, R4, R5, R6, R7 (see 05.4-SPEC.md)
 **Depends on:** Phase 5, Phase 05.3
-**Plans:** TBD via plan-phase
+**Plans:** 8 plans
+
+Plans:
+- [ ] 05.4-01-PLAN.md -- Extract _evaluate_output_columns_py helper (refactor, no behavior change)
+- [ ] 05.4-02-PLAN.md -- Rewrite _route_inner_join_rejects: call helper + _NullRow sentinel (R1, R4, R5, R7)
+- [ ] 05.4-03-PLAN.md -- Rewrite is_reject filter-reject routing in _evaluate_outputs_py + _apply_output_filter (R2, R4, R7)
+- [ ] 05.4-04-PLAN.md -- Rewrite _route_catch_output_rejects: user columns + reserved-column policy (R3, R4, R6, R7)
+- [ ] 05.4-05-PLAN.md -- Groovy-safety audit + _groovy_escape_expression + 6 embed sites + 05.4-GROOVY-AUDIT.md (R6)
+- [ ] 05.4-06-PLAN.md -- Per-reject-output method emission in compiled script + dual-invocation dispatch Option A (D-09)
+- [ ] 05.4-07-PLAN.md -- Full test matrix (20+12+10+Groovy-safety) + e2e fixture + D-10 assertion strengthening (D-08, D-10)
+- [ ] 05.4-08-PLAN.md -- Phase verification + coverage gate + SUMMARY (all R1-R7)
 
 ### Phase 05.1: Java Bridge tMap Fix (INSERTED)
 
