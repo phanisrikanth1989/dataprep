@@ -130,16 +130,16 @@ Plans:
 **Goal:** Fix per-row Java expression evaluation in tMap/py_map/filter_rows so `context.*` and `globalMap.*` references resolve correctly inside compiled Groovy scripts and bridge preprocessing — restoring the call-site sync pattern that existed on `main` and was lost in the engine restructure. Also fix Java-side `__errors__` Arrow serialization to enable D-06 reserved-column round-trip and close 2 of the 05.4 strict-xfails.
 **Requirements**: R1, R2, R3, R4, R5, R6, R7, R8, R9 (see 05.5-SPEC.md)
 **Depends on:** Phase 05.4
-**Plans:** 3/8 plans executed
+**Plans:** 7/8 plans executed
 
 Plans:
 - [x] 05.5-01-PLAN.md -- Py4J date/datetime input converters registered in JavaBridge.start (R6 foundation)
 - [x] 05.5-02-PLAN.md -- Java-side __errors__ Arrow emission with rowIndex/errorMessage/errorStackTrace schema + JAR rebuild (R8)
 - [x] 05.5-03-PLAN.md -- PyMap _ContextView + _GlobalMapView eval-namespace binding (R5, pure Python)
-- [ ] 05.5-04-PLAN.md -- Map._push_runtime_state_to_bridge + 3 invocation sites + 11 spike tests + 3 R7 reject tests (R1, R2, R3, R7; R6 type-aware push)
-- [ ] 05.5-05-PLAN.md -- FilterRows._push_runtime_state_to_bridge + 1 invocation site + E1/E2 spike tests (R4)
-- [ ] 05.5-06-PLAN.md -- TestPhase055TypeMatrix — 44-cell R6 type-fidelity matrix (36 type cells + 8 datetime-format cells)
-- [ ] 05.5-07-PLAN.md -- _route_catch_output_rejects DataFrame-shape promoted to primary path + test_catch_d06_arrow_roundtrip end-to-end (R8 consumer)
+- [x] 05.5-04-PLAN.md -- Map._push_runtime_state_to_bridge + 3 invocation sites + 11 spike tests + 3 R7 reject tests (R1, R2, R3, R7; R6 type-aware push)
+- [x] 05.5-05-PLAN.md -- FilterRows._push_runtime_state_to_bridge + 1 invocation site + E1/E2 spike tests (R4)
+- [x] 05.5-06-PLAN.md -- TestPhase055TypeMatrix — 44-cell R6 type-fidelity matrix (36 type cells + 8 datetime-format cells)
+- [x] 05.5-07-PLAN.md -- _route_catch_output_rejects DataFrame-shape promoted to primary path + test_catch_d06_arrow_roundtrip end-to-end (R8 consumer)
 - [ ] 05.5-08-PLAN.md -- Phase 14 coverage gate + full suite + R9 strict-xfail review (2 catch promoted, 4 filter-reject retained per path b) + VERIFICATION + PHASE-SUMMARY (checkpoint)
 
 ### Phase 05.3: tMap Join Correctness, Marker Rule, and Filepath Expression (INSERTED)
@@ -545,5 +545,5 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 15.1. Documentation Audit Reconciliation | 12/12 | Complete | 2026-05-11 |
 | 05.3. tMap Join Correctness, Marker Rule, and Filepath Expression | 8/8 | Complete | 2026-05-15 |
 | 05.4. tMap Reject Correctness and Groovy Safety | 8/8 | Complete | 2026-05-15 |
-| 05.5. tMap Context/GlobalMap Bridge Sync + __errors__ Arrow Round-trip | 3/8 | In Progress|  |
+| 05.5. tMap Context/GlobalMap Bridge Sync + __errors__ Arrow Round-trip | 7/8 | In Progress|  |
 | 16. Integration Testing & Performance (Manager) | 0/TBD | Not started | - |
