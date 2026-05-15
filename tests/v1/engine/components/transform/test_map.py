@@ -6695,3 +6695,189 @@ class TestCatchOutputRejectPy:
             result, {}, comp.config["outputs"]
         )
         assert result == {}
+
+
+# ------------------------------------------------------------------
+# Plan 05.4-06: D-09 Compiled-path per-reject-output method emission +
+# dual-invocation dispatch.
+# ------------------------------------------------------------------
+
+
+def _make_compiled_reject_config():
+    """Build a tMap config with one active output + one inner_join_reject output.
+
+    Uses {{java}} markers so _evaluate_outputs_compiled is the dispatched path.
+    """
+    return {
+        "component_type": "Map",
+        "inputs": {
+            "main": {
+                "name": "row1",
+                "filter": "",
+                "activate_filter": False,
+                "matching_mode": "UNIQUE_MATCH",
+                "lookup_mode": "LOAD_ONCE",
+            },
+            "lookups": [
+                {
+                    "name": "row2",
+                    "matching_mode": "UNIQUE_MATCH",
+                    "lookup_mode": "LOAD_ONCE",
+                    "filter": "",
+                    "activate_filter": False,
+                    "join_keys": [
+                        {
+                            "lookup_column": "key",
+                            "expression": "{{java}}row1.key",
+                            "type": "str",
+                            "nullable": True,
+                            "operator": "=",
+                        }
+                    ],
+                    "join_mode": "INNER_JOIN",
+                }
+            ],
+        },
+        "variables": [],
+        "outputs": [
+            {
+                "name": "out1",
+                "is_reject": False,
+                "inner_join_reject": False,
+                "filter": "",
+                "activate_filter": False,
+                "columns": [
+                    {
+                        "name": "id",
+                        "expression": "{{java}}row1.id",
+                        "type": "int",
+                        "nullable": True,
+                    },
+                ],
+                "catch_output_reject": False,
+            },
+            {
+                "name": "rej1",
+                "is_reject": False,
+                "inner_join_reject": True,
+                "filter": "",
+                "activate_filter": False,
+                "columns": [
+                    {
+                        "name": "id",
+                        "expression": "{{java}}row1.id",
+                        "type": "int",
+                        "nullable": True,
+                    },
+                ],
+                "catch_output_reject": False,
+            },
+        ],
+        "die_on_error": True,
+    }
+
+
+@pytest.mark.unit
+class TestBuildCompiledScriptRejectMethods:
+    """Plan 05.4-06: _build_compiled_script emits per-reject-output methods +
+    rejectMode dispatch; _evaluate_outputs_compiled performs dual invocation.
+    """
+
+    def test_reject_output_method_emitted(self):
+        """_build_compiled_script emits evalOutput_<reject_name> alongside
+        the active-output methods when an inner_join_reject output exists.
+        """
+        config = _make_compiled_reject_config()
+        comp = _make_component(config=config)
+        script = comp._build_compiled_script(
+            config["outputs"], config["variables"], "row1", ["row2"]
+        )
+        assert "evalOutput_rej1" in script, (
+            "compiled script must emit evalOutput_<name> for inner_join_reject "
+            f"output 'rej1'; got:\n{script}"
+        )
+        # Active output method must still be present.
+        assert "evalOutput_out1" in script
+
+    def test_reject_mode_guard_emitted(self):
+        """The generated script must contain a `rejectMode` control variable
+        so the row loop can branch active vs reject helper calls.
+        """
+        config = _make_compiled_reject_config()
+        comp = _make_component(config=config)
+        script = comp._build_compiled_script(
+            config["outputs"], config["variables"], "row1", ["row2"]
+        )
+        assert "rejectMode" in script, (
+            "compiled script must contain rejectMode control variable; "
+            f"got:\n{script}"
+        )
+
+    def test_no_reject_output_no_reject_method(self):
+        """When config has only active_outputs, no reject helper methods
+        should leak into the generated script.
+        """
+        config = _make_compiled_reject_config()
+        # Strip the inner_join_reject output -- leave only out1.
+        config["outputs"] = [o for o in config["outputs"]
+                             if not o.get("inner_join_reject")]
+        comp = _make_component(config=config)
+        script = comp._build_compiled_script(
+            config["outputs"], config["variables"], "row1", ["row2"]
+        )
+        assert "evalOutput_out1" in script
+        # No reject helper should have been emitted.
+        assert "evalOutput_rej" not in script
+
+    def test_dual_invocation_when_reject_outputs_present(self):
+        """When reject_outputs exist AND inner_join_reject_dfs has rows,
+        _evaluate_outputs_compiled invokes the bridge twice -- once for
+        active outputs (rejectMode=False) and once for reject outputs
+        (rejectMode=True).
+        """
+        from unittest.mock import MagicMock
+
+        config = _make_compiled_reject_config()
+        comp = _make_component(config=config)
+
+        # Mock the java_bridge. The compiled path uses
+        # compile_tmap_script + execute_compiled_tmap_chunked.
+        mock_bridge = MagicMock()
+        mock_bridge.compile_tmap_script.return_value = "tMap_1"
+        # Each invocation returns a dict {output_name: DataFrame}.
+        mock_bridge.execute_compiled_tmap_chunked.return_value = {
+            "out1": pd.DataFrame({"id": []}),
+            "rej1": pd.DataFrame({"id": []}),
+        }
+        comp.java_bridge = mock_bridge
+
+        # Build a joined_df + one inner_join_reject row source.
+        joined_df = pd.DataFrame({"row1.id": [1, 2], "row2.key": ["A", "B"]})
+        reject_df = pd.DataFrame({"row1.id": [99], "row2.key": [None]})
+        inner_join_reject_dfs = {"row2": reject_df}
+
+        comp._evaluate_outputs_compiled(
+            joined_df,
+            config["outputs"],
+            config["variables"],
+            "row1",
+            ["row2"],
+            inner_join_reject_dfs=inner_join_reject_dfs,
+        )
+
+        assert mock_bridge.execute_compiled_tmap_chunked.call_count == 2, (
+            f"Expected 2 bridge invocations (one per rejectMode); "
+            f"got {mock_bridge.execute_compiled_tmap_chunked.call_count}"
+        )
+
+        # Inspect the calls: one rejectMode=False, one rejectMode=True.
+        seen_modes: list[bool] = []
+        for call in mock_bridge.execute_compiled_tmap_chunked.call_args_list:
+            kwargs = call.kwargs
+            seen_modes.append(bool(kwargs.get("reject_mode", False)))
+        assert False in seen_modes, (
+            f"Expected one invocation with reject_mode=False; modes={seen_modes}"
+        )
+        assert True in seen_modes, (
+            f"Expected one invocation with reject_mode=True; modes={seen_modes}"
+        )

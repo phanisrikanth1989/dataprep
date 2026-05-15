@@ -668,9 +668,15 @@ class Map(BaseComponent):
 
         # Steps 6-8: Evaluate outputs (compiled script or Python eval)
         if _use_compiled:
+            # D-09 (Plan 05.4-06): thread inner_join_reject_dfs into the
+            # compiled path so _evaluate_outputs_compiled can dispatch the
+            # second (reject_mode=True) invocation. The Python-eval path
+            # below does not need this -- _route_inner_join_rejects covers
+            # its reject routing downstream.
             result = self._evaluate_outputs(
                 joined_df, outputs_config, variables_config,
-                main_name, joined_lookup_names
+                main_name, joined_lookup_names,
+                inner_join_reject_dfs=inner_join_reject_dfs,
             )
         else:
             result = self._evaluate_outputs_py(
@@ -678,10 +684,17 @@ class Map(BaseComponent):
                 main_name, joined_lookup_names
             )
 
-        # Step 9: Route inner join rejects
-        self._route_inner_join_rejects(
-            result, inner_join_reject_dfs, outputs_config
-        )
+        # Step 9: Route inner join rejects (Python-eval path).
+        # The compiled path already populated reject outputs via the
+        # second bridge invocation, so this is effectively a no-op for
+        # outputs the compiled path produced. _route_inner_join_rejects
+        # concats per-output frames in-place; rerunning it for outputs
+        # already filled by the bridge would duplicate rows. Skip it in
+        # the compiled path to keep the result frame correct.
+        if not _use_compiled:
+            self._route_inner_join_rejects(
+                result, inner_join_reject_dfs, outputs_config
+            )
 
         return result
 
@@ -1981,6 +1994,7 @@ class Map(BaseComponent):
         variables_config: list[dict],
         main_name: str,
         lookup_names: list[str],
+        inner_join_reject_dfs: "dict[str, pd.DataFrame] | None" = None,
     ) -> dict[str, pd.DataFrame]:
         """Evaluate output expressions and route to named outputs.
 
@@ -1993,6 +2007,11 @@ class Map(BaseComponent):
             variables_config: List of variable config dicts.
             main_name: Main table name.
             lookup_names: Lookup table names.
+            inner_join_reject_dfs: Optional per-failing-lookup reject rows
+                threaded from ``_process`` so the compiled path can dispatch
+                a second invocation for reject outputs (D-09, Plan 05.4-06).
+                Ignored by the Python-eval path (rejects are handled
+                downstream by ``_route_inner_join_rejects``).
 
         Returns:
             Dict mapping output names to DataFrames.
@@ -2006,7 +2025,8 @@ class Map(BaseComponent):
         if _use_compiled:
             result = self._evaluate_outputs_compiled(
                 joined_df, outputs_config, variables_config,
-                main_name, lookup_names
+                main_name, lookup_names,
+                inner_join_reject_dfs=inner_join_reject_dfs,
             )
         else:
             # Python-eval path (no markers anywhere -> bridge not needed).
@@ -2030,11 +2050,39 @@ class Map(BaseComponent):
         variables_config: list[dict],
         main_name: str,
         lookup_names: list[str],
+        inner_join_reject_dfs: "dict[str, pd.DataFrame] | None" = None,
     ) -> dict[str, pd.DataFrame]:
         """Evaluate outputs using compiled Java script execution.
 
         Generates a Groovy script, compiles once, executes in chunks.
         Handles output filters and catch output reject routing.
+
+        D-09 (Plan 05.4-06) -- dual-invocation dispatch:
+            The compiled script emits BOTH an active-output helper pass and
+            a separate reject-output helper pass (see
+            ``_build_compiled_script``). When ``inner_join_reject_dfs`` is
+            non-empty and any output has ``is_reject`` or
+            ``inner_join_reject`` set, this method invokes the bridge
+            twice:
+
+            1. First invocation -- ``reject_mode=False`` over ``joined_df``.
+               Groovy reads ``context.get("__rejectMode__") == false`` and
+               dispatches to active_outputs helpers only.
+
+            2. Second invocation -- ``reject_mode=True`` over the reject
+               row source DataFrame assembled from ``inner_join_reject_dfs``
+               (one row per failing-lookup reject row, columns aligned with
+               the joined-frame schema and unmatched-lookup columns filled
+               with NaN/None). Groovy reads
+               ``context.get("__rejectMode__") == true`` and dispatches to
+               reject_outputs helpers only.
+
+            The two result dicts are merged. ``_route_inner_join_rejects``
+            in ``_process`` becomes a no-op for inner_join_reject outputs
+            handled here (the result dict already contains the
+            compile-path reject frame) but still applies its
+            single-allocation concat semantics for any outputs that this
+            method did NOT produce.
 
         Args:
             joined_df: Joined DataFrame.
@@ -2042,6 +2090,11 @@ class Map(BaseComponent):
             variables_config: Variable config list.
             main_name: Main table name.
             lookup_names: Lookup table names.
+            inner_join_reject_dfs: Optional mapping of failing-lookup-name
+                -> reject rows DataFrame, threaded from ``_process``. When
+                None or empty no second invocation is performed (back-compat
+                for callers that do not have this data, e.g. standalone
+                tests of the compiled path with active outputs only).
 
         Returns:
             Dict mapping output names to DataFrames.
@@ -2085,6 +2138,7 @@ class Map(BaseComponent):
                 self.config.get("rows_buffer_size", _DEFAULT_CHUNK_SIZE),
             )
         )
+        # ---- First invocation: active-output pass over joined_df. ------
         try:
             raw_result = self.java_bridge.execute_compiled_tmap_chunked(
                 component_id=self.id,
@@ -2092,6 +2146,7 @@ class Map(BaseComponent):
                 chunk_size=chunk_size,
                 input_columns=list(joined_df.columns),
                 schema=schema_dict,
+                reject_mode=False,
             )
         except Exception as e:
             logger.error(
@@ -2101,6 +2156,42 @@ class Map(BaseComponent):
                 self.id, f"Failed to execute compiled tMap script: {e}",
                 cause=e,
             )
+
+        # ---- Second invocation: reject-output pass (D-09). -------------
+        # Only fire when (a) the config declares reject outputs AND (b) the
+        # caller threaded reject row data through this entry point. Without
+        # both conditions the compiled script would run with an empty
+        # input and return empty frames -- a wasted bridge round trip.
+        reject_outputs = [
+            o for o in outputs_config
+            if o.get("is_reject") or o.get("inner_join_reject")
+        ]
+        reject_raw: dict[str, pd.DataFrame] = {}
+        if reject_outputs and inner_join_reject_dfs:
+            reject_source = self._build_reject_row_source(
+                inner_join_reject_dfs, joined_df.columns
+            )
+            if reject_source is not None and not reject_source.empty:
+                reject_schema_dict = _infer_arrow_schema_dict(reject_source)
+                try:
+                    reject_raw = self.java_bridge.execute_compiled_tmap_chunked(
+                        component_id=self.id,
+                        df=reject_source,
+                        chunk_size=chunk_size,
+                        input_columns=list(reject_source.columns),
+                        schema=reject_schema_dict,
+                        reject_mode=True,
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"[{self.id}] Failed to execute compiled tMap "
+                        f"reject pass: {e}"
+                    )
+                    raise ComponentExecutionError(
+                        self.id,
+                        f"Failed to execute compiled tMap reject pass: {e}",
+                        cause=e,
+                    )
 
         # Process compiled results
         # NOTE: Output filters are already applied inside the compiled Groovy
@@ -2113,6 +2204,8 @@ class Map(BaseComponent):
             out_name = output_cfg["name"]
             if out_name in raw_result:
                 result[out_name] = raw_result[out_name]
+            elif out_name in reject_raw:
+                result[out_name] = reject_raw[out_name]
             else:
                 result[out_name] = pd.DataFrame(
                     columns=[c["name"] for c in output_cfg["columns"]]
@@ -2122,6 +2215,43 @@ class Map(BaseComponent):
         self._route_catch_output_rejects(result, raw_result, outputs_config)
 
         return result
+
+    def _build_reject_row_source(
+        self,
+        inner_join_reject_dfs: dict[str, pd.DataFrame],
+        joined_columns: pd.Index,
+    ) -> "pd.DataFrame | None":
+        """Combine per-failing-lookup reject DataFrames into one row source.
+
+        Each reject frame in ``inner_join_reject_dfs`` carries main columns
+        plus any previously-matched lookup columns (D-05 partial-match
+        binding); the failing lookup's columns are missing.  This helper
+        reindexes each frame to the joined_df column layout (so the bridge
+        receives a uniform schema) and concatenates them.
+
+        Args:
+            inner_join_reject_dfs: Map of failing-lookup-name -> reject rows.
+            joined_columns: Column index from joined_df; used to align the
+                reject frames to the same schema the compiled script was
+                compiled against.
+
+        Returns:
+            Combined DataFrame with all rejects, or None when every input
+            frame is empty / None.
+        """
+        frames: list[pd.DataFrame] = []
+        for _failing_lookup, rejects_df in inner_join_reject_dfs.items():
+            if rejects_df is None or rejects_df.empty:
+                continue
+            # reindex aligns columns to joined schema; missing columns are
+            # filled with NaN which the Arrow serialiser maps to null.
+            aligned = rejects_df.reindex(columns=joined_columns)
+            frames.append(aligned)
+        if not frames:
+            return None
+        if len(frames) == 1:
+            return frames[0]
+        return pd.concat(frames, ignore_index=True)
 
     # ------------------------------------------------------------------
     # Python Expression Evaluation (no-marker path, D-02)
@@ -3111,12 +3241,20 @@ class Map(BaseComponent):
         has_catch = any(o.get("catch_output_reject") for o in outputs)
 
         # Active (non-reject) outputs are emitted as helpers and called
-        # from the row loop. is_reject and inner_join_reject outputs are
-        # populated elsewhere in the Python pipeline (see _route_*
-        # methods); emitting helpers for them would generate dead code.
+        # from the row loop. Reject outputs (is_reject OR inner_join_reject)
+        # are emitted as a SEPARATE pass of helpers (D-09, Plan 05.4-06) and
+        # invoked via the rejectMode-branched row loop -- the dual-invocation
+        # dispatcher in _evaluate_outputs_compiled calls the compiled script
+        # twice (once per mode) so {{java}} markers in reject column
+        # expressions are evaluated by the bridge instead of being silently
+        # dropped on the Python-eval _route_inner_join_rejects path.
         active_outputs = [
             o for o in outputs
             if not o.get("is_reject") and not o.get("inner_join_reject")
+        ]
+        reject_outputs = [
+            o for o in outputs
+            if o.get("is_reject") or o.get("inner_join_reject")
         ]
 
         lines: list[str] = []
@@ -3205,8 +3343,61 @@ class Map(BaseComponent):
             lines.append("}")
             lines.append("")
 
+        # ----- Per-reject-output helper methods (D-09, Plan 05.4-06) ----
+        # Same shape as active_outputs but emitted in a separate pass so
+        # the rejectMode-branched row loop can dispatch to them when
+        # _evaluate_outputs_compiled invokes the script with
+        # __rejectMode__=True. Reject column expressions also flow through
+        # _groovy_escape_expression at embed time per D-07 (Plan 05.4-05).
+        for output in reject_outputs:
+            out_name = output["name"]
+            num_cols = len(output["columns"])
+            columns = output["columns"]
+            filter_expr = output.get("filter", "")
+            activate_filter = output.get("activate_filter", False)
+
+            for chunk_start in range(0, num_cols, _FILL_CHUNK):
+                chunk_cols = columns[chunk_start:chunk_start + _FILL_CHUNK]
+                chunk_idx = chunk_start // _FILL_CHUNK
+                lines.append(
+                    f"void fillOutput_{out_name}_chunk{chunk_idx}"
+                    f"({chunk_fill_params}) {{"
+                )
+                for col_offset, col in enumerate(chunk_cols):
+                    abs_idx = chunk_start + col_offset
+                    col_expr = col.get("expression", "")
+                    expr = self._groovy_escape_expression(
+                        self._strip_java_marker(col_expr)
+                    )
+                    if not expr or expr.strip() == "":
+                        expr = "null"
+                    lines.append(f"    row[{abs_idx}] = {expr};")
+                lines.append("}")
+                lines.append("")
+
+            num_chunks = -(-num_cols // _FILL_CHUNK)
+            lines.append(f"Object[] evalOutput_{out_name}({helper_params}) {{")
+            if activate_filter and filter_expr:
+                clean_filter = self._groovy_escape_expression(
+                    self._strip_java_marker(filter_expr)
+                )
+                lines.append(f"    if (!({clean_filter})) return null;")
+            lines.append(f"    Object[] row = new Object[{num_cols}];")
+            for chunk_idx in range(num_chunks):
+                lines.append(
+                    f"    fillOutput_{out_name}_chunk{chunk_idx}({chunk_fill_args});"
+                )
+            lines.append("    return row;")
+            lines.append("}")
+            lines.append("")
+
         # ----- Output buffers + counters --------------------------------
         for output in active_outputs:
+            out_name = output["name"]
+            num_cols = len(output["columns"])
+            lines.append(f"Object[][] {out_name}_data = new Object[rowCount][{num_cols}];")
+            lines.append(f"int {out_name}_count = 0;")
+        for output in reject_outputs:
             out_name = output["name"]
             num_cols = len(output["columns"])
             lines.append(f"Object[][] {out_name}_data = new Object[rowCount][{num_cols}];")
@@ -3217,6 +3408,19 @@ class Map(BaseComponent):
             lines.append("int errorCount = 0;")
             lines.append("Map<Integer, String> errorMap = new HashMap<>();")
         lines.append("")
+
+        # ----- rejectMode dispatch (D-09, Plan 05.4-06) -----------------
+        # Read the rejectMode flag from the context binding. The Python-side
+        # dispatcher in _evaluate_outputs_compiled toggles
+        # context["__rejectMode__"] between invocations so the same compiled
+        # script services both the active-output pass (rejectMode=false on
+        # joined_df) and the reject-output pass (rejectMode=true on the
+        # reject row source). Defaults to false when the binding is absent
+        # so existing call sites that never set the key keep working.
+        lines.append(
+            "boolean rejectMode = (context != null && context.get(\"__rejectMode__\") != null)"
+            " ? ((Boolean) context.get(\"__rejectMode__\")).booleanValue() : false;"
+        )
 
         # ----- Main row loop (thin) -------------------------------------
         lines.append("for (int i = 0; i < rowCount; i++) {")
@@ -3256,14 +3460,28 @@ class Map(BaseComponent):
             + "".join(f", {lk}" for lk in lookup_names)
             + ", Var"
         )
+        # Branch the per-output helper invocations on rejectMode (D-09):
+        # the active pass dispatches only to active_outputs, the reject
+        # pass dispatches only to reject_outputs.
+        lines.append("        if (!rejectMode) {")
         for output in active_outputs:
             out_name = output["name"]
             lines.append(
-                f"        Object[] {out_name}_row = evalOutput_{out_name}({helper_args});"
+                f"            Object[] {out_name}_row = evalOutput_{out_name}({helper_args});"
             )
-            lines.append(f"        if ({out_name}_row != null) {{")
-            lines.append(f"            {out_name}_data[{out_name}_count++] = {out_name}_row;")
-            lines.append("        }")
+            lines.append(f"            if ({out_name}_row != null) {{")
+            lines.append(f"                {out_name}_data[{out_name}_count++] = {out_name}_row;")
+            lines.append("            }")
+        lines.append("        } else {")
+        for output in reject_outputs:
+            out_name = output["name"]
+            lines.append(
+                f"            Object[] {out_name}_row = evalOutput_{out_name}({helper_args});"
+            )
+            lines.append(f"            if ({out_name}_row != null) {{")
+            lines.append(f"                {out_name}_data[{out_name}_count++] = {out_name}_row;")
+            lines.append("            }")
+        lines.append("        }")
 
         # Error handling -- semantics unchanged from the pre-split script.
         lines.append("    } catch (Exception e) {")
@@ -3283,12 +3501,26 @@ class Map(BaseComponent):
 
         # ----- Return results map ---------------------------------------
         lines.append("Map<String, Map<String, Object>> results = new HashMap<>();")
+        # D-09: branch the result map on rejectMode so the active pass emits
+        # only active-output entries and the reject pass emits only
+        # reject-output entries. Each pass returns to Python a result map
+        # keyed by the outputs it owns; the Python dispatcher in
+        # _evaluate_outputs_compiled merges the two dicts.
+        lines.append("if (!rejectMode) {")
         for output in active_outputs:
             out_name = output["name"]
-            lines.append(f'Map<String, Object> {out_name}_result = new HashMap<>();')
-            lines.append(f'{out_name}_result.put("data", {out_name}_data);')
-            lines.append(f'{out_name}_result.put("count", {out_name}_count);')
-            lines.append(f'results.put("{out_name}", {out_name}_result);')
+            lines.append(f'    Map<String, Object> {out_name}_result = new HashMap<>();')
+            lines.append(f'    {out_name}_result.put("data", {out_name}_data);')
+            lines.append(f'    {out_name}_result.put("count", {out_name}_count);')
+            lines.append(f'    results.put("{out_name}", {out_name}_result);')
+        lines.append("} else {")
+        for output in reject_outputs:
+            out_name = output["name"]
+            lines.append(f'    Map<String, Object> {out_name}_result = new HashMap<>();')
+            lines.append(f'    {out_name}_result.put("data", {out_name}_data);')
+            lines.append(f'    {out_name}_result.put("count", {out_name}_count);')
+            lines.append(f'    results.put("{out_name}", {out_name}_result);')
+        lines.append("}")
 
         if not die_on_error or has_catch:
             lines.append('Map<String, Object> errorInfo = new HashMap<>();')

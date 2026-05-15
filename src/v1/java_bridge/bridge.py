@@ -37,6 +37,11 @@ logger = logging.getLogger(__name__)
 # java.lang.NegativeArraySizeException at py4j.Base64.decode().
 _PY4J_BYTE_ARG_SAFE_LIMIT = 1_500_000_000
 
+# Sentinel used by the D-09 (Plan 05.4-06) reject_mode context-flag wrap:
+# distinguishes "key not present prior to this call" from "key explicitly
+# present and set to None" so the wrap can restore exactly the prior state.
+_MISSING = object()
+
 
 def _coerce_global_map_for_java(d: dict[str, Any]) -> dict[str, Any]:
     """Coerce string values representing numbers to Python int/float.
@@ -542,6 +547,7 @@ class JavaBridge:
         input_columns: list[str] | None = None,
         output_columns: list[str] | None = None,
         schema: dict[str, str] | None = None,
+        reject_mode: bool = False,
     ) -> dict[str, pd.DataFrame]:
         """Execute a pre-compiled tMap script with chunking.
 
@@ -552,6 +558,16 @@ class JavaBridge:
             input_columns: Input column names (optional).
             output_columns: Output column names (optional).
             schema: Column name -> type string for Arrow serialization.
+            reject_mode: D-09 (Plan 05.4-06) dual-invocation flag. False (the
+                default) invokes the compiled script in active-output mode
+                over ``df`` as the matched row source. True invokes the same
+                compiled script in reject-output mode over ``df`` as the
+                reject row source. The flag is propagated to Groovy via the
+                ``__rejectMode__`` entry in the ``context`` binding so the
+                generated script's row loop dispatches to active vs reject
+                helpers (see ``Map._build_compiled_script``). The entry is
+                inserted before the call and removed afterwards so it never
+                leaks into subsequent calls or unrelated bridge consumers.
 
         Returns:
             Mapping of output_name -> DataFrame (combined from all chunks).
@@ -578,6 +594,45 @@ class JavaBridge:
         schema_dict = schema if schema else self._infer_schema_dict(df)
         output_dfs_list: dict[str, list[pd.DataFrame]] = {}
 
+        # D-09 (Plan 05.4-06): propagate reject_mode to Groovy via the
+        # context binding. The generated script reads
+        # ``context.get("__rejectMode__")`` to decide whether the row loop
+        # dispatches to active or reject helpers. Stash a prior value (if
+        # any) so the entry can be restored after the call -- it never
+        # leaks into unrelated consumers of the bridge.
+        _prior_reject_flag = self.context.get("__rejectMode__", _MISSING)
+        self.context["__rejectMode__"] = bool(reject_mode)
+        try:
+            return self._execute_compiled_tmap_chunked_body(
+                component_id=component_id,
+                df=df,
+                chunk_size=chunk_size,
+                schema_dict=schema_dict,
+                total_rows=total_rows,
+                output_dfs_list=output_dfs_list,
+            )
+        finally:
+            if _prior_reject_flag is _MISSING:
+                self.context.pop("__rejectMode__", None)
+            else:
+                self.context["__rejectMode__"] = _prior_reject_flag
+
+    def _execute_compiled_tmap_chunked_body(
+        self,
+        component_id: str,
+        df: pd.DataFrame,
+        chunk_size: int,
+        schema_dict: dict[str, str],
+        total_rows: int,
+        output_dfs_list: dict[str, list[pd.DataFrame]],
+    ) -> dict[str, pd.DataFrame]:
+        """Inner body of execute_compiled_tmap_chunked.
+
+        Extracted into a separate method so the public entry point can
+        wrap the call in a try/finally that scopes the
+        ``context["__rejectMode__"]`` mutation to a single invocation
+        (D-09, Plan 05.4-06).
+        """
         # Build the initial list of (start, end) row ranges. Ranges may be
         # split further at runtime if a chunk's Arrow payload would exceed
         # the Py4J Base64 byte[] limit (see _PY4J_BYTE_ARG_SAFE_LIMIT).
