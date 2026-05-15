@@ -741,6 +741,9 @@ class Map(BaseComponent):
         # for both main-table and lookup-table filtering. D-04 is addressed by
         # callers passing the full joined_lookup_names list (which already
         # happened correctly at map.py:385-388, the "already correct call site").
+        # 05.4-05: bridge submits expr to GroovyShell.parse, so apply the
+        # Groovy escape before forwarding.
+        expr = self._groovy_escape_expression(expr)
         result = self._evaluate_with_bridge(
             df, {"__filter__": expr}, table_name, lookup_names
         )
@@ -1074,8 +1077,12 @@ class Map(BaseComponent):
         # Step 1: batch-eval all main-side join key expressions on joined_df.
         # D-04: pass joined_lookup_names so the bridge can resolve refs to
         # previously-joined lookups (e.g. row3.col where row3 was joined earlier).
+        # 05.4-05: expressions reach GroovyShell.parse on the bridge side, so
+        # the Groovy escape (in-string $ -> \$) is applied before forwarding.
         exprs = {
-            f"__jk_main_{i}__": self._strip_java_marker(jk["expression"])
+            f"__jk_main_{i}__": self._groovy_escape_expression(
+                self._strip_java_marker(jk["expression"])
+            )
             for i, jk in enumerate(join_keys)
         }
         eval_results = self._bridge_eval(joined_df, exprs, joined_lookup_names)
@@ -1222,8 +1229,12 @@ class Map(BaseComponent):
         # We call _evaluate_with_bridge directly (not _bridge_eval) because
         # _bridge_eval always uses the config's main_name; here we need to pass
         # lookup_name as main_table_name so the bridge resolves row2.col etc.
+        # 05.4-05: expressions reach GroovyShell.parse on the bridge side, so
+        # the Groovy escape (in-string $ -> \$) is applied before forwarding.
         exprs = {
-            f"__jk_lookup_{i}__": self._strip_java_marker(jk["expression"])
+            f"__jk_lookup_{i}__": self._groovy_escape_expression(
+                self._strip_java_marker(jk["expression"])
+            )
             for i, jk in enumerate(join_keys)
         }
         eval_results = self._evaluate_with_bridge(
@@ -1508,7 +1519,12 @@ class Map(BaseComponent):
 
         stripped_expr: Optional[str] = None
         if match_expr is not None:
-            stripped_expr = self._strip_java_marker(match_expr)
+            # 05.4-05: match_expr is forwarded to _bridge_eval which submits
+            # it to GroovyShell.parse on the bridge side. Apply the Groovy
+            # escape (in-string $ -> \$) once here, not in the per-chunk loop.
+            stripped_expr = self._groovy_escape_expression(
+                self._strip_java_marker(match_expr)
+            )
 
         result_chunks: list[pd.DataFrame] = []
 
@@ -1696,9 +1712,14 @@ class Map(BaseComponent):
             # Evaluate all join key expressions on this chunk's cross-product.
             # D-04: pass joined_lookup_names + [lookup_name] so expressions that
             # reference previously-joined lookups resolve correctly.
+            # 05.4-05: expressions reach GroovyShell.parse on the bridge side,
+            # so the Groovy escape (in-string $ -> \$) is applied before
+            # forwarding.
             exprs = {}
             for i, jk in enumerate(join_keys):
-                expr = self._strip_java_marker(jk["expression"])
+                expr = self._groovy_escape_expression(
+                    self._strip_java_marker(jk["expression"])
+                )
                 exprs[f"__jk_{i}__"] = expr
 
             eval_results = self._bridge_eval(chunk_cross, exprs, full_lookup_names)
@@ -1907,8 +1928,11 @@ class Map(BaseComponent):
                     else:
                         joined_df[col_name] = None
             else:
-                # D-04: pass full lookup_names so prior-joined lookups are visible
-                result = self._bridge_eval(joined_df, {col_name: expr}, lookup_names)
+                # D-04: pass full lookup_names so prior-joined lookups are visible.
+                # 05.4-05: bridge submits expr to GroovyShell.parse, so apply
+                # the Groovy escape (in-string $ -> \$) before forwarding.
+                bridge_expr = self._groovy_escape_expression(expr)
+                result = self._bridge_eval(joined_df, {col_name: bridge_expr}, lookup_names)
                 if col_name in result:
                     joined_df[col_name] = result[col_name]
                 else:
@@ -2598,6 +2622,9 @@ class Map(BaseComponent):
             return out_df
 
         expr = self._strip_java_marker(filter_expr)
+        # 05.4-05: bridge submits expr to GroovyShell.parse, so apply the
+        # Groovy escape (in-string $ -> \$) before forwarding.
+        expr = self._groovy_escape_expression(expr)
         # D-04: use _bridge_eval to ensure full lookup_names passed
         eval_result = self._bridge_eval(out_df, {"__out_filter__": expr}, lookup_names)
 
@@ -2864,7 +2891,9 @@ class Map(BaseComponent):
                 for col_offset, col in enumerate(chunk_cols):
                     abs_idx = chunk_start + col_offset
                     col_expr = col.get("expression", "")
-                    expr = self._strip_java_marker(col_expr)
+                    expr = self._groovy_escape_expression(
+                        self._strip_java_marker(col_expr)
+                    )
                     if not expr or expr.strip() == "":
                         expr = "null"
                     lines.append(f"    row[{abs_idx}] = {expr};")
@@ -2876,7 +2905,9 @@ class Map(BaseComponent):
             lines.append(f"Object[] evalOutput_{out_name}({helper_params}) {{")
             # Filter guard: return null if this row is filtered out.
             if activate_filter and filter_expr:
-                clean_filter = self._strip_java_marker(filter_expr)
+                clean_filter = self._groovy_escape_expression(
+                    self._strip_java_marker(filter_expr)
+                )
                 lines.append(f"    if (!({clean_filter})) return null;")
             lines.append(f"    Object[] row = new Object[{num_cols}];")
             for chunk_idx in range(num_chunks):
@@ -2923,7 +2954,9 @@ class Map(BaseComponent):
             var_name = var.get("name", "")
             var_expr = var.get("expression", "")
             if var_expr:
-                expr = self._strip_java_marker(var_expr)
+                expr = self._groovy_escape_expression(
+                    self._strip_java_marker(var_expr)
+                )
                 if not expr or expr.strip() == "":
                     expr = "null"
                 lines.append(f'        Var.put("{var_name}", {expr});')
@@ -3163,6 +3196,81 @@ class Map(BaseComponent):
         if expr.startswith(_JAVA_MARKER):
             return expr[len(_JAVA_MARKER):]
         return expr
+
+    def _groovy_escape_expression(self, java_expr: str) -> str:
+        """Escape Groovy-special characters in a Java expression before
+        embedding into a Groovy script.
+
+        The expression text reaches the Groovy runtime via two paths in
+        this module:
+          - interpolation into a Groovy source line emitted by
+            ``_build_compiled_script`` (compiled-script path), and
+          - direct submission as the body of a ``GroovyShell.parse(...)``
+            call inside ``JavaBridge.executeTMapPreprocessing`` (bridge-
+            eval path).
+
+        Both paths reach a GroovyShell. Groovy's double-quoted string
+        literal is a GString, which interpolates ``$identifier`` and
+        ``${expr}`` at runtime. A Talend Java expression such as
+        ``"Total: $100"`` therefore raises a parse error or, worse,
+        evaluates an unintended identifier when it reaches GroovyShell.
+        This helper neutralises that difference by tokenising the input
+        and escaping ``$`` -> ``\\$`` inside double-quoted string regions
+        only. Outside string regions, ``$`` is a legal identifier
+        character in both languages and is left alone.
+
+        Escape sequences (``\\\\``, ``\\"``) inside a string region are
+        consumed as a two-character unit so they cannot mis-detect the
+        closing quote of the string.
+
+        The full character-class disposition matrix lives in
+        ``.planning/phases/05.4-tmap-reject-correctness-and-groovy-safety/
+        05.4-GROOVY-AUDIT.md`` (D-07). Any future addition belongs in
+        that table first, then in this helper.
+
+        Args:
+            java_expr: Raw Java/Talend expression text (already stripped of
+                the ``{{java}}`` marker by ``_strip_java_marker``).
+
+        Returns:
+            Expression string safe for embedding into a Groovy source line
+            or for submission as a standalone Groovy script body.
+        """
+        result: list[str] = []
+        in_string = False
+        i = 0
+        n = len(java_expr)
+        while i < n:
+            ch = java_expr[i]
+            if not in_string:
+                if ch == '"':
+                    in_string = True
+                    result.append(ch)
+                    i += 1
+                else:
+                    result.append(ch)
+                    i += 1
+                continue
+            # Inside a double-quoted string literal.
+            if ch == "\\" and i + 1 < n:
+                # Java escape sequence -- pass both chars through unchanged.
+                # This keeps \" and \\ from mis-detecting the closing quote.
+                result.append(ch)
+                result.append(java_expr[i + 1])
+                i += 2
+            elif ch == '"':
+                # End of string literal.
+                in_string = False
+                result.append(ch)
+                i += 1
+            elif ch == "$":
+                # Groovy GString interpolation trigger -- escape it.
+                result.append("\\$")
+                i += 1
+            else:
+                result.append(ch)
+                i += 1
+        return "".join(result)
 
     def _is_simple_column_ref(self, expr: str) -> bool:
         """Check if expression is a simple column reference (table.column).
