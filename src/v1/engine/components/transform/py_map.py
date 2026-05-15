@@ -67,6 +67,19 @@ _WARN_RESULT_ROWS = 10_000_000
 _FAIL_RESULT_ROWS = 100_000_000
 
 
+class _Row(dict):
+    """Dict subclass that also supports attribute-style access.
+
+    Allows expressions to use either ``row1['col']`` or ``row1.col``.
+    """
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return self[name]
+        except KeyError:
+            raise AttributeError(f"Row has no column '{name}'") from None
+
+
 @REGISTRY.register("PyMap")
 class PyMap(BaseComponent):
     """Pure-Python multi-flow data mapping component.
@@ -380,8 +393,8 @@ class PyMap(BaseComponent):
         ns: dict[str, Any] = {}
         ns.update(_SAFE_NAMESPACE_GLOBALS)
         ns["__builtins__"] = _build_safe_builtins()
-        # Row access: expressions use row1['col'], row2['col'], etc.
-        ns.update(row_dicts)
+        # Row access: expressions may use row1['col'] or row1.col
+        ns.update({name: _Row(rd) for name, rd in row_dicts.items()})
         ns["Var"] = var_dict
         # Standard helpers not in _SAFE_NAMESPACE_GLOBALS
         ns["Decimal"] = Decimal
