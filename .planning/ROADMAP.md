@@ -130,7 +130,7 @@ Plans:
 **Goal:** Fix per-row Java expression evaluation in tMap/py_map/filter_rows so `context.*` and `globalMap.*` references resolve correctly inside compiled Groovy scripts and bridge preprocessing — restoring the call-site sync pattern that existed on `main` and was lost in the engine restructure. Also fix Java-side `__errors__` Arrow serialization to enable D-06 reserved-column round-trip and close 2 of the 05.4 strict-xfails.
 **Requirements**: R1, R2, R3, R4, R5, R6, R7, R8, R9 (see 05.5-SPEC.md)
 **Depends on:** Phase 05.4
-**Plans:** 7/8 plans executed
+**Plans:** 8/8 plans complete
 
 Plans:
 - [x] 05.5-01-PLAN.md -- Py4J date/datetime input converters registered in JavaBridge.start (R6 foundation)
@@ -547,5 +547,5 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 15.1. Documentation Audit Reconciliation | 12/12 | Complete | 2026-05-11 |
 | 05.3. tMap Join Correctness, Marker Rule, and Filepath Expression | 8/8 | Complete | 2026-05-15 |
 | 05.4. tMap Reject Correctness and Groovy Safety | 8/8 | Complete | 2026-05-15 |
-| 05.5. tMap Context/GlobalMap Bridge Sync + __errors__ Arrow Round-trip | 8/8 | Complete | 2026-05-16 |
+| 05.5. tMap Context/GlobalMap Bridge Sync + __errors__ Arrow Round-trip | 8/8 | Complete    | 2026-05-15 |
 | 16. Integration Testing & Performance (Manager) | 0/TBD | Not started | - |

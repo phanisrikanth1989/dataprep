@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: complete
+status: ready_to_plan
 stopped_at: Phase 05.5 complete (8/8 plans; verification report + phase summary committed)
 last_updated: "2026-05-16T00:00:00.000Z"
 last_activity: 2026-05-16 -- Phase 05.5 complete (8 plans, 4 waves; 18/20 SPEC criteria PASS, 2/20 PARTIAL with documented Phase 05.6 follow-ups; 2 catch xfails promoted, 4 filter-reject xfails retained)
 progress:
   total_phases: 24
-  completed_phases: 22
+  completed_phases: 23
   total_plans: 125
   completed_plans: 145
-  percent: 100
+  percent: 96
 ---
 
 # Project State
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-04-14)
 
 ## Current Position
 
-Phase: 05.5 (tmap-context-globalmap-bridge-sync) — COMPLETE
-Plan: 8 of 8
+Phase: 06
+Plan: Not started
 Next: Phase 16 (Integration Testing & Performance, manager-led) — OR optional Phase 05.6 (compiled-path filter-reject active-mode emission; promotes 4 retained strict-xfails)
-Status: Phase 05.5 complete
-Last activity: 2026-05-16 -- Phase 05.5 complete (8 plans, 4 waves; 18/20 SPEC criteria PASS; 2 catch xfails promoted, 4 filter-reject xfails retained for Phase 05.6)
+Status: Ready to plan
+Last activity: 2026-05-15
 
 Progress: [██████████] 100%
 
@@ -37,7 +37,7 @@ Progress: [██████████] 100%
 
 **Velocity:**
 
-- Total plans completed: 70
+- Total plans completed: 78
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -60,6 +60,7 @@ Progress: [██████████] 100%
 | 08 | 6 | ~2.5h | ~25min |
 | 10 | 11 | - | - |
 | 11 | 7 | - | - |
+| 05.5 | 8 | - | - |
 
 **Recent Trend:**
 
