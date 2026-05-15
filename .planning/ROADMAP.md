@@ -139,6 +139,13 @@ Plans:
 - [x] 05.3-07-PLAN.md -- Promote 7 reproduction fixtures + e2e regression tests + memory-bound perf test
 - [~] 05.3-08-PLAN.md -- DEFERRED: Issue 4 empty-lookup nullable=false fix (D-07, deferred to follow-up phase per 2026-05-15 decision)
 
+### Phase 05.4: tMap Reject Correctness and Groovy Safety (INSERTED)
+
+**Goal:** Restore reject-routing fidelity to Talend semantics across all three tMap reject mechanisms (inner_join_reject, is_reject filter-reject, catch_output_reject), perform a full Groovy-safety audit of expression embedding in the compiled script generator, and eliminate the pandas fragmentation warning emitted by reject routing. Regression introduced by commit 9ab8120 (phase 5 rewrite "from scratch"); main branch and Talaxie codegen both got it right; current branch is the outlier.
+**Requirements:** TBD via SPEC.md + discuss-phase
+**Depends on:** Phase 5, Phase 05.3
+**Plans:** TBD via plan-phase
+
 ### Phase 05.1: Java Bridge tMap Fix (INSERTED)
 
 **Goal**: Fix the Java bridge compiled script execution for tMap. Phase 2's rewrite broke RowWrapper Arrow type conversion (returns raw Arrow Text objects instead of Java Strings) and removed the 3-arg constructor that compiled tMap scripts depended on. Restore proper type-specific extraction, ensure compiled scripts work with correct Java types, verify with real .item file pipeline.
