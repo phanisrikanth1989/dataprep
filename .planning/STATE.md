@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Phase 05.4 complete (8/8 plans; verification report + phase summary committed)
-last_updated: "2026-05-15T18:00:38.193Z"
-last_activity: 2026-05-15 -- Phase 05.5 execution started
+status: complete
+stopped_at: Phase 05.5 complete (8/8 plans; verification report + phase summary committed)
+last_updated: "2026-05-16T00:00:00.000Z"
+last_activity: 2026-05-16 -- Phase 05.5 complete (8 plans, 4 waves; 18/20 SPEC criteria PASS, 2/20 PARTIAL with documented Phase 05.6 follow-ups; 2 catch xfails promoted, 4 filter-reject xfails retained)
 progress:
   total_phases: 24
   completed_phases: 22
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-14)
 
 **Core value:** Any Talend job using the target components must produce identical results when run through the Python engine
-**Current focus:** Phase 05.5 — tmap-context-globalmap-bridge-sync
+**Current focus:** Phase 05.5 complete — next is manager-led Phase 16 or developer-driven Phase 05.6 (filter-reject compiled-path)
 
 ## Current Position
 
-Phase: 05.5 (tmap-context-globalmap-bridge-sync) — EXECUTING
-Plan: 1 of 8
-Next: Phase 16 (Integration Testing & Performance, manager-led)
-Status: Executing Phase 05.5
-Last activity: 2026-05-15 -- Phase 05.5 execution started
+Phase: 05.5 (tmap-context-globalmap-bridge-sync) — COMPLETE
+Plan: 8 of 8
+Next: Phase 16 (Integration Testing & Performance, manager-led) — OR optional Phase 05.6 (compiled-path filter-reject active-mode emission; promotes 4 retained strict-xfails)
+Status: Phase 05.5 complete
+Last activity: 2026-05-16 -- Phase 05.5 complete (8 plans, 4 waves; 18/20 SPEC criteria PASS; 2 catch xfails promoted, 4 filter-reject xfails retained for Phase 05.6)
 
 Progress: [██████████] 100%
 
@@ -122,6 +122,26 @@ Recent decisions affecting current work:
 - [Phase 14]: Plan 14-10 BUG-JVM-001: test_bridge_integration.py module-scoped 'bridge' fixture used JavaBridge() with default port=25333; under -n auto every xdist worker except the first failed on bind(). Fixed by switching to JavaBridgeManager() (dynamic free port via socket.bind('', 0)). Resolves Plan 14-01 deferral. All 31 bridge_integration tests pass under 10 parallel workers.
 - [Phase 14]: Plan 14-10 lifted all 7 engine-core modules to >=95% (4 at 100%: trigger_manager, base_iterate_component, engine, executor 95.2%; base_component 97.1%, python_routine_manager 98.0%, java_bridge_manager 99.0% via @pytest.mark.java per D-A3). 3 new core/ pipeline fixtures (trigger_runif, multi_subjob, reject_routing). NEW test modules: test_engine.py + test_java_bridge_manager.py.
 - [Phase 14]: Plan 14-10 confirmed map.py PARTIAL LIFT (83.06%) NOT closed as side effect: the 3 new core pipeline fixtures use FixedFlowInput/SetGlobalVar/FileInput/FileOutput only, do not exercise tMap. Plan 14-13 closeout MUST address either via Plan 14-06b (live-bridge tMap tests under @pytest.mark.java) or amend the per-module floor with documented carve-out for map.py.
+
+### Phase 05.5 closed (2026-05-16)
+
+8 plans across 4 waves. Verification 18/20 PASS + 2/20 PARTIAL with documented Phase 05.6 follow-ups.
+
+Key deliverables:
+- Py4J date/datetime input converters registered at JavaBridge.start (R6 foundation)
+- Java-side __errors__ Arrow emission with rowIndex/errorMessage/errorStackTrace schema (R8); JAR rebuilt on disk (gitignored per Phase 13 convention)
+- PyMap _ContextView + _GlobalMapView eval-namespace binding (R5, pure Python)
+- Map._push_runtime_state_to_bridge helper + 3 call sites (R1/R2/R3); FilterRows mirror (R4)
+- 44-cell R6 type-fidelity matrix (36 passed + 8 documented xfails surfacing Float Py4J unbox, Date ctx str-coercion, Date globalMap dispatch — all sketched for Phase 05.6)
+- D-06 reserved-column DataFrame round-trip end-to-end; _route_catch_output_rejects DataFrame-shape promoted to primary path
+- R9 review: 2 catch xfails promoted, 4 filter-reject xfails retained per path (b); Phase 05.6 sketch added to ROADMAP
+
+Coverage non-regression: map.py 89.4% (+0.7pp), py_map.py 82.8% (+2.2pp), all other in-scope modules >= 95.0%.
+
+Known follow-ups (Phase 05.6 candidates):
+- 4 compiled-path filter-reject xfails (active-mode evalOutput_<rej> emission)
+- 3 R6 matrix type-fidelity gaps (Float box, Date ctx, Date globalMap)
+- JVM port-contention -n auto flakiness (session-scoped JVM fixture)
 
 ### Roadmap Evolution
 

@@ -34,7 +34,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 15.1: Documentation Audit Reconciliation** (NEW, 2026-05-11) - Reconcile 89 files in docs/v1/audit/ against current code; stale claims marked resolved with phase ref (completed 2026-05-11)
 - [x] **Phase 05.3: tMap Join Correctness, Marker Rule, and Filepath Expression** (INSERTED) - Universal {{java}} marker rule + locality-based join classifier + memory-bounded cross-product + python-eval path + filepath expression fix (completed 2026-05-15)
 - [x] **Phase 05.4: tMap Reject Correctness and Groovy Safety** (INSERTED) - Restore reject-routing fidelity (3 mechanisms) + Groovy-safety audit + reject-path fragmentation cleanup (completed 2026-05-15)
-- [ ] **Phase 05.5: tMap Context/GlobalMap Bridge Sync + __errors__ Arrow Round-trip** (INSERTED) - Restore per-row call-site sync of ContextManager/GlobalMap to Java bridge in tMap/py_map/filter_rows + Java-side __errors__ Arrow emission + R6 44-cell type-fidelity matrix
+- [x] **Phase 05.5: tMap Context/GlobalMap Bridge Sync + __errors__ Arrow Round-trip** (INSERTED) - Restore per-row call-site sync of ContextManager/GlobalMap to Java bridge in tMap/py_map/filter_rows + Java-side __errors__ Arrow emission + R6 44-cell type-fidelity matrix (completed 2026-05-16)
 - [ ] **Phase 16: Integration Testing & Performance (Manager)** (SWAPPED with old Phase 16, 2026-05-11) - Manager-led; real Talend job end-to-end runs + output diffs + tMap/tFilterRow perf refactor
 
 ## Phase Details
@@ -140,7 +140,9 @@ Plans:
 - [x] 05.5-05-PLAN.md -- FilterRows._push_runtime_state_to_bridge + 1 invocation site + E1/E2 spike tests (R4)
 - [x] 05.5-06-PLAN.md -- TestPhase055TypeMatrix — 44-cell R6 type-fidelity matrix (36 type cells + 8 datetime-format cells)
 - [x] 05.5-07-PLAN.md -- _route_catch_output_rejects DataFrame-shape promoted to primary path + test_catch_d06_arrow_roundtrip end-to-end (R8 consumer)
-- [ ] 05.5-08-PLAN.md -- Phase 14 coverage gate + full suite + R9 strict-xfail review (2 catch promoted, 4 filter-reject retained per path b) + VERIFICATION + PHASE-SUMMARY (checkpoint)
+- [x] 05.5-08-PLAN.md -- Phase 14 coverage gate + full suite + R9 strict-xfail review (2 catch promoted, 4 filter-reject retained per path b) + VERIFICATION + PHASE-SUMMARY (checkpoint)
+
+**Completed:** 2026-05-16 | **SUMMARY:** [05.5-PHASE-SUMMARY.md](phases/05.5-tmap-context-globalmap-bridge-sync/05.5-PHASE-SUMMARY.md) | **VERIFICATION:** [05.5-VERIFICATION.md](phases/05.5-tmap-context-globalmap-bridge-sync/05.5-VERIFICATION.md)
 
 ### Phase 05.3: tMap Join Correctness, Marker Rule, and Filepath Expression (INSERTED)
 
@@ -545,5 +547,5 @@ Phases execute in numeric order. Phases 2 and 3 can run in parallel after Phase 
 | 15.1. Documentation Audit Reconciliation | 12/12 | Complete | 2026-05-11 |
 | 05.3. tMap Join Correctness, Marker Rule, and Filepath Expression | 8/8 | Complete | 2026-05-15 |
 | 05.4. tMap Reject Correctness and Groovy Safety | 8/8 | Complete | 2026-05-15 |
-| 05.5. tMap Context/GlobalMap Bridge Sync + __errors__ Arrow Round-trip | 7/8 | In Progress|  |
+| 05.5. tMap Context/GlobalMap Bridge Sync + __errors__ Arrow Round-trip | 8/8 | Complete | 2026-05-16 |
 | 16. Integration Testing & Performance (Manager) | 0/TBD | Not started | - |
