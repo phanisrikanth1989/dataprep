@@ -350,3 +350,139 @@ class TestCatchOutputRejectContextSync:
         # "0_REJPROD") is Plan 05.5-08's gate -- it depends on Plan
         # 05.5-02's __errors__ Arrow round-trip wiring the error row data
         # back into Python.
+
+
+# ---------------------------------------------------------------------------
+# Plan 05.5-07 R8: D-06 reserved-column Arrow round-trip end-to-end.
+# Pins that the catch reject DataFrame carries BOTH user-column values
+# (evaluated against the failing input row) AND a non-empty
+# framework-reserved errorMessage populated by the Java-side Arrow emission
+# from Plan 05.5-02.
+# ---------------------------------------------------------------------------
+
+
+class TestCatchOutputRejectCompiledD06:
+    """R8 -- end-to-end catch_output_reject D-06 reserved-column round-trip.
+
+    Plan 05.5-02 wired the Java side to emit `__errors__` as an Arrow
+    batch with `(rowIndex int, errorMessage str, errorStackTrace str)`.
+    Plan 05.5-07 (THIS plan) wires the Python side
+    `_route_catch_output_rejects` DataFrame branch to (a) join the
+    `__errors__` `rowIndex` column back to the original input rows
+    (`joined_df`), (b) evaluate user-defined catch columns via
+    `_evaluate_output_columns_py` against those failing rows, AND
+    (c) overlay the framework-reserved `errorMessage` / `errorStackTrace`
+    values from `__errors__` onto the resulting frame.
+
+    Acceptance: an input row that deliberately fails an expression
+    surfaces in the catch frame with BOTH the user-evaluated column value
+    AND a non-empty errorMessage that looks like a real Java exception
+    message (mentions "zero" / "arithmetic" / "/" -- ArithmeticException
+    from `10 / 0`).
+    """
+
+    def test_catch_d06_arrow_roundtrip(self, java_bridge):
+        """End-to-end: row id=2 with divisor=0 surfaces in catch with
+        user column id_pass=2 AND non-empty Java-side errorMessage."""
+        # User columns: id_pass evaluated against the failing input row
+        # (must resolve to 2 for the id=2/divisor=0 row); errorMessage
+        # declared as a framework-reserved column (D-06: framework value
+        # wins regardless of any user expression on this name).
+        config = {
+            "component_type": "Map",
+            "die_on_error": False,
+            "inputs": {
+                "main": {
+                    "name": "row1",
+                    "filter": "",
+                    "activate_filter": False,
+                    "matching_mode": "UNIQUE_MATCH",
+                    "lookup_mode": "LOAD_ONCE",
+                },
+                "lookups": [],
+            },
+            "variables": [],
+            "outputs": [
+                {
+                    "name": "out1",
+                    "is_reject": False,
+                    "inner_join_reject": False,
+                    "filter": "",
+                    "activate_filter": False,
+                    "columns": [
+                        {"name": "id", "expression": "{{java}}row1.id",
+                         "type": "int"},
+                        # Division by row1.divisor -- row id=2 has
+                        # divisor=0 -> ArithmeticException.
+                        {"name": "result",
+                         "expression": "{{java}}row1.value / row1.divisor",
+                         "type": "int", "nullable": True},
+                    ],
+                    "catch_output_reject": False,
+                },
+                {
+                    "name": "catch",
+                    "is_reject": False,
+                    "inner_join_reject": False,
+                    "filter": "",
+                    "activate_filter": False,
+                    "columns": [
+                        # User column referencing the failing input row.
+                        {"name": "id_pass",
+                         "expression": "{{java}}row1.id", "type": "int"},
+                        # Framework-reserved column (D-06): no expression
+                        # needed; value populated by Java-side Arrow emit.
+                        {"name": "errorMessage", "type": "str"},
+                    ],
+                    "catch_output_reject": True,
+                },
+            ],
+        }
+        comp = Map(
+            component_id="tMap_d06_arrow",
+            config=config,
+            global_map=GlobalMap(),
+            context_manager=ContextManager(),
+        )
+        comp.java_bridge = java_bridge
+
+        main_df = pd.DataFrame([
+            {"id": 1, "value": 10, "divisor": 2},
+            {"id": 2, "value": 20, "divisor": 0},
+            {"id": 3, "value": 30, "divisor": 3},
+        ])
+        result = comp.execute({"row1": main_df})
+
+        catch_df = result.get("catch")
+        assert catch_df is not None, "catch output missing"
+        assert len(catch_df) == 1, (
+            f"Expected 1 failed row (id=2 / divisor=0); got "
+            f"{len(catch_df)} rows: {catch_df.to_dict(orient='records')}"
+        )
+        # User column carries the actual failing input row's id.
+        id_pass_val = catch_df["id_pass"].iloc[0]
+        assert id_pass_val == 2, (
+            f"Expected id_pass=2 (the failing row's id); got "
+            f"{id_pass_val!r}. The DataFrame branch of "
+            f"_route_catch_output_rejects must join __errors__.rowIndex "
+            f"back to the original input rows so user expressions like "
+            f"row1.id resolve against the failing row's data."
+        )
+        # Framework-reserved errorMessage column is a non-empty string
+        # that looks like a real Java ArithmeticException message.
+        msg = catch_df["errorMessage"].iloc[0]
+        assert isinstance(msg, str) and msg, (
+            f"errorMessage must be a non-empty str (D-06 + Plan 05.5-02 "
+            f"Arrow round-trip); got: {msg!r}"
+        )
+        msg_lower = msg.lower()
+        assert (
+            "zero" in msg_lower
+            or "arithmetic" in msg_lower
+            or "/" in msg_lower
+            or "division" in msg_lower
+        ), (
+            f"errorMessage doesn't look like a Java ArithmeticException "
+            f"(expected mention of 'zero' / 'arithmetic' / '/' / "
+            f"'division'); got: {msg!r}"
+        )
