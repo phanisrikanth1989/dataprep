@@ -453,3 +453,258 @@ class TestInnerJoinRejectContextSync:
             f"R7 inner-join reject context+globalMap regressed: got "
             f"{rej['tag'].iloc[0]!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Regression: empty-joined_df + {{java}} reject expressions must compile
+# ---------------------------------------------------------------------------
+#
+# Bug: _process's early-return branch for ``joined_df.empty`` was calling
+# ``_route_inner_join_rejects`` unconditionally (Python-eval), bypassing
+# the ``_has_any_java_marker()`` dispatch the non-empty branch honours.
+# When every main row failed its inner-join lookup and the reject output
+# carried ``{{java}}`` column expressions, Python's ``eval()`` received
+# Java/Groovy syntax (ternary ``? :``, ``.equals(...)``, ``Numeric.*``,
+# Java string concat) and raised ``SyntaxError`` / ``NameError``, surfaced
+# to the user as "Expression evaluation failed: invalid syntax".
+#
+# Fix: the empty branch now mirrors the non-empty branch's dispatch --
+# when ``{{java}}`` markers are present anywhere in config, it builds a
+# zero-row joined frame with the correct schema and dispatches through
+# ``_evaluate_outputs_compiled`` so the D-09 dual-invocation reject pass
+# runs on the compiled Groovy path.
+# ---------------------------------------------------------------------------
+
+
+class TestEmptyJoinedRejectDispatch:
+    """Empty-``joined_df`` early-return must honour the {{java}} dispatch.
+
+    Every main row fails the inner-join lookup, so ``joined_df`` ends up
+    empty after the per-lookup loop in ``_process``. The reject output
+    carries ``{{java}}`` column expressions (Java/Groovy syntax). Before
+    the fix these expressions were fed to Python ``eval()`` and blew up
+    with a syntax error. After the fix they run on the compiled path and
+    materialise the expected reject rows.
+    """
+
+    @pytest.mark.parametrize("col_kind", _COL_KINDS,
+                             ids=lambda c: f"col-{c}")
+    def test_all_main_rows_reject_with_java_columns(
+        self, java_bridge, col_kind
+    ):
+        """All main rows reject + {{java}} reject column => no syntax error."""
+        # equality join keys (simple ref, no marker on the key itself --
+        # we want the routing to be triggered by the reject-column marker).
+        config = _build_config(
+            join_path="equality", col_kind=col_kind
+        )
+        comp = _make_component(
+            java_bridge, config, comp_id=f"tMap_empty_reject_{col_kind}"
+        )
+
+        # Three main rows, all with country_code='OTHER'. The lookup
+        # contains only 'MATCH_ONLY' so EVERY row rejects and joined_df
+        # ends up empty -- the exact code path that previously bypassed
+        # the {{java}} dispatch.
+        main_df = pd.DataFrame([
+            {"id": 11, "country_code": "OTHER"},
+            {"id": 22, "country_code": "OTHER"},
+            {"id": 99, "country_code": "OTHER"},
+        ])
+        lookup_df = pd.DataFrame(
+            [{"country_code": "MATCH_ONLY", "label": "Match Only Row"}]
+        )
+
+        # Must NOT raise SyntaxError / "Expression evaluation failed".
+        result = comp.execute({"row1": main_df, "row2": lookup_df})
+
+        # Active output stays empty (no matched rows).
+        out1 = result.get("out1")
+        assert out1 is not None and len(out1) == 0, (
+            f"col_kind={col_kind}: expected 0 active rows, got "
+            f"{len(out1) if out1 is not None else 'None'}"
+        )
+
+        # Reject output carries all three rows.
+        rej = result.get("rej")
+        assert rej is not None, (
+            f"col_kind={col_kind}: 'rej' output missing from result"
+        )
+        assert len(rej) == 3, (
+            f"col_kind={col_kind}: expected 3 reject rows, got "
+            f"{len(rej)}: {rej.to_dict(orient='records')}"
+        )
+
+        # Per-column expected values, evaluated in id order.
+        rej_sorted = rej.sort_values("id").reset_index(drop=True)
+        assert list(rej_sorted["id"]) == [11, 22, 99], (
+            f"col_kind={col_kind}: reject id ordering wrong: "
+            f"{list(rej_sorted['id'])!r}"
+        )
+        col_name = _COL_NAME[col_kind]
+        expected = [
+            _expected_value_for_kind(col_kind, unmatched_id=i)
+            for i in (11, 22, 99)
+        ]
+        actual = list(rej_sorted[col_name])
+        assert actual == expected, (
+            f"col_kind={col_kind}: reject column {col_name!r} expected "
+            f"{expected!r}, got {actual!r}"
+        )
+
+    def test_all_main_rows_reject_with_context_and_globalmap(
+        self, java_bridge
+    ):
+        """Empty-joined branch must also push context + globalMap to bridge.
+
+        Regression pin for the case where the empty branch routes through
+        the compiled path: ``_evaluate_outputs_compiled`` calls
+        ``_push_runtime_state_to_bridge`` before each invocation, so a
+        reject column referencing both ``context.*`` and ``globalMap.*``
+        must resolve at row-evaluation time even when no main row matched.
+        """
+        cm = ContextManager()
+        cm.set("suffix", "_REJ", value_type="id_String")
+        gm = GlobalMap()
+        gm.put("env", "PROD")
+
+        config = _build_config(
+            join_path="equality", col_kind="same_name_ref"
+        )
+        config["outputs"][1]["columns"] = [
+            {"name": "id", "expression": "{{java}}row1.id", "type": "int"},
+            {
+                "name": "tag",
+                "expression": (
+                    "{{java}}String.valueOf(row1.id) "
+                    "+ String.valueOf(context.suffix) "
+                    "+ String.valueOf(globalMap.get(\"env\"))"
+                ),
+                "type": "str",
+            },
+        ]
+
+        comp = Map(
+            component_id="tMap_empty_reject_ctx",
+            config=config,
+            global_map=gm,
+            context_manager=cm,
+        )
+        comp.java_bridge = java_bridge
+
+        # Single main row that fails the lookup => joined_df empty.
+        main_df = pd.DataFrame([
+            {"id": 77, "country_code": "OTHER"},
+        ])
+        lookup_df = pd.DataFrame(
+            [{"country_code": "MATCH_ONLY", "label": "Match Only Row"}]
+        )
+
+        result = comp.execute({"row1": main_df, "row2": lookup_df})
+        rej = result.get("rej")
+        assert rej is not None and len(rej) == 1, (
+            f"Expected exactly 1 reject row (id=77); got "
+            f"{len(rej) if rej is not None else 'None'}"
+        )
+        assert rej["id"].iloc[0] == 77
+        assert rej["tag"].iloc[0] == "77_REJPROD", (
+            f"Empty-joined-branch context+globalMap push regressed: got "
+            f"{rej['tag'].iloc[0]!r}"
+        )
+
+    def test_all_main_rows_reject_no_marker_still_python_route(
+        self, java_bridge
+    ):
+        """No {{java}} markers anywhere => empty branch must use Python path.
+
+        Pins the no-marker fallback: when nothing in the config carries a
+        marker, the empty branch keeps using ``_route_inner_join_rejects``
+        (no bridge round-trip). Asserts the reject output is populated by
+        the Python evaluator -- same shape as the {{java}} path.
+        """
+        # Build a marker-free config inline -- _build_config injects
+        # {{java}} prefixes by default; we strip them here so the no-marker
+        # Python branch is exercised.
+        config = {
+            "component_type": "Map",
+            "die_on_error": True,
+            "inputs": {
+                "main": {
+                    "name": "row1",
+                    "filter": "",
+                    "activate_filter": False,
+                    "matching_mode": "UNIQUE_MATCH",
+                    "lookup_mode": "LOAD_ONCE",
+                },
+                "lookups": [
+                    {
+                        "name": "row2",
+                        "matching_mode": "UNIQUE_MATCH",
+                        "lookup_mode": "LOAD_ONCE",
+                        "filter": "",
+                        "activate_filter": False,
+                        "join_keys": [
+                            {
+                                "lookup_column": "country_code",
+                                "type": "str",
+                                "nullable": True,
+                                "operator": "=",
+                                "expression": "row1.country_code",
+                            }
+                        ],
+                        "join_mode": "INNER_JOIN",
+                    }
+                ],
+            },
+            "variables": [],
+            "outputs": [
+                {
+                    "name": "out1",
+                    "is_reject": False,
+                    "inner_join_reject": False,
+                    "filter": "",
+                    "activate_filter": False,
+                    "columns": [
+                        {"name": "id", "expression": "row1.id",
+                         "type": "int"},
+                    ],
+                    "catch_output_reject": False,
+                },
+                {
+                    "name": "rej",
+                    "is_reject": False,
+                    "inner_join_reject": True,
+                    "filter": "",
+                    "activate_filter": False,
+                    "columns": [
+                        {"name": "id", "expression": "row1.id",
+                         "type": "int"},
+                    ],
+                    "catch_output_reject": False,
+                },
+            ],
+        }
+        comp = Map(
+            component_id="tMap_empty_reject_no_marker",
+            config=config,
+            global_map=GlobalMap(),
+            context_manager=ContextManager(),
+        )
+        # Bridge is supplied but should NOT be used by the no-marker branch.
+        comp.java_bridge = java_bridge
+
+        main_df = pd.DataFrame([
+            {"id": 5, "country_code": "OTHER"},
+            {"id": 6, "country_code": "OTHER"},
+        ])
+        lookup_df = pd.DataFrame(
+            [{"country_code": "MATCH_ONLY", "label": "M"}]
+        )
+
+        result = comp.execute({"row1": main_df, "row2": lookup_df})
+        rej = result.get("rej")
+        assert rej is not None and len(rej) == 2, (
+            f"No-marker empty branch regressed: expected 2 reject rows, "
+            f"got {len(rej) if rej is not None else 'None'}"
+        )
+        assert sorted(rej["id"].tolist()) == [5, 6]

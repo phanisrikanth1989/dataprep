@@ -626,11 +626,38 @@ class Map(BaseComponent):
 
         if joined_df.empty:
             logger.info(f"[{self.id}] No rows after lookups")
-            # Still route inner join rejects
-            result = self._create_empty_outputs()
-            self._route_inner_join_rejects(
-                result, inner_join_reject_dfs, outputs_config
-            )
+            # Same Python-vs-Java dispatch decision the non-empty branch
+            # below uses (D-02). The original early-return unconditionally
+            # called _route_inner_join_rejects (Python-eval), which broke
+            # configs whose inner_join_reject outputs carry {{java}}
+            # column expressions whenever every main row failed its
+            # lookup -- the Python evaluator cannot parse Java/Groovy
+            # syntax and surfaced "Expression evaluation failed /
+            # syntax error". Route through the compiled path so its
+            # dual-invocation reject pass (D-09, Plan 05.4-06) handles
+            # {{java}} reject expressions exactly as the non-empty
+            # branch does.
+            if self._has_any_java_marker():
+                # Defense-in-depth: validator already hard-fails marker +
+                # missing bridge in _validate_config.
+                assert self.java_bridge is not None, (
+                    "Marker-present + bridge-missing should have failed "
+                    "in _validate_config"
+                )
+                empty_joined = self._build_empty_joined_frame(
+                    main_name, joined_lookup_names, inner_join_reject_dfs
+                )
+                result = self._evaluate_outputs_compiled(
+                    empty_joined, outputs_config, variables_config,
+                    main_name, joined_lookup_names,
+                    inner_join_reject_dfs=inner_join_reject_dfs,
+                )
+            else:
+                # No markers anywhere -- Python-eval routing is correct.
+                result = self._create_empty_outputs()
+                self._route_inner_join_rejects(
+                    result, inner_join_reject_dfs, outputs_config
+                )
             return result
 
         logger.info(
@@ -4259,6 +4286,86 @@ class Map(BaseComponent):
             cols = [c["name"] for c in output.get("columns", [])]
             result[out_name] = pd.DataFrame(columns=cols)
         return result
+
+    def _build_empty_joined_frame(
+        self,
+        main_name: str,
+        joined_lookup_names: list[str],
+        inner_join_reject_dfs: dict[str, pd.DataFrame],
+    ) -> pd.DataFrame:
+        """Build a zero-row DataFrame matching the expected joined_df schema.
+
+        Used by the empty-``joined_df`` early-return branch in ``_process``
+        when ``{{java}}`` markers are present: the compiled Groovy script
+        needs a well-typed input schema even when there are 0 active rows
+        so the dual-invocation reject pass (D-09, Plan 05.4-06) can
+        dispatch to reject helpers over ``inner_join_reject_dfs`` via
+        ``_build_reject_row_source``.
+
+        Columns are sourced from:
+          1. Union of columns across the reject DataFrames (already carries
+             main columns + prior-joined-lookup prefixed columns from the
+             partial-match binding produced upstream in ``_process``).
+          2. Each joined lookup's ``_schema_for_flow`` (when available),
+             added as ``"<lookup_name>.<col>"`` prefixed columns so the
+             failing lookup's columns appear in the joined schema (reject
+             DFs are missing those columns by construction -- D-05
+             partial-match binding).
+
+        When ``_schema_for_flow`` returns ``None`` for a lookup (pre-7.1
+        configs / no ``schema_inputs_map``), that lookup's columns are
+        sourced solely from the reject DFs' union. The compiled script's
+        reject helpers reference main / prior-joined columns, not the
+        failing lookup's columns (which would NullPointerException in
+        Groovy on unmatched rows), so this fallback is safe.
+
+        Args:
+            main_name: Main input flow name (e.g. ``"row1"``).
+            joined_lookup_names: Lookup flow names already joined into
+                ``joined_df`` (in join order).
+            inner_join_reject_dfs: Per-failing-lookup reject DataFrames
+                accumulated in ``_process``.
+
+        Returns:
+            Zero-row DataFrame whose column index is the union described
+            above, in deterministic order (reject-DF columns first,
+            schema-derived prefixed columns appended after).
+        """
+        # Silence the main_name argument lint: it is part of the public
+        # signature for symmetry with the surrounding helpers even though
+        # the column-union path does not need it explicitly (reject DFs
+        # already carry the main columns).
+        del main_name
+
+        columns: list[str] = []
+        seen: set[str] = set()
+
+        # 1. Union of reject-DF columns (main + prior-joined prefixed).
+        for df in inner_join_reject_dfs.values():
+            if df is None:
+                continue
+            for c in df.columns:
+                if c not in seen:
+                    columns.append(c)
+                    seen.add(c)
+
+        # 2. Each joined lookup's schema, prefixed.
+        for lk_name in joined_lookup_names:
+            lk_schema = self._schema_for_flow(lk_name)
+            if not lk_schema:
+                continue
+            for col in lk_schema:
+                col_name = (
+                    col.get("name") if isinstance(col, dict) else str(col)
+                )
+                if not col_name:
+                    continue
+                prefixed = f"{lk_name}.{col_name}"
+                if prefixed not in seen:
+                    columns.append(prefixed)
+                    seen.add(prefixed)
+
+        return pd.DataFrame(columns=columns)
 
     def _check_size_guard(
         self, main_count: int, lookup_count: int, mode: str
