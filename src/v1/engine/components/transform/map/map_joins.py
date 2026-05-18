@@ -16,6 +16,8 @@ import re
 from enum import Enum
 from typing import Any
 
+import pandas as pd
+
 from .map_config import JoinKeyCfg, LookupCfg
 
 
@@ -95,8 +97,6 @@ def _is_simple_col_ref(expr: str) -> bool:
 
 
 # ---- Task 4.3: SIMPLE strategy join ----
-
-import pandas as pd  # noqa: E402  (local import keeps top-level imports clean)
 
 
 def join_simple_equality(
