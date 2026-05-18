@@ -256,22 +256,33 @@ def _find_jar_path() -> Path:
     import subprocess
 
     _JAR_REL = Path("src/v1/java_bridge/java/target/java-bridge-with-dependencies.jar")
+    test_dir = Path(__file__).resolve().parent
     # In a git worktree, build artifacts live in the main repo only.
-    # git-common-dir returns the shared .git dir; its parent is the main repo root.
+    # git-common-dir returns the shared .git dir (relative to where git was
+    # invoked); its parent is the main repo root.
     try:
         common_dir = subprocess.check_output(
             ["git", "rev-parse", "--git-common-dir"],
-            cwd=str(Path(__file__).resolve().parent),
+            cwd=str(test_dir),
             text=True,
         ).strip()
-        main_repo = Path(common_dir).resolve().parent
+        # The returned path is relative to the git invocation cwd (test_dir),
+        # not Python's cwd. Resolve manually against test_dir before
+        # asking pathlib for the absolute form.
+        common_dir_path = Path(common_dir)
+        if not common_dir_path.is_absolute():
+            common_dir_path = test_dir / common_dir_path
+        main_repo = common_dir_path.resolve().parent
         main_jar = main_repo / _JAR_REL
         if main_jar.exists():
             return main_jar
     except Exception:
         pass
-    # Fallback: try relative to test file (works in main repo)
-    return Path(__file__).resolve().parents[4] / _JAR_REL
+    # Fallback: relative to project root from this file's location.
+    # File: tests/v1/engine/components/transform/test_map_integration.py
+    # parents: [0]=transform, [1]=components, [2]=engine, [3]=v1,
+    #          [4]=tests, [5]=project_root.
+    return Path(__file__).resolve().parents[5] / _JAR_REL
 
 
 _JAR_PATH = _find_jar_path()
