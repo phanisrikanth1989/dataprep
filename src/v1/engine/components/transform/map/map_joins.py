@@ -348,9 +348,8 @@ _FAIL_RESULT_ROWS = 100_000_000
 def _check_cross_size_guard(main_n: int, lookup_n: int) -> None:
     """Raise ComponentExecutionError if main_n * lookup_n >= 100M.
 
-    Preserves the legacy 10M warn / 100M fail thresholds from
-    map_legacy._check_size_guard. WARN logging happens in
-    join_filter_as_match itself, near the chunking decision.
+    Preserves the legacy 10M warn / 100M fail thresholds. WARN logging
+    happens in join_filter_as_match itself, near the chunking decision.
     """
     product = main_n * lookup_n
     if product >= _FAIL_RESULT_ROWS:
