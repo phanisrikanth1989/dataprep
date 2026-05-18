@@ -1780,20 +1780,6 @@ _XFAIL_DATE_CTX_STR_COERCION = (
     "format conversion entirely to component-side parseDate. Either "
     "is a Phase 05.6+ change."
 )
-_XFAIL_DATE_GM_CONVERTER_DISPATCH = (
-    "globalMap path: writing a raw datetime.date / datetime.datetime "
-    "into bridge.global_map[k] triggers Py4J's input-converter "
-    "dispatch which calls `convert(gateway_client, value)` -- the "
-    "Plan 05.5-01 DateConverter / DatetimeConverter accesses "
-    "`gateway_client.jvm` but Py4J passes the GatewayClient (no .jvm "
-    "attribute) instead of the JavaGateway. Empirically this raises "
-    "AttributeError mid-execute, bubbling up as "
-    "ComponentExecutionError. Fix is converter-side: rebuild the "
-    "Date via the gateway_client's plain-protocol API (e.g. via "
-    "java_collections_converter) rather than .jvm. Out of scope; "
-    "follow-up to Plan 05.5-01."
-)
-
 
 # Marker-bound type row builder: each entry has the 4 attributes the
 # parametrize fan-out needs PLUS a per-namespace marks tuple so cells

@@ -27,8 +27,6 @@ import datetime
 import time
 from unittest.mock import MagicMock, patch
 
-import pytest  # noqa: F401  -- imported for pytest test discovery / fixtures if needed
-
 from src.v1.java_bridge.bridge import DateConverter, DatetimeConverter
 
 
