@@ -457,12 +457,20 @@ class FileOutputDelimited(BaseComponent):
         Arrow deserializes these as Python decimal.Decimal with full internal
         precision, so without this step they render as "250.500000000000000000".
 
+        When ``precision`` is -1 or absent for a ``decimal``/``bigdecimal``
+        column, Talend outputs the value's natural precision (e.g. "13345.67",
+        not "13345.670000000000000000").  This branch normalises the value by
+        stripping trailing zeros.
+
         Args:
             df: Working copy DataFrame to format in place.
 
         Returns:
             The same DataFrame with Decimal columns replaced by fixed-point strings.
         """
+        import decimal as _decimal
+        import math
+
         schema = getattr(self, "input_schema", None) or []
         if not schema:
             return df
@@ -477,22 +485,38 @@ class FileOutputDelimited(BaseComponent):
             if col_type not in ("decimal", "bigdecimal", "numeric", "number", "float"):
                 continue
             precision = col.get("precision")
-            if precision is None or int(precision) < 0:
-                continue
-            precision = int(precision)
+            use_fixed = precision is not None and int(precision) >= 0
 
-            def _fmt(x, p=precision):
-                if x is None:
-                    return ""
-                try:
-                    import math
-                    if isinstance(x, float) and math.isnan(x):
+            if use_fixed:
+                p = int(precision)
+
+                def _fmt(x, _p=p):
+                    if x is None:
                         return ""
-                    return f"{x:.{p}f}"
-                except (TypeError, ValueError):
-                    return str(x) if x is not None else ""
+                    try:
+                        if isinstance(x, float) and math.isnan(x):
+                            return ""
+                        return f"{x:.{_p}f}"
+                    except (TypeError, ValueError):
+                        return str(x) if x is not None else ""
 
-            df[name] = df[name].map(_fmt)
+                df[name] = df[name].map(_fmt)
+
+            elif col_type in ("decimal", "bigdecimal"):
+                # No precision set — strip Arrow's scale-18 trailing zeros.
+                def _fmt_natural(x):
+                    if x is None:
+                        return ""
+                    try:
+                        if isinstance(x, float) and math.isnan(x):
+                            return ""
+                        d = _decimal.Decimal(str(x))
+                        return f"{d.normalize():f}"
+                    except (TypeError, ValueError, _decimal.InvalidOperation):
+                        return str(x) if x is not None else ""
+
+                df[name] = df[name].map(_fmt_natural)
+
         return df
 
     def _apply_boolean_format(self, df: pd.DataFrame) -> pd.DataFrame:

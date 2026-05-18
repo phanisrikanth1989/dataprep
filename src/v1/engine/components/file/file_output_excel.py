@@ -320,9 +320,17 @@ class FileOutputExcel(BaseComponent):
             col_formats = self._build_col_formats()
 
             def _clean_val(value):
-                """Convert NaN/NaT to None so openpyxl writes blank cells (not 'nan' strings)."""
+                """Convert NaN/NaT to None so openpyxl writes blank cells (not 'nan' strings).
+
+                Also converts ``decimal.Decimal`` (Arrow BigDecimal with scale-18) to
+                native Python ``float`` so Excel stores a proper number rather than a
+                string with 18 trailing zeros.
+                """
                 if value is None:
                     return None
+                import decimal as _decimal
+                if isinstance(value, _decimal.Decimal):
+                    return float(value)
                 try:
                     if pd.isna(value):
                         return None

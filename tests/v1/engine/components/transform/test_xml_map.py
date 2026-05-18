@@ -52,6 +52,31 @@ _SOURCE_FILE = Path("src/v1/engine/components/transform/xml_map.py")
 
 
 # ------------------------------------------------------------------
+# Minimal Java bridge mock for expression_filter tests
+# ------------------------------------------------------------------
+
+class _MockBridge:
+    """Evaluates Relational.ISNULL/ISNOTNULL post-substitution expressions in Python.
+
+    Used only in unit tests so expression_filter filtering logic can be verified
+    without a running JVM.
+    """
+
+    def execute_batch_one_time_expressions(self, exprs: dict) -> dict:
+        import re as _re
+        result = {}
+        for key, expr in exprs.items():
+            m = _re.match(r"Relational\.(ISNULL|ISNOTNULL)\((.+)\)\s*$", expr.strip())
+            if m:
+                func, arg = m.group(1), m.group(2).strip()
+                is_null = arg == "null" or arg in ('""', "''")
+                result[key] = is_null if func == "ISNULL" else not is_null
+            else:
+                result[key] = True  # unknown → include
+        return result
+
+
+# ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
 
@@ -857,3 +882,260 @@ class TestE2eFixture:
         """XMLMap can be imported without errors (registry self-test)."""
         from src.v1.engine.components.transform.xml_map import XMLMap as _XMLMap
         assert _XMLMap is XMLMap
+
+
+# ------------------------------------------------------------------
+# TestFlatToFlatMode -- ENG-FIX: flat column-to-column bypass
+# When all output_trees node expressions are in 'flow.column' format
+# (e.g. 'row1.id'), XMLMap skips XML parsing and maps columns directly.
+# ------------------------------------------------------------------
+
+@pytest.mark.unit
+class TestFlatToFlatMode:
+    """Tests for the flat-to-flat bypass path in XMLMap._process.
+
+    The converter produces 'flow.column' expressions (e.g. 'row1.id') for
+    tXMLMap jobs that simply rename or pass-through flat columns.  Without the
+    fix the component tried to parse each value as XML and crashed on integers.
+    """
+
+    # ---- helpers -------------------------------------------------------
+
+    @staticmethod
+    def _flat_cfg(cols: list) -> dict:
+        """Return a minimal XMLMap config whose output_trees nodes all use
+        'row1.<col>' (flat) expressions.
+
+        ``cols`` is a list of dicts with keys 'in' (input column) and 'out'
+        (output column).
+        """
+        nodes = [
+            {"name": col["out"], "expression": f"row1.{col['in']}"}
+            for col in cols
+        ]
+        return {
+            "input_trees": [],
+            "output_trees": [{"name": "out1", "nodes": nodes}],
+            "connections": [],
+            "output_schema": [
+                {"name": col["out"], "type": "id_String"} for col in cols
+            ],
+            "expressions": {},
+            "looping_element": "item",
+            "die_on_error": False,
+        }
+
+    # ---- tests ---------------------------------------------------------
+
+    def test_flat_to_flat_direct_column_mapping(self):
+        """Test F-1: flat 'row1.col' expressions produce correct output values."""
+        df_in = pd.DataFrame({"id": ["1", "2"], "name": ["Alice", "Bob"]})
+        cfg = self._flat_cfg([{"in": "id", "out": "id"}, {"in": "name", "out": "name"}])
+        comp = _make_component(cfg)
+        result = comp._process(df_in)
+        out = result["main"]
+        assert list(out["id"]) == ["1", "2"]
+        assert list(out["name"]) == ["Alice", "Bob"]
+
+    def test_flat_mode_preserves_row_count(self):
+        """Test F-2: 5 input rows → 5 output rows in flat mode."""
+        df_in = pd.DataFrame({"val": [str(i) for i in range(5)]})
+        cfg = self._flat_cfg([{"in": "val", "out": "val"}])
+        comp = _make_component(cfg)
+        result = comp._process(df_in)
+        assert len(result["main"]) == 5
+
+    def test_xpath_expression_prevents_flat_mode(self):
+        """Test F-3: a node with an XPath expression ('/') causes _build_flat_column_map to return None."""
+        cfg = _make_minimal_config()
+        cfg["output_trees"] = [{"name": "out1", "nodes": [
+            {"name": "id", "expression": "/root/id"},  # XPath -- not flat
+        ]}]
+        comp = _make_component(cfg)
+        assert comp._build_flat_column_map() is None
+
+    def test_flat_mode_stats_correct(self):
+        """Test F-4: NB_LINE == NB_LINE_OK == 2, NB_LINE_REJECT == 0 after flat _process."""
+        df_in = pd.DataFrame({"a": ["x", "y"]})
+        cfg = self._flat_cfg([{"in": "a", "out": "a"}])
+        comp = _make_component(cfg)
+        comp._process(df_in)
+        assert comp.stats["NB_LINE"] == 2
+        assert comp.stats["NB_LINE_OK"] == 2
+        assert comp.stats["NB_LINE_REJECT"] == 0
+
+    def test_flat_mode_empty_dataframe_returns_empty(self):
+        """Test F-5: empty input DataFrame → empty main result (no crash)."""
+        df_in = pd.DataFrame({"id": pd.Series([], dtype=object), "name": pd.Series([], dtype=object)})
+        cfg = self._flat_cfg([{"in": "id", "out": "id"}, {"in": "name", "out": "name"}])
+        comp = _make_component(cfg)
+        result = comp._process(df_in)
+        assert len(result["main"]) == 0
+
+
+# ------------------------------------------------------------------
+# TestExpressionFilterNative -- D-E1 native filter evaluation
+# Tests for the Relational.ISNULL / ISNOTNULL expression_filter support
+# added as a native Python implementation (no Java bridge required).
+# ------------------------------------------------------------------
+
+@pytest.mark.unit
+class TestExpressionFilterNative:
+    """Tests for native Python evaluation of expression_filter DSL.
+
+    Covers _parse_expression_filter, _make_filter_relative_xpath, and
+    end-to-end filter application via _process.
+    """
+
+    # ---- helper to build a config with filter ----
+
+    @staticmethod
+    def _filter_cfg(func: str, abs_xpath: str) -> dict:
+        """Return an XMLMap config with expression_filter set."""
+        raw_filter = f"Relational.{func}([row2.col:{abs_xpath}])"
+        nodes = [
+            {"name": "type", "expression": "[row2.col:/Root/Item/Type]"},
+        ]
+        return {
+            "input_trees": [],
+            "output_trees": [{"name": "out1", "nodes": nodes}],
+            "connections": [],
+            "output_schema": [{"name": "type", "type": "id_String"}],
+            "expressions": {"type": "./Type"},
+            "looping_element": "Item",
+            "die_on_error": False,
+            "activate_expression_filter": True,
+            "expression_filter": raw_filter,
+        }
+
+    # ---- _substitute_xml_placeholders ----
+
+    def test_substitute_placeholder_with_value(self):
+        """EF-1: placeholder resolved to text literal when child element has text."""
+        from lxml import etree
+        from src.v1.engine.components.transform.xml_map import XMLMap
+        xml = "<Item><Type>X</Type></Item>"
+        node = etree.fromstring(xml)
+        result = XMLMap._substitute_xml_placeholders(
+            "Relational.ISNULL([row2.col:/Root/Item/Type])",
+            node, "Item", "", {}, "test",
+        )
+        assert result == 'Relational.ISNULL("X")'
+
+    def test_substitute_placeholder_with_null(self):
+        """EF-2: placeholder resolved to null when child element is absent."""
+        from lxml import etree
+        from src.v1.engine.components.transform.xml_map import XMLMap
+        xml = "<Item></Item>"
+        node = etree.fromstring(xml)
+        result = XMLMap._substitute_xml_placeholders(
+            "Relational.ISNULL([row2.col:/Root/Item/Type])",
+            node, "Item", "", {}, "test",
+        )
+        assert result == "Relational.ISNULL(null)"
+
+    def test_substitute_multiple_placeholders(self):
+        """EF-3: expression with two placeholders — both substituted independently."""
+        from lxml import etree
+        from src.v1.engine.components.transform.xml_map import XMLMap
+        xml = "<Item><A>hello</A></Item>"
+        node = etree.fromstring(xml)
+        result = XMLMap._substitute_xml_placeholders(
+            "[row2.c:/X/Item/A] != null && [row2.c:/X/Item/B] == null",
+            node, "Item", "", {}, "test",
+        )
+        # A has text → "hello"; B is absent → null
+        assert '"hello"' in result
+        assert "null" in result
+
+    # ---- _compute_filter_mask (no bridge) ----
+
+    def test_no_bridge_includes_all_rows(self):
+        """EF-4: no Java bridge → all rows included (fail-open) with a warning."""
+        from lxml import etree
+        from src.v1.engine.components.transform.xml_map import XMLMap
+        xml = "<Root><Item><Type>X</Type></Item><Item></Item></Root>"
+        root = etree.fromstring(xml)
+        comp = XMLMap.__new__(XMLMap)
+        comp.java_bridge = None
+        comp.config = {}
+        nodes = root.findall("Item")
+        mask = comp._compute_filter_mask(
+            "Relational.ISNULL([row2.col:/Root/Item/Type])",
+            nodes, "Item", "", {}, "test",
+        )
+        assert mask == [True, True]
+
+    # ---- _make_filter_relative_xpath ----
+
+    def test_make_relative_xpath_simple(self):
+        """EF-5: _make_filter_relative_xpath strips prefix up to looping element."""
+        from src.v1.engine.components.transform.xml_map import XMLMap
+        rel = XMLMap._make_filter_relative_xpath(
+            "/Root/Items/Item/SubChild/Value", "Item"
+        )
+        assert rel == "SubChild/Value"
+
+    def test_make_relative_xpath_direct_child(self):
+        """EF-6: looping element is the last segment — returns '.'."""
+        from src.v1.engine.components.transform.xml_map import XMLMap
+        rel = XMLMap._make_filter_relative_xpath("/Root/Items/Item", "Item")
+        assert rel == "."
+
+    def test_make_relative_xpath_not_found(self):
+        """EF-7: looping element not in path — best-effort full path returned."""
+        from src.v1.engine.components.transform.xml_map import XMLMap
+        rel = XMLMap._make_filter_relative_xpath("/Root/Foo/Bar", "Missing")
+        assert rel == "Root/Foo/Bar"
+
+    # ---- end-to-end filter application ----
+
+    def test_isnull_filters_rows_with_value(self):
+        """EF-8: ISNULL filter keeps only rows where Type is absent (via mock bridge)."""
+        xml = (
+            "<Root>"
+            "<Item><Type>X</Type></Item>"   # has Type -- should be excluded
+            "<Item></Item>"                  # no Type -- should be included
+            "<Item><Type></Type></Item>"     # empty Type -- should be included
+            "</Root>"
+        )
+        df_in = pd.DataFrame({"xml": [xml]})
+        cfg = self._filter_cfg("ISNULL", "/Root/Item/Type")
+        comp = _make_component(cfg)
+        comp.java_bridge = _MockBridge()
+        result = comp._process(df_in)
+        out = result["main"]
+        # Only 2 rows should pass the ISNULL filter
+        assert len(out) == 2
+
+    def test_isnotnull_filters_rows_without_value(self):
+        """EF-9: ISNOTNULL filter keeps only rows where Type is present (via mock bridge)."""
+        xml = (
+            "<Root>"
+            "<Item><Type>X</Type></Item>"   # has Type -- included
+            "<Item></Item>"                  # no Type -- excluded
+            "<Item><Type>Y</Type></Item>"   # has Type -- included
+            "</Root>"
+        )
+        df_in = pd.DataFrame({"xml": [xml]})
+        cfg = self._filter_cfg("ISNOTNULL", "/Root/Item/Type")
+        comp = _make_component(cfg)
+        comp.java_bridge = _MockBridge()
+        result = comp._process(df_in)
+        out = result["main"]
+        assert len(out) == 2
+
+    def test_filter_inactive_passes_all_rows(self):
+        """EF-10: activate_expression_filter=False — all rows pass through."""
+        xml = (
+            "<Root>"
+            "<Item><Type>X</Type></Item>"
+            "<Item></Item>"
+            "</Root>"
+        )
+        df_in = pd.DataFrame({"xml": [xml]})
+        cfg = self._filter_cfg("ISNULL", "/Root/Item/Type")
+        cfg["activate_expression_filter"] = False
+        comp = _make_component(cfg)
+        result = comp._process(df_in)
+        assert len(result["main"]) == 2

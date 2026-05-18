@@ -74,9 +74,9 @@ class FileInputXML(BaseComponent):
         Raises:
             ConfigurationError: If required keys are missing or typed incorrectly.
         """
-        if not self.config.get("filename"):
+        if not self.config.get("filepath"):
             raise ConfigurationError(
-                "[%s] Missing required config key 'filename'" % self.id
+                "[%s] Missing required config key 'filepath'" % self.id
             )
         if not self.config.get("loop_query"):
             raise ConfigurationError(
@@ -111,7 +111,7 @@ class FileInputXML(BaseComponent):
             ConfigurationError: If LIMIT value is not parseable.
             FileOperationError: If die_on_error=True and a file/parse/XPath error occurs.
         """
-        filepath = self.config["filename"]
+        filepath = self.config["filepath"]
         loop_query = self.config["loop_query"]
         mapping = self.config.get("mapping") or []
         limit_raw = self.config.get("limit", "")
@@ -167,7 +167,14 @@ class FileInputXML(BaseComponent):
             nsmap = self._build_nsmap(root, ignore_ns)
             loop_xpath = self._normalize_loop_query(loop_query, ignore_ns)
             try:
-                nodes = root.xpath(loop_xpath, namespaces=nsmap)
+                # XPath "/" selects the document root node, which lxml cannot
+                # return as an element list -- treat it as [root] directly.
+                # This is the Talend "document-passing" pattern where the entire
+                # XML document is captured as a single row value.
+                if loop_xpath.strip() == "/":
+                    nodes = [root]
+                else:
+                    nodes = root.xpath(loop_xpath, namespaces=nsmap)
             except etree.XPathEvalError as exc:
                 if die_on_error:
                     raise FileOperationError(
@@ -339,6 +346,14 @@ class FileInputXML(BaseComponent):
         if not expr:
             # Default: take element text
             return node.text or ""
+        # XPath "." means the current node itself -- serialize it to an XML string.
+        # This is the Talend "document-passing" mode: the entire element is captured
+        # as a string value (e.g. to feed into tXMLMap on the next step).
+        if expr == ".":
+            try:
+                return etree.tostring(node, encoding="unicode")
+            except Exception:
+                return ""
         # ENG-FIX-008: bare @attr means "attribute on the loop element"
         if expr.startswith("@"):
             return node.get(expr[1:]) or ""

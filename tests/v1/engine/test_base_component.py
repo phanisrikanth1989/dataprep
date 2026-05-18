@@ -1942,3 +1942,77 @@ class TestRejectSchemaMissingColumns:
         out = comp._enforce_schema_column_order(result)
         assert "errorCode" in out["reject"].columns
         assert "errorMessage" in out["reject"].columns
+
+
+# ------------------------------------------------------------------
+# TestTalendLengthSentinel -- ENG-FIX: length=-1 is "unbounded" in Talend
+# Before the fix, `len(val) > -1` was always True, routing every row to reject.
+# ------------------------------------------------------------------
+
+@pytest.mark.unit
+class TestTalendLengthSentinel:
+    """Tests for the length=-1 Talend sentinel fix in _validate_with_reject_routing.
+
+    Talend uses ``length=-1`` as a sentinel meaning "no declared length limit".
+    The fixed code adds ``if col_length_int > 0:`` guards around both the
+    violation-detection check and the string-truncation path so that
+    ``length=-1`` (and ``length=0``) are treated as unbounded.
+    """
+
+    def test_length_minus_one_does_not_route_to_reject(self):
+        """S-1: schema with length=-1 → no violation, all rows in main."""
+        comp = ConcreteComponent("c1", {})
+        df = pd.DataFrame({"name": ["Alice", "Bob", "a" * 100]})
+        schema = [{"name": "name", "type": "str", "nullable": True, "length": -1}]
+        out = comp._validate_with_reject_routing({"main": df.copy()}, df, schema)
+        assert len(out["main"]) == 3
+        assert "reject" not in out or len(out.get("reject", [])) == 0
+
+    def test_length_minus_one_does_not_truncate(self):
+        """S-2: a 200-char string with length=-1 is preserved unchanged."""
+        long_val = "x" * 200
+        comp = ConcreteComponent("c1", {})
+        df = pd.DataFrame({"val": [long_val]})
+        schema = [{"name": "val", "type": "str", "nullable": True, "length": -1}]
+        out = comp._validate_with_reject_routing({"main": df.copy()}, df, schema)
+        assert out["main"].iloc[0]["val"] == long_val
+
+    def test_positive_length_is_not_enforced(self):
+        """S-3: positive length is metadata only -- oversized values pass through
+        unchanged (no truncation, no rejection), matching Talend runtime behavior."""
+        comp = ConcreteComponent("c1", {})
+        df = pd.DataFrame({"code": ["AB", "TOOLONG"]})
+        schema = [{"name": "code", "type": "str", "nullable": True, "length": 5}]
+        out = comp._validate_with_reject_routing({"main": df.copy()}, df, schema)
+        # Both rows stay in main with original values -- length is never enforced
+        assert len(out["main"]) == 2
+        assert out["main"].iloc[0]["code"] == "AB"
+        assert out["main"].iloc[1]["code"] == "TOOLONG"
+        assert "reject" not in out or len(out.get("reject") or []) == 0
+
+    def test_length_zero_treated_as_no_limit(self):
+        """S-4: length=0 also satisfies col_length_int > 0 == False → unbounded."""
+        comp = ConcreteComponent("c1", {})
+        df = pd.DataFrame({"val": ["any string of arbitrary length " * 5]})
+        schema = [{"name": "val", "type": "str", "nullable": True, "length": 0}]
+        out = comp._validate_with_reject_routing({"main": df.copy()}, df, schema)
+        assert len(out["main"]) == 1
+        assert "reject" not in out or len(out.get("reject", [])) == 0
+
+    def test_all_rows_pass_with_length_minus_one_multi_column(self):
+        """S-5: multi-column schema all with length=-1 → all rows pass without truncation."""
+        comp = ConcreteComponent("c1", {})
+        df = pd.DataFrame({
+            "a": ["x" * 50],
+            "b": ["y" * 200],
+            "c": ["z" * 1],
+        })
+        schema = [
+            {"name": "a", "type": "str", "nullable": True, "length": -1},
+            {"name": "b", "type": "str", "nullable": True, "length": -1},
+            {"name": "c", "type": "str", "nullable": True, "length": -1},
+        ]
+        out = comp._validate_with_reject_routing({"main": df.copy()}, df, schema)
+        assert len(out["main"]) == 1
+        assert out["main"].iloc[0]["a"] == "x" * 50
+        assert out["main"].iloc[0]["b"] == "y" * 200

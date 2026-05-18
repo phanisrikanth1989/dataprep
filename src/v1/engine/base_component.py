@@ -925,18 +925,9 @@ class BaseComponent(ABC):
             # Type coercion (best-effort; record failures)
             working_df = self._coerce_column_type(working_df, col_def)
 
-            # String length check
-            if col_length is not None and col_type == "str":
-                col_length_int = int(col_length)
-                for idx in working_df.index:
-                    if idx in violation_indices:
-                        continue
-                    val = working_df.at[idx, col_name]
-                    if isinstance(val, str) and len(val) > col_length_int:
-                        violation_indices[idx] = (
-                            f"Column '{col_name}': length exceeded: "
-                            f"{len(val)} > {col_length_int}"
-                        )
+            # String length: in Talend, 'length' on string columns is purely
+            # informational metadata (Talend Studio schema display / code generation).
+            # It is NEVER enforced at runtime -- no truncation, no rejection.
 
             # Float precision rounding
             if precision is not None and col_type == "float":
@@ -953,16 +944,6 @@ class BaseComponent(ABC):
                 )
 
         if not violation_indices:
-            # Apply string truncation and other non-violation coercions and return
-            for col_def in output_schema:
-                col_name = col_def.get("name")
-                col_length = col_def.get("length")
-                col_type = col_def.get("type", "str")
-                if col_name and col_length is not None and col_type == "str" and col_name in working_df.columns:
-                    col_length_int = int(col_length)
-                    working_df[col_name] = working_df[col_name].apply(
-                        lambda v: v[:col_length_int] if isinstance(v, str) and len(v) > col_length_int else v
-                    )
             result["main"] = working_df
             return result
 

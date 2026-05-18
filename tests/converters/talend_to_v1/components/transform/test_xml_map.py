@@ -457,14 +457,14 @@ class TestComponentStructure:
 class TestConditionalNeedsReview:
     """D-E1 lock-in: expression_filter / lookup / allInOne emit conditional needs_review.
 
-    Each sub-feature emits a needs_review entry ONLY when its trigger flag is
-    active in the Talend node (conditional). Absence of the flag means NO entry.
+    expression_filter is now evaluated by the engine -- no needs_review entry is emitted
+    regardless of the activateExpressionFilter flag.  lookup / allInOne remain engine gaps.
     """
 
-    # ---- expression_filter ----
+    # ---- expression_filter (engine-supported -- no needs_review emitted) ----
 
-    def test_expression_filter_true_emits_needs_review(self):
-        """activateExpressionFilter='true' on outputTree -> needs_review entry with feature='expression_filter'."""
+    def test_expression_filter_true_no_needs_review(self):
+        """activateExpressionFilter='true' -> no needs_review entry (engine now evaluates it)."""
         raw_xml = _make_raw_xml(
             output_trees_xml=(
                 '<outputTrees name="out1" expressionFilter="row1.status == 1" '
@@ -476,8 +476,8 @@ class TestConditionalNeedsReview:
         )
         result = _convert(raw_xml=raw_xml)
         ef_entries = [e for e in result.needs_review if e.get("feature") == "expression_filter"]
-        assert len(ef_entries) == 1, (
-            f"Expected exactly 1 expression_filter needs_review entry; got {len(ef_entries)}"
+        assert len(ef_entries) == 0, (
+            f"expression_filter needs_review should not be emitted (engine supports it); got {len(ef_entries)}"
         )
 
     def test_expression_filter_false_no_needs_review(self):
@@ -579,7 +579,7 @@ class TestConditionalNeedsReview:
         ef = [e for e in result.needs_review if e.get("feature") == "expression_filter"]
         lj = [e for e in result.needs_review if e.get("feature") == "lookup_join"]
         aio = [e for e in result.needs_review if e.get("feature") == "all_in_one_document_output"]
-        assert len(ef) == 1, f"Expected 1 expression_filter entry, got {len(ef)}"
+        assert len(ef) == 0, f"expression_filter is engine-supported; expected 0, got {len(ef)}"
         assert len(lj) == 1, f"Expected 1 lookup_join entry, got {len(lj)}"
         assert len(aio) == 1, f"Expected 1 all_in_one entry, got {len(aio)}"
 

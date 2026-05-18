@@ -1507,16 +1507,16 @@ class TestCoverageLift1408DecimalFormatter:
         assert "missing" not in out.columns
 
     def test_skips_when_precision_missing_or_negative(self):
-        """precision None / < 0 -> continue (line 401)."""
+        """decimal with precision None / -1 -> natural normalization (strip trailing zeros)."""
         comp = _make_component()
         comp.input_schema = [
             {"name": "a", "type": "decimal"},
             {"name": "b", "type": "decimal", "precision": -1},
         ]
-        df = pd.DataFrame({"a": [1.5], "b": [2.5]})
+        df = pd.DataFrame({"a": ["13345.670000000000000000"], "b": ["16000.250000000000000000"]})
         out = comp._apply_decimal_precision(df.copy())
-        assert out["a"].iloc[0] == 1.5
-        assert out["b"].iloc[0] == 2.5
+        assert out["a"].iloc[0] == "13345.67"
+        assert out["b"].iloc[0] == "16000.25"
 
     def test_fmt_handles_none_nan_and_format_fallback(self):
         """_fmt: None / NaN / format / TypeError fallback (405-414)."""

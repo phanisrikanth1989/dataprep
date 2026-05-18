@@ -488,8 +488,6 @@ class XMLMapConverter(ComponentConverter):
             ("input_trees", "input tree metadata stored but not used by engine"),
             ("output_trees", "output tree metadata stored but not used by engine"),
             ("connections", "connection metadata stored but not used by engine"),
-            ("expression_filter", "expression filter is not evaluated by engine"),
-            ("activate_expression_filter", "expression filter activation flag not checked"),
             ("var_tables", "variable tables not supported by engine"),
         ]
         for key, detail in _engine_gap_keys:
@@ -515,18 +513,6 @@ class XMLMapConverter(ComponentConverter):
         # These are emitted ONLY when the specific sub-feature flag is active in
         # this Talend node. The engine logs a warning at runtime and ignores the
         # sub-feature (warn-and-ignore contract). See 12-01-AUDIT.md D-E1 table.
-
-        if activate_expression_filter:
-            needs_review.append({
-                "feature": "expression_filter",
-                "reason": (
-                    "tXMLMap expression_filter (Java) is not executed by the Phase 12 engine. "
-                    "The engine logs a warning and ignores the filter. Tracked for Phase 13."
-                ),
-                "phase": "12",
-                "component": node.component_id,
-                "severity": "engine_gap",
-            })
 
         has_lookup = any(
             tree.get("lookup", False) for tree in input_trees
