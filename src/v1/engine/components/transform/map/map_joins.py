@@ -12,6 +12,7 @@ See spec section 6 for full semantics.
 """
 from __future__ import annotations
 
+import logging
 import re
 from enum import Enum
 from typing import Any, Callable
@@ -19,6 +20,10 @@ from typing import Any, Callable
 import pandas as pd
 
 from .map_config import JoinKeyCfg, LookupCfg
+from src.v1.engine.exceptions import ComponentExecutionError
+
+
+logger = logging.getLogger(__name__)
 
 
 _JAVA_MARKER = "{{java}}"
@@ -332,3 +337,123 @@ def _prefilter_null_keys(
         return df.copy(), pd.DataFrame(columns=df.columns)
     null_mask = df[existing].isna().any(axis=1)
     return df[~null_mask].copy(), df[null_mask].copy()
+
+
+# ---- Task 4.5: FILTER_AS_MATCH strategy ----
+
+_WARN_RESULT_ROWS = 10_000_000
+_FAIL_RESULT_ROWS = 100_000_000
+
+
+def _check_cross_size_guard(main_n: int, lookup_n: int) -> None:
+    """Raise ComponentExecutionError if main_n * lookup_n >= 100M.
+
+    Preserves the legacy 10M warn / 100M fail thresholds from
+    map_legacy._check_size_guard. WARN logging happens in
+    join_filter_as_match itself, near the chunking decision.
+    """
+    product = main_n * lookup_n
+    if product >= _FAIL_RESULT_ROWS:
+        raise ComponentExecutionError(
+            "tMap",
+            f"Cross-product would produce ~{product:,} rows "
+            f"(main={main_n:,} x lookup={lookup_n:,}). "
+            f"Exceeds safety limit of {_FAIL_RESULT_ROWS:,}."
+        )
+
+
+def _compute_cross_chunk_size(lookup_rows: int) -> int:
+    """Auto-tune chunk size to bound peak intermediate memory at ~100M cells.
+
+    Mirrors the legacy heuristic. chunk_size * lookup_rows <= 100M cells.
+    Floor 100, ceiling 10_000.
+    """
+    return max(100, min(10_000, 100_000_000 // max(1, lookup_rows)))
+
+
+def join_filter_as_match(
+    joined_df: pd.DataFrame,
+    lookup_df: pd.DataFrame,
+    lk: LookupCfg,
+    main_name: str,
+    prior_lookups: list[str],
+    bridge_eval_fn: BridgeEvalFn | None,
+) -> tuple[pd.DataFrame, pd.DataFrame | None]:
+    """FILTER_AS_MATCH: chunked cross-product, optionally filtered by lk.filter.
+
+    For each chunk of joined_df:
+      - Cross-product chunk x full lookup
+      - If lk.filter set: bridge-eval the filter once per chunk (one bridge
+        call per chunk, NOT per row); apply the boolean mask
+      - If no filter (pure cartesian): keep all
+
+    INNER_JOIN: main rows that survived 0 matches go to rejects.
+    LEFT_OUTER_JOIN: empty lookup -> joined_df unchanged.
+
+    Size guard: 10M product warns; 100M product raises
+    ComponentExecutionError.
+    """
+    if lookup_df.empty:
+        empty = pd.DataFrame(columns=list(joined_df.columns) + list(lookup_df.columns))
+        return empty, (joined_df.copy() if lk.join_mode == "INNER_JOIN" else None)
+
+    _check_cross_size_guard(len(joined_df), len(lookup_df))
+
+    product = len(joined_df) * len(lookup_df)
+    if product >= _WARN_RESULT_ROWS:
+        logger.warning(
+            "[tMap] Cross-product with '%s': ~%d rows (main=%d x lookup=%d)",
+            lk.name, product, len(joined_df), len(lookup_df),
+        )
+
+    lookup_prefixed = _prefix_lookup_columns(lookup_df, lk.name)
+
+    has_filter = lk.activate_filter and lk.filter
+    filter_expr = _strip_marker(lk.filter) if has_filter else None
+
+    chunk_size = _compute_cross_chunk_size(len(lookup_prefixed))
+    result_chunks: list[pd.DataFrame] = []
+
+    for start in range(0, len(joined_df), chunk_size):
+        chunk = joined_df.iloc[start:start + chunk_size]
+        cross = pd.merge(chunk, lookup_prefixed, how="cross")
+        if filter_expr is None:
+            result_chunks.append(cross)
+            continue
+        if bridge_eval_fn is None:
+            raise RuntimeError(
+                "FILTER_AS_MATCH has a filter but bridge_eval_fn was not provided"
+            )
+        eval_results = bridge_eval_fn(
+            cross, {"__filter__": filter_expr},
+            main_name, prior_lookups + [lk.name],
+        )
+        if "__filter__" in eval_results:
+            mask = pd.Series(
+                eval_results["__filter__"]
+            ).fillna(False).astype(bool).values
+            result_chunks.append(cross[mask])
+
+    if not result_chunks:
+        merged = pd.DataFrame(
+            columns=list(joined_df.columns) + list(lookup_prefixed.columns)
+        )
+    else:
+        merged = pd.concat(result_chunks, ignore_index=True)
+
+    rejects: pd.DataFrame | None = None
+    if lk.join_mode == "INNER_JOIN":
+        main_cols = list(joined_df.columns)
+        if not merged.empty:
+            matched_main = merged[main_cols].drop_duplicates()
+            flagged = joined_df.merge(
+                matched_main.assign(__matched__=True),
+                on=main_cols, how="left",
+            )
+            unmatched = flagged[flagged["__matched__"].isna()].drop(columns=["__matched__"])
+            if not unmatched.empty:
+                rejects = unmatched.copy()
+        else:
+            rejects = joined_df.copy()
+
+    return merged, rejects

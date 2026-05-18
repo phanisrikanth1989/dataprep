@@ -242,3 +242,98 @@ def test_computed_equality_inner_join_collects_rejects():
     assert list(result["id"]) == [1]
     assert rejects is not None
     assert list(rejects["id"]) == [2]
+
+
+# ===== Task 4.5: join_filter_as_match =====
+
+import pytest
+from src.v1.engine.exceptions import ComponentExecutionError
+
+
+def test_filter_as_match_no_filter_pure_cartesian():
+    """No filter -> pure cartesian product."""
+    joined = pd.DataFrame({"a": [1, 2]})
+    lookup = pd.DataFrame({"b": [10, 20]})
+    lk = LookupCfg(name="row2", join_keys=[], join_mode="LEFT_OUTER_JOIN")
+    from src.v1.engine.components.transform.map.map_joins import (
+        join_filter_as_match,
+    )
+    result, rejects = join_filter_as_match(
+        joined, lookup, lk, main_name="row1",
+        prior_lookups=[], bridge_eval_fn=None,
+    )
+    assert len(result) == 4  # 2 x 2
+    assert rejects is None
+
+
+def test_filter_as_match_with_filter_keeps_matches():
+    """Filter expression acts as the matching condition; bridge-evaluated per chunk."""
+    joined = pd.DataFrame({"a": [1, 5]})
+    lookup = pd.DataFrame({"b": [3, 10]})
+    lk = LookupCfg(
+        name="row2", join_keys=[],
+        activate_filter=True, filter="{{java}}row1.a < row2.b",
+        join_mode="LEFT_OUTER_JOIN",
+    )
+    # 4 pairs in the cross-product:
+    # (1, 3) -> True (1 < 3)
+    # (1, 10) -> True
+    # (5, 3) -> False
+    # (5, 10) -> True
+    bridge = MagicMock()
+    bridge.execute_tmap_preprocessing.return_value = {
+        "__filter__": [True, True, False, True],
+    }
+    from src.v1.engine.components.transform.map.map_joins import (
+        join_filter_as_match,
+    )
+    result, _ = join_filter_as_match(
+        joined, lookup, lk, main_name="row1",
+        prior_lookups=[], bridge_eval_fn=_make_bridge_fn(bridge),
+    )
+    assert len(result) == 3
+    bridge.execute_tmap_preprocessing.assert_called_once()
+
+
+def test_filter_as_match_size_guard_fails_at_100M():
+    """Direct check of the size-guard threshold function."""
+    from src.v1.engine.components.transform.map.map_joins import (
+        _check_cross_size_guard,
+    )
+    with pytest.raises(ComponentExecutionError, match="safety limit"):
+        _check_cross_size_guard(10_001, 10_001)  # ~100M
+
+
+def test_filter_as_match_size_guard_passes_below_threshold():
+    """Below 100M is fine; the function returns silently."""
+    from src.v1.engine.components.transform.map.map_joins import (
+        _check_cross_size_guard,
+    )
+    _check_cross_size_guard(1000, 1000)  # 1M -- no raise
+
+
+def test_filter_as_match_inner_join_marks_main_rows_with_no_match_as_rejects():
+    """INNER_JOIN: main rows that survived 0 cross-product matches go to rejects."""
+    joined = pd.DataFrame({"a": [1, 5]})
+    lookup = pd.DataFrame({"b": [3, 10]})
+    lk = LookupCfg(
+        name="row2", join_keys=[],
+        activate_filter=True, filter="{{java}}row1.a < row2.b",
+        join_mode="INNER_JOIN",
+    )
+    # 4 pairs: (1,3) T, (1,10) T, (5,3) F, (5,10) F
+    bridge = MagicMock()
+    bridge.execute_tmap_preprocessing.return_value = {
+        "__filter__": [True, True, False, False],
+    }
+    from src.v1.engine.components.transform.map.map_joins import (
+        join_filter_as_match,
+    )
+    result, rejects = join_filter_as_match(
+        joined, lookup, lk, main_name="row1",
+        prior_lookups=[], bridge_eval_fn=_make_bridge_fn(bridge),
+    )
+    # a=1 matched twice; a=5 matched zero times -> in rejects
+    assert sorted(result["a"]) == [1, 1]
+    assert rejects is not None
+    assert list(rejects["a"]) == [5]
