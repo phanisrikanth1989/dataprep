@@ -29,3 +29,4 @@ src/v1/java_bridge/java/dependency-reduced-pom.xml
 htmlcov/
 /coverage.json
 /cov_*.json.superpowers/
+.superpowers/
