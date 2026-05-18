@@ -16,6 +16,8 @@ This module is built incrementally:
 """
 from __future__ import annotations
 
+from .map_config import MapConfig
+
 
 def groovy_escape_expression(java_expr: str) -> str:
     """Escape ``$`` inside double-quoted string literals.
@@ -69,3 +71,157 @@ def groovy_escape_expression(java_expr: str) -> str:
             result.append(ch)
             i += 1
     return "".join(result)
+
+
+def _strip_marker(expr: str) -> str:
+    """Remove the ``{{java}}`` prefix if present."""
+    return expr[len("{{java}}"):] if expr.startswith("{{java}}") else expr
+
+
+def build_active_script(cfg: MapConfig) -> str:
+    """Build the active-pass Groovy script for a tMap.
+
+    Covers: row wrapper construction, variables, all active (non-reject)
+    output columns with filter routing, is_reject routing, and (when any
+    catch_output_reject output exists OR die_on_error=False) try/catch
+    with errorMap/stackTraceMap.
+
+    Variables are emitted as a HashMap<String, Object> Var. Sequential
+    chaining works because later vars use Var.get("earlier") which reads
+    the just-populated entry.
+
+    The script binds buildRowWrapper, inputRoot, rowCount, context,
+    globalMap on the Java side (see JavaBridge.buildTMapBinding).
+
+    See spec section 7 for the full shape.
+
+    Args:
+        cfg: Parsed MapConfig.
+
+    Returns:
+        Groovy source string ready for compilation.
+    """
+    lines: list[str] = []
+
+    # Imports
+    lines.append("import java.util.*;")
+    lines.append("import com.citi.gru.etl.RowWrapper;")
+    lines.append("")
+
+    # Output classification
+    active_outputs = [
+        o for o in cfg.outputs
+        if not o.is_reject and not o.inner_join_reject and not o.catch_output_reject
+    ]
+    is_reject_outputs = [o for o in cfg.outputs if o.is_reject]
+    catch_outputs = [o for o in cfg.outputs if o.catch_output_reject]
+
+    has_error_tracking = (not cfg.die_on_error) or bool(catch_outputs)
+
+    # Buffer declarations
+    for out in active_outputs + is_reject_outputs:
+        ncols = len(out.columns)
+        lines.append(f"Object[][] {out.name}_data = new Object[rowCount][{ncols}];")
+        lines.append(f"int {out.name}_count = 0;")
+    if has_error_tracking:
+        lines.append("int errorCount = 0;")
+        lines.append("Map<Integer, String> errorMap = new HashMap<>();")
+        lines.append("Map<Integer, String> stackTraceMap = new HashMap<>();")
+    lines.append("")
+
+    # Row loop
+    lines.append("for (int i = 0; i < rowCount; i++) {")
+    lines.append("    try {")
+    main_name = cfg.main.name
+    lines.append(f'        RowWrapper {main_name} = buildRowWrapper(inputRoot, i, "{main_name}");')
+    for lk in cfg.lookups:
+        lines.append(f'        RowWrapper {lk.name} = buildRowWrapper(inputRoot, i, "{lk.name}");')
+    lines.append("")
+
+    if has_error_tracking:
+        lines.append("        try {")
+        body_indent = "            "
+    else:
+        body_indent = "        "
+
+    # Variables map (always emitted)
+    lines.append(f"{body_indent}Map<String, Object> Var = new HashMap<>();")
+    for v in cfg.variables:
+        expr = groovy_escape_expression(_strip_marker(v.expression)) or "null"
+        lines.append(f'{body_indent}Var.put("{v.name}", {expr});')
+    lines.append("")
+
+    # Track is_reject routing
+    if is_reject_outputs:
+        lines.append(f"{body_indent}boolean matchedAny = false;")
+
+    # Active outputs -- atomic-row commit
+    for out in active_outputs:
+        ncols = len(out.columns)
+        lines.append(f"{body_indent}// Active output: {out.name}")
+        if out.activate_filter and out.filter:
+            filter_expr = groovy_escape_expression(_strip_marker(out.filter))
+            lines.append(f"{body_indent}if ({filter_expr}) {{")
+        else:
+            lines.append(f"{body_indent}{{")
+        inner = body_indent + "    "
+        lines.append(f"{inner}Object[] {out.name}_tempRow = new Object[{ncols}];")
+        for j, col in enumerate(out.columns):
+            expr = groovy_escape_expression(_strip_marker(col.expression)) or "null"
+            lines.append(f"{inner}{out.name}_tempRow[{j}] = {expr};")
+        if is_reject_outputs:
+            lines.append(f"{inner}matchedAny = true;")
+        lines.append(f"{inner}{out.name}_data[{out.name}_count++] = {out.name}_tempRow;")
+        lines.append(f"{body_indent}}}")
+    lines.append("")
+
+    # is_reject routing
+    if is_reject_outputs:
+        lines.append(f"{body_indent}if (!matchedAny) {{")
+        for out in is_reject_outputs:
+            ncols = len(out.columns)
+            inner = body_indent + "    "
+            lines.append(f"{inner}Object[] {out.name}_tempRow = new Object[{ncols}];")
+            for j, col in enumerate(out.columns):
+                expr = groovy_escape_expression(_strip_marker(col.expression)) or "null"
+                lines.append(f"{inner}{out.name}_tempRow[{j}] = {expr};")
+            lines.append(f"{inner}{out.name}_data[{out.name}_count++] = {out.name}_tempRow;")
+        lines.append(f"{body_indent}}}")
+
+    # Inner try/catch for error tracking
+    if has_error_tracking:
+        lines.append("        } catch (Exception innerE) {")
+        lines.append("            String msg = innerE.getMessage() != null ? innerE.getMessage() : innerE.toString();")
+        lines.append("            java.io.StringWriter sw = new java.io.StringWriter();")
+        lines.append("            innerE.printStackTrace(new java.io.PrintWriter(sw));")
+        lines.append("            errorCount++;")
+        lines.append("            errorMap.put(i, msg);")
+        lines.append("            stackTraceMap.put(i, sw.toString());")
+        lines.append("        }")
+
+    # Outer try (row wrapper construction errors): always re-raise
+    lines.append("    } catch (Exception outerE) {")
+    lines.append("        String msg = outerE.getMessage() != null ? outerE.getMessage() : outerE.toString();")
+    lines.append('        throw new RuntimeException("Error at row " + i + ": " + msg, outerE);')
+    lines.append("    }")
+    lines.append("}")
+    lines.append("")
+
+    # Results map
+    lines.append("Map<String, Map<String, Object>> results = new HashMap<>();")
+    for out in active_outputs + is_reject_outputs:
+        lines.append(f"Map<String, Object> {out.name}_result = new HashMap<>();")
+        lines.append(f'{out.name}_result.put("data", {out.name}_data);')
+        lines.append(f'{out.name}_result.put("count", {out.name}_count);')
+        lines.append(f'results.put("{out.name}", {out.name}_result);')
+
+    if has_error_tracking:
+        lines.append("Map<String, Object> errorInfo = new HashMap<>();")
+        lines.append('errorInfo.put("count", errorCount);')
+        lines.append('errorInfo.put("indices", new ArrayList<>(errorMap.keySet()));')
+        lines.append('errorInfo.put("messages", errorMap);')
+        lines.append('errorInfo.put("stackTraces", stackTraceMap);')
+        lines.append('results.put("__errors__", errorInfo);')
+
+    lines.append("return results;")
+    return "\n".join(lines)
