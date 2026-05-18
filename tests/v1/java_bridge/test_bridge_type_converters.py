@@ -1,8 +1,9 @@
 """Unit tests for Py4J input converters DateConverter / DatetimeConverter.
 
-Pure-Python unit suite (no JVM required). Mocks ``gateway_client.jvm.java.util.Date``
-via ``unittest.mock.MagicMock`` and asserts that converter ``convert()`` calls it
-with the expected epoch-millis integer.
+Pure-Python unit suite (no JVM required). Mocks ``py4j.java_gateway.JavaClass``
+so that ``JavaClass("java.util.Date", gateway_client)(millis)`` is interceptable
+without a real JVM. Asserts that converter ``convert()`` calls the Java Date
+constructor with the expected epoch-millis integer.
 
 Test expected-millis formulas mirror RESEARCH.md L74-91 exactly:
     DateConverter:          int(calendar.timegm(d.timetuple()) * 1000)
@@ -10,12 +11,21 @@ Test expected-millis formulas mirror RESEARCH.md L74-91 exactly:
                                   + dt.microsecond // 1000)
     DatetimeConverter naive: int(time.mktime(dt.timetuple()) * 1000
                                   + dt.microsecond // 1000)
+
+Note on converter API change (Task 0.4)
+---------------------------------------
+Originally the converters used ``gateway_client.jvm.java.util.Date(millis)``.
+This was incorrect: Py4J passes a ``GatewayClient`` (not ``JavaGateway``) to
+input-converter ``convert()`` calls, so ``gateway_client.jvm`` raises
+``AttributeError``. The converters now use
+``JavaClass("java.util.Date", gateway_client)(millis)`` which works with the
+low-level ``GatewayClient`` API. Tests mock ``JavaClass`` accordingly.
 """
 
 import calendar
 import datetime
 import time
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest  # noqa: F401  -- imported for pytest test discovery / fixtures if needed
 
@@ -45,11 +55,19 @@ class TestDateConverter:
         expected_ms = int(calendar.timegm(d.timetuple()) * 1000)
 
         gateway_client = MagicMock()
-        result = DateConverter().convert(d, gateway_client)
+        java_date_constructor = MagicMock()
+        java_date_instance = MagicMock()
+        java_date_constructor.return_value = java_date_instance
 
-        gateway_client.jvm.java.util.Date.assert_called_once_with(expected_ms)
+        with patch("src.v1.java_bridge.bridge.JavaClass", return_value=java_date_constructor) as mock_java_class:
+            result = DateConverter().convert(d, gateway_client)
+
+        # JavaClass should be called with the java.util.Date class name and the gateway_client
+        mock_java_class.assert_called_once_with("java.util.Date", gateway_client)
+        # The constructor should be called with the epoch millis
+        java_date_constructor.assert_called_once_with(expected_ms)
         # The converter returns the constructed Date instance unchanged.
-        assert result is gateway_client.jvm.java.util.Date.return_value
+        assert result is java_date_instance
 
 
 class TestDatetimeConverter:
@@ -70,18 +88,26 @@ class TestDatetimeConverter:
         )
 
         gateway_client = MagicMock()
-        DatetimeConverter().convert(dt, gateway_client)
+        java_date_constructor = MagicMock()
 
-        gateway_client.jvm.java.util.Date.assert_called_once_with(expected_ms)
+        with patch("src.v1.java_bridge.bridge.JavaClass", return_value=java_date_constructor) as mock_java_class:
+            DatetimeConverter().convert(dt, gateway_client)
+
+        mock_java_class.assert_called_once_with("java.util.Date", gateway_client)
+        java_date_constructor.assert_called_once_with(expected_ms)
 
     def test_convert_naive_uses_mktime(self):
         dt = datetime.datetime(2026, 5, 15, 12, 30, 45)  # naive, no tzinfo
         expected_ms = int(time.mktime(dt.timetuple()) * 1000 + dt.microsecond // 1000)
 
         gateway_client = MagicMock()
-        DatetimeConverter().convert(dt, gateway_client)
+        java_date_constructor = MagicMock()
 
-        gateway_client.jvm.java.util.Date.assert_called_once_with(expected_ms)
+        with patch("src.v1.java_bridge.bridge.JavaClass", return_value=java_date_constructor) as mock_java_class:
+            DatetimeConverter().convert(dt, gateway_client)
+
+        mock_java_class.assert_called_once_with("java.util.Date", gateway_client)
+        java_date_constructor.assert_called_once_with(expected_ms)
 
     def test_convert_preserves_microseconds_floored_to_millis(self):
         # microsecond=123456 should add floor(123456/1000) = 123 millis.
@@ -93,6 +119,10 @@ class TestDatetimeConverter:
         assert expected_ms == int(seconds * 1000 + dt.microsecond // 1000)
 
         gateway_client = MagicMock()
-        DatetimeConverter().convert(dt, gateway_client)
+        java_date_constructor = MagicMock()
 
-        gateway_client.jvm.java.util.Date.assert_called_once_with(expected_ms)
+        with patch("src.v1.java_bridge.bridge.JavaClass", return_value=java_date_constructor) as mock_java_class:
+            DatetimeConverter().convert(dt, gateway_client)
+
+        mock_java_class.assert_called_once_with("java.util.Date", gateway_client)
+        java_date_constructor.assert_called_once_with(expected_ms)

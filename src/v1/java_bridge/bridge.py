@@ -21,7 +21,7 @@ from attr import field
 import pandas as pd
 import pyarrow as pa
 import pyarrow.ipc as ipc
-from py4j.java_gateway import JavaGateway, GatewayParameters
+from py4j.java_gateway import JavaClass, JavaGateway, GatewayParameters
 from py4j.protocol import register_input_converter
 
 from .type_mapping import (
@@ -100,6 +100,11 @@ class DatetimeConverter:
     Registered before DateConverter so the subclass branch wins for
     datetime instances. Aware datetimes use UTC; naive datetimes use
     the host's local timezone via time.mktime (mirrors PySpark).
+
+    Uses ``JavaClass("java.util.Date", gateway_client)`` rather than
+    ``gateway_client.jvm.java.util.Date`` because Py4J passes a
+    ``GatewayClient`` (no ``.jvm`` attribute) to converter.convert().
+    The ``JavaClass`` API works with the low-level GatewayClient directly.
     """
 
     def can_convert(self, obj):
@@ -111,13 +116,18 @@ class DatetimeConverter:
         else:
             seconds = time.mktime(obj.timetuple())
         millis = int(seconds * 1000 + obj.microsecond // 1000)
-        return gateway_client.jvm.java.util.Date(millis)
+        return JavaClass("java.util.Date", gateway_client)(millis)
 
 
 class DateConverter:
     """Py4J input converter: datetime.date -> java.util.Date at midnight UTC.
 
     Excludes datetime.datetime (handled by DatetimeConverter).
+
+    Uses ``JavaClass("java.util.Date", gateway_client)`` rather than
+    ``gateway_client.jvm.java.util.Date`` because Py4J passes a
+    ``GatewayClient`` (no ``.jvm`` attribute) to converter.convert().
+    The ``JavaClass`` API works with the low-level GatewayClient directly.
     """
 
     def can_convert(self, obj):
@@ -128,7 +138,7 @@ class DateConverter:
 
     def convert(self, obj, gateway_client):
         seconds = calendar.timegm(obj.timetuple())
-        return gateway_client.jvm.java.util.Date(int(seconds * 1000))
+        return JavaClass("java.util.Date", gateway_client)(int(seconds * 1000))
 
 
 class JavaBridge:
@@ -850,24 +860,25 @@ class JavaBridge:
     def set_context(self, key: str, value: Any) -> None:
         """Set a context variable on both Python and Java sides.
 
-        Args:
-            key: Context variable name.
-            value: Context variable value.
+        Value type is preserved end-to-end. Py4J's native typed protocol
+        handles int / bool / Decimal / str / None directly. datetime.date and
+        datetime.datetime are converted via the registered Py4J input
+        converters (registered in start()). Java setContext signature is
+        Object so all types pass through unchanged.
         """
         self.context[key] = value
         if self.java_bridge:
-            self.java_bridge.setContext(key, str(value))
+            self.java_bridge.setContext(key, value)
 
     def set_global_map(self, key: str, value: Any) -> None:
         """Set a globalMap variable on both Python and Java sides.
 
-        Args:
-            key: GlobalMap key.
-            value: GlobalMap value.
+        Value type is preserved end-to-end. Same type-fidelity contract as
+        set_context.
         """
         self.global_map[key] = value
         if self.java_bridge:
-            self.java_bridge.setGlobalMap(key, str(value))
+            self.java_bridge.setGlobalMap(key, value)
 
     def get_context(self) -> dict[str, Any]:
         """Return a copy of the current context dict."""

@@ -1831,14 +1831,14 @@ _TYPE_ROWS_RAW = [
     ("date_pydate",     date(2026, 5, 15),                 "id_Date",      "java.util.Date",
         (pytest.mark.xfail(strict=True, reason=_XFAIL_DATE_CTX_STR_COERCION),),
         (),
-        (pytest.mark.xfail(strict=True, reason=_XFAIL_DATE_GM_CONVERTER_DISPATCH),),
-        (pytest.mark.xfail(strict=True, reason=_XFAIL_DATE_GM_CONVERTER_DISPATCH),),
+        (),
+        (),
     ),
     ("date_pydatetime", datetime(2026, 5, 15, 12, 30, 45), "id_Date",      "java.util.Date",
         (pytest.mark.xfail(strict=True, reason=_XFAIL_DATE_CTX_STR_COERCION),),
         (),
-        (pytest.mark.xfail(strict=True, reason=_XFAIL_DATE_GM_CONVERTER_DISPATCH),),
-        (pytest.mark.xfail(strict=True, reason=_XFAIL_DATE_GM_CONVERTER_DISPATCH),),
+        (),
+        (),
     ),
     # None row -- assertion shape is different (null-check, not instanceof);
     # the test body branches on `value is None`. No xfail expected.
