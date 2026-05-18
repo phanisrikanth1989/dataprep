@@ -148,11 +148,11 @@ public class JavaBridge {
         return this.globalMap;
     }
 
-    public void setContext(String key, String value) {
+    public void setContext(String key, Object value) {
         this.context.put(key, value);
     }
 
-    public void setGlobalMap(String key, String value) {
+    public void setGlobalMap(String key, Object value) {
         this.globalMap.put(key, value);
     }
 
@@ -860,8 +860,8 @@ public class JavaBridge {
                 Map<Integer, String> errMessages = (Map<Integer, String>) outputResult
                         .getOrDefault("messages", new HashMap<Integer, String>());
                 @SuppressWarnings("unchecked")
-                List<String> errStacks = (List<String>) outputResult
-                        .getOrDefault("stackTraces", new ArrayList<String>());
+                Map<Integer, String> errStacks = (Map<Integer, String>) outputResult
+                        .getOrDefault("stackTraces", new HashMap<Integer, String>());
 
                 // Fixed schema in declared insertion order. LinkedHashMap
                 // preserves column order through ArrowSerializer (same
@@ -879,7 +879,8 @@ public class JavaBridge {
                     rowIdxArr[i] = idx;
                     String msg = errMessages.get(idx);
                     errMsgArr[i] = msg != null ? msg : "";
-                    errStackArr[i] = i < errStacks.size() ? errStacks.get(i) : "";
+                    String stack = errStacks.get(idx);
+                    errStackArr[i] = stack != null ? stack : "";
                 }
 
                 Map<String, Object[]> errColumnData = new LinkedHashMap<>();
