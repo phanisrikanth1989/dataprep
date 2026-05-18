@@ -361,7 +361,75 @@
         "tstatcatcher_stats": false,
         "label": ""
       },
-      "schema": {},
+      "schema": {
+        "inputs": {
+          "row1": [
+            {
+              "name": "id",
+              "type": "int",
+              "nullable": false,
+              "key": false
+            },
+            {
+              "name": "first_name",
+              "type": "str",
+              "nullable": false,
+              "key": false,
+              "length": 50
+            },
+            {
+              "name": "last_name",
+              "type": "str",
+              "nullable": false,
+              "key": false,
+              "length": 50
+            },
+            {
+              "name": "department",
+              "type": "str",
+              "nullable": false,
+              "key": false,
+              "length": 50
+            },
+            {
+              "name": "salary",
+              "type": "int",
+              "nullable": false,
+              "key": false
+            },
+            {
+              "name": "country_code",
+              "type": "str",
+              "nullable": false,
+              "key": false,
+              "length": 5
+            }
+          ],
+          "row2": [
+            {
+              "name": "country_code",
+              "type": "str",
+              "nullable": false,
+              "key": false,
+              "length": 5
+            },
+            {
+              "name": "country_name",
+              "type": "str",
+              "nullable": false,
+              "key": false,
+              "length": 50
+            },
+            {
+              "name": "region",
+              "type": "str",
+              "nullable": false,
+              "key": false,
+              "length": 50
+            }
+          ]
+        }
+      },
       "inputs": [
         "row1",
         "row2"
