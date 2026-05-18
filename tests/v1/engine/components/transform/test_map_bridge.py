@@ -1767,18 +1767,16 @@ _XFAIL_FLOAT_GM_NO_TYPE_REGISTRY = (
     "for globalMap.id_Float requires a future GlobalMap type-tagging "
     "phase."
 )
-_XFAIL_DATE_CTX_STR_COERCION = (
-    "ContextManager.set(value, value_type='id_Date') invokes "
-    "_convert_type which uses _TYPE_CONVERTERS['id_Date']=str -- the "
-    "Python date / datetime is coerced to a string at the "
-    "ContextManager level BEFORE the Plan 05.5-04 helper push runs. "
-    "The Py4J DateConverter registered in Plan 05.5-01 therefore "
-    "never fires for this code path; the value arrives in Groovy as "
-    "java.lang.String. Closing the gap requires a context_types-aware "
-    "push that bypasses ContextManager._convert_type for date types "
-    "OR removing the str converter from id_Date and delegating "
-    "format conversion entirely to component-side parseDate. Either "
-    "is a Phase 05.6+ change."
+_XFAIL_DATE_CTX_PARSEDATE_BIND = (
+    "context.X under id_Date now arrives in Groovy as java.util.Date "
+    "(per Task 0.5 of the tMap rewrite -- _parse_talend_date converter). "
+    "TalendDate.parseDate has no (String, Date) overload, so "
+    "parseDate(format, context.X) raises MissingMethodException. "
+    "This is the intended trade-off: id_Date IS a Date type for "
+    "Talend parity. Production code should use (Date)context.X "
+    "directly, not parseDate. The 4 context-* cells test the "
+    "now-obsolete string-path pattern. Phase 8 triage: either delete "
+    "these 4 cells or repurpose to assert (Date)context.X usage."
 )
 
 # Marker-bound type row builder: each entry has the 4 attributes the
@@ -1815,13 +1813,13 @@ _TYPE_ROWS_RAW = [
     ("double",          1.5,                               "id_Double",    "Double",                (), (), (), ()),
     ("bigdecimal",      Decimal("12345.6789"),             "id_BigDecimal","java.math.BigDecimal",  (), (), (), ()),
     ("date_pydate",     date(2026, 5, 15),                 "id_Date",      "java.util.Date",
-        (pytest.mark.xfail(strict=True, reason=_XFAIL_DATE_CTX_STR_COERCION),),
+        (),
         (),
         (),
         (),
     ),
     ("date_pydatetime", datetime(2026, 5, 15, 12, 30, 45), "id_Date",      "java.util.Date",
-        (pytest.mark.xfail(strict=True, reason=_XFAIL_DATE_CTX_STR_COERCION),),
+        (),
         (),
         (),
         (),
@@ -2021,7 +2019,13 @@ class TestPhase055TypeMatrix:
     ]
 
     @pytest.mark.parametrize("date_str,format_str", _DATE_FORMATS)
-    @pytest.mark.parametrize("namespace", ["context", "globalMap"])
+    @pytest.mark.parametrize("namespace", [
+        pytest.param("context", marks=pytest.mark.xfail(
+            strict=True,
+            reason=_XFAIL_DATE_CTX_PARSEDATE_BIND,
+        )),
+        "globalMap",
+    ])
     def test_datetime_format_parse(self, java_bridge, date_str,
                                      format_str, namespace):
         """R6 datetime-format cell.
