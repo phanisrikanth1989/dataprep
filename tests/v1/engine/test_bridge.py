@@ -421,32 +421,39 @@ class TestIncompleteSchemaHandling:
     """Verify _reconcile_schema_to_df handles mismatches between schema and DataFrame.
 
     Addresses review concern: incomplete schema handling.
+    Updated in Task 0.6 (tMap rewrite Phase 0): method now raises
+    ConfigurationError for undeclared columns instead of WARN+default to str.
     """
 
-    def test_reconcile_adds_missing_schema_columns(self):
+    def test_reconcile_raises_on_missing_column_type(self):
+        """DataFrame column without a schema entry raises ConfigurationError."""
+        from src.v1.engine.exceptions import ConfigurationError
+
         bridge, _ = _create_bridge_with_mock()
 
         df = pd.DataFrame({"a": [1], "b": [2], "c": [3]})
         schema_dict = {"a": "str", "b": "int"}
 
-        result = bridge._reconcile_schema_to_df(df, schema_dict)
-
-        assert "c" in result
-        assert result["c"] == "str"  # default for missing
-
-    def test_reconcile_logs_warning_for_missing_column(self, caplog):
-        bridge, _ = _create_bridge_with_mock()
-
-        df = pd.DataFrame({"a": [1], "b": [2], "c": [3]})
-        schema_dict = {"a": "str", "b": "int"}
-
-        with caplog.at_level(logging.WARNING):
+        with pytest.raises(ConfigurationError) as exc_info:
             bridge._reconcile_schema_to_df(df, schema_dict)
 
-        assert any(
-            "c" in record.message and "missing from schema" in record.message
-            for record in caplog.records
-        ), f"Expected warning about column 'c' missing from schema. Got: {[r.message for r in caplog.records]}"
+        assert "c" in str(exc_info.value)
+
+    def test_reconcile_raises_lists_all_missing_columns(self):
+        """Error message includes every undeclared column."""
+        from src.v1.engine.exceptions import ConfigurationError
+
+        bridge, _ = _create_bridge_with_mock()
+
+        df = pd.DataFrame({"a": [1], "b": [2], "c": [3]})
+        schema_dict = {"a": "str"}  # both 'b' and 'c' undeclared
+
+        with pytest.raises(ConfigurationError) as exc_info:
+            bridge._reconcile_schema_to_df(df, schema_dict)
+
+        msg = str(exc_info.value)
+        assert "b" in msg
+        assert "c" in msg
 
     def test_reconcile_ignores_extra_schema_columns(self):
         bridge, _ = _create_bridge_with_mock()

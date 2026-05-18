@@ -1058,27 +1058,36 @@ class JavaBridge:
     ) -> dict[str, str]:
         """Reconcile schema dict against actual DataFrame columns.
 
-        For any DataFrame column NOT in schema_dict, logs a warning and
-        adds it as 'str'. For any schema_dict column NOT in DataFrame,
-        logs at DEBUG and skips it.
+        Strict: any DataFrame column not declared in schema_dict raises
+        ConfigurationError. Schema columns not present in the DataFrame
+        are pruned silently (DEBUG log) -- this is a normal case
+        (schema_dict may carry entries from a wider input frame).
 
         Args:
             df: The DataFrame being serialized.
             schema_dict: Column name -> type string mapping.
 
         Returns:
-            Reconciled schema dict (may be modified in-place).
+            Reconciled schema dict with only columns present in df.
+
+        Raises:
+            ConfigurationError: if any column in df.columns lacks an
+                entry in schema_dict. Type fidelity end-to-end requires
+                every column crossing the Python/Java boundary to have
+                a declared type; a missing entry indicates an upstream
+                bug we want to fail loudly on.
         """
+        from src.v1.engine.exceptions import ConfigurationError
+
         reconciled = dict(schema_dict)
 
-        for col_name in df.columns:
-            if col_name not in reconciled:
-                logger.warning(
-                    "[WARN] Column '%s' in DataFrame but missing from schema "
-                    "-- defaulting to str",
-                    col_name,
-                )
-                reconciled[col_name] = "str"
+        missing = [col for col in df.columns if col not in reconciled]
+        if missing:
+            raise ConfigurationError(
+                f"DataFrame columns lack declared types in schema: {missing!r}. "
+                f"Every column crossing the Python/Java boundary must have a "
+                f"declared type. Schema keys: {list(reconciled.keys())!r}"
+            )
 
         for col_name in list(reconciled.keys()):
             if col_name not in df.columns:
