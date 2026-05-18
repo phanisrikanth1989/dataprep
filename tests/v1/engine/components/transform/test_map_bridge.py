@@ -1504,70 +1504,21 @@ class TestPhase055ContextSync:
 # ------------------------------------------------------------------
 
 
-# Reasons for the cells that empirically xfail on the current branch
-# (probed live against the JVM bridge on 2026-05-15; see
-# 05.5-06-SUMMARY.md "Empirical xfail justifications" section).
-_XFAIL_FLOAT_PY4J_UNBOX = (
-    "Py4J auto-unboxes java.lang.Float into a Python float on the "
-    "input-converter path; Plan 05.5-04's id_Float wrap "
-    "(`gateway.jvm.java.lang.Float(v)`) returns a Python float as "
-    "verified by `type()` -- so the value arrives in Groovy as "
-    "java.lang.Double regardless of the wrap. Closing the gap "
-    "requires a Java-side Float box reconstruction in "
-    "JavaBridge.setContext (not a Python-side wrap). Out of scope for "
-    "Phase 05.5; tracked for a follow-up bridge phase."
-)
-_XFAIL_FLOAT_GM_NO_TYPE_REGISTRY = (
-    "GlobalMap has no Talend type registry (it is a plain dict per "
-    "src/v1/engine/global_map.py); id_Float distinction is only "
-    "available on the context.X path (and even there it fails due to "
-    "Py4J auto-unbox -- see _XFAIL_FLOAT_PY4J_UNBOX). Type-fidelity "
-    "for globalMap.id_Float requires a future GlobalMap type-tagging "
-    "phase."
-)
-_XFAIL_DATE_CTX_PARSEDATE_BIND = (
-    "context.X under id_Date now arrives in Groovy as java.util.Date "
-    "(per Task 0.5 of the tMap rewrite -- _parse_talend_date converter). "
-    "TalendDate.parseDate has no (String, Date) overload, so "
-    "parseDate(format, context.X) raises MissingMethodException. "
-    "This is the intended trade-off: id_Date IS a Date type for "
-    "Talend parity. Production code should use (Date)context.X "
-    "directly, not parseDate. The 4 context-* cells test the "
-    "now-obsolete string-path pattern. Phase 8 triage: either delete "
-    "these 4 cells or repurpose to assert (Date)context.X usage."
-)
-
-# Marker-bound type row builder: each entry has the 4 attributes the
-# parametrize fan-out needs PLUS a per-namespace marks tuple so cells
-# with known issues carry their xfail reason on the right axis.
-
 # Row schema:
 #   label, value, type_id, java_instanceof_type,
 #   ctx_column_marks, ctx_filter_marks, gm_column_marks, gm_filter_marks
 #
-# The xfail axis is surface-aware:
-#   - Float (column-only): instanceof Float fails due to Py4J unbox,
-#     but the filter ``ns.X != null`` still passes because the value
-#     arrives as a non-null java.lang.Double. So only the column cell
-#     is xfailed.
-#   - id_Date context (column-only): value is str-coerced at the
-#     ContextManager level so instanceof Date fails on column surface,
-#     but the filter still sees a non-null String and passes.
-#   - id_Date globalMap (BOTH surfaces): writing a date into
-#     global_map[k] triggers the Py4J converter dispatch which raises
-#     mid-call with `GatewayClient has no attribute jvm`. The whole
-#     tMap execution explodes regardless of surface, so filter is
-#     xfailed too.
+# The id_Float row was removed in the tMap-rewrite cleanup pass: column
+# cells xfailed because Py4J auto-unboxes java.lang.Float -> Python float,
+# and the filter cells only assert non-null which the id_Double row
+# already covers equivalently. Closing the Float gap would require a
+# Java-side setContext overload that reconstructs the Float box; tracked
+# as a future-phase consideration if production ever needs Float-vs-Double
+# distinction.
 _TYPE_ROWS_RAW = [
     ("integer_small",   42,                                "id_Integer",   "Integer",               (), (), (), ()),
     ("long_large",      9_000_000_000,                     "id_Long",      "Long",                  (), (), (), ()),
     ("string",          "hello",                           "id_String",    "String",                (), (), (), ()),
-    ("float",           1.5,                               "id_Float",     "Float",
-        (pytest.mark.xfail(strict=True, reason=_XFAIL_FLOAT_PY4J_UNBOX),),
-        (),
-        (pytest.mark.xfail(strict=True, reason=_XFAIL_FLOAT_GM_NO_TYPE_REGISTRY),),
-        (),
-    ),
     ("double",          1.5,                               "id_Double",    "Double",                (), (), (), ()),
     ("bigdecimal",      Decimal("12345.6789"),             "id_BigDecimal","java.math.BigDecimal",  (), (), (), ()),
     ("date_pydate",     date(2026, 5, 15),                 "id_Date",      "java.util.Date",
@@ -1777,13 +1728,7 @@ class TestPhase055TypeMatrix:
     ]
 
     @pytest.mark.parametrize("date_str,format_str", _DATE_FORMATS)
-    @pytest.mark.parametrize("namespace", [
-        pytest.param("context", marks=pytest.mark.xfail(
-            strict=True,
-            reason=_XFAIL_DATE_CTX_PARSEDATE_BIND,
-        )),
-        "globalMap",
-    ])
+    @pytest.mark.parametrize("namespace", ["globalMap"])
     def test_datetime_format_parse(self, java_bridge, date_str,
                                      format_str, namespace):
         """R6 datetime-format cell.
