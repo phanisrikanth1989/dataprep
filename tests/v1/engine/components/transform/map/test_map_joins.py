@@ -102,3 +102,71 @@ def test_compute_schema_with_temp_join_key_cols():
         temp_join_key_cols={"__jk_main_0__": "str"},
     )
     assert schema == {"id": "int", "__jk_main_0__": "str"}
+
+
+# ===== Task 4.3: join_simple_equality =====
+
+import pandas as pd
+
+from src.v1.engine.components.transform.map.map_joins import (
+    join_simple_equality,
+)
+
+
+def _lookup_simple(name="row2", lookup_column="key", join_mode="LEFT_OUTER_JOIN",
+                   matching_mode="UNIQUE_MATCH"):
+    return LookupCfg(
+        name=name,
+        join_keys=[JoinKeyCfg(lookup_column, "{{java}}row1.key", "str")],
+        join_mode=join_mode,
+        matching_mode=matching_mode,
+    )
+
+
+def test_simple_equality_left_outer_basic():
+    joined = pd.DataFrame({"id": [1, 2], "key": ["A", "B"]})
+    lookup = pd.DataFrame({"key": ["A", "C"], "label": ["alpha", "charlie"]})
+    result, rejects = join_simple_equality(joined, lookup, _lookup_simple())
+    assert list(result["id"]) == [1, 2]
+    # Row 0 should have label "alpha"; row 1 has NaN (unmatched)
+    labels = list(result["row2.label"])
+    assert labels[0] == "alpha"
+    assert pd.isna(labels[1])
+    assert rejects is None
+
+
+def test_simple_equality_inner_join_with_rejects():
+    joined = pd.DataFrame({"id": [1, 2], "key": ["A", "B"]})
+    lookup = pd.DataFrame({"key": ["A"], "label": ["alpha"]})
+    result, rejects = join_simple_equality(
+        joined, lookup, _lookup_simple(join_mode="INNER_JOIN")
+    )
+    assert list(result["id"]) == [1]
+    assert rejects is not None
+    assert list(rejects["id"]) == [2]
+
+
+def test_simple_equality_unique_match_keeps_last():
+    """UNIQUE_MATCH on duplicate keys keeps the LAST (HashMap.put semantic)."""
+    joined = pd.DataFrame({"id": [1], "key": ["A"]})
+    lookup = pd.DataFrame({"key": ["A", "A"], "label": ["first", "last"]})
+    result, _ = join_simple_equality(joined, lookup, _lookup_simple())
+    assert list(result["row2.label"]) == ["last"]
+
+
+def test_simple_equality_first_match():
+    joined = pd.DataFrame({"id": [1], "key": ["A"]})
+    lookup = pd.DataFrame({"key": ["A", "A"], "label": ["first", "last"]})
+    result, _ = join_simple_equality(
+        joined, lookup, _lookup_simple(matching_mode="FIRST_MATCH")
+    )
+    assert list(result["row2.label"]) == ["first"]
+
+
+def test_simple_equality_all_matches_cartesian():
+    joined = pd.DataFrame({"id": [1], "key": ["A"]})
+    lookup = pd.DataFrame({"key": ["A", "A"], "label": ["v1", "v2"]})
+    result, _ = join_simple_equality(
+        joined, lookup, _lookup_simple(matching_mode="ALL_MATCHES")
+    )
+    assert sorted(result["row2.label"]) == ["v1", "v2"]
