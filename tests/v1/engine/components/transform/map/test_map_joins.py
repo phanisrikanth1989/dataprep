@@ -337,3 +337,119 @@ def test_filter_as_match_inner_join_marks_main_rows_with_no_match_as_rejects():
     assert sorted(result["a"]) == [1, 1]
     assert rejects is not None
     assert list(rejects["a"]) == [5]
+
+
+# ===== Task 4.6: RELOAD strategy =====
+
+def test_reload_per_row_matches_uniquely():
+    """RELOAD: lookup re-matched per main row using simple-equality keys."""
+    joined = pd.DataFrame({"id": [1, 2], "region": ["WEST", "EAST"]})
+    lookup = pd.DataFrame({
+        "region": ["WEST", "WEST", "EAST"],
+        "label": ["w1", "w2", "e1"],
+    })
+    lk = LookupCfg(
+        name="row2",
+        join_keys=[JoinKeyCfg("region", "{{java}}row1.region", "str")],
+        join_mode="LEFT_OUTER_JOIN",
+        lookup_mode="RELOAD_AT_EACH_ROW",
+        matching_mode="UNIQUE_MATCH",
+    )
+    from src.v1.engine.components.transform.map.map_joins import (
+        join_reload_per_row,
+    )
+    result, rejects = join_reload_per_row(
+        joined, lookup, lk, bridge_eval_fn=None,
+    )
+    # UNIQUE_MATCH keeps the last; so row 1 (WEST) -> w2, row 2 (EAST) -> e1
+    assert list(result["id"]) == [1, 2]
+    assert list(result["row2.label"]) == ["w2", "e1"]
+    assert rejects is None
+
+
+def test_reload_per_row_inner_join_unmatched_to_rejects():
+    """RELOAD + INNER_JOIN: unmatched main rows go to rejects."""
+    joined = pd.DataFrame({"id": [1, 2], "region": ["WEST", "SOUTH"]})
+    lookup = pd.DataFrame({"region": ["WEST"], "label": ["w1"]})
+    lk = LookupCfg(
+        name="row2",
+        join_keys=[JoinKeyCfg("region", "{{java}}row1.region", "str")],
+        join_mode="INNER_JOIN",
+        lookup_mode="RELOAD_AT_EACH_ROW",
+        matching_mode="UNIQUE_MATCH",
+    )
+    from src.v1.engine.components.transform.map.map_joins import (
+        join_reload_per_row,
+    )
+    result, rejects = join_reload_per_row(joined, lookup, lk, bridge_eval_fn=None)
+    assert list(result["id"]) == [1]
+    assert rejects is not None
+    assert list(rejects["id"]) == [2]
+
+
+def test_reload_per_row_left_outer_unmatched_padded_with_nan():
+    """RELOAD + LEFT_OUTER: unmatched main rows pass through with NaN lookup cols."""
+    import numpy as np
+    joined = pd.DataFrame({"id": [1, 2], "region": ["WEST", "SOUTH"]})
+    lookup = pd.DataFrame({"region": ["WEST"], "label": ["w1"]})
+    lk = LookupCfg(
+        name="row2",
+        join_keys=[JoinKeyCfg("region", "{{java}}row1.region", "str")],
+        join_mode="LEFT_OUTER_JOIN",
+        lookup_mode="RELOAD_AT_EACH_ROW",
+        matching_mode="UNIQUE_MATCH",
+    )
+    from src.v1.engine.components.transform.map.map_joins import (
+        join_reload_per_row,
+    )
+    result, rejects = join_reload_per_row(joined, lookup, lk, bridge_eval_fn=None)
+    assert list(result["id"]) == [1, 2]
+    assert result.iloc[0]["row2.label"] == "w1"
+    assert pd.isna(result.iloc[1]["row2.label"])
+    assert rejects is None
+
+
+# ===== Task 4.7: apply_filter =====
+
+def test_apply_filter_no_filter_returns_df_unchanged():
+    df = pd.DataFrame({"a": [1, 2, 3]})
+    from src.v1.engine.components.transform.map.map_joins import apply_filter
+    result = apply_filter(df, filter_expr="", bridge_eval_fn=None,
+                          main_name="row1", lookup_names=[])
+    assert result is df  # same object, not a copy
+
+
+def test_apply_filter_empty_df_returns_unchanged():
+    df = pd.DataFrame({"a": []})
+    from src.v1.engine.components.transform.map.map_joins import apply_filter
+    bridge = MagicMock()
+    result = apply_filter(
+        df, filter_expr="{{java}}row1.a > 1",
+        bridge_eval_fn=_make_bridge_fn(bridge),
+        main_name="row1", lookup_names=[],
+    )
+    assert len(result) == 0
+    bridge.execute_tmap_preprocessing.assert_not_called()
+
+
+def test_apply_filter_with_filter_uses_bridge_mask():
+    df = pd.DataFrame({"a": [1, 2, 3]})
+    bridge = MagicMock()
+    bridge.execute_tmap_preprocessing.return_value = {
+        "__filter__": [True, False, True],
+    }
+    from src.v1.engine.components.transform.map.map_joins import apply_filter
+    result = apply_filter(
+        df, filter_expr="{{java}}row1.a != 2",
+        bridge_eval_fn=_make_bridge_fn(bridge),
+        main_name="row1", lookup_names=[],
+    )
+    assert list(result["a"]) == [1, 3]
+
+
+def test_apply_filter_raises_when_filter_present_but_no_bridge_fn():
+    df = pd.DataFrame({"a": [1, 2, 3]})
+    from src.v1.engine.components.transform.map.map_joins import apply_filter
+    with pytest.raises(RuntimeError, match="bridge_eval_fn"):
+        apply_filter(df, filter_expr="{{java}}row1.a > 0",
+                      bridge_eval_fn=None, main_name="row1", lookup_names=[])

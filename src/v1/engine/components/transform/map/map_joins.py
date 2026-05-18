@@ -457,3 +457,126 @@ def join_filter_as_match(
             rejects = joined_df.copy()
 
     return merged, rejects
+
+
+def join_reload_per_row(
+    joined_df: pd.DataFrame,
+    lookup_df: pd.DataFrame,
+    lk: LookupCfg,
+    bridge_eval_fn: BridgeEvalFn | None,
+) -> tuple[pd.DataFrame, pd.DataFrame | None]:
+    """RELOAD_AT_EACH_ROW: re-match the lookup for every main row.
+
+    For each main row, optionally re-filter the lookup (lookup filter
+    substitution deferred -- not needed by current production fixtures;
+    can be added when a real job demands it). Then per-row simple-equality
+    matching against the (possibly filtered) lookup. O(n*m) by design --
+    RELOAD is row-by-row.
+
+    bridge_eval_fn is accepted for signature parity with the other
+    strategies and reserved for future use when lookup filter substitution
+    is needed.
+    """
+    import numpy as np
+
+    key_cols = [jk.lookup_column for jk in lk.join_keys]
+    lookup_prefixed_cols = [
+        col if col.startswith(f"{lk.name}.") else f"{lk.name}.{col}"
+        for col in lookup_df.columns
+    ]
+
+    result_rows: list[pd.Series] = []
+    reject_rows: list[pd.Series] = []
+
+    for _, main_row in joined_df.iterrows():
+        # Lookup-filter substitution intentionally deferred (Phase 8 / 9 if
+        # production demands it). Use the lookup as-is for per-row matching.
+        filtered = lookup_df
+
+        if filtered.empty:
+            if lk.join_mode == "INNER_JOIN":
+                reject_rows.append(main_row)
+            else:
+                result_rows.append(main_row)
+            continue
+
+        filtered = _apply_matching_mode(filtered, key_cols, lk.matching_mode)
+        filtered_prefixed = _prefix_lookup_columns(filtered, lk.name)
+
+        matched = False
+        for _, lookup_row in filtered_prefixed.iterrows():
+            key_match = True
+            for jk in lk.join_keys:
+                expr = _strip_marker(jk.expression)
+                m = _SIMPLE_COL_RE.match(expr.strip())
+                if m:
+                    table, col = m.group(1), m.group(2)
+                    src_col = (
+                        f"{table}.{col}" if f"{table}.{col}" in joined_df.columns
+                        else col
+                    )
+                    main_val = main_row.get(src_col)
+                else:
+                    main_val = None
+                lookup_val = lookup_row.get(f"{lk.name}.{jk.lookup_column}")
+                if pd.isna(main_val) or pd.isna(lookup_val) or main_val != lookup_val:
+                    key_match = False
+                    break
+            if key_match:
+                combined = pd.concat([main_row, lookup_row])
+                result_rows.append(combined)
+                matched = True
+                if lk.matching_mode in ("UNIQUE_MATCH", "FIRST_MATCH", "LAST_MATCH"):
+                    break
+
+        if not matched:
+            if lk.join_mode == "INNER_JOIN":
+                reject_rows.append(main_row)
+            else:
+                combined = main_row.copy()
+                for col in lookup_prefixed_cols:
+                    combined[col] = np.nan
+                result_rows.append(combined)
+
+    result_df = (
+        pd.DataFrame(result_rows).reset_index(drop=True)
+        if result_rows
+        else pd.DataFrame(columns=list(joined_df.columns) + lookup_prefixed_cols)
+    )
+    rejects = (
+        pd.DataFrame(reject_rows).reset_index(drop=True)
+        if reject_rows else None
+    )
+    return result_df, rejects
+
+
+def apply_filter(
+    df: pd.DataFrame,
+    filter_expr: str,
+    bridge_eval_fn: BridgeEvalFn | None,
+    main_name: str,
+    lookup_names: list[str],
+) -> pd.DataFrame:
+    """Apply a filter expression to a DataFrame via the bridge.
+
+    Returns df unchanged when filter_expr is empty. Empty DataFrame
+    short-circuits without invoking the bridge.
+
+    Bridge eval is required for any non-empty filter (the rewrite has no
+    Python-eval path for filters). Raises RuntimeError if filter is
+    non-empty but bridge_eval_fn is None.
+    """
+    if not filter_expr:
+        return df
+    if df.empty:
+        return df
+    if bridge_eval_fn is None:
+        raise RuntimeError(
+            "apply_filter called with a non-empty filter but no bridge_eval_fn"
+        )
+    expr = _strip_marker(filter_expr)
+    results = bridge_eval_fn(df, {"__filter__": expr}, main_name, lookup_names)
+    mask = pd.Series(
+        results.get("__filter__", [])
+    ).fillna(False).astype(bool).values
+    return df[mask].copy() if mask.size == len(df) else df
