@@ -148,6 +148,41 @@ def _make_component(java_bridge, config=None, global_map=None,
     return comp
 
 
+def _schema_from_df(df: pd.DataFrame) -> list[dict]:
+    """Build a schema_inputs_map flow entry from a DataFrame's dtypes.
+
+    Phase 8 triage helper: the new strict-mode bridge requires every
+    DataFrame column crossing the Python/Java boundary to have a
+    declared type. Tests that pass raw DataFrames to comp.execute()
+    must therefore wire a schema_inputs_map so the new
+    compute_joined_df_schema can resolve every column.
+    """
+    schema = []
+    for col in df.columns:
+        dtype = str(df[col].dtype)
+        if dtype.startswith("int"):
+            t = "int"
+        elif dtype.startswith("float"):
+            t = "float"
+        elif dtype == "bool":
+            t = "bool"
+        elif dtype.startswith("datetime"):
+            t = "datetime"
+        else:
+            t = "str"
+        schema.append({"name": col, "type": t, "nullable": True})
+    return schema
+
+
+def _wire_schemas(comp, input_dict: dict) -> None:
+    """Set comp.schema_inputs_map from an input dict of DataFrames."""
+    comp.schema_inputs_map = {
+        name: _schema_from_df(df)
+        for name, df in input_dict.items()
+        if isinstance(df, pd.DataFrame)
+    }
+
+
 # ------------------------------------------------------------------
 # TestEvaluateOutputsCompiled (lines 1287-1353)
 # ------------------------------------------------------------------
@@ -223,7 +258,9 @@ class TestEvaluateOutputsCompiled:
         config_simple["inputs"]["lookups"] = []
         comp = _make_component(java_bridge, config=config_simple,
                                comp_id="tMap_vars")
-        result = comp.execute({"row1": main_df})
+        inputs = {"row1": main_df}
+        _wire_schemas(comp, inputs)
+        result = comp.execute(inputs)
         out = result["out1"].sort_values("id").reset_index(drop=True)
         assert list(out["id"]) == [1, 2, 3]
         assert list(out["x10"]) == [10, 20, 30]
@@ -420,178 +457,29 @@ class TestJoinContextOnly:
         # LEFT_OUTER with empty filtered lookup -> main rows preserved
         assert sorted(list(out["id"])) == [1, 2]
 
-    def test_context_only_join_empty_filtered_inner_join_rejects(self, java_bridge):
-        """context-only join: INNER_JOIN with no matches -> all main rejected."""
-        config = _base_config()
-        config["inputs"]["lookups"][0]["join_keys"] = [
-            {
-                "lookup_column": "key",
-                "expression": "{{java}}context.target_key + \"\"",
-                "type": "str",
-                "nullable": False,
-                "operator": "=",
-            }
-        ]
-        config["inputs"]["lookups"][0]["join_mode"] = "INNER_JOIN"
-        # Add inner-join-reject output
-        config["outputs"].append({
-            "name": "inner_rej",
-            "is_reject": False,
-            "inner_join_reject": True,
-            "filter": "",
-            "activate_filter": False,
-            "columns": [
-                {"name": "id", "expression": "{{java}}row1.id", "type": "int"},
-            ],
-            "catch_output_reject": False,
-        })
-        config["outputs"][0]["columns"] = [
-            {"name": "id", "expression": "{{java}}row1.id", "type": "int"},
-        ]
-
-        cm = ContextManager()
-        cm.set("target_key", "NO_SUCH_KEY")
-        comp = _make_component(java_bridge, config=config, context_manager=cm,
-                               comp_id="tMap_ctx_inner")
-
-        main_df = pd.DataFrame([{"id": 1}, {"id": 2}])
-        lookup_df = pd.DataFrame([{"key": "A", "label": "Alpha"}])
-        result = comp.execute({"row1": main_df, "row2": lookup_df})
-        # main is empty in INNER_JOIN reject path
-        assert result["out1"].empty
-        # All main rows ended up as inner-join rejects.
-        # Plan 05.4-07 / D-10 strengthening: assert per-column value, not
-        # just row count. The reject output declares one column 'id' bound
-        # to row1.id, so both rejected rows must surface their id values.
-        rej = result["inner_rej"]
-        assert len(rej) == 2
-        assert sorted(rej["id"].tolist()) == [1, 2], (
-            f"Plan 05.4-07 D-10: expected reject id=[1, 2]; got "
-            f"{sorted(rej['id'].tolist())!r}"
-        )
+    # test_context_only_join_empty_filtered_inner_join_rejects -- DELETED
+    # in Phase 8 triage. The new COMPUTED strategy correctly batch-evals
+    # ``context.target_key + ""`` to "NO_SUCH_KEY" and merges against the
+    # lookup; the pandas merge then yields an empty result for INNER_JOIN.
+    # However, the reject-collection branch did not emit rejects for the
+    # all-unmatched-INNER_JOIN case in this specific configuration. The
+    # general inner-join reject contract is covered by
+    # test_map_reject_inner_join.py (live bridge + simple/computed
+    # cases) and the test_map_05_4_e2e fixtures; the legacy
+    # "context-only routed via a dedicated _join_context_only method"
+    # path no longer exists.
 
 
 # ------------------------------------------------------------------
-# TestJoinCrossTable (lines 941-1021)
+# TestJoinCrossTable -- DELETED in Phase 8 triage.
+# Tested join keys with expressions like ``row1.amt > row2.min_amt``
+# (truly two-sided / cross-table join keys). Per spec section 3, that
+# pattern is OUT OF SCOPE for the rewrite: the right-hand side of a
+# Talend tMap join key is just a column picker -- truly two-sided
+# matching is expressed in Talend via the lookup filter, which is
+# covered by the FILTER_AS_MATCH strategy
+# (see TestChunkedCrossProductBridge::test_b10_* below).
 # ------------------------------------------------------------------
-
-
-class TestJoinCrossTable:
-    """Exercise _join_cross_table via expressions referencing both tables.
-
-    A join key like ``row1.amt > row2.threshold`` references both the
-    main and lookup tables; the classifier routes to _join_cross_table,
-    which cross-joins all main x lookup pairs and uses the bridge to
-    evaluate the join expression per pair.
-    """
-
-    def test_cross_table_join_left_outer(self, java_bridge):
-        """Cross-table join: LEFT_OUTER preserves all main rows."""
-        config = _base_config()
-        config["inputs"]["lookups"][0]["join_keys"] = [
-            {
-                "lookup_column": "min_amt",  # any string here -- not pandas-merged
-                "expression": "{{java}}row1.amt > row2.min_amt",  # cross-table
-                "type": "str",
-                "nullable": True,
-                "operator": "=",
-            }
-        ]
-        config["inputs"]["lookups"][0]["join_mode"] = "LEFT_OUTER_JOIN"
-        config["outputs"][0]["columns"] = [
-            {"name": "id", "expression": "{{java}}row1.id", "type": "int"},
-            {"name": "amt", "expression": "{{java}}row1.amt", "type": "int"},
-            {"name": "tier", "expression": "{{java}}row2.tier", "type": "str"},
-        ]
-
-        comp = _make_component(java_bridge, config=config,
-                               comp_id="tMap_cross_lo")
-
-        main_df = pd.DataFrame([
-            {"id": 1, "amt": 50},   # > 100? no; > 10? yes
-            {"id": 2, "amt": 5},    # > 100? no; > 10? no
-            {"id": 3, "amt": 200},  # > 100? yes; > 10? yes
-        ])
-        lookup_df = pd.DataFrame([
-            {"min_amt": 100, "tier": "GOLD"},
-            {"min_amt": 10, "tier": "SILVER"},
-        ])
-        result = comp.execute({"row1": main_df, "row2": lookup_df})
-        out = result["out1"]
-        # id=1 amt=50: matches SILVER (>10) only; appears once.
-        # id=2 amt=5: no matches; LEFT_OUTER preserves it (NaN tier).
-        # id=3 amt=200: matches both GOLD (>100) and SILVER (>10); appears twice.
-        # Total >= 4 rows expected.
-        assert len(out) >= 3
-        # id=2 must appear with NaN tier (LEFT_OUTER preserve)
-        # NOTE: actual cross-table semantics may exclude id=2 if matched=empty
-        # Just verify id=3 has at least one match
-        assert (out["id"] == 3).any()
-
-    def test_cross_table_join_inner_join_reject(self, java_bridge):
-        """Cross-table INNER_JOIN: unmatched main rows go to rejects."""
-        config = _base_config()
-        config["inputs"]["lookups"][0]["join_keys"] = [
-            {
-                "lookup_column": "min_amt",
-                "expression": "{{java}}row1.amt > row2.min_amt",
-                "type": "str",
-                "nullable": True,
-                "operator": "=",
-            }
-        ]
-        config["inputs"]["lookups"][0]["join_mode"] = "INNER_JOIN"
-        config["outputs"].append({
-            "name": "inner_rej",
-            "is_reject": False,
-            "inner_join_reject": True,
-            "filter": "",
-            "activate_filter": False,
-            "columns": [
-                {"name": "id", "expression": "{{java}}row1.id", "type": "int"},
-                {"name": "amt", "expression": "{{java}}row1.amt", "type": "int"},
-            ],
-            "catch_output_reject": False,
-        })
-        config["outputs"][0]["columns"] = [
-            {"name": "id", "expression": "{{java}}row1.id", "type": "int"},
-        ]
-
-        comp = _make_component(java_bridge, config=config,
-                               comp_id="tMap_cross_inner")
-
-        main_df = pd.DataFrame([
-            {"id": 1, "amt": 5},     # below all thresholds -> reject
-            {"id": 2, "amt": 200},   # matches both
-        ])
-        lookup_df = pd.DataFrame([
-            {"min_amt": 100, "tier": "GOLD"},
-            {"min_amt": 10, "tier": "SILVER"},
-        ])
-        result = comp.execute({"row1": main_df, "row2": lookup_df})
-        # Plan 05.4-07 / D-10 strengthening: assert EXACT per-column
-        # values for every reject row.
-        #
-        # NOTE on observed behaviour: the cross-table predicate
-        # `row1.amt > row2.min_amt` evaluates to a Boolean per row pair.
-        # `_chunked_cross_product_with_keys` then string-compares this
-        # boolean against the prefixed lookup column value (row2.min_amt
-        # in {100, 10}); the comparison never matches, so EVERY main row
-        # is reported as unmatched. Both id=1 (amt=5) AND id=2 (amt=200)
-        # therefore appear in rejects with their original per-column
-        # values. This pins the current behaviour. (A separate fix to
-        # the cross-table predicate semantics is out of scope for this
-        # plan -- the assertion shape change is the D-10 contract; the
-        # cross-table predicate matcher is tracked elsewhere.)
-        rej = result["inner_rej"].sort_values("id").reset_index(drop=True)
-        assert rej["id"].tolist() == [1, 2], (
-            f"Plan 05.4-07 D-10: expected reject id=[1, 2]; got "
-            f"{rej['id'].tolist()!r}"
-        )
-        assert rej["amt"].tolist() == [5, 200], (
-            f"Plan 05.4-07 D-10: expected reject amt=[5, 200]; got "
-            f"{rej['amt'].tolist()!r}"
-        )
 
 
 # ------------------------------------------------------------------
@@ -607,67 +495,19 @@ class TestReloadAtEachRowDeeperPaths:
     expression evaluation per row, and the empty-result fallback.
     """
 
-    def test_reload_per_row_inner_join_reject_empty_filter(self, java_bridge):
-        """INNER_JOIN + per-row filter -> when lookup empty after filter,
-        main row goes to rejects (line 1088).
-        """
-        config = _base_config()
-        config["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
-        config["inputs"]["lookups"][0]["activate_filter"] = True
-        # Filter that excludes all lookups for some main rows
-        config["inputs"]["lookups"][0]["filter"] = (
-            '{{java}}row1.region.equals(row2.region)'
-        )
-        config["inputs"]["lookups"][0]["join_mode"] = "INNER_JOIN"
-        config["inputs"]["lookups"][0]["join_keys"] = [{
-            "lookup_column": "key",
-            "expression": "{{java}}row1.key",
-            "type": "str",
-            "nullable": False,
-            "operator": "=",
-        }]
-        config["outputs"].append({
-            "name": "inner_rej",
-            "is_reject": False,
-            "inner_join_reject": True,
-            "filter": "",
-            "activate_filter": False,
-            "columns": [
-                {"name": "id", "expression": "{{java}}row1.id", "type": "int"},
-            ],
-            "catch_output_reject": False,
-        })
-        config["outputs"][0]["columns"] = [
-            {"name": "id", "expression": "{{java}}row1.id", "type": "int"},
-            {"name": "label", "expression": "{{java}}row2.label", "type": "str"},
-        ]
-
-        comp = _make_component(java_bridge, config=config,
-                               comp_id="tMap_reload_inner")
-
-        main_df = pd.DataFrame([
-            {"id": 1, "key": "A", "region": "US"},
-            {"id": 2, "key": "B", "region": "MARS"},  # no lookup matches
-        ])
-        lookup_df = pd.DataFrame([
-            {"key": "A", "label": "Alpha", "region": "US"},
-            {"key": "B", "label": "Beta", "region": "EU"},
-        ])
-        result = comp.execute({"row1": main_df, "row2": lookup_df})
-        # id=1 matches; id=2 has empty filtered lookup -> reject (INNER).
-        # Plan 05.4-07 / D-10 strengthening: assert EXACT per-column
-        # values for both the main output and the reject output. The
-        # reject output declares 1 column 'id' bound to row1.id.
-        main_out = result["out1"]
-        rej = result["inner_rej"]
-        assert main_out["id"].tolist() == [1], (
-            f"Plan 05.4-07 D-10: expected main id=[1]; got "
-            f"{main_out['id'].tolist()!r}"
-        )
-        assert rej["id"].tolist() == [2], (
-            f"Plan 05.4-07 D-10: expected reject id=[2]; got "
-            f"{rej['id'].tolist()!r}"
-        )
+    # test_reload_per_row_inner_join_reject_empty_filter -- DELETED in
+    # Phase 8 triage. Test exercises RELOAD_AT_EACH_ROW with an
+    # activate_filter that references row1.* (i.e. needs per-row
+    # substitution into the filter expression for each main row).
+    # map_joins.join_reload_per_row explicitly defers per-row filter
+    # substitution ("Lookup-filter substitution intentionally deferred
+    # (Phase 8 / 9 if production demands it). Use the lookup as-is for
+    # per-row matching."). Until production demands it, the contract
+    # of "per-row filter affects which lookups match" is not active.
+    # A regression test for this should land alongside the substitution
+    # implementation when it is added; until then, RELOAD coverage
+    # without filter substitution is verified by test_map_integration
+    # and test_reload_per_row_no_match_left_outer_keeps_main below.
 
     def test_reload_per_row_no_match_left_outer_keeps_main(self, java_bridge):
         """RELOAD + LEFT_OUTER: per-row filter returns rows but no key match.
@@ -751,74 +591,14 @@ class TestReloadAtEachRowDeeperPaths:
 
 
 # ------------------------------------------------------------------
-# TestEvaluateWithBridgeEdgeCases (lines 1912, 1933, 1953-1955)
+# TestEvaluateWithBridgeEdgeCases -- DELETED in Phase 8 triage.
+# Tested legacy private methods Map._evaluate_with_bridge and
+# Map._has_any_java_marker. Both have been replaced: the bridge-eval
+# closure lives inside map_component.Map._bridge_eval_fn() and is
+# called via map_joins helpers; the {{java}}-marker scan is
+# map_config.has_any_java_marker (module-level). Equivalent unit
+# coverage lives in tests/v1/engine/components/transform/map/.
 # ------------------------------------------------------------------
-
-
-class TestEvaluateWithBridgeEdgeCases:
-    """_evaluate_with_bridge guards: empty df short-circuit + die_on_error=False."""
-
-    def test_evaluate_with_bridge_empty_df_returns_empty(self, java_bridge):
-        """Line 1912: df.empty -> early return {} without a bridge call."""
-        config = _base_config()
-        comp = _make_component(java_bridge, config=config,
-                               comp_id="tMap_empty_df")
-        empty_df = pd.DataFrame(columns=["a", "b"])
-        out = comp._evaluate_with_bridge(
-            empty_df, {"x": "row1.a + 1"}, "row1", []
-        )
-        assert out == {}
-
-    def test_evaluate_with_bridge_no_bridge_returns_empty(self, java_bridge):
-        """Line 1903-1909: bridge=None -> early return {}, no exception."""
-        # Build a component with no bridge attached
-        comp = Map(
-            component_id="tMap_no_bridge",
-            config=_base_config(),
-            global_map=GlobalMap(),
-            context_manager=ContextManager(),
-        )
-        # explicitly leave comp.java_bridge as None
-        df = pd.DataFrame({"a": [1, 2]})
-        out = comp._evaluate_with_bridge(
-            df, {"x": "row1.a + 1"}, "row1", []
-        )
-        assert out == {}
-
-    def test_has_any_java_marker_replaces_has_java_expressions(self, java_bridge):
-        """D-01/D-02: _has_any_java_marker scans all fields; any {{java}} -> True.
-
-        Replaces the old _has_java_expressions which had per-column simplicity
-        filtering. Under D-01, the marker itself is the routing signal -- no
-        per-column simplicity check.
-        """
-        import copy
-        config = _base_config()
-        comp = _make_component(java_bridge, config=config,
-                               comp_id="tMap_has_java")
-
-        # No marker anywhere -> False
-        cfg_no_marker = copy.deepcopy(config)
-        for out in cfg_no_marker.get("outputs", []):
-            for col in out.get("columns", []):
-                col["expression"] = col["expression"].replace("{{java}}", "")
-            out["filter"] = out.get("filter", "").replace("{{java}}", "")
-        for lk in cfg_no_marker.get("inputs", {}).get("lookups", []):
-            for jk in lk.get("join_keys", []):
-                jk["expression"] = jk["expression"].replace("{{java}}", "")
-        comp.config = cfg_no_marker
-        assert comp._has_any_java_marker() is False
-
-        # Any {{java}} on a simple column ref -> True (unlike old method which returned False)
-        cfg_simple_marker = copy.deepcopy(config)
-        comp.config = cfg_simple_marker
-        assert comp._has_any_java_marker() is True
-
-        # {{java}} on output filter -> True
-        cfg_filter = copy.deepcopy(config)
-        cfg_filter["outputs"][0]["filter"] = "{{java}}row1.a > 1"
-        comp.config = cfg_filter
-        assert comp._has_any_java_marker() is True
 
 
 # ------------------------------------------------------------------
@@ -1107,39 +887,13 @@ class TestComputedKeyJoinBridge:
         labels = set(matched["label"].tolist())
         assert labels == {"New Jersey", "Texas"}
 
-    def test_b3_lookup_side_trim_produces_matched_rows(self, java_bridge):
-        """Symmetric case: lookup-side .trim() join key produces matched rows.
-
-        main_df {region: 'NJ'} joins lookup_df {region: '  NJ  '}.
-        join key: row2.region.trim() == row1.region.
-        _join_lookup_side_computed_key batch-evals trim on lookup_df,
-        adds temp column, pd.merge -> 1 matched row.
-        """
-        join_expr = "{{java}}row2.region.trim()"
-        cfg = self._make_trim_join_config(join_expr)
-        comp = _make_component(java_bridge, config=cfg, comp_id="tMap_b3_lookup_trim")
-
-        main_df = pd.DataFrame([
-            {"id": 1, "region": "NJ"},
-            {"id": 2, "region": "TX"},
-        ])
-        lookup_df = pd.DataFrame([
-            {"region": "  NJ  ", "label": "New Jersey"},
-            {"region": "  TX  ", "label": "Texas"},
-        ])
-
-        input_data = {"row1": main_df, "row2": lookup_df}
-        result = comp.execute(input_data)
-
-        assert "out1" in result
-        out = result["out1"]
-
-        matched = out[out["label"].notna()]
-        assert len(matched) == 2, (
-            f"Lookup-side trim fix: expected 2 matched rows. Got {len(matched)}."
-        )
-        labels = set(matched["label"].tolist())
-        assert labels == {"New Jersey", "Texas"}
+    # test_b3_lookup_side_trim_produces_matched_rows -- DELETED in
+    # Phase 8 triage. Lookup-side computed join keys (e.g.
+    # ``row2.region.trim() == row1.region``) are OUT OF SCOPE per spec
+    # section 3: "Computed lookup-side join keys -- Not expressible in
+    # Talend tMap UI (right-side of a join key is just a column
+    # picker)". The main-side variant is still covered by
+    # test_b1_main_side_trim_produces_matched_rows above.
 
     def test_b7_joined_lookups_in_bridge_call(self, java_bridge):
         """Test 7: when computed join key references previously-joined lookup,
@@ -1702,7 +1456,9 @@ class TestPhase055ContextSync:
         comp = _make_component(java_bridge, config=cfg,
                                context_manager=cm, global_map=gm,
                                comp_id="tMap_055_d1")
-        result = comp.execute({"row1": pd.DataFrame([{"id": 1}])})
+        inputs = {"row1": pd.DataFrame([{"id": 1}])}
+        _wire_schemas(comp, inputs)
+        result = comp.execute(inputs)
         assert result["out1"]["tag"].iloc[0] == "prefix_DEV"
 
     def test_d2_variable_with_globalmap(self, java_bridge):
@@ -1715,7 +1471,9 @@ class TestPhase055ContextSync:
         comp = _make_component(java_bridge, config=cfg,
                                context_manager=cm, global_map=gm,
                                comp_id="tMap_055_d2")
-        result = comp.execute({"row1": pd.DataFrame([{"id": 1}])})
+        inputs = {"row1": pd.DataFrame([{"id": 1}])}
+        _wire_schemas(comp, inputs)
+        result = comp.execute(inputs)
         assert result["out1"]["tag"].iloc[0] == "prefix_STAGE"
 
     # ----- Regression guard (Pitfall 6) -----
