@@ -485,7 +485,7 @@ class TestAllMatches:
         guard code path with a 50x30=1500-row product instead of 12M rows.
         monkeypatch.setattr auto-restores the constant on teardown.
         """
-        import src.v1.engine.components.transform.map as map_module
+        import src.v1.engine.components.transform.map_legacy as map_module
         monkeypatch.setattr(map_module, "_WARN_RESULT_ROWS", 1000)
 
         config = copy.deepcopy(_DEFAULT_CONFIG)
@@ -4931,15 +4931,15 @@ class TestComputedKeyDispatch:
     """
 
     def test_no_todo_markers_remain(self):
-        """Verify no TODO(05.3-03) markers remain in map.py."""
+        """Verify no TODO(05.3-03) markers remain in map_legacy.py."""
         import pathlib
         map_path = pathlib.Path(
-            "src/v1/engine/components/transform/map.py"
+            "src/v1/engine/components/transform/map_legacy.py"
         )
         content = map_path.read_text()
         todo_count = content.count("TODO(05.3-03)")
         assert todo_count == 0, (
-            f"Found {todo_count} TODO(05.3-03) marker(s) in map.py. "
+            f"Found {todo_count} TODO(05.3-03) marker(s) in map_legacy.py. "
             f"These must be replaced by real dispatch calls in plan 03."
         )
 
@@ -5429,11 +5429,11 @@ class TestChunkedCrossProductMethod:
         )
 
     def test_output_chunk_size_key_in_map_module(self):
-        """output_chunk_size config key must appear in map.py source."""
+        """output_chunk_size config key must appear in map_legacy.py source."""
         import pathlib
-        content = pathlib.Path("src/v1/engine/components/transform/map.py").read_text()
+        content = pathlib.Path("src/v1/engine/components/transform/map_legacy.py").read_text()
         assert "output_chunk_size" in content, (
-            "'output_chunk_size' config key not found in map.py"
+            "'output_chunk_size' config key not found in map_legacy.py"
         )
 
 
