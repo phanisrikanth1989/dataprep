@@ -225,3 +225,71 @@ def build_active_script(cfg: MapConfig) -> str:
 
     lines.append("return results;")
     return "\n".join(lines)
+
+
+def build_reject_script(cfg: MapConfig) -> str:
+    """Build the reject-pass Groovy script for inner_join_reject outputs.
+
+    Strictly smaller than the active script:
+    - No variables (reject rows have no Var state)
+    - No filters (every reject row routes to every inner_join_reject output)
+    - No try/catch / errorMap (any error during reject column eval propagates;
+      we already lost the join, no further reject routing)
+    - One row loop, one results map
+
+    When no output has inner_join_reject=True, returns a trivial
+    empty-results script.
+
+    Args:
+        cfg: Parsed MapConfig.
+
+    Returns:
+        Groovy source string. Used by Map._process to compile and execute
+        a second bridge pass over the reject row source (only when
+        inner_join_reject_dfs from the join phase is non-empty).
+    """
+    inner_reject_outputs = [o for o in cfg.outputs if o.inner_join_reject]
+    lines: list[str] = [
+        "import java.util.*;",
+        "import com.citi.gru.etl.RowWrapper;",
+        "",
+    ]
+
+    if not inner_reject_outputs:
+        lines.append("Map<String, Map<String, Object>> results = new HashMap<>();")
+        lines.append("return results;")
+        return "\n".join(lines)
+
+    # Output buffers
+    for out in inner_reject_outputs:
+        ncols = len(out.columns)
+        lines.append(f"Object[][] {out.name}_data = new Object[rowCount][{ncols}];")
+        lines.append(f"int {out.name}_count = 0;")
+    lines.append("")
+
+    # Row loop -- no try/catch, no variables, no filter
+    lines.append("for (int i = 0; i < rowCount; i++) {")
+    main_name = cfg.main.name
+    lines.append(f'    RowWrapper {main_name} = buildRowWrapper(inputRoot, i, "{main_name}");')
+    for lk in cfg.lookups:
+        lines.append(f'    RowWrapper {lk.name} = buildRowWrapper(inputRoot, i, "{lk.name}");')
+    lines.append("")
+    for out in inner_reject_outputs:
+        ncols = len(out.columns)
+        lines.append(f"    Object[] {out.name}_tempRow = new Object[{ncols}];")
+        for j, col in enumerate(out.columns):
+            expr = groovy_escape_expression(_strip_marker(col.expression)) or "null"
+            lines.append(f"    {out.name}_tempRow[{j}] = {expr};")
+        lines.append(f"    {out.name}_data[{out.name}_count++] = {out.name}_tempRow;")
+    lines.append("}")
+    lines.append("")
+
+    # Results map
+    lines.append("Map<String, Map<String, Object>> results = new HashMap<>();")
+    for out in inner_reject_outputs:
+        lines.append(f"Map<String, Object> {out.name}_result = new HashMap<>();")
+        lines.append(f'{out.name}_result.put("data", {out.name}_data);')
+        lines.append(f'{out.name}_result.put("count", {out.name}_count);')
+        lines.append(f'results.put("{out.name}", {out.name}_result);')
+    lines.append("return results;")
+    return "\n".join(lines)

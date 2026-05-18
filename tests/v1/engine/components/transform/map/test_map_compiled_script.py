@@ -152,3 +152,57 @@ def test_build_active_script_die_on_error_false_emits_error_tracking_too():
     # Even without catch_output_reject, die_on_error=false needs error tracking
     assert "Map<Integer, String> errorMap = new HashMap<>();" in src
     assert 'errorInfo.put("messages", errorMap);' in src
+
+
+# ===== Task 3.4: build_reject_script =====
+
+from src.v1.engine.components.transform.map.map_compiled_script import (
+    build_reject_script,
+)
+
+
+def test_build_reject_script_emits_only_inner_join_reject_outputs():
+    """Active outputs / variables / try-catch all OMITTED. Only inner_join_reject."""
+    raw = {
+        "component_type": "Map",
+        "inputs": {
+            "main": {"name": "row1", "filter": "", "activate_filter": False,
+                     "matching_mode": "UNIQUE_MATCH", "lookup_mode": "LOAD_ONCE"},
+            "lookups": [],
+        },
+        "variables": [
+            {"name": "v1", "expression": "row1.id", "type": "int", "nullable": True},
+        ],
+        "outputs": [
+            {"name": "out", "is_reject": False, "inner_join_reject": False,
+             "catch_output_reject": False, "filter": "", "activate_filter": False,
+             "columns": [{"name": "id", "expression": "row1.id", "type": "int", "nullable": True}]},
+            {"name": "rej_inner", "is_reject": False, "inner_join_reject": True,
+             "catch_output_reject": False, "filter": "", "activate_filter": False,
+             "columns": [
+                 {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+                 {"name": "reason", "expression": '"lookup_miss"', "type": "str", "nullable": True},
+             ]},
+        ],
+        "die_on_error": True,
+    }
+    cfg = parse_config(raw)
+    src = build_reject_script(cfg)
+    # Only rej_inner is emitted; no 'out', no errorMap, no Var
+    assert "rej_inner_data" in src
+    assert "out_data" not in src
+    assert "Var.put" not in src  # No vars in reject script
+    assert "errorMap" not in src  # No try/catch in reject script
+    assert "rej_inner_tempRow[0] = row1.id;" in src
+    assert 'rej_inner_tempRow[1] = "lookup_miss";' in src
+    assert 'results.put("rej_inner", rej_inner_result);' in src
+
+
+def test_build_reject_script_empty_when_no_inner_join_reject_outputs():
+    """No inner_join_reject outputs -> trivial empty-results script."""
+    cfg = _basic_cfg()  # No inner_join_reject outputs
+    src = build_reject_script(cfg)
+    assert "return results;" in src
+    # No output buffer emitted
+    assert "rej" not in src
+    assert "Object[][] out_data" not in src  # active outputs also omitted
