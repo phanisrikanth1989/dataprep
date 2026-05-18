@@ -12,11 +12,13 @@ from typing import Any, Optional
 import pandas as pd
 
 from src.v1.engine.base_component import BaseComponent, ExecutionMode
+from src.v1.engine.component_registry import REGISTRY
 from src.v1.engine.exceptions import ComponentExecutionError, ConfigurationError
 
 from .map_config import MapConfig, parse_config, validate_config, has_any_java_marker
 
 
+@REGISTRY.register("Map", "tMap")
 class Map(BaseComponent):
     """tMap engine implementation (modular rewrite)."""
 

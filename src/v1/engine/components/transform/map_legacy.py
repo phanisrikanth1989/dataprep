@@ -202,7 +202,6 @@ def _infer_arrow_schema_dict(df: pd.DataFrame) -> dict[str, str]:
     return schema
 
 
-@REGISTRY.register("Map", "tMap")
 class Map(BaseComponent):
     """tMap engine implementation.
 
