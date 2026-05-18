@@ -150,6 +150,7 @@ class Map(BaseComponent):
                 joined_df, rejects = join_reload_per_row(
                     joined_df, lookup_df, lk,
                     bridge_eval_fn=self._bridge_eval_fn(),
+                    main_name=cfg.main.name,
                 )
             if rejects is not None and not rejects.empty:
                 inner_join_reject_dfs[lk.name] = rejects

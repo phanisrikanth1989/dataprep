@@ -17,6 +17,7 @@ import re
 from enum import Enum
 from typing import Any, Callable
 
+import numpy as np
 import pandas as pd
 
 from .map_config import JoinKeyCfg, LookupCfg
@@ -463,34 +464,57 @@ def join_reload_per_row(
     lookup_df: pd.DataFrame,
     lk: LookupCfg,
     bridge_eval_fn: BridgeEvalFn | None,
+    main_name: str = "row1",
 ) -> tuple[pd.DataFrame, pd.DataFrame | None]:
     """RELOAD_AT_EACH_ROW: re-match the lookup for every main row.
 
-    For each main row, optionally re-filter the lookup (lookup filter
-    substitution deferred -- not needed by current production fixtures;
-    can be added when a real job demands it). Then per-row simple-equality
-    matching against the (possibly filtered) lookup. O(n*m) by design --
-    RELOAD is row-by-row.
+    For each main row, when the lookup has an active filter, substitute main
+    row column values into the filter expression (_substitute_row_refs), then
+    bridge-evaluate the substituted filter against the lookup to produce a
+    per-row filtered lookup before key matching.
 
-    bridge_eval_fn is accepted for signature parity with the other
-    strategies and reserved for future use when lookup filter substitution
-    is needed.
+    Null-safe: TypeError/ValueError/ComponentExecutionError from the bridge
+    eval treat the filtered lookup as empty (no match for that row).
+
+    Args:
+        joined_df: current joined frame (main + prior lookups).
+        lookup_df: the current lookup's full unfiltered frame.
+        lk: this lookup's config.
+        bridge_eval_fn: callable for bridge evaluation (required when the
+            lookup has an active filter expression).
+        main_name: name of the main input table (used for ref substitution).
+
+    Returns:
+        (merged_frame, inner_join_rejects_or_None)
     """
-    import numpy as np
-
     key_cols = [jk.lookup_column for jk in lk.join_keys]
     lookup_prefixed_cols = [
         col if col.startswith(f"{lk.name}.") else f"{lk.name}.{col}"
         for col in lookup_df.columns
     ]
 
+    has_filter = lk.activate_filter and lk.filter
+    base_filter_expr = lk.filter if has_filter else None
+
     result_rows: list[pd.Series] = []
     reject_rows: list[pd.Series] = []
 
     for _, main_row in joined_df.iterrows():
-        # Lookup-filter substitution intentionally deferred (Phase 8 / 9 if
-        # production demands it). Use the lookup as-is for per-row matching.
-        filtered = lookup_df
+        # Per-row lookup filter substitution: replace main row column values
+        # into the filter expression, then bridge-evaluate against lookup.
+        if has_filter and base_filter_expr is not None:
+            # Strip {{java}} marker, substitute, re-attach
+            raw_expr = _strip_marker(base_filter_expr)
+            substituted = _substitute_row_refs(raw_expr, main_row, main_name)
+            marked_expr = _JAVA_MARKER + substituted
+            try:
+                filtered = apply_filter(
+                    lookup_df, marked_expr, bridge_eval_fn, main_name, [lk.name],
+                )
+            except (TypeError, ValueError, ComponentExecutionError):
+                filtered = lookup_df.iloc[0:0]
+        else:
+            filtered = lookup_df
 
         if filtered.empty:
             if lk.join_mode == "INNER_JOIN":
@@ -579,3 +603,83 @@ def apply_filter(
         results.get("__filter__", [])
     ).fillna(False).astype(bool).values
     return df[mask].copy() if mask.size == len(df) else df
+
+
+# ---- RELOAD per-row filter substitution ----
+
+_ROW_REF_PATTERN = re.compile(
+    r'\b([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)\b'
+)
+
+
+def _substitute_row_refs(
+    expr: str,
+    main_row: "pd.Series",
+    main_name: str,
+) -> str:
+    """Replace main_name.col references in expr with literal values from main_row.
+
+    Quote-aware: references whose span falls inside a double-quoted string
+    literal in expr are left untouched (they are part of a string value, not
+    a row reference).
+
+    Value-to-literal rules:
+      - None / pd.isna  -> ``None``
+      - str             -> ``"<escaped>"`` (backslashes + quotes escaped)
+      - bool / np.bool_ -> ``True`` / ``False``
+      - numeric         -> ``repr(val)``
+
+    Args:
+        expr: filter expression string ({{java}} marker already stripped).
+        main_row: the current main row as a pandas Series.
+        main_name: name of the main table (e.g. ``"row1"``).
+
+    Returns:
+        Expression with main_name.col references substituted by their values.
+    """
+    # Precompute spans of double-quoted string literals in the expression.
+    # Matches simple double-quoted strings; escaped quotes handled via the
+    # negative lookbehind on the closing quote.
+    quoted_ranges: list[tuple[int, int]] = []
+    for m in re.finditer(r'"(?:[^"\\]|\\.)*"', expr):
+        quoted_ranges.append(m.span())
+
+    def _in_quoted(start: int, end: int) -> bool:
+        for qs, qe in quoted_ranges:
+            if start >= qs and end <= qe:
+                return True
+        return False
+
+    def _to_literal(val: Any) -> str:
+        if val is None or (not isinstance(val, bool) and isinstance(val, float)
+                           and np.isnan(val)):
+            return "None"
+        try:
+            if pd.isna(val):
+                return "None"
+        except (TypeError, ValueError):
+            pass
+        if isinstance(val, (bool, np.bool_)):
+            return "True" if val else "False"
+        if isinstance(val, str):
+            escaped = val.replace("\\", "\\\\").replace('"', '\\"')
+            return f'"{escaped}"'
+        return repr(val)
+
+    result_parts: list[str] = []
+    last_end = 0
+
+    for m in _ROW_REF_PATTERN.finditer(expr):
+        table, col = m.group(1), m.group(2)
+        if table != main_name:
+            continue
+        if _in_quoted(m.start(), m.end()):
+            continue
+        # Resolve column value from main_row
+        val = main_row.get(col)
+        result_parts.append(expr[last_end:m.start()])
+        result_parts.append(_to_literal(val))
+        last_end = m.end()
+
+    result_parts.append(expr[last_end:])
+    return "".join(result_parts)
