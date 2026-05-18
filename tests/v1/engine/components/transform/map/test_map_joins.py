@@ -453,3 +453,286 @@ def test_apply_filter_raises_when_filter_present_but_no_bridge_fn():
     with pytest.raises(RuntimeError, match="bridge_eval_fn"):
         apply_filter(df, filter_expr="{{java}}row1.a > 0",
                       bridge_eval_fn=None, main_name="row1", lookup_names=[])
+
+
+# ===== coverage-fill (Task 11.1) =====
+
+def test_simple_equality_all_null_keys_inner_join_rejects_main():
+    """All main keys are null -> main_nonnull empty -> INNER_JOIN dumps
+    main_null to rejects, output is empty (lines 155-158)."""
+    joined = pd.DataFrame({"id": [1, 2], "key": [None, None]})
+    lookup = pd.DataFrame({"key": ["A"], "label": ["alpha"]})
+    result, rejects = join_simple_equality(
+        joined, lookup, _lookup_simple(join_mode="INNER_JOIN")
+    )
+    assert result.empty
+    assert rejects is not None
+    assert list(rejects["id"]) == [1, 2]
+
+
+def test_simple_equality_inner_join_combines_unmatched_and_null_keys_in_rejects():
+    """Mixed: one main row has non-null key but no match; another has null
+    key. INNER_JOIN should concatenate both into rejects (line 171)."""
+    joined = pd.DataFrame({"id": [1, 2, 3], "key": ["A", None, "Z"]})
+    lookup = pd.DataFrame({"key": ["A"], "label": ["alpha"]})
+    result, rejects = join_simple_equality(
+        joined, lookup, _lookup_simple(join_mode="INNER_JOIN")
+    )
+    assert list(result["id"]) == [1]
+    assert rejects is not None
+    assert sorted(rejects["id"].tolist()) == [2, 3]
+
+
+def test_simple_equality_drops_dup_cols():
+    """If main has a column that collides with the lookup prefix (e.g. a
+    'row2.label' column already exists), pd.merge suffixes the duplicate
+    with __dup__ which is then dropped (line 186)."""
+    joined = pd.DataFrame({
+        "id": [1],
+        "key": ["A"],
+        "row2.label": ["preexisting"],
+    })
+    lookup = pd.DataFrame({"key": ["A"], "label": ["from_lookup"]})
+    result, _ = join_simple_equality(joined, lookup, _lookup_simple())
+    # The lookup-side dup col is dropped; main value is preserved
+    assert "row2.label__dup__" not in result.columns
+    assert list(result["row2.label"]) == ["preexisting"]
+
+
+def test_computed_equality_all_null_keys_inner_join_rejects_main():
+    """Computed: bridge returns None for all key evals -> main_nonnull empty
+    -> INNER_JOIN dumps main_null to rejects (lines 253-256)."""
+    joined = pd.DataFrame({"id": [1, 2], "key": ["a", "b"]})
+    lookup = pd.DataFrame({"key": ["A"], "label": ["alpha"]})
+    lk = LookupCfg(
+        name="row2",
+        join_keys=[JoinKeyCfg("key", "{{java}}routines.StringHandling.UPCASE(row1.key)", "str")],
+        join_mode="INNER_JOIN",
+    )
+    bridge = MagicMock()
+    bridge.execute_tmap_preprocessing.return_value = {
+        "__jk_main_0__": [None, None],
+    }
+    from src.v1.engine.components.transform.map.map_joins import (
+        join_computed_equality,
+    )
+    result, rejects = join_computed_equality(
+        joined, lookup, lk, main_name="row1",
+        prior_lookups=[], bridge_eval_fn=_make_bridge_fn(bridge),
+    )
+    assert result.empty
+    assert rejects is not None
+    assert list(rejects["id"]) == [1, 2]
+
+
+def test_computed_equality_left_outer_with_null_keys_passes_through():
+    """Computed + LEFT_OUTER: null-key main rows pass through with NaN
+    lookup cols (line 278)."""
+    joined = pd.DataFrame({"id": [1, 2], "key": ["a", None]})
+    lookup = pd.DataFrame({"key": ["A"], "label": ["alpha"]})
+    lk = LookupCfg(
+        name="row2",
+        join_keys=[JoinKeyCfg("key", "{{java}}routines.StringHandling.UPCASE(row1.key)", "str")],
+        join_mode="LEFT_OUTER_JOIN",
+    )
+    bridge = MagicMock()
+    bridge.execute_tmap_preprocessing.return_value = {
+        "__jk_main_0__": ["A", None],
+    }
+    from src.v1.engine.components.transform.map.map_joins import (
+        join_computed_equality,
+    )
+    result, rejects = join_computed_equality(
+        joined, lookup, lk, main_name="row1",
+        prior_lookups=[], bridge_eval_fn=_make_bridge_fn(bridge),
+    )
+    assert sorted(result["id"].tolist()) == [1, 2]
+    assert rejects is None
+
+
+def test_apply_matching_mode_no_matching_keys_returns_unchanged():
+    """If none of the requested key_cols exist in the lookup, return as-is."""
+    from src.v1.engine.components.transform.map.map_joins import (
+        _apply_matching_mode,
+    )
+    df = pd.DataFrame({"x": [1, 2]})
+    out = _apply_matching_mode(df, key_cols=["missing"], mode="UNIQUE_MATCH")
+    assert out is df  # same object, no-op
+
+
+def test_prefilter_null_keys_empty_df():
+    """Empty df: returns (empty copy, empty frame)."""
+    from src.v1.engine.components.transform.map.map_joins import (
+        _prefilter_null_keys,
+    )
+    df = pd.DataFrame({"k": []})
+    nonnull, null = _prefilter_null_keys(df, ["k"])
+    assert nonnull.empty
+    assert null.empty
+
+
+def test_prefilter_null_keys_no_matching_cols():
+    """No requested key_cols exist in df: returns (copy, empty)."""
+    from src.v1.engine.components.transform.map.map_joins import (
+        _prefilter_null_keys,
+    )
+    df = pd.DataFrame({"a": [1, 2]})
+    nonnull, null = _prefilter_null_keys(df, ["missing"])
+    assert list(nonnull["a"]) == [1, 2]
+    assert null.empty
+
+
+def test_filter_as_match_empty_lookup_left_outer():
+    """Empty lookup_df + LEFT_OUTER: result is empty, rejects=None (line 397)."""
+    from src.v1.engine.components.transform.map.map_joins import (
+        join_filter_as_match,
+    )
+    joined = pd.DataFrame({"a": [1, 2]})
+    lookup = pd.DataFrame({"b": []})
+    lk = LookupCfg(name="row2", join_keys=[], join_mode="LEFT_OUTER_JOIN")
+    result, rejects = join_filter_as_match(
+        joined, lookup, lk, main_name="row1",
+        prior_lookups=[], bridge_eval_fn=None,
+    )
+    assert result.empty
+    assert rejects is None
+
+
+def test_filter_as_match_empty_lookup_inner_join_dumps_main_to_rejects():
+    """Empty lookup_df + INNER_JOIN: rejects = joined_df (line 397)."""
+    from src.v1.engine.components.transform.map.map_joins import (
+        join_filter_as_match,
+    )
+    joined = pd.DataFrame({"a": [1, 2]})
+    lookup = pd.DataFrame({"b": []})
+    lk = LookupCfg(name="row2", join_keys=[], join_mode="INNER_JOIN")
+    result, rejects = join_filter_as_match(
+        joined, lookup, lk, main_name="row1",
+        prior_lookups=[], bridge_eval_fn=None,
+    )
+    assert result.empty
+    assert rejects is not None
+    assert list(rejects["a"]) == [1, 2]
+
+
+def test_filter_as_match_no_bridge_fn_with_filter_raises():
+    """FILTER_AS_MATCH with a filter but no bridge_eval_fn -> RuntimeError
+    (line 423)."""
+    from src.v1.engine.components.transform.map.map_joins import (
+        join_filter_as_match,
+    )
+    joined = pd.DataFrame({"a": [1, 2]})
+    lookup = pd.DataFrame({"b": [10]})
+    lk = LookupCfg(
+        name="row2", join_keys=[],
+        activate_filter=True, filter="{{java}}row1.a < row2.b",
+        join_mode="LEFT_OUTER_JOIN",
+    )
+    with pytest.raises(RuntimeError, match="bridge_eval_fn"):
+        join_filter_as_match(
+            joined, lookup, lk, main_name="row1",
+            prior_lookups=[], bridge_eval_fn=None,
+        )
+
+
+def test_filter_as_match_inner_join_no_matches_at_all():
+    """INNER_JOIN where ALL filter results are False: merged is empty, every
+    main row goes to rejects (line 456)."""
+    joined = pd.DataFrame({"a": [1, 2]})
+    lookup = pd.DataFrame({"b": [10]})
+    lk = LookupCfg(
+        name="row2", join_keys=[],
+        activate_filter=True, filter="{{java}}row1.a > row2.b",
+        join_mode="INNER_JOIN",
+    )
+    bridge = MagicMock()
+    bridge.execute_tmap_preprocessing.return_value = {
+        "__filter__": [False, False],
+    }
+    from src.v1.engine.components.transform.map.map_joins import (
+        join_filter_as_match,
+    )
+    result, rejects = join_filter_as_match(
+        joined, lookup, lk, main_name="row1",
+        prior_lookups=[], bridge_eval_fn=_make_bridge_fn(bridge),
+    )
+    assert result.empty
+    assert rejects is not None
+    assert sorted(rejects["a"].tolist()) == [1, 2]
+
+
+def test_reload_per_row_empty_lookup_inner_join_rejects_main():
+    """RELOAD: lookup is empty -> for each main row, INNER_JOIN sends it to
+    rejects (lines 496-497)."""
+    from src.v1.engine.components.transform.map.map_joins import (
+        join_reload_per_row,
+    )
+    joined = pd.DataFrame({"id": [1, 2], "region": ["WEST", "EAST"]})
+    lookup = pd.DataFrame({"region": [], "label": []})
+    lk = LookupCfg(
+        name="row2",
+        join_keys=[JoinKeyCfg("region", "{{java}}row1.region", "str")],
+        join_mode="INNER_JOIN",
+        lookup_mode="RELOAD_AT_EACH_ROW",
+    )
+    result, rejects = join_reload_per_row(joined, lookup, lk, bridge_eval_fn=None)
+    assert result.empty
+    assert rejects is not None
+    assert sorted(rejects["id"].tolist()) == [1, 2]
+
+
+def test_reload_per_row_empty_lookup_left_outer_passes_main_through():
+    """RELOAD: lookup empty + LEFT_OUTER -> main rows pass through
+    unchanged (lines 498-500)."""
+    from src.v1.engine.components.transform.map.map_joins import (
+        join_reload_per_row,
+    )
+    joined = pd.DataFrame({"id": [1, 2], "region": ["WEST", "EAST"]})
+    lookup = pd.DataFrame({"region": [], "label": []})
+    lk = LookupCfg(
+        name="row2",
+        join_keys=[JoinKeyCfg("region", "{{java}}row1.region", "str")],
+        join_mode="LEFT_OUTER_JOIN",
+        lookup_mode="RELOAD_AT_EACH_ROW",
+    )
+    result, rejects = join_reload_per_row(joined, lookup, lk, bridge_eval_fn=None)
+    assert sorted(result["id"].tolist()) == [1, 2]
+    assert rejects is None
+
+
+def test_reload_per_row_non_simple_key_expression_treats_main_val_as_none():
+    """RELOAD: if a join key expression is not a simple table.col form, the
+    main_val falls back to None and no row will match (line 519)."""
+    from src.v1.engine.components.transform.map.map_joins import (
+        join_reload_per_row,
+    )
+    joined = pd.DataFrame({"id": [1], "region": ["WEST"]})
+    lookup = pd.DataFrame({"region": ["WEST"], "label": ["w1"]})
+    lk = LookupCfg(
+        name="row2",
+        # Complex expression: regex won't match -> main_val = None
+        join_keys=[JoinKeyCfg(
+            "region",
+            "{{java}}routines.StringHandling.UPCASE(row1.region)",
+            "str",
+        )],
+        join_mode="LEFT_OUTER_JOIN",
+        lookup_mode="RELOAD_AT_EACH_ROW",
+    )
+    result, _ = join_reload_per_row(joined, lookup, lk, bridge_eval_fn=None)
+    # Main pass-through with NaN lookup col since main_val was None
+    assert list(result["id"]) == [1]
+    assert pd.isna(result.iloc[0]["row2.label"])
+
+
+def test_simple_equality_join_key_falls_back_when_column_missing():
+    """If a join key expression references a column not present in joined_df
+    (neither prefixed nor bare), the code falls back to prefixed form
+    (line 140). The subsequent pd.merge will then error out helpfully --
+    we just confirm the path is reached."""
+    joined = pd.DataFrame({"id": [1]})  # no 'key' column at all
+    lookup = pd.DataFrame({"key": ["A"], "label": ["alpha"]})
+    lk = _lookup_simple()  # join_key expression references row1.key
+    # pd.merge will raise KeyError because 'row1.key' isn't in joined_df
+    with pytest.raises((KeyError, Exception)):
+        join_simple_equality(joined, lookup, lk)

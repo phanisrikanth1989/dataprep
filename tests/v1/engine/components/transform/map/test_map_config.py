@@ -134,3 +134,29 @@ def test_validate_no_marker_no_bridge_passes():
     }
     cfg = parse_config(raw)
     validate_config(cfg, java_bridge_available=False)  # must not raise
+
+
+# === coverage-fill (Task 11.1) ===
+
+def test_validate_output_missing_name_raises():
+    raw = copy.deepcopy(SAMPLE_CONFIG)
+    raw["outputs"][0]["name"] = ""
+    cfg = parse_config(raw)
+    with pytest.raises(ConfigurationError, match=r"Output \[0\] missing 'name'"):
+        validate_config(cfg, java_bridge_available=True)
+
+
+def test_validate_lookup_missing_name_raises():
+    raw = copy.deepcopy(SAMPLE_CONFIG)
+    raw["inputs"]["lookups"][0]["name"] = ""
+    cfg = parse_config(raw)
+    with pytest.raises(ConfigurationError, match=r"Lookup \[0\] missing 'name'"):
+        validate_config(cfg, java_bridge_available=True)
+
+
+def test_validate_lookup_missing_join_key_expression_raises():
+    raw = copy.deepcopy(SAMPLE_CONFIG)
+    raw["inputs"]["lookups"][0]["join_keys"][0]["expression"] = ""
+    cfg = parse_config(raw)
+    with pytest.raises(ConfigurationError, match="missing 'expression'"):
+        validate_config(cfg, java_bridge_available=True)

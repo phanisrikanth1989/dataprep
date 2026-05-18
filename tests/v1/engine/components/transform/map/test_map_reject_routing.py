@@ -124,3 +124,94 @@ def test_no_failing_rows_returns_empty_catch_output():
         cfg=cfg, joined_df=pd.DataFrame({"id": [1, 2, 3]}),
     )
     assert len(result["errs"]) == 0
+
+
+# === coverage-fill (Task 11.1) ===
+
+def test_catch_output_errors_without_rowindex_emits_framework_only():
+    """errors_df without rowIndex: failing_rows is empty index, user-defined
+    cols default to None, framework cols still populate."""
+    active_results = {"out": pd.DataFrame({"id": [1]})}
+    errors_df = pd.DataFrame({
+        "errorMessage": ["boom"],
+        "errorStackTrace": ["trace"],
+    })
+    cfg = _cfg([
+        {"name": "out", "is_reject": False, "inner_join_reject": False,
+         "catch_output_reject": False, "filter": "", "activate_filter": False,
+         "columns": [{"name": "id", "expression": "row1.id", "type": "int", "nullable": True}]},
+        {"name": "errs", "is_reject": False, "inner_join_reject": False,
+         "catch_output_reject": True, "filter": "", "activate_filter": False,
+         "columns": [
+             {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+             {"name": "errorMessage", "expression": '""', "type": "str", "nullable": True},
+             {"name": "errorStackTrace", "expression": '""', "type": "str", "nullable": True},
+         ]},
+    ])
+    result = route_rejects(
+        active_results=active_results, reject_results={},
+        errors_df=errors_df, inner_join_reject_dfs={},
+        cfg=cfg, joined_df=pd.DataFrame({"id": [1]}),
+    )
+    errs = result["errs"]
+    assert len(errs) == 1
+    # User-defined col can't resolve without rowIndex; defaults to None
+    assert errs.iloc[0]["id"] is None
+    # Framework cols still populated
+    assert errs.iloc[0]["errorMessage"] == "boom"
+    assert errs.iloc[0]["errorStackTrace"] == "trace"
+
+
+def test_catch_output_bare_column_expression_resolves():
+    """User expression is a bare column name (no dot): looked up directly in
+    failing_rows. Hits the second branch of the expression resolution
+    (lines 128-130)."""
+    errors_df = pd.DataFrame({
+        "rowIndex": [0],
+        "errorMessage": ["m"],
+        "errorStackTrace": ["t"],
+    })
+    cfg = _cfg([
+        {"name": "out", "is_reject": False, "inner_join_reject": False,
+         "catch_output_reject": False, "filter": "", "activate_filter": False,
+         "columns": [{"name": "id", "expression": "row1.id", "type": "int", "nullable": True}]},
+        {"name": "errs", "is_reject": False, "inner_join_reject": False,
+         "catch_output_reject": True, "filter": "", "activate_filter": False,
+         "columns": [
+             # Bare column 'id' (no 'row1.' prefix) -- resolves via the
+             # second branch of the column-expr matcher.
+             {"name": "id", "expression": "id", "type": "int", "nullable": True},
+         ]},
+    ])
+    result = route_rejects(
+        active_results={"out": pd.DataFrame({"id": [42]})},
+        reject_results={},
+        errors_df=errors_df, inner_join_reject_dfs={},
+        cfg=cfg, joined_df=pd.DataFrame({"id": [42]}),
+    )
+    assert list(result["errs"]["id"]) == [42]
+
+
+def test_catch_output_rowindex_filtered_to_zero_returns_empty():
+    """rowIndex values all out of range: row_indices becomes [], failing_rows
+    is empty, n == 0, returns empty frame (line 148)."""
+    errors_df = pd.DataFrame({
+        "rowIndex": [99, 100],  # both out of range for a 2-row joined_df
+        "errorMessage": ["m1", "m2"],
+        "errorStackTrace": ["t1", "t2"],
+    })
+    cfg = _cfg([
+        {"name": "out", "is_reject": False, "inner_join_reject": False,
+         "catch_output_reject": False, "filter": "", "activate_filter": False,
+         "columns": [{"name": "id", "expression": "row1.id", "type": "int", "nullable": True}]},
+        {"name": "errs", "is_reject": False, "inner_join_reject": False,
+         "catch_output_reject": True, "filter": "", "activate_filter": False,
+         "columns": [{"name": "id", "expression": "row1.id", "type": "int", "nullable": True}]},
+    ])
+    result = route_rejects(
+        active_results={"out": pd.DataFrame({"id": [1, 2]})},
+        reject_results={},
+        errors_df=errors_df, inner_join_reject_dfs={},
+        cfg=cfg, joined_df=pd.DataFrame({"id": [1, 2]}),
+    )
+    assert len(result["errs"]) == 0
