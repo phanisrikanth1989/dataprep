@@ -148,10 +148,22 @@ public class JavaBridge {
         return this.globalMap;
     }
 
+    /**
+     * Set a context variable. Value type is Object (not String) so Py4J's
+     * native typed protocol can pass Integer/Boolean/Decimal/Date through
+     * unchanged. The Python-side wrapper (bridge.py set_context) stops
+     * coercing to str(value) in Task 0.4 of the tMap rewrite.
+     */
     public void setContext(String key, Object value) {
         this.context.put(key, value);
     }
 
+    /**
+     * Set a globalMap variable. Value type is Object (not String) so Py4J's
+     * native typed protocol can pass Integer/Boolean/Decimal/Date through
+     * unchanged. The Python-side wrapper (bridge.py set_global_map) stops
+     * coercing to str(value) in Task 0.4 of the tMap rewrite.
+     */
     public void setGlobalMap(String key, Object value) {
         this.globalMap.put(key, value);
     }
