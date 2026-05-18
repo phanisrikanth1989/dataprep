@@ -1255,19 +1255,67 @@ class JavaBridge:
         on tFlowToIterate and other high-verbosity jobs).
 
         Each non-empty line is appended to ``self._stderr_buffer`` (capped at
-        200 lines) and logged at WARNING level for visibility.
+        200 lines) for the ``_capture_java_stderr`` error-context API.
+
+        For visibility in the Python log, the line is re-emitted at the
+        Python log level that matches the Java ``java.util.logging`` (JUL)
+        level prefix on the line:
+
+          - ``INFO: <msg>``     -> ``logger.info("[Java] <msg>")``
+          - ``WARNING: <msg>``  -> ``logger.warning("[Java] <msg>")``
+          - ``SEVERE: <msg>``   -> ``logger.error("[Java] <msg>")``
+          - ``FINE: <msg>``     -> ``logger.debug("[Java] <msg>")``
+          - metadata lines (timestamp + class + method that JUL emits ahead
+            of each message) and any unrecognised lines -> ``logger.debug``
+
+        This avoids the prior behaviour of logging every stderr line at
+        WARNING regardless of its actual severity, which buried real
+        warnings under a flood of routine-load and class-init INFO noise.
+        Real errors from the JVM (stack traces and lines without a JUL
+        prefix that contain "Exception", "Error", etc.) continue to be
+        captured into ``self._stderr_buffer`` and surfaced through
+        ``_capture_java_stderr`` at the call boundary.
         """
         if not self.process or not self.process.stderr:
             return
         try:
             for raw_line in self.process.stderr:
                 line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
-                if line:
-                    with self._stderr_lock:
-                        self._stderr_buffer.append(line)
-                    logger.warning("[Java stderr] %s", line)
+                if not line:
+                    continue
+                with self._stderr_lock:
+                    self._stderr_buffer.append(line)
+                self._log_jvm_stderr_line(line)
         except Exception:
             pass
+
+    @staticmethod
+    def _log_jvm_stderr_line(line: str) -> None:
+        """Emit a single JVM stderr line at the matching Python log level.
+
+        See ``_drain_java_stderr`` for the level-mapping rules.
+        """
+        # Strip the JUL level prefix and re-emit at the matching Python
+        # level.  Order matters: SEVERE before WARNING before INFO is
+        # unnecessary (no prefix is a substring of another), but a stable
+        # mapping table makes the intent obvious.
+        for jul_prefix, py_log in (
+            ("SEVERE:",  logger.error),
+            ("WARNING:", logger.warning),
+            ("INFO:",    logger.info),
+            ("FINE:",    logger.debug),
+            ("FINER:",   logger.debug),
+            ("FINEST:",  logger.debug),
+        ):
+            if line.startswith(jul_prefix):
+                py_log("[Java] %s", line[len(jul_prefix):].strip())
+                return
+        # Not a JUL message-level line.  Could be (a) a JUL metadata line
+        # (timestamp + class + method), (b) a JVM-emitted stack trace
+        # ("\tat com.foo.Bar.method(...)"), or (c) an uncategorised line.
+        # All three go to DEBUG -- stack traces are still surfaced via
+        # _capture_java_stderr at the bridge call boundary on Exception.
+        logger.debug("[Java stderr] %s", line)
 
     def _capture_java_stderr(self) -> str:
         """Return the last 20 lines of JVM stderr captured by the drainer thread.
