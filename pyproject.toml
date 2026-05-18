@@ -28,6 +28,25 @@ dev = [
 ]
 all = ["dataprep[java,excel,xml,yaml,json,api,oracle]"]
 
+[tool.pyright]
+# This project uses `from src.v1.X import Y` style imports throughout --
+# i.e. `src` is the first segment of every internal import. Pyright would
+# otherwise infer a "src layout" (where src/ is the implicit import root)
+# from `[tool.setuptools.packages.find] include = ["src*"]` and produce
+# spurious "Cannot find module" errors in VS Code / Pylance. Pin the
+# project root as the import root explicitly.
+extraPaths = ["."]
+include = ["src", "tests", "scripts"]
+exclude = [
+    "**/__pycache__",
+    "**/.pytest_cache",
+    "**/htmlcov",
+    "src/v1/java_bridge/java/target",
+    ".superpowers",
+]
+# Match the runtime Python version from [project] requires-python = ">=3.10"
+pythonVersion = "3.10"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
