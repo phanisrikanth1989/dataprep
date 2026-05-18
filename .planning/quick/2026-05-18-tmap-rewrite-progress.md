@@ -48,6 +48,39 @@ Phase 1 — map_bridge_sync.py. Start with Task 1.1
 
 ---
 
+## Phase 10 diff harness results
+
+Date: 2026-05-18
+Total Map fixtures: 8
+Passed diff: 2
+Diverged: 0
+Skipped (no schema.inputs): 6
+
+Skipped fixtures (all lack schema.inputs -- no synthesizable inputs):
+- tests/fixtures/jobs/transform/05_3/clean.json
+- tests/fixtures/jobs/transform/05_3/filter_join.json
+- tests/fixtures/jobs/transform/05_3/join_routine.json
+- tests/fixtures/jobs/transform/05_3/join_trim.json
+- tests/fixtures/jobs/transform/05_3/l2l_trim.json
+- tests/fixtures/jobs/transform/05_4/inner_reject.json
+
+Fixtures that passed clean diff:
+- tests/fixtures/jobs/transform/05_3/vars_simple.json -- LEFT_OUTER join with
+  variables + Var chaining; both sides produce identical out DataFrame
+- tests/fixtures/jobs/transform/map_with_lookup.json -- LEFT_OUTER join with
+  lookup on str key; both sides produce identical out_main DataFrame
+
+Verdict: no behavioral divergence on the 2 testable fixtures. New Map and
+legacy Map produce bit-for-bit identical DataFrames. Phase 11 can proceed.
+
+The 6 skipped fixtures have incomplete schema.inputs (only tFileInputDelimited
+components carry output schemas, but the Map component itself lacks a
+schema.inputs block). They are covered by the separate pytest suite
+(test_map_component.py, test_map_joins.py, etc.) which injects DataFrames
+directly -- no need to backfill fixtures.
+
+---
+
 ## Task 0.5 — test rebalance notes (2026-05-18)
 
 Task 0.5 (`_TYPE_CONVERTERS['id_Date']` from `str` to `_parse_talend_date`)
