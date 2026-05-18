@@ -10,12 +10,38 @@ Fixes applied:
 - NEW-01: No dead imports (os, sys removed)
 - NEW-02: resolve_dict recurses into dicts inside lists
 """
+import datetime
 import re
 import logging
 from decimal import Decimal
 from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_talend_date(value):
+    """Parse a Talend id_Date value into datetime.date / datetime.datetime.
+
+    Accepts already-typed date/datetime objects (pass-through) and strings in
+    the four Talend-standard formats:
+      - ISO datetime: "yyyy-MM-dd HH:mm:ss"
+      - ISO date:     "yyyy-MM-dd"
+      - US:           "MM/dd/yyyy"
+      - European:     "dd/MM/yyyy HH:mm"
+
+    Returns the original value if parsing fails (matches the error-tolerance
+    contract of the existing type converter map).
+    """
+    if isinstance(value, (datetime.date, datetime.datetime)):
+        return value
+    if not isinstance(value, str) or not value:
+        return value
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y %H:%M"):
+        try:
+            return datetime.datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+    return value
 
 
 class ContextManager:
@@ -54,13 +80,11 @@ class ContextManager:
         "id_Double": float,
         "id_Boolean": lambda v: str(v).lower() in ("true", "1", "yes"),
         "id_Character": lambda v: str(v)[0] if v else "",
-        # id_Date: Dates remain as strings at the ContextManager level. Date parsing
-        # is format-specific (e.g., "yyyy-MM-dd", "dd/MM/yyyy HH:mm:ss") and is
-        # delegated to individual components like tFileInputDelimited which know the
-        # Talend date pattern from their schema config. ContextManager only stores
-        # and resolves the raw date string value.
-        # (Addresses Gemini review suggestion on id_Date delegation clarity.)
-        "id_Date": str,
+        # id_Date: Parse to datetime.date / datetime.datetime at storage time so
+        # that downstream tMap expressions doing (Date) context.batch_date receive
+        # a real Date object rather than a String. _parse_talend_date handles the
+        # four Talend-standard formats and passes through already-typed objects.
+        "id_Date": _parse_talend_date,
         "id_BigDecimal": Decimal,
         "id_Object": str,
         # Python types
