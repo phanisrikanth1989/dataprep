@@ -490,6 +490,8 @@ For all three, the **declared type is the source of truth.** No inference at the
 
 ### Data column type fidelity (rules)
 
+**Rationale.** The JSON config the converter emits is already type-complete: every input column, every lookup column, every variable, every join key, every output column carries a `type` field. The engine populates `schema_inputs_map` and `output_schema` from this. **No inference is necessary.** Pandas dtypes after merges/concats LIE about the original Talend types — `int64` flips to `float64` when NaN is introduced by an outer join, `object` columns hide whether the payload is `str` / `Decimal` / `datetime`, empty DataFrames lose dtypes entirely. Sampling object-dtype cells to guess types (current code at `map.py:188`) is a heuristic that breaks on mixed columns and empty frames. The declared types from config are authoritative and complete; the rewrite uses them and only them.
+
 Every column of every DataFrame that crosses the Python/Java boundary in a tMap execution carries an **explicitly declared type**. The type is sourced from:
 
 | Column source | Type source |
@@ -654,7 +656,17 @@ Each new module is built with tests first. The development sequence:
 
 ### Test corpus
 
-**Reuse existing 17 test files** (no rename of test files, just update imports to new module paths):
+**Existing tests are NOT automatically the contract.** Many of the 17 existing test files were written against the current (buggy) implementation. Some pin behavior that's wrong vs Talend semantics — e.g. tests that codify the str-coerced context behavior as "expected," tests that assert empty `errorStackTrace`, tests that accept the rowIndex bounds-clamp WARN as benign, the 4 strict-xfails that document broken behavior, or tests that pass only because pandas dtype inference happens to land on a tolerable wrong answer.
+
+**Per-test review before reuse.** For each existing test file, the implementation plan must:
+1. Read the test assertions
+2. Decide one of:
+   - **KEEP** — assertion matches Talend behavior; test is valid as-is
+   - **FIX** — assertion was wrong (codified a bug); rewrite the assertion to match Talend, then it becomes a real regression check
+   - **DELETE** — test was checking implementation detail of the old code that doesn't exist in the new design (e.g. internal dispatch logic, locality classifiers)
+3. Record the decision in `.planning/quick/<date>-tmap-test-triage.md` so the manager can see what changed and why
+
+**Existing 17 test files** (review each per the above before treating as a contract):
 - `tests/v1/engine/components/transform/test_map.py`
 - `tests/v1/engine/components/transform/test_map_bridge.py`
 - `tests/v1/engine/components/transform/test_map_05_3_e2e.py`
@@ -668,7 +680,7 @@ Each new module is built with tests first. The development sequence:
 - `tests/v1/engine/components/transform/test_map_reject_filter.py`
 - ... and the converter-side test files (unchanged)
 
-These become the regression contract — the new code must pass all of them.
+After the per-test triage above, the **KEEP + FIX** subset becomes the regression contract — the new code must pass them all, with FIX versions reflecting the correct (Talend-parity) behavior, not the legacy buggy behavior.
 
 **Add new test files** per new module:
 - `tests/v1/engine/components/transform/map/test_map_config.py`
@@ -712,7 +724,9 @@ The rewrite is "done" when:
 - [ ] All 7 new files exist with the responsibilities described in Section 4
 - [ ] Old `map.py` renamed to `map_legacy.py`, still importable
 - [ ] `COMPONENT_REGISTRY.register("Map", "tMap")` resolves to the new `Map` class
-- [ ] All 17 existing test files pass against the new code (with updated import paths)
+- [ ] Per-test triage of the 17 existing test files complete; KEEP/FIX/DELETE decisions documented in `.planning/quick/<date>-tmap-test-triage.md`
+- [ ] All KEEP + FIX tests pass against the new code (with updated import paths and corrected assertions for FIX entries)
+- [ ] DELETE'd tests removed from the repo with rationale in the triage doc
 - [ ] All 7 new module-level test files pass
 - [ ] The 5 new bug-fix tests pass
 - [ ] The 4 retained xfails from Phase 05.5-08 are promoted to active and pass
