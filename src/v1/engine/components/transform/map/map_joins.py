@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 from enum import Enum
-from typing import Any
+from typing import Any, Callable
 
 import pandas as pd
 
@@ -179,6 +179,108 @@ def join_simple_equality(
     dup_cols = [c for c in merged.columns if c.endswith("__dup__")]
     if dup_cols:
         merged = merged.drop(columns=dup_cols)
+
+    return merged, rejects
+
+
+BridgeEvalFn = Callable[
+    [pd.DataFrame, dict[str, str], str, list[str]],
+    dict[str, list],
+]
+
+
+def join_computed_equality(
+    joined_df: pd.DataFrame,
+    lookup_df: pd.DataFrame,
+    lk: LookupCfg,
+    main_name: str,
+    prior_lookups: list[str],
+    bridge_eval_fn: BridgeEvalFn,
+) -> tuple[pd.DataFrame, pd.DataFrame | None]:
+    """COMPUTED strategy: batch-eval key expressions on joined_df, then merge.
+
+    For each join key, the expression is batch-evaluated once across all
+    rows of joined_df via the Java bridge. The results are materialized
+    as temp columns __jk_main_<i>__ and used as left keys in a pandas
+    merge against the lookup. Temp columns are dropped from the result.
+
+    Args:
+        joined_df: current joined frame (main + prior lookups).
+        lookup_df: the lookup being joined.
+        lk: this lookup's config (join_keys contain expressions).
+        main_name: name of the main table (for the bridge eval).
+        prior_lookups: names of lookups already in joined_df (for bridge
+            row binding so expressions can reference row3.col when row3
+            was joined earlier).
+        bridge_eval_fn: callable that executes the bridge eval. Injected
+            for testability; production wires this through
+            JavaBridge.execute_tmap_preprocessing.
+
+    Returns:
+        (merged_frame, inner_join_rejects_or_None)
+    """
+    # Step 1: batch-eval all join key expressions on joined_df
+    exprs = {
+        f"__jk_main_{i}__": _strip_marker(jk.expression)
+        for i, jk in enumerate(lk.join_keys)
+    }
+    eval_results = bridge_eval_fn(joined_df, exprs, main_name, prior_lookups)
+
+    # Step 2: materialize temp columns on a copy of joined_df
+    joined_df = joined_df.copy()
+    temp_cols: list[str] = []
+    for i in range(len(lk.join_keys)):
+        col = f"__jk_main_{i}__"
+        temp_cols.append(col)
+        joined_df[col] = eval_results.get(col, [None] * len(joined_df))
+
+    # Step 3: dedup lookup per matching mode, prefix lookup cols
+    right_keys = [jk.lookup_column for jk in lk.join_keys]
+    lookup_df = _apply_matching_mode(lookup_df, right_keys, lk.matching_mode)
+    lookup_df = _prefix_lookup_columns(lookup_df, lk.name)
+    prefixed_right = [f"{lk.name}.{k}" for k in right_keys]
+
+    # Step 4: merge using temp cols as left keys, with null pre-filter
+    main_nonnull, main_null = _prefilter_null_keys(joined_df, temp_cols)
+    lookup_nonnull, _ = _prefilter_null_keys(lookup_df, prefixed_right)
+
+    if main_nonnull.empty:
+        merged = pd.DataFrame(
+            columns=list(joined_df.columns) + list(lookup_df.columns)
+        )
+        rejects = main_null.copy() if lk.join_mode == "INNER_JOIN" else None
+    else:
+        merged = pd.merge(
+            main_nonnull, lookup_nonnull,
+            left_on=temp_cols, right_on=prefixed_right,
+            how="left", indicator=True, suffixes=("", "__dup__"),
+        )
+        rejects = None
+        if lk.join_mode == "INNER_JOIN":
+            unmatched = merged["_merge"] == "left_only"
+            if unmatched.any():
+                rejects = merged.loc[unmatched].drop(columns=["_merge"]).copy()
+            if not main_null.empty:
+                rejects = (
+                    pd.concat([rejects, main_null], ignore_index=True)
+                    if rejects is not None else main_null.copy()
+                )
+            merged = merged.loc[~unmatched].copy()
+        if "_merge" in merged.columns:
+            merged = merged.drop(columns=["_merge"])
+
+    if lk.join_mode != "INNER_JOIN" and not main_null.empty:
+        merged = pd.concat([merged, main_null], ignore_index=True)
+
+    # Step 5: drop temp cols and __dup__ cols
+    drop_cols = temp_cols + [c for c in merged.columns if c.endswith("__dup__")]
+    existing_drop = [c for c in drop_cols if c in merged.columns]
+    if existing_drop:
+        merged = merged.drop(columns=existing_drop)
+    if rejects is not None:
+        rej_drop = [c for c in temp_cols if c in rejects.columns]
+        if rej_drop:
+            rejects = rejects.drop(columns=rej_drop)
 
     return merged, rejects
 

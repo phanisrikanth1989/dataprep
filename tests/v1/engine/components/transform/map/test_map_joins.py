@@ -170,3 +170,75 @@ def test_simple_equality_all_matches_cartesian():
         joined, lookup, _lookup_simple(matching_mode="ALL_MATCHES")
     )
     assert sorted(result["row2.label"]) == ["v1", "v2"]
+
+
+# ===== Task 4.4: join_computed_equality =====
+
+from unittest.mock import MagicMock
+
+
+def _make_bridge_fn(bridge):
+    """Build a bridge_eval callable that delegates to a mocked bridge."""
+    def fn(df, expressions, main_table_name, lookup_table_names):
+        return bridge.execute_tmap_preprocessing(
+            df=df, expressions=expressions,
+            main_table_name=main_table_name,
+            lookup_table_names=lookup_table_names,
+        )
+    return fn
+
+
+def test_computed_equality_batch_evals_expression_then_merges():
+    """COMPUTED uses bridge to eval expressions on joined_df, then merges."""
+    joined = pd.DataFrame({"id": [1, 2], "key": ["a", "b"]})
+    lookup = pd.DataFrame({"upper_key": ["A", "B"], "label": ["alpha", "beta"]})
+    lk = LookupCfg(
+        name="row2",
+        join_keys=[JoinKeyCfg(
+            "upper_key",
+            "{{java}}routines.StringHandling.UPCASE(row1.key)",
+            "str",
+        )],
+        join_mode="LEFT_OUTER_JOIN",
+    )
+    bridge = MagicMock()
+    bridge.execute_tmap_preprocessing.return_value = {
+        "__jk_main_0__": ["A", "B"],
+    }
+    from src.v1.engine.components.transform.map.map_joins import (
+        join_computed_equality,
+    )
+    result, rejects = join_computed_equality(
+        joined, lookup, lk, main_name="row1",
+        prior_lookups=[], bridge_eval_fn=_make_bridge_fn(bridge),
+    )
+    # Temp column dropped after merge
+    assert "__jk_main_0__" not in result.columns
+    assert list(result["row2.label"]) == ["alpha", "beta"]
+    assert rejects is None
+    # Bridge was called once with the expression dict
+    bridge.execute_tmap_preprocessing.assert_called_once()
+
+
+def test_computed_equality_inner_join_collects_rejects():
+    joined = pd.DataFrame({"id": [1, 2], "key": ["a", "b"]})
+    lookup = pd.DataFrame({"upper_key": ["A"], "label": ["alpha"]})
+    lk = LookupCfg(
+        name="row2",
+        join_keys=[JoinKeyCfg("upper_key", "{{java}}row1.key.toUpperCase()", "str")],
+        join_mode="INNER_JOIN",
+    )
+    bridge = MagicMock()
+    bridge.execute_tmap_preprocessing.return_value = {
+        "__jk_main_0__": ["A", "B"],
+    }
+    from src.v1.engine.components.transform.map.map_joins import (
+        join_computed_equality,
+    )
+    result, rejects = join_computed_equality(
+        joined, lookup, lk, main_name="row1",
+        prior_lookups=[], bridge_eval_fn=_make_bridge_fn(bridge),
+    )
+    assert list(result["id"]) == [1]
+    assert rejects is not None
+    assert list(rejects["id"]) == [2]
