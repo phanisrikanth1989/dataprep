@@ -462,3 +462,90 @@ class TestCatchOutputRejectCompiledD06:
             f"(expected mention of 'zero' / 'arithmetic' / '/' / "
             f"'division'); got: {msg!r}"
         )
+
+    def test_catch_d06_error_stack_trace_contains_real_frames(self, java_bridge):
+        """errorStackTrace contains real Java stack frames (not empty string).
+
+        Phase 0 fix wired stackTraceMap.put + Arrow emission to carry the
+        actual exception stack trace. This test verifies the Arrow round-trip
+        delivers a non-empty string containing at least one Java stack frame
+        marker ("at ") -- not just a non-null placeholder.
+        """
+        config = {
+            "component_type": "Map",
+            "die_on_error": False,
+            "inputs": {
+                "main": {
+                    "name": "row1",
+                    "filter": "",
+                    "activate_filter": False,
+                    "matching_mode": "UNIQUE_MATCH",
+                    "lookup_mode": "LOAD_ONCE",
+                },
+                "lookups": [],
+            },
+            "variables": [],
+            "outputs": [
+                {
+                    "name": "out1",
+                    "is_reject": False,
+                    "inner_join_reject": False,
+                    "filter": "",
+                    "activate_filter": False,
+                    "columns": [
+                        {"name": "id", "expression": "{{java}}row1.id",
+                         "type": "int"},
+                        # Division by zero on id=0 -> ArithmeticException.
+                        {"name": "result",
+                         "expression": "{{java}}10 / row1.id",
+                         "type": "int", "nullable": True},
+                    ],
+                    "catch_output_reject": False,
+                },
+                {
+                    "name": "catch",
+                    "is_reject": False,
+                    "inner_join_reject": False,
+                    "filter": "",
+                    "activate_filter": False,
+                    "columns": [
+                        {"name": "id", "expression": "{{java}}row1.id",
+                         "type": "int"},
+                        {"name": "errorStackTrace", "type": "str"},
+                    ],
+                    "catch_output_reject": True,
+                },
+            ],
+        }
+        comp = Map(
+            component_id="tMap_d06_st_frames",
+            config=config,
+            global_map=GlobalMap(),
+            context_manager=ContextManager(),
+        )
+        comp.java_bridge = java_bridge
+
+        main_df = pd.DataFrame([{"id": 1}, {"id": 0}, {"id": 2}])
+        result = comp.execute({"row1": main_df})
+
+        catch_df = result.get("catch")
+        assert catch_df is not None, "catch output missing"
+        assert len(catch_df) >= 1, (
+            f"Expected at least 1 catch row from id=0 div-by-zero; "
+            f"got {len(catch_df)} rows"
+        )
+        assert "errorStackTrace" in catch_df.columns
+        st_values = [v for v in catch_df["errorStackTrace"].tolist() if v]
+        assert len(st_values) >= 1, (
+            f"errorStackTrace column contains no non-empty values; "
+            f"values={catch_df['errorStackTrace'].tolist()!r}. "
+            f"Phase 0 stackTraceMap.put + Arrow emission must populate "
+            f"real stack traces."
+        )
+        # Verify at least one value contains a real Java stack frame marker.
+        has_real_frame = any("at " in str(v) for v in st_values)
+        assert has_real_frame, (
+            f"errorStackTrace values do not contain Java stack frame markers "
+            f"('at '). Expected real ArithmeticException frames from the "
+            f"Phase 0 Arrow round-trip; got: {st_values!r}"
+        )
