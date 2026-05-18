@@ -809,14 +809,47 @@ class TestRewriteExpressionsBranches:
         result = rewrite({"id": "./root/item/id"}, "item")
         assert result["id"] == "./id"
 
-    def test_field_outside_loop_uses_ancestor_axis(self):
-        """A field NOT under the loop element -> ./ancestor::<path>
-        (lines 320-321)."""
+    def test_field_outside_loop_ancestor_fallback(self):
+        """A field NOT under the loop element with NO inside-loop expressions
+        present falls back to ./ancestor:: notation."""
         rewrite = self._rewrite()
-        # xpath='./root/header' and loop_name='item' -> in_loop=False
-        # -> new_xpath = './ancestor::root/header'
+        # Only one expression; 'item' not in it -> loop_full_parts cannot be
+        # inferred -> fallback to ./ancestor::root/header
         result = rewrite({"hdr": "./root/header"}, "item")
         assert result["hdr"] == "./ancestor::root/header"
+
+    def test_field_outside_loop_uses_relative_path_when_loop_path_inferred(self):
+        """When an inside-loop expression is present, outside-loop fields use
+        relative ../  paths instead of ancestor:: notation.
+
+        Mimics the nested-XMLMap scenario:
+          looping_element = 'address'
+          inside loop:  type -> ./company/employee/addresses/address/type
+          outside loop: id   -> ./company/employee/id
+          Expected for id:  ./../../id  (2 levels up from 'address' to 'employee',
+          then down to 'id').
+        """
+        rewrite = self._rewrite()
+        expressions = {
+            "id": "./company/employee/id",
+            "type": "./company/employee/addresses/address/type",
+        }
+        result = rewrite(expressions, "address")
+        assert result["type"] == "./type"
+        assert result["id"] == "./../../id"
+
+    def test_nested_outside_loop_sibling_branch(self):
+        """Outside-loop field in a different sibling branch uses correct ../
+        traversal."""
+        rewrite = self._rewrite()
+        expressions = {
+            "skill": "./company/employee/skills/skill",
+            "city": "./company/employee/addresses/address/city",
+        }
+        result = rewrite(expressions, "address")
+        assert result["city"] == "./city"
+        # skill is a sibling of addresses under employee -> 2 levels up, then down
+        assert result["skill"] == "./../../skills/skill"
 
 
 class TestConverterRawXmlEdges:

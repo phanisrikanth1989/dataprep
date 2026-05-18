@@ -276,8 +276,15 @@ def _rewrite_expressions_for_loop(
 ) -> Dict[str, str]:
     """Rewrite XPath expressions relative to the looping element.
 
-    Fields inside the loop become relative paths; fields outside the loop
-    use ``ancestor::`` axis notation.
+    Fields inside the loop become relative paths (e.g. ``./city``).
+    Fields outside the loop use ``../`` relative traversal whenever the
+    loop element's full path can be inferred from the inside-loop expressions.
+    This avoids ``ancestor::`` notation which breaks when the XML document root
+    is the loop-query matched element (e.g. tFileInputXML serialises only the
+    matched ``<employee>`` subtree, making ``ancestor::company`` invalid).
+
+    Fallback: if no inside-loop expression exists the loop element path cannot
+    be inferred and ``ancestor::`` notation is used as before.
 
     Per D-76: uses str.removeprefix() instead of lstrip() for safe prefix removal.
     """
@@ -287,19 +294,32 @@ def _rewrite_expressions_for_loop(
     loop_name = looping_element.strip()
     logger.debug("Rewriting XPaths relative to looping element '%s'", loop_name)
 
+    def _norm_parts(xpath: str) -> List[str]:
+        s = xpath.strip().removeprefix("./").removeprefix("/")
+        return [p.strip("/") for p in s.split("/") if p.strip("/")]
+
+    # Infer the full path to the loop element from any inside-loop expression.
+    # E.g. xpath "./company/employee/addresses/address/type" with loop_name
+    # "address" -> loop_full_parts = ["company", "employee", "addresses", "address"].
+    loop_full_parts: List[str] = []
+    for xpath in expressions.values():
+        if not xpath:
+            continue
+        parts = _norm_parts(xpath)
+        for i, p in enumerate(parts):
+            if p.lower() == loop_name.lower():
+                loop_full_parts = parts[: i + 1]
+                break
+        if loop_full_parts:
+            break
+
     rewritten: Dict[str, str] = {}
     for out_col, xpath in expressions.items():
         if not xpath:
             rewritten[out_col] = xpath
             continue
 
-        # Normalize the xpath: strip leading ./ using removeprefix (D-76 safe)
-        field_abs_path = xpath.strip().removeprefix("./").removeprefix("/")
-        field_abs_path = "/".join(
-            p.strip("/") for p in field_abs_path.split("/") if p.strip("/")
-        )
-        field_parts = field_abs_path.split("/")
-
+        field_parts = _norm_parts(xpath)
         in_loop = any(p.lower() == loop_name.lower() for p in field_parts)
 
         if in_loop:
@@ -314,11 +334,27 @@ def _rewrite_expressions_for_loop(
                 else:
                     new_xpath = f"./{loop_name}"
             else:
-                new_xpath = f"./{field_abs_path}"
+                new_xpath = "./" + "/".join(field_parts)
             logger.debug("Field %s inside loop: %s", out_col, new_xpath)
+        elif loop_full_parts:
+            # Compute the relative path: find the common prefix between the
+            # loop element's path and the field path, then navigate up with ../
+            # and down to the target.  This works regardless of the document root.
+            common_len = 0
+            for lp, fp in zip(loop_full_parts, field_parts):
+                if lp.lower() == fp.lower():
+                    common_len += 1
+                else:
+                    break
+            levels_up = len(loop_full_parts) - common_len
+            down_parts = field_parts[common_len:]
+            rel_parts = [".."] * levels_up + down_parts
+            new_xpath = "./" + "/".join(rel_parts) if rel_parts else "."
+            logger.debug("Field %s outside loop (relative): %s", out_col, new_xpath)
         else:
-            new_xpath = f"./ancestor::{field_abs_path}"
-            logger.debug("Field %s outside loop: %s", out_col, new_xpath)
+            # Fallback: no inside-loop expression to infer the loop path from.
+            new_xpath = "./ancestor::" + "/".join(field_parts)
+            logger.debug("Field %s outside loop (ancestor fallback): %s", out_col, new_xpath)
 
         rewritten[out_col] = new_xpath
 
