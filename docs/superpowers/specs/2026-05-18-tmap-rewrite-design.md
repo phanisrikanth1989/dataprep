@@ -101,7 +101,7 @@ src/v1/engine/components/transform/map/
 - `validate_config(raw_config: dict) -> MapConfig` raises `ConfigurationError` on missing/invalid keys
 - Hard-fails if any `{{java}}` marker present AND `java_bridge is None`
 
-**`map_joins.py`** — lookup join execution.
+**`map_joins.py`** — lookup join execution + joined_df schema.
 - `execute_lookup_join(joined_df, lookup_df, lookup_cfg, prior_lookups, java_bridge) -> (joined_df, inner_join_rejects)`
 - `classify_join_strategy(join_keys, lookup_filter) -> JoinStrategy enum` (SIMPLE | COMPUTED | FILTER_AS_MATCH | RELOAD)
 - Three strategy functions:
@@ -109,6 +109,7 @@ src/v1/engine/components/transform/map/
   - `_join_computed_equality(...)` — bridge-eval expression once, then pandas merge
   - `_join_filter_as_match(...)` — chunked cross-product + bridge-eval filter per chunk
 - `_join_reload_per_row(...)` — separate dispatch for RELOAD_AT_EACH_ROW mode
+- `compute_joined_df_schema(main_schema, consumed_lookups, variables, temp_join_key_cols) -> dict[str, str]` — single source of truth for joined_df column types (see Section 9)
 - Helpers: `_apply_matching_mode`, `_prefix_lookup_columns`, `_prefilter_null_keys`, `_auto_convert_join_keys`, `_chunked_cross_product`
 
 **`map_compiled_script.py`** — pure Groovy script generation.
@@ -189,6 +190,12 @@ _process(input_data)                                [map_component.py]
    │
    ├─ if joined_df.empty:
    │     return create_empty_outputs() with inner_join_rejects routed
+   │
+   ├─ joined_schema = compute_joined_df_schema(    [map_joins.compute_joined_df_schema]
+   │     main_schema, consumed_lookups, variables, temp_join_key_cols)
+   │     - Single source of truth for joined_df column types (Section 9)
+   │     - Used by all subsequent bridge calls for Arrow serialization
+   │     - Validates: every joined_df column has a declared type; raises ConfigurationError otherwise
    │
    ├─ active_script = build_active_script(config)   [map_compiled_script.build_active]
    │
@@ -440,7 +447,17 @@ If those columns are NOT declared, the framework does not add them. The output f
 
 ---
 
-## 9. Java Bridge & Java-side Changes
+## 9. Java Bridge, Java-side Changes & Type Fidelity
+
+### Principle: explicit types end-to-end across the Python/Java boundary
+
+Three classes of state cross the boundary between Python and Java in a tMap execution:
+
+1. **Context variables** (`bridge.context[key] = value`)
+2. **globalMap entries** (`bridge.global_map[key] = value`)
+3. **Row data** (DataFrames via Arrow IPC bytes — input frame, output frames, `__errors__` frame)
+
+For all three, the **declared type is the source of truth.** No inference at the boundary, no string-coercion, no silent defaults.
 
 ### `src/v1/java_bridge/bridge.py` (Python client)
 
@@ -470,6 +487,59 @@ If those columns are NOT declared, the framework does not add them. The output f
 | `_TYPE_CONVERTERS["id_Date"] = str` (L63) | **Change to `_TYPE_CONVERTERS["id_Date"] = _parse_talend_date`** (a new helper that returns `datetime.date` or `datetime.datetime` based on the value's format). Currently str-coerces dates and breaks every downstream type-aware path. |
 | `_TYPE_CONVERTERS["id_BigDecimal"] = Decimal` | Unchanged (already correct) |
 | `_TYPE_CONVERTERS["id_Float"]` vs `["id_Double"]` | Both stay as `float` (Python has no float32). Type fidelity to Java is the bridge's responsibility via `gateway.jvm.java.lang.Float(v)` wrapping in `map_bridge_sync.py`. |
+
+### Data column type fidelity (rules)
+
+Every column of every DataFrame that crosses the Python/Java boundary in a tMap execution carries an **explicitly declared type**. The type is sourced from:
+
+| Column source | Type source |
+|---|---|
+| Main input columns | `schema_inputs_map[main_name]` (set by engine init from converter JSON) |
+| Lookup input columns | `schema_inputs_map[lookup_name]` (per lookup) |
+| Variable columns (`Var.*`) | `variable_cfg.type` from JSON config |
+| Computed join-key temp columns (`__jk_*__`) | `join_key.type` from JSON config |
+| Output columns | `output_cfg.columns[i].type` from JSON config |
+| `__errors__` framework columns | Fixed: `rowIndex: int`, `errorMessage: str`, `errorStackTrace: str` |
+
+**Computed schema for joined_df** is built by `map_joins.py` after all lookups process. Helper signature:
+
+```python
+def compute_joined_df_schema(
+    main_schema: list[ColumnDef],
+    consumed_lookups: list[tuple[str, list[ColumnDef]]],  # (name, schema) per joined lookup
+    variables: list[VariableCfg],
+    temp_join_key_cols: dict[str, str],  # temp_col_name -> type
+) -> dict[str, str]
+```
+
+Returns `{col_name: type_str}` covering EVERY column expected in joined_df. Called once per `_process()` after all lookups join.
+
+**Type→pyarrow mapping (used by `bridge.py:_df_to_arrow_bytes`):**
+
+| Type string | pyarrow type | Java target |
+|---|---|---|
+| `"str"` | `pa.string()` | `java.lang.String` |
+| `"int"` (int32) | `pa.int32()` | `java.lang.Integer` (`id_Integer`) |
+| `"int"` (int64) | `pa.int64()` | `java.lang.Long` (`id_Long`) |
+| `"float"` (float32) | `pa.float32()` | `java.lang.Float` (`id_Float`) |
+| `"float"` (float64) | `pa.float64()` | `java.lang.Double` (`id_Double`) |
+| `"bool"` | `pa.bool_()` | `java.lang.Boolean` |
+| `"datetime"` | `pa.timestamp("ns")` | `java.util.Date` |
+| `"Decimal"` | `pa.decimal128(precision, scale)` | `java.math.BigDecimal` |
+
+Precision/scale for Decimal come from `column.precision` in the schema. Already supported via `bridge.py:build_arrow_schema` and `extract_precision_map` — kept as-is.
+
+**Type-fidelity rules enforced in `bridge.py`:**
+
+1. **Remove `_infer_schema_dict`** (`bridge.py:1122`) from the tMap call paths. It's a fallback that defaults to `"str"` for unrecognized dtypes. Callers MUST pass an explicit `schema` dict. (Function may remain for non-tMap callers if needed, but is not called from `execute_compiled_tmap_chunked` / `execute_tmap_preprocessing` paths.)
+
+2. **Tighten `_reconcile_schema_to_df`** (`bridge.py:1043`) to **raise `ConfigurationError`** when a DataFrame column is missing from the schema. The current behavior — WARN and default to `"str"` — masks bugs (a column got into joined_df without a declared type means something upstream is wrong; we want to know).
+
+3. **Remove `_infer_arrow_schema_dict` from map.py** (`map.py:155`). The new `map_joins.compute_joined_df_schema()` is the only producer. No sampling of object-dtype cells to guess types.
+
+4. **int32 vs int64 distinction:** when type is `"int"`, the converter's source `id_Integer` (32-bit) vs `id_Long` (64-bit) must be carried as part of the type. Either widen the type strings (`"int32"`, `"int64"`) or add a parallel `column.subtype` field. Decided during implementation (see Open Q #6 below).
+
+5. **float32 vs float64 distinction:** same story for `id_Float` vs `id_Double`. Same resolution.
 
 ### Java bridge JAR rebuild
 
@@ -567,6 +637,8 @@ Plus instance attributes set by `engine.py` during component init (continued):
 
 **Acceptance test for this constraint:** every JSON in `tests/fixtures/jobs/transform/` (05_3/*.json, 05_4/*.json, map_with_lookup.json, join_with_reject.json, plus converted/Job_tMap_0.1.json) must run through the new `Map` class **without modification**.
 
+**Type declarations are non-negotiable parts of the contract.** Every `column` object in the JSON has a `type` field. Every `join_key` has a `type`. Every `variable` has a `type`. The rewrite treats those fields as authoritative — never infers, never falls back. If the converter ever emits a config with a missing type, that's a converter bug to fix at source (it's well-defined today; the converter always emits a type). See Section 9 for how those types flow through to the Java boundary.
+
 ---
 
 ## 12. Testing Strategy
@@ -651,6 +723,9 @@ The rewrite is "done" when:
 - [ ] No emojis / unicode in any new log line
 - [ ] No defensive fallbacks introduced (e.g. no `rowIndex` bounds-clamp; either Arrow corruption is impossible by construction OR it raises)
 - [ ] Size guard preserved: FILTER_AS_MATCH cross-product warns at 10M rows, fails at 100M (matches current `_check_size_guard` thresholds)
+- [ ] **Type fidelity end-to-end:** no schema inference in any tMap data-crossing path. `_infer_schema_dict` not called from tMap paths; `_infer_arrow_schema_dict` removed from `map.py`. `compute_joined_df_schema` is the single producer of joined_df column types.
+- [ ] **Bridge schema validation strict:** `_reconcile_schema_to_df` raises `ConfigurationError` when a DataFrame column lacks a declared type (no WARN + default-to-str).
+- [ ] **Type round-trip tests pass:** for each Talend type in scope (id_String, id_Integer, id_Long, id_Float, id_Double, id_Boolean, id_Date, id_BigDecimal), a row data column AND a context variable AND a globalMap entry of that type all arrive in Groovy as the correct Java type (verified via `instanceof` assertions in test Groovy expressions).
 - [ ] CLAUDE.md updated if any new constraint emerges during implementation
 
 ---
@@ -678,3 +753,8 @@ These are HOW questions (not WHAT) and will be answered during the implementatio
 3. **Decimal-null serialization:** the current `_arrow_bytes_to_df` substitutes empty string `""` for Decimal nulls. Either keep with explicit rationale or switch to `pd.NA` and trust downstream consumers.
 4. **`reset()` for iterate re-execution:** the new Map class needs to be safe for re-execution under tIterate components. Verify that all per-call state is built fresh in `_process`.
 5. **Custom routine class binding:** `addRoutinesToBinding` in Java is shared across all bridge methods. The rewrite inherits it. Confirm during implementation that loaded routines remain available across both the active and reject scripts.
+
+6. **int32/int64 and float32/float64 distinction in type strings:** the engine's current 7-canonical-type vocabulary (`str / int / float / bool / datetime / Decimal / object`) loses Talend's `id_Integer` vs `id_Long` and `id_Float` vs `id_Double` distinction. Section 9 requires this distinction be preserved at the Java boundary. Two implementation options:
+   - **(a) Widen type strings:** `"int32" / "int64" / "float32" / "float64"` alongside the others. Touches `_TYPE_MAPPING` and pyarrow type builders. Cleanest but expands the vocabulary across the codebase.
+   - **(b) Parallel subtype field:** keep `"int" / "float"` as-is, add `column.subtype` (`"int32" / "int64" / ...`) consulted only at bridge crossings. Localised change, less codebase impact.
+   - Decided during implementation; pick (b) if the wider type strings would require touching too many call sites outside tMap; pick (a) if the codebase is small enough to refactor cleanly.
