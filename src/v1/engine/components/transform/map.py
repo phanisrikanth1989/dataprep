@@ -3940,16 +3940,27 @@ class Map(BaseComponent):
                 i += 1
         return "".join(result)
 
+    # Names that look like table.column but are NOT DataFrame column refs.
+    _NON_ROW_TABLE_NAMES: frozenset[str] = frozenset({"context", "globalMap", "Var"})
+
     def _is_simple_column_ref(self, expr: str) -> bool:
         """Check if expression is a simple column reference (table.column).
+
+        Returns False for reserved non-row namespaces (context, globalMap, Var)
+        even though they match the table.column pattern -- those must be
+        evaluated as expressions, not looked up as DataFrame columns.
 
         Args:
             expr: Expression string (already stripped of {{java}}).
 
         Returns:
-            True if expression matches table.column pattern.
+            True if expression matches table.column pattern and the table
+            name is not a reserved non-row namespace.
         """
-        return bool(_SIMPLE_COLUMN_RE.match(expr.strip()))
+        m = _SIMPLE_COLUMN_RE.match(expr.strip())
+        if not m:
+            return False
+        return m.group(1) not in self._NON_ROW_TABLE_NAMES
 
     def _is_context_only_expression(self, expr: str) -> bool:
         """Check if expression references only context/globalMap values.
