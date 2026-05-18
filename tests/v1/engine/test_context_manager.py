@@ -5,6 +5,8 @@ NEW-02 (list-of-dict recursion), edge cases.
 
 Organized by concern: one test class per area, following the project test pattern.
 """
+import datetime
+
 import pytest
 from decimal import Decimal
 
@@ -204,13 +206,16 @@ class TestContextManagerTypeConversion:
         # Empty string returns empty (not converted, value == "")
         assert cm.get("val") == ""
 
-    def test_id_date_stays_string(self):
-        """id_Date must remain a string -- date parsing is format-specific and
-        delegated to individual components (per Gemini review)."""
+    def test_id_date_parses_to_datetime(self):
+        """id_Date parses input strings to datetime objects so the Java bridge
+        receives a real java.util.Date (Task 0.5 of the tMap rewrite). The
+        previous behavior -- keeping the value as a string -- was a bug that
+        broke parseDate(String, Date) and other date-typed Talend routines."""
         cm = ContextManager()
         cm.set("val", "2024-01-15", "id_Date")
-        assert cm.get("val") == "2024-01-15"
-        assert isinstance(cm.get("val"), str)
+        result = cm.get("val")
+        assert result == datetime.datetime(2024, 1, 15, 0, 0)
+        assert isinstance(result, datetime.datetime)
 
     def test_id_bigdecimal(self):
         cm = ContextManager()
@@ -673,14 +678,15 @@ class TestENG05Regression:
         cm.set("flag", "true", "id_Boolean")
         assert cm.get("flag") is True
 
-    def test_date_stays_as_string(self):
-        """id_Date must remain a string -- date parsing is format-specific and
-        delegated to individual components (per Gemini review)."""
+    def test_date_parses_to_datetime(self):
+        """id_Date parses input strings to datetime objects (Task 0.5 of the
+        tMap rewrite). The previous str-coercion behavior was a bug that
+        broke Talend routines requiring a real java.util.Date."""
         cm = ContextManager()
         cm.set("start_date", "2024-01-15", "id_Date")
         result = cm.get("start_date")
-        assert result == "2024-01-15"
-        assert isinstance(result, str)
+        assert result == datetime.datetime(2024, 1, 15, 0, 0)
+        assert isinstance(result, datetime.datetime)
 
     def test_bigdecimal_conversion_returns_decimal(self):
         cm = ContextManager()
