@@ -258,12 +258,19 @@ def _make_component(java_bridge, config, comp_id="tMap_reject_matrix"):
 # Test matrix
 # ---------------------------------------------------------------------------
 
-_JOIN_PATHS = ("equality", "main_side", "lookup_side", "cross_table",
-               "reload_per_row")
+# Phase 8 triage: 'lookup_side' and 'cross_table' join paths are
+# OUT OF SCOPE per spec section 3 (lookup-side computed keys and
+# truly two-sided keys are not expressible in the Talend tMap UI;
+# the right-side of a join key is just a column picker). The
+# remaining three paths cover all join shapes the rewrite supports:
+#  - equality:      SIMPLE strategy (pd.merge on simple column refs)
+#  - main_side:     COMPUTED strategy (batch-evaluated main-side keys)
+#  - reload_per_row RELOAD strategy (per-row matching)
+_JOIN_PATHS = ("equality", "main_side", "reload_per_row")
 _COL_KINDS = ("same_name_ref", "renamed_simple_ref", "hardcoded_literal",
               "java_expression")
 
-# Build the 20-entry param list (5 x 4).
+# Build the 12-entry param list (3 x 4).
 _MATRIX_PARAMS: List[tuple] = []
 for jp in _JOIN_PATHS:
     for ck in _COL_KINDS:
