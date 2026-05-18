@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "dataprep"
 version = "1.0.0"
 description = "Talend ETL Migration Engine"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "pandas>=2.0,<4",
     "numpy>=1.24,<3",
@@ -44,8 +44,8 @@ exclude = [
     "src/v1/java_bridge/java/target",
     ".superpowers",
 ]
-# Match the runtime Python version from [project] requires-python = ">=3.10"
-pythonVersion = "3.10"
+# Match the runtime Python version from [project] requires-python = ">=3.12"
+pythonVersion = "3.12"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

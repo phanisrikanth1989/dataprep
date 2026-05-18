@@ -6,7 +6,7 @@ A Python-based ETL execution engine that replaces Talend Open Studio for 1200+ p
 
 ## Constraints
 
-- **Tech stack**: Python 3.10+ engine, Java 11+ bridge via Py4J/Arrow — no framework changes
+- **Tech stack**: Python 3.12+ engine, Java 11+ bridge via Py4J/Arrow — no framework changes
 - **Compatibility**: Must produce identical output to Talend for the same input data and job configuration
 - **Java bridge**: Must maintain Py4J + Arrow architecture — it works, just needs reliability fixes
 - **No breaking changes**: Converter JSON format must remain compatible — engine changes cannot require re-conversion of existing JSONs
@@ -60,7 +60,7 @@ Deprecated. Treat as read-only history — useful for "what did phase N decide a
 ## Technology Stack
 
 ### Languages
-- **Python 3.10+** — core converter logic, ETL engine, all business logic (uses `set[str]` syntax requiring 3.10+)
+- **Python 3.12+** — core converter logic, ETL engine, all business logic
 - **Java 11** — Java/Groovy bridge for executing Talend Java expressions (`src/v1/java_bridge/java/`)
 - **Groovy 3.0.21** — dynamic expression evaluation within the Java bridge
 - **HTML/CSS/JS** — UI design demos (`demos/`)
@@ -102,7 +102,7 @@ Deprecated. Treat as read-only history — useful for "what did phase N decide a
 - `src/router/ui_registry.json` — component metadata registry for UI rendering. `src/router/basic_ui_registry.json` is the simplified variant.
 
 ### Platform Requirements
-- Python 3.10+ with pandas, pyarrow, py4j, openpyxl, xlrd, lxml, pyyaml, jsonpath-ng, numpy
+- Python 3.12+ with pandas, pyarrow, py4j, openpyxl, xlrd, lxml, pyyaml, jsonpath-ng, numpy
 - JVM 11+ (only when `java_config.enabled=true` in job config)
 - Maven 3.x to (re)build the Java bridge JAR
 - Compiled Java bridge JAR present at the path above
