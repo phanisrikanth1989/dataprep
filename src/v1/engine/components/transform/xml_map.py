@@ -19,6 +19,7 @@ Phase 12-05 audit fixes applied:
   D-E1: expression_filter evaluated natively in Python (Relational.ISNULL/ISNOTNULL)
   D-E2: Zero Java bridge imports (contract maintained per plan 12-05)
 """
+import itertools
 import logging
 import re
 from typing import Any, Dict, List, Optional
@@ -709,14 +710,16 @@ class XMLMap(BaseComponent):
                 return f"./{field_name}"
 
         # Handle dot notation like "row1.field_name"
-        elif "." in cleaned and not cleaned.startswith("./"):
+        # Guard: "." and ".." are valid XPath self/parent-node references; preserve them.
+        elif "." in cleaned and not cleaned.startswith("./") and cleaned not in (".", ".."):
             parts = cleaned.split(".")
             if len(parts) >= 2:
                 field_name = parts[-1]  # Take the last part (field name)
                 return f"./{field_name}"
 
         # Handle already clean expressions starting with "./" -- return as-is
-        elif cleaned.startswith("./"):
+        # Also preserve bare self-axis "." and parent-axis ".."
+        elif cleaned.startswith("./") or cleaned in (".", ".."):
             return cleaned
 
         # Default: assume it's a direct field reference
@@ -862,6 +865,129 @@ class XMLMap(BaseComponent):
         reject_row["errorCode"] = code
         reject_row["errorMessage"] = msg
         return reject_row
+
+    # ------------------------------------------------------------------
+    # Multi-loop cross-product XML evaluation helper
+    # ------------------------------------------------------------------
+
+    def _evaluate_xml_multiloop(
+        self,
+        root: etree._Element,
+        output_schema: List[Dict[str, Any]],
+        expressions: Dict[str, str],
+        loop_nodes: List[str],
+        expression_contexts: Dict[str, str],
+        ns_prefix: str,
+        nsmap: Dict[str, str],
+        component_id: str,
+    ) -> List[Dict[str, Any]]:
+        """Evaluate XML using a Cartesian product across multiple loop axes.
+
+        For each loop node name in ``loop_nodes``, all matching elements are
+        found in the document.  The cross-product of those element lists is
+        computed.  For each combination, each output column is evaluated on the
+        element designated by ``expression_contexts`` (the owning loop axis).
+
+        Empty secondary loops are null-padded to ``[None]`` so that a primary
+        row is still produced (outer-join semantics).  An empty *primary* loop
+        returns an empty list.
+
+        Args:
+            root: Parsed lxml root element.
+            output_schema: List of output column dicts with ``name`` key.
+            expressions: Column-name -> XPath mapping (already rewritten for
+                per-axis context by the converter).
+            loop_nodes: Ordered list of loop element names (primary first).
+            expression_contexts: Column-name -> loop node name providing XPath
+                context for that column.
+            ns_prefix: Namespace prefix (may be empty string).
+            nsmap: Resolved namespace map.
+            component_id: Component ID for log messages.
+
+        Returns:
+            List of output row dicts, one per cross-product combination.
+        """
+        # ---- 1. Find elements for each loop axis ----
+        loop_element_lists: Dict[str, List] = {}
+        for loop_name in loop_nodes:
+            if ":" in loop_name or not ns_prefix:
+                lx = f".//{loop_name}"
+            else:
+                lx = f".//{ns_prefix}:{loop_name}"
+            lx_q = qualify_xpath(lx, ns_prefix) if ns_prefix else lx
+            try:
+                elems = root.xpath(lx_q, namespaces=nsmap) if ns_prefix else root.xpath(lx_q)
+            except Exception as exc:
+                logger.warning(
+                    "[%s] XPath error finding loop node '%s': %s",
+                    component_id, loop_name, exc,
+                )
+                elems = []
+
+            if not elems:
+                if loop_name == loop_nodes[0]:
+                    # Primary loop empty → no output rows
+                    logger.warning(
+                        "[%s] No elements found for primary loop node '%s'",
+                        component_id, loop_name,
+                    )
+                    return []
+                # Secondary loop empty → null-pad (outer join semantics)
+                logger.debug(
+                    "[%s] Secondary loop node '%s' has no elements; null-padding",
+                    component_id, loop_name,
+                )
+                elems = [None]
+
+            loop_element_lists[loop_name] = elems
+            logger.info(
+                "[%s] Loop node '%s': %d element(s)", component_id, loop_name, len(elems)
+            )
+
+        # ---- 2. Cross-product ----
+        lists_ordered = [loop_element_lists[n] for n in loop_nodes]
+        combinations = list(itertools.product(*lists_ordered))
+        logger.info(
+            "[%s] Multi-loop cross-product: %d combination(s) from %s",
+            component_id,
+            len(combinations),
+            {n: len(loop_element_lists[n]) for n in loop_nodes},
+        )
+
+        # ---- 3. Evaluate each combination ----
+        primary_loop = loop_nodes[0]
+        rows: List[Dict[str, Any]] = []
+        for combo in combinations:
+            ctx_map: Dict[str, Optional[etree._Element]] = {
+                name: elem for name, elem in zip(loop_nodes, combo)
+            }
+            row: Dict[str, Any] = {}
+            for col in output_schema:
+                col_name = col["name"]
+                raw_expr = expressions.get(col_name, "")
+                ctx_loop = expression_contexts.get(col_name, primary_loop)
+                ctx_elem = ctx_map.get(ctx_loop)
+                if ctx_elem is None:
+                    # Null-padded secondary axis → empty value
+                    row[col_name] = ""
+                    continue
+                expr_q = qualify_xpath(raw_expr, ns_prefix) if ns_prefix else raw_expr
+                try:
+                    result = (
+                        ctx_elem.xpath(expr_q, namespaces=nsmap)
+                        if ns_prefix
+                        else ctx_elem.xpath(expr_q)
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "[%s] XPath eval error col='%s' expr='%s': %s",
+                        component_id, col_name, expr_q, exc,
+                    )
+                    result = []
+                row[col_name] = extract_value(result)
+            rows.append(row)
+
+        return rows
 
     # ------------------------------------------------------------------
     # Per-document XML evaluation helper
@@ -1079,6 +1205,11 @@ class XMLMap(BaseComponent):
             config.get("looping_element", "") or
             config.get("config", {}).get("looping_element", "")
         )
+        # Multi-loop support: list of loop axis names and per-column context map.
+        # Populated by the converter when multiple loop axes are present.
+        loop_nodes_cfg: List[str] = config.get("loop_nodes", []) or []
+        expression_contexts: Dict[str, str] = config.get("expression_contexts", {}) or {}
+        use_multiloop = len(loop_nodes_cfg) > 1 and bool(expression_contexts)
         # tXMLMap default is die_on_error=True per Talaxie javajet
         die_on_error = config.get("die_on_error", True)
 
@@ -1212,16 +1343,28 @@ class XMLMap(BaseComponent):
 
             # Evaluate the XML document for this row
             try:
-                row_outputs = self._evaluate_xml_for_row(
-                    root=root,
-                    output_schema=output_schema,
-                    expressions=expressions,
-                    looping_element=eff_looping_element,
-                    ns_prefix=ns_prefix,
-                    nsmap=nsmap,
-                    component_id=component_id,
-                    expression_filter=expression_filter,
-                )
+                if use_multiloop:
+                    row_outputs = self._evaluate_xml_multiloop(
+                        root=root,
+                        output_schema=output_schema,
+                        expressions=expressions,
+                        loop_nodes=loop_nodes_cfg,
+                        expression_contexts=expression_contexts,
+                        ns_prefix=ns_prefix,
+                        nsmap=nsmap,
+                        component_id=component_id,
+                    )
+                else:
+                    row_outputs = self._evaluate_xml_for_row(
+                        root=root,
+                        output_schema=output_schema,
+                        expressions=expressions,
+                        looping_element=eff_looping_element,
+                        ns_prefix=ns_prefix,
+                        nsmap=nsmap,
+                        component_id=component_id,
+                        expression_filter=expression_filter,
+                    )
                 for out_row in row_outputs:
                     main_rows.append(out_row)
                     rows_ok += 1

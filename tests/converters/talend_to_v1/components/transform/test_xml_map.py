@@ -869,3 +869,267 @@ class TestConverterRawXmlEdges:
         assert any("nodeData element not found" in w for w in warnings), (
             f"Expected 'nodeData element not found' warning; got {warnings}"
         )
+
+
+# ------------------------------------------------------------------
+# _extract_loop_nodes tests
+# ------------------------------------------------------------------
+
+class TestExtractLoopNodes:
+    """Tests for the _extract_loop_nodes helper function."""
+
+    def _make_raw_xml_with_loop_nodes(self, inputloopnodes: str) -> ET.Element:
+        """Build a minimal nodeData with outputTrees/inputLoopNodesTables."""
+        xml_str = (
+            f'<nodeData>'
+            f'  <outputTrees name="out1">'
+            f'    <inputLoopNodesTables inputloopnodes="{inputloopnodes}"/>'
+            f'  </outputTrees>'
+            f'</nodeData>'
+        )
+        return ET.fromstring(xml_str)
+
+    def _make_node_map(self):
+        """Build an input_tree_node_map covering address, skill, project nodes."""
+        from src.converters.talend_to_v1.components.transform.xml_map import (
+            _build_input_tree_node_map,
+        )
+        # Mimic 3-level tree: newColumn -> company -> employee -> {addresses, skills, projects}
+        # Then each group -> address / skill / project
+        trees = [
+            {
+                "nodes": [
+                    {
+                        "name": "newColumn",
+                        "type": "SIMPLE_ELEMENT",
+                        "children": [
+                            {
+                                "name": "company",
+                                "nodeType": "SIMPLE_ELEMENT",
+                                "children": [
+                                    {
+                                        "name": "employee",
+                                        "nodeType": "SIMPLE_ELEMENT",
+                                        "children": [
+                                            {
+                                                "name": "id",
+                                                "nodeType": "SIMPLE_ELEMENT",
+                                                "children": [],
+                                            },
+                                            {
+                                                "name": "name",
+                                                "nodeType": "SIMPLE_ELEMENT",
+                                                "children": [],
+                                            },
+                                            {
+                                                "name": "addresses",
+                                                "nodeType": "SIMPLE_ELEMENT",
+                                                "children": [
+                                                    {
+                                                        "name": "address",
+                                                        "nodeType": "SIMPLE_ELEMENT",
+                                                        "loop": True,
+                                                        "children": [],
+                                                    }
+                                                ],
+                                            },
+                                            {
+                                                "name": "skills",
+                                                "nodeType": "SIMPLE_ELEMENT",
+                                                "children": [
+                                                    {
+                                                        "name": "skill",
+                                                        "nodeType": "SIMPLE_ELEMENT",
+                                                        "loop": True,
+                                                        "children": [],
+                                                    }
+                                                ],
+                                            },
+                                            {
+                                                "name": "projects",
+                                                "nodeType": "SIMPLE_ELEMENT",
+                                                "children": [
+                                                    {
+                                                        "name": "project",
+                                                        "nodeType": "SIMPLE_ELEMENT",
+                                                        "loop": True,
+                                                        "children": [
+                                                            {
+                                                                "name": "project_name",
+                                                                "nodeType": "SIMPLE_ELEMENT",
+                                                                "children": [],
+                                                            }
+                                                        ],
+                                                    }
+                                                ],
+                                            },
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        ]
+        return _build_input_tree_node_map(trees)
+
+    def test_extracts_three_loop_nodes_in_order(self):
+        """Three EMF paths are resolved to address, skill, project in order."""
+        from src.converters.talend_to_v1.components.transform.xml_map import (
+            _extract_loop_nodes,
+        )
+        # EMF paths matching address (@children.2/@children.0),
+        # skill (@children.3/@children.0), project (@children.4/@children.0)
+        emf_paths = (
+            "//@node.1/@nodeData/@inputTrees.0/@nodes.0/@children.0/@children.0/@children.2/@children.0 "
+            "//@node.1/@nodeData/@inputTrees.0/@nodes.0/@children.0/@children.0/@children.3/@children.0 "
+            "//@node.1/@nodeData/@inputTrees.0/@nodes.0/@children.0/@children.0/@children.4/@children.0"
+        )
+        raw_xml = self._make_raw_xml_with_loop_nodes(emf_paths)
+        node_map = self._make_node_map()
+        result = _extract_loop_nodes(raw_xml, node_map)
+        assert result == ["address", "skill", "project"]
+
+    def test_no_inputloopnodestables_returns_empty(self):
+        """When no inputLoopNodesTables element exists, return empty list."""
+        from src.converters.talend_to_v1.components.transform.xml_map import (
+            _extract_loop_nodes,
+        )
+        raw_xml = ET.fromstring("<nodeData><outputTrees name='out1'/></nodeData>")
+        result = _extract_loop_nodes(raw_xml, {})
+        assert result == []
+
+    def test_empty_inputloopnodes_attribute_returns_empty(self):
+        """When inputloopnodes attribute is empty string, return empty list."""
+        from src.converters.talend_to_v1.components.transform.xml_map import (
+            _extract_loop_nodes,
+        )
+        raw_xml = ET.fromstring(
+            "<nodeData><outputTrees><inputLoopNodesTables inputloopnodes=''/></outputTrees></nodeData>"
+        )
+        result = _extract_loop_nodes(raw_xml, {})
+        assert result == []
+
+    def test_none_raw_xml_returns_empty(self):
+        """None raw_xml returns empty list without error."""
+        from src.converters.talend_to_v1.components.transform.xml_map import (
+            _extract_loop_nodes,
+        )
+        result = _extract_loop_nodes(None, {})
+        assert result == []
+
+    def test_unresolvable_emf_path_is_skipped(self):
+        """EMF paths that don't match any map key are skipped gracefully."""
+        from src.converters.talend_to_v1.components.transform.xml_map import (
+            _extract_loop_nodes,
+        )
+        raw_xml = self._make_raw_xml_with_loop_nodes(
+            "//@node.1/@nodeData/@inputTrees.0/@nodes.0/@children.99"
+        )
+        result = _extract_loop_nodes(raw_xml, {})
+        assert result == []
+
+    def test_duplicate_emf_paths_deduplicated(self):
+        """Same loop node referenced twice only appears once in result."""
+        from src.converters.talend_to_v1.components.transform.xml_map import (
+            _extract_loop_nodes,
+        )
+        emf_path = (
+            "//@node.1/@nodeData/@inputTrees.0/@nodes.0/@children.0/@children.0/@children.2/@children.0"
+        )
+        raw_xml = self._make_raw_xml_with_loop_nodes(f"{emf_path} {emf_path}")
+        node_map = self._make_node_map()
+        result = _extract_loop_nodes(raw_xml, node_map)
+        assert result == ["address"]
+
+
+# ------------------------------------------------------------------
+# _build_expression_contexts_multi tests
+# ------------------------------------------------------------------
+
+class TestBuildExpressionContextsMulti:
+    """Tests for the _build_expression_contexts_multi helper function."""
+
+    def _raw_exprs(self):
+        """Simulate expressions produced by _build_expressions for nested XML."""
+        return {
+            "id": "./company/employee/id",
+            "name": "./company/employee/name",
+            "type": "./company/employee/addresses/address/type",
+            "city": "./company/employee/addresses/address/city",
+            "country": "./company/employee/addresses/address/country",
+            "skill": "./company/employee/skills/skill",
+            "project_name": "./company/employee/projects/project/project_name",
+            "duration": "./company/employee/projects/project/duration",
+        }
+
+    def test_expression_contexts_assigned_correctly(self):
+        """Each column maps to the correct owning loop node."""
+        from src.converters.talend_to_v1.components.transform.xml_map import (
+            _build_expression_contexts_multi,
+        )
+        _, contexts = _build_expression_contexts_multi(
+            self._raw_exprs(), ["address", "skill", "project"]
+        )
+        assert contexts["type"] == "address"
+        assert contexts["city"] == "address"
+        assert contexts["country"] == "address"
+        assert contexts["skill"] == "skill"
+        assert contexts["project_name"] == "project"
+        assert contexts["duration"] == "project"
+        # Outside-all-loops fields fall back to primary loop
+        assert contexts["id"] == "address"
+        assert contexts["name"] == "address"
+
+    def test_expressions_rewritten_relative_to_owning_loop(self):
+        """XPaths are rewritten relative to each column's owning loop element."""
+        from src.converters.talend_to_v1.components.transform.xml_map import (
+            _build_expression_contexts_multi,
+        )
+        rewritten, _ = _build_expression_contexts_multi(
+            self._raw_exprs(), ["address", "skill", "project"]
+        )
+        # Inside address loop
+        assert rewritten["type"] == "./type"
+        assert rewritten["city"] == "./city"
+        assert rewritten["country"] == "./country"
+        # skill IS the loop element -> relative expr is "."
+        assert rewritten["skill"] == "."
+        # Inside project loop
+        assert rewritten["project_name"] == "./project_name"
+        assert rewritten["duration"] == "./duration"
+
+    def test_outside_loop_fields_use_relative_path_from_primary(self):
+        """Fields outside all loops get ../ traversal from primary loop context."""
+        from src.converters.talend_to_v1.components.transform.xml_map import (
+            _build_expression_contexts_multi,
+        )
+        rewritten, _ = _build_expression_contexts_multi(
+            self._raw_exprs(), ["address", "skill", "project"]
+        )
+        # id/name are 2 levels above address -> ./../../id etc.
+        assert rewritten["id"] == "./../../id"
+        assert rewritten["name"] == "./../../name"
+
+    def test_empty_loop_nodes_returns_unchanged(self):
+        """Empty loop_nodes returns expressions unchanged and empty contexts."""
+        from src.converters.talend_to_v1.components.transform.xml_map import (
+            _build_expression_contexts_multi,
+        )
+        raw = {"col": "./a/b"}
+        rewritten, contexts = _build_expression_contexts_multi(raw, [])
+        assert rewritten == raw
+        assert contexts == {}
+
+    def test_empty_xpath_passthrough(self):
+        """Empty XPath string is preserved with primary loop as context."""
+        from src.converters.talend_to_v1.components.transform.xml_map import (
+            _build_expression_contexts_multi,
+        )
+        rewritten, contexts = _build_expression_contexts_multi(
+            {"col": ""}, ["address"]
+        )
+        assert rewritten["col"] == ""
+        assert contexts["col"] == "address"
+

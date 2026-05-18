@@ -1139,3 +1139,157 @@ class TestExpressionFilterNative:
         comp = _make_component(cfg)
         result = comp._process(df_in)
         assert len(result["main"]) == 2
+
+
+# ------------------------------------------------------------------
+# TestMultiLoopEvaluation
+# ------------------------------------------------------------------
+
+@pytest.mark.unit
+class TestMultiLoopEvaluation:
+    """Tests for _evaluate_xml_multiloop (cross-product across multiple loop axes)."""
+
+    _XML = (
+        "<employee>"
+        "  <id>101</id>"
+        "  <name>John</name>"
+        "  <addresses>"
+        "    <address><type>Home</type><city>Dublin</city></address>"
+        "    <address><type>Office</type><city>Cork</city></address>"
+        "  </addresses>"
+        "  <skills>"
+        "    <skill>Java</skill>"
+        "    <skill>SQL</skill>"
+        "  </skills>"
+        "  <projects>"
+        "    <project><project_name>BankingApp</project_name><duration>12</duration></project>"
+        "    <project><project_name>InsurancePortal</project_name><duration>8</duration></project>"
+        "  </projects>"
+        "</employee>"
+    )
+
+    _LOOP_NODES = ["address", "skill", "project"]
+
+    _EXPRESSION_CONTEXTS = {
+        "id": "address",
+        "name": "address",
+        "type": "address",
+        "city": "address",
+        "skill": "skill",
+        "project_name": "project",
+        "duration": "project",
+    }
+
+    _EXPRESSIONS = {
+        "id": "./../../id",
+        "name": "./../../name",
+        "type": "./type",
+        "city": "./city",
+        "skill": ".",
+        "project_name": "./project_name",
+        "duration": "./duration",
+    }
+
+    _OUTPUT_SCHEMA = [
+        {"name": "id", "type": "id_String"},
+        {"name": "name", "type": "id_String"},
+        {"name": "type", "type": "id_String"},
+        {"name": "city", "type": "id_String"},
+        {"name": "skill", "type": "id_String"},
+        {"name": "project_name", "type": "id_String"},
+        {"name": "duration", "type": "id_String"},
+    ]
+
+    def _make_cfg(self):
+        return {
+            "output_schema": self._OUTPUT_SCHEMA,
+            "expressions": self._EXPRESSIONS,
+            "looping_element": "address",
+            "loop_nodes": self._LOOP_NODES,
+            "expression_contexts": self._EXPRESSION_CONTEXTS,
+            "die_on_error": False,
+        }
+
+    def test_cross_product_row_count(self):
+        """2 addresses × 2 skills × 2 projects = 8 output rows."""
+        comp = _make_component(self._make_cfg())
+        df_in = pd.DataFrame({"xml": [self._XML]})
+        result = comp._process(df_in)
+        assert len(result["main"]) == 8
+
+    def test_address_values_cycle_correctly(self):
+        """First 4 rows share 'Home/Dublin', last 4 share 'Office/Cork'."""
+        comp = _make_component(self._make_cfg())
+        df_in = pd.DataFrame({"xml": [self._XML]})
+        out = comp._process(df_in)["main"].reset_index(drop=True)
+        assert list(out["type"][:4]) == ["Home", "Home", "Home", "Home"]
+        assert list(out["type"][4:]) == ["Office", "Office", "Office", "Office"]
+
+    def test_skill_values_alternate(self):
+        """Skills alternate: Java, Java, SQL, SQL (grouped by project axis)."""
+        comp = _make_component(self._make_cfg())
+        df_in = pd.DataFrame({"xml": [self._XML]})
+        out = comp._process(df_in)["main"].reset_index(drop=True)
+        # For each address group (4 rows): Java, Java, SQL, SQL (skill × project order)
+        skills = list(out["skill"][:4])
+        assert skills == ["Java", "Java", "SQL", "SQL"]
+
+    def test_project_name_values_innermost(self):
+        """Projects cycle fastest: BankingApp, InsurancePortal alternating."""
+        comp = _make_component(self._make_cfg())
+        df_in = pd.DataFrame({"xml": [self._XML]})
+        out = comp._process(df_in)["main"].reset_index(drop=True)
+        # For each address+skill pair (2 rows): BankingApp, InsurancePortal
+        assert out["project_name"][0] == "BankingApp"
+        assert out["project_name"][1] == "InsurancePortal"
+
+    def test_outside_loop_fields_propagated_from_primary(self):
+        """id and name are evaluated from address context -> propagated to all rows."""
+        comp = _make_component(self._make_cfg())
+        df_in = pd.DataFrame({"xml": [self._XML]})
+        out = comp._process(df_in)["main"]
+        assert list(out["id"].unique()) == ["101"]
+        assert list(out["name"].unique()) == ["John"]
+
+    def test_empty_secondary_loop_null_pads(self):
+        """Employee with no skills or projects -> 1 row with empty skill/project cols."""
+        xml = (
+            "<employee>"
+            "  <id>102</id>"
+            "  <name>Emma</name>"
+            "  <addresses>"
+            "    <address><type>Home</type><city>Galway</city></address>"
+            "  </addresses>"
+            "</employee>"
+        )
+        comp = _make_component(self._make_cfg())
+        df_in = pd.DataFrame({"xml": [xml]})
+        result = comp._process(df_in)
+        out = result["main"]
+        assert len(out) == 1
+        assert out.iloc[0]["skill"] == ""
+        assert out.iloc[0]["project_name"] == ""
+
+    def test_empty_primary_loop_returns_no_rows(self):
+        """When the primary loop axis (address) has no elements, return 0 rows."""
+        xml = "<employee><id>103</id><name>Ghost</name></employee>"
+        comp = _make_component(self._make_cfg())
+        df_in = pd.DataFrame({"xml": [xml]})
+        result = comp._process(df_in)
+        assert len(result["main"]) == 0
+
+    def test_single_loop_node_config_uses_legacy_path(self):
+        """A config with loop_nodes of length 1 still uses _evaluate_xml_for_row."""
+        xml = "<root><item><id>1</id></item><item><id>2</id></item></root>"
+        cfg = {
+            "output_schema": [{"name": "id", "type": "id_String"}],
+            "expressions": {"id": "./id"},
+            "looping_element": "item",
+            "loop_nodes": ["item"],
+            "expression_contexts": {},  # empty -> use_multiloop=False
+            "die_on_error": False,
+        }
+        comp = _make_component(cfg)
+        df_in = pd.DataFrame({"xml": [xml]})
+        result = comp._process(df_in)
+        assert list(result["main"]["id"]) == ["1", "2"]
