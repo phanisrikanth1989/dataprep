@@ -114,15 +114,22 @@ class Map(BaseComponent):
             if lookup_df is None or lookup_df.empty:
                 consumed_lookups.append((lk.name, self._lookup_schema(lk.name)))
                 continue
-            # Lookup filter (skip for RELOAD -- per-row loop handles it)
+            strategy = classify_join_strategy(lk)
+            # Lookup filter is applied here ONLY for strategies where the
+            # filter is a pure lookup-side pre-filter (operates on lookup_df
+            # alone). Skip for:
+            #   - RELOAD: per-row loop handles its own filter substitution
+            #   - FILTER_AS_MATCH: the filter is the match condition,
+            #     evaluated against the cross product inside
+            #     join_filter_as_match (spec section 6)
             if (lk.activate_filter and lk.filter
-                    and lk.lookup_mode != "RELOAD_AT_EACH_ROW"):
+                    and strategy != JoinStrategy.RELOAD
+                    and strategy != JoinStrategy.FILTER_AS_MATCH):
                 lookup_df = apply_filter(
                     lookup_df, lk.filter,
                     self._bridge_eval_fn(), cfg.main.name,
                     [n for n, _ in consumed_lookups],
                 )
-            strategy = classify_join_strategy(lk)
             if strategy == JoinStrategy.SIMPLE:
                 joined_df, rejects = join_simple_equality(joined_df, lookup_df, lk)
             elif strategy == JoinStrategy.COMPUTED:
