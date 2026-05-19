@@ -101,9 +101,14 @@ class Map(BaseComponent):
 
         # 1. Main filter
         if cfg.main.activate_filter and cfg.main.filter:
+            before_count = len(main_df)
             main_df = apply_filter(
                 main_df, cfg.main.filter,
                 self._bridge_eval_fn(), cfg.main.name, [],
+            )
+            logger.info(
+                "[%s] main filter: %d -> %d rows (filter=%s)",
+                self.id, before_count, len(main_df), cfg.main.filter,
             )
             if main_df.empty:
                 return self._create_empty_outputs(cfg)
@@ -117,6 +122,11 @@ class Map(BaseComponent):
         for lk in cfg.lookups:
             lookup_df = inputs.get(lk.name)
             if lookup_df is None or lookup_df.empty:
+                logger.info(
+                    "[%s] lookup '%s' skipped: %s",
+                    self.id, lk.name,
+                    "no input data" if lookup_df is None else "empty frame",
+                )
                 consumed_lookups.append((lk.name, self._lookup_schema(lk.name)))
                 continue
             strategy = classify_join_strategy(
@@ -208,6 +218,10 @@ class Map(BaseComponent):
             self.context_manager, self.global_map, self.java_bridge,
         )
         component_active_id = f"{self.id}__active"
+        logger.info(
+            "[%s] compiling active script (%d outputs)",
+            self.id, sum(1 for o in cfg.outputs if not o.inner_join_reject),
+        )
         self.java_bridge.compile_tmap_script(
             component_id=component_active_id,
             java_script=active_script,
@@ -245,6 +259,10 @@ class Map(BaseComponent):
             if reject_source is not None and not reject_source.empty:
                 reject_script = build_reject_script(cfg)
                 component_reject_id = f"{self.id}__reject"
+                logger.info(
+                    "[%s] compiling reject script (%d outputs)",
+                    self.id, sum(1 for o in cfg.outputs if o.inner_join_reject),
+                )
                 self.java_bridge.compile_tmap_script(
                     component_id=component_reject_id,
                     java_script=reject_script,

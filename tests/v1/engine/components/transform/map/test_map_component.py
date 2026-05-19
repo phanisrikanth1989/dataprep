@@ -405,3 +405,253 @@ def test_log_lookup_join_strategy_value_appears(caplog):
 
     msgs = [r.getMessage() for r in caplog.records if r.name == _logger_name()]
     assert any("strategy=constant_key" in m for m in msgs)
+
+
+# ===== Debug logging: peripheral observability =====
+
+
+def test_log_lookup_skipped_when_lookup_df_none(caplog):
+    """Missing lookup input -> INFO record with 'no input data'."""
+    from src.v1.engine.components.transform.map.map_component import Map
+
+    config = {
+        "label": "tMap_skip",
+        "die_on_error": False,
+        "inputs": {
+            "main": {"name": "row1"},
+            "lookups": [{
+                "name": "row8",
+                "matching_mode": "FIRST_MATCH",
+                "lookup_mode": "LOAD_ONCE",
+                "join_mode": "LEFT_OUTER_JOIN",
+                "join_keys": [{
+                    "lookup_column": "name",
+                    "expression": "{{java}}context.SOURCE",
+                    "type": "str",
+                }],
+            }],
+        },
+        "outputs": [{
+            "name": "out1",
+            "columns": [
+                {"name": "id", "expression": "row1.id", "type": "id_Integer"},
+            ],
+        }],
+    }
+    m = Map(component_id="tMap_skip", config=config)
+    m._fresh_config()
+    m.java_bridge = _make_stub_bridge_for_constant_key()
+    m._validate_config()
+
+    with caplog.at_level(_logging.INFO, logger=_logger_name()):
+        # Note: row8 is NOT in the inputs dict at all -> lookup_df is None
+        m._process({"row1": pd.DataFrame({"id": [1]})})
+
+    msgs = [r.getMessage() for r in caplog.records if r.name == _logger_name()]
+    assert any(
+        "[tMap_skip] lookup 'row8' skipped: no input data" in msg
+        for msg in msgs
+    )
+
+
+def test_log_lookup_skipped_when_lookup_df_empty(caplog):
+    """Empty lookup DataFrame -> INFO record with 'empty frame'."""
+    from src.v1.engine.components.transform.map.map_component import Map
+
+    config = {
+        "label": "tMap_empty",
+        "die_on_error": False,
+        "inputs": {
+            "main": {"name": "row1"},
+            "lookups": [{
+                "name": "row8",
+                "matching_mode": "FIRST_MATCH",
+                "lookup_mode": "LOAD_ONCE",
+                "join_mode": "LEFT_OUTER_JOIN",
+                "join_keys": [{
+                    "lookup_column": "name",
+                    "expression": "{{java}}context.SOURCE",
+                    "type": "str",
+                }],
+            }],
+        },
+        "outputs": [{
+            "name": "out1",
+            "columns": [
+                {"name": "id", "expression": "row1.id", "type": "id_Integer"},
+            ],
+        }],
+    }
+    m = Map(component_id="tMap_empty", config=config)
+    m._fresh_config()
+    m.java_bridge = _make_stub_bridge_for_constant_key()
+    m._validate_config()
+
+    with caplog.at_level(_logging.INFO, logger=_logger_name()):
+        m._process({
+            "row1": pd.DataFrame({"id": [1]}),
+            # Empty frame with the right columns
+            "row8": pd.DataFrame({"name": [], "info": []}),
+        })
+
+    msgs = [r.getMessage() for r in caplog.records if r.name == _logger_name()]
+    assert any(
+        "[tMap_empty] lookup 'row8' skipped: empty frame" in msg
+        for msg in msgs
+    )
+
+
+def test_log_main_filter_drops_rows(caplog):
+    """Main filter that drops rows logs a before/after INFO record."""
+    from src.v1.engine.components.transform.map.map_component import Map
+
+    config = {
+        "label": "tMap_mainfilter",
+        "die_on_error": False,
+        "inputs": {
+            "main": {
+                "name": "row1",
+                "activate_filter": True,
+                "filter": "{{java}}row1.id > 1",
+            },
+            "lookups": [],
+        },
+        "outputs": [{
+            "name": "out1",
+            "columns": [
+                {"name": "id", "expression": "row1.id", "type": "id_Integer"},
+            ],
+        }],
+    }
+
+    # Stub bridge: filter eval returns boolean mask via batch eval
+    from unittest.mock import MagicMock
+    bridge = MagicMock()
+    bridge.compile_tmap_script.return_value = None
+    bridge.execute_compiled_tmap_chunked.side_effect = (
+        lambda **kwargs: {"out1": kwargs["df"].copy().assign(id=kwargs["df"]["id"])}
+    )
+    # apply_filter calls execute_tmap_preprocessing with {"__filter__": expr}
+    # returning {"__filter__": [bool, bool, ...]}. We drop rows where id <= 1.
+    def fake_preprocess(df, expressions, main_table_name, lookup_table_names):
+        return {"__filter__": [bool(v > 1) for v in df["id"].tolist()]}
+    bridge.execute_tmap_preprocessing.side_effect = fake_preprocess
+
+    m = Map(component_id="tMap_mainfilter", config=config)
+    m._fresh_config()
+    m.java_bridge = bridge
+    m._validate_config()
+
+    with caplog.at_level(_logging.INFO, logger=_logger_name()):
+        m._process({"row1": pd.DataFrame({"id": [1, 2, 3]})})
+
+    msgs = [r.getMessage() for r in caplog.records if r.name == _logger_name()]
+    assert any(
+        "[tMap_mainfilter] main filter: 3 -> 2 rows" in msg
+        for msg in msgs
+    )
+
+
+def test_log_compile_active_script(caplog):
+    """Active script compile logs INFO with the output count."""
+    from src.v1.engine.components.transform.map.map_component import Map
+
+    config = {
+        "label": "tMap_compile",
+        "die_on_error": False,
+        "inputs": {
+            "main": {"name": "row1"},
+            "lookups": [],
+        },
+        "outputs": [
+            {
+                "name": "out1",
+                "columns": [
+                    {"name": "id", "expression": "row1.id", "type": "id_Integer"},
+                ],
+            },
+            {
+                "name": "out2",
+                "columns": [
+                    {"name": "id", "expression": "row1.id", "type": "id_Integer"},
+                ],
+            },
+        ],
+    }
+    m = Map(component_id="tMap_compile", config=config)
+    m._fresh_config()
+    m.java_bridge = _make_stub_bridge_for_constant_key()
+    m._validate_config()
+
+    with caplog.at_level(_logging.INFO, logger=_logger_name()):
+        m._process({"row1": pd.DataFrame({"id": [1]})})
+
+    msgs = [r.getMessage() for r in caplog.records if r.name == _logger_name()]
+    assert any(
+        "[tMap_compile] compiling active script (2 outputs)" in msg
+        for msg in msgs
+    )
+
+
+def test_log_compile_reject_script(caplog):
+    """Reject script compile logs INFO when inner_join_reject path is taken."""
+    from src.v1.engine.components.transform.map.map_component import Map
+    from src.v1.engine.context_manager import ContextManager
+    from src.v1.engine.global_map import GlobalMap
+
+    config = {
+        "label": "tMap_rej_compile",
+        "die_on_error": False,
+        "inputs": {
+            "main": {"name": "row1"},
+            "lookups": [{
+                "name": "row8",
+                "matching_mode": "FIRST_MATCH",
+                "lookup_mode": "LOAD_ONCE",
+                "join_mode": "INNER_JOIN",
+                "join_keys": [{
+                    "lookup_column": "name",
+                    "expression": "{{java}}context.SOURCE",
+                    "type": "str",
+                }],
+            }],
+        },
+        "outputs": [
+            {
+                "name": "out1",
+                "columns": [
+                    {"name": "id", "expression": "row1.id", "type": "id_Integer"},
+                ],
+            },
+            {
+                "name": "rej",
+                "inner_join_reject": True,
+                "columns": [
+                    {"name": "id", "expression": "row1.id", "type": "id_Integer"},
+                ],
+            },
+        ],
+    }
+
+    ctx = ContextManager()
+    ctx.set("SOURCE", "no_such_name")  # Will cause INNER_JOIN to reject all
+
+    m = Map(
+        component_id="tMap_rej_compile", config=config,
+        global_map=GlobalMap(), context_manager=ctx,
+    )
+    m._fresh_config()
+    m.java_bridge = _make_stub_bridge_for_constant_key()
+    m._validate_config()
+
+    with caplog.at_level(_logging.INFO, logger=_logger_name()):
+        m._process({
+            "row1": pd.DataFrame({"id": [1, 2]}),
+            "row8": pd.DataFrame({"name": ["alpha"], "info": ["A"]}),
+        })
+
+    msgs = [r.getMessage() for r in caplog.records if r.name == _logger_name()]
+    assert any(
+        "[tMap_rej_compile] compiling reject script (1 outputs)" in msg
+        for msg in msgs
+    )
