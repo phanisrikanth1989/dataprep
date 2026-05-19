@@ -333,6 +333,118 @@ def join_computed_equality(
     return merged, rejects
 
 
+ConstantEvalFn = Callable[[dict[str, str]], dict[str, Any]]
+
+
+def join_constant_key(
+    joined_df: pd.DataFrame,
+    lookup_df: pd.DataFrame,
+    lk: LookupCfg,
+    main_name: str,
+    prior_lookups: list[str],
+    constant_eval_fn: ConstantEvalFn,
+) -> tuple[pd.DataFrame, pd.DataFrame | None]:
+    """CONSTANT_KEY strategy: one-shot evaluate all keys, broadcast match.
+
+    Every join key expression is main-row-independent (verified by the
+    classifier). We resolve all key values in a single batch bridge
+    call, filter the lookup with pandas, apply matching-mode dedup,
+    and then broadcast onto the main rows via pandas cross-merge.
+
+    Args:
+        joined_df: current joined frame (main + prior lookups).
+        lookup_df: full lookup frame (already pre-filtered if the lookup
+            had `activate_filter=true`; orchestrator handles that).
+        lk: this lookup's config.
+        main_name: name of the main flow (informational; for symmetry
+            with other join_* signatures).
+        prior_lookups: names of lookups already joined (informational).
+        constant_eval_fn: closure that takes {temp_name: expression}
+            and returns {temp_name: resolved_value}. Wraps
+            JavaBridge.execute_batch_one_time_expressions in production.
+
+    Returns:
+        (merged_frame, inner_join_rejects_or_None)
+    """
+    # 1. Batch-evaluate every join key expression in one bridge call
+    exprs = {
+        f"__ck_{i}__": _strip_marker(jk.expression)
+        for i, jk in enumerate(lk.join_keys)
+    }
+    results = constant_eval_fn(exprs)
+
+    # Check for bridge error markers and resolve constants
+    resolved: list[Any] = []
+    for i in range(len(lk.join_keys)):
+        val = results.get(f"__ck_{i}__")
+        if isinstance(val, str) and val.startswith("{{ERROR}}"):
+            raise ComponentExecutionError(
+                "tMap",
+                f"Constant join key eval failed for "
+                f"{lk.name}.join_keys[{i}]: {val[len('{{ERROR}}'):]}",
+            )
+        resolved.append(val)
+
+    # 2. Predict result size and apply size guard (10M warn, 100M fail)
+    matched_n_estimate = len(lookup_df)
+    _check_cross_size_guard(len(joined_df), matched_n_estimate)
+
+    # 3. Build filter mask on lookup. Null key on any side short-circuits
+    #    to "no match" (Talend HashMap.get(null) semantics).
+    has_null = any(v is None or (isinstance(v, float) and pd.isna(v))
+                   for v in resolved)
+    if has_null:
+        filtered = lookup_df.iloc[0:0]
+    else:
+        mask = pd.Series(True, index=lookup_df.index)
+        for jk, val in zip(lk.join_keys, resolved):
+            if jk.lookup_column not in lookup_df.columns:
+                # Missing lookup column => no match possible
+                mask = pd.Series(False, index=lookup_df.index)
+                break
+            mask &= (lookup_df[jk.lookup_column] == val)
+        filtered = lookup_df[mask].copy()
+
+    # 4. Apply matching mode dedup
+    key_cols = [jk.lookup_column for jk in lk.join_keys]
+    filtered = _apply_matching_mode(filtered, key_cols, lk.matching_mode)
+
+    # 5. Prefix lookup columns to avoid name collisions
+    filtered_prefixed = _prefix_lookup_columns(filtered, lk.name)
+    lookup_col_names = [
+        col if col.startswith(f"{lk.name}.") else f"{lk.name}.{col}"
+        for col in lookup_df.columns
+    ]
+
+    # 6. Empty filtered: LEFT_OUTER keeps main with null lookup cols;
+    #    INNER rejects all main rows.
+    if filtered_prefixed.empty:
+        if lk.join_mode == "INNER_JOIN":
+            empty = pd.DataFrame(
+                columns=list(joined_df.columns) + lookup_col_names
+            )
+            return empty, joined_df.copy()
+        # LEFT_OUTER: attach all-NaN lookup columns
+        result = joined_df.copy()
+        for col in lookup_col_names:
+            result[col] = np.nan
+        return result, None
+
+    # 7. Issue a WARN when the cross product is large
+    product = len(joined_df) * len(filtered_prefixed)
+    if product >= _WARN_RESULT_ROWS:
+        logger.warning(
+            "[tMap] CONSTANT_KEY broadcast with '%s': ~%d rows "
+            "(main=%d x filtered_lookup=%d)",
+            lk.name, product, len(joined_df), len(filtered_prefixed),
+        )
+
+    # 8. Broadcast (cross-merge). For FIRST/UNIQUE/LAST_MATCH the
+    #    filtered lookup is at most 1 row -- this is just attachment.
+    merged = pd.merge(joined_df, filtered_prefixed, how="cross")
+    return merged, None
+
+
 def _apply_matching_mode(
     lookup_df: pd.DataFrame, key_cols: list[str], mode: str,
 ) -> pd.DataFrame:

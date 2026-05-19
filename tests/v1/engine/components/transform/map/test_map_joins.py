@@ -885,3 +885,220 @@ def test_main_row_independent_mixed_main_ref_outside_quotes_false():
 def test_main_row_independent_empty_expression_true():
     # Trivially row-independent; defensive return
     assert _is_main_row_independent("", "row1", []) is True
+
+
+# ===== CONSTANT_KEY: join_constant_key =====
+
+import pandas as pd
+from src.v1.engine.components.transform.map.map_joins import (
+    join_constant_key,
+)
+from src.v1.engine.exceptions import ComponentExecutionError
+
+
+def _ck_lkup(name="row8", lookup_column="name", expression="{{java}}context.SOURCE",
+             matching_mode="FIRST_MATCH", join_mode="LEFT_OUTER_JOIN",
+             extra_keys=()):
+    keys = [JoinKeyCfg(lookup_column, expression, "str")]
+    keys.extend(extra_keys)
+    return LookupCfg(
+        name=name, join_keys=keys, matching_mode=matching_mode,
+        join_mode=join_mode, lookup_mode="LOAD_ONCE",
+    )
+
+
+def test_join_constant_key_left_outer_match_broadcast():
+    joined = pd.DataFrame({"id": [1, 2, 3], "desc": ["a", "b", "c"]})
+    lookup = pd.DataFrame({
+        "name": ["alpha", "beta", "gamma"],
+        "info": ["A", "B", "G"],
+    })
+    lk = _ck_lkup()
+
+    def constant_eval(exprs):
+        return {k: "beta" for k in exprs}
+
+    merged, rejects = join_constant_key(
+        joined, lookup, lk, "row1", [], constant_eval,
+    )
+
+    assert rejects is None
+    assert len(merged) == 3
+    assert list(merged["row8.name"]) == ["beta", "beta", "beta"]
+    assert list(merged["row8.info"]) == ["B", "B", "B"]
+
+
+def test_join_constant_key_left_outer_no_match_keeps_main_with_nulls():
+    joined = pd.DataFrame({"id": [1, 2]})
+    lookup = pd.DataFrame({"name": ["alpha"], "info": ["A"]})
+    lk = _ck_lkup()
+
+    def constant_eval(exprs):
+        return {k: "no_such_value" for k in exprs}
+
+    merged, rejects = join_constant_key(
+        joined, lookup, lk, "row1", [], constant_eval,
+    )
+
+    assert rejects is None
+    assert len(merged) == 2
+    assert merged["row8.name"].isna().all()
+    assert merged["row8.info"].isna().all()
+
+
+def test_join_constant_key_inner_no_match_rejects_all_main():
+    joined = pd.DataFrame({"id": [1, 2]})
+    lookup = pd.DataFrame({"name": ["alpha"], "info": ["A"]})
+    lk = _ck_lkup(join_mode="INNER_JOIN")
+
+    def constant_eval(exprs):
+        return {k: "no_such_value" for k in exprs}
+
+    merged, rejects = join_constant_key(
+        joined, lookup, lk, "row1", [], constant_eval,
+    )
+
+    assert merged.empty
+    assert rejects is not None
+    assert len(rejects) == 2
+    assert list(rejects["id"]) == [1, 2]
+
+
+def test_join_constant_key_first_match_dedups_lookup():
+    joined = pd.DataFrame({"id": [1]})
+    lookup = pd.DataFrame({
+        "name": ["beta", "beta", "beta"],
+        "info": ["first", "second", "third"],
+    })
+    lk = _ck_lkup(matching_mode="FIRST_MATCH")
+
+    def constant_eval(exprs):
+        return {k: "beta" for k in exprs}
+
+    merged, _ = join_constant_key(
+        joined, lookup, lk, "row1", [], constant_eval,
+    )
+
+    assert len(merged) == 1
+    assert merged["row8.info"].iloc[0] == "first"
+
+
+def test_join_constant_key_all_matches_cross_product():
+    joined = pd.DataFrame({"id": [1, 2]})
+    lookup = pd.DataFrame({
+        "name": ["beta", "beta", "alpha"],
+        "info": ["b1", "b2", "a"],
+    })
+    lk = _ck_lkup(matching_mode="ALL_MATCHES")
+
+    def constant_eval(exprs):
+        return {k: "beta" for k in exprs}
+
+    merged, _ = join_constant_key(
+        joined, lookup, lk, "row1", [], constant_eval,
+    )
+
+    # 2 main rows x 2 matching lookup rows = 4 rows
+    assert len(merged) == 4
+    assert set(merged["row8.info"]) == {"b1", "b2"}
+
+
+def test_join_constant_key_multi_key_and_filter():
+    joined = pd.DataFrame({"id": [1]})
+    lookup = pd.DataFrame({
+        "code": ["X", "X", "Y"],
+        "name": ["beta", "alpha", "beta"],
+        "info": ["match", "noco", "noname"],
+    })
+    lk = _ck_lkup(extra_keys=[JoinKeyCfg("code", "{{java}}context.CODE", "str")])
+
+    def constant_eval(exprs):
+        # match name=beta AND code=X
+        results = {}
+        for k, expr in exprs.items():
+            if "SOURCE" in expr:
+                results[k] = "beta"
+            elif "CODE" in expr:
+                results[k] = "X"
+        return results
+
+    merged, _ = join_constant_key(
+        joined, lookup, lk, "row1", [], constant_eval,
+    )
+
+    assert len(merged) == 1
+    assert merged["row8.info"].iloc[0] == "match"
+
+
+def test_join_constant_key_null_eval_short_circuits_to_no_match():
+    joined = pd.DataFrame({"id": [1, 2]})
+    lookup = pd.DataFrame({"name": ["alpha"], "info": ["A"]})
+    lk = _ck_lkup(join_mode="LEFT_OUTER_JOIN")
+
+    def constant_eval(exprs):
+        return {k: None for k in exprs}
+
+    merged, rejects = join_constant_key(
+        joined, lookup, lk, "row1", [], constant_eval,
+    )
+
+    assert rejects is None
+    assert len(merged) == 2
+    assert merged["row8.info"].isna().all()
+
+
+def test_join_constant_key_bridge_error_raises():
+    joined = pd.DataFrame({"id": [1]})
+    lookup = pd.DataFrame({"name": ["alpha"], "info": ["A"]})
+    lk = _ck_lkup()
+
+    def constant_eval(exprs):
+        return {k: "{{ERROR}}NullPointerException in context resolve" for k in exprs}
+
+    try:
+        join_constant_key(joined, lookup, lk, "row1", [], constant_eval)
+    except ComponentExecutionError as e:
+        assert "context resolve" in str(e) or "ERROR" in str(e)
+    else:
+        raise AssertionError("expected ComponentExecutionError")
+
+
+def test_join_constant_key_size_guard_warns_at_10m(monkeypatch, caplog):
+    # 1M main rows x 11 matching lookup rows -> 11M predicted; should WARN
+    import logging
+    joined = pd.DataFrame({"id": range(1_000_000)})
+    lookup = pd.DataFrame({
+        "name": ["beta"] * 11, "info": [f"i{i}" for i in range(11)],
+    })
+    lk = _ck_lkup(matching_mode="ALL_MATCHES")
+
+    def constant_eval(exprs):
+        return {k: "beta" for k in exprs}
+
+    with caplog.at_level(logging.WARNING):
+        merged, _ = join_constant_key(
+            joined, lookup, lk, "row1", [], constant_eval,
+        )
+
+    assert any("Cross-product" in rec.message or "broadcast" in rec.message.lower()
+               for rec in caplog.records)
+    assert len(merged) == 11_000_000
+
+
+def test_join_constant_key_size_guard_fails_at_100m():
+    # 10M main rows x 11 matching = 110M predicted; should raise
+    joined = pd.DataFrame({"id": range(10_000_000)})
+    lookup = pd.DataFrame({
+        "name": ["beta"] * 11, "info": [f"i{i}" for i in range(11)],
+    })
+    lk = _ck_lkup(matching_mode="ALL_MATCHES")
+
+    def constant_eval(exprs):
+        return {k: "beta" for k in exprs}
+
+    try:
+        join_constant_key(joined, lookup, lk, "row1", [], constant_eval)
+    except ComponentExecutionError as e:
+        assert "safety limit" in str(e).lower() or "100" in str(e)
+    else:
+        raise AssertionError("expected ComponentExecutionError")
