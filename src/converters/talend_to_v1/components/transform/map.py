@@ -143,6 +143,32 @@ def _parse_lookup(lookup_xml: Element) -> Dict[str, Any]:
     }
 
 
+def _parse_input_schema(input_xml: Element) -> List[Dict[str, Any]]:
+    """Parse the per-flow column schema from an ``inputTables`` element.
+
+    Each ``mapperTableEntries`` directly under ``<inputTables>`` defines
+    a column on that input flow (name + Talend type), independent of
+    whether the entry also has an ``expression`` (join-key) or
+    ``operator``. The engine's tMap component requires this list to be
+    available as ``schema.inputs[<flow_name>]`` so that
+    ``compute_joined_df_schema`` can produce a complete declared type map
+    for the joined DataFrame -- without it, the Java bridge's strict
+    boundary type check rejects every main/lookup column.
+    """
+    schema_cols: List[Dict[str, Any]] = []
+    for col in input_xml.findall("./mapperTableEntries"):
+        col_name = col.get("name", "")
+        if not col_name:
+            continue
+        schema_cols.append({
+            "name": col_name,
+            "type": convert_type(col.get("type", "id_String")),
+            "nullable": _attr_bool(col, "nullable", default=True),
+            "key": _attr_bool(col, "key", default=False),
+        })
+    return schema_cols
+
+
 def _parse_variables(
     mapper_data: Element,
 ) -> tuple[List[Dict[str, Any]], str, str]:
@@ -233,7 +259,8 @@ def _parse_outputs(mapper_data: Element) -> List[Dict[str, Any]]:
             "activate_filter": activate_filter,
             "columns": columns,
             "size_state": output_xml.get("sizeState", ""),
-            "catch_output_reject": _attr_bool(output_xml, "activateCondensedTool"),
+            "catch_output_reject": _attr_bool(output_xml, "reject"),
+            "activate_condensed_tool": _attr_bool(output_xml, "activateCondensedTool"),
             "activate_global_map": _attr_bool(output_xml, "activateGlobalMap"),
         })
     return outputs
@@ -313,7 +340,17 @@ class MapConverter(ComponentConverter):
         config["label"] = self._get_str(node, "LABEL", "")
 
         # ---- 6. Schema ----
-        schema: Dict[str, Any] = {}  # tMap uses empty schema -- multi-flow config drives routing
+        # tMap stores per-flow input column schemas under schema.inputs so
+        # the engine (engine.py wires this to component.schema_inputs_map)
+        # can build a complete declared-type map for joined_df. Without
+        # this, the Java bridge's strict boundary check rejects every
+        # main/lookup column as having no declared type.
+        schema_inputs: Dict[str, List[Dict[str, Any]]] = {
+            input_xml.get("name", ""): _parse_input_schema(input_xml)
+            for input_xml in input_tables_xml
+            if input_xml.get("name", "")
+        }
+        schema: Dict[str, Any] = {"inputs": schema_inputs}
 
         # ---- 7. Engine gap needs_review entries ----
         _engine_gap_keys = [
