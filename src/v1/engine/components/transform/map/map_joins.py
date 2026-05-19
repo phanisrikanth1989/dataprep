@@ -102,6 +102,24 @@ def _is_simple_col_ref(expr: str) -> bool:
     return bool(_SIMPLE_COL_RE.match(expr.strip()))
 
 
+def _is_known_input_col_ref(
+    expr: str, main_name: str, prior_lookup_names: list[str],
+) -> bool:
+    """True if expr (after stripping {{java}}) is `<table>.<col>` where
+    <table> is in {main_name, *prior_lookup_names}.
+
+    Used by the classifier to recognize bona-fide simple column refs while
+    rejecting expressions whose `<table>` segment is a Java-side accessor
+    (e.g. `context.SOURCE`, `globalMap.X`) or unrelated identifier.
+    """
+    stripped = _strip_marker(expr).strip()
+    match = _SIMPLE_COL_RE.match(stripped)
+    if not match:
+        return False
+    table = match.group(1)
+    return table == main_name or table in prior_lookup_names
+
+
 # ---- Task 4.3: SIMPLE strategy join ----
 
 

@@ -736,3 +736,40 @@ def test_simple_equality_join_key_falls_back_when_column_missing():
     # pd.merge will raise KeyError because 'row1.key' isn't in joined_df
     with pytest.raises((KeyError, Exception)):
         join_simple_equality(joined, lookup, lk)
+
+
+# ===== CONSTANT_KEY: _is_known_input_col_ref =====
+
+from src.v1.engine.components.transform.map.map_joins import (
+    _is_known_input_col_ref,
+)
+
+
+def test_known_input_col_ref_main_table():
+    assert _is_known_input_col_ref("row1.col", "row1", []) is True
+
+
+def test_known_input_col_ref_main_table_with_marker():
+    assert _is_known_input_col_ref("{{java}}row1.col", "row1", []) is True
+
+
+def test_known_input_col_ref_prior_lookup():
+    assert _is_known_input_col_ref("row3.col", "row1", ["row3"]) is True
+
+
+def test_known_input_col_ref_unknown_table_returns_false():
+    # context is not an input flow name -- this is the bug-trigger case
+    assert _is_known_input_col_ref("{{java}}context.SOURCE", "row1", []) is False
+
+
+def test_known_input_col_ref_non_dotted_expression_returns_false():
+    # Function call or literal: shape doesn't match table.col
+    assert _is_known_input_col_ref("{{java}}routines.X.foo(row1.k)", "row1", []) is False
+
+
+def test_known_input_col_ref_bare_identifier_returns_false():
+    assert _is_known_input_col_ref("just_an_id", "row1", []) is False
+
+
+def test_known_input_col_ref_empty_string_returns_false():
+    assert _is_known_input_col_ref("", "row1", []) is False
