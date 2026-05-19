@@ -388,7 +388,7 @@ file from rewrite). New tests:
 
 ### 9.2 Integration tests (live bridge, `@pytest.mark.java`)
 
-In `tests/v1/engine/components/transform/map/test_map_integration.py`:
+In `tests/v1/engine/components/transform/test_map_integration.py`:
 
 - `test_constant_key_context_source_end_to_end` — JSON config matching
   the worked example in §1 + a real context resolve via `ContextManager`
@@ -467,7 +467,7 @@ only point requiring user confirmation; flagged in §6.
 | `src/v1/engine/components/transform/map/map_joins.py` | Add `_is_main_row_independent`, `_is_known_input_col_ref`, `JoinStrategy.CONSTANT_KEY`, `join_constant_key`; update `classify_join_strategy` signature; replace `_is_simple_col_ref` usage with `_is_known_input_col_ref` in the classifier (the regex constant is still used by the simple-merge fallback inside `join_simple_equality`) |
 | `src/v1/engine/components/transform/map/map_component.py` | Update `classify_join_strategy` call site + new dispatch branch + wire `constant_eval_fn` closure |
 | `tests/v1/engine/components/transform/map/test_map_joins.py` | New unit tests (§9.1) |
-| `tests/v1/engine/components/transform/map/test_map_integration.py` | New integration tests (§9.2) |
+| `tests/v1/engine/components/transform/test_map_integration.py` | New integration tests (§9.2) |
 | `tests/talend_xml_samples/Job_tMap_constant_key_lookup.item` | New synthesized `.item` |
 | `tests/talend_xml_samples/converted_jsons/Job_tMap_constant_key_lookup.json` | Converted output from `.item` |
 
