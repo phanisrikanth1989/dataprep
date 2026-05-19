@@ -576,6 +576,78 @@ def test_constant_key_inner_join_no_match_rejects(java_bridge):
     assert set(result["rej"]["id"]) == {1, 2}
 
 
+# ===== Debug logging: __errors__ surfacing (live bridge) =====
+
+
+@pytest.mark.java
+def test_constant_key_errors_surface_logs_with_live_bridge(java_bridge, caplog):
+    """Run a tMap whose output expression deliberately throws (e.g. divide by
+    zero or null deref), then assert the __errors__ surfacing logs fire
+    against the REAL bridge's Arrow-derived errors_df.
+    """
+    import logging as _logging
+    from src.v1.engine.components.transform.map.map_component import Map
+    from src.v1.engine.context_manager import ContextManager
+    from src.v1.engine.global_map import GlobalMap
+
+    # Output expression deliberately throws NullPointerException on every row:
+    # row1.code is null, .length() will NPE.
+    config = {
+        "id": "tMap_live_errors",
+        "type": "Map",
+        "label": "live_errors_test",
+        "die_on_error": False,
+        "inputs": {"main": {"name": "row1"}, "lookups": []},
+        "outputs": [
+            {
+                "name": "out1",
+                "columns": [
+                    {"name": "id", "expression": "{{java}}row1.id", "type": "int"},
+                    {"name": "len",
+                     "expression": "{{java}}row1.code.length()",
+                     "type": "int"},
+                ],
+            },
+            {
+                "name": "rej",
+                "catch_output_reject": True,
+                "columns": [
+                    {"name": "id", "expression": "{{java}}row1.id", "type": "int"},
+                    {"name": "errorMessage",
+                     "expression": "errorMessage", "type": "str"},
+                ],
+            },
+        ],
+    }
+    main_df = pd.DataFrame({"id": [1, 2], "code": [None, None]})
+
+    m = Map(
+        component_id=config["id"], config=config,
+        global_map=GlobalMap(), context_manager=ContextManager(),
+    )
+    m.java_bridge = java_bridge
+    m.schema_inputs_map = {
+        "row1": [
+            {"name": "id", "type": "int"},
+            {"name": "code", "type": "str"},
+        ],
+    }
+
+    logger_name = "src.v1.engine.components.transform.map.map_component"
+    with caplog.at_level(_logging.WARNING, logger=logger_name):
+        m.execute({"row1": main_df})
+
+    warn_msgs = [
+        r.getMessage() for r in caplog.records
+        if r.name == logger_name and r.levelno == _logging.WARNING
+    ]
+    # The bridge produced a real errors_df from Arrow; surfacing fires
+    assert any(
+        "captured" in msg and "__errors__" in msg
+        for msg in warn_msgs
+    ), f"Expected WARN __errors__ summary, got: {warn_msgs}"
+
+
 @pytest.mark.java
 def test_constant_key_one_bridge_eval_call_for_join(java_bridge, monkeypatch):
     """Assert join_constant_key triggers exactly ONE batch eval call.
