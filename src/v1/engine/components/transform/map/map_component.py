@@ -81,7 +81,7 @@ class Map(BaseComponent):
         from .map_joins import (
             JoinStrategy, classify_join_strategy, compute_joined_df_schema,
             apply_filter, join_simple_equality, join_computed_equality,
-            join_filter_as_match, join_reload_per_row,
+            join_filter_as_match, join_reload_per_row, join_constant_key,
         )
         from .map_reject_routing import route_rejects
 
@@ -136,6 +136,13 @@ class Map(BaseComponent):
                 )
             if strategy == JoinStrategy.SIMPLE:
                 joined_df, rejects = join_simple_equality(joined_df, lookup_df, lk)
+            elif strategy == JoinStrategy.CONSTANT_KEY:
+                joined_df, rejects = join_constant_key(
+                    joined_df, lookup_df, lk,
+                    main_name=cfg.main.name,
+                    prior_lookups=[n for n, _ in consumed_lookups],
+                    constant_eval_fn=self._constant_eval_fn(),
+                )
             elif strategy == JoinStrategy.COMPUTED:
                 joined_df, rejects = join_computed_equality(
                     joined_df, lookup_df, lk,
@@ -301,5 +308,20 @@ class Map(BaseComponent):
                 df=df, expressions=expressions,
                 main_table_name=main_table_name,
                 lookup_table_names=lookup_names,
+            )
+        return fn
+
+    def _constant_eval_fn(self):
+        """Build the closure passed to join_constant_key for one-shot bridge eval."""
+        if self.java_bridge is None:
+            return None
+        from .map_bridge_sync import push_runtime_state_to_bridge
+
+        def fn(expressions):
+            push_runtime_state_to_bridge(
+                self.context_manager, self.global_map, self.java_bridge,
+            )
+            return self.java_bridge.execute_batch_one_time_expressions(
+                expressions,
             )
         return fn

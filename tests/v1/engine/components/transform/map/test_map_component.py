@@ -216,3 +216,80 @@ def test_process_with_missing_lookup_continue_branch():
     m.java_bridge.execute_compiled_tmap.return_value = {"out": pd.DataFrame({"id": []})}
     out = m._process({"row1": main, "row2": empty_lookup})
     assert "out" in out
+
+
+# ===== CONSTANT_KEY dispatch =====
+
+def test_constant_key_dispatch_invokes_join_constant_key(monkeypatch):
+    """The orchestrator routes CONSTANT_KEY strategies through join_constant_key."""
+    from src.v1.engine.components.transform.map.map_component import Map
+    from src.v1.engine.components.transform.map import map_joins
+
+    calls: list[str] = []
+
+    def fake_constant_key(joined, lookup, lk, main_name, prior_lookups, constant_eval_fn):
+        calls.append(lk.name)
+        return joined.assign(**{f"{lk.name}.info": "stub"}), None
+
+    monkeypatch.setattr(map_joins, "join_constant_key", fake_constant_key)
+
+    config = {
+        "label": "tMap_1",
+        "die_on_error": False,
+        "inputs": {
+            "main": {"name": "row1"},
+            "lookups": [{
+                "name": "row8",
+                "matching_mode": "FIRST_MATCH",
+                "lookup_mode": "LOAD_ONCE",
+                "join_mode": "LEFT_OUTER_JOIN",
+                "join_keys": [{
+                    "lookup_column": "name",
+                    "expression": "{{java}}context.SOURCE",
+                    "type": "str",
+                }],
+            }],
+        },
+        "outputs": [{
+            "name": "out1",
+            "columns": [
+                {"name": "id", "expression": "row1.id", "type": "id_Integer"},
+                {"name": "info", "expression": "row8.info", "type": "id_String"},
+            ],
+        }],
+    }
+    main_df = pd.DataFrame({"id": [1, 2]})
+    lookup_df = pd.DataFrame({"name": ["beta"], "info": ["B"]})
+
+    m = Map(component_id="tMap_1", config=config)
+    m._fresh_config()     # populate self.config from _original_config
+    m.java_bridge = _make_stub_bridge_for_constant_key()
+    m._parsed_cfg = None  # forces _validate_config to parse
+    m._validate_config()
+
+    m._process({"row1": main_df, "row8": lookup_df})
+
+    assert calls == ["row8"], "join_constant_key must be invoked for the row8 lookup"
+
+
+def _make_stub_bridge_for_constant_key():
+    """Minimal bridge stub that returns predictable script outputs.
+
+    Designed to be used only when `join_constant_key` is monkeypatched
+    out -- so it doesn't need to evaluate context expressions.
+    """
+    from unittest.mock import MagicMock
+
+    bridge = MagicMock()
+    bridge.compile_tmap_script.return_value = None
+
+    def fake_chunked(component_id, df, chunk_size, input_columns,
+                    schema, reject_mode):
+        # Echo back as a single named output 'out1'
+        return {"out1": df.copy().assign(info="X")}
+
+    bridge.execute_compiled_tmap_chunked.side_effect = fake_chunked
+    bridge.execute_batch_one_time_expressions.return_value = {
+        "__ck_0__": "beta",
+    }
+    return bridge
