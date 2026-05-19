@@ -223,6 +223,7 @@
             ],
             "size_state": "INTERMEDIATE",
             "catch_output_reject": false,
+            "activate_condensed_tool": false,
             "activate_global_map": false
           }
         ],
@@ -233,7 +234,38 @@
         "tstatcatcher_stats": false,
         "label": ""
       },
-      "schema": {},
+      "schema": {
+        "inputs": {
+          "row1": [
+            {
+              "name": "id",
+              "type": "int",
+              "nullable": true,
+              "key": false
+            },
+            {
+              "name": "desc",
+              "type": "str",
+              "nullable": true,
+              "key": false
+            }
+          ],
+          "row8": [
+            {
+              "name": "name",
+              "type": "str",
+              "nullable": true,
+              "key": false
+            },
+            {
+              "name": "info",
+              "type": "str",
+              "nullable": true,
+              "key": false
+            }
+          ]
+        }
+      },
       "inputs": [
         "row1",
         "row8"
@@ -372,15 +404,8 @@
   },
   "_validation": {
     "valid": true,
-    "summary": "Validation: 1 warning(s)",
-    "issues": [
-      {
-        "severity": "warning",
-        "component_id": "tMap_1",
-        "field": "schema",
-        "message": "Component 'tMap_1' has missing schema"
-      }
-    ]
+    "summary": "Validation passed with no issues",
+    "issues": []
   },
   "_needs_review": [
     {
