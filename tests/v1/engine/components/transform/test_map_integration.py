@@ -438,3 +438,223 @@ class TestReloadAtEachRowIntegration:
         assert pd.isna(r3.iloc[0]["label"]), (
             f"Expected NaN for unmatched row, got {r3.iloc[0]['label']}"
         )
+
+
+# ------------------------------------------------------------------
+# Tests: CONSTANT_KEY join end-to-end (live bridge)
+# ------------------------------------------------------------------
+
+_CONSTANT_KEY_JSON = (
+    _CONVERTED_JSONS_DIR / "Job_tMap_constant_key_lookup.json"
+)
+_CONSTANT_KEY_EXISTS = _CONSTANT_KEY_JSON.exists()
+
+
+@pytest.mark.java
+@pytest.mark.skipif(
+    not _CONSTANT_KEY_EXISTS,
+    reason="Job_tMap_constant_key_lookup.json not found",
+)
+def test_constant_key_context_source_end_to_end(java_bridge):
+    """Full path: converted JSON -> Map.execute() with live bridge.
+
+    Uses the synthesised fixture committed in Task 6. Verifies that a
+    CONSTANT_KEY join (join expression = context.SOURCE, resolved once before
+    the merge) correctly filters the lookup table and produces output rows.
+    """
+    job_cfg = json.loads(_CONSTANT_KEY_JSON.read_text(encoding="utf-8"))
+    tmap_comp = next(c for c in job_cfg["components"] if c["type"] == "Map")
+
+    main_df = pd.DataFrame({"id": [1, 2, 3], "desc": ["rowA", "rowB", "rowC"]})
+    lookup_df = pd.DataFrame({
+        "name": ["alpha", "beta", "beta", "gamma"],
+        "info": ["A_info", "B_info", "B_info_dup", "G_info"],
+    })
+
+    ctx = ContextManager()
+    ctx.set("SOURCE", "beta")
+    gm = GlobalMap()
+
+    m = Map(
+        component_id=tmap_comp["id"],
+        config=tmap_comp["config"],
+        global_map=gm,
+        context_manager=ctx,
+    )
+    m.java_bridge = java_bridge
+    m.schema_inputs_map = {
+        "row1": [
+            {"name": "id", "type": "int"},
+            {"name": "desc", "type": "str"},
+        ],
+        "row8": [
+            {"name": "name", "type": "str"},
+            {"name": "info", "type": "str"},
+        ],
+    }
+    result = m.execute({"row1": main_df, "row8": lookup_df})
+
+    out = result["out1"]
+    assert len(out) == 3, f"Expected 3 output rows, got {len(out)}"
+    assert list(out["id"]) == [1, 2, 3]
+    # FIRST_MATCH on name=beta -> B_info (first occurrence wins).
+    # Every output row must come from a beta-keyed lookup.
+    assert all(v in {"B_info", "B_info_dup"} for v in out["info"]), (
+        f"Unexpected info values: {list(out['info'])}"
+    )
+
+
+@pytest.mark.java
+def test_constant_key_inner_join_no_match_rejects(java_bridge):
+    """INNER_JOIN with no matching context value -> all main rows rejected."""
+    main_df = pd.DataFrame({"id": [1, 2]})
+    lookup_df = pd.DataFrame({"name": ["alpha"], "info": ["A_info"]})
+
+    cfg = {
+        "inputs": {
+            "main": {"name": "row1"},
+            "lookups": [{
+                "name": "row8",
+                "matching_mode": "FIRST_MATCH",
+                "lookup_mode": "LOAD_ONCE",
+                "join_mode": "INNER_JOIN",
+                "join_keys": [{
+                    "lookup_column": "name",
+                    "expression": "{{java}}context.SOURCE",
+                    "type": "str",
+                }],
+            }],
+        },
+        "variables": [],
+        "outputs": [
+            {
+                "name": "out1",
+                "is_reject": False,
+                "inner_join_reject": False,
+                "columns": [
+                    {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+                    {"name": "info", "expression": "{{java}}row8.info", "type": "str", "nullable": True},
+                ],
+            },
+            {
+                "name": "rej",
+                "is_reject": False,
+                "inner_join_reject": True,
+                "columns": [
+                    {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+                ],
+            },
+        ],
+        "die_on_error": False,
+    }
+
+    ctx = ContextManager()
+    ctx.set("SOURCE", "no_such_name")
+
+    m = Map(
+        component_id="tMap_inner_test",
+        config=cfg,
+        global_map=GlobalMap(),
+        context_manager=ctx,
+    )
+    m.java_bridge = java_bridge
+    m.schema_inputs_map = {
+        "row1": [{"name": "id", "type": "int"}],
+        "row8": [
+            {"name": "name", "type": "str"},
+            {"name": "info", "type": "str"},
+        ],
+    }
+    result = m.execute({"row1": main_df, "row8": lookup_df})
+
+    assert result["out1"].empty, (
+        f"Expected empty out1 for INNER_JOIN with no match, got {len(result['out1'])} rows"
+    )
+    assert len(result["rej"]) == 2, (
+        f"Expected 2 rejected rows, got {len(result['rej'])}"
+    )
+    assert set(result["rej"]["id"]) == {1, 2}
+
+
+@pytest.mark.java
+def test_constant_key_one_bridge_eval_call_for_join(java_bridge, monkeypatch):
+    """Assert join_constant_key triggers exactly ONE batch eval call.
+
+    With 100 main rows, the CONSTANT_KEY path must resolve the join expression
+    once (not once per row). The monkeypatch counts __ck_-prefixed calls to
+    execute_batch_one_time_expressions to verify the single-evaluation invariant.
+    """
+    main_df = pd.DataFrame({"id": list(range(100))})
+    lookup_df = pd.DataFrame({"name": ["beta"], "info": ["B"]})
+
+    cfg = {
+        "inputs": {
+            "main": {"name": "row1"},
+            "lookups": [{
+                "name": "row8",
+                "matching_mode": "FIRST_MATCH",
+                "lookup_mode": "LOAD_ONCE",
+                "join_mode": "LEFT_OUTER_JOIN",
+                "join_keys": [{
+                    "lookup_column": "name",
+                    "expression": "{{java}}context.SOURCE",
+                    "type": "str",
+                }],
+            }],
+        },
+        "variables": [],
+        "outputs": [{
+            "name": "out1",
+            "is_reject": False,
+            "inner_join_reject": False,
+            "columns": [
+                {"name": "id", "expression": "{{java}}row1.id", "type": "int", "nullable": True},
+                {"name": "info", "expression": "{{java}}row8.info", "type": "str", "nullable": True},
+            ],
+        }],
+        "die_on_error": False,
+    }
+
+    ctx = ContextManager()
+    ctx.set("SOURCE", "beta")
+
+    m = Map(
+        component_id="tMap_callcount",
+        config=cfg,
+        global_map=GlobalMap(),
+        context_manager=ctx,
+    )
+    m.java_bridge = java_bridge
+    m.schema_inputs_map = {
+        "row1": [{"name": "id", "type": "int"}],
+        "row8": [
+            {"name": "name", "type": "str"},
+            {"name": "info", "type": "str"},
+        ],
+    }
+
+    # Count ONLY the __ck_-prefixed batch eval calls (the CONSTANT_KEY probe).
+    call_count = {"n": 0}
+    orig = java_bridge.execute_batch_one_time_expressions
+
+    def counting_call(exprs):
+        if any(k.startswith("__ck_") for k in exprs):
+            call_count["n"] += 1
+        return orig(exprs)
+
+    monkeypatch.setattr(
+        java_bridge,
+        "execute_batch_one_time_expressions",
+        counting_call,
+        raising=False,
+    )
+
+    result = m.execute({"row1": main_df, "row8": lookup_df})
+
+    assert call_count["n"] == 1, (
+        f"Expected exactly one batch eval call for the CONSTANT_KEY join "
+        f"(got {call_count['n']})"
+    )
+    assert len(result["out1"]) == 100, (
+        f"Expected 100 output rows, got {len(result['out1'])}"
+    )

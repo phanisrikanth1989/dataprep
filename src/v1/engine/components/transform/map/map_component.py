@@ -167,7 +167,7 @@ class Map(BaseComponent):
                 inner_join_reject_dfs[lk.name] = rejects
             consumed_lookups.append((lk.name, self._lookup_schema(lk.name)))
 
-        if joined_df.empty:
+        if joined_df.empty and not inner_join_reject_dfs:
             return self._create_empty_outputs(cfg)
 
         # 3. Compute joined_df schema (single source of truth for types)
