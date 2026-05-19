@@ -36,19 +36,44 @@ class JoinStrategy(Enum):
     COMPUTED = "computed"
     FILTER_AS_MATCH = "filter_as_match"
     RELOAD = "reload"
+    CONSTANT_KEY = "constant_key"
 
 
-def classify_join_strategy(lk: LookupCfg) -> JoinStrategy:
+def classify_join_strategy(
+    lk: LookupCfg,
+    main_name: str,
+    prior_lookup_names: list[str],
+) -> JoinStrategy:
     """Classify a lookup's join strategy by its config.
 
-    RELOAD takes precedence over key-based classification (RELOAD changes
-    the execution model entirely, regardless of key shape).
+    Decision order (first match wins):
+      1. RELOAD_AT_EACH_ROW lookup mode             -> RELOAD
+      2. No join keys                               -> FILTER_AS_MATCH
+      3. Every key expression is main-row-independent
+         (no main / prior-lookup / Var ref)         -> CONSTANT_KEY
+      4. Every key is `<known_input>.<col>` shape   -> SIMPLE
+      5. otherwise                                  -> COMPUTED
+
+    Args:
+        lk: Lookup config.
+        main_name: Name of the main input flow (e.g. "row1").
+        prior_lookup_names: Names of lookups already joined before this
+            one in the per-lookup loop. Determines which `<table>.<col>`
+            references count as known inputs vs. constants.
     """
     if lk.lookup_mode == "RELOAD_AT_EACH_ROW":
         return JoinStrategy.RELOAD
     if not lk.join_keys:
         return JoinStrategy.FILTER_AS_MATCH
-    if all(_is_simple_col_ref(_strip_marker(jk.expression)) for jk in lk.join_keys):
+    if all(
+        _is_main_row_independent(jk.expression, main_name, prior_lookup_names)
+        for jk in lk.join_keys
+    ):
+        return JoinStrategy.CONSTANT_KEY
+    if all(
+        _is_known_input_col_ref(jk.expression, main_name, prior_lookup_names)
+        for jk in lk.join_keys
+    ):
         return JoinStrategy.SIMPLE
     return JoinStrategy.COMPUTED
 

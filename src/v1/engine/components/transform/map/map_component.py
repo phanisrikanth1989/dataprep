@@ -114,7 +114,11 @@ class Map(BaseComponent):
             if lookup_df is None or lookup_df.empty:
                 consumed_lookups.append((lk.name, self._lookup_schema(lk.name)))
                 continue
-            strategy = classify_join_strategy(lk)
+            strategy = classify_join_strategy(
+                lk,
+                main_name=cfg.main.name,
+                prior_lookup_names=[n for n, _ in consumed_lookups],
+            )
             # Lookup filter is applied here ONLY for strategies where the
             # filter is a pure lookup-side pre-filter (operates on lookup_df
             # alone). Skip for:

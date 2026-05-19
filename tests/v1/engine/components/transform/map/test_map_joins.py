@@ -19,35 +19,86 @@ def _lkup(join_keys=(), activate_filter=False, filter="", lookup_mode="LOAD_ONCE
     )
 
 
-# ===== Task 4.1: classify_join_strategy =====
+# ===== Task 4.1 (updated for CONSTANT_KEY signature change): classify_join_strategy =====
 
 def test_classify_reload_overrides_everything():
     lk = _lkup(lookup_mode="RELOAD_AT_EACH_ROW",
               join_keys=[JoinKeyCfg("k", "{{java}}row1.key", "str")])
-    assert classify_join_strategy(lk) == JoinStrategy.RELOAD
+    assert classify_join_strategy(lk, "row1", []) == JoinStrategy.RELOAD
 
 
 def test_classify_simple_when_all_keys_are_plain_column_refs():
     lk = _lkup(join_keys=[JoinKeyCfg("k", "{{java}}row1.key", "str")])
-    assert classify_join_strategy(lk) == JoinStrategy.SIMPLE
+    assert classify_join_strategy(lk, "row1", []) == JoinStrategy.SIMPLE
 
 
 def test_classify_computed_when_any_key_has_expression():
     lk = _lkup(join_keys=[
         JoinKeyCfg("k", "{{java}}routines.StringHandling.UPCASE(row1.key)", "str"),
     ])
-    assert classify_join_strategy(lk) == JoinStrategy.COMPUTED
+    assert classify_join_strategy(lk, "row1", []) == JoinStrategy.COMPUTED
 
 
 def test_classify_filter_as_match_when_no_keys_and_active_filter():
     lk = _lkup(activate_filter=True, filter="{{java}}row1.a == row2.b")
-    assert classify_join_strategy(lk) == JoinStrategy.FILTER_AS_MATCH
+    assert classify_join_strategy(lk, "row1", []) == JoinStrategy.FILTER_AS_MATCH
 
 
 def test_classify_filter_as_match_when_no_keys_no_filter_pure_cartesian():
     lk = _lkup()
-    # Pure cartesian (no keys, no filter) -- treat as FILTER_AS_MATCH with no filter
-    assert classify_join_strategy(lk) == JoinStrategy.FILTER_AS_MATCH
+    assert classify_join_strategy(lk, "row1", []) == JoinStrategy.FILTER_AS_MATCH
+
+
+def test_classify_constant_key_pure_context_var():
+    lk = _lkup(join_keys=[JoinKeyCfg("name", "{{java}}context.SOURCE", "str")])
+    assert classify_join_strategy(lk, "row1", []) == JoinStrategy.CONSTANT_KEY
+
+
+def test_classify_constant_key_bare_context_var_no_marker():
+    lk = _lkup(join_keys=[JoinKeyCfg("name", "context.SOURCE", "str")])
+    assert classify_join_strategy(lk, "row1", []) == JoinStrategy.CONSTANT_KEY
+
+
+def test_classify_constant_key_global_map():
+    lk = _lkup(join_keys=[JoinKeyCfg("k", "{{java}}globalMap.X", "str")])
+    assert classify_join_strategy(lk, "row1", []) == JoinStrategy.CONSTANT_KEY
+
+
+def test_classify_constant_key_literal_expression():
+    lk = _lkup(join_keys=[JoinKeyCfg("k", '{{java}}"constant"', "str")])
+    assert classify_join_strategy(lk, "row1", []) == JoinStrategy.CONSTANT_KEY
+
+
+def test_classify_constant_key_routine_static_field():
+    lk = _lkup(join_keys=[JoinKeyCfg("k", "{{java}}MyRoutine.CONST", "str")])
+    assert classify_join_strategy(lk, "row1", []) == JoinStrategy.CONSTANT_KEY
+
+
+def test_classify_mixed_constant_and_row_key_routes_to_computed():
+    # one constant key + one row-dependent key: NOT all constant, NOT all simple
+    lk = _lkup(join_keys=[
+        JoinKeyCfg("name", "{{java}}context.SOURCE", "str"),
+        JoinKeyCfg("code", "{{java}}row1.code", "str"),
+    ])
+    assert classify_join_strategy(lk, "row1", []) == JoinStrategy.COMPUTED
+
+
+def test_classify_marker_over_known_input_row_col_stays_simple():
+    # Secondary fix validation: marker presence does NOT force COMPUTED;
+    # the table prefix must be a known input to qualify as SIMPLE.
+    lk = _lkup(join_keys=[JoinKeyCfg("k", "{{java}}row1.k", "str")])
+    assert classify_join_strategy(lk, "row1", []) == JoinStrategy.SIMPLE
+
+
+def test_classify_marker_over_prior_lookup_col_stays_simple():
+    lk = _lkup(join_keys=[JoinKeyCfg("k", "{{java}}row3.k", "str")])
+    assert classify_join_strategy(lk, "row1", ["row3"]) == JoinStrategy.SIMPLE
+
+
+def test_classify_row_ref_in_quoted_string_routes_to_constant_key():
+    # row1.foo appears only inside a quoted string -- it's data, not a ref
+    lk = _lkup(join_keys=[JoinKeyCfg("k", '{{java}}"row1.foo as text"', "str")])
+    assert classify_join_strategy(lk, "row1", []) == JoinStrategy.CONSTANT_KEY
 
 
 # ===== Task 4.2: compute_joined_df_schema =====
