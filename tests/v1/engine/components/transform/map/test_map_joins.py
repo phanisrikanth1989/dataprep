@@ -773,3 +773,64 @@ def test_known_input_col_ref_bare_identifier_returns_false():
 
 def test_known_input_col_ref_empty_string_returns_false():
     assert _is_known_input_col_ref("", "row1", []) is False
+
+
+# ===== CONSTANT_KEY: _is_main_row_independent =====
+
+from src.v1.engine.components.transform.map.map_joins import (
+    _is_main_row_independent,
+)
+
+
+def test_main_row_independent_pure_context_var():
+    assert _is_main_row_independent("{{java}}context.SOURCE", "row1", []) is True
+
+
+def test_main_row_independent_bare_context_var():
+    assert _is_main_row_independent("context.SOURCE", "row1", []) is True
+
+
+def test_main_row_independent_global_map():
+    assert _is_main_row_independent("{{java}}globalMap.X", "row1", []) is True
+
+
+def test_main_row_independent_literal_string():
+    assert _is_main_row_independent('{{java}}"hardcoded"', "row1", []) is True
+
+
+def test_main_row_independent_arithmetic_constant():
+    assert _is_main_row_independent("{{java}}5 + 5", "row1", []) is True
+
+
+def test_main_row_independent_routine_static_field():
+    assert _is_main_row_independent("{{java}}MyRoutine.SOME_CONST", "row1", []) is True
+
+
+def test_main_row_independent_with_main_row_ref_false():
+    assert _is_main_row_independent("{{java}}row1.col", "row1", []) is False
+
+
+def test_main_row_independent_with_prior_lookup_ref_false():
+    assert _is_main_row_independent("{{java}}row3.col", "row1", ["row3"]) is False
+
+
+def test_main_row_independent_with_var_ref_false():
+    # Var.x is the tMap variable table -- treat as row-dependent
+    assert _is_main_row_independent("{{java}}Var.calculated", "row1", []) is False
+
+
+def test_main_row_independent_row_ref_inside_quoted_string_true():
+    # "row1.foo" is a string literal, not a row ref -- expression is constant
+    expr = '{{java}}"row1.foo says hi"'
+    assert _is_main_row_independent(expr, "row1", []) is True
+
+
+def test_main_row_independent_mixed_main_ref_outside_quotes_false():
+    # row1.col reference outside string literal still triggers row-dependence
+    expr = '{{java}}row1.col + "row1.label"'
+    assert _is_main_row_independent(expr, "row1", []) is False
+
+
+def test_main_row_independent_empty_expression_true():
+    # Trivially row-independent; defensive return
+    assert _is_main_row_independent("", "row1", []) is True

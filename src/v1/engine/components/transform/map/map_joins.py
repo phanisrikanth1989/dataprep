@@ -630,6 +630,42 @@ _ROW_REF_PATTERN = re.compile(
 )
 
 
+def _is_main_row_independent(
+    expr: str, main_name: str, prior_lookup_names: list[str],
+) -> bool:
+    """True if expr references no main / prior-lookup / Var column.
+
+    Strips {{java}} marker. Scans for <table>.<col> tokens via
+    _ROW_REF_PATTERN, ignoring any token whose span falls inside a
+    double-quoted string literal. A reference whose <table> is in
+    {main_name, *prior_lookup_names, "Var"} counts as a main-row
+    dependency. Anything else (context.*, globalMap.*, routine refs,
+    literals) is row-independent.
+    """
+    stripped = _strip_marker(expr)
+    if not stripped:
+        return True
+
+    quoted_ranges: list[tuple[int, int]] = []
+    for m in re.finditer(r'"(?:[^"\\]|\\.)*"', stripped):
+        quoted_ranges.append(m.span())
+
+    def _in_quoted(start: int, end: int) -> bool:
+        for qs, qe in quoted_ranges:
+            if start >= qs and end <= qe:
+                return True
+        return False
+
+    row_table_names = {main_name, *prior_lookup_names, "Var"}
+    for m in _ROW_REF_PATTERN.finditer(stripped):
+        if _in_quoted(m.start(), m.end()):
+            continue
+        table = m.group(1)
+        if table in row_table_names:
+            return False
+    return True
+
+
 def _substitute_row_refs(
     expr: str,
     main_row: "pd.Series",
