@@ -497,11 +497,11 @@ def test_constant_key_context_source_end_to_end(java_bridge):
     out = result["out1"]
     assert len(out) == 3, f"Expected 3 output rows, got {len(out)}"
     assert list(out["id"]) == [1, 2, 3]
-    # FIRST_MATCH on name=beta -> B_info (first occurrence wins).
-    # Every output row must come from a beta-keyed lookup.
-    assert all(v in {"B_info", "B_info_dup"} for v in out["info"]), (
-        f"Unexpected info values: {list(out['info'])}"
-    )
+    # FIRST_MATCH dedups the filtered lookup before the broadcast cross-merge:
+    # name=="beta" filters to two rows (B_info, B_info_dup); FIRST_MATCH
+    # keeps the first occurrence (B_info), which is then attached to every
+    # main row.
+    assert list(out["info"]) == ["B_info", "B_info", "B_info"]
 
 
 @pytest.mark.java
@@ -646,7 +646,6 @@ def test_constant_key_one_bridge_eval_call_for_join(java_bridge, monkeypatch):
         java_bridge,
         "execute_batch_one_time_expressions",
         counting_call,
-        raising=False,
     )
 
     result = m.execute({"row1": main_df, "row8": lookup_df})
