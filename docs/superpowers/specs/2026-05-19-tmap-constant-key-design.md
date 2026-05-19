@@ -175,17 +175,30 @@ Decision tree (in order; first match wins):
 2. `not lk.join_keys` → `FILTER_AS_MATCH`
 3. `all(_is_main_row_independent(jk.expression, ...) for jk in lk.join_keys)`
    → `CONSTANT_KEY` ← **new**
-4. `all(not jk.expression.startswith(_JAVA_MARKER) and _is_simple_col_ref(jk.expression) for jk in lk.join_keys)`
-   → `SIMPLE` ← **rule tightened**: marker presence now forbids SIMPLE
+4. `all(_is_known_input_col_ref(jk.expression, main_name, prior_lookup_names) for jk in lk.join_keys)`
+   → `SIMPLE` ← **rule tightened**: the table prefix must be a known input
 5. otherwise → `COMPUTED`
 
-The rule-4 tightening is necessary as a **secondary fix**. Without it,
-a `{{java}}row1.col` (marker over a real column ref) would route to
-SIMPLE — the SIMPLE path then merges on a column named `"row1.col"`
-which may or may not exist depending on whether main is named `row1`.
-Treating the marker as a forcing flag for COMPUTED is the safer
-contract: "if the converter marked it as Java, evaluate it through the
-bridge." This is documented in section §9.2 of the predecessor spec.
+The rule-4 tightening is necessary as a **secondary fix**. The old
+`_is_simple_col_ref` returned True for anything matching the
+`table.col` regex shape — including `context.SOURCE`, which is why
+that lookup was misclassified. The fix is to verify that the *table*
+part matches a real input flow name. `{{java}}row1.col` (with main
+named `row1`) still routes to SIMPLE — preserving the fast pandas
+merge path for the common converter-emitted shape. `{{java}}context.SOURCE`
+is caught at step 3 (CONSTANT_KEY) since `context` is not an input
+name and therefore the expression is main-row-independent.
+
+The new helper has the signature:
+
+```python
+def _is_known_input_col_ref(
+    expr: str, main_name: str, prior_lookup_names: list[str],
+) -> bool:
+    """True if expr (after {{java}} strip) is `<table>.<col>` where
+    <table> is in {main_name, *prior_lookup_names}.
+    """
+```
 
 ### 5.3 Caller update
 
@@ -347,8 +360,12 @@ file from rewrite). New tests:
   `CONSTANT_KEY`
 - `test_classify_constant_key_mixed_keys_routes_to_computed` — one
   constant key + one `row1.col` key → `COMPUTED`
-- `test_classify_marker_over_row_col_routes_to_computed` — secondary fix
-  validation: `{{java}}row1.col` → `COMPUTED`, not `SIMPLE`
+- `test_classify_marker_over_known_input_row_col_stays_simple` —
+  secondary fix validation: `{{java}}row1.col` with main `row1`
+  → `SIMPLE` (preserved fast path)
+- `test_classify_marker_over_unknown_table_routes_to_constant_key` —
+  `{{java}}context.SOURCE` (when `context` is not an input) →
+  `CONSTANT_KEY`
 - `test_classify_main_row_dep_in_quoted_string_still_constant` — expr
   `"row1.foo"` (literal string containing what looks like a row ref) →
   `CONSTANT_KEY` (quote-awareness)
@@ -447,7 +464,7 @@ only point requiring user confirmation; flagged in §6.
 
 | File | Change |
 |---|---|
-| `src/v1/engine/components/transform/map/map_joins.py` | Add `_is_main_row_independent`, `JoinStrategy.CONSTANT_KEY`, `join_constant_key`; update `classify_join_strategy` signature + rule 4 marker tightening |
+| `src/v1/engine/components/transform/map/map_joins.py` | Add `_is_main_row_independent`, `_is_known_input_col_ref`, `JoinStrategy.CONSTANT_KEY`, `join_constant_key`; update `classify_join_strategy` signature; replace `_is_simple_col_ref` usage with `_is_known_input_col_ref` in the classifier (the regex constant is still used by the simple-merge fallback inside `join_simple_equality`) |
 | `src/v1/engine/components/transform/map/map_component.py` | Update `classify_join_strategy` call site + new dispatch branch + wire `constant_eval_fn` closure |
 | `tests/v1/engine/components/transform/map/test_map_joins.py` | New unit tests (§9.1) |
 | `tests/v1/engine/components/transform/map/test_map_integration.py` | New integration tests (§9.2) |
