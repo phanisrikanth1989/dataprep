@@ -129,63 +129,75 @@ INFO:src.v1.engine.components.transform.map.map_component:[tMap_1] lookup 'row8'
 ### 5.2 `__errors__` surfacing (WARNING + INFO + DEBUG)
 
 **Location:** `Map._process` in `map_component.py`, immediately after
-`errors_df = active_raw.pop("__errors__", None)` at line 201, **before**
-the call to `route_rejects`.
+`errors_df = active_raw.pop("__errors__", None)`, **before** the call to
+`route_rejects`.
 
-**Three log statements, only emitted when `errors_df` carries non-zero
-count:**
+**The `__errors__` contract** — the Java bridge
+(`src/v1/java_bridge/java/.../JavaBridge.java:866-916`) emits
+`__errors__` as a structured Arrow batch with the fixed schema
+`(rowIndex: int, errorMessage: str, errorStackTrace: str)`. The Python
+bridge materialises Arrow batches as `pd.DataFrame`. So `errors_df` is
+either `None` (no errors) or a DataFrame with those three columns.
+`route_rejects` (`map_reject_routing.py:79-150`) consumes the same
+DataFrame to populate `catch_output_reject` outputs. The surfacing
+block MUST read DataFrame columns — NOT dict keys.
+
+**Three log statements, only emitted when `errors_df` is a non-empty
+DataFrame:**
 
 ```python
-if errors_df is not None:
-    err_count = int(errors_df.get("count", 0))
-    if err_count > 0:
-        total_rows = len(joined_df)
-        messages = errors_df.get("messages") or {}
-        stack_traces = errors_df.get("stackTraces") or {}
+if isinstance(errors_df, pd.DataFrame) and not errors_df.empty:
+    err_count = len(errors_df)
+    total_rows = len(joined_df)
+    head = errors_df.head(3)
+    samples = " | ".join(
+        f"row {int(r['rowIndex'])}: {r['errorMessage']}"
+        for _, r in head.iterrows()
+    )
+    pct = (100.0 * err_count / total_rows) if total_rows else 0.0
 
-        # Indices are dict keys; sort numerically and take first 3
-        sorted_indices = sorted(messages.keys())[:3]
-        samples = " | ".join(
-            f"row {idx}: {messages[idx]}" for idx in sorted_indices
+    # WARNING -- always visible at default log levels
+    logger.warning(
+        "[%s] active script captured %d/%d rows in __errors__ "
+        "(%.1f%%) -- first 3: %s",
+        self.id, err_count, total_rows, pct, samples,
+    )
+
+    # INFO -- where the rows get routed
+    catch_outputs = [o.name for o in cfg.outputs if o.catch_output_reject]
+    if catch_outputs:
+        logger.info(
+            "[%s] __errors__ rows routed to catch_output_reject output(s): %s",
+            self.id, ", ".join(catch_outputs),
         )
-        pct = (100.0 * err_count / total_rows) if total_rows else 0.0
-
-        # WARNING -- always visible at default log levels
-        logger.warning(
-            "[%s] active script captured %d/%d rows in __errors__ "
-            "(%.1f%%) -- first 3: %s",
-            self.id, err_count, total_rows, pct, samples,
+    else:
+        logger.info(
+            "[%s] __errors__ rows discarded "
+            "(no catch_output_reject output configured)",
+            self.id,
         )
 
-        # INFO -- where the rows get routed
-        catch_outputs = [o.name for o in cfg.outputs if o.catch_output_reject]
-        if catch_outputs:
-            logger.info(
-                "[%s] __errors__ rows routed to catch_output_reject output(s): %s",
-                self.id, ", ".join(catch_outputs),
-            )
-        else:
-            logger.info(
-                "[%s] __errors__ rows discarded "
-                "(no catch_output_reject output configured)",
-                self.id,
-            )
-
-        # DEBUG -- full stack traces for first 3
-        for idx in sorted_indices:
-            logger.debug(
-                "[%s] stackTrace for row %d:\n%s",
-                self.id, idx, stack_traces.get(idx, "<no stack>"),
-            )
+    # DEBUG -- full stack traces for first 3
+    for _, r in head.iterrows():
+        logger.debug(
+            "[%s] stackTrace for row %d:\n%s",
+            self.id, int(r["rowIndex"]),
+            r["errorStackTrace"] if r["errorStackTrace"] else "<no stack>",
+        )
 ```
 
-**Sample count is fixed at 3.** Bridge returns indices as int keys (per
-the Arrow-emitted `Map<Integer, String>` -> Py4J -> Python dict
-mapping). The sort is well-defined.
+**Sample count is fixed at 3** via `errors_df.head(3)`.
 
-**Stack-trace fallback string** is `<no stack>` (ASCII) when an index
-has a message but no stack trace -- guards against unexpected bridge
-shapes.
+**Empty stack trace** renders as `<no stack>` (ASCII) when the Java
+side emitted an empty string for that row.
+
+**Test stub contract:** unit-test stubs MUST return a `pd.DataFrame`
+with columns `rowIndex / errorMessage / errorStackTrace`, mirroring
+the real bridge shape. Returning a `dict` (e.g.
+`{"count": ..., "messages": ...}`) does NOT match production and
+produces false-confidence test runs. Per project convention
+(`feedback_test_real_bridge`), at least one `@pytest.mark.java`
+integration test must exercise the live bridge to lock the contract.
 
 ### 5.3 Main filter row-count change (INFO)
 
