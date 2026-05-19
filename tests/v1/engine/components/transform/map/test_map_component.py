@@ -293,3 +293,115 @@ def _make_stub_bridge_for_constant_key():
         "__ck_0__": "beta",
     }
     return bridge
+
+
+# ===== Debug logging: per-lookup join trace =====
+
+import logging as _logging
+
+
+def _logger_name():
+    return "src.v1.engine.components.transform.map.map_component"
+
+
+def test_log_lookup_join_before_and_after_pair(caplog):
+    """Each lookup join emits exactly two INFO records: before and after."""
+    from src.v1.engine.components.transform.map.map_component import Map
+
+    config = {
+        "label": "tMap_1",
+        "die_on_error": False,
+        "inputs": {
+            "main": {"name": "row1"},
+            "lookups": [{
+                "name": "row8",
+                "matching_mode": "FIRST_MATCH",
+                "lookup_mode": "LOAD_ONCE",
+                "join_mode": "LEFT_OUTER_JOIN",
+                "join_keys": [{
+                    "lookup_column": "name",
+                    "expression": "{{java}}context.SOURCE",
+                    "type": "str",
+                }],
+            }],
+        },
+        "outputs": [{
+            "name": "out1",
+            "columns": [
+                {"name": "id", "expression": "row1.id", "type": "id_Integer"},
+                {"name": "info", "expression": "row8.info", "type": "id_String"},
+            ],
+        }],
+    }
+    main_df = pd.DataFrame({"id": [1, 2]})
+    lookup_df = pd.DataFrame({"name": ["beta"], "info": ["B"]})
+
+    m = Map(component_id="tMap_1", config=config)
+    m._fresh_config()
+    m.java_bridge = _make_stub_bridge_for_constant_key()
+    m._validate_config()
+
+    with caplog.at_level(_logging.INFO, logger=_logger_name()):
+        m._process({"row1": main_df, "row8": lookup_df})
+
+    msgs = [r.getMessage() for r in caplog.records if r.name == _logger_name()]
+    before = [m for m in msgs if "lookup 'row8' strategy=" in m]
+    after = [m for m in msgs if "lookup 'row8' joined: result_rows=" in m]
+    assert len(before) == 1, f"Expected one before-join INFO record, got {before}"
+    assert len(after) == 1, f"Expected one after-join INFO record, got {after}"
+    # Before line carries the configured shape
+    assert "[tMap_1]" in before[0]
+    assert "match=FIRST_MATCH" in before[0]
+    assert "join=LEFT_OUTER_JOIN" in before[0]
+    assert "keys=[name <= {{java}}context.SOURCE]" in before[0]
+    assert "main_rows=2" in before[0]
+    assert "lookup_rows=1" in before[0]
+    assert "filter_active=False" in before[0]
+    # After line carries the result counts and elapsed
+    assert "[tMap_1]" in after[0]
+    assert "rejects=0" in after[0]
+    assert "elapsed=" in after[0]
+
+
+def test_log_lookup_join_strategy_value_appears(caplog):
+    """The strategy enum value appears in the before-join line."""
+    from src.v1.engine.components.transform.map.map_component import Map
+
+    # Same shape as the previous test: context.SOURCE -> CONSTANT_KEY
+    config = {
+        "label": "tMap_strat",
+        "die_on_error": False,
+        "inputs": {
+            "main": {"name": "row1"},
+            "lookups": [{
+                "name": "row8",
+                "matching_mode": "FIRST_MATCH",
+                "lookup_mode": "LOAD_ONCE",
+                "join_mode": "LEFT_OUTER_JOIN",
+                "join_keys": [{
+                    "lookup_column": "name",
+                    "expression": "{{java}}context.SOURCE",
+                    "type": "str",
+                }],
+            }],
+        },
+        "outputs": [{
+            "name": "out1",
+            "columns": [
+                {"name": "id", "expression": "row1.id", "type": "id_Integer"},
+            ],
+        }],
+    }
+    m = Map(component_id="tMap_strat", config=config)
+    m._fresh_config()
+    m.java_bridge = _make_stub_bridge_for_constant_key()
+    m._validate_config()
+
+    with caplog.at_level(_logging.INFO, logger=_logger_name()):
+        m._process({
+            "row1": pd.DataFrame({"id": [1]}),
+            "row8": pd.DataFrame({"name": ["beta"], "info": ["B"]}),
+        })
+
+    msgs = [r.getMessage() for r in caplog.records if r.name == _logger_name()]
+    assert any("strategy=constant_key" in m for m in msgs)

@@ -7,6 +7,8 @@ the full data flow.
 from __future__ import annotations
 
 import copy
+import logging
+import time
 from typing import Any, Optional
 
 import pandas as pd
@@ -16,6 +18,9 @@ from src.v1.engine.component_registry import REGISTRY
 from src.v1.engine.exceptions import ComponentExecutionError, ConfigurationError
 
 from .map_config import MapConfig, parse_config, validate_config, has_any_java_marker
+
+
+logger = logging.getLogger(__name__)
 
 
 @REGISTRY.register("Map", "tMap")
@@ -134,6 +139,18 @@ class Map(BaseComponent):
                     self._bridge_eval_fn(), cfg.main.name,
                     [n for n, _ in consumed_lookups],
                 )
+            logger.info(
+                "[%s] lookup '%s' strategy=%s match=%s join=%s keys=[%s] "
+                "main_rows=%d lookup_rows=%d filter_active=%s",
+                self.id, lk.name, strategy.value, lk.matching_mode,
+                lk.join_mode,
+                ", ".join(
+                    f"{jk.lookup_column} <= {jk.expression}"
+                    for jk in lk.join_keys
+                ),
+                len(joined_df), len(lookup_df), lk.activate_filter,
+            )
+            start = time.perf_counter()
             if strategy == JoinStrategy.SIMPLE:
                 joined_df, rejects = join_simple_equality(joined_df, lookup_df, lk)
             elif strategy == JoinStrategy.CONSTANT_KEY:
@@ -163,6 +180,13 @@ class Map(BaseComponent):
                     bridge_eval_fn=self._bridge_eval_fn(),
                     main_name=cfg.main.name,
                 )
+            elapsed = time.perf_counter() - start
+            logger.info(
+                "[%s] lookup '%s' joined: result_rows=%d rejects=%d elapsed=%.3fs",
+                self.id, lk.name, len(joined_df),
+                0 if rejects is None else len(rejects),
+                elapsed,
+            )
             if rejects is not None and not rejects.empty:
                 inner_join_reject_dfs[lk.name] = rejects
             consumed_lookups.append((lk.name, self._lookup_schema(lk.name)))
