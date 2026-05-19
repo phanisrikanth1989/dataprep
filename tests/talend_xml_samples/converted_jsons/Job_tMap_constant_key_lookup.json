@@ -1,0 +1,467 @@
+{
+  "job_name": "Job_tMap_constant_key_lookup",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {
+      "SOURCE": {
+        "value": "beta",
+        "type": "str"
+      }
+    }
+  },
+  "components": [
+    {
+      "id": "tFixedFlowInput_1",
+      "type": "FixedFlowInputComponent",
+      "original_type": "tFixedFlowInput",
+      "position": {
+        "x": 100,
+        "y": 100
+      },
+      "config": {
+        "nb_rows": 3,
+        "use_singlemode": false,
+        "use_intable": false,
+        "use_inlinecontent": true,
+        "row_separator": "\\n",
+        "field_separator": ";",
+        "inline_content": "1;rowA\r\n2;rowB\r\n3;rowC",
+        "values_config": [
+          {
+            "schema_column": "id",
+            "value": ""
+          },
+          {
+            "schema_column": "desc",
+            "value": ""
+          }
+        ],
+        "intable": [
+          {
+            "element_ref": "id",
+            "value": "newLine"
+          },
+          {
+            "element_ref": "desc",
+            "value": ""
+          }
+        ],
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {
+            "name": "id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "desc",
+            "type": "str",
+            "nullable": true,
+            "key": false,
+            "length": 50
+          }
+        ]
+      },
+      "inputs": [],
+      "outputs": [
+        "row1"
+      ]
+    },
+    {
+      "id": "tFixedFlowInput_2",
+      "type": "FixedFlowInputComponent",
+      "original_type": "tFixedFlowInput",
+      "position": {
+        "x": 100,
+        "y": 300
+      },
+      "config": {
+        "nb_rows": 4,
+        "use_singlemode": false,
+        "use_intable": false,
+        "use_inlinecontent": true,
+        "row_separator": "\\n",
+        "field_separator": ";",
+        "inline_content": "alpha;A_info\r\nbeta;B_info\r\nbeta;B_info_dup\r\ngamma;G_info",
+        "values_config": [
+          {
+            "schema_column": "name",
+            "value": ""
+          },
+          {
+            "schema_column": "info",
+            "value": ""
+          }
+        ],
+        "intable": [
+          {
+            "element_ref": "name",
+            "value": "newLine"
+          },
+          {
+            "element_ref": "info",
+            "value": ""
+          }
+        ],
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {
+            "name": "name",
+            "type": "str",
+            "nullable": true,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "info",
+            "type": "str",
+            "nullable": true,
+            "key": false,
+            "length": 100
+          }
+        ]
+      },
+      "inputs": [],
+      "outputs": [
+        "row8"
+      ]
+    },
+    {
+      "id": "tMap_1",
+      "type": "Map",
+      "original_type": "tMap",
+      "position": {
+        "x": 300,
+        "y": 100
+      },
+      "config": {
+        "inputs": {
+          "main": {
+            "name": "row1",
+            "filter": "",
+            "activate_filter": false,
+            "matching_mode": "UNIQUE_MATCH",
+            "lookup_mode": "LOAD_ONCE",
+            "size_state": "INTERMEDIATE",
+            "persistent": false,
+            "activate_condensed_tool": false,
+            "activate_global_map": false
+          },
+          "lookups": [
+            {
+              "name": "row8",
+              "matching_mode": "FIRST_MATCH",
+              "lookup_mode": "LOAD_ONCE",
+              "filter": "",
+              "activate_filter": false,
+              "join_keys": [
+                {
+                  "lookup_column": "name",
+                  "expression": "{{java}}context.SOURCE",
+                  "type": "str",
+                  "nullable": true,
+                  "operator": "="
+                }
+              ],
+              "join_mode": "LEFT_OUTER_JOIN",
+              "size_state": "INTERMEDIATE",
+              "persistent": false,
+              "activate_condensed_tool": true,
+              "activate_global_map": false
+            }
+          ]
+        },
+        "variables": [],
+        "outputs": [
+          {
+            "name": "out1",
+            "is_reject": false,
+            "inner_join_reject": false,
+            "filter": "",
+            "activate_filter": false,
+            "columns": [
+              {
+                "name": "id",
+                "expression": "{{java}}row1.id",
+                "type": "int",
+                "nullable": true,
+                "operator": "",
+                "length": -1,
+                "precision": -1,
+                "pattern": ""
+              },
+              {
+                "name": "desc",
+                "expression": "{{java}}row1.desc",
+                "type": "str",
+                "nullable": true,
+                "operator": "",
+                "length": -1,
+                "precision": -1,
+                "pattern": ""
+              },
+              {
+                "name": "info",
+                "expression": "{{java}}row8.info",
+                "type": "str",
+                "nullable": true,
+                "operator": "",
+                "length": -1,
+                "precision": -1,
+                "pattern": ""
+              }
+            ],
+            "size_state": "INTERMEDIATE",
+            "catch_output_reject": false,
+            "activate_global_map": false
+          }
+        ],
+        "die_on_error": true,
+        "rows_buffer_size": "2000000",
+        "change_hash_and_equals_for_bigdecimal": true,
+        "enable_auto_convert_type": false,
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {},
+      "inputs": [
+        "row1",
+        "row8"
+      ],
+      "outputs": [
+        "out1"
+      ]
+    },
+    {
+      "id": "tLogRow_1",
+      "type": "LogRow",
+      "original_type": "tLogRow",
+      "position": {
+        "x": 500,
+        "y": 100
+      },
+      "config": {
+        "basic_mode": false,
+        "table_print": false,
+        "vertical": false,
+        "print_unique": true,
+        "print_label": false,
+        "print_unique_label": false,
+        "print_header": false,
+        "print_unique_name": false,
+        "print_colnames": false,
+        "use_fixed_length": false,
+        "print_content_with_log4j": true,
+        "fieldseparator": "|",
+        "lengths": [
+          10,
+          10,
+          10,
+          10,
+          10,
+          10
+        ],
+        "tstatcatcher_stats": false,
+        "label": "output"
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "desc",
+            "type": "str",
+            "nullable": true,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "info",
+            "type": "str",
+            "nullable": true,
+            "key": false,
+            "length": 100
+          }
+        ],
+        "output": [
+          {
+            "name": "id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "desc",
+            "type": "str",
+            "nullable": true,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "info",
+            "type": "str",
+            "nullable": true,
+            "key": false,
+            "length": 100
+          }
+        ]
+      },
+      "inputs": [
+        "out1"
+      ],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {
+      "name": "row1",
+      "from": "tFixedFlowInput_1",
+      "to": "tMap_1",
+      "type": "flow"
+    },
+    {
+      "name": "row8",
+      "from": "tFixedFlowInput_2",
+      "to": "tMap_1",
+      "type": "flow"
+    },
+    {
+      "name": "out1",
+      "from": "tMap_1",
+      "to": "tLogRow_1",
+      "type": "flow"
+    }
+  ],
+  "triggers": [],
+  "subjobs": {
+    "subjob_1": [
+      "tFixedFlowInput_1",
+      "tMap_1",
+      "tLogRow_1",
+      "tFixedFlowInput_2"
+    ]
+  },
+  "java_config": {
+    "enabled": true,
+    "routines": [
+      "routines.DataOperation",
+      "routines.Mathematical",
+      "routines.Numeric",
+      "routines.Relational",
+      "routines.StringHandling",
+      "routines.TalendDataGenerator",
+      "routines.TalendDate",
+      "routines.TalendStringUtil",
+      "routines.TalendString"
+    ],
+    "libraries": []
+  },
+  "_validation": {
+    "valid": true,
+    "summary": "Validation: 1 warning(s)",
+    "issues": [
+      {
+        "severity": "warning",
+        "component_id": "tMap_1",
+        "field": "schema",
+        "message": "Component 'tMap_1' has missing schema"
+      }
+    ]
+  },
+  "_needs_review": [
+    {
+      "issue": "Engine reads 'die_on_error' config key but DIE_ON_ERROR is not in _java.xml -- engine default (True) applies without converter extraction",
+      "component": "tFixedFlowInput_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine reads 'die_on_error' config key but DIE_ON_ERROR is not in _java.xml -- engine default (True) applies without converter extraction",
+      "component": "tFixedFlowInput_2",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'rows_buffer_size' config key -- Engine does not read 'rows_buffer_size' -- no disk buffering support",
+      "component": "tMap_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'change_hash_and_equals_for_bigdecimal' config key -- Engine does not handle BigDecimal hash/equals behavior",
+      "component": "tMap_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'vertical' config key -- engine only checks basic_mode and table_print for display mode",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_label' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique_label' config key -- engine does not implement vertical title group selection",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_unique_name' config key -- engine does not read unique name printing option",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_colnames' config key -- engine does not read column name printing option",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'use_fixed_length' config key -- engine does not implement fixed-width formatting",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'lengths' config key -- engine does not implement fixed-width column lengths",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'print_content_with_log4j' config key -- engine does not implement Log4J output routing",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'basic_mode' is False but Talend default is True -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'table_print' is True but Talend default is False -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine default for 'print_header' is True but Talend default is False -- when converter emits the Talend default, engine behavior matches; but if the config key is stripped, engine falls back to wrong default",
+      "component": "tLogRow_1",
+      "severity": "engine_gap"
+    }
+  ]
+}
