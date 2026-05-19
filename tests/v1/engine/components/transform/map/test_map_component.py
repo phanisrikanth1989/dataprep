@@ -655,3 +655,205 @@ def test_log_compile_reject_script(caplog):
         "[tMap_rej_compile] compiling reject script (1 outputs)" in msg
         for msg in msgs
     )
+
+
+# ===== Debug logging: __errors__ surfacing =====
+
+
+def _make_errors_bridge(err_count, messages, stack_traces=None, total_rows=2):
+    """Stub bridge whose active execute returns a populated __errors__ dict."""
+    from unittest.mock import MagicMock
+    bridge = MagicMock()
+    bridge.compile_tmap_script.return_value = None
+    stack_traces = stack_traces or {}
+
+    def fake_chunked(component_id, df, chunk_size, input_columns,
+                    schema, reject_mode):
+        return {
+            "out1": pd.DataFrame({"id": list(range(total_rows))}),
+            "__errors__": {
+                "count": err_count,
+                "indices": list(messages.keys()),
+                "messages": messages,
+                "stackTraces": stack_traces,
+            },
+        }
+    bridge.execute_compiled_tmap_chunked.side_effect = fake_chunked
+    bridge.execute_batch_one_time_expressions.return_value = {}
+    return bridge
+
+
+def _base_errors_config(label="tMap_err", with_catch_output=False):
+    outputs = [{
+        "name": "out1",
+        "columns": [
+            {"name": "id", "expression": "row1.id", "type": "id_Integer"},
+        ],
+    }]
+    if with_catch_output:
+        outputs.append({
+            "name": "rej",
+            "catch_output_reject": True,
+            "columns": [
+                {"name": "id", "expression": "row1.id", "type": "id_Integer"},
+            ],
+        })
+    return {
+        "label": label,
+        "die_on_error": False,
+        "inputs": {"main": {"name": "row1"}, "lookups": []},
+        "outputs": outputs,
+    }
+
+
+def test_log_errors_warning_when_active_script_captures_errors(caplog):
+    """__errors__ count > 0 -> WARNING with count, percent, and first 3 messages."""
+    from src.v1.engine.components.transform.map.map_component import Map
+
+    config = _base_errors_config(label="tMap_err1")
+    messages = {0: "msg0", 1: "msg1", 2: "msg2", 3: "msg3"}
+
+    m = Map(component_id="tMap_err1", config=config)
+    m._fresh_config()
+    m.java_bridge = _make_errors_bridge(
+        err_count=4, messages=messages, total_rows=4,
+    )
+    m._validate_config()
+
+    with caplog.at_level(_logging.WARNING, logger=_logger_name()):
+        m._process({"row1": pd.DataFrame({"id": [0, 1, 2, 3]})})
+
+    warn_msgs = [
+        r.getMessage() for r in caplog.records
+        if r.name == _logger_name() and r.levelno == _logging.WARNING
+    ]
+    assert len(warn_msgs) == 1, f"Expected 1 WARN record, got {warn_msgs}"
+    m_text = warn_msgs[0]
+    assert "[tMap_err1]" in m_text
+    assert "captured 4/4 rows in __errors__" in m_text
+    assert "(100.0%)" in m_text
+    assert "first 3:" in m_text
+    assert "row 0: msg0" in m_text
+    assert "row 1: msg1" in m_text
+    assert "row 2: msg2" in m_text
+    # row 3 must NOT appear -- only first 3 shown
+    assert "row 3:" not in m_text
+
+
+def test_log_errors_routing_with_catch_output(caplog):
+    """When catch_output_reject is configured, INFO routing line names it."""
+    from src.v1.engine.components.transform.map.map_component import Map
+
+    config = _base_errors_config(label="tMap_err2", with_catch_output=True)
+    messages = {0: "msg0"}
+
+    m = Map(component_id="tMap_err2", config=config)
+    m._fresh_config()
+    m.java_bridge = _make_errors_bridge(
+        err_count=1, messages=messages, total_rows=1,
+    )
+    m._validate_config()
+
+    with caplog.at_level(_logging.INFO, logger=_logger_name()):
+        m._process({"row1": pd.DataFrame({"id": [0]})})
+
+    info_msgs = [
+        r.getMessage() for r in caplog.records
+        if r.name == _logger_name() and r.levelno == _logging.INFO
+    ]
+    assert any(
+        "[tMap_err2] __errors__ rows routed to catch_output_reject output(s): rej"
+        in msg for msg in info_msgs
+    )
+
+
+def test_log_errors_routing_without_catch_output(caplog):
+    """When no catch_output_reject is configured, INFO routing line says discarded."""
+    from src.v1.engine.components.transform.map.map_component import Map
+
+    config = _base_errors_config(label="tMap_err3", with_catch_output=False)
+    messages = {0: "msg0"}
+
+    m = Map(component_id="tMap_err3", config=config)
+    m._fresh_config()
+    m.java_bridge = _make_errors_bridge(
+        err_count=1, messages=messages, total_rows=1,
+    )
+    m._validate_config()
+
+    with caplog.at_level(_logging.INFO, logger=_logger_name()):
+        m._process({"row1": pd.DataFrame({"id": [0]})})
+
+    info_msgs = [
+        r.getMessage() for r in caplog.records
+        if r.name == _logger_name() and r.levelno == _logging.INFO
+    ]
+    assert any(
+        "[tMap_err3] __errors__ rows discarded "
+        "(no catch_output_reject output configured)" in msg
+        for msg in info_msgs
+    )
+
+
+def test_log_errors_debug_stack_traces(caplog):
+    """At DEBUG level, full stack trace for first 3 rows is logged."""
+    from src.v1.engine.components.transform.map.map_component import Map
+
+    config = _base_errors_config(label="tMap_err4")
+    messages = {0: "msg0", 1: "msg1", 2: "msg2", 3: "msg3"}
+    stack_traces = {
+        0: "stack-row-0\n  at Script1.run(Script1.groovy:42)",
+        1: "stack-row-1",
+        2: "stack-row-2",
+        3: "stack-row-3",
+    }
+
+    m = Map(component_id="tMap_err4", config=config)
+    m._fresh_config()
+    m.java_bridge = _make_errors_bridge(
+        err_count=4, messages=messages, stack_traces=stack_traces, total_rows=4,
+    )
+    m._validate_config()
+
+    with caplog.at_level(_logging.DEBUG, logger=_logger_name()):
+        m._process({"row1": pd.DataFrame({"id": [0, 1, 2, 3]})})
+
+    debug_msgs = [
+        r.getMessage() for r in caplog.records
+        if r.name == _logger_name() and r.levelno == _logging.DEBUG
+    ]
+    # Exactly 3 debug stackTrace records, one per first-3 index
+    stack_msgs = [m for m in debug_msgs if "stackTrace for row" in m]
+    assert len(stack_msgs) == 3
+    assert any("stackTrace for row 0:" in m and "stack-row-0" in m for m in stack_msgs)
+    assert any("stackTrace for row 1:" in m and "stack-row-1" in m for m in stack_msgs)
+    assert any("stackTrace for row 2:" in m and "stack-row-2" in m for m in stack_msgs)
+    assert all("stackTrace for row 3:" not in m for m in stack_msgs)
+
+
+def test_no_error_log_when_errors_count_zero(caplog):
+    """When __errors__ is absent OR count=0, no WARN/INFO/DEBUG error log fires."""
+    from src.v1.engine.components.transform.map.map_component import Map
+
+    config = _base_errors_config(label="tMap_err5")
+    # Stub bridge whose response has NO __errors__ key at all
+    from unittest.mock import MagicMock
+    bridge = MagicMock()
+    bridge.compile_tmap_script.return_value = None
+    bridge.execute_compiled_tmap_chunked.side_effect = (
+        lambda **kw: {"out1": pd.DataFrame({"id": [0]})}
+    )
+    bridge.execute_batch_one_time_expressions.return_value = {}
+
+    m = Map(component_id="tMap_err5", config=config)
+    m._fresh_config()
+    m.java_bridge = bridge
+    m._validate_config()
+
+    with caplog.at_level(_logging.DEBUG, logger=_logger_name()):
+        m._process({"row1": pd.DataFrame({"id": [0]})})
+
+    msgs = [r.getMessage() for r in caplog.records if r.name == _logger_name()]
+    # No __errors__-specific logs
+    assert not any("__errors__" in m for m in msgs)
+    assert not any("stackTrace for row" in m for m in msgs)

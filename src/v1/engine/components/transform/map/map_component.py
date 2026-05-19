@@ -249,6 +249,48 @@ class Map(BaseComponent):
         )
         errors_df = active_raw.pop("__errors__", None)
 
+        if errors_df is not None:
+            err_count = int(errors_df.get("count", 0))
+            if err_count > 0:
+                total_rows = len(joined_df)
+                messages = errors_df.get("messages") or {}
+                stack_traces = errors_df.get("stackTraces") or {}
+                sorted_indices = sorted(messages.keys())[:3]
+                samples = " | ".join(
+                    f"row {idx}: {messages[idx]}" for idx in sorted_indices
+                )
+                pct = (100.0 * err_count / total_rows) if total_rows else 0.0
+                logger.warning(
+                    "[%s] active script captured %d/%d rows in __errors__ "
+                    "(%.1f%%) -- first 3: %s",
+                    self.id, err_count, total_rows, pct, samples,
+                )
+                catch_outputs = [
+                    o.name for o in cfg.outputs if o.catch_output_reject
+                ]
+                if catch_outputs:
+                    logger.info(
+                        "[%s] __errors__ rows routed to catch_output_reject "
+                        "output(s): %s",
+                        self.id, ", ".join(catch_outputs),
+                    )
+                else:
+                    logger.info(
+                        "[%s] __errors__ rows discarded "
+                        "(no catch_output_reject output configured)",
+                        self.id,
+                    )
+                for idx in sorted_indices:
+                    logger.debug(
+                        "[%s] stackTrace for row %d:\n%s",
+                        self.id, idx, stack_traces.get(idx, "<no stack>"),
+                    )
+
+        # Normalise: route_rejects expects a DataFrame or None; guard against
+        # dict-format __errors__ returned by test stubs or future bridge changes.
+        if not isinstance(errors_df, pd.DataFrame):
+            errors_df = None
+
         # 5. Reject pass (only if any inner_join_reject configured AND there are rejects to route)
         reject_raw: dict = {}
         has_inner_reject_outputs = any(o.inner_join_reject for o in cfg.outputs)
