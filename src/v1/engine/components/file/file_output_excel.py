@@ -204,7 +204,7 @@ class FileOutputExcel(BaseComponent):
             rows = []
             column_names = []
 
-            if hasattr(main_data, 'iterrows'):  # It's a pandas DataFrame
+            if isinstance(main_data, pd.DataFrame):  # It's a pandas DataFrame
                 rows_in = len(main_data)
                 logger.info(f"[{self.id}] Converting DataFrame with {rows_in} rows to records")
 
@@ -217,8 +217,8 @@ class FileOutputExcel(BaseComponent):
                 if _input_schema:
                     column_names = [col_def['name'] for col_def in _input_schema]
                     logger.debug(f"[{self.id}] Using input schema column order: {column_names}")
-                elif self.output_schema:
-                    column_names = [col_def['name'] for col_def in self.output_schema]
+                elif getattr(self, "output_schema", None):
+                    column_names = [col_def['name'] for col_def in self.output_schema]  # type: ignore[attr-defined]
                     logger.debug(f"[{self.id}] Using output schema column order: {column_names}")
                 else:
                     # PRIORITY 3: Fall back to DataFrame column order
@@ -246,8 +246,8 @@ class FileOutputExcel(BaseComponent):
                 if _input_schema:
                     column_names = [col_def['name'] for col_def in _input_schema]
                     logger.debug(f"[{self.id}] Using input schema column order for list data: {column_names}")
-                elif self.output_schema:
-                    column_names = [col_def['name'] for col_def in self.output_schema]
+                elif getattr(self, "output_schema", None):
+                    column_names = [col_def['name'] for col_def in self.output_schema]  # type: ignore[attr-defined]
                     logger.debug(f"[{self.id}] Using output schema column order for list data: {column_names}")
                 else:
                     column_names = list(rows[0].keys()) if rows else []
@@ -320,9 +320,17 @@ class FileOutputExcel(BaseComponent):
             col_formats = self._build_col_formats()
 
             def _clean_val(value):
-                """Convert NaN/NaT to None so openpyxl writes blank cells (not 'nan' strings)."""
+                """Convert NaN/NaT to None so openpyxl writes blank cells (not 'nan' strings).
+
+                Also converts ``decimal.Decimal`` (Arrow BigDecimal with scale-18) to
+                native Python ``float`` so Excel stores a proper number rather than a
+                string with 18 trailing zeros.
+                """
                 if value is None:
                     return None
+                import decimal as _decimal
+                if isinstance(value, _decimal.Decimal):
+                    return float(value)
                 try:
                     if pd.isna(value):
                         return None
@@ -332,7 +340,7 @@ class FileOutputExcel(BaseComponent):
 
             if should_write_header:
                 for col_idx, col_name in enumerate(column_names):
-                    sheet.cell(row=current_row, column=start_col + col_idx).value = col_name
+                    sheet.cell(row=current_row, column=start_col + col_idx).value = col_name  # type: ignore[union-attr]
                 current_row += 1
                 logger.debug(f"[{self.id}] Added header row at row {current_row - 1}, col {start_col}")
 
@@ -345,7 +353,7 @@ class FileOutputExcel(BaseComponent):
                     row_values = [_clean_val(v) for v in row.values()]
                 for col_idx, value in enumerate(row_values):
                     cell = sheet.cell(row=current_row, column=start_col + col_idx)
-                    cell.value = value
+                    cell.value = value  # type: ignore[union-attr]
                     # Apply number format for Decimal/float precision columns
                     col_name = column_names[col_idx] if col_idx < len(column_names) else None
                     if col_name and col_name in col_formats:
@@ -492,5 +500,3 @@ class FileOutputExcel(BaseComponent):
                 continue
             col_formats[name] = ("0." + "0" * p) if p > 0 else "0"
         return col_formats
-
-

@@ -16,14 +16,16 @@ Phase 12-05 audit fixes applied:
   STD-XMP-001 (P1): All bare-print calls replaced with logger
   SEC-XMP-001 (P2): Parser construction delegated to _xml_io.secure_xml_parser
   BUG-XMP-015 (P2): lstrip('/') replaced with removeprefix('/') (Pitfall P-7)
-  D-E1: Conditional warn-and-ignore for expression_filter/lookup/allInOne
+  D-E1: expression_filter evaluated natively in Python (Relational.ISNULL/ISNOTNULL)
   D-E2: Zero Java bridge imports (contract maintained per plan 12-05)
 """
+import itertools
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
-from lxml import etree
+from lxml import etree  # type: ignore[attr-defined]
 
 from ..file import _xml_io
 from ...base_component import BaseComponent
@@ -41,6 +43,11 @@ DEFAULT_LOOPING_ELEMENT = ""
 _ERR_NO_XML = "NO_XML"
 _ERR_PARSE = "PARSE_ERROR"
 _ERR_EVAL = "EVAL_ERROR"
+
+# Regex matching Talend javajet placeholder syntax: [flow.col:/absolute/xpath]
+# These appear in expression_filter (and potentially expressions) and must be
+# resolved to XPath values before the expression can be executed as Groovy.
+_FILTER_PLACEHOLDER_RE = re.compile(r"\[[\w]+\.[\w]+:(/[^\]]+)\]")
 
 # --------------------------------
 # Helpers: namespaces + XPath
@@ -440,6 +447,197 @@ class XMLMap(BaseComponent):
                 f"[{self.id}] Config 'die_on_error' must be a boolean"
             )
 
+    def _resolve_expressions(self) -> None:
+        """Pre-clean expression_filter before Java bridge resolution.
+
+        Talend's expressionFilter uses [row.col:/xpath] DSL which is NOT valid
+        Groovy.  Strip any ``{{java}}`` prefix so ``_resolve_java_expressions``
+        does not attempt bridge execution and fail with a Groovy parse error.
+        The engine evaluates the filter natively in ``_process``.
+        """
+        ef = self.config.get("expression_filter")
+        if isinstance(ef, str) and ef.startswith("{{java}}"):
+            self.config["expression_filter"] = ef[8:]
+        super()._resolve_expressions()
+
+    # ------------------------------------------------------------------
+    # Expression-filter helpers
+    # Two-step approach that works for ANY routine or compound expression:
+    #   Step 1 — _substitute_xml_placeholders:
+    #     Python/lxml resolves every [flow.col:/xpath] token in the filter
+    #     string to a Groovy-safe literal ("text" or null), producing valid
+    #     Groovy that the bridge can parse.
+    #   Step 2 — _compute_filter_mask:
+    #     All N resolved expressions (one per loop node) are sent to the Java
+    #     bridge in a SINGLE batch call per XML document.  Costs O(1) bridge
+    #     round-trips regardless of the number of loop nodes.  Falls back to
+    #     _evaluate_groovy_filter_natively when no bridge is available.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _substitute_xml_placeholders(
+        expr: str,
+        loop_node: Any,
+        looping_element: str,
+        ns_prefix: str,
+        nsmap: Dict[str, str],
+        component_id: str,
+    ) -> str:
+        """Replace ``[flow.col:/abs/xpath]`` tokens with Groovy-safe literals.
+
+        Each token is evaluated as an XPath against ``loop_node``:
+
+        * No result / empty text  → ``null``
+        * Non-empty text          → ``"value"`` (double-quoted, special chars escaped)
+
+        The result is syntactically valid Groovy for any surrounding expression
+        (``Relational.ISNULL``, custom routines, compound boolean, etc.).
+
+        Args:
+            expr: Raw filter expression, e.g. ``Relational.ISNULL([r2.c:/A/B])``.
+            loop_node: lxml element for the current loop iteration.
+            looping_element: Loop element name; used to make XPaths relative.
+            ns_prefix: Namespace prefix (empty string if none).
+            nsmap: Namespace map.
+            component_id: Component ID for debug logging.
+
+        Returns:
+            Valid Groovy expression with all ``[...]`` tokens substituted.
+        """
+        def _resolve(m: re.Match) -> str:  # type: ignore[type-arg]
+            abs_xpath = m.group(1)
+            rel_xpath = XMLMap._make_filter_relative_xpath(abs_xpath, looping_element)  # type: ignore[attr-defined]
+            try:
+                if ns_prefix:
+                    text_vals = loop_node.xpath(
+                        rel_xpath + "/text()", namespaces=nsmap
+                    )
+                    if not text_vals and "//" not in rel_xpath:
+                        text_vals = loop_node.xpath(
+                            f".//{rel_xpath}/text()", namespaces=nsmap
+                        )
+                else:
+                    text_vals = loop_node.xpath(rel_xpath + "/text()")
+                    if not text_vals and "//" not in rel_xpath:
+                        text_vals = loop_node.xpath(f".//{rel_xpath}/text()")
+            except Exception as xe:
+                logger.debug(
+                    "[%s] Placeholder XPath eval error ('%s'): %s",
+                    component_id, rel_xpath, xe,
+                )
+                text_vals = []
+            if not text_vals or not any(str(t).strip() for t in text_vals):
+                return "null"
+            val = str(text_vals[0]).replace("\\", "\\\\").replace('"', '\\"')
+            return f'"{val}"'
+
+        return _FILTER_PLACEHOLDER_RE.sub(_resolve, expr)
+
+    def _compute_filter_mask(
+        self,
+        raw_filter: str,
+        loop_nodes: List[Any],
+        looping_element: str,
+        ns_prefix: str,
+        nsmap: Dict[str, str],
+        component_id: str,
+    ) -> List[bool]:
+        """Return a boolean include-mask for every loop node in one bridge call.
+
+        Step 1 — resolve ``[flow.col:/xpath]`` placeholders for every node via
+        lxml XPath, producing N syntactically valid Groovy expressions.
+
+        Step 2 — send all N expressions to the Java bridge in a **single** batch
+        call (``execute_batch_one_time_expressions``).  This keeps bridge
+        overhead at O(1) per XML document regardless of loop node count.
+        A running Java bridge is required; if none is set all rows are included
+        and a warning is logged.
+
+        Args:
+            raw_filter: Filter expression (``{{java}}`` already stripped).
+            loop_nodes: All loop node elements found in this XML document.
+            looping_element: Looping element name.
+            ns_prefix: Namespace prefix.
+            nsmap: Namespace map.
+            component_id: Component ID for logging.
+
+        Returns:
+            List of booleans, one per loop node: ``True`` = include, ``False`` = exclude.
+        """
+        # Step 1: resolve placeholders for every node
+        resolved: Dict[str, str] = {
+            f"_f{i}": self._substitute_xml_placeholders(
+                raw_filter, node, looping_element, ns_prefix, nsmap, component_id
+            )
+            for i, node in enumerate(loop_nodes)
+        }
+        logger.debug(
+            "[%s] Filter resolved sample: %s", component_id,
+            list(resolved.values())[:3],
+        )
+
+        # Step 2a: single batch Java call — all nodes in one round-trip
+        if self.java_bridge:
+            try:
+                results = self.java_bridge.execute_batch_one_time_expressions(resolved)
+                mask: List[bool] = []
+                for i in range(len(loop_nodes)):
+                    val = results.get(f"_f{i}")
+                    if isinstance(val, str) and val.startswith("{{ERROR}}"):
+                        logger.warning(
+                            "[%s] Filter eval error for node %d: %s — including row",
+                            component_id, i, val[9:],
+                        )
+                        mask.append(True)  # fail-open
+                    else:
+                        mask.append(bool(val))
+                return mask
+            except Exception as exc:
+                logger.warning(
+                    "[%s] Filter batch Java eval failed: %s — including all rows",
+                    component_id, exc,
+                )
+                return [True] * len(loop_nodes)
+
+        # No bridge — cannot evaluate; include all rows and warn
+        logger.warning(
+            "[%s] expression_filter requires a running Java bridge; "
+            "including all rows (start the engine with java_config.enabled=true)",
+            component_id,
+        )
+        return [True] * len(loop_nodes)
+
+    @staticmethod
+    def _make_filter_relative_xpath(abs_xpath: str, looping_element: str) -> str:
+        """Convert an absolute Talend XPath to one relative to the loop node.
+
+        Example::
+
+            abs_xpath  = "/CMARGINSCM/RequiredMargins/RequiredMarginDetail/RequiredMarginComponent/MarginType"
+            looping_element = "RequiredMarginDetail"
+            → "RequiredMarginComponent/MarginType"
+
+        If the looping element is not found in the path the full path (without
+        the leading ``/``) is returned as a best-effort fallback.
+
+        Args:
+            abs_xpath: Absolute XPath extracted from the Talend expression.
+            looping_element: Name of the element being looped over.
+
+        Returns:
+            Relative XPath string suitable for evaluation on a loop node.
+        """
+        path = "/".join(p for p in abs_xpath.split("/") if p)
+        parts = path.split("/")
+        for i, part in enumerate(parts):
+            # Strip any namespace prefix for comparison
+            local = part.split(":")[-1] if ":" in part else part
+            if local == looping_element or part == looping_element:
+                relative = "/".join(parts[i + 1 :])
+                return relative if relative else "."
+        # looping_element not found — return full path (best-effort)
+        return path
+
     # ------------------------------------------------------------------
     # D-E1 sub-feature detection helpers
     # ------------------------------------------------------------------
@@ -512,19 +710,23 @@ class XMLMap(BaseComponent):
                 return f"./{field_name}"
 
         # Handle dot notation like "row1.field_name"
-        elif "." in cleaned and not cleaned.startswith("./"):
+        # Guard: "." and ".." are valid XPath self/parent-node references; preserve them.
+        elif "." in cleaned and not cleaned.startswith("./") and cleaned not in (".", ".."):
             parts = cleaned.split(".")
             if len(parts) >= 2:
                 field_name = parts[-1]  # Take the last part (field name)
                 return f"./{field_name}"
 
         # Handle already clean expressions starting with "./" -- return as-is
-        elif cleaned.startswith("./"):
+        # Also preserve bare self-axis "." and parent-axis ".."
+        elif cleaned.startswith("./") or cleaned in (".", ".."):
             return cleaned
 
         # Default: assume it's a direct field reference
         else:
             return f"./{cleaned}"
+
+        return cleaned
 
     def _clean_looping_element(self, raw_looping_element: str, root: etree._Element) -> str:
         """
@@ -569,6 +771,79 @@ class XMLMap(BaseComponent):
         return cleaned
 
     # ------------------------------------------------------------------
+    # Flat-to-flat mapping helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _parse_flow_column_expr(expr: str) -> Optional[tuple]:
+        """Parse a 'flow.column' expression into (flow, column) tuple.
+
+        Returns (flow, column) if expr is exactly 'flowname.columnname'
+        (no slashes, no spaces). Returns None for XPath-style expressions.
+        """
+        if not expr or not isinstance(expr, str):
+            return None
+        expr = expr.strip()
+        if "/" in expr or " " in expr:
+            return None
+        parts = expr.split(".")
+        if len(parts) == 2 and parts[0] and parts[1]:
+            return (parts[0], parts[1])
+        return None
+
+    def _build_flat_column_map(self) -> Optional[Dict[str, str]]:
+        """Return {output_col: input_col} when ALL output_trees nodes use 'flow.col' expressions.
+
+        Returns None if any node expression is XPath-style (contains '/' or
+        does not match 'flow.column'), signalling that XML-parse mode is required.
+        """
+        output_trees = self.config.get("output_trees", []) or []
+        if not output_trees:
+            return None
+        mapping: Dict[str, str] = {}
+        for tree in output_trees:
+            for node in tree.get("nodes", []):
+                expr = node.get("expression", "")
+                col_name = node.get("name", "")
+                parsed = self._parse_flow_column_expr(expr)
+                if parsed is None:
+                    return None  # At least one XPath expr -- use XML path
+                _, input_col = parsed
+                mapping[col_name] = input_col
+        return mapping if mapping else None
+
+    def _process_flat(
+        self,
+        input_data: pd.DataFrame,
+        flat_map: Dict[str, str],
+        output_schema: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Direct column-to-column mapping when no XML parsing is needed.
+
+        Used when all output_trees expressions are 'flow.column' references
+        (e.g. 'row1.id'). Bypasses XML parsing entirely.
+        """
+        component_id = self.id
+        rows_total = len(input_data)
+        want_cols = [c["name"] for c in output_schema]
+        result: Dict[str, Any] = {}
+        for out_col in want_cols:
+            in_col = flat_map.get(out_col, out_col)
+            if in_col in input_data.columns:
+                result[out_col] = input_data[in_col].tolist()
+            elif out_col in input_data.columns:
+                result[out_col] = input_data[out_col].tolist()
+            else:
+                result[out_col] = [None] * rows_total
+        df = pd.DataFrame(result)
+        self._update_stats(rows_total, rows_total, 0)
+        logger.info(
+            "[%s] done (flat): rows=%d ok=%d reject=0",
+            component_id, rows_total, rows_total,
+        )
+        return {"main": df, "reject": pd.DataFrame()}
+
+    # ------------------------------------------------------------------
     # REJECT helper (S-3 pattern, mirrors ExtractXMLField._make_reject_row)
     # ------------------------------------------------------------------
 
@@ -594,6 +869,129 @@ class XMLMap(BaseComponent):
         return reject_row
 
     # ------------------------------------------------------------------
+    # Multi-loop cross-product XML evaluation helper
+    # ------------------------------------------------------------------
+
+    def _evaluate_xml_multiloop(
+        self,
+        root: etree._Element,
+        output_schema: List[Dict[str, Any]],
+        expressions: Dict[str, str],
+        loop_nodes: List[str],
+        expression_contexts: Dict[str, str],
+        ns_prefix: str,
+        nsmap: Dict[str, str],
+        component_id: str,
+    ) -> List[Dict[str, Any]]:
+        """Evaluate XML using a Cartesian product across multiple loop axes.
+
+        For each loop node name in ``loop_nodes``, all matching elements are
+        found in the document.  The cross-product of those element lists is
+        computed.  For each combination, each output column is evaluated on the
+        element designated by ``expression_contexts`` (the owning loop axis).
+
+        Empty secondary loops are null-padded to ``[None]`` so that a primary
+        row is still produced (outer-join semantics).  An empty *primary* loop
+        returns an empty list.
+
+        Args:
+            root: Parsed lxml root element.
+            output_schema: List of output column dicts with ``name`` key.
+            expressions: Column-name -> XPath mapping (already rewritten for
+                per-axis context by the converter).
+            loop_nodes: Ordered list of loop element names (primary first).
+            expression_contexts: Column-name -> loop node name providing XPath
+                context for that column.
+            ns_prefix: Namespace prefix (may be empty string).
+            nsmap: Resolved namespace map.
+            component_id: Component ID for log messages.
+
+        Returns:
+            List of output row dicts, one per cross-product combination.
+        """
+        # ---- 1. Find elements for each loop axis ----
+        loop_element_lists: Dict[str, List] = {}
+        for loop_name in loop_nodes:
+            if ":" in loop_name or not ns_prefix:
+                lx = f".//{loop_name}"
+            else:
+                lx = f".//{ns_prefix}:{loop_name}"
+            lx_q = qualify_xpath(lx, ns_prefix) if ns_prefix else lx
+            try:
+                elems = root.xpath(lx_q, namespaces=nsmap) if ns_prefix else root.xpath(lx_q)
+            except Exception as exc:
+                logger.warning(
+                    "[%s] XPath error finding loop node '%s': %s",
+                    component_id, loop_name, exc,
+                )
+                elems = []
+
+            if not elems:
+                if loop_name == loop_nodes[0]:
+                    # Primary loop empty → no output rows
+                    logger.warning(
+                        "[%s] No elements found for primary loop node '%s'",
+                        component_id, loop_name,
+                    )
+                    return []
+                # Secondary loop empty → null-pad (outer join semantics)
+                logger.debug(
+                    "[%s] Secondary loop node '%s' has no elements; null-padding",
+                    component_id, loop_name,
+                )
+                elems = [None]
+
+            loop_element_lists[loop_name] = elems
+            logger.info(
+                "[%s] Loop node '%s': %d element(s)", component_id, loop_name, len(elems)
+            )
+
+        # ---- 2. Cross-product ----
+        lists_ordered = [loop_element_lists[n] for n in loop_nodes]
+        combinations = list(itertools.product(*lists_ordered))
+        logger.info(
+            "[%s] Multi-loop cross-product: %d combination(s) from %s",
+            component_id,
+            len(combinations),
+            {n: len(loop_element_lists[n]) for n in loop_nodes},
+        )
+
+        # ---- 3. Evaluate each combination ----
+        primary_loop = loop_nodes[0]
+        rows: List[Dict[str, Any]] = []
+        for combo in combinations:
+            ctx_map: Dict[str, Optional[etree._Element]] = {
+                name: elem for name, elem in zip(loop_nodes, combo)
+            }
+            row: Dict[str, Any] = {}
+            for col in output_schema:
+                col_name = col["name"]
+                raw_expr = expressions.get(col_name, "")
+                ctx_loop = expression_contexts.get(col_name, primary_loop)
+                ctx_elem = ctx_map.get(ctx_loop)
+                if ctx_elem is None:
+                    # Null-padded secondary axis → empty value
+                    row[col_name] = ""
+                    continue
+                expr_q = qualify_xpath(raw_expr, ns_prefix) if ns_prefix else raw_expr
+                try:
+                    result = (
+                        ctx_elem.xpath(expr_q, namespaces=nsmap)
+                        if ns_prefix
+                        else ctx_elem.xpath(expr_q)
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "[%s] XPath eval error col='%s' expr='%s': %s",
+                        component_id, col_name, expr_q, exc,
+                    )
+                    result = []
+                row[col_name] = extract_value(result)
+            rows.append(row)
+
+        return rows
+
+    # ------------------------------------------------------------------
     # Per-document XML evaluation helper
     # ------------------------------------------------------------------
 
@@ -606,12 +1004,19 @@ class XMLMap(BaseComponent):
         ns_prefix: str,
         nsmap: Dict[str, str],
         component_id: str,
+        expression_filter: str = "",
     ) -> List[Dict[str, Any]]:
         """Parse one XML document (root) and return a list of output row dicts.
 
         This method contains the existing tree-walking logic extracted from the
         former iloc[0,0]-based single-document code path. It is now called once
         per input row inside the per-row loop (_process).
+
+        When ``expression_filter`` is non-empty, all ``[flow.col:/xpath]``
+        placeholders are resolved via lxml XPath for every loop node, and the
+        resulting Groovy expressions are evaluated in a **single** batch call to
+        the Java bridge (or natively when no bridge is available).  This handles
+        any routine or compound expression, not just ISNULL/ISNOTNULL.
 
         Args:
             root: Parsed lxml root element for this input row.
@@ -621,9 +1026,11 @@ class XMLMap(BaseComponent):
             ns_prefix: Namespace prefix to use (may be empty string).
             nsmap: Resolved namespace map.
             component_id: Component ID for log messages.
+            expression_filter: Filter expression string (``{{java}}`` already
+                stripped).  Empty string means no filter.
 
         Returns:
-            List of dicts, one per loop node matched.
+            List of dicts, one per loop node that passed the filter.
         """
         # Build Loop XPath expression
         if looping_element:
@@ -652,6 +1059,16 @@ class XMLMap(BaseComponent):
                 component_id, looping_element,
             )
             return []
+
+        # ---- Pre-compute filter mask (one batch Java call per document) ----
+        # All [flow.col:/xpath] placeholders are resolved first, then the N
+        # resulting Groovy expressions are sent to the bridge in a single call.
+        include_mask: Optional[List[bool]] = None
+        if expression_filter:
+            include_mask = self._compute_filter_mask(
+                expression_filter, loop_nodes, looping_element,
+                ns_prefix, nsmap, component_id,
+            )
 
         # Process each loop node to extract data
         rows: List[Dict[str, Any]] = []
@@ -734,6 +1151,11 @@ class XMLMap(BaseComponent):
                     component_id, idx, col_name, value,
                 )
 
+            # ---- Apply expression_filter from pre-computed mask ----
+            if include_mask is not None and not include_mask[idx]:
+                logger.debug("[%s] Node %d filtered out by expression_filter", component_id, idx)
+                continue
+
             rows.append(row)
             logger.debug("[%s] Row ready idx=%d: %s", component_id, idx, row)
 
@@ -768,9 +1190,7 @@ class XMLMap(BaseComponent):
         # Get configuration with defaults
         config = self.config
 
-        # ---- D-E1 conditional warn-and-ignore ----
-        if config.get("activate_expression_filter"):
-            logger.warning("[%s] expression_filter (Java) is not implemented; ignoring (Phase 12 needs_review).", component_id)
+        # ---- D-E1 feature handling ----
         if self._has_lookup_connection():
             logger.warning("[%s] tXMLMap lookup/join is not implemented; ignoring (Phase 12 needs_review).", component_id)
         if self._has_all_in_one_output():
@@ -787,8 +1207,45 @@ class XMLMap(BaseComponent):
             config.get("looping_element", "") or
             config.get("config", {}).get("looping_element", "")
         )
+        # Multi-loop support: list of loop axis names and per-column context map.
+        # Populated by the converter when multiple loop axes are present.
+        loop_nodes_cfg: List[str] = config.get("loop_nodes", []) or []
+        expression_contexts: Dict[str, str] = config.get("expression_contexts", {}) or {}
+        use_multiloop = len(loop_nodes_cfg) > 1 and bool(expression_contexts)
         # tXMLMap default is die_on_error=True per Talaxie javajet
         die_on_error = config.get("die_on_error", True)
+
+        # ---- Expression-filter (D-E1) ----
+        # expression_filter uses Talend DSL with [flow.col:/xpath] placeholders.
+        # The {{java}} prefix was stripped by _resolve_expressions() if present.
+        # _compute_filter_mask() resolves all placeholders via lxml XPath and
+        # sends the resulting Groovy expressions to the Java bridge in one batch
+        # call (or falls back to native Python for ISNULL/ISNOTNULL).
+        expression_filter = ""
+        if config.get("activate_expression_filter"):
+            raw_filter = (config.get("expression_filter") or "").strip()
+            if not raw_filter:
+                logger.warning(
+                    "[%s] expression_filter flag set but no filter expression provided; ignoring",
+                    component_id,
+                )
+            else:
+                expression_filter = raw_filter
+                bridge_active = bool(self.java_bridge)
+                logger.info(
+                    "[%s] expression_filter active%s: %s",
+                    component_id,
+                    " (via Java bridge)" if bridge_active else " (WARNING: Java bridge not running — filter will be skipped)",
+                    raw_filter,
+                )
+
+        # ---- Flat-to-flat early exit ----
+        # When all output_trees expressions are 'flow.column' refs (e.g. 'row1.id'),
+        # no XML parsing is needed -- map columns directly.
+        flat_map = self._build_flat_column_map()
+        if flat_map is not None:
+            logger.info("[%s] flat-to-flat mode detected; skipping XML parse", component_id)
+            return self._process_flat(input_data, flat_map, output_schema)
 
         # Clean up malformed expressions from JSON (fix corrupted Talend expressions)
         cleaned_expressions: Dict[str, str] = {}
@@ -888,15 +1345,28 @@ class XMLMap(BaseComponent):
 
             # Evaluate the XML document for this row
             try:
-                row_outputs = self._evaluate_xml_for_row(
-                    root=root,
-                    output_schema=output_schema,
-                    expressions=expressions,
-                    looping_element=eff_looping_element,
-                    ns_prefix=ns_prefix,
-                    nsmap=nsmap,
-                    component_id=component_id,
-                )
+                if use_multiloop:
+                    row_outputs = self._evaluate_xml_multiloop(
+                        root=root,
+                        output_schema=output_schema,
+                        expressions=expressions,
+                        loop_nodes=loop_nodes_cfg,
+                        expression_contexts=expression_contexts,
+                        ns_prefix=ns_prefix,
+                        nsmap=nsmap,
+                        component_id=component_id,
+                    )
+                else:
+                    row_outputs = self._evaluate_xml_for_row(
+                        root=root,
+                        output_schema=output_schema,
+                        expressions=expressions,
+                        looping_element=eff_looping_element,
+                        ns_prefix=ns_prefix,
+                        nsmap=nsmap,
+                        component_id=component_id,
+                        expression_filter=expression_filter,
+                    )
                 for out_row in row_outputs:
                     main_rows.append(out_row)
                     rows_ok += 1

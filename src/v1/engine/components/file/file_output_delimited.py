@@ -318,7 +318,7 @@ class FileOutputDelimited(BaseComponent):
             # datetime columns replaced by formatted strings. original is untouched.
             df_out = self._apply_date_patterns(df_out)
             # Apply Decimal precision formatting (schema precision -> fixed decimal places).
-            df_out = self._apply_decimal_precision(df_out)
+            df_out = self._format_decimal_columns(df_out)
             # Apply boolean casing (Python True/False -> Talend true/false).
             df_out = self._apply_boolean_format(df_out)
         else:
@@ -449,7 +449,7 @@ class FileOutputDelimited(BaseComponent):
             df[name] = formatted.where(series.notna(), "")
         return df
 
-    def _apply_decimal_precision(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _format_decimal_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """Format Decimal/BigDecimal columns to schema-defined precision.
 
         Talend tFileOutputDelimited writes BigDecimal values with exactly
@@ -457,12 +457,20 @@ class FileOutputDelimited(BaseComponent):
         Arrow deserializes these as Python decimal.Decimal with full internal
         precision, so without this step they render as "250.500000000000000000".
 
+        When ``precision`` is -1 or absent for a ``decimal``/``bigdecimal``
+        column, Talend outputs the value's natural precision (e.g. "13345.67",
+        not "13345.670000000000000000").  This branch normalises the value by
+        stripping trailing zeros.
+
         Args:
             df: Working copy DataFrame to format in place.
 
         Returns:
             The same DataFrame with Decimal columns replaced by fixed-point strings.
         """
+        import decimal as _decimal
+        import math
+
         schema = getattr(self, "input_schema", None) or []
         if not schema:
             return df
@@ -477,22 +485,38 @@ class FileOutputDelimited(BaseComponent):
             if col_type not in ("decimal", "bigdecimal", "numeric", "number", "float"):
                 continue
             precision = col.get("precision")
-            if precision is None or int(precision) < 0:
-                continue
-            precision = int(precision)
+            use_fixed = precision is not None and int(precision) >= 0  # type: ignore[arg-type]
 
-            def _fmt(x, p=precision):
-                if x is None:
-                    return ""
-                try:
-                    import math
-                    if isinstance(x, float) and math.isnan(x):
+            if use_fixed:
+                p = int(precision)  # type: ignore[arg-type]
+
+                def _fmt(x, _p=p):
+                    if x is None:
                         return ""
-                    return f"{x:.{p}f}"
-                except (TypeError, ValueError):
-                    return str(x) if x is not None else ""
+                    try:
+                        if isinstance(x, float) and math.isnan(x):
+                            return ""
+                        return f"{x:.{_p}f}"
+                    except (TypeError, ValueError):
+                        return str(x) if x is not None else ""
 
-            df[name] = df[name].map(_fmt)
+                df[name] = df[name].map(_fmt)
+
+            elif col_type in ("decimal", "bigdecimal"):
+                # No precision set — strip Arrow's scale-18 trailing zeros.
+                def _fmt_natural(x):
+                    if x is None:
+                        return ""
+                    try:
+                        if isinstance(x, float) and math.isnan(x):
+                            return ""
+                        d = _decimal.Decimal(str(x))
+                        return f"{d.normalize():f}"
+                    except (TypeError, ValueError, _decimal.InvalidOperation):
+                        return str(x) if x is not None else ""
+
+                df[name] = df[name].map(_fmt_natural)
+
         return df
 
     def _apply_boolean_format(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -906,12 +930,14 @@ class FileOutputDelimited(BaseComponent):
             List of column names, or empty list if no schema available.
         """
         # Try output_schema (set by engine)
-        if hasattr(self, "output_schema") and self.output_schema:
-            return [col["name"] for col in self.output_schema]
+        _output_schema = getattr(self, "output_schema", None)
+        if _output_schema:
+            return [col["name"] for col in _output_schema]
 
         # Try input_schema (set by engine)
-        if hasattr(self, "input_schema") and self.input_schema:
-            return [col["name"] for col in self.input_schema]
+        _input_schema = getattr(self, "input_schema", None)
+        if _input_schema:
+            return [col["name"] for col in _input_schema]
 
         return []
 

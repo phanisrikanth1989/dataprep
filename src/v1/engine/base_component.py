@@ -241,7 +241,7 @@ class BaseComponent(ABC):
 
             # Step 7: Execute based on mode
             if mode == ExecutionMode.STREAMING:
-                result = self._execute_streaming(input_data)
+                result = self._execute_streaming(input_data)  # type: ignore[arg-type]
             else:
                 result = self._execute_batch(input_data)
                 # Step 7b: Enforce output schema column order
@@ -925,18 +925,9 @@ class BaseComponent(ABC):
             # Type coercion (best-effort; record failures)
             working_df = self._coerce_column_type(working_df, col_def)
 
-            # String length check
-            if col_length is not None and col_type == "str":
-                col_length_int = int(col_length)
-                for idx in working_df.index:
-                    if idx in violation_indices:
-                        continue
-                    val = working_df.at[idx, col_name]
-                    if isinstance(val, str) and len(val) > col_length_int:
-                        violation_indices[idx] = (
-                            f"Column '{col_name}': length exceeded: "
-                            f"{len(val)} > {col_length_int}"
-                        )
+            # String length: in Talend, 'length' on string columns is purely
+            # informational metadata (Talend Studio schema display / code generation).
+            # It is NEVER enforced at runtime -- no truncation, no rejection.
 
             # Float precision rounding
             if precision is not None and col_type == "float":
@@ -953,16 +944,6 @@ class BaseComponent(ABC):
                 )
 
         if not violation_indices:
-            # Apply string truncation and other non-violation coercions and return
-            for col_def in output_schema:
-                col_name = col_def.get("name")
-                col_length = col_def.get("length")
-                col_type = col_def.get("type", "str")
-                if col_name and col_length is not None and col_type == "str" and col_name in working_df.columns:
-                    col_length_int = int(col_length)
-                    working_df[col_name] = working_df[col_name].apply(
-                        lambda v: v[:col_length_int] if isinstance(v, str) and len(v) > col_length_int else v
-                    )
             result["main"] = working_df
             return result
 
@@ -1035,7 +1016,7 @@ class BaseComponent(ABC):
 
         for col_def in schema:
             col_name = col_def.get("name")
-            if col_name not in result.columns:
+            if col_name is None or col_name not in result.columns:
                 continue
 
             col_type = col_def.get("type", "str")
@@ -1059,14 +1040,14 @@ class BaseComponent(ABC):
             # Talend truncates string values exceeding schema-defined length.
             col_length = col_def.get("length")
             if col_length is not None and col_type == "str":
-                col_length = int(col_length)
+                _col_length: int = int(col_length)
                 # length <= 0 means "no length declared" (Talend default for
                 # auto-generated/system columns like pivot_key, pivot_value).
                 # Treat it as unbounded -- truncating to 0 would silently
                 # empty every string value in the column.
-                if col_length > 0:
+                if _col_length > 0:
                     result[col_name] = result[col_name].apply(
-                        lambda v: v[:col_length] if isinstance(v, str) and len(v) > col_length else v
+                        lambda v, cl=_col_length: v[:cl] if isinstance(v, str) and len(v) > cl else v
                     )
 
             # Apply precision for Decimal columns (CR-02 fix in _apply_decimal_precision)
@@ -1203,7 +1184,7 @@ class BaseComponent(ABC):
             except (InvalidOperation, ValueError):
                 return val
 
-        df[col_name] = df[col_name].apply(_quantize)
+        df[col_name] = df[col_name].apply(_quantize)  # type: ignore[arg-type]
         return df
 
     def _coerce_column_type(
@@ -1280,7 +1261,7 @@ class BaseComponent(ABC):
                     except (InvalidOperation, ValueError):
                         return v
 
-                df[col_name] = df[col_name].apply(_to_decimal)
+                df[col_name] = df[col_name].apply(_to_decimal)  # type: ignore[arg-type]
 
             # str type (object) and unknown types: no conversion needed
 
