@@ -1,10 +1,13 @@
 """Join execution + strategy classification + joined_df schema composition.
 
-Three strategies for non-RELOAD lookups:
+Four strategies for non-RELOAD lookups:
   SIMPLE          -- all join keys are plain column refs; pandas merge directly
   COMPUTED        -- at least one key is an expression; batch-eval once, then merge
   FILTER_AS_MATCH -- no equality keys; lookup filter (or none) does the matching;
                      chunked cross-product
+  CONSTANT_KEY    -- all join keys are main-row-independent (e.g. reference
+                     only context.* / globalMap.* / literals); resolve once
+                     via a single bridge call, pre-filter the lookup, broadcast
 
 RELOAD is a separate dispatch for RELOAD_AT_EACH_ROW lookups.
 
@@ -121,10 +124,6 @@ def compute_joined_df_schema(
 
 def _strip_marker(expr: str) -> str:
     return expr[len(_JAVA_MARKER):] if expr.startswith(_JAVA_MARKER) else expr
-
-
-def _is_simple_col_ref(expr: str) -> bool:
-    return bool(_SIMPLE_COL_RE.match(expr.strip()))
 
 
 def _is_known_input_col_ref(
