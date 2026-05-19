@@ -859,3 +859,41 @@ def test_no_error_log_when_errors_df_absent(caplog):
     msgs = [r.getMessage() for r in caplog.records if r.name == _logger_name()]
     assert not any("__errors__" in m for m in msgs)
     assert not any("stackTrace for row" in m for m in msgs)
+
+
+def test_no_error_log_when_errors_df_present_but_empty(caplog):
+    """When __errors__ is an empty DataFrame, no WARN/INFO/DEBUG error log fires.
+
+    Production state: active script ran, recorded zero errors, bridge still
+    emits an empty Arrow batch with the schema. The surfacing guard's
+    `not errors_df.empty` leg must short-circuit.
+    """
+    from src.v1.engine.components.transform.map.map_component import Map
+
+    config = _base_errors_config(label="tMap_err_empty_df")
+    from unittest.mock import MagicMock
+    bridge = MagicMock()
+    bridge.compile_tmap_script.return_value = None
+
+    def fake_chunked(component_id, df, chunk_size, input_columns,
+                    schema, reject_mode):
+        return {
+            "out1": pd.DataFrame({"id": [0]}),
+            "__errors__": pd.DataFrame(
+                columns=["rowIndex", "errorMessage", "errorStackTrace"],
+            ),
+        }
+    bridge.execute_compiled_tmap_chunked.side_effect = fake_chunked
+    bridge.execute_batch_one_time_expressions.return_value = {}
+
+    m = Map(component_id="tMap_err_empty_df", config=config)
+    m._fresh_config()
+    m.java_bridge = bridge
+    m._validate_config()
+
+    with caplog.at_level(_logging.DEBUG, logger=_logger_name()):
+        m._process({"row1": pd.DataFrame({"id": [0]})})
+
+    msgs = [r.getMessage() for r in caplog.records if r.name == _logger_name()]
+    assert not any("__errors__" in m for m in msgs)
+    assert not any("stackTrace for row" in m for m in msgs)
