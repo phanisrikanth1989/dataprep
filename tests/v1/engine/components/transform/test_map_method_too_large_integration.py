@@ -8,7 +8,13 @@ Tests in this file require a running Java bridge: `@pytest.mark.java`.
 """
 from __future__ import annotations
 
-from src.v1.engine.components.transform.map.map_config import MapConfig
+import pandas as pd
+import pytest
+
+from src.v1.engine.components.transform.map.map_compiled_script import (
+    build_active_script,
+)
+from src.v1.engine.components.transform.map.map_config import MapConfig, parse_config
 
 
 # ===== Frozen legacy emitter (snapshot of map_compiled_script.py as of
@@ -192,26 +198,26 @@ def _legacy_build_reject_script(cfg: MapConfig) -> str:
 
 # ===== Live-bridge integration tests =====
 
-import pytest
-import pandas as pd
-
-from src.v1.engine.components.transform.map.map_compiled_script import (
-    build_active_script,
-)
-from src.v1.engine.components.transform.map.map_config import parse_config
-
 
 def _make_400_col_ternary_config():
-    """One output, 400 columns, each a ternary/String.valueOf expression.
+    """One output, 400 columns, each expression a ternary on row1.id.
 
-    These expressions generate real JVM bytecode (not just constant-pool
-    string literals), so the legacy monolithic run() method crosses the
-    64KB bytecode limit at 400 columns.  The new closure-chunked emitter
-    splits the column assignments across multiple closures so each closure
-    stays well under the limit.
+    The plan originally called for 180 cols x ~3000-char pad-string
+    expressions, but large string LITERALS go to the JVM constant pool
+    and contribute almost nothing to method bytecode (just an ldc
+    instruction). To genuinely exercise the 64KB per-method bytecode
+    limit, we need expressions that emit real opcodes (ALOAD,
+    INVOKESTATIC, StringBuilder.append, branch instructions, etc.).
 
-    Only requires a single input column ('id') on row1.
-    Expected output for row N, column c{i}: "<N>_c{i}".
+    400 ternary expressions of the form
+        (row1.id != null ? String.valueOf(row1.id) + "_c{N}" : "null_c{N}")
+    each generate ~40-60 bytes of bytecode, pushing the legacy monolithic
+    run() method past 64KB and triggering MethodTooLargeException.
+
+    Source size: 400 * ~70 chars = ~28KB -- under the per-expression
+    50KB hard cap. Output values are predictable: row.id=K column c{N}
+    produces "K_cN" so the bullseye test can verify correctness across
+    every chunk boundary.
     """
     cols = []
     for i in range(400):
@@ -273,8 +279,20 @@ def test_bullseye_400col_ternary_compiles_and_runs_with_new_emitter(java_bridge)
     out_df = result["out"]
     assert len(out_df) == 10
     assert len(out_df.columns) == 400
-    # Spot-check row 3, column c42: id=3 -> "3_c42"
-    assert out_df.iloc[3]["c42"] == "3_c42"
+    # Verify cells across the full column range so every chunk closure is
+    # exercised. The 400 columns split into multiple chunks (per
+    # _CHUNK_TARGET_CHARS); sampling every ~40 columns guarantees we hit
+    # every chunk and catches closure-capture bugs that would only affect
+    # later chunks.
+    sample_cols = list(range(0, 400, 40)) + [399]  # 0, 40, 80, ..., 360, 399 (11 cols)
+    sample_rows = [0, 3, 9]  # first, middle, last
+    for row_idx in sample_rows:
+        for col_idx in sample_cols:
+            actual = out_df.iloc[row_idx][f"c{col_idx}"]
+            expected = f"{row_idx}_c{col_idx}"
+            assert actual == expected, (
+                f"row {row_idx} col c{col_idx}: expected {expected!r}, got {actual!r}"
+            )
 
 
 @pytest.mark.java
