@@ -308,3 +308,68 @@ def test_emit_output_section_no_lookups_signature_omits_lookup_params():
     assert "RowWrapper lkp" not in full
     # Dispatch line has no lookup args
     assert dispatch_lines == ['out_chunk0.call(i, row1, Var, out_tempRow);']
+
+
+# ===== _emit_filter_section =====
+
+from src.v1.engine.components.transform.map.map_compiled_script import (
+    _emit_filter_section,
+)
+
+
+def test_emit_filter_section_no_filter_returns_none_and_true():
+    cfg = _cfg_with_output([("a", "row1.x")])
+    out = cfg.outputs[0]
+    out.activate_filter = False
+    out.filter = ""
+    closure_def, expr = _emit_filter_section(out, cfg, component_id="tMap_1")
+    assert closure_def is None
+    assert expr == "true"
+
+
+def test_emit_filter_section_small_filter_inline():
+    cfg = _cfg_with_output([("a", "row1.x")])
+    out = cfg.outputs[0]
+    out.activate_filter = True
+    out.filter = "row1.amount > 0"
+    closure_def, expr = _emit_filter_section(out, cfg, component_id="tMap_1")
+    # Inline: no closure
+    assert closure_def is None
+    assert expr == "row1.amount > 0"
+
+
+def test_emit_filter_section_huge_filter_hoisted_to_closure():
+    cfg = _cfg_with_output([("a", "row1.x")])
+    out = cfg.outputs[0]
+    out.activate_filter = True
+    # 9KB filter
+    out.filter = "row1.x > 0 && " + "true && " * 1200  # ~9.6KB
+    closure_def, expr = _emit_filter_section(out, cfg, component_id="tMap_1")
+    # Closure emitted
+    assert closure_def is not None
+    assert "def out_filter =" in closure_def
+    # Callable expression dispatches to the closure
+    assert expr == "out_filter.call(i, row1, lkp1, Var)"
+
+
+def test_emit_filter_section_filter_over_hard_cap_raises():
+    cfg = _cfg_with_output([("a", "row1.x")])
+    out = cfg.outputs[0]
+    out.activate_filter = True
+    out.filter = "x" * (_SINGLE_EXPR_HARD_CAP + 100)
+    with pytest.raises(ConfigurationError) as exc:
+        _emit_filter_section(out, cfg, component_id="tMap_9")
+    msg = str(exc.value)
+    assert "tMap_9" in msg
+    assert "output 'out' filter" in msg
+
+
+def test_emit_filter_section_strips_java_marker_and_escapes_dollar():
+    cfg = _cfg_with_output([("a", "row1.x")])
+    out = cfg.outputs[0]
+    out.activate_filter = True
+    out.filter = '{{java}}"$amount" != null'
+    closure_def, expr = _emit_filter_section(out, cfg, component_id="tMap_1")
+    # Marker stripped, $ escaped in inline expression
+    assert closure_def is None
+    assert expr == '"\\$amount" != null'

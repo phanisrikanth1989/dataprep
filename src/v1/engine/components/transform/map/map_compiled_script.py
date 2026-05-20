@@ -16,7 +16,7 @@ This module is built incrementally:
 """
 from __future__ import annotations
 
-from .map_config import MapConfig
+from .map_config import MapConfig, OutputCfg
 from src.v1.engine.exceptions import ConfigurationError
 
 
@@ -87,6 +87,72 @@ def _chunk_emitted_lines(
     return chunks
 
 
+def _emit_closure_chunks(
+    emitted_lines: list[str],
+    per_line_labels: list[str],
+    *,
+    component_id: str,
+    chunk_name_prefix: str,
+    closure_param_sig: str,
+    closure_call_args: str,
+) -> tuple[list[str], list[str]]:
+    """Shared helper: pre-scan lines for hard-cap, chunk, then emit closures.
+
+    Pre-scans ``emitted_lines`` per-line for hard-cap violations (using the
+    parallel ``per_line_labels`` to name the offending item in the error),
+    then chunks via ``_chunk_emitted_lines``, then emits numbered closures
+    using the supplied signature, name prefix, and dispatch call args.
+
+    Args:
+        emitted_lines: full list of Groovy statement strings to emit.
+        per_line_labels: parallel list of human-readable labels for each line,
+            used only in hard-cap ``ConfigurationError`` messages.
+        component_id: tMap component id for error messages.
+        chunk_name_prefix: closure name prefix, e.g. ``"vars_chunk"``,
+            ``"out1_chunk"``, ``"out1_reject_chunk"``.
+        closure_param_sig: Groovy parameter signature string to place inside
+            ``{ <sig> -> ... }``, e.g.
+            ``"int i, RowWrapper row1, Map Var"``.
+        closure_call_args: argument list for the ``.call(...)`` dispatch site,
+            e.g. ``"i, row1, Var"``.
+
+    Returns:
+        (closure_defs, dispatch_lines): lists of source lines ready to
+        ``extend`` onto the script's line buffer.
+
+    Raises:
+        ConfigurationError: if any single line exceeds ``_SINGLE_EXPR_HARD_CAP``.
+    """
+    # Pre-scan with per-item labels for actionable error messages
+    for line, label in zip(emitted_lines, per_line_labels):
+        if len(line) > _SINGLE_EXPR_HARD_CAP:
+            raise ConfigurationError(
+                f"tMap component '{component_id}': {label} expression "
+                f"is {len(line)} chars, exceeds the {_SINGLE_EXPR_HARD_CAP}-char limit. "
+                f"Split the expression into a Var or reduce its size."
+            )
+
+    # Chunk (the hard-cap path inside _chunk_emitted_lines is now unreachable)
+    chunks = _chunk_emitted_lines(
+        emitted_lines,
+        section_label=chunk_name_prefix,
+        component_id=component_id,
+    )
+
+    closure_defs: list[str] = []
+    dispatch_lines: list[str] = []
+    for idx, chunk in enumerate(chunks):
+        closure_name = f"{chunk_name_prefix}{idx}"
+        closure_defs.append(f"def {closure_name} = {{ {closure_param_sig} ->")
+        for line in chunk:
+            closure_defs.append(f"    {line}")
+        closure_defs.append("};")
+        closure_defs.append("")
+        dispatch_lines.append(f"{closure_name}.call({closure_call_args});")
+
+    return closure_defs, dispatch_lines
+
+
 def _emit_vars_section(
     cfg: MapConfig,
     component_id: str,
@@ -104,29 +170,13 @@ def _emit_vars_section(
     if not cfg.variables:
         return [], []
 
-    # Build the per-variable emitted lines first, with per-variable labels
+    # Build the per-variable emitted lines + labels
     var_lines: list[str] = []
     var_labels: list[str] = []
     for v in cfg.variables:
         expr = groovy_escape_expression(_strip_marker(v.expression)) or "null"
         var_lines.append(f'Var.put("{v.name}", {expr});')
         var_labels.append(f"variable '{v.name}'")
-
-    # Pre-scan for hard-cap violations so the error names the offending variable
-    for line, label in zip(var_lines, var_labels):
-        if len(line) > _SINGLE_EXPR_HARD_CAP:
-            raise ConfigurationError(
-                f"tMap component '{component_id}': {label} expression "
-                f"is {len(line)} chars, exceeds the {_SINGLE_EXPR_HARD_CAP}-char limit. "
-                f"Split the expression into a Var or reduce its size."
-            )
-
-    # Chunk them (hard-cap path in _chunk_emitted_lines is now unreachable for vars)
-    chunks = _chunk_emitted_lines(
-        var_lines,
-        section_label="variable",
-        component_id=component_id,
-    )
 
     # Closure signature: (int i, RowWrapper main, RowWrapper lkpA, ..., Map Var)
     lookup_params = ", ".join(f"RowWrapper {lk.name}" for lk in cfg.lookups)
@@ -142,21 +192,18 @@ def _emit_vars_section(
     else:
         call_args = f"i, {cfg.main.name}, Var"
 
-    closure_defs: list[str] = []
-    dispatch_lines: list[str] = []
-    for idx, chunk in enumerate(chunks):
-        closure_defs.append(f"def vars_chunk{idx} = {{ {sig} ->")
-        for line in chunk:
-            closure_defs.append(f"    {line}")
-        closure_defs.append("};")
-        closure_defs.append("")
-        dispatch_lines.append(f"vars_chunk{idx}.call({call_args});")
-
-    return closure_defs, dispatch_lines
+    return _emit_closure_chunks(
+        var_lines,
+        var_labels,
+        component_id=component_id,
+        chunk_name_prefix="vars_chunk",
+        closure_param_sig=sig,
+        closure_call_args=call_args,
+    )
 
 
 def _emit_output_section(
-    out,
+    out: OutputCfg,
     cfg: MapConfig,
     component_id: str,
     is_reject_pass: bool,
@@ -173,28 +220,13 @@ def _emit_output_section(
     Returns:
         (closure_defs, dispatch_lines) -- same shape as _emit_vars_section.
     """
-    # Build per-column emitted lines
+    # Build per-column emitted lines + labels
     col_lines: list[str] = []
-    col_labels: list[str] = []  # parallel list, used only on hard-cap error
+    col_labels: list[str] = []
     for j, col in enumerate(out.columns):
         expr = groovy_escape_expression(_strip_marker(col.expression)) or "null"
         col_lines.append(f"tempRow[{j}] = {expr};")
         col_labels.append(f"output '{out.name}' column '{col.name}'")
-
-    # Pre-scan for hard-cap violations so the error names the offending column
-    for line, label in zip(col_lines, col_labels):
-        if len(line) > _SINGLE_EXPR_HARD_CAP:
-            raise ConfigurationError(
-                f"tMap component '{component_id}': {label} expression "
-                f"is {len(line)} chars, exceeds the {_SINGLE_EXPR_HARD_CAP}-char limit. "
-                f"Split the expression into a Var or reduce its size."
-            )
-
-    chunks = _chunk_emitted_lines(
-        col_lines,
-        section_label=f"output '{out.name}'",
-        component_id=component_id,
-    )
 
     suffix = "reject_chunk" if is_reject_pass else "chunk"
 
@@ -211,18 +243,80 @@ def _emit_output_section(
     else:
         call_args = f"i, {cfg.main.name}, Var, {out.name}_tempRow"
 
-    closure_defs: list[str] = []
-    dispatch_lines: list[str] = []
-    for idx, chunk in enumerate(chunks):
-        closure_name = f"{out.name}_{suffix}{idx}"
-        closure_defs.append(f"def {closure_name} = {{ {sig} ->")
-        for line in chunk:
-            closure_defs.append(f"    {line}")
-        closure_defs.append("};")
-        closure_defs.append("")
-        dispatch_lines.append(f"{closure_name}.call({call_args});")
+    return _emit_closure_chunks(
+        col_lines,
+        col_labels,
+        component_id=component_id,
+        chunk_name_prefix=f"{out.name}_{suffix}",
+        closure_param_sig=sig,
+        closure_call_args=call_args,
+    )
 
-    return closure_defs, dispatch_lines
+
+def _emit_filter_section(
+    out: OutputCfg,
+    cfg: MapConfig,
+    component_id: str,
+) -> tuple[str | None, str]:
+    """Build the filter for one output: inline expression or hoisted closure.
+
+    Filters under ``_CHUNK_TARGET_CHARS`` stay inline in the row loop's
+    ``if (...)`` guard. Filters above that threshold are hoisted to a
+    single-expression closure (``{out.name}_filter``) defined alongside
+    the other closures at the top of ``run()``.
+
+    Args:
+        out: OutputCfg whose filter to emit.
+        cfg: full MapConfig (used for main + lookup names in closure signature).
+        component_id: tMap component id for error messages.
+
+    Returns:
+        (closure_def_or_None, callable_expression)
+        closure_def_or_None: full closure source string if the filter was
+            hoisted, else None.
+        callable_expression: the Groovy expression for the row loop's
+            ``if (...)`` -- either the raw filter or a closure call like
+            ``out1_filter.call(i, row1, lkp1, Var)``.
+
+    Raises:
+        ConfigurationError: if the emitted filter exceeds ``_SINGLE_EXPR_HARD_CAP``.
+    """
+    if not out.activate_filter or not out.filter:
+        return None, "true"
+
+    filter_src = groovy_escape_expression(_strip_marker(out.filter))
+
+    if len(filter_src) > _SINGLE_EXPR_HARD_CAP:
+        raise ConfigurationError(
+            f"tMap component '{component_id}': output '{out.name}' filter "
+            f"is {len(filter_src)} chars, exceeds the {_SINGLE_EXPR_HARD_CAP}-char limit. "
+            f"Split the filter into a Var or reduce its size."
+        )
+
+    if len(filter_src) <= _CHUNK_TARGET_CHARS:
+        return None, filter_src
+
+    # Hoist into a closure
+    lookup_params = ", ".join(f"RowWrapper {lk.name}" for lk in cfg.lookups)
+    if lookup_params:
+        sig = f"int i, RowWrapper {cfg.main.name}, {lookup_params}, Map Var"
+    else:
+        sig = f"int i, RowWrapper {cfg.main.name}, Map Var"
+
+    lookup_args = ", ".join(lk.name for lk in cfg.lookups)
+    if lookup_args:
+        call_args = f"i, {cfg.main.name}, {lookup_args}, Var"
+    else:
+        call_args = f"i, {cfg.main.name}, Var"
+
+    closure_name = f"{out.name}_filter"
+    closure_def = (
+        f"def {closure_name} = {{ {sig} ->\n"
+        f"    return {filter_src};\n"
+        f"}};\n"
+    )
+
+    return closure_def, f"{closure_name}.call({call_args})"
 
 
 def groovy_escape_expression(java_expr: str) -> str:
