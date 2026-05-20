@@ -19,6 +19,7 @@ import pytest
 
 from src.v1.engine.components.transform.map.map_compiled_script import (
     build_active_script,
+    build_reject_script,
 )
 from src.v1.engine.components.transform.map.map_config import MapConfig, parse_config
 
@@ -755,3 +756,96 @@ def test_identicality_var_capture_under_closure_execution(java_bridge):
         assert new_df.iloc[i]["d"] == 2 * i
         assert new_df.iloc[i]["t"] == 3 * i
         assert new_df.iloc[i]["c"] == 5 * i
+
+
+@pytest.mark.java
+def test_identicality_is_reject_routing_under_closure_execution(java_bridge):
+    """Closure-based emitter must produce byte-identical output for
+    configs using is_reject routing: rows that don't match any active
+    output filter must route to the is_reject output via matchedAny.
+
+    This complements test_identicality_var_capture by exercising the
+    other closure-state contract (matchedAny boolean) that the new
+    emitter handles differently from inline legacy.
+    """
+    raw = {
+        "component_type": "Map",
+        "label": "tMap_is_reject",
+        "inputs": {
+            "main": {"name": "row1", "filter": "", "activate_filter": False,
+                     "matching_mode": "UNIQUE_MATCH", "lookup_mode": "LOAD_ONCE"},
+            "lookups": [],
+        },
+        "variables": [],
+        "outputs": [
+            {
+                "name": "active",
+                "filter": "row1.id > 2",
+                "activate_filter": True,
+                "columns": [
+                    {"name": "id", "expression": "row1.id", "type": "int"},
+                    {"name": "label", "expression": '"active_" + row1.id', "type": "str"},
+                ],
+            },
+            {
+                "name": "rejected",
+                "is_reject": True,
+                "columns": [
+                    {"name": "id", "expression": "row1.id", "type": "int"},
+                    {"name": "label", "expression": '"rejected_" + row1.id', "type": "str"},
+                ],
+            },
+        ],
+        "die_on_error": True,
+    }
+    cfg = parse_config(raw)
+    new_src = build_active_script(cfg)
+    legacy_src = _legacy_build_active_script(cfg)
+
+    df = pd.DataFrame({"id": list(range(5))})  # ids 0..4; filter keeps 3,4 in active; 0,1,2 go to rejected
+
+    for cid, src in [("is_reject_new", new_src), ("is_reject_legacy", legacy_src)]:
+        java_bridge.compile_tmap_script(
+            component_id=cid,
+            java_script=src,
+            output_schemas={
+                "active": ["id", "label"],
+                "rejected": ["id", "label"],
+            },
+            output_types={
+                "active_id": "int", "active_label": "str",
+                "rejected_id": "int", "rejected_label": "str",
+            },
+            main_table_name="row1",
+            lookup_names=[],
+        )
+
+    new_result = java_bridge.execute_compiled_tmap_chunked(
+        component_id="is_reject_new",
+        df=df, chunk_size=10, input_columns=["id"],
+        schema={"id": "int"}, reject_mode=False,
+    )
+    legacy_result = java_bridge.execute_compiled_tmap_chunked(
+        component_id="is_reject_legacy",
+        df=df, chunk_size=10, input_columns=["id"],
+        schema={"id": "int"}, reject_mode=False,
+    )
+
+    # Verify identicality on both outputs
+    for out_name in ("active", "rejected"):
+        new_df = new_result[out_name]
+        legacy_df = legacy_result[out_name]
+        pd.testing.assert_frame_equal(
+            new_df.reset_index(drop=True),
+            legacy_df.reset_index(drop=True),
+            check_dtype=True,
+            obj=f"is_reject identicality :: output '{out_name}'",
+        )
+
+    # Sanity: routing correctness
+    active_df = new_result["active"]
+    rejected_df = new_result["rejected"]
+    assert len(active_df) == 2  # ids 3, 4
+    assert len(rejected_df) == 3  # ids 0, 1, 2
+    assert sorted(active_df["id"].tolist()) == [3, 4]
+    assert sorted(rejected_df["id"].tolist()) == [0, 1, 2]

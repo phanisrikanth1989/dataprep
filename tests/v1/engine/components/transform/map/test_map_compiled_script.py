@@ -209,3 +209,78 @@ def test_build_reject_script_empty_when_no_inner_join_reject_outputs():
     # No output buffer emitted
     assert "rej" not in src
     assert "Object[][] out_data" not in src  # active outputs also omitted
+
+
+def test_build_active_script_with_huge_filter_emits_filter_closure_and_dispatches_it():
+    """When an output's filter exceeds _CHUNK_TARGET_CHARS, build_active_script
+    must emit a filter closure AND dispatch it from the row loop's if(...).
+    """
+    from src.v1.engine.components.transform.map.map_compiled_script import (
+        _CHUNK_TARGET_CHARS,
+    )
+    raw = {
+        "component_type": "Map",
+        "inputs": {
+            "main": {"name": "row1", "filter": "", "activate_filter": False,
+                     "matching_mode": "UNIQUE_MATCH", "lookup_mode": "LOAD_ONCE"},
+            "lookups": [],
+        },
+        "variables": [],
+        "outputs": [{
+            "name": "out", "is_reject": False, "inner_join_reject": False,
+            "catch_output_reject": False,
+            "activate_filter": True,
+            "filter": "row1.id > 0 && " + ("true && " * 1200),  # ~10KB
+            "columns": [
+                {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+                {"name": "label", "expression": '"row_" + row1.id', "type": "str", "nullable": True},
+            ],
+        }],
+        "die_on_error": True,
+    }
+    assert len(raw["outputs"][0]["filter"]) > _CHUNK_TARGET_CHARS
+    cfg = parse_config(raw)
+    src = build_active_script(cfg)
+    # Filter closure emitted
+    assert "def out_filter =" in src
+    # Row loop dispatches the closure rather than inlining the expression
+    assert "if (out_filter.call(i, row1, Var)) {" in src
+
+
+def test_build_reject_script_with_lookups_emits_rowwrapper_for_each_lookup():
+    """When build_reject_script is called with a config that has lookups,
+    the emitted reject script must construct a RowWrapper for each lookup
+    inside the row loop -- so reject row column expressions can reference
+    lookup columns even though the join semantically failed.
+    """
+    raw = {
+        "component_type": "Map",
+        "inputs": {
+            "main": {"name": "row1", "filter": "", "activate_filter": False,
+                     "matching_mode": "UNIQUE_MATCH", "lookup_mode": "LOAD_ONCE"},
+            "lookups": [
+                {"name": "lkpA", "join_keys": [
+                    {"lookup_column": "id", "expression": "row1.id",
+                     "type": "int", "nullable": True, "operator": "="}
+                ]},
+                {"name": "lkpB", "join_keys": [
+                    {"lookup_column": "id", "expression": "row1.id",
+                     "type": "int", "nullable": True, "operator": "="}
+                ]},
+            ],
+        },
+        "variables": [],
+        "outputs": [{
+            "name": "rej", "inner_join_reject": True,
+            "columns": [
+                {"name": "id", "expression": "row1.id", "type": "int"},
+            ],
+        }],
+        "die_on_error": True,
+    }
+    cfg = parse_config(raw)
+    src = build_reject_script(cfg)
+    # RowWrapper construction for main + both lookups
+    assert 'RowWrapper row1 = buildRowWrapper(inputRoot, i, "row1");' in src
+    assert 'RowWrapper lkpA = buildRowWrapper(inputRoot, i, "lkpA");' in src
+    assert 'RowWrapper lkpB = buildRowWrapper(inputRoot, i, "lkpB");' in src
