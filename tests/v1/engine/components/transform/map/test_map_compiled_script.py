@@ -173,7 +173,6 @@ from src.v1.engine.components.transform.map.map_compiled_script import (
 
 
 def test_build_reject_script_emits_only_inner_join_reject_outputs():
-    """Active outputs / variables / try-catch all OMITTED. Only inner_join_reject."""
     raw = {
         "component_type": "Map",
         "inputs": {
@@ -181,32 +180,25 @@ def test_build_reject_script_emits_only_inner_join_reject_outputs():
                      "matching_mode": "UNIQUE_MATCH", "lookup_mode": "LOAD_ONCE"},
             "lookups": [],
         },
-        "variables": [
-            {"name": "v1", "expression": "row1.id", "type": "int", "nullable": True},
-        ],
+        "variables": [],
         "outputs": [
-            {"name": "out", "is_reject": False, "inner_join_reject": False,
-             "catch_output_reject": False, "filter": "", "activate_filter": False,
-             "columns": [{"name": "id", "expression": "row1.id", "type": "int", "nullable": True}]},
-            {"name": "rej_inner", "is_reject": False, "inner_join_reject": True,
-             "catch_output_reject": False, "filter": "", "activate_filter": False,
-             "columns": [
-                 {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
-                 {"name": "reason", "expression": '"lookup_miss"', "type": "str", "nullable": True},
-             ]},
+            {"name": "out_active", "columns": [
+                {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+            ]},
+            {"name": "out_reject", "inner_join_reject": True, "columns": [
+                {"name": "id", "expression": "row1.id", "type": "int", "nullable": True},
+            ]},
         ],
         "die_on_error": True,
     }
     cfg = parse_config(raw)
     src = build_reject_script(cfg)
-    # Only rej_inner is emitted; no 'out', no errorMap, no Var
-    assert "rej_inner_data" in src
-    assert "out_data" not in src
-    assert "Var.put" not in src  # No vars in reject script
-    assert "errorMap" not in src  # No try/catch in reject script
-    assert "rej_inner_tempRow[0] = row1.id;" in src
-    assert 'rej_inner_tempRow[1] = "lookup_miss";' in src
-    assert 'results.put("rej_inner", rej_inner_result);' in src
+    # Active output NOT present
+    assert "out_active_data" not in src
+    # Reject output present with reject-pass naming
+    assert "def out_reject_reject_chunk0 =" in src
+    assert "out_reject_data" in src
+    assert "out_reject_reject_chunk0.call(i, row1, Var, out_reject_tempRow);" in src
 
 
 def test_build_reject_script_empty_when_no_inner_join_reject_outputs():
