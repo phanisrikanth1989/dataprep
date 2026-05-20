@@ -8,6 +8,10 @@ Tests in this file require a running Java bridge: `@pytest.mark.java`.
 """
 from __future__ import annotations
 
+import glob
+import json
+import os
+
 import pandas as pd
 import pytest
 
@@ -329,3 +333,146 @@ def test_pre_regression_legacy_emitter_fails_on_400col_ternary(java_bridge):
         or "method too large" in err
         or "code too large" in err.lower()
     ), f"Expected method-too-large error, got: {err}"
+
+
+# ===== Identicality tests: new emitter vs legacy emitter on existing fixtures =====
+
+_FIXTURE_GLOB = "tests/talend_xml_samples/converted_jsons/Job_tMap_*.json"
+
+
+def _load_tmap_configs_from_fixture(fixture_path: str) -> list[dict]:
+    """Return all tMap config dicts (ready for parse_config) from a fixture job JSON.
+
+    The fixture format wraps the engine config under a ``config`` sub-key and uses
+    ``type`` (not ``component_type``) to identify component kind.  We extract the
+    inner config block and inject ``label`` from the component ``id`` when absent.
+    """
+    with open(fixture_path) as f:
+        job = json.load(f)
+    tmaps = []
+    for comp in job.get("components", []):
+        if comp.get("type") == "Map":
+            cfg_block = dict(comp.get("config") or {})
+            # Inject label from the component id if the config block lacks one
+            if not cfg_block.get("label"):
+                cfg_block["label"] = comp.get("id", "tMap_unknown")
+            tmaps.append(cfg_block)
+    return tmaps
+
+
+def _build_synthetic_input_for_config(cfg, n_rows: int) -> dict | None:
+    """Build a minimal synthetic input DataFrame matching the cfg's main
+    input. Returns None if we can't determine column types confidently
+    (caller skips those configs).
+    """
+    # Pull main input column names from any output column or join key
+    # that references row1.<col>. For real fixture coverage we rely on
+    # the converter's input-schema block when present.
+    import re
+    main_name = cfg.main.name
+    # Attempt: walk all expressions and join keys, extract `row1.X` patterns
+    used_cols: set[str] = set()
+    pat = re.compile(rf"\b{re.escape(main_name)}\.(\w+)")
+    for o in cfg.outputs:
+        for c in o.columns:
+            for m in pat.findall(c.expression):
+                used_cols.add(m)
+        for m in pat.findall(o.filter):
+            used_cols.add(m)
+    for lk in cfg.lookups:
+        for jk in lk.join_keys:
+            for m in pat.findall(jk.expression):
+                used_cols.add(m)
+
+    if not used_cols:
+        used_cols = {"id"}  # default minimal
+
+    # All as int for simplicity. The identicality test isn't about
+    # data correctness; it's about new-vs-legacy output equality.
+    #
+    # schema must be a flat {col: type} dict matching the bridge's
+    # execute_compiled_tmap_chunked API (same form used in the bullseye test).
+    df = pd.DataFrame({col: list(range(n_rows)) for col in sorted(used_cols)})
+    schema = {col: "int" for col in sorted(used_cols)}
+    return {
+        "df": df,
+        "input_columns": sorted(used_cols),
+        "schema": schema,
+    }
+
+
+@pytest.mark.java
+@pytest.mark.parametrize("fixture_path", sorted(glob.glob(_FIXTURE_GLOB)))
+def test_identicality_new_vs_legacy_emitter_on_fixture(java_bridge, fixture_path):
+    """For every tMap component in every fixture JSON, the new emitter
+    produces byte-identical output to the legacy emitter on a small
+    synthetic input.
+    """
+    tmap_configs = _load_tmap_configs_from_fixture(fixture_path)
+    if not tmap_configs:
+        pytest.skip(f"No tMap component in {os.path.basename(fixture_path)}")
+
+    for raw_cfg in tmap_configs:
+        cfg = parse_config(raw_cfg)
+        new_src = build_active_script(cfg)
+        legacy_src = _legacy_build_active_script(cfg)
+
+        # The scripts will differ in text, but their executed output
+        # must match. Build synthetic inputs from the cfg's schema.
+        synthetic = _build_synthetic_input_for_config(cfg, n_rows=5)
+        if synthetic is None:
+            pytest.skip(
+                f"Could not build synthetic input for "
+                f"{os.path.basename(fixture_path)} :: {cfg.label or '<unlabeled>'}"
+            )
+
+        # Compile + execute both, diff results
+        # (Use distinct component_ids so caches don't collide.)
+        java_bridge.compile_tmap_script(
+            component_id=f"identicality_new_{cfg.label}",
+            java_script=new_src,
+            output_schemas={o.name: [c.name for c in o.columns]
+                             for o in cfg.outputs if not o.inner_join_reject},
+            output_types={f"{o.name}_{c.name}": c.type
+                          for o in cfg.outputs if not o.inner_join_reject
+                          for c in o.columns},
+            main_table_name=cfg.main.name,
+            lookup_names=[lk.name for lk in cfg.lookups],
+        )
+        java_bridge.compile_tmap_script(
+            component_id=f"identicality_legacy_{cfg.label}",
+            java_script=legacy_src,
+            output_schemas={o.name: [c.name for c in o.columns]
+                             for o in cfg.outputs if not o.inner_join_reject},
+            output_types={f"{o.name}_{c.name}": c.type
+                          for o in cfg.outputs if not o.inner_join_reject
+                          for c in o.columns},
+            main_table_name=cfg.main.name,
+            lookup_names=[lk.name for lk in cfg.lookups],
+        )
+
+        new_result = java_bridge.execute_compiled_tmap_chunked(
+            component_id=f"identicality_new_{cfg.label}",
+            df=synthetic["df"], chunk_size=50,
+            input_columns=synthetic["input_columns"],
+            schema=synthetic["schema"], reject_mode=False,
+        )
+        legacy_result = java_bridge.execute_compiled_tmap_chunked(
+            component_id=f"identicality_legacy_{cfg.label}",
+            df=synthetic["df"], chunk_size=50,
+            input_columns=synthetic["input_columns"],
+            schema=synthetic["schema"], reject_mode=False,
+        )
+
+        # Compare each output DataFrame for byte-equality
+        for out_name in new_result.keys():
+            if out_name == "__errors__":
+                continue
+            new_df = new_result[out_name]
+            legacy_df = legacy_result[out_name]
+            pd.testing.assert_frame_equal(
+                new_df.reset_index(drop=True),
+                legacy_df.reset_index(drop=True),
+                check_dtype=True, check_like=False,
+                obj=f"output '{out_name}' of {cfg.label or fixture_path}",
+            )
