@@ -11,6 +11,8 @@ from __future__ import annotations
 import glob
 import json
 import os
+import re
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -337,7 +339,16 @@ def test_pre_regression_legacy_emitter_fails_on_400col_ternary(java_bridge):
 
 # ===== Identicality tests: new emitter vs legacy emitter on existing fixtures =====
 
-_FIXTURE_GLOB = "tests/talend_xml_samples/converted_jsons/Job_tMap_*.json"
+# Anchor to repo root so pytest can run from any cwd without silently
+# producing zero parametrize cases.
+_FIXTURES_DIR = Path(__file__).resolve().parents[5] / "tests" / "talend_xml_samples" / "converted_jsons"
+_FIXTURE_GLOB = str(_FIXTURES_DIR / "Job_tMap_*.json")
+
+_FIXTURE_PATHS = sorted(glob.glob(_FIXTURE_GLOB))
+assert _FIXTURE_PATHS, (
+    f"No tMap fixtures discovered at {_FIXTURE_GLOB} -- "
+    f"pytest collection failure"
+)
 
 
 def _load_tmap_configs_from_fixture(fixture_path: str) -> list[dict]:
@@ -362,47 +373,63 @@ def _load_tmap_configs_from_fixture(fixture_path: str) -> list[dict]:
 
 def _build_synthetic_input_for_config(cfg, n_rows: int) -> dict | None:
     """Build a minimal synthetic input DataFrame matching the cfg's main
-    input. Returns None if we can't determine column types confidently
-    (caller skips those configs).
+    AND lookup inputs.
+
+    Walks output column expressions, output filters, and lookup join-key
+    expressions for `<table>.<col>` references where `<table>` is either
+    the main input name or any lookup name. Synthesizes int columns for
+    each (table, col) pair so the Java bridge has all referenced fields
+    available -- otherwise identicality holds trivially via null == null
+    on every lookup column.
+
+    Returns None if no referenced columns can be inferred (caller skips
+    that config).
     """
-    # Pull main input column names from any output column or join key
-    # that references row1.<col>. For real fixture coverage we rely on
-    # the converter's input-schema block when present.
-    import re
-    main_name = cfg.main.name
-    # Attempt: walk all expressions and join keys, extract `row1.X` patterns
-    used_cols: set[str] = set()
-    pat = re.compile(rf"\b{re.escape(main_name)}\.(\w+)")
+    table_names = [cfg.main.name] + [lk.name for lk in cfg.lookups]
+    # Match `table.col` for any of our known tables
+    pattern_parts = "|".join(re.escape(t) for t in table_names)
+    pat = re.compile(rf"\b({pattern_parts})\.(\w+)")
+
+    refs: set[tuple[str, str]] = set()
     for o in cfg.outputs:
         for c in o.columns:
-            for m in pat.findall(c.expression):
-                used_cols.add(m)
-        for m in pat.findall(o.filter):
-            used_cols.add(m)
+            for table, col in pat.findall(c.expression):
+                refs.add((table, col))
+        for table, col in pat.findall(o.filter):
+            refs.add((table, col))
     for lk in cfg.lookups:
         for jk in lk.join_keys:
-            for m in pat.findall(jk.expression):
-                used_cols.add(m)
+            for table, col in pat.findall(jk.expression):
+                refs.add((table, col))
 
-    if not used_cols:
-        used_cols = {"id"}  # default minimal
+    if not refs:
+        return None
 
-    # All as int for simplicity. The identicality test isn't about
-    # data correctness; it's about new-vs-legacy output equality.
-    #
-    # schema must be a flat {col: type} dict matching the bridge's
-    # execute_compiled_tmap_chunked API (same form used in the bullseye test).
-    df = pd.DataFrame({col: list(range(n_rows)) for col in sorted(used_cols)})
-    schema = {col: "int" for col in sorted(used_cols)}
+    # Group columns by table
+    by_table: dict[str, set[str]] = {}
+    for table, col in refs:
+        by_table.setdefault(table, set()).add(col)
+
+    # Flat schema for the bridge (each lookup row has its own columns).
+    # The bridge's joined DataFrame for tMap puts all columns into a single
+    # Arrow root. Use flat naming where the main table's columns are at the
+    # root, and lookup-table columns share the root too (the bridge handles
+    # this via RowWrapper's table-prefix lookup logic).
+    cols_in_order = sorted({c for cols in by_table.values() for c in cols})
+
+    # All ints for simplicity -- identicality is about emitter equality, not
+    # type coercion correctness.
+    df = pd.DataFrame({col: list(range(n_rows)) for col in cols_in_order})
+    schema = {col: "int" for col in cols_in_order}
     return {
         "df": df,
-        "input_columns": sorted(used_cols),
+        "input_columns": cols_in_order,
         "schema": schema,
     }
 
 
 @pytest.mark.java
-@pytest.mark.parametrize("fixture_path", sorted(glob.glob(_FIXTURE_GLOB)))
+@pytest.mark.parametrize("fixture_path", _FIXTURE_PATHS)
 def test_identicality_new_vs_legacy_emitter_on_fixture(java_bridge, fixture_path):
     """For every tMap component in every fixture JSON, the new emitter
     produces byte-identical output to the legacy emitter on a small
@@ -426,10 +453,16 @@ def test_identicality_new_vs_legacy_emitter_on_fixture(java_bridge, fixture_path
                 f"{os.path.basename(fixture_path)} :: {cfg.label or '<unlabeled>'}"
             )
 
-        # Compile + execute both, diff results
-        # (Use distinct component_ids so caches don't collide.)
+        # Compile + execute both, diff results.
+        # Scope component_ids to the fixture file so cache entries from
+        # different fixture files with identically-labeled tMap components
+        # cannot collide.
+        _fixture_key = os.path.splitext(os.path.basename(fixture_path))[0]
+        new_cid = f"identicality_new_{_fixture_key}_{cfg.label}"
+        legacy_cid = f"identicality_legacy_{_fixture_key}_{cfg.label}"
+
         java_bridge.compile_tmap_script(
-            component_id=f"identicality_new_{cfg.label}",
+            component_id=new_cid,
             java_script=new_src,
             output_schemas={o.name: [c.name for c in o.columns]
                              for o in cfg.outputs if not o.inner_join_reject},
@@ -440,7 +473,7 @@ def test_identicality_new_vs_legacy_emitter_on_fixture(java_bridge, fixture_path
             lookup_names=[lk.name for lk in cfg.lookups],
         )
         java_bridge.compile_tmap_script(
-            component_id=f"identicality_legacy_{cfg.label}",
+            component_id=legacy_cid,
             java_script=legacy_src,
             output_schemas={o.name: [c.name for c in o.columns]
                              for o in cfg.outputs if not o.inner_join_reject},
@@ -452,16 +485,25 @@ def test_identicality_new_vs_legacy_emitter_on_fixture(java_bridge, fixture_path
         )
 
         new_result = java_bridge.execute_compiled_tmap_chunked(
-            component_id=f"identicality_new_{cfg.label}",
+            component_id=new_cid,
             df=synthetic["df"], chunk_size=50,
             input_columns=synthetic["input_columns"],
             schema=synthetic["schema"], reject_mode=False,
         )
         legacy_result = java_bridge.execute_compiled_tmap_chunked(
-            component_id=f"identicality_legacy_{cfg.label}",
+            component_id=legacy_cid,
             df=synthetic["df"], chunk_size=50,
             input_columns=synthetic["input_columns"],
             schema=synthetic["schema"], reject_mode=False,
+        )
+
+        # Catch the case where one emitter produces an output the other doesn't.
+        new_keys = set(new_result.keys()) - {"__errors__"}
+        legacy_keys = set(legacy_result.keys()) - {"__errors__"}
+        assert new_keys == legacy_keys, (
+            f"Emitters produced different output sets for "
+            f"{os.path.basename(fixture_path)} :: {cfg.label}: "
+            f"new={new_keys}, legacy={legacy_keys}"
         )
 
         # Compare each output DataFrame for byte-equality
