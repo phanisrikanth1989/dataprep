@@ -381,19 +381,9 @@ def _strip_marker(expr: str) -> str:
 def build_active_script(cfg: MapConfig) -> str:
     """Build the active-pass Groovy script for a tMap.
 
-    Covers: row wrapper construction, variables, all active (non-reject)
-    output columns with filter routing, is_reject routing, and (when any
-    catch_output_reject output exists OR die_on_error=False) try/catch
-    with errorMap/stackTraceMap.
-
-    Variables are emitted as a HashMap<String, Object> Var. Sequential
-    chaining works because later vars use Var.get("earlier") which reads
-    the just-populated entry.
-
-    The script binds buildRowWrapper, inputRoot, rowCount, context,
-    globalMap on the Java side (see JavaBridge.buildTMapBinding).
-
-    See spec section 7 for the full shape.
+    Closure-chunked layout (spec sections 4.6, 5, 6): variables and output
+    columns are split into Groovy closures defined at top of run(); the
+    row loop dispatches to closures and owns commits + matchedAny.
 
     Args:
         cfg: Parsed MapConfig.
@@ -402,11 +392,7 @@ def build_active_script(cfg: MapConfig) -> str:
         Groovy source string ready for compilation.
     """
     lines: list[str] = []
-
-    # Imports
-    lines.append("import java.util.*;")
-    lines.append("import com.citi.gru.etl.RowWrapper;")
-    lines.append("")
+    component_id = cfg.label or "tMap"
 
     # Output classification
     active_outputs = [
@@ -418,7 +404,37 @@ def build_active_script(cfg: MapConfig) -> str:
 
     has_error_tracking = (not cfg.die_on_error) or bool(catch_outputs)
 
-    # Buffer declarations
+    # ---- Imports ----
+    lines.append("import java.util.*;")
+    lines.append("import com.citi.gru.etl.RowWrapper;")
+    lines.append("")
+
+    # ---- Closure definitions (vars + filters + output columns) ----
+    vars_closure_defs, vars_dispatch = _emit_vars_section(cfg, component_id)
+    lines.extend(vars_closure_defs)
+
+    active_per_output: list[tuple[OutputCfg, str | None, str, list[str]]] = []
+    # Each tuple: (out, filter_closure_def, filter_callable_expr, output_dispatch_lines)
+    for out in active_outputs:
+        filter_closure_def, filter_expr = _emit_filter_section(out, cfg, component_id)
+        if filter_closure_def:
+            lines.append(filter_closure_def.rstrip())
+            lines.append("")
+        out_defs, out_dispatch = _emit_output_section(
+            out, cfg, component_id, is_reject_pass=False,
+        )
+        lines.extend(out_defs)
+        active_per_output.append((out, filter_closure_def, filter_expr, out_dispatch))
+
+    reject_per_output: list[tuple[OutputCfg, list[str]]] = []
+    for out in is_reject_outputs:
+        out_defs, out_dispatch = _emit_output_section(
+            out, cfg, component_id, is_reject_pass=False,
+        )
+        lines.extend(out_defs)
+        reject_per_output.append((out, out_dispatch))
+
+    # ---- Buffer declarations ----
     for out in active_outputs + is_reject_outputs:
         ncols = len(out.columns)
         lines.append(f"Object[][] {out.name}_data = new Object[rowCount][{ncols}];")
@@ -429,11 +445,10 @@ def build_active_script(cfg: MapConfig) -> str:
         lines.append("Map<Integer, String> stackTraceMap = new HashMap<>();")
     lines.append("")
 
-    # Row loop
+    # ---- Row loop ----
     lines.append("for (int i = 0; i < rowCount; i++) {")
     lines.append("    try {")
-    main_name = cfg.main.name
-    lines.append(f'        RowWrapper {main_name} = buildRowWrapper(inputRoot, i, "{main_name}");')
+    lines.append(f'        RowWrapper {cfg.main.name} = buildRowWrapper(inputRoot, i, "{cfg.main.name}");')
     for lk in cfg.lookups:
         lines.append(f'        RowWrapper {lk.name} = buildRowWrapper(inputRoot, i, "{lk.name}");')
     lines.append("")
@@ -444,31 +459,23 @@ def build_active_script(cfg: MapConfig) -> str:
     else:
         body_indent = "        "
 
-    # Variables map (always emitted)
     lines.append(f"{body_indent}Map<String, Object> Var = new HashMap<>();")
-    for v in cfg.variables:
-        expr = groovy_escape_expression(_strip_marker(v.expression)) or "null"
-        lines.append(f'{body_indent}Var.put("{v.name}", {expr});')
+    for d in vars_dispatch:
+        lines.append(f"{body_indent}{d}")
     lines.append("")
 
-    # Track is_reject routing
     if is_reject_outputs:
         lines.append(f"{body_indent}boolean matchedAny = false;")
 
-    # Active outputs -- atomic-row commit
-    for out in active_outputs:
+    # Active outputs
+    for out, filter_def, filter_expr, dispatch_lines in active_per_output:
         ncols = len(out.columns)
         lines.append(f"{body_indent}// Active output: {out.name}")
-        if out.activate_filter and out.filter:
-            filter_expr = groovy_escape_expression(_strip_marker(out.filter))
-            lines.append(f"{body_indent}if ({filter_expr}) {{")
-        else:
-            lines.append(f"{body_indent}{{")
+        lines.append(f"{body_indent}if ({filter_expr}) {{")
         inner = body_indent + "    "
         lines.append(f"{inner}Object[] {out.name}_tempRow = new Object[{ncols}];")
-        for j, col in enumerate(out.columns):
-            expr = groovy_escape_expression(_strip_marker(col.expression)) or "null"
-            lines.append(f"{inner}{out.name}_tempRow[{j}] = {expr};")
+        for d in dispatch_lines:
+            lines.append(f"{inner}{d}")
         if is_reject_outputs:
             lines.append(f"{inner}matchedAny = true;")
         lines.append(f"{inner}{out.name}_data[{out.name}_count++] = {out.name}_tempRow;")
@@ -478,17 +485,16 @@ def build_active_script(cfg: MapConfig) -> str:
     # is_reject routing
     if is_reject_outputs:
         lines.append(f"{body_indent}if (!matchedAny) {{")
-        for out in is_reject_outputs:
+        inner = body_indent + "    "
+        for out, dispatch_lines in reject_per_output:
             ncols = len(out.columns)
-            inner = body_indent + "    "
             lines.append(f"{inner}Object[] {out.name}_tempRow = new Object[{ncols}];")
-            for j, col in enumerate(out.columns):
-                expr = groovy_escape_expression(_strip_marker(col.expression)) or "null"
-                lines.append(f"{inner}{out.name}_tempRow[{j}] = {expr};")
+            for d in dispatch_lines:
+                lines.append(f"{inner}{d}")
             lines.append(f"{inner}{out.name}_data[{out.name}_count++] = {out.name}_tempRow;")
         lines.append(f"{body_indent}}}")
 
-    # Inner try/catch for error tracking
+    # Error tracking inner catch
     if has_error_tracking:
         lines.append("        } catch (Exception innerE) {")
         lines.append("            String msg = innerE.getMessage() != null ? innerE.getMessage() : innerE.toString();")
@@ -499,7 +505,7 @@ def build_active_script(cfg: MapConfig) -> str:
         lines.append("            stackTraceMap.put(i, sw.toString());")
         lines.append("        }")
 
-    # Outer try (row wrapper construction errors): always re-raise
+    # Outer catch
     lines.append("    } catch (Exception outerE) {")
     lines.append("        String msg = outerE.getMessage() != null ? outerE.getMessage() : outerE.toString();")
     lines.append('        throw new RuntimeException("Error at row " + i + ": " + msg, outerE);')
@@ -507,7 +513,7 @@ def build_active_script(cfg: MapConfig) -> str:
     lines.append("}")
     lines.append("")
 
-    # Results map
+    # ---- Results assembly (unchanged from legacy) ----
     lines.append("Map<String, Map<String, Object>> results = new HashMap<>();")
     for out in active_outputs + is_reject_outputs:
         lines.append(f"Map<String, Object> {out.name}_result = new HashMap<>();")

@@ -96,10 +96,14 @@ def test_build_active_script_basic_includes_imports_and_buffer_decls():
 def test_build_active_script_basic_row_loop_shape():
     cfg = _basic_cfg()
     src = build_active_script(cfg)
-    assert "for (int i = 0; i < rowCount; i++) {" in src
-    assert 'RowWrapper row1 = buildRowWrapper(inputRoot, i, "row1");' in src
-    assert "out_tempRow[0] = row1.id;" in src
-    assert 'out_tempRow[1] = "row_" + row1.id;' in src
+    # Closure defined before row loop
+    assert "def out_chunk0 =" in src
+    # Closure body has tempRow assignments
+    assert "tempRow[0] = row1.id;" in src
+    assert 'tempRow[1] = "row_" + row1.id;' in src
+    # Row loop dispatches to the closure
+    assert "out_chunk0.call(i, row1, Var, out_tempRow);" in src
+    # Buffer commit lives in row loop, not closure
     assert "out_data[out_count++] = out_tempRow;" in src
 
 
@@ -116,14 +120,21 @@ def test_build_active_script_basic_returns_results_map():
 def test_build_active_script_with_variables_chained():
     cfg = _basic_cfg(with_variables=True)
     src = build_active_script(cfg)
+    # Variables go into vars_chunk closure
+    assert "def vars_chunk0 =" in src
     assert 'Var.put("v1", row1.amount);' in src
     assert 'Var.put("v2", Var.get("v1") + 100);' in src
+    # Dispatch from row loop
+    assert "vars_chunk0.call(i, row1, Var);" in src
 
 
 def test_build_active_script_with_filter():
     cfg = _basic_cfg(with_filter=True)
     src = build_active_script(cfg)
+    # Small filter stays inline
     assert "if (row1.amount > 0) {" in src
+    # No filter closure for a small filter
+    assert "def out_filter =" not in src
 
 
 def test_build_active_script_with_is_reject_emits_matched_any():
