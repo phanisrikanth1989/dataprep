@@ -373,3 +373,38 @@ def test_emit_filter_section_strips_java_marker_and_escapes_dollar():
     # Marker stripped, $ escaped in inline expression
     assert closure_def is None
     assert expr == '"\\$amount" != null'
+
+
+def test_emit_filter_section_huge_filter_no_lookups_signature_omits_lookups():
+    raw = {
+        "inputs": {"main": {"name": "row1"}, "lookups": []},
+        "variables": [],
+        "outputs": [{
+            "name": "out",
+            "columns": [{"name": "a", "expression": "row1.x", "type": "str"}],
+        }],
+    }
+    cfg = parse_config(raw)
+    out = cfg.outputs[0]
+    out.activate_filter = True
+    # Force a hoist by exceeding _CHUNK_TARGET_CHARS
+    out.filter = "row1.x > 0 && " + "true && " * 1200
+    closure_def, expr = _emit_filter_section(out, cfg, component_id="tMap_1")
+    assert closure_def is not None
+    assert "RowWrapper lkp" not in closure_def
+    # Dispatch call has no lookup args
+    assert expr == "out_filter.call(i, row1, Var)"
+
+
+def test_emit_vars_section_no_lookups_signature_omits_lookups():
+    raw = {
+        "inputs": {"main": {"name": "row1"}, "lookups": []},
+        "variables": [{"name": "v1", "expression": "row1.amount + 1", "type": "int"}],
+        "outputs": [{"name": "out", "columns": [{"name": "id", "expression": "row1.id", "type": "int"}]}],
+    }
+    cfg = parse_config(raw)
+    closure_defs, dispatch_lines = _emit_vars_section(cfg, component_id="tMap_1")
+    full = "\n".join(closure_defs)
+    assert "RowWrapper lkp" not in full
+    # Dispatch line has no lookup args
+    assert dispatch_lines == ['vars_chunk0.call(i, row1, Var);']
