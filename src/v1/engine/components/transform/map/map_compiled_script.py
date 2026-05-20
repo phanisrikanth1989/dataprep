@@ -413,8 +413,8 @@ def build_active_script(cfg: MapConfig) -> str:
     vars_closure_defs, vars_dispatch = _emit_vars_section(cfg, component_id)
     lines.extend(vars_closure_defs)
 
-    active_per_output: list[tuple[OutputCfg, str | None, str, list[str]]] = []
-    # Each tuple: (out, filter_closure_def, filter_callable_expr, output_dispatch_lines)
+    active_per_output: list[tuple[OutputCfg, str, list[str]]] = []
+    # Each tuple: (out, filter_callable_expr, output_dispatch_lines)
     for out in active_outputs:
         filter_closure_def, filter_expr = _emit_filter_section(out, cfg, component_id)
         if filter_closure_def:
@@ -424,8 +424,10 @@ def build_active_script(cfg: MapConfig) -> str:
             out, cfg, component_id, is_reject_pass=False,
         )
         lines.extend(out_defs)
-        active_per_output.append((out, filter_closure_def, filter_expr, out_dispatch))
+        active_per_output.append((out, filter_expr, out_dispatch))
 
+    # is_reject outputs in the active script still use the regular _chunk naming;
+    # _reject_chunk is reserved for inner_join_reject outputs in build_reject_script.
     reject_per_output: list[tuple[OutputCfg, list[str]]] = []
     for out in is_reject_outputs:
         out_defs, out_dispatch = _emit_output_section(
@@ -468,7 +470,7 @@ def build_active_script(cfg: MapConfig) -> str:
         lines.append(f"{body_indent}boolean matchedAny = false;")
 
     # Active outputs
-    for out, filter_def, filter_expr, dispatch_lines in active_per_output:
+    for out, filter_expr, dispatch_lines in active_per_output:
         ncols = len(out.columns)
         lines.append(f"{body_indent}// Active output: {out.name}")
         lines.append(f"{body_indent}if ({filter_expr}) {{")
