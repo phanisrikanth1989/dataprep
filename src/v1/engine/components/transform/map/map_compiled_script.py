@@ -155,6 +155,76 @@ def _emit_vars_section(
     return closure_defs, dispatch_lines
 
 
+def _emit_output_section(
+    out,
+    cfg: MapConfig,
+    component_id: str,
+    is_reject_pass: bool,
+) -> tuple[list[str], list[str]]:
+    """Build closure definitions + dispatch lines for one output's columns.
+
+    Args:
+        out: OutputCfg for the single output to emit.
+        cfg: full MapConfig (used for main + lookup names in signature).
+        component_id: tMap component id for error messages.
+        is_reject_pass: if True, closures are named {name}_reject_chunk{N};
+            else {name}_chunk{N}.
+
+    Returns:
+        (closure_defs, dispatch_lines) -- same shape as _emit_vars_section.
+    """
+    # Build per-column emitted lines
+    col_lines: list[str] = []
+    col_labels: list[str] = []  # parallel list, used only on hard-cap error
+    for j, col in enumerate(out.columns):
+        expr = groovy_escape_expression(_strip_marker(col.expression)) or "null"
+        col_lines.append(f"tempRow[{j}] = {expr};")
+        col_labels.append(f"output '{out.name}' column '{col.name}'")
+
+    # Pre-scan for hard-cap violations so the error names the offending column
+    for line, label in zip(col_lines, col_labels):
+        if len(line) > _SINGLE_EXPR_HARD_CAP:
+            raise ConfigurationError(
+                f"tMap component '{component_id}': {label} expression "
+                f"is {len(line)} chars, exceeds the {_SINGLE_EXPR_HARD_CAP}-char limit. "
+                f"Split the expression into a Var or reduce its size."
+            )
+
+    chunks = _chunk_emitted_lines(
+        col_lines,
+        section_label=f"output '{out.name}'",
+        component_id=component_id,
+    )
+
+    suffix = "reject_chunk" if is_reject_pass else "chunk"
+
+    # Signature: (int i, RowWrapper main, RowWrapper lkpA, ..., Map Var, Object[] tempRow)
+    lookup_params = ", ".join(f"RowWrapper {lk.name}" for lk in cfg.lookups)
+    if lookup_params:
+        sig = f"int i, RowWrapper {cfg.main.name}, {lookup_params}, Map Var, Object[] tempRow"
+    else:
+        sig = f"int i, RowWrapper {cfg.main.name}, Map Var, Object[] tempRow"
+
+    lookup_args = ", ".join(lk.name for lk in cfg.lookups)
+    if lookup_args:
+        call_args = f"i, {cfg.main.name}, {lookup_args}, Var, {out.name}_tempRow"
+    else:
+        call_args = f"i, {cfg.main.name}, Var, {out.name}_tempRow"
+
+    closure_defs: list[str] = []
+    dispatch_lines: list[str] = []
+    for idx, chunk in enumerate(chunks):
+        closure_name = f"{out.name}_{suffix}{idx}"
+        closure_defs.append(f"def {closure_name} = {{ {sig} ->")
+        for line in chunk:
+            closure_defs.append(f"    {line}")
+        closure_defs.append("};")
+        closure_defs.append("")
+        dispatch_lines.append(f"{closure_name}.call({call_args});")
+
+    return closure_defs, dispatch_lines
+
+
 def groovy_escape_expression(java_expr: str) -> str:
     """Escape ``$`` inside double-quoted string literals.
 

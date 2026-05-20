@@ -195,3 +195,116 @@ def test_emit_vars_section_hard_cap_violation_names_the_variable():
     msg = str(exc.value)
     assert "tMap_42" in msg
     assert "v_huge" in msg, f"Error should name the offending variable, got: {msg}"
+
+
+# ===== _emit_output_section =====
+
+from src.v1.engine.components.transform.map.map_compiled_script import (
+    _emit_output_section,
+)
+
+
+def _cfg_with_output(output_cols, is_reject_pass=False):
+    """output_cols: list of (name, expression) pairs."""
+    raw = {
+        "inputs": {
+            "main": {"name": "row1"},
+            "lookups": [{"name": "lkp1", "join_keys": []}],
+        },
+        "variables": [],
+        "outputs": [{
+            "name": "out", "is_reject": False,
+            "inner_join_reject": is_reject_pass,
+            "catch_output_reject": False,
+            "columns": [
+                {"name": n, "expression": e, "type": "str"}
+                for n, e in output_cols
+            ],
+        }],
+    }
+    return parse_config(raw)
+
+
+def test_emit_output_section_small_output_one_closure():
+    cfg = _cfg_with_output([("a", "row1.x"), ("b", "row1.y")])
+    out = cfg.outputs[0]
+    closure_defs, dispatch_lines = _emit_output_section(
+        out, cfg, component_id="tMap_1", is_reject_pass=False,
+    )
+    assert any("def out_chunk0 =" in d for d in closure_defs)
+    assert dispatch_lines == ['out_chunk0.call(i, row1, lkp1, Var, out_tempRow);']
+    full = "\n".join(closure_defs)
+    assert "tempRow[0] = row1.x;" in full
+    assert "tempRow[1] = row1.y;" in full
+
+
+def test_emit_output_section_large_output_multiple_closures():
+    # 180 cols x ~50-char exprs = ~9KB; expect at least 2 closures
+    cols = [(f"c{i}", f"row1.col{i} + " + ('x' * 40)) for i in range(180)]
+    cfg = _cfg_with_output(cols)
+    out = cfg.outputs[0]
+    closure_defs, dispatch_lines = _emit_output_section(
+        out, cfg, component_id="tMap_1", is_reject_pass=False,
+    )
+    closure_count = sum(1 for d in closure_defs if "def out_chunk" in d)
+    assert closure_count >= 2, f"Expected >=2 closures for 180 cols, got {closure_count}"
+    # Dispatch lines match closure count, in order
+    assert len(dispatch_lines) == closure_count
+    for i, line in enumerate(dispatch_lines):
+        assert f"out_chunk{i}.call(i, row1, lkp1, Var, out_tempRow);" == line
+
+
+def test_emit_output_section_reject_pass_uses_reject_chunk_naming():
+    cfg = _cfg_with_output([("a", "row1.x")], is_reject_pass=True)
+    out = cfg.outputs[0]
+    closure_defs, dispatch_lines = _emit_output_section(
+        out, cfg, component_id="tMap_1", is_reject_pass=True,
+    )
+    # Reject pass uses {name}_reject_chunk{N}
+    assert any("def out_reject_chunk0 =" in d for d in closure_defs)
+    assert dispatch_lines == ['out_reject_chunk0.call(i, row1, lkp1, Var, out_tempRow);']
+
+
+def test_emit_output_section_single_huge_expression_in_own_chunk():
+    # One 9KB expression alongside two small ones
+    huge = "row1.x + " + ("a" * 8990)
+    cfg = _cfg_with_output([("s1", "row1.x"), ("big", huge), ("s2", "row1.y")])
+    out = cfg.outputs[0]
+    closure_defs, dispatch_lines = _emit_output_section(
+        out, cfg, component_id="tMap_1", is_reject_pass=False,
+    )
+    closure_count = sum(1 for d in closure_defs if "def out_chunk" in d)
+    assert closure_count >= 2, "Huge expression should force at least one chunk boundary"
+
+
+def test_emit_output_section_expression_over_hard_cap_raises_with_column_name():
+    over_cap = "row1.x + " + ("a" * 50000)
+    cfg = _cfg_with_output([("good", "row1.y"), ("toobig", over_cap)])
+    out = cfg.outputs[0]
+    with pytest.raises(ConfigurationError) as exc:
+        _emit_output_section(
+            out, cfg, component_id="tMap_4", is_reject_pass=False,
+        )
+    msg = str(exc.value)
+    assert "tMap_4" in msg
+    assert "output 'out' column 'toobig'" in msg
+
+
+def test_emit_output_section_no_lookups_signature_omits_lookup_params():
+    raw = {
+        "inputs": {"main": {"name": "row1"}, "lookups": []},
+        "variables": [],
+        "outputs": [{
+            "name": "out", "columns": [{"name": "a", "expression": "row1.x", "type": "str"}],
+        }],
+    }
+    cfg = parse_config(raw)
+    out = cfg.outputs[0]
+    closure_defs, dispatch_lines = _emit_output_section(
+        out, cfg, component_id="tMap_1", is_reject_pass=False,
+    )
+    full = "\n".join(closure_defs)
+    # No "RowWrapper lkp" in signature
+    assert "RowWrapper lkp" not in full
+    # Dispatch line has no lookup args
+    assert dispatch_lines == ['out_chunk0.call(i, row1, Var, out_tempRow);']
