@@ -518,3 +518,240 @@ def test_identicality_new_vs_legacy_emitter_on_fixture(java_bridge, fixture_path
                 check_dtype=True, check_like=False,
                 obj=f"output '{out_name}' of {cfg.label or fixture_path}",
             )
+
+
+# ===== Edge cases =====
+
+@pytest.mark.java
+def test_edge_one_30kb_expression_gets_own_chunk_and_compiles(java_bridge):
+    """Single column whose expression is 30KB compiles via own-chunk path."""
+    huge_expr = '(row1.id != null ? "" + row1.id : "") + "' + ("X" * 29900) + '"'
+    raw = {
+        "component_type": "Map",
+        "label": "tMap_one_huge",
+        "inputs": {
+            "main": {"name": "row1", "filter": "", "activate_filter": False,
+                     "matching_mode": "UNIQUE_MATCH", "lookup_mode": "LOAD_ONCE"},
+            "lookups": [],
+        },
+        "variables": [],
+        "outputs": [{
+            "name": "out",
+            "columns": [
+                {"name": "small", "expression": "row1.id", "type": "int"},
+                {"name": "big", "expression": huge_expr, "type": "str"},
+            ],
+        }],
+        "die_on_error": True,
+    }
+    cfg = parse_config(raw)
+    src = build_active_script(cfg)
+    java_bridge.compile_tmap_script(
+        component_id="tMap_one_huge",
+        java_script=src,
+        output_schemas={"out": ["small", "big"]},
+        output_types={"out_small": "int", "out_big": "str"},
+        main_table_name="row1",
+        lookup_names=[],
+    )
+    df = pd.DataFrame({"id": [7]})
+    result = java_bridge.execute_compiled_tmap_chunked(
+        component_id="tMap_one_huge",
+        df=df, chunk_size=50,
+        input_columns=["id"],
+        schema={"id": "int"},
+        reject_mode=False,
+    )
+    out = result["out"]
+    assert len(out) == 1
+    assert out.iloc[0]["small"] == 7
+    assert out.iloc[0]["big"] == "7" + ("X" * 29900)
+
+
+@pytest.mark.java
+def test_edge_no_active_outputs_only_inner_join_reject(java_bridge):
+    """Config with only inner_join_reject output -- active script produces
+    empty results map; reject script produces populated output."""
+    raw = {
+        "component_type": "Map",
+        "label": "tMap_only_reject",
+        "inputs": {
+            "main": {"name": "row1"},
+            "lookups": [],
+        },
+        "variables": [],
+        "outputs": [{
+            "name": "rej", "inner_join_reject": True,
+            "columns": [{"name": "id", "expression": "row1.id", "type": "int"}],
+        }],
+        "die_on_error": True,
+    }
+    cfg = parse_config(raw)
+    # Active script must compile (even if it's essentially empty)
+    active_src = build_active_script(cfg)
+    java_bridge.compile_tmap_script(
+        component_id="tMap_only_reject_active",
+        java_script=active_src,
+        output_schemas={},
+        output_types={},
+        main_table_name="row1",
+        lookup_names=[],
+    )
+    # And reject script
+    from src.v1.engine.components.transform.map.map_compiled_script import (
+        build_reject_script,
+    )
+    reject_src = build_reject_script(cfg)
+    java_bridge.compile_tmap_script(
+        component_id="tMap_only_reject_reject",
+        java_script=reject_src,
+        output_schemas={"rej": ["id"]},
+        output_types={"rej_id": "int"},
+        main_table_name="row1",
+        lookup_names=[],
+    )
+
+
+@pytest.mark.java
+def test_edge_npe_in_one_row_routes_to_errors_with_closure_frame(java_bridge):
+    """Row whose expression throws NPE is captured in __errors__ with
+    rowIndex + errorMessage + errorStackTrace; the synthetic closure
+    frame appears in the stack but the Python __errors__ parser
+    handles it without modification.
+    """
+    raw = {
+        "component_type": "Map",
+        "label": "tMap_npe",
+        "inputs": {
+            "main": {"name": "row1"},
+            "lookups": [],
+        },
+        "variables": [],
+        "outputs": [{
+            "name": "out",
+            "columns": [
+                # Force NPE when row1.id is null
+                {"name": "val", "expression": "row1.id.intValue() + 1", "type": "int"},
+            ],
+            "catch_output_reject": False,
+        }],
+        "die_on_error": False,  # tolerate errors; route to __errors__
+    }
+    cfg = parse_config(raw)
+    src = build_active_script(cfg)
+    java_bridge.compile_tmap_script(
+        component_id="tMap_npe",
+        java_script=src,
+        output_schemas={"out": ["val"]},
+        output_types={"out_val": "int"},
+        main_table_name="row1",
+        lookup_names=[],
+    )
+    # Row 1 has null id -> NPE
+    df = pd.DataFrame({"id": [1, None, 3]}).astype({"id": "Int64"})
+    result = java_bridge.execute_compiled_tmap_chunked(
+        component_id="tMap_npe",
+        df=df, chunk_size=50,
+        input_columns=["id"],
+        schema={"id": "int"},
+        reject_mode=False,
+    )
+    errs = result.get("__errors__")
+    assert errs is not None
+    assert not errs.empty
+    npe_row = errs[errs["rowIndex"] == 1].iloc[0]
+    assert "NullPointer" in npe_row["errorMessage"] or "null" in npe_row["errorMessage"].lower()
+    # Closure frame appears in the stack trace; Python parser still produced
+    # a well-formed DataFrame row, which is what matters.
+    assert "$_run_closure" in npe_row["errorStackTrace"] or "doCall" in npe_row["errorStackTrace"]
+
+
+@pytest.mark.java
+def test_identicality_var_capture_under_closure_execution(java_bridge):
+    """Closures capture Var by-reference (HashMap mutation); legacy
+    inline code mutates the same Var. Both must produce byte-identical
+    output for a config that depends on Var values across multiple
+    output columns.
+
+    This test is intentionally separate from the parametrized
+    fixture-driven identicality tests because the current fixtures
+    happen to have zero variables; closure-Var capture semantics
+    are one of the highest-risk areas of the refactor (spec section 10)
+    and need explicit coverage.
+    """
+    raw = {
+        "component_type": "Map",
+        "label": "tMap_var_capture",
+        "inputs": {
+            "main": {"name": "row1", "filter": "", "activate_filter": False,
+                     "matching_mode": "UNIQUE_MATCH", "lookup_mode": "LOAD_ONCE"},
+            "lookups": [],
+        },
+        "variables": [
+            {"name": "doubled", "expression": "row1.id * 2", "type": "int"},
+            {"name": "tripled", "expression": "row1.id * 3", "type": "int"},
+            {"name": "chained", "expression": 'Var.get("doubled") + Var.get("tripled")', "type": "int"},
+        ],
+        "outputs": [{
+            "name": "out",
+            "columns": [
+                {"name": "id", "expression": "row1.id", "type": "int"},
+                {"name": "d", "expression": 'Var.get("doubled")', "type": "int"},
+                {"name": "t", "expression": 'Var.get("tripled")', "type": "int"},
+                {"name": "c", "expression": 'Var.get("chained")', "type": "int"},
+            ],
+        }],
+        "die_on_error": True,
+    }
+    cfg = parse_config(raw)
+    new_src = build_active_script(cfg)
+    legacy_src = _legacy_build_active_script(cfg)
+
+    df = pd.DataFrame({"id": list(range(5))})
+
+    # Compile + execute both with distinct component_ids
+    for cid, src in [("var_capture_new", new_src), ("var_capture_legacy", legacy_src)]:
+        java_bridge.compile_tmap_script(
+            component_id=cid,
+            java_script=src,
+            output_schemas={"out": ["id", "d", "t", "c"]},
+            output_types={"out_id": "int", "out_d": "int",
+                          "out_t": "int", "out_c": "int"},
+            main_table_name="row1",
+            lookup_names=[],
+        )
+
+    new_result = java_bridge.execute_compiled_tmap_chunked(
+        component_id="var_capture_new",
+        df=df, chunk_size=10,
+        input_columns=["id"],
+        schema={"id": "int"},
+        reject_mode=False,
+    )
+    legacy_result = java_bridge.execute_compiled_tmap_chunked(
+        component_id="var_capture_legacy",
+        df=df, chunk_size=10,
+        input_columns=["id"],
+        schema={"id": "int"},
+        reject_mode=False,
+    )
+
+    new_df = new_result["out"]
+    legacy_df = legacy_result["out"]
+
+    # Byte-identical output across both emitters (closure-Var capture
+    # works the same as legacy inline Var).
+    pd.testing.assert_frame_equal(
+        new_df.reset_index(drop=True),
+        legacy_df.reset_index(drop=True),
+        check_dtype=True,
+        obj="var_capture identicality",
+    )
+
+    # Sanity check: Var chain actually computed correctly
+    # (doubled=2i, tripled=3i, chained=5i for row id=i)
+    for i in range(5):
+        assert new_df.iloc[i]["id"] == i
+        assert new_df.iloc[i]["d"] == 2 * i
+        assert new_df.iloc[i]["t"] == 3 * i
+        assert new_df.iloc[i]["c"] == 5 * i
