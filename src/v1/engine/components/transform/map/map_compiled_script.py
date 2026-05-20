@@ -17,6 +17,74 @@ This module is built incrementally:
 from __future__ import annotations
 
 from .map_config import MapConfig
+from src.v1.engine.exceptions import ConfigurationError
+
+
+# ---------------------------------------------------------------
+# Chunking constants (see spec section 4.2)
+# ---------------------------------------------------------------
+
+_CHUNK_TARGET_CHARS = 8000
+# Target emitted-source size per closure. Matches Spark's JIT-inlining cutoff
+# (CodeGenerator.scala:1447 DEFAULT_JVM_HUGE_METHOD_LIMIT). Provides ~8x
+# headroom under the 64KB JVM per-method bytecode limit.
+
+_SINGLE_EXPR_HARD_CAP = 50000
+# Maximum emitted size of a single column or variable expression. If any
+# single emitted statement exceeds this, the emitter raises ConfigurationError
+# before the script ever reaches the Java bridge.
+
+
+def _chunk_emitted_lines(
+    lines: list[str],
+    section_label: str,
+    component_id: str,
+) -> list[list[str]]:
+    """Group emitted lines into chunks under _CHUNK_TARGET_CHARS each.
+
+    Each line must be one full Groovy statement (e.g. ``tempRow[j] = expr;``);
+    lines are never split mid-statement. If a single line exceeds the
+    target, it gets its own chunk by itself. If a single line exceeds
+    _SINGLE_EXPR_HARD_CAP, ConfigurationError is raised.
+
+    Args:
+        lines: emitted statement strings for one section.
+        section_label: descriptive label for error messages
+            (e.g. "output 'out1' column 'col_42'").
+        component_id: tMap component id for error messages.
+
+    Returns:
+        List of chunks; each chunk is a list of statement strings.
+
+    Raises:
+        ConfigurationError: if any single line exceeds _SINGLE_EXPR_HARD_CAP.
+    """
+    if not lines:
+        return []
+
+    chunks: list[list[str]] = []
+    current: list[str] = []
+    current_chars = 0
+
+    for line in lines:
+        line_len = len(line)
+        if line_len > _SINGLE_EXPR_HARD_CAP:
+            raise ConfigurationError(
+                f"tMap component '{component_id}': {section_label} expression "
+                f"is {line_len} chars, exceeds the {_SINGLE_EXPR_HARD_CAP}-char limit. "
+                f"Split the expression into a Var or reduce its size."
+            )
+        if current and current_chars + line_len > _CHUNK_TARGET_CHARS:
+            chunks.append(current)
+            current = []
+            current_chars = 0
+        current.append(line)
+        current_chars += line_len
+
+    if current:
+        chunks.append(current)
+
+    return chunks
 
 
 def groovy_escape_expression(java_expr: str) -> str:
