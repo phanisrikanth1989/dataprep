@@ -166,7 +166,7 @@ class FixedFlowInputComponent(BaseComponent):
              {"element_ref": "name", "value": "Bob"}, ...]
 
         Every ``len(col_names)`` consecutive entries form one row.
-        At most ``nb_rows`` rows are emitted; no null-padding beyond actual data.
+        At rows defined in intable are emitted(nb_rows is ignored in this mode ); no null-padding beyond actual data.
         """
         entries = self.config.get("intable", [])
         if not entries or not col_names:
@@ -175,8 +175,6 @@ class FixedFlowInputComponent(BaseComponent):
         ncols = len(col_names)
         rows: list[dict] = []
         for start in range(0, len(entries), ncols):
-            if len(rows) >= nb_rows:
-                break
             group = entries[start: start + ncols]
             row: dict[str, Any] = {col: None for col in col_names}
             for entry in group:
@@ -236,7 +234,7 @@ class FixedFlowInputComponent(BaseComponent):
 
         # ContextManager handles ${context.X} and context.X patterns
         try:
-            resolved = self.context_manager.resolve_string(value)
+            resolved = self.context_manager.resolve_string(value) if self.context_manager else value
         except Exception:
             resolved = value
 

@@ -1036,20 +1036,6 @@ class BaseComponent(ABC):
             # Type coercion (G-02, G-04 fixes in _coerce_column_type)
             result = self._coerce_column_type(result, col_def)
 
-            # Enforce string length truncation
-            # Talend truncates string values exceeding schema-defined length.
-            col_length = col_def.get("length")
-            if col_length is not None and col_type == "str":
-                _col_length: int = int(col_length)
-                # length <= 0 means "no length declared" (Talend default for
-                # auto-generated/system columns like pivot_key, pivot_value).
-                # Treat it as unbounded -- truncating to 0 would silently
-                # empty every string value in the column.
-                if _col_length > 0:
-                    result[col_name] = result[col_name].apply(
-                        lambda v, cl=_col_length: v[:cl] if isinstance(v, str) and len(v) > cl else v
-                    )
-
             # Apply precision for Decimal columns (CR-02 fix in _apply_decimal_precision)
             precision = col_def.get("precision")
             if precision is not None and col_type == "Decimal":
