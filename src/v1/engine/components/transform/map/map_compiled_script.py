@@ -87,6 +87,63 @@ def _chunk_emitted_lines(
     return chunks
 
 
+def _emit_vars_section(
+    cfg: MapConfig,
+    component_id: str,
+) -> tuple[list[str], list[str]]:
+    """Build the variables section: closure definitions + dispatch lines.
+
+    Returns:
+        (closure_defs, dispatch_lines)
+        closure_defs: source lines defining the vars_chunk{N} closures.
+        dispatch_lines: ``vars_chunk{N}.call(i, row1, lkpA, ..., Var);``
+            statements to be emitted inside the row loop.
+
+    Empty if cfg has no variables.
+    """
+    if not cfg.variables:
+        return [], []
+
+    # Build the per-variable emitted lines first
+    var_lines: list[str] = []
+    for v in cfg.variables:
+        expr = groovy_escape_expression(_strip_marker(v.expression)) or "null"
+        var_lines.append(f'Var.put("{v.name}", {expr});')
+
+    # Chunk them
+    chunks = _chunk_emitted_lines(
+        var_lines,
+        section_label="variable",
+        component_id=component_id,
+    )
+
+    # Closure signature: (int i, RowWrapper main, RowWrapper lkpA, ..., Map Var)
+    lookup_params = ", ".join(f"RowWrapper {lk.name}" for lk in cfg.lookups)
+    if lookup_params:
+        sig = f"int i, RowWrapper {cfg.main.name}, {lookup_params}, Map Var"
+    else:
+        sig = f"int i, RowWrapper {cfg.main.name}, Map Var"
+
+    # Dispatch arg list: (i, main, lkpA, ..., Var)
+    lookup_args = ", ".join(lk.name for lk in cfg.lookups)
+    if lookup_args:
+        call_args = f"i, {cfg.main.name}, {lookup_args}, Var"
+    else:
+        call_args = f"i, {cfg.main.name}, Var"
+
+    closure_defs: list[str] = []
+    dispatch_lines: list[str] = []
+    for idx, chunk in enumerate(chunks):
+        closure_defs.append(f"def vars_chunk{idx} = {{ {sig} ->")
+        for line in chunk:
+            closure_defs.append(f"    {line}")
+        closure_defs.append("};")
+        closure_defs.append("")
+        dispatch_lines.append(f"vars_chunk{idx}.call({call_args});")
+
+    return closure_defs, dispatch_lines
+
+
 def groovy_escape_expression(java_expr: str) -> str:
     """Escape ``$`` inside double-quoted string literals.
 

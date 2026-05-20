@@ -81,3 +81,104 @@ def test_constants_have_expected_values():
     # Sanity: spec section 4.2 lists these constants
     assert _CHUNK_TARGET_CHARS == 8000
     assert _SINGLE_EXPR_HARD_CAP == 50000
+
+
+# ===== _emit_vars_section =====
+
+from src.v1.engine.components.transform.map.map_compiled_script import (
+    _emit_vars_section,
+)
+from src.v1.engine.components.transform.map.map_config import parse_config
+
+
+def _cfg_with_vars(var_specs):
+    """var_specs: list of (name, expression) pairs."""
+    raw = {
+        "inputs": {
+            "main": {"name": "row1"},
+            "lookups": [{
+                "name": "lkp1", "join_keys": [],
+                "matching_mode": "UNIQUE_MATCH", "lookup_mode": "LOAD_ONCE",
+            }],
+        },
+        "variables": [
+            {"name": n, "expression": e, "type": "str"}
+            for n, e in var_specs
+        ],
+        "outputs": [{
+            "name": "out", "columns": [
+                {"name": "id", "expression": "row1.id", "type": "int"},
+            ],
+        }],
+    }
+    return parse_config(raw)
+
+
+def test_emit_vars_section_empty_returns_no_closures():
+    cfg = _cfg_with_vars([])
+    closure_defs, dispatch_lines = _emit_vars_section(cfg, component_id="tMap_1")
+    assert closure_defs == []
+    assert dispatch_lines == []
+
+
+def test_emit_vars_section_single_var_one_closure():
+    cfg = _cfg_with_vars([("v1", "row1.amount + 1")])
+    closure_defs, dispatch_lines = _emit_vars_section(cfg, component_id="tMap_1")
+    # One closure definition starting with `def vars_chunk0 = {`
+    assert any("def vars_chunk0 =" in d for d in closure_defs)
+    # One dispatch call site
+    assert dispatch_lines == ['vars_chunk0.call(i, row1, lkp1, Var);']
+    # Closure body contains the Var.put line
+    full = "\n".join(closure_defs)
+    assert 'Var.put("v1", row1.amount + 1);' in full
+
+
+def test_emit_vars_section_many_small_vars_one_closure():
+    # 10 vars of ~50 chars each = ~500 chars, well under 8000 target
+    cfg = _cfg_with_vars([(f"v{i}", f"row1.x{i}") for i in range(10)])
+    closure_defs, dispatch_lines = _emit_vars_section(cfg, component_id="tMap_1")
+    # All in one closure
+    closure_def_count = sum(1 for d in closure_defs if "def vars_chunk" in d)
+    assert closure_def_count == 1
+    assert dispatch_lines == ['vars_chunk0.call(i, row1, lkp1, Var);']
+
+
+def test_emit_vars_section_large_vars_split_into_multiple_closures():
+    # 200 vars with ~80-char expressions = ~16KB; expect 2 or 3 closures
+    cfg = _cfg_with_vars([(f"v{i}", "row1." + ("x" * 70)) for i in range(200)])
+    closure_defs, dispatch_lines = _emit_vars_section(cfg, component_id="tMap_1")
+    closure_def_count = sum(1 for d in closure_defs if "def vars_chunk" in d)
+    assert closure_def_count >= 2, f"Expected >=2 closures, got {closure_def_count}"
+    # One dispatch line per closure, in order
+    assert len(dispatch_lines) == closure_def_count
+    for i, line in enumerate(dispatch_lines):
+        assert f"vars_chunk{i}.call(i, row1, lkp1, Var);" == line
+
+
+def test_emit_vars_section_signature_includes_all_lookups():
+    raw = {
+        "inputs": {
+            "main": {"name": "row1"},
+            "lookups": [
+                {"name": "lkpA", "join_keys": []},
+                {"name": "lkpB", "join_keys": []},
+            ],
+        },
+        "variables": [{"name": "v", "expression": "1", "type": "str"}],
+        "outputs": [{"name": "out", "columns": [{"name": "id", "expression": "1", "type": "int"}]}],
+    }
+    cfg = parse_config(raw)
+    closure_defs, _ = _emit_vars_section(cfg, component_id="tMap_1")
+    full = "\n".join(closure_defs)
+    # Closure signature lists both lookups
+    assert "RowWrapper lkpA" in full
+    assert "RowWrapper lkpB" in full
+
+
+def test_emit_vars_section_strips_java_marker_and_escapes_dollar():
+    cfg = _cfg_with_vars([("v1", '{{java}}"$total"')])
+    closure_defs, _ = _emit_vars_section(cfg, component_id="tMap_1")
+    full = "\n".join(closure_defs)
+    # Marker stripped, $ escaped
+    assert 'Var.put("v1", "\\$total");' in full
+    assert "{{java}}" not in full
