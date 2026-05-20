@@ -104,13 +104,24 @@ def _emit_vars_section(
     if not cfg.variables:
         return [], []
 
-    # Build the per-variable emitted lines first
+    # Build the per-variable emitted lines first, with per-variable labels
     var_lines: list[str] = []
+    var_labels: list[str] = []
     for v in cfg.variables:
         expr = groovy_escape_expression(_strip_marker(v.expression)) or "null"
         var_lines.append(f'Var.put("{v.name}", {expr});')
+        var_labels.append(f"variable '{v.name}'")
 
-    # Chunk them
+    # Pre-scan for hard-cap violations so the error names the offending variable
+    for line, label in zip(var_lines, var_labels):
+        if len(line) > _SINGLE_EXPR_HARD_CAP:
+            raise ConfigurationError(
+                f"tMap component '{component_id}': {label} expression "
+                f"is {len(line)} chars, exceeds the {_SINGLE_EXPR_HARD_CAP}-char limit. "
+                f"Split the expression into a Var or reduce its size."
+            )
+
+    # Chunk them (hard-cap path in _chunk_emitted_lines is now unreachable for vars)
     chunks = _chunk_emitted_lines(
         var_lines,
         section_label="variable",

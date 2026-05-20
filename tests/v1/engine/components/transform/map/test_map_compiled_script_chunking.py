@@ -182,3 +182,16 @@ def test_emit_vars_section_strips_java_marker_and_escapes_dollar():
     # Marker stripped, $ escaped
     assert 'Var.put("v1", "\\$total");' in full
     assert "{{java}}" not in full
+
+
+def test_emit_vars_section_hard_cap_violation_names_the_variable():
+    """When a variable expression exceeds the hard cap, the error
+    message identifies which variable -- not just 'variable expression'.
+    """
+    huge_expr = "row1.x + " + ("a" * 50000)
+    cfg = _cfg_with_vars([("v_good", "row1.y"), ("v_huge", huge_expr)])
+    with pytest.raises(ConfigurationError) as exc:
+        _emit_vars_section(cfg, component_id="tMap_42")
+    msg = str(exc.value)
+    assert "tMap_42" in msg
+    assert "v_huge" in msg, f"Error should name the offending variable, got: {msg}"
