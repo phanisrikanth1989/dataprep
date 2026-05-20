@@ -190,21 +190,41 @@ def _legacy_build_reject_script(cfg: MapConfig) -> str:
     return "\n".join(lines)
 
 
-# ===== Sanity test that the snapshot matches the current emitter
-# (will be deleted in Task 9 when we intentionally diverge) =====
+# ===== Live-bridge integration tests =====
 
-def test_legacy_snapshot_matches_current_active_emitter():
-    """At the start of this plan, the legacy snapshot must be a verbatim
-    copy of the current emitter. This test will be deleted in Task 9
-    when the active emitter is rewritten and the two intentionally diverge.
+import pytest
+import pandas as pd
+
+from src.v1.engine.components.transform.map.map_compiled_script import (
+    build_active_script,
+)
+from src.v1.engine.components.transform.map.map_config import parse_config
+
+
+def _make_400_col_ternary_config():
+    """One output, 400 columns, each a ternary/String.valueOf expression.
+
+    These expressions generate real JVM bytecode (not just constant-pool
+    string literals), so the legacy monolithic run() method crosses the
+    64KB bytecode limit at 400 columns.  The new closure-chunked emitter
+    splits the column assignments across multiple closures so each closure
+    stays well under the limit.
+
+    Only requires a single input column ('id') on row1.
+    Expected output for row N, column c{i}: "<N>_c{i}".
     """
-    from src.v1.engine.components.transform.map.map_compiled_script import (
-        build_active_script,
-    )
-    from src.v1.engine.components.transform.map.map_config import parse_config
-
+    cols = []
+    for i in range(400):
+        # Realistic ternary: generates a ternary + String.valueOf + concat
+        # in bytecode -- enough instructions per column to hit 64KB at 400 cols.
+        cols.append({
+            "name": f"c{i}",
+            "expression": f'(row1.id != null ? String.valueOf(row1.id) + "_c{i}" : "null_c{i}")',
+            "type": "str",
+        })
     raw = {
         "component_type": "Map",
+        "label": "tMap_bullseye",
         "inputs": {
             "main": {"name": "row1", "filter": "", "activate_filter": False,
                      "matching_mode": "UNIQUE_MATCH", "lookup_mode": "LOAD_ONCE"},
@@ -212,38 +232,82 @@ def test_legacy_snapshot_matches_current_active_emitter():
         },
         "variables": [],
         "outputs": [{
-            "name": "out", "is_reject": False, "inner_join_reject": False,
+            "name": "out",
+            "columns": cols,
+            "is_reject": False, "inner_join_reject": False,
             "catch_output_reject": False, "filter": "", "activate_filter": False,
-            "columns": [
-                {"name": "id", "expression": "row1.id", "type": "int"},
-            ],
         }],
         "die_on_error": True,
     }
-    cfg = parse_config(raw)
-    assert _legacy_build_active_script(cfg) == build_active_script(cfg)
+    return parse_config(raw)
 
 
-def test_legacy_snapshot_matches_current_reject_emitter():
-    from src.v1.engine.components.transform.map.map_compiled_script import (
-        build_reject_script,
+@pytest.mark.java
+def test_bullseye_400col_ternary_compiles_and_runs_with_new_emitter(java_bridge):
+    """The new closure-chunked emitter compiles and executes the 400-col ternary case."""
+    cfg = _make_400_col_ternary_config()
+    src = build_active_script(cfg)
+    # Sanity: the new emitter produces closure-based shape
+    assert "def out_chunk0 =" in src
+
+    # Compile via the bridge
+    java_bridge.compile_tmap_script(
+        component_id="tMap_bullseye",
+        java_script=src,
+        output_schemas={"out": [f"c{i}" for i in range(400)]},
+        output_types={f"out_c{i}": "str" for i in range(400)},
+        main_table_name="row1",
+        lookup_names=[],
     )
-    from src.v1.engine.components.transform.map.map_config import parse_config
 
-    raw = {
-        "component_type": "Map",
-        "inputs": {
-            "main": {"name": "row1", "filter": "", "activate_filter": False,
-                     "matching_mode": "UNIQUE_MATCH", "lookup_mode": "LOAD_ONCE"},
-            "lookups": [],
-        },
-        "variables": [],
-        "outputs": [{
-            "name": "rej", "is_reject": False, "inner_join_reject": True,
-            "catch_output_reject": False, "filter": "", "activate_filter": False,
-            "columns": [{"name": "id", "expression": "row1.id", "type": "int"}],
-        }],
-        "die_on_error": True,
-    }
-    cfg = parse_config(raw)
-    assert _legacy_build_reject_script(cfg) == build_reject_script(cfg)
+    # Run on 10 rows
+    df = pd.DataFrame({"id": list(range(10))})
+    result = java_bridge.execute_compiled_tmap_chunked(
+        component_id="tMap_bullseye",
+        df=df,
+        chunk_size=50,
+        input_columns=["id"],
+        schema={"id": "int"},
+        reject_mode=False,
+    )
+    out_df = result["out"]
+    assert len(out_df) == 10
+    assert len(out_df.columns) == 400
+    # Spot-check row 3, column c42: id=3 -> "3_c42"
+    assert out_df.iloc[3]["c42"] == "3_c42"
+
+
+@pytest.mark.java
+def test_pre_regression_legacy_emitter_fails_on_400col_ternary(java_bridge):
+    """The legacy emitter genuinely throws MethodTooLargeException on the
+    400-col ternary fixture, proving the failure mode is real (not a
+    false positive where the test fixture was too small to trigger it).
+
+    Note: the 400-col ternary expressions generate enough JVM bytecode
+    instructions in the monolithic run() method to exceed the 64KB limit.
+    Large string literals alone do not trigger the limit because they are
+    stored in the constant pool, not as method instructions.
+    """
+    from py4j.protocol import Py4JJavaError
+
+    cfg = _make_400_col_ternary_config()
+    legacy_src = _legacy_build_active_script(cfg)
+
+    with pytest.raises(Py4JJavaError) as exc:
+        java_bridge.compile_tmap_script(
+            component_id="tMap_bullseye_legacy",
+            java_script=legacy_src,
+            output_schemas={"out": [f"c{i}" for i in range(400)]},
+            output_types={f"out_c{i}": "str" for i in range(400)},
+            main_table_name="row1",
+            lookup_names=[],
+        )
+
+    # The inner Java exception class name appears in the stringified error
+    err = str(exc.value)
+    # Groovy wraps the ASM MethodTooLargeException in MultipleCompilationErrorsException
+    assert (
+        "MethodTooLarge" in err
+        or "method too large" in err
+        or "code too large" in err.lower()
+    ), f"Expected method-too-large error, got: {err}"
