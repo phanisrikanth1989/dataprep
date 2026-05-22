@@ -4,6 +4,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .routes.jobs import router as jobs_router
+from .routes.routines import router as routines_router
+from .routes.python_routines import router as python_routines_router
 
 logging.basicConfig(level=logging.INFO)
 
@@ -22,6 +24,8 @@ app.add_middleware(
 )
 
 app.include_router(jobs_router, prefix="/api/jobs", tags=["jobs"])
+app.include_router(routines_router, prefix="/api/routines/java", tags=["routines"])
+app.include_router(python_routines_router, prefix="/api/routines/python", tags=["python-routines"])
 
 
 @app.get("/api/health")
