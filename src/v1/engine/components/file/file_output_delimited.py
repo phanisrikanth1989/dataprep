@@ -482,7 +482,11 @@ class FileOutputDelimited(BaseComponent):
             if not name or name not in df.columns:
                 continue
             col_type = (col.get("type") or "").lower()
-            if col_type not in ("decimal", "bigdecimal", "numeric", "number", "float"):
+            # Talend parity: 'precision' on float/double columns is schema
+            # metadata only -- the value is written with its natural repr,
+            # NOT rounded/zero-padded. Only Decimal/BigDecimal (and the
+            # generic numeric aliases) get precision-driven formatting.
+            if col_type not in ("decimal", "bigdecimal", "numeric", "number"):
                 continue
             precision = col.get("precision")
             use_fixed = precision is not None and int(precision) >= 0  # type: ignore[arg-type]

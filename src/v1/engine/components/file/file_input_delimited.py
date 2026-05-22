@@ -326,7 +326,12 @@ class FileInputDelimited(BaseComponent):
                 "keep_default_na": False,
             }
             if schema_cols:
+                # Talend parity: silently ignore trailing extra columns by
+                # only reading the first len(schema_cols) fields. Without
+                # usecols, pandas would treat leftmost extras as an index
+                # and shift all data left, breaking every type conversion.
                 read_params_custom["names"] = schema_cols
+                read_params_custom["usecols"] = list(range(len(schema_cols)))
             try:
                 return pd.read_csv(**read_params_custom)
             except Exception as e:
@@ -351,7 +356,9 @@ class FileInputDelimited(BaseComponent):
             read_params["engine"] = "python"
 
         if schema_cols:
+            # Talend parity: silently ignore trailing extra columns (see above).
             read_params["names"] = schema_cols
+            read_params["usecols"] = list(range(len(schema_cols)))
 
         try:
             df = pd.read_csv(**read_params)
@@ -435,6 +442,12 @@ class FileInputDelimited(BaseComponent):
             if not rows:
                 return pd.DataFrame(columns=schema_cols or []).astype(str)
 
+            # Talend parity: silently truncate trailing extra fields per row
+            # so the DataFrame width matches len(schema_cols).
+            if schema_cols:
+                n = len(schema_cols)
+                rows = [r[:n] for r in rows]
+
             df = pd.DataFrame(rows, dtype=str)
             if schema_cols and len(df.columns) == len(schema_cols):
                 df.columns = schema_cols
@@ -492,6 +505,11 @@ class FileInputDelimited(BaseComponent):
         if not rows:
             columns = schema_cols or []
             return pd.DataFrame(columns=columns).astype(str)
+
+        # Talend parity: silently truncate trailing extra fields per row.
+        if schema_cols:
+            n = len(schema_cols)
+            rows = [r[:n] for r in rows]
 
         df = pd.DataFrame(rows, dtype=str)
         if schema_cols and len(df.columns) == len(schema_cols):

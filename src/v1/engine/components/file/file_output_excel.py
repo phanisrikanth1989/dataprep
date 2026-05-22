@@ -316,7 +316,7 @@ class FileOutputExcel(BaseComponent):
 
             current_row = start_row
 
-            # Build per-column number formats for Decimal/float precision (applied to cells)
+            # Build per-column number formats for Decimal precision (applied to cells)
             col_formats = self._build_col_formats()
 
             def _clean_val(value):
@@ -354,7 +354,7 @@ class FileOutputExcel(BaseComponent):
                 for col_idx, value in enumerate(row_values):
                     cell = sheet.cell(row=current_row, column=start_col + col_idx)
                     cell.value = value  # type: ignore[union-attr]
-                    # Apply number format for Decimal/float precision columns
+                    # Apply number format for Decimal precision columns
                     col_name = column_names[col_idx] if col_idx < len(column_names) else None
                     if col_name and col_name in col_formats:
                         cell.number_format = col_formats[col_name]
@@ -473,10 +473,11 @@ class FileOutputExcel(BaseComponent):
     def _build_col_formats(self) -> dict:
         """Build a mapping of column name -> openpyxl number format string.
 
-        For Decimal/float columns with a ``precision`` defined in the schema,
+        For Decimal columns with a ``precision`` defined in the schema,
         returns an Excel number format like ``"0.0000000000"`` (precision zeros
         after the decimal point) so the cell displays exactly that many decimal
-        places.
+        places.  Float/double columns are excluded (Talend parity: precision
+        on Float is schema metadata only).
 
         Returns:
             Dict mapping column name to number format string.
@@ -490,7 +491,11 @@ class FileOutputExcel(BaseComponent):
             if not name:
                 continue
             col_type = (col.get("type") or "").lower()
-            if col_type not in ("decimal", "bigdecimal", "numeric", "number", "float"):
+            # Talend parity: 'precision' on float/double columns is schema
+            # metadata only -- the value is written with its natural repr,
+            # NOT zero-padded. Only Decimal/BigDecimal (and the generic
+            # numeric aliases) get precision-driven cell formatting.
+            if col_type not in ("decimal", "bigdecimal", "numeric", "number"):
                 continue
             precision = col.get("precision")
             if precision is None:
