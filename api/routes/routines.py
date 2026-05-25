@@ -144,7 +144,7 @@ def build_routines() -> StreamingResponse:
                 text=True,
                 env={**os.environ},
             )
-            for line in process.stdout:
+            for line in (process.stdout or []):
                 yield f"data: {line.rstrip()}\n\n"
             process.wait()
             if process.returncode == 0:
