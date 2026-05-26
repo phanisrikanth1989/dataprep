@@ -424,11 +424,9 @@ def join_constant_key(
                 columns=list(joined_df.columns) + lookup_col_names
             )
             return empty, joined_df.copy()
-        # LEFT_OUTER: attach all-NaN lookup columns
+        # LEFT_OUTER: attach all-NaN lookup columns (dtype-preserving)
         result = joined_df.copy()
-        for col in lookup_col_names:
-            result[col] = np.nan
-        return result, None
+        return _attach_empty_lookup_columns(result, lookup_df, lk.name), None
 
     # 7. Issue a WARN when the cross product is large
     product = len(joined_df) * len(filtered_prefixed)
@@ -475,6 +473,51 @@ def _prefix_lookup_columns(
         if not str(col).startswith(f"{lookup_name}.")
     }
     return lookup_df.rename(columns=renamed) if renamed else lookup_df
+
+
+def _attach_empty_lookup_columns(
+    result: pd.DataFrame,
+    lookup_df: pd.DataFrame,
+    lookup_name: str,
+) -> pd.DataFrame:
+    """Attach NaN-filled prefixed lookup cols, preserving lookup dtypes.
+
+    Used by CONSTANT_KEY / FILTER_AS_MATCH explicit empty-lookup branches.
+    Mirrors what ``pd.merge(how="left")`` against an empty typed right frame
+    would produce, so downstream Arrow serialization sees the declared
+    types (not float64 from naive ``np.nan`` assignment, which breaks for
+    BigDecimal / datetime / str columns).
+    """
+    n = len(result)
+    for col in lookup_df.columns:
+        prefixed = (
+            col if str(col).startswith(f"{lookup_name}.")
+            else f"{lookup_name}.{col}"
+        )
+        src_dtype = lookup_df[col].dtype
+        if pd.api.types.is_datetime64_any_dtype(src_dtype):
+            result[prefixed] = pd.Series(
+                [pd.NaT] * n, index=result.index, dtype=src_dtype,
+            )
+        elif pd.api.types.is_integer_dtype(src_dtype):
+            # pandas promotes int -> float64 when NaN is introduced; this
+            # matches pd.merge(how="left") against an empty int lookup.
+            result[prefixed] = pd.Series(
+                [np.nan] * n, index=result.index, dtype="float64",
+            )
+        elif pd.api.types.is_object_dtype(src_dtype):
+            # str / Decimal land here. Use Python None so Arrow can render
+            # the right null for any declared type (not float NaN, which
+            # serializes as 8-byte float and clashes with BigDecimal=16).
+            result[prefixed] = pd.Series(
+                [None] * n, index=result.index, dtype="object",
+            )
+        else:
+            # float, bool, etc. -- preserve dtype, fill with NaN.
+            result[prefixed] = pd.Series(
+                [np.nan] * n, index=result.index, dtype=src_dtype,
+            )
+    return result
 
 
 def _prefilter_null_keys(
@@ -562,10 +605,9 @@ def join_filter_as_match(
             )
             return empty, joined_df.copy()
         # LEFT_OUTER: pass main rows through with NaN lookup cols
+        # (dtype-preserving so Arrow serialization sees declared types).
         result = joined_df.copy()
-        for col in lookup_col_names:
-            result[col] = np.nan
-        return result, None
+        return _attach_empty_lookup_columns(result, lookup_df, lk.name), None
 
     _check_cross_size_guard(len(joined_df), len(lookup_df))
 

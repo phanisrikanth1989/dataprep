@@ -87,6 +87,7 @@ class Map(BaseComponent):
             JoinStrategy, classify_join_strategy, compute_joined_df_schema,
             apply_filter, join_simple_equality, join_computed_equality,
             join_filter_as_match, join_reload_per_row, join_constant_key,
+            _attach_empty_lookup_columns,
         )
         from .map_reject_routing import route_rejects
 
@@ -121,28 +122,50 @@ class Map(BaseComponent):
 
         for lk in cfg.lookups:
             lookup_df = inputs.get(lk.name)
-            if lookup_df is None:
-                # Synthesize an empty lookup frame so the join still runs and
-                # adds prefixed lookup columns (NaN). Talend parity: a missing
-                # / empty lookup must NOT silently strip its columns from the
-                # joined frame -- downstream filters and output expressions
-                # legitimately reference row<N>.col.
+            lookup_is_empty = lookup_df is None or lookup_df.empty
+            if lookup_is_empty:
+                # Talend parity: a missing / empty lookup must NOT silently
+                # strip its columns from joined_df -- downstream filters and
+                # output expressions legitimately reference row<N>.col.
+                # Short-circuit the strategy dispatch and attach typed-empty
+                # prefixed lookup cols directly. Object-dtype cols get None
+                # (not float NaN) so Arrow serialization sees the declared
+                # type for BigDecimal / str / etc.
                 lookup_schema = self._lookup_schema(lk.name)
-                lookup_df = pd.DataFrame(
-                    {col["name"]: pd.Series(dtype="object")
-                     for col in lookup_schema}
+                typed_empty_lookup = pd.DataFrame({
+                    col["name"]: pd.Series(
+                        dtype=BaseComponent._TYPE_MAPPING.get(
+                            col.get("type", "str"), "object"
+                        )
+                    )
+                    for col in lookup_schema
+                })
+                reason = (
+                    "no input data" if lookup_df is None else "empty input"
                 )
-                logger.info(
-                    "[%s] lookup '%s' has no input data; joining with empty "
-                    "frame (LEFT_OUTER preserves main rows, INNER rejects)",
-                    self.id, lk.name,
-                )
-            elif lookup_df.empty:
-                logger.info(
-                    "[%s] lookup '%s' has empty input; joining with empty "
-                    "frame (LEFT_OUTER preserves main rows, INNER rejects)",
-                    self.id, lk.name,
-                )
+                if lk.join_mode == "INNER_JOIN":
+                    logger.info(
+                        "[%s] lookup '%s' has %s; INNER_JOIN rejects all "
+                        "%d main rows",
+                        self.id, lk.name, reason, len(joined_df),
+                    )
+                    if len(joined_df) > 0:
+                        inner_join_reject_dfs[lk.name] = joined_df.copy()
+                    joined_df = joined_df.iloc[0:0].copy()
+                    joined_df = _attach_empty_lookup_columns(
+                        joined_df, typed_empty_lookup, lk.name,
+                    )
+                else:
+                    logger.info(
+                        "[%s] lookup '%s' has %s; LEFT_OUTER preserves all "
+                        "%d main rows with null lookup cols",
+                        self.id, lk.name, reason, len(joined_df),
+                    )
+                    joined_df = _attach_empty_lookup_columns(
+                        joined_df, typed_empty_lookup, lk.name,
+                    )
+                consumed_lookups.append((lk.name, lookup_schema))
+                continue
             strategy = classify_join_strategy(
                 lk,
                 main_name=cfg.main.name,
