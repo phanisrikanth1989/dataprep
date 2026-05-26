@@ -179,6 +179,13 @@ _process(input_data)                                [map_component.py]
    ├─ joined_lookup_names: list[str] = []
    │
    ├─ for lookup_cfg in lookups:                    [map_joins.execute_lookup_join]
+   │     ├─ lookup_df = inputs.get(lookup_cfg.name)
+   │     │     - If None: synthesize an empty DataFrame from the declared
+   │     │       lookup schema (cols typed as object). Log INFO.
+   │     │     - If empty: keep as-is. Log INFO.
+   │     │     - NEVER skip / continue. The join MUST run so prefixed lookup
+   │     │       columns are added to joined_df; downstream filters and
+   │     │       output expressions legitimately reference row<N>.col.
    │     ├─ strategy = classify_join_strategy(lookup_cfg)
    │     │     - SIMPLE         if all join_keys are plain column refs
    │     │     - COMPUTED       if any join_key has an expression
@@ -292,6 +299,25 @@ classify_join_strategy(lookup_cfg) -> JoinStrategy:
 | COMPUTED | Same as SIMPLE after the temp-key merge |
 | FILTER_AS_MATCH | After cross-product survive, find main rows that survived at least once; the rest are rejects (when INNER_JOIN) |
 | RELOAD | Tracked directly in the per-row loop; rejects are main rows where no candidate matched |
+
+### Empty-lookup behavior (Talend parity)
+
+When `lookup_df` is empty (or absent from inputs), the orchestrator does
+**not** skip the lookup. Every strategy must produce the same shape it
+would for a non-empty lookup so downstream filters and output expressions
+can safely reference `row<N>.col`:
+
+| Strategy | LEFT_OUTER_JOIN + empty lookup | INNER_JOIN + empty lookup |
+|---|---|---|
+| SIMPLE | `pd.merge(how="left")` already passes main rows through; result has NaN in prefixed lookup cols | All main rows go to rejects |
+| COMPUTED | Same — `pd.merge(how="left")` after temp-key build; temp `__jk_main_*__` cols dropped | All main rows go to rejects (temp cols dropped) |
+| CONSTANT_KEY | Explicit branch: copy `joined_df`, attach NaN-filled prefixed lookup cols | Empty result; all main rows → rejects |
+| FILTER_AS_MATCH | Explicit branch: copy `joined_df`, attach NaN-filled prefixed lookup cols | Empty result; all main rows → rejects |
+| RELOAD | Per-row loop naturally emits unmatched rows with NaN lookup cols | All main rows → rejects |
+
+This is a load-bearing invariant: a previous orchestrator-level
+`continue` on empty lookup produced silently-empty outputs whenever a
+filter like `row2.col == null` was meant to keep all rows.
 
 ---
 

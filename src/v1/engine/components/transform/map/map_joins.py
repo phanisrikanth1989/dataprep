@@ -548,8 +548,24 @@ def join_filter_as_match(
     ComponentExecutionError.
     """
     if lookup_df.empty:
-        empty = pd.DataFrame(columns=list(joined_df.columns) + list(lookup_df.columns))
-        return empty, (joined_df.copy() if lk.join_mode == "INNER_JOIN" else None)
+        # Compute prefixed lookup column names so the result frame carries
+        # the same shape it would have for a non-empty lookup. Downstream
+        # filters and output expressions may reference row<N>.col regardless
+        # of whether the lookup produced rows.
+        lookup_col_names = [
+            col if str(col).startswith(f"{lk.name}.") else f"{lk.name}.{col}"
+            for col in lookup_df.columns
+        ]
+        if lk.join_mode == "INNER_JOIN":
+            empty = pd.DataFrame(
+                columns=list(joined_df.columns) + lookup_col_names
+            )
+            return empty, joined_df.copy()
+        # LEFT_OUTER: pass main rows through with NaN lookup cols
+        result = joined_df.copy()
+        for col in lookup_col_names:
+            result[col] = np.nan
+        return result, None
 
     _check_cross_size_guard(len(joined_df), len(lookup_df))
 

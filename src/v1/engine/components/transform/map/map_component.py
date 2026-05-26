@@ -121,14 +121,28 @@ class Map(BaseComponent):
 
         for lk in cfg.lookups:
             lookup_df = inputs.get(lk.name)
-            if lookup_df is None or lookup_df.empty:
-                logger.info(
-                    "[%s] lookup '%s' skipped: %s",
-                    self.id, lk.name,
-                    "no input data" if lookup_df is None else "empty frame",
+            if lookup_df is None:
+                # Synthesize an empty lookup frame so the join still runs and
+                # adds prefixed lookup columns (NaN). Talend parity: a missing
+                # / empty lookup must NOT silently strip its columns from the
+                # joined frame -- downstream filters and output expressions
+                # legitimately reference row<N>.col.
+                lookup_schema = self._lookup_schema(lk.name)
+                lookup_df = pd.DataFrame(
+                    {col["name"]: pd.Series(dtype="object")
+                     for col in lookup_schema}
                 )
-                consumed_lookups.append((lk.name, self._lookup_schema(lk.name)))
-                continue
+                logger.info(
+                    "[%s] lookup '%s' has no input data; joining with empty "
+                    "frame (LEFT_OUTER preserves main rows, INNER rejects)",
+                    self.id, lk.name,
+                )
+            elif lookup_df.empty:
+                logger.info(
+                    "[%s] lookup '%s' has empty input; joining with empty "
+                    "frame (LEFT_OUTER preserves main rows, INNER rejects)",
+                    self.id, lk.name,
+                )
             strategy = classify_join_strategy(
                 lk,
                 main_name=cfg.main.name,

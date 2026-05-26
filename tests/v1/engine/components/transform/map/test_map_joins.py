@@ -634,7 +634,9 @@ def test_prefilter_null_keys_no_matching_cols():
 
 
 def test_filter_as_match_empty_lookup_left_outer():
-    """Empty lookup_df + LEFT_OUTER: result is empty, rejects=None (line 397)."""
+    """Empty lookup_df + LEFT_OUTER: Talend parity -- main rows pass through
+    with NaN lookup cols (prefixed). rejects=None.
+    """
     from src.v1.engine.components.transform.map.map_joins import (
         join_filter_as_match,
     )
@@ -645,7 +647,9 @@ def test_filter_as_match_empty_lookup_left_outer():
         joined, lookup, lk, main_name="row1",
         prior_lookups=[], bridge_eval_fn=None,
     )
-    assert result.empty
+    assert list(result["a"]) == [1, 2]
+    assert "row2.b" in result.columns
+    assert result["row2.b"].isna().all()
     assert rejects is None
 
 
@@ -874,6 +878,166 @@ def test_main_row_independent_row_ref_inside_quoted_string_true():
     # "row1.foo" is a string literal, not a row ref -- expression is constant
     expr = '{{java}}"row1.foo says hi"'
     assert _is_main_row_independent(expr, "row1", []) is True
+
+
+# ===== Option C: empty-lookup pass-through per join strategy =====
+#
+# When the orchestrator no longer early-skips empty lookups, every join
+# strategy must produce Talend-correct results on an empty lookup_df:
+#   - LEFT_OUTER_JOIN: main rows pass through with NaN prefixed lookup cols
+#   - INNER_JOIN: every main row goes to rejects
+# (FILTER_AS_MATCH and RELOAD already have dedicated tests above.)
+
+
+def test_simple_empty_lookup_left_outer_passes_main_through():
+    """SIMPLE + empty lookup + LEFT_OUTER: 7 main rows -> 7 result rows
+    with NaN row2.<col>. Regression for the silent-empty-output bug.
+    """
+    joined = pd.DataFrame({"newColumn": [1, 2, 3, 4, 5, 6, 7]})
+    lookup = pd.DataFrame({"newColumn": []})  # empty lookup
+    lk = LookupCfg(
+        name="row2",
+        join_keys=[JoinKeyCfg("newColumn", "{{java}}row1.newColumn", "int")],
+        join_mode="LEFT_OUTER_JOIN",
+    )
+    result, rejects = join_simple_equality(joined, lookup, lk)
+    assert list(result["newColumn"]) == [1, 2, 3, 4, 5, 6, 7]
+    assert "row2.newColumn" in result.columns
+    assert result["row2.newColumn"].isna().all()
+    assert rejects is None
+
+
+def test_simple_empty_lookup_inner_join_rejects_all_main():
+    """SIMPLE + empty lookup + INNER: all main rows -> rejects."""
+    joined = pd.DataFrame({"newColumn": [1, 2, 3]})
+    lookup = pd.DataFrame({"newColumn": []})
+    lk = LookupCfg(
+        name="row2",
+        join_keys=[JoinKeyCfg("newColumn", "{{java}}row1.newColumn", "int")],
+        join_mode="INNER_JOIN",
+    )
+    result, rejects = join_simple_equality(joined, lookup, lk)
+    assert result.empty
+    assert rejects is not None
+    assert sorted(rejects["newColumn"].tolist()) == [1, 2, 3]
+
+
+def test_computed_empty_lookup_left_outer_passes_main_through():
+    """COMPUTED + empty lookup + LEFT_OUTER: main rows pass through with
+    NaN row2.<col>; temp __jk_main_<i>__ col dropped from result.
+    """
+    joined = pd.DataFrame({"id": [1, 2], "key": ["a", "b"]})
+    lookup = pd.DataFrame({"upper_key": [], "label": []})
+    lk = LookupCfg(
+        name="row2",
+        join_keys=[JoinKeyCfg(
+            "upper_key",
+            "{{java}}row1.key.toUpperCase()",
+            "str",
+        )],
+        join_mode="LEFT_OUTER_JOIN",
+    )
+    bridge = MagicMock()
+    bridge.execute_tmap_preprocessing.return_value = {
+        "__jk_main_0__": ["A", "B"],
+    }
+    from src.v1.engine.components.transform.map.map_joins import (
+        join_computed_equality,
+    )
+    result, rejects = join_computed_equality(
+        joined, lookup, lk, main_name="row1",
+        prior_lookups=[], bridge_eval_fn=_make_bridge_fn(bridge),
+    )
+    assert "__jk_main_0__" not in result.columns
+    assert list(result["id"]) == [1, 2]
+    assert "row2.label" in result.columns
+    assert result["row2.label"].isna().all()
+    assert rejects is None
+
+
+def test_computed_empty_lookup_inner_join_rejects_all_main():
+    """COMPUTED + empty lookup + INNER: all main rows -> rejects;
+    temp join-key column dropped from rejects too.
+    """
+    joined = pd.DataFrame({"id": [1, 2], "key": ["a", "b"]})
+    lookup = pd.DataFrame({"upper_key": [], "label": []})
+    lk = LookupCfg(
+        name="row2",
+        join_keys=[JoinKeyCfg(
+            "upper_key",
+            "{{java}}row1.key.toUpperCase()",
+            "str",
+        )],
+        join_mode="INNER_JOIN",
+    )
+    bridge = MagicMock()
+    bridge.execute_tmap_preprocessing.return_value = {
+        "__jk_main_0__": ["A", "B"],
+    }
+    from src.v1.engine.components.transform.map.map_joins import (
+        join_computed_equality,
+    )
+    result, rejects = join_computed_equality(
+        joined, lookup, lk, main_name="row1",
+        prior_lookups=[], bridge_eval_fn=_make_bridge_fn(bridge),
+    )
+    assert result.empty
+    assert rejects is not None
+    assert sorted(rejects["id"].tolist()) == [1, 2]
+    assert "__jk_main_0__" not in rejects.columns
+
+
+def test_constant_key_empty_lookup_left_outer_passes_main_through():
+    """CONSTANT_KEY + empty lookup + LEFT_OUTER: main rows pass through
+    with NaN row2.<col>.
+    """
+    from src.v1.engine.components.transform.map.map_joins import (
+        join_constant_key,
+    )
+    joined = pd.DataFrame({"id": [1, 2]})
+    lookup = pd.DataFrame({"name": [], "info": []})
+    lk = LookupCfg(
+        name="row2",
+        join_keys=[JoinKeyCfg("name", "{{java}}context.SOURCE", "str")],
+        join_mode="LEFT_OUTER_JOIN",
+    )
+
+    def fake_eval(exprs):
+        return {k: "anything" for k in exprs}
+
+    result, rejects = join_constant_key(
+        joined, lookup, lk, main_name="row1",
+        prior_lookups=[], constant_eval_fn=fake_eval,
+    )
+    assert list(result["id"]) == [1, 2]
+    assert "row2.name" in result.columns
+    assert result["row2.name"].isna().all()
+    assert rejects is None
+
+
+def test_constant_key_empty_lookup_inner_join_rejects_all_main():
+    """CONSTANT_KEY + empty lookup + INNER: all main rows -> rejects."""
+    from src.v1.engine.components.transform.map.map_joins import (
+        join_constant_key,
+    )
+    joined = pd.DataFrame({"id": [1, 2]})
+    lookup = pd.DataFrame({"name": [], "info": []})
+    lk = LookupCfg(
+        name="row2",
+        join_keys=[JoinKeyCfg("name", "{{java}}context.SOURCE", "str")],
+        join_mode="INNER_JOIN",
+    )
+
+    def fake_eval(exprs):
+        return {k: "anything" for k in exprs}
+
+    result, rejects = join_constant_key(
+        joined, lookup, lk, main_name="row1",
+        prior_lookups=[], constant_eval_fn=fake_eval,
+    )
+    assert result.empty
+    assert rejects is not None
+    assert sorted(rejects["id"].tolist()) == [1, 2]
 
 
 def test_main_row_independent_mixed_main_ref_outside_quotes_false():

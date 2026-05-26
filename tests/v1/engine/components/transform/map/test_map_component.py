@@ -167,14 +167,12 @@ def test_process_missing_main_df_returns_empty_outputs():
     assert out["out"].empty
 
 
-def test_process_with_missing_lookup_continue_branch():
-    """_process: missing lookup hits the ``continue`` branch before any bridge
-    call. We verify the branch by ensuring the lookup phase iterates with a
-    None lookup_df.
-
-    Stubbing the bridge here would couple the test to compile_tmap_script
-    internals; instead we use a Map subclass override of _process to short
-    out after the loop so we exercise the missing-lookup branch only.
+def test_process_empty_lookup_left_outer_passes_main_through():
+    """Option C: empty lookup_df + LEFT_OUTER must not be skipped. The join
+    runs and main rows pass through with NaN lookup cols. This is the
+    regression test for the silent empty-output bug observed in
+    Job_tMap_v6 (LEFT_OUTER + filter `row2.col == null` produced 0 rows
+    instead of all main rows).
     """
     cfg_with_lookup = {
         **SAMPLE_CONFIG,
@@ -187,9 +185,9 @@ def test_process_with_missing_lookup_continue_branch():
                 "filter": "",
                 "activate_filter": False,
                 "join_keys": [{
-                    "lookup_column": "key",
-                    "expression": "row1.key",
-                    "type": "str",
+                    "lookup_column": "newColumn",
+                    "expression": "{{java}}row1.newColumn",
+                    "type": "int",
                     "nullable": True,
                     "operator": "=",
                 }],
@@ -197,25 +195,131 @@ def test_process_with_missing_lookup_continue_branch():
             }],
         },
         "outputs": [{
-            **SAMPLE_CONFIG["outputs"][0],
-            "columns": [{"name": "id", "expression": "1", "type": "int", "nullable": True}],
+            "name": "out",
+            "is_reject": False,
+            "inner_join_reject": False,
+            "catch_output_reject": False,
+            "filter": "",
+            "activate_filter": False,
+            "columns": [
+                {"name": "newColumn", "expression": "1", "type": "int",
+                 "nullable": True},
+                {"name": "newColumn_1", "expression": "1", "type": "int",
+                 "nullable": True},
+            ],
         }],
     }
     m = Map("tMap_1", cfg_with_lookup)
-    m._fresh_config()
-    m._validate_config()
-    # Lookup with empty DataFrame -- still hits the "continue" branch
-    # (line 115-116) because lookup_df.empty is True.
-    main = pd.DataFrame({"id": [1], "key": ["A"]})
-    empty_lookup = pd.DataFrame({"key": [], "label": []})
-    # Stub bridge to avoid needing a real JVM. We only care that the lookup
-    # phase short-circuited without raising during the loop.
+    m.schema_inputs_map = {
+        "row1": [{"name": "newColumn", "type": "int"}],
+        "row2": [{"name": "newColumn", "type": "int"}],
+    }
     from unittest.mock import MagicMock
     m.java_bridge = MagicMock()
-    m.java_bridge.compile_tmap_script.return_value = "compiled-id"
-    m.java_bridge.execute_compiled_tmap.return_value = {"out": pd.DataFrame({"id": []})}
+    m._fresh_config()
+    m._validate_config()
+
+    main = pd.DataFrame({"newColumn": [1, 2, 3, 4, 5, 6, 7]})
+    empty_lookup = pd.DataFrame({"newColumn": []})
+
+    # Stub bridge: capture the joined_df passed to compile_tmap_script /
+    # execute_compiled_tmap_chunked so we can verify the join produced
+    # the right shape with prefixed NaN lookup cols.
+    captured: dict = {}
+
+    def fake_chunked(component_id, df, chunk_size, input_columns,
+                     schema, reject_mode):
+        captured["df"] = df.copy()
+        captured["input_columns"] = list(input_columns)
+        return {"out": pd.DataFrame({
+            "newColumn": df["newColumn"].tolist(),
+            "newColumn_1": [None] * len(df),
+        })}
+
+    m.java_bridge = MagicMock()
+    m.java_bridge.compile_tmap_script.return_value = None
+    m.java_bridge.execute_compiled_tmap_chunked.side_effect = fake_chunked
+
     out = m._process({"row1": main, "row2": empty_lookup})
+    # The active script must have been invoked with all 7 main rows AND
+    # the prefixed row2 column present (NaN) so per-row filters can
+    # reference row2.newColumn without throwing.
+    assert "df" in captured, "active script must run even with empty lookup"
+    assert list(captured["df"]["newColumn"]) == [1, 2, 3, 4, 5, 6, 7]
+    assert "row2.newColumn" in captured["df"].columns
+    assert captured["df"]["row2.newColumn"].isna().all()
+
     assert "out" in out
+    assert list(out["out"]["newColumn"]) == [1, 2, 3, 4, 5, 6, 7]
+
+
+def test_process_missing_lookup_left_outer_passes_main_through():
+    """Option C: when the lookup flow is absent from the input dict (None),
+    treat as empty and still run the join so main rows pass through.
+    """
+    cfg_with_lookup = {
+        **SAMPLE_CONFIG,
+        "inputs": {
+            **SAMPLE_CONFIG["inputs"],
+            "lookups": [{
+                "name": "row2",
+                "matching_mode": "UNIQUE_MATCH",
+                "lookup_mode": "LOAD_ONCE",
+                "filter": "",
+                "activate_filter": False,
+                "join_keys": [{
+                    "lookup_column": "newColumn",
+                    "expression": "{{java}}row1.newColumn",
+                    "type": "int",
+                    "nullable": True,
+                    "operator": "=",
+                }],
+                "join_mode": "LEFT_OUTER_JOIN",
+            }],
+        },
+        "outputs": [{
+            "name": "out",
+            "is_reject": False,
+            "inner_join_reject": False,
+            "catch_output_reject": False,
+            "filter": "",
+            "activate_filter": False,
+            "columns": [
+                {"name": "newColumn", "expression": "1", "type": "int",
+                 "nullable": True},
+            ],
+        }],
+    }
+    m = Map("tMap_1", cfg_with_lookup)
+    m.schema_inputs_map = {
+        "row1": [{"name": "newColumn", "type": "int"}],
+        "row2": [{"name": "newColumn", "type": "int"}],
+    }
+    from unittest.mock import MagicMock
+    m.java_bridge = MagicMock()
+    m._fresh_config()
+    m._validate_config()
+
+    main = pd.DataFrame({"newColumn": [1, 2, 3]})
+
+    captured: dict = {}
+
+    def fake_chunked(component_id, df, chunk_size, input_columns,
+                     schema, reject_mode):
+        captured["df"] = df.copy()
+        return {"out": pd.DataFrame({"newColumn": df["newColumn"].tolist()})}
+
+    m.java_bridge = MagicMock()
+    m.java_bridge.compile_tmap_script.return_value = None
+    m.java_bridge.execute_compiled_tmap_chunked.side_effect = fake_chunked
+
+    out = m._process({"row1": main})  # row2 missing entirely
+
+    assert "df" in captured
+    assert list(captured["df"]["newColumn"]) == [1, 2, 3]
+    assert "row2.newColumn" in captured["df"].columns
+    assert captured["df"]["row2.newColumn"].isna().all()
+    assert list(out["out"]["newColumn"]) == [1, 2, 3]
 
 
 # ===== CONSTANT_KEY dispatch =====
@@ -410,8 +514,10 @@ def test_log_lookup_join_strategy_value_appears(caplog):
 # ===== Debug logging: peripheral observability =====
 
 
-def test_log_lookup_skipped_when_lookup_df_none(caplog):
-    """Missing lookup input -> INFO record with 'no input data'."""
+def test_log_lookup_empty_passthrough_when_lookup_df_none(caplog):
+    """Missing lookup input -> INFO record announcing empty pass-through
+    (Option C: no skip; join runs with empty frame).
+    """
     from src.v1.engine.components.transform.map.map_component import Map
 
     config = {
@@ -449,13 +555,15 @@ def test_log_lookup_skipped_when_lookup_df_none(caplog):
 
     msgs = [r.getMessage() for r in caplog.records if r.name == _logger_name()]
     assert any(
-        "[tMap_skip] lookup 'row8' skipped: no input data" in msg
+        "[tMap_skip] lookup 'row8' has no input data" in msg
         for msg in msgs
     )
 
 
-def test_log_lookup_skipped_when_lookup_df_empty(caplog):
-    """Empty lookup DataFrame -> INFO record with 'empty frame'."""
+def test_log_lookup_empty_passthrough_when_lookup_df_empty(caplog):
+    """Empty lookup DataFrame -> INFO record announcing empty pass-through
+    (Option C: no skip; join runs with empty frame).
+    """
     from src.v1.engine.components.transform.map.map_component import Map
 
     config = {
@@ -496,7 +604,7 @@ def test_log_lookup_skipped_when_lookup_df_empty(caplog):
 
     msgs = [r.getMessage() for r in caplog.records if r.name == _logger_name()]
     assert any(
-        "[tMap_empty] lookup 'row8' skipped: empty frame" in msg
+        "[tMap_empty] lookup 'row8' has empty input" in msg
         for msg in msgs
     )
 
