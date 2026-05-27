@@ -28,6 +28,7 @@ from typing import Any, Dict, List
 
 from ..base import ComponentConverter, ComponentResult, TalendConnection, TalendNode
 from ..registry import REGISTRY
+from ...expression_converter import ExpressionConverter
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +98,11 @@ class FileInputXMLConverter(ComponentConverter):
 
         # ---- 1. Core parameters ----
         config: Dict[str, Any] = {}
-        config["filepath"] = self._get_str(node, "FILENAME", "")
+        # Mark Java expressions in filepath (e.g. ((String)globalMap.get(...))) with {{java}}
+        # so the engine's Java bridge can resolve them at runtime.
+        config["filepath"] = ExpressionConverter.mark_java_expression(
+            self._get_str(node, "FILENAME", "")
+        )
         config["loop_query"] = self._get_str(node, "LOOP_QUERY", "/bills/bill/line")
         config["limit"] = self._get_str(node, "LIMIT", "")
         config["die_on_error"] = self._get_bool(node, "DIE_ON_ERROR", False)
