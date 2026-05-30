@@ -4,5 +4,6 @@ tFileList lives in src/v1/engine/components/file/ for grouping with file utiliti
 Iterate-only components (tFlowToIterate, tForeach, etc.) live here.
 """
 from .flow_to_iterate import FlowToIterate
+from .foreach import Foreach
 
-__all__ = ["FlowToIterate"]
+__all__ = ["FlowToIterate", "Foreach"]
