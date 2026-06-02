@@ -49,6 +49,24 @@ _SAFE_GLOBALS: Dict[str, Any] = {
 }
 
 
+def _to_python_scalar(value: Any) -> Any:
+    """Convert numpy/pandas scalar types to native Python equivalents.
+
+    NumPy >= 2.0 repr(numpy.int64(7)) produces 'np.int64(7)', which
+    breaks eval() when 'np' is not in scope.  Calling .item() on any
+    numpy scalar returns the equivalent native Python type (int, float,
+    bool, str) so that repr() produces a safe literal.
+
+    Non-numpy values are returned unchanged.
+    """
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except (AttributeError, ValueError):
+            pass
+    return value
+
+
 class TriggerType(Enum):
     """Types of triggers between components/subjobs."""
     ON_SUBJOB_OK = "OnSubjobOk"
@@ -339,7 +357,7 @@ class TriggerManager:
             value = self.global_map.get(key)
             if value is None:
                 return "None"
-            return repr(value)
+            return repr(_to_python_scalar(value))
 
         return pattern.sub(_ref_replacer, condition)
 
