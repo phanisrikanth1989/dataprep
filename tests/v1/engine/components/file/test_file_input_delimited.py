@@ -201,6 +201,25 @@ class TestBasicReading:
         result = comp.execute(None)
         assert len(result["main"]) == 2
 
+    def test_limit_halts_read_before_malformed_row(self, tmp_path):
+        """LIMIT must halt tokenization before bad rows past it (Talend parity).
+
+        nrows is pushed down into pd.read_csv so a malformed row past the
+        limit is never seen by the tokenizer and cannot raise.
+        """
+        filepath = _write_file(
+            tmp_path,
+            "limit_bad.csv",
+            # 2 well-formed rows, then a row with extra fields that would
+            # otherwise crash pandas with "Expected 3 fields, saw 7".
+            "1;Alice;10.5\n2;Bob;20.0\n3;Charlie;30.0;extra;extra;extra;extra\n",
+        )
+        config = {**_DEFAULT_CONFIG, "filepath": filepath, "limit": "2"}
+        comp = _make_component(config=config)
+        result = comp.execute(None)
+        assert len(result["main"]) == 2
+        assert list(result["main"]["name"]) == ["Alice", "Bob"]
+
     def test_utf8_encoding(self, tmp_path):
         filepath = _write_file(
             tmp_path, "utf8.csv", "1;Alice;10.5\n2;Bob;20.0\n", encoding="utf-8"
