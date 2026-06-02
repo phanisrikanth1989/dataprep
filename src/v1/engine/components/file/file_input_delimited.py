@@ -199,6 +199,16 @@ class FileInputDelimited(BaseComponent):
                 schema_cols=schema_cols,
             )
         else:
+            # Parse limit early so it can be pushed down into pandas (Talend parity:
+            # LIMIT halts reading; we must not even tokenize lines past it).
+            nrows_limit = None
+            if limit and str(limit).strip():
+                try:
+                    parsed_limit = int(limit)
+                    if parsed_limit > 0:
+                        nrows_limit = parsed_limit
+                except (ValueError, TypeError):
+                    pass
             df = self._read_standard_mode(
                 filepath=str(resolved_path),
                 field_separator=field_separator,
@@ -207,6 +217,7 @@ class FileInputDelimited(BaseComponent):
                 header_rows=header_rows,
                 footer_rows=footer_rows,
                 schema_cols=schema_cols,
+                nrows=nrows_limit,
             )
 
         logger.info(
@@ -277,6 +288,7 @@ class FileInputDelimited(BaseComponent):
         header_rows: int,
         footer_rows: int,
         schema_cols: Optional[list[str]],
+        nrows: Optional[int] = None,
     ) -> pd.DataFrame:
         """Read file using pandas (csv_option=False, no quoting).
 
@@ -350,6 +362,12 @@ class FileInputDelimited(BaseComponent):
             "dtype": str,
             "keep_default_na": False,
         }
+
+        # Talend parity: LIMIT halts reading -- never tokenize past it.
+        # nrows is incompatible with skipfooter (pandas requires reading the
+        # whole file to know where the footer starts).
+        if nrows is not None and nrows > 0 and footer_rows == 0:
+            read_params["nrows"] = nrows
 
         if footer_rows > 0:
             read_params["engine"] = "python"
