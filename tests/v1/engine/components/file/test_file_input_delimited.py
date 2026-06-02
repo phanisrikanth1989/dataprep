@@ -321,8 +321,13 @@ class TestTrimSelect:
         result = comp.execute(None)
         assert result["main"].iloc[0]["name"] == "Alice"
 
-    def test_trim_select_overrides_trim_all(self, tmp_path):
-        """trim_select overrides trim_all when non-empty."""
+    def test_trim_all_wins_over_trim_select_false_entries(self, tmp_path):
+        """trim_all=True trims every string column even when trim_select has trim=False entries.
+
+        Talend semantics: TRIMALL=true always wins.  TRIMSELECT entries with
+        trim=false are the UI default state ("no explicit override"), not an
+        instruction to suppress trimming.
+        """
         filepath = _write_file(
             tmp_path, "override.csv", "1; Alice ; 10.5 \n"
         )
@@ -337,8 +342,11 @@ class TestTrimSelect:
         }
         comp = _make_component(config=config)
         result = comp.execute(None)
-        # name trimmed via trim_select, value NOT trimmed because trim_select takes priority
+        # trim_all=True must trim ALL string columns -- trim_select trim=False does not suppress it.
         assert result["main"].iloc[0]["name"] == "Alice"
+        # 'value' is float here (schema typed), so trimming happens on the raw string before cast;
+        # what matters is name was trimmed and no error was raised.
+        assert result["main"].iloc[0]["value"] == 10.5
 
     def test_columns_not_in_trim_select_untouched(self, tmp_path):
         filepath = _write_file(

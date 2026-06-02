@@ -839,6 +839,27 @@ class TestTrimming:
         result = comp._apply_trimming(df)
         assert "  alice  " in str(result["name"].iloc[0])
 
+    def test_trimall_wins_over_trim_select_false_entries(self):
+        """trimall=True trims every string column even when trim_select has trim=False entries.
+
+        Talend semantics: TRIMALL=true always wins.  TRIMSELECT entries with
+        trim=false are the UI default state ("no explicit override"), not an
+        instruction to suppress trimming.
+        """
+        comp = _make_component({
+            "filepath": "x.xlsx",
+            "trimall": True,
+            "trim_select": [
+                {"column": "name", "trim": True},
+                {"column": "city", "trim": False},
+            ],
+        })
+        df = pd.DataFrame({"name": ["  alice  "], "city": ["  ny  "]})
+        result = comp._apply_trimming(df)
+        # Both columns must be trimmed -- trim_select trim=False does not suppress trimall.
+        assert result["name"].iloc[0] == "alice"
+        assert result["city"].iloc[0] == "ny"
+
 
 @pytest.mark.unit
 class TestDateConversion:
