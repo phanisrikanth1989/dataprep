@@ -658,18 +658,23 @@ class FileInputExcel(BaseComponent):
 
     def _apply_trimming(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Apply trimming based on trimall or trim_select configuration
+        Apply trimming based on trimall or trim_select configuration.
+
+        Talend semantics: trimall=True trims every string column regardless
+        of what trim_select contains.  trim_select entries with trim=False are
+        the UI default state and do NOT suppress trimall.
+        trim_select is only consulted when trimall=False.
         """
         trimall = self.config.get('trimall', False)
         trim_select = self.config.get('trim_select', [])
 
         if trimall:
-            # Trim all string columns
+            # Trim all string columns -- trim_select does not override this.
             string_columns = df.select_dtypes(include=['object']).columns
             for col in string_columns:
                 df[col] = df[col].astype(str).str.strip()
         elif trim_select:
-            # Trim specific columns
+            # Trim only explicitly opted-in columns.
             for trim_config in trim_select:
                 col_name = trim_config.get('column', '')
                 should_trim = trim_config.get('trim', False)

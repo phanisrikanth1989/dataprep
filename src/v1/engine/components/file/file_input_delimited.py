@@ -555,7 +555,12 @@ class FileInputDelimited(BaseComponent):
     ) -> pd.DataFrame:
         """Apply per-column or global trim to string columns.
 
-        trim_select overrides trim_all when non-empty.
+        Talend semantics:
+          - trim_all=True  → every string column is trimmed.  TRIMSELECT entries
+            with trim=false are the UI default state ("no explicit override") and
+            do NOT prevent trimming.
+          - trim_all=False → only columns that have an explicit trim=true entry
+            in trim_select are trimmed.
 
         Args:
             df: Input DataFrame (all string columns at this point).
@@ -565,16 +570,19 @@ class FileInputDelimited(BaseComponent):
         Returns:
             DataFrame with trimmed columns.
         """
-        if not df.empty and trim_select:
+        if df.empty:
+            return df
+
+        if trim_all:
+            obj_cols = df.select_dtypes(include=["object"]).columns
+            for col in obj_cols:
+                df[col] = df[col].astype(str).str.strip()
+        elif trim_select:
             for entry in trim_select:
                 col_name = entry.get("column", "")
                 should_trim = entry.get("trim", False)
                 if should_trim and col_name in df.columns:
                     df[col_name] = df[col_name].astype(str).str.strip()
-        elif not df.empty and trim_all:
-            obj_cols = df.select_dtypes(include=["object", "str"]).columns
-            for col in obj_cols:
-                df[col] = df[col].astype(str).str.strip()
 
         return df
 
