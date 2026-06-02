@@ -326,18 +326,17 @@ class FileInputDelimited(BaseComponent):
                 "keep_default_na": False,
             }
             if schema_cols:
-                # Talend parity: silently ignore trailing extra columns by
-                # only reading the first len(schema_cols) fields. Without
-                # usecols, pandas would treat leftmost extras as an index
-                # and shift all data left, breaking every type conversion.
-                read_params_custom["names"] = schema_cols
-                read_params_custom["usecols"] = list(range(len(schema_cols)))
+                #Do NOT pass names/usecols: read raw then align to schema.
+                pass
             try:
-                return pd.read_csv(**read_params_custom)
+                raw_df = pd.read_csv(**read_params_custom)
+            except pd.errors.EmptyDataError:
+                return pd.DataFrame(columns=schema_cols or []).astype(str)
             except Exception as e:
                 raise FileOperationError(
                     f"[{self.id}] Failed to parse file '{filepath}': {e}"
                 ) from e
+            return self._align_columns_to_schema(raw_df, schema_cols)
 
         # ---- Standard row separator: pandas handles natively ----
         read_params: dict[str, Any] = {
@@ -355,18 +354,51 @@ class FileInputDelimited(BaseComponent):
         if footer_rows > 0:
             read_params["engine"] = "python"
 
-        if schema_cols:
-            # Talend parity: silently ignore trailing extra columns (see above).
-            read_params["names"] = schema_cols
-            read_params["usecols"] = list(range(len(schema_cols)))
-
         try:
             df = pd.read_csv(**read_params)
+        except pd.errors.EmptyDataError:
+            # Empty file or no columns
+            return pd.DataFrame(columns=schema_cols or []).astype(str)
         except Exception as e:
             raise FileOperationError(
                 f"[{self.id}] Failed to read file '{filepath}': {e}"
             ) from e
+        
+        return self._align_columns_to_schema(df, schema_cols)
 
+    def _align_columns_to_schema(
+        self, df: pd.DataFrame, schema_cols: Optional[list[str]]    
+        ) -> pd.DataFrame:
+        """Align DataFrame columns to schema: truncate extra columns, set names.
+
+        Talend parity: silently truncate extra columns so DataFrame width matches schema.
+        If file has MORE columns than schema, excess columns are dropped. 
+        If file has FEWER columns than schema, missing columns are added with empty string values.
+
+
+        Args:
+            df: Input DataFrame with default integer column names.
+            schema_cols: List of column names from schema, or None.
+
+        Returns:
+            DataFrame with columns aligned to schema.
+        """
+        if not schema_cols:
+            return df
+        
+        file_col_count = len(df.columns)
+        schema_col_count = len(schema_cols)
+
+        if file_col_count > schema_col_count:
+            # Take first N columns positionally to match schema, silently dropping extras (Talend parity).
+            df = df.iloc[:, :schema_col_count]
+            df.columns = schema_cols
+        else:
+            # File has fewer columns than schema: add missing columns with empty string values.
+            df.columns = schema_cols[:file_col_count]
+            for col_name in schema_cols[file_col_count:]:
+                df[col_name] = ""
+  
         return df
 
     def _read_csv_mode(
@@ -442,12 +474,6 @@ class FileInputDelimited(BaseComponent):
             if not rows:
                 return pd.DataFrame(columns=schema_cols or []).astype(str)
 
-            # Talend parity: silently truncate trailing extra fields per row
-            # so the DataFrame width matches len(schema_cols).
-            if schema_cols:
-                n = len(schema_cols)
-                rows = [r[:n] for r in rows]
-
             df = pd.DataFrame(rows, dtype=str)
             if schema_cols and len(df.columns) == len(schema_cols):
                 df.columns = schema_cols
@@ -505,11 +531,6 @@ class FileInputDelimited(BaseComponent):
         if not rows:
             columns = schema_cols or []
             return pd.DataFrame(columns=columns).astype(str)
-
-        # Talend parity: silently truncate trailing extra fields per row.
-        if schema_cols:
-            n = len(schema_cols)
-            rows = [r[:n] for r in rows]
 
         df = pd.DataFrame(rows, dtype=str)
         if schema_cols and len(df.columns) == len(schema_cols):

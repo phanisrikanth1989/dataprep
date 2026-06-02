@@ -197,6 +197,9 @@ class BaseComponent(ABC):
         # Python routine manager (set by engine if Python is enabled)
         self.python_routine_manager = None
 
+        # Schema (set by engine before execute())
+        self.output_schema: list[dict] = []
+
     # ------------------------------------------------------------------
     # Template Method Lifecycle
     # ------------------------------------------------------------------
