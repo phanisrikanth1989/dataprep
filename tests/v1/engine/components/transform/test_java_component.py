@@ -254,6 +254,114 @@ class TestBridgeFailure:
 
 
 # ----------------------------------------------------------------
+# TestContextSync -- bidirectional sync between engine and bridge
+# ----------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestContextSync:
+    """Bidirectional context / globalMap sync between engine and bridge.
+
+    tJava is a one-shot component; BaseComponent's _resolve_java_expressions
+    only fires for {{java}}-marked config strings, which tJava does not have.
+    The component itself must therefore (a) push engine context into the
+    bridge before execute_one_time_expression so user code reads current
+    context.* values, and (b) copy the bridge's post-execute context /
+    globalMap dicts back into the engine's ContextManager / GlobalMap so
+    downstream components observe assignments made by the user code.
+    """
+
+    def test_pushes_engine_context_to_bridge_before_execute(self):
+        """Engine ContextManager values are written into bridge.context before bridge call."""
+        cm = ContextManager()
+        cm.set("DATE", "2020-01-15", "id_String")
+        cm.set("LIMIT", 10, "id_Integer")
+        gm = GlobalMap()
+        bridge = MagicMock()
+        bridge.context = {}
+        bridge.global_map = {}
+        seen_context: dict = {}
+
+        def _capture(_code: str) -> None:
+            seen_context.update(bridge.context)
+
+        bridge.execute_one_time_expression.side_effect = _capture
+
+        comp = JavaComponent(
+            component_id="tJava_1",
+            config=dict(_DEFAULT_CONFIG),
+            global_map=gm,
+            context_manager=cm,
+        )
+        comp.config = dict(_DEFAULT_CONFIG)
+        comp.java_bridge = bridge
+
+        comp._process(input_data=None)
+
+        assert seen_context["DATE"] == "2020-01-15"
+        assert seen_context["LIMIT"] == 10
+
+    def test_syncs_bridge_context_back_to_context_manager(self):
+        """User code assigning to context.X is reflected in engine ContextManager after execute."""
+        cm = ContextManager()
+        cm.set("DATE", "", "id_String")
+        gm = GlobalMap()
+        bridge = MagicMock()
+        bridge.context = {}
+        bridge.global_map = {}
+
+        def _simulate_user_code(_code: str) -> None:
+            # Mimic _sync_from_java() refreshing bridge.context from JVM after
+            # the user's code did context.DATE = "2020-01-15".
+            bridge.context["DATE"] = "2020-01-15"
+            bridge.context["NEW_VAR"] = "added"
+
+        bridge.execute_one_time_expression.side_effect = _simulate_user_code
+
+        comp = JavaComponent(
+            component_id="tJava_1",
+            config=dict(_DEFAULT_CONFIG),
+            global_map=gm,
+            context_manager=cm,
+        )
+        comp.config = dict(_DEFAULT_CONFIG)
+        comp.java_bridge = bridge
+
+        comp._process(input_data=None)
+
+        assert cm.get("DATE") == "2020-01-15"
+        assert cm.get("NEW_VAR") == "added"
+        # Pre-existing type metadata is preserved across the sync-back.
+        assert cm.get_type("DATE") == "id_String"
+
+    def test_syncs_bridge_global_map_back_to_engine(self):
+        """globalMap.put() in user code is reflected in engine GlobalMap after execute."""
+        cm = ContextManager()
+        gm = GlobalMap()
+        bridge = MagicMock()
+        bridge.context = {}
+        bridge.global_map = {}
+
+        def _simulate_user_code(_code: str) -> None:
+            bridge.global_map["MY_KEY"] = "my_val"
+
+        bridge.execute_one_time_expression.side_effect = _simulate_user_code
+
+        comp = JavaComponent(
+            component_id="tJava_1",
+            config=dict(_DEFAULT_CONFIG),
+            global_map=gm,
+            context_manager=cm,
+        )
+        comp.config = dict(_DEFAULT_CONFIG)
+        comp.java_bridge = bridge
+
+        comp._process(input_data=None)
+
+        assert gm.get("MY_KEY") == "my_val"
+
+
+# ----------------------------------------------------------------
 # TestExecution -- @pytest.mark.java integration tests (real bridge)
 # ----------------------------------------------------------------
 

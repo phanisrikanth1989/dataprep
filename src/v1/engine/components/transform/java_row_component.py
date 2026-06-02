@@ -214,6 +214,14 @@ class JavaRowComponent(CodeComponentMixin, BaseComponent):
         if self.global_map:
             self.java_bridge.global_map.update(self.global_map._map)
 
+        # Push engine ContextManager state into the bridge so user code reads
+        # current context.* values. java_code lives in SKIP_RESOLUTION_KEYS so
+        # BaseComponent's _resolve_java_expressions() does not push context
+        # for us when the only Java payload is the row body.
+        if self.context_manager:
+            for key, value in self.context_manager.get_all().items():
+                self.java_bridge.context[key] = value
+
         # Logging policy (RESEARCH.md): DEBUG only, never INFO with body.
         logger.debug(
             f"[{self.id}] Executing per-row Java code on {len(input_data)} rows "
@@ -244,6 +252,19 @@ class JavaRowComponent(CodeComponentMixin, BaseComponent):
                 f"Java per-row execution failed: {e}",
                 cause=e,
             ) from e
+
+        # Bridge's _sync_from_java() (run inside _call_java_with_sync) refreshed
+        # self.java_bridge.context / .global_map from the JVM. Propagate those
+        # changes back to the engine's ContextManager / GlobalMap so downstream
+        # components see context.* / globalMap mutations performed by the
+        # per-row Java body.
+        if self.context_manager:
+            for key, value in self.java_bridge.context.items():
+                value_type = self.context_manager.get_type(key)
+                self.context_manager.set(key, value, value_type)
+        if self.global_map:
+            for key, value in self.java_bridge.global_map.items():
+                self.global_map.put(key, value)
 
         # Passthrough-style return: NB_LINE / NB_LINE_OK are computed by
         # BaseComponent step 8 from result['main'] -- no manual _update_stats()

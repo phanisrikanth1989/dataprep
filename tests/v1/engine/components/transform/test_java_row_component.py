@@ -322,6 +322,118 @@ class TestContextMixin:
 
 
 # ----------------------------------------------------------------
+# TestContextSync -- bidirectional sync between engine and bridge
+# ----------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestContextSync:
+    """Bidirectional context / globalMap sync between engine and bridge.
+
+    Mirrors the JavaComponent contract: BaseComponent's
+    _resolve_java_expressions only fires for {{java}}-marked config strings,
+    which tJavaRow does not have on the row body itself. The component
+    must (a) push engine ContextManager values into bridge.context before
+    execute_java_row so per-row code reads current context.* values, and
+    (b) copy bridge.context / bridge.global_map back into the engine after
+    execution so downstream components observe assignments made by the
+    user's per-row code.
+    """
+
+    def test_pushes_engine_context_to_bridge_before_execute(self):
+        """Engine ContextManager values are written into bridge.context before bridge call."""
+        cm = ContextManager()
+        cm.set("DATE", "2020-01-15", "id_String")
+        cm.set("LIMIT", 10, "id_Integer")
+        gm = GlobalMap()
+        bridge = MagicMock()
+        bridge.context = {}
+        bridge.global_map = {}
+        seen_context: dict = {}
+        df_in = pd.DataFrame({"a": [1, 2]})
+
+        def _capture(**kwargs):
+            seen_context.update(bridge.context)
+            return kwargs["df"]
+
+        bridge.execute_java_row.side_effect = _capture
+
+        comp = JavaRowComponent(
+            component_id="tJavaRow_1",
+            config=dict(_DEFAULT_CONFIG),
+            global_map=gm,
+            context_manager=cm,
+        )
+        comp.config = dict(_DEFAULT_CONFIG)
+        comp.java_bridge = bridge
+
+        comp._process(input_data=df_in)
+
+        assert seen_context["DATE"] == "2020-01-15"
+        assert seen_context["LIMIT"] == 10
+
+    def test_syncs_bridge_context_back_to_context_manager(self):
+        """User code assigning to context.X is reflected in engine ContextManager after execute."""
+        cm = ContextManager()
+        cm.set("DATE", "", "id_String")
+        gm = GlobalMap()
+        bridge = MagicMock()
+        bridge.context = {}
+        bridge.global_map = {}
+        df_in = pd.DataFrame({"a": [1, 2]})
+
+        def _simulate(**kwargs):
+            bridge.context["DATE"] = "2020-01-15"
+            bridge.context["NEW_VAR"] = "added"
+            return kwargs["df"]
+
+        bridge.execute_java_row.side_effect = _simulate
+
+        comp = JavaRowComponent(
+            component_id="tJavaRow_1",
+            config=dict(_DEFAULT_CONFIG),
+            global_map=gm,
+            context_manager=cm,
+        )
+        comp.config = dict(_DEFAULT_CONFIG)
+        comp.java_bridge = bridge
+
+        comp._process(input_data=df_in)
+
+        assert cm.get("DATE") == "2020-01-15"
+        assert cm.get("NEW_VAR") == "added"
+        assert cm.get_type("DATE") == "id_String"
+
+    def test_syncs_bridge_global_map_back_to_engine(self):
+        """globalMap.put() in user code is reflected in engine GlobalMap after execute."""
+        cm = ContextManager()
+        gm = GlobalMap()
+        bridge = MagicMock()
+        bridge.context = {}
+        bridge.global_map = {}
+        df_in = pd.DataFrame({"a": [1, 2]})
+
+        def _simulate(**kwargs):
+            bridge.global_map["MY_KEY"] = "my_val"
+            return kwargs["df"]
+
+        bridge.execute_java_row.side_effect = _simulate
+
+        comp = JavaRowComponent(
+            component_id="tJavaRow_1",
+            config=dict(_DEFAULT_CONFIG),
+            global_map=gm,
+            context_manager=cm,
+        )
+        comp.config = dict(_DEFAULT_CONFIG)
+        comp.java_bridge = bridge
+
+        comp._process(input_data=df_in)
+
+        assert gm.get("MY_KEY") == "my_val"
+
+
+# ----------------------------------------------------------------
 # TestRowExecution -- @pytest.mark.java integration (real bridge)
 # ----------------------------------------------------------------
 

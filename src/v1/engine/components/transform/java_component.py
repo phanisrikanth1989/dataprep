@@ -168,6 +168,15 @@ class JavaComponent(CodeComponentMixin, BaseComponent):
         if self.global_map:
             self.java_bridge.global_map.update(self.global_map._map)
 
+        # Push engine ContextManager state into the bridge so user code reads
+        # the current context.* values. SKIP_RESOLUTION_KEYS prevents config
+        # substitution from doing this for us, and BaseComponent's
+        # _resolve_java_expressions() only fires when {{java}} markers exist
+        # in config -- tJava has none.
+        if self.context_manager:
+            for key, value in self.context_manager.get_all().items():
+                self.java_bridge.context[key] = value
+
         # Logging policy (RESEARCH.md): DEBUG only, never INFO with body.
         logger.debug(
             f"[{self.id}] Executing one-shot Java block (size={len(java_code)} chars)"
@@ -182,6 +191,19 @@ class JavaComponent(CodeComponentMixin, BaseComponent):
             raise ExpressionError(
                 f"[{self.id}] Java execution failed: {e}"
             ) from e
+
+        # Bridge's _sync_from_java() has refreshed self.java_bridge.context and
+        # self.java_bridge.global_map from the JVM. Propagate those changes
+        # back to the engine's ContextManager / GlobalMap so downstream
+        # components (tMap filters, etc.) observe context.* assignments made
+        # by the user's Java code.
+        if self.context_manager:
+            for key, value in self.java_bridge.context.items():
+                value_type = self.context_manager.get_type(key)
+                self.context_manager.set(key, value, value_type)
+        if self.global_map:
+            for key, value in self.java_bridge.global_map.items():
+                self.global_map.put(key, value)
 
         # Passthrough per D-29 (revision 2). Stats lifecycle (NB_LINE etc.)
         # is computed by BaseComponent step 8 from result['main'] -- no manual
