@@ -142,8 +142,8 @@ class FileInputPositionalConverter(ComponentConverter):
         config["remove_empty_row"] = self._get_bool(node, "REMOVE_EMPTY_ROW", True)
         config["trim_all"] = self._get_bool(node, "TRIMALL", True)
         config["encoding"] = self._get_str(node, "ENCODING", "ISO-8859-15")
-        config["header_rows"] = self._get_int(node, "HEADER", 0)
-        config["footer_rows"] = self._get_int(node, "FOOTER", 0)
+        config["header_rows"] = self._get_int_or_context(node, "HEADER", 0)
+        config["footer_rows"] = self._get_int_or_context(node, "FOOTER", 0)
         config["limit"] = self._get_str(node, "LIMIT", "")
         config["die_on_error"] = self._get_bool(node, "DIE_ON_ERROR", False)
 

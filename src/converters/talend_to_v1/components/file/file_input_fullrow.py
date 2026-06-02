@@ -43,8 +43,8 @@ class FileInputFullRowConverter(ComponentConverter):
         config: Dict[str, Any] = {}
         config["filename"] = self._get_str(node, "FILENAME", "")
         config["row_separator"] = self._get_str(node, "ROWSEPARATOR", "\\n")
-        config["header_rows"] = self._get_int(node, "HEADER", 0)
-        config["footer_rows"] = self._get_int(node, "FOOTER", 0)
+        config["header_rows"] = self._get_int_or_context(node, "HEADER", 0)
+        config["footer_rows"] = self._get_int_or_context(node, "FOOTER", 0)
         config["limit"] = self._get_str(node, "LIMIT", "")
         config["remove_empty_row"] = self._get_bool(node, "REMOVE_EMPTY_ROW", True)
         config["encoding"] = self._get_str(node, "ENCODING", "ISO-8859-15")
