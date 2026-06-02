@@ -38,12 +38,13 @@ _REQUIRES_FULL_DATA_TYPES: frozenset[str] = frozenset({
 
 # ---------------------------------------------------------------------------
 # Iterate component types (Phase 10 hardcoded set)
-# Future iterate components (tForeach, tLoop) add here.
+# Future iterate components (tLoop) add here.
 # ---------------------------------------------------------------------------
 
 _ITERATE_TYPES: frozenset[str] = frozenset({
     "FlowToIterate", "tFlowToIterate",
     "FileList", "tFileList",
+    "Foreach", "tForeach",
 })
 
 

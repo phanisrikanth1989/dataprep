@@ -201,10 +201,10 @@ class ExpressionConverter:
         expression = expression.replace('.toUpperCase()', '.upper()')
         expression = expression.replace('.trim()', '.strip()')
 
-        # Convert null checks
-        expression = expression.replace('!= null', 'is not None')
-        expression = expression.replace('== null', 'is None')
-        expression = expression.replace('null', 'None')
+        # Convert null checks (tolerate optional whitespace around the operator)
+        expression = re.sub(r'!=\s*null\b', 'is not None', expression)
+        expression = re.sub(r'==\s*null\b', 'is None', expression)
+        expression = re.sub(r'\bnull\b', 'None', expression)
 
         # Convert logical operators
         expression = expression.replace('&&', ' and ')
