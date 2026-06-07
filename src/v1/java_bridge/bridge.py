@@ -10,14 +10,17 @@ import collections
 import datetime
 import io
 import logging
+import math
 import os
 import subprocess
 import threading
 import time
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Optional
 
 from attr import field
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.ipc as ipc
@@ -71,6 +74,58 @@ def _coerce_global_map_for_java(d: dict[str, Any]) -> dict[str, Any]:
                 pass
         result[k] = v
     return result
+
+
+def _coerce_to_decimal_or_none(v: Any) -> Optional[Decimal]:
+    """Normalize a single cell value for a ``Decimal``-typed Arrow column.
+
+    PyArrow's ``decimal128`` builder only accepts ``decimal.Decimal`` (or
+    ``None`` for null). Real-world DataFrames feeding the bridge may carry:
+
+    - Python ``Decimal`` -- pass through.
+    - ``None`` / ``pd.NA`` / ``float('nan')`` / ``np.nan`` -- become ``None``.
+    - ``""`` or whitespace-only strings -- become ``None`` (Talend null
+      convention for delimited files).
+    - ``int`` / ``float`` / numpy numeric scalars -- happens when the CSV
+      reader infers ``float64`` for a ``Decimal``-typed column, or when
+      ``pd.merge(how="left")`` promotes unmatched rows to ``NaN`` and flips
+      the column dtype. Convert via ``str(v)`` to avoid binary-float drift.
+    - Numeric strings (e.g. ``"123.45"``) -- parsed via ``Decimal``.
+
+    Anything else falls back to ``Decimal(str(v))``; if that fails the value
+    is treated as null rather than crashing the entire batch serialization.
+    """
+    # Fast path: already a Decimal.
+    if isinstance(v, Decimal):
+        return v
+    # Null-likes. ``v is pd.NA`` must come before any comparison that would
+    # raise on pd.NA (e.g. ``v != v`` works, but be explicit).
+    if v is None or v is pd.NA:
+        return None
+    if isinstance(v, float):
+        if math.isnan(v) or math.isinf(v):
+            return None
+        return Decimal(str(v))
+    if isinstance(v, (int, np.integer)):
+        return Decimal(int(v))
+    if isinstance(v, np.floating):
+        f = float(v)
+        if math.isnan(f) or math.isinf(f):
+            return None
+        return Decimal(str(f))
+    if isinstance(v, str):
+        s = v.strip()
+        if s == "":
+            return None
+        try:
+            return Decimal(v)
+        except InvalidOperation:
+            return None
+#Unknown types -- best effort string conversion else null.
+    try:
+        return Decimal(str(v))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
 
 
 # Python logging level -> Java JUL level string
@@ -221,6 +276,7 @@ class JavaBridge:
             "--add-opens=java.base/java.nio=ALL-UNNAMED",
             "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
             "--add-opens=java.base/java.lang=ALL-UNNAMED",
+            "--Duser.timezone=UTC",
             f"-Dpy4j.port={port}",
             "-cp", classpath,
             "com.citi.gru.etl.JavaBridge",
@@ -363,8 +419,41 @@ class JavaBridge:
         input_columns: list[str] | None = None,
         output_columns: list[str] | None = None,
         schema_columns: list[dict] | None = None,
+        input_schema: dict[str, str] | None = None,
+        chunk_size: int = 50_000,
     ) -> pd.DataFrame:
-        """Execute tJavaRow-style code on a DataFrame.
+        """Execute tJavaRow-style code on a DataFrame, chunking across Py4J.
+
+        The DataFrame is split into ``chunk_size`` row ranges and each chunk
+        is sent to the Java side as its own Arrow byte[] payload. This
+        mirrors the proven pattern in ``execute_compiled_tmap_chunked``
+        (line 690) and is REQUIRED to avoid Py4J's signed-int Base64
+        length-field overflow.
+
+        - Py4J Base64-encodes byte[] arguments.
+        - Encoded length is stored as a Java signed 32-bit int (max ~2.14 GB).
+        - Encoded size = ceil(raw / 3) * 4, so raw payload over ~1.5 GB
+        (``_PY4J_BYTE_ARG_SAFE_LIMIT``) overflows the int and the Java
+        side raises ``java.lang.NegativeArraySizeException`` at
+        ``py4j.Base64.decode()``.
+
+        Without chunking, a wide DataFrame with a few hundred thousand
+        rows can exceed this limit -- e.g. a 330,936-row, 6 KB/row frame
+        serializes to ~2.0 GB and crashes the bridge call.
+
+        Inter-chunk semantics:
+            - ``_call_java_with_sync`` runs after every chunk, so any
+            ``context`` / ``globalMap`` mutations made by the user's row
+            body in chunk N are visible to chunk N+1. This matches the
+            tMap chunker's contract.
+
+        Recovery:
+            If the Arrow payload pre-flight check finds a chunk over the
+            safe limit, the range is split in half and retried. If the
+            Java side raises ``NegativeArraySizeException`` (the runtime
+            backstop) the same halve-and-retry is applied. A single row
+            that is itself too large is unrecoverable and the original
+            error is re-raised so the user sees a clear message.
 
         Args:
             df: Input DataFrame.
@@ -373,29 +462,154 @@ class JavaBridge:
             input_columns: Input column names (optional).
             output_columns: Output column names (optional).
             schema_columns: Full schema column list for precision extraction.
+            input_schema: Optional column -> Python type mapping for input
+                columns. Used as the authoritative source for input-side
+                Arrow types when a column is NOT present in ``output_schema``
+                (Talend parity for tJavaRow input-only columns such as a
+                tMap-synthesized ``incremental_value`` int that the row body
+                reads but does not re-emit). Without this hint the bridge
+                falls back to pandas dtype inference, which silently
+                degrades object/float64 NaN-promoted columns to Arrow
+                VarChar/Float64 -- breaking ``int x = input_row.col``
+                primitive coercion in the row body.
+            chunk_size: Rows per chunk (default 50,000). Single-chunk jobs
+                (df rows <= chunk_size) make exactly one Java call -- no
+                behavior change vs the pre-chunking implementation. Auto
+                halves at runtime if a chunk's Arrow payload would
+                overflow the Py4J Base64 limit, so this default is a
+                safe upper bound and rarely needs tuning per job.
 
         Returns:
-            Output DataFrame.
+            Output DataFrame (per-chunk results concatenated in original
+            row order).
         """
-        logger.debug("[execute_java_row] rows=%d, code_len=%d", len(df), len(java_code))
+        total_rows = len(df)
+        # Diagnostic: log effective chunk_size + frame shape so we can tell
+        # whether a caller's chunk_size override actually reached us, and
+        # how wide each row is before serialization. Mirrors
+        # execute_compiled_tmap_chunked (line 727-741).
+        try:
+            mem_mb = df.memory_usage(deep=True).sum() / 1e6
+        except Exception:
+            mem_mb = -1.0
+        logger.info(
+            "[execute_java_row] rows=%d cols=%d code_len=%d chunk_size=%d "
+            "in-memory=%.1f MB (%.0f KB/row)",
+            total_rows,
+            len(df.columns),
+            len(java_code),
+            chunk_size,
+            mem_mb,
+            mem_mb / total_rows if total_rows > 0 else 0,
+        )
 
-        # Build schema dict from df columns for serialization
-        schema_dict = self._schema_dict_from_df_and_output(df, output_schema)
-        arrow_bytes = self._df_to_arrow_bytes(df, schema_dict, schema_columns)
+        # Empty input : short-circuit. the Java side has no rows to process
+        # and the chunked output concat below would receive zero frames.
+       # Returning an empty DataFrame with the declared output columns
+        # matches what _arrow_bytes_to_df would yield for an empty result.
+        if total_rows == 0:
+            return pd.DataFrame({col: [] for col in output_schema.keys()})
 
-        def _call():
-            return self.java_bridge.executeJavaRow(
-                arrow_bytes,
-                java_code,
-                self._convert_schema_to_java(output_schema),
-                self.context,
-                _coerce_global_map_for_java(self.global_map),
+        # Build schema dict ONCE (df-level): chunked Arrow serialization
+        # reuses the same schema for every slice -- no per-chunk recomputation.
+        schema_dict = self._schema_dict_from_df_and_output(
+            df, output_schema, input_schema=input_schema,
+        )
+        java_output_schema = self._convert_schema_to_java(output_schema)
+
+        # Build the initial list of (start, end) row ranges. Ranges may be
+        # split further at runtime if a chunk's Arrow payload would exceed
+        # the Py4J Base64 byte[] limit (see _PY4J_BYTE_ARG_SAFE_LIMIT).
+        pending_ranges: list[tuple[int, int]] = []
+        for chunk_idx in range((total_rows + chunk_size - 1) // chunk_size):
+            start_idx = chunk_idx * chunk_size
+            end_idx = min(start_idx + chunk_size, total_rows)
+            pending_ranges.append((start_idx, end_idx))
+
+        # Per-chunk output frames, accumulated and concatenated at the end
+        # in the order they were processed (which equals original row order
+        # because pending_ranges is processed FIFO with halve-on-failure
+        # inserting halves at the front).
+        output_chunks: list[pd.DataFrame] = []
+        processed = 0
+
+        while pending_ranges:
+            start_idx, end_idx = pending_ranges.pop(0)
+            chunk_df = df.iloc[start_idx:end_idx]
+            arrow_bytes = self._df_to_arrow_bytes(chunk_df, schema_dict, schema_columns)
+
+            # Pre-flight guard: if the raw Arrow payload alone would overflow
+            # Py4J's Base64 length field, split the range in half and retry.
+            # Refuse to split below 1 row -- a single row exceeding the limit
+            # is unrecoverable and must surface as a clear error.
+            if len(arrow_bytes) > _PY4J_BYTE_ARG_SAFE_LIMIT and (end_idx - start_idx) > 1:
+                mid = start_idx + (end_idx - start_idx) // 2
+                logger.warning(
+                    "[execute_java_row] chunk rows %d-%d Arrow size %.2f GB "
+                    "exceeds Py4J safe limit %.2f GB; splitting in half",
+                    start_idx, end_idx,
+                    len(arrow_bytes) / 1e9,
+                    _PY4J_BYTE_ARG_SAFE_LIMIT / 1e9,
+                )
+                pending_ranges.insert(0, (mid, end_idx))
+                pending_ranges.insert(0, (start_idx, mid))
+                continue
+
+            logger.debug(
+                "[execute_java_row] chunk rows %d-%d (%d rows, %.1f MB Arrow)",
+                start_idx, end_idx, end_idx - start_idx,
+                len(arrow_bytes) / 1e6,
             )
 
-        result_bytes = self._call_java_with_sync(_call)
+            def _call(ab=arrow_bytes):
+                return self.java_bridge.executeJavaRow(
+                    ab,
+                    java_code,
+                    java_output_schema,
+                    self.context,
+                    _coerce_global_map_for_java(self.global_map),
+                )
 
-        return self._arrow_bytes_to_df(result_bytes, output_schema)
+            try:
+                result_bytes = self._call_java_with_sync(_call)
+            except Exception as e:
+                # Recovery: if Java raised NegativeArraySizeException (or any
+                # error mentioning Base64), the row-count heuristic was too
+                # optimistic for this chunk's actual byte width. Halve the
+                # range and retry, unless we are already at 1 row.
+                msg = str(e)
+                is_base64_overflow = (
+                    "NegativeArraySizeException" in msg
+                    or "py4j.Base64" in msg
+                )
+                if is_base64_overflow and (end_idx - start_idx) > 1:
+                    mid = start_idx + (end_idx - start_idx) // 2
+                    logger.warning(
+                        "[execute_java_row] Py4J Base64 overflow on rows %d-%d; "
+                        "halving and retrying",
+                        start_idx, end_idx,
+                    )
+                    pending_ranges.insert(0, (mid, end_idx))
+                    pending_ranges.insert(0, (start_idx, mid))
+                    continue
+                raise
 
+            chunk_output_df = self._arrow_bytes_to_df(result_bytes, output_schema)
+            output_chunks.append(chunk_output_df)
+            processed += end_idx - start_idx
+            logger.debug(
+                "[execute_java_row] processed %d / %d rows", processed, total_rows
+            )
+
+        # Single-chunk path: avoid an unnecessary concat (the pre-chunking
+        # behavior was a single bridge call returning a single DF). For
+        # multi-chunk, concat preserves row order because halve-on-failure
+        # inserts halves at the front of the queue, so pop(0) processes
+        # ranges in start_idx-ascending order.
+        if len(output_chunks) == 1:
+            return output_chunks[0]
+        return pd.concat(output_chunks, ignore_index=True)
+        
     def execute_one_time_expression(self, expression: str) -> Any:
         """Execute a single Java expression.
 
@@ -474,6 +688,7 @@ class JavaBridge:
         schema_dict = schema if schema else self._infer_schema_dict(df)
         arrow_bytes = self._df_to_arrow_bytes(df, schema_dict)
 
+        assert self.gateway is not None
         java_lookup_names = ListConverter().convert(
             lookup_table_names or [], self.gateway._gateway_client
         )
@@ -539,6 +754,7 @@ class JavaBridge:
         if lookup_names is None:
             lookup_names = []
 
+        assert self.gateway is not None
         java_output_schemas = {}
         for output_name, col_list in output_schemas.items():
             java_output_schemas[output_name] = ListConverter().convert(
@@ -599,6 +815,7 @@ class JavaBridge:
         if lookup_names is None:
             lookup_names = []
 
+        assert self.gateway is not None
         java_output_schemas = {}
         for output_name, col_list in output_schemas.items():
             java_output_schemas[output_name] = ListConverter().convert(
@@ -784,6 +1001,8 @@ class JavaBridge:
                 raise
 
             for output_name, output_bytes in result_map.items():
+                if output_name not in output_dfs_list:
+                    output_dfs_list[output_name] = []
                 if output_bytes and len(output_bytes) > 0:
                     reader = ipc.open_stream(pa.py_buffer(output_bytes))
                     result_table = reader.read_all()
@@ -793,12 +1012,10 @@ class JavaBridge:
                     # if this DF is fed back as input it can still be serialized.
                     for field in result_table.schema:
                         if pa.types.is_decimal(field.type) and field.name in chunk_output_df.columns:
-                            chunk_output_df[field.name] = chunk_output_df[field.name].apply(
+                            chunk_output_df[field.name] = chunk_output_df[field.name].apply(  # type: ignore[arg-type]
                                 lambda v: "" if v is None or v is pd.NA or (isinstance(v, float) and pd.isna(v)) else v
                             )
-                if output_name not in output_dfs_list:
-                    output_dfs_list[output_name] = []
-                output_dfs_list[output_name].append(chunk_output_df)
+                    output_dfs_list[output_name].append(chunk_output_df)
 
             processed += end_idx - start_idx
             logger.debug(
@@ -849,6 +1066,7 @@ class JavaBridge:
 
         from py4j.java_collections import ListConverter
 
+        assert self.gateway is not None
         java_list = ListConverter().convert(libraries, self.gateway._gateway_client)
         missing = self.java_bridge.validateLibraries(java_list)
         return list(missing) if missing else []
@@ -1005,13 +1223,16 @@ class JavaBridge:
                 elif col_type == "datetime":
                     coerced_df[col_name] = pd.to_datetime(coerced_df[col_name], errors="coerce")
                 elif col_type == "Decimal":
-                    # Empty string "" must become none so pyarrow can write a
-                    # proper arrow null into the decimal128 column. If we pass
-                    # "" directly, pyarrow will raises "int or Decimal expected, got str".
+                    # PyArrow's decimal128 column requires Python Decimal
+                    # values (or None for null). The DataFrame may arrive
+                    # with float64 dtype (e.g. from CSV inference or from
+                    # pd.merge(how="left") NaN promotion) -- passing those
+                    # raw triggers "Got bytestring of length 8 (expected
+                    # 16), Conversion failed for column ... with type
+                    # float64". Normalize every value to either Decimal or
+                    # None here.
                     coerced_df[col_name] = coerced_df[col_name].apply(
-                        lambda v: None 
-                        if (isinstance(v, str) and v.strip() == "") or v is pd.NA
-                        else v
+                        _coerce_to_decimal_or_none  # type: ignore[arg-type]
                     )
             except Exception as e:
                 logger.warning(
@@ -1020,7 +1241,7 @@ class JavaBridge:
                     col_type,
                     e,
                 )
-
+                
         arrow_table = pa.Table.from_pandas(coerced_df, schema=arrow_schema, safe=False)
         # pandas 3.0 StringDtype columns produce chunked arrays that PyArrow
         # serializes as multiple record batches. The Java bridge reads only the
@@ -1121,22 +1342,56 @@ class JavaBridge:
         self,
         df: pd.DataFrame,
         output_schema: dict[str, str],
+        input_schema: dict[str, str] | None = None,
     ) -> dict[str, str]:
         """Build a schema dict for input DF serialization.
 
-        Uses output_schema for columns that exist in it, defaults to 'str'
-        for DataFrame columns not in output_schema.
+        Type-resolution precedence (highest first):
+            1. ``output_schema[col]`` -- column is echoed to output, must
+            keep the declared output type for round-trip parity.
+            2. ``input_schema[col]`` -- column is declared in the upstream
+            flow's schema (e.g. tJavaRow ``schema.inputs.<flow>``) but
+            NOT echoed to output. This is the authoritative type the
+            component author wrote in the JSON; the engine must trust
+            it before falling back to pandas dtype guessing. Without
+            this rung, an upstream component that returns a column as
+            pandas ``object`` (mixed strings) or ``float64``
+            (NaN-promoted from a left join) would silently downgrade
+            an ``int`` declaration to Arrow VarChar/Float64, breaking
+            ``int x = input_row.col`` primitive coercion in the row
+            body. Talend has no analogous degradation because it uses
+            the input flow's metadata directly.
+            3. pandas dtype inference -- last-resort fallback.
 
         Args:
             df: Input DataFrame.
             output_schema: Output column name -> type mapping.
+            input_schema: Optional input flow column name -> type mapping
+                (e.g. derived from ``component.schema_inputs_map``).
 
         Returns:
             Schema dict covering all DataFrame columns.
         """
+        input_schema = input_schema or {}
         schema_dict: dict[str, str] = {}
         for col in df.columns:
-            schema_dict[col] = output_schema.get(col, "str")
+            if col in output_schema:
+                schema_dict[col] = output_schema[col]
+                continue
+            if col in input_schema:
+                schema_dict[col] = input_schema[col]
+                continue
+            pandas_dtype = str(df[col].dtype)
+            if pandas_dtype.startswith("int"):
+                schema_dict[col] = "int"
+            elif pandas_dtype.startswith("float"):
+                schema_dict[col] = "float"
+            elif pandas_dtype == "bool":
+                schema_dict[col] = "bool"
+            elif pandas_dtype.startswith("datetime64"):
+                schema_dict[col] = "datetime"
+            else:
+                schema_dict[col] = "str"
         return schema_dict
 
     def _infer_schema_dict(self, df: pd.DataFrame) -> dict[str, str]:
