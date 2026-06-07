@@ -26,6 +26,16 @@ from ...exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
+def _safe_lower(series):
+    """Lowercase a series safely; non-string values are returned unchanged.
+    
+    Avoids issues with non-string types (e.g. numbers, NaN) that would raise errors
+    when calling .str.lower() directly. This is used for case-insensitive key handling.
+    """
+    return series.map(lambda v: v.lower() if isinstance(v, str) else v)
+
+
+
 
 @REGISTRY.register("UniqueRow", "tUniqRow", "tUniqueRow", "tUnqRow")
 class UniqueRow(BaseComponent):
