@@ -124,7 +124,23 @@ class JavaRowComponent(CodeComponentMixin, BaseComponent):
             raise ConfigurationError(
                 f"[{self.id}] 'output_schema' must be a dict or list"
             )
+        
+        # chunk_size: optional override of the bridge's default Py4J-safe
+        # row batch. Accepts int or numeric str (e.g. "50000") so JSON
+        # configs that store numbers as strings still validate.
+        chunk_size = self.config.get("chunk_size")
+        if chunk_size is not None:
+            try:
+                cs_int = int(chunk_size)
+            except (TypeError, ValueError) as e:
+                raise ConfigurationError(
+                    f"[{self.id}] 'chunk_size' must be a positive int, got {chunk_size!r}"
+                ) from e
 
+            if cs_int <= 0:
+                raise ConfigurationError(
+                    f"[{self.id}] 'chunk_size' must be a positive int, got {chunk_size!r}"
+                )
     # ------------------------------------------------------------------
     # Core Processing
     # ------------------------------------------------------------------
@@ -191,6 +207,32 @@ class JavaRowComponent(CodeComponentMixin, BaseComponent):
         elif output_schema is None:
             output_schema = {}
 
+        # Build input_schema dict from the upstream flow's declared schema.
+        # The engine populates self.schema_inputs_map from comp_config.schema.inputs
+        # (engine.py:162) and self.input_schema as a flat list (engine.py:156).
+        # We feed this to the bridge so input columns NOT echoed to output
+        # (e.g. Talend-style ``incremental_value`` int read by the row body
+        # but absent from the output schema) keep their declared type during
+        # Arrow serialization. Without this hint the bridge dtype-infers,
+        # which silently demotes object/float64 NaN-promoted columns to
+        # String/Double on the Java side and breaks ``int x = input_row.col``
+        # primitive coercion (e.g. wrong VALUEDATE in calendar-arithmetic
+        # tJavaRow bodies).
+        input_schema_dict: dict[str, str] = {}
+        # Prefer schema_inputs_map (per-flow) when present -- a tJavaRow has
+        # exactly one input flow, so we merge any/all entries.
+        schema_inputs_map = getattr(self, "schema_inputs_map", None) or {}
+        for _flow_name, flow_cols in schema_inputs_map.items():
+            if isinstance(flow_cols, list):
+                for col in flow_cols:
+                    if isinstance(col, dict) and "name" in col:
+                        input_schema_dict[col["name"]] = col.get("type", "str")
+        # Fall back to flat input_schema list if schema_inputs_map was empty.
+        if not input_schema_dict:
+            for col in getattr(self, "input_schema", []) or []:
+                if isinstance(col, dict) and "name" in col:
+                    input_schema_dict[col["name"]] = col.get("type", "str")
+
         # D-07/D-08: prepend imports with newline separator (one-time, before
         # the bridge compiles the script for the row loop).
         if imports:
@@ -230,13 +272,23 @@ class JavaRowComponent(CodeComponentMixin, BaseComponent):
 
         try:
             # D-08 + Phase 5.1 compiled-script reuse: the Java side compiles
-            # `java_code` ONCE and reuses it across rows. D-20: bridge wraps
+            # ``java_code`` ONCE and reuses it across rows. D-20: bridge wraps
             # the call in _call_java_with_sync, which owns bidirectional
-            # context/globalMap sync (AP-8: do not duplicate sync here).
+            # context/globalMap sync (AP-8; do not duplicate sync here).
+
+            # chunk_size: forwarded to the bridge so wide DataFrames (e.g.
+            # 330K+ rows) do not overflow Py4J's signed-int Base64 length
+            # field (~2.14 GB) -- see execute_java_row docstring. Default
+            # 50_000 mirrors execute_compiled_map_chunked. The bridge
+            # auto-halves any chunk that still overflows at runtime, so
+            # tuning this is rarely needed.
+            chunk_size = int(self.config.get("chunk_size") or 50_000)
             main_df = self.java_bridge.execute_java_row(
                 df=input_data,
                 java_code=java_code,
                 output_schema=output_schema,
+                input_schema=input_schema_dict or None,
+                chunk_size=chunk_size,
             )
         except Exception as e:
             # Talend parity (revision 2): tJavaRow has no REJECT and no
@@ -254,7 +306,7 @@ class JavaRowComponent(CodeComponentMixin, BaseComponent):
             ) from e
 
         # Bridge's _sync_from_java() (run inside _call_java_with_sync) refreshed
-        # self.java_bridge.context / .global_map from the JVM. Propagate those
+        # self.java_bridge.context / global_map from the JVM. Propagate those
         # changes back to the engine's ContextManager / GlobalMap so downstream
         # components see context.* / globalMap mutations performed by the
         # per-row Java body.
