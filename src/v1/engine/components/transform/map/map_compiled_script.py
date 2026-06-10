@@ -539,7 +539,11 @@ def build_reject_script(cfg: MapConfig) -> str:
     """Build the reject-pass Groovy script for inner_join_reject outputs.
 
     Closure-chunked layout, symmetric with build_active_script but reduced:
-    no variables, no filters, no is_reject routing, no try/catch.
+    no variables, no is_reject routing, no try/catch. Per-output filters
+    (``activate_filter`` + ``filter``) ARE honoured -- Talend evaluates the
+    output's own filter on every reject row before commit, so an
+    ``inner_join_reject`` output with a filter only emits rows that match
+    both "lookup didn't match" AND the filter expression.
 
     When no inner_join_reject output exists, returns a trivial
     empty-results script.
@@ -565,14 +569,19 @@ def build_reject_script(cfg: MapConfig) -> str:
         lines.append("return results;")
         return "\n".join(lines)
 
-    # ---- Closures (one set per inner_join_reject output) ----
-    per_output: list[tuple[OutputCfg, list[str]]] = []
+    # ---- Closures: one filter (optional) + one column-section per output ----
+    # Each tuple: (out, filter_callable_expr, output_dispatch_lines)
+    per_output: list[tuple[OutputCfg, str, list[str]]] = []
     for out in inner_reject_outputs:
+        filter_closure_def, filter_expr = _emit_filter_section(out, cfg, component_id)
+        if filter_closure_def:
+            lines.append(filter_closure_def.rstrip())
+            lines.append("")
         out_defs, out_dispatch = _emit_output_section(
-            out, cfg, component_id, is_reject_pass=True,
+            out,cfg,component_id,is_reject_pass=True,
         )
         lines.extend(out_defs)
-        per_output.append((out, out_dispatch))
+        per_output.append((out, filter_expr, out_dispatch))
 
     # ---- Buffer declarations ----
     for out in inner_reject_outputs:
@@ -581,19 +590,22 @@ def build_reject_script(cfg: MapConfig) -> str:
         lines.append(f"int {out.name}_count = 0;")
     lines.append("")
 
-    # ---- Row loop (no try/catch, no Var, no filter) ----
+    # ---- Row loop (no try/catch, no Var) ----
     lines.append("for (int i = 0; i < rowCount; i++) {")
-    lines.append(f'    RowWrapper {cfg.main.name} = buildRowWrapper(inputRoot, i, "{cfg.main.name}");')
+    lines.append(f"    RowWrapper {cfg.main.name} = buildRowWrapper(inputRoot, i, \"{cfg.main.name}\");")
     for lk in cfg.lookups:
-        lines.append(f'    RowWrapper {lk.name} = buildRowWrapper(inputRoot, i, "{lk.name}");')
-    lines.append("    Map<String, Object> Var = new HashMap<>();")  # empty Var for closure signature compatibility
+        lines.append(f"    RowWrapper {lk.name} = buildRowWrapper(inputRoot, i, \"{lk.name}\");")
+    lines.append("    Map<String, Object> Var = new HashMap<>();"    )  # empty Var for closure signature compatibility
     lines.append("")
-    for out, dispatch_lines in per_output:
+    for out, filter_expr, dispatch_lines in per_output:
         ncols = len(out.columns)
-        lines.append(f"    Object[] {out.name}_tempRow = new Object[{ncols}];")
+        lines.append(f"    // Inner-join-reject output: {out.name}")
+        lines.append(f"    if ({filter_expr}) {{")
+        lines.append(f"        Object[] {out.name}_tempRow = new Object[{ncols}];")
         for d in dispatch_lines:
-            lines.append(f"    {d}")
-        lines.append(f"    {out.name}_data[{out.name}_count++] = {out.name}_tempRow;")
+            lines.append(f"        {d}")
+        lines.append(f"        {out.name}_data[{out.name}_count++] = {out.name}_tempRow;"  )
+        lines.append("    }")
     lines.append("}")
     lines.append("")
 

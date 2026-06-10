@@ -3,7 +3,10 @@
 - is_reject:           populated inline by active script; pass through
 - inner_join_reject:   populated by reject-pass script (only when
                        inner_join_reject_dfs from the join phase is
-                       non-empty); pass through
+                       non-empty); pass through. The reject-pass script 
+                       evaluates the outputs own 'filter' before omitting rows, 
+                       so this dict already reflects post filter row counts.
+                       
 - catch_output_reject: joined_df rows selected by __errors__ rowIndex; user
                        column exprs evaluated, then framework errorMessage /
                        errorStackTrace columns overlaid (D-06 reserved-col
