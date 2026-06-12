@@ -30,13 +30,37 @@ from ...exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
-# Java escape sequences accepted in row_separator / field_separator config values
+# Java escape sequences accepted in row_separator / field_separator config values.
+# Order matters: longer / multi-token sequences first so a "\\r\\n" separator
+# (4 literal chars: backslash-r-backslash-n) decodes correctly even though
+# `_ESCAPE_MAP.get(...)` -- the prior implementation -- only matched single
+# 2-char tokens. Single-key dict lookup cannot translate composites like
+# "\\r\\n", "\\t\\n" or "\\\\n"; iterative replacement does.
 _ESCAPE_MAP: dict[str, str] = {
     "\\n": "\n",
     "\\t": "\t",
     "\\r": "\r",
     "\\|": "|",
 }
+
+
+def _decode_separator(raw: str) -> str:
+    """Translate Java-style escape tokens in a config separator string.
+
+    Iteratively replaces every ``_ESCAPE_MAP`` token in ``raw`` so multi-token
+    separators like ``"\\r\\n"`` decode to ``"\r\n"`` (CRLF), not the literal
+    4-char string.
+
+    Empty / non-string values are returned unchanged so callers can pass
+    ``None``-like fallbacks safely.
+    """
+    if not isinstance(raw, str) or not raw:
+        return raw
+    out = raw
+    for tok, real in _ESCAPE_MAP.items():
+        if tok in out:
+            out = out.replace(tok, real)
+    return out
 
 
 @REGISTRY.register("FixedFlowInputComponent", "tFixedFlowInput")
@@ -166,7 +190,8 @@ class FixedFlowInputComponent(BaseComponent):
              {"element_ref": "name", "value": "Bob"}, ...]
 
         Every ``len(col_names)`` consecutive entries form one row.
-        At rows defined in intable are emitted(nb_rows is ignored in this mode ); no null-padding beyond actual data.
+        At rows defined in intable are emitted(nb_rows is ignored in this mode ); 
+        no null-padding beyond actual data.
         """
         entries = self.config.get("intable", [])
         if not entries or not col_names:
@@ -195,8 +220,11 @@ class FixedFlowInputComponent(BaseComponent):
         raw_row_sep = self.config.get("row_separator", "\\n")
         raw_field_sep = self.config.get("field_separator", ";")
 
-        row_sep = _ESCAPE_MAP.get(raw_row_sep, raw_row_sep)
-        field_sep = _ESCAPE_MAP.get(raw_field_sep, raw_field_sep)
+        # Decode Java-style escape sequences in separators (e.g. "\\r\\n" -> "\r\n").
+        # This allows users to specify common delimiters using familiar Java escape syntax.
+        # The prior implementation only supported single 2-char tokens via dict lookup, so a composite like "\\r\\n" would not decode correctly.  Iterative replacement in _decode_separator handles multi-token strings properly.
+        row_sep = _decode_separator(raw_row_sep)
+        field_sep = _decode_separator(raw_field_sep)
 
         if not content:
             return []

@@ -525,6 +525,10 @@ class FileOutputPositional(BaseComponent):
             else:  # 'L' (default)
                 series = series.str.ljust(size, pad)
 
+            # Ensure every value is exactly 'size' characters for fixed-width output.
+            # Truncate to size if value overflows (positional files require fixed row length).
+            series = series.str[:size]
+            
             formatted.append(series)
 
         return formatted

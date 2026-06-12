@@ -339,6 +339,7 @@ class FileOutputDelimited(BaseComponent):
                 text_enclosure=text_enclosure,
                 escape_char=escape_char,
                 input_data=input_data,
+                append=append,
             )
             # Set globalMap variables
             if self.global_map:
@@ -603,7 +604,25 @@ class FileOutputDelimited(BaseComponent):
             text_enclosure: Quote character for CSV mode (ENG-IN-04).
             escape_char: Escape character for CSV mode (ENG-IN-04).
             input_data: The empty DataFrame (may have column names), or None.
+            append: When True, leave the existing file untouched. Talend
+            parity: tFileOutputDelimited with append=true and 0 rows is
+            a no-op (the file is neither truncated nor a header-only
+            file is written, since prior writers may already have
+            populated it).
         """
+
+        # Append-mode no-op (Talend parity): a downstream writer with
+        # append=true and 0 rows must NOT touch the file -- otherwise it
+        # silently wipes content written by an earlier component pointing
+        # at the same path. write_text/write_bytes both open in truncating
+        # mode, so we have to short-circuit before either is reached.
+        if append:
+            logger.debug(
+                f"[{self.id}] Empty input with append=True; leaving file "
+                f"'{resolved_path}' untouched"
+            )
+            return
+
         if delete_empty_file:
             if resolved_path.exists():
                 resolved_path.unlink()

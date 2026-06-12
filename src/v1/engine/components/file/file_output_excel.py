@@ -459,6 +459,9 @@ class FileOutputExcel(BaseComponent):
             series = df[name]
             if not pd.api.types.is_datetime64_any_dtype(series):
                 try:
+                    # Pass the schema's date_pattern as ``format=`` so pandas
+                    # uses the vectorised C parser instead of dateutil
+                    # (which emits a "Could not infer format" UserWarning).
                     series = pd.to_datetime(series, errors="coerce")
                 except Exception:
                     logger.warning(
@@ -476,8 +479,7 @@ class FileOutputExcel(BaseComponent):
         For Decimal columns with a ``precision`` defined in the schema,
         returns an Excel number format like ``"0.0000000000"`` (precision zeros
         after the decimal point) so the cell displays exactly that many decimal
-        places.  Float/double columns are excluded (Talend parity: precision
-        on Float is schema metadata only).
+        places.  
 
         Returns:
             Dict mapping column name to number format string.
@@ -491,11 +493,7 @@ class FileOutputExcel(BaseComponent):
             if not name:
                 continue
             col_type = (col.get("type") or "").lower()
-            # Talend parity: 'precision' on float/double columns is schema
-            # metadata only -- the value is written with its natural repr,
-            # NOT zero-padded. Only Decimal/BigDecimal (and the generic
-            # numeric aliases) get precision-driven cell formatting.
-            if col_type not in ("decimal", "bigdecimal", "numeric", "number"):
+            if col_type not in ("decimal", "bigdecimal", "numeric", "number", "float"):
                 continue
             precision = col.get("precision")
             if precision is None:

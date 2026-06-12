@@ -700,11 +700,16 @@ class FileInputExcel(BaseComponent):
                     try:
                         # Convert pandas date format pattern to Python strftime
                         python_pattern = pattern.replace('MM', '%m').replace('dd', '%d').replace('yyyy', '%Y')
-                        df[col_name] = pd.to_datetime(df[col_name], errors='coerce').dt.strftime(python_pattern)
+                        # Pass the same pattern as ``format=`` so pandas uses
+                        # the vectorised C parser instead of dateutil per-row
+                        # (which emits a "Could not infer format" UserWarning).
+                        df[col_name] = pd.to_datetime(
+                            df[col_name],format=python_pattern,errors='coerce'
+                            ).dt.strftime(python_pattern)
                     except Exception as e:
                         logger.warning(f"[{self.id}] Date conversion failed for column {col_name}: {e}")
 
-        return df
+            return df
 
     def _read_sheet(self, wb: openpyxl.Workbook, sheet_name: str) -> pd.DataFrame:
         """

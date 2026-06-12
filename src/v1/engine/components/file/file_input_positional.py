@@ -5,6 +5,7 @@ Talend equivalent: tFileInputPositional
 """
 import logging
 import os
+import re
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
@@ -287,6 +288,18 @@ class FileInputPositional(BaseComponent):
             rows_in = len(df)
             logger.debug("[%s] Read %d raw rows from file", self.id, rows_in)
 
+            # Sanitize non-printable characters in string columns.
+            # Positional files may contain raw bytes (e.g. 0x00-0x1F, 0x7F-0x9F)
+            # that decode to U+FFFD or other non-printable chars, causing Java
+            # bridge failures ("Wrapping \ufffd failed").
+            # Replace them with spaces to preserve positional alignment.
+            _NON_PRINTABLE_RE = re.compile(r'[^\x20-\x7E\t\n\r]')
+
+            string_cols = df.select_dtypes(include=['object']).columns
+            for col in string_cols:
+                df[col] = df[col].apply(
+                    lambda x: _NON_PRINTABLE_RE.sub(' ', x) if isinstance(x, str) else x
+                )
             # Trim all string columns if requested
             if trim_all:
                 logger.debug("[%s] Trimming all string columns", self.id)

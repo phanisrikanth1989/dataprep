@@ -34,6 +34,7 @@ Config keys consumed (25 total):
 import csv
 import logging
 import os
+import re
 from collections import deque
 from datetime import datetime
 from io import StringIO
@@ -58,6 +59,20 @@ _ERROR_DATE_FORMAT = "DATE_FORMAT"
 
 # Rows per validation chunk to limit peak memory during row-level validation.
 _VALIDATION_CHUNK_SIZE = 50000
+
+# Non-printable byte scrubber.
+# Delimited files may contain raw bytes (e.g. 0x00-0x1F, 0x7F-0x9F) or
+# unmappable codepoints that decode to U+FFFD when the file's declared
+# encoding (default ISO-8859-15) cannot represent the byte. Such characters
+# survive into string columns and later cause ``Wrapping \ufffd failed`` /
+# ``Wrapping <bad-row> failed`` errors when the row is marshalled across
+# the Py4J bridge to the Java engine (e.g. by tMap's globalMap / context
+# payload).
+#
+# We replace each offending codepoint with a single space -- this preserves
+# row count and column count, never alters delimiter positions, and is the
+# same scrub pattern used by ``file_input_positional.py``.
+_NON_PRINTABLE_RE = re.compile(r'[^\x20-\x7E\t\n\r]')
 
 # Row separators that Python/pandas handle natively via universal newline.
 # Anything else requires raw-read + manual split to match Talend behaviour.
@@ -223,6 +238,18 @@ class FileInputDelimited(BaseComponent):
         logger.info(
             f"[{self.id}] Read {len(df)} raw rows from '{resolved_path.name}'"
         )
+
+        # ----- 6b. Sanitize non-printable / unmappable bytes -----
+        # See ``_NON_PRINTABLE_RE`` docstring above. Without this scrub a
+        # single bad byte (e.g. 0x00 or U+FFFD from ISO-8859-15 fallback)
+        # propagates downstream and crashes the Py4J wrap step inside
+        # tMap with ``Wrapping <row> failed`` -- killing a job that has
+        # already invested minutes of runtime.
+        string_cols = df.select_dtypes(include=["object"]).columns
+        for col in string_cols:
+            df[col] = df[col].apply(
+                lambda x: _NON_PRINTABLE_RE.sub(" ", x) if isinstance(x, str) else x
+            )
 
         # ---- 7. Apply limit ----
         if limit and str(limit).strip():
@@ -754,13 +781,18 @@ class FileInputDelimited(BaseComponent):
 
     @staticmethod
     def _vectorized_convert(
-        series: pd.Series, col_type: str
+        series: pd.Series,
+        col_type: str,
+        col_def: Optional[dict] = None,
     ) -> pd.Series:
         """Convert a pandas Series to the target type vectorized.
 
         Args:
             series: Input Series (string values).
             col_type: Target type string.
+            col_def: Schema column definition (used for ``date_pattern`` so
+                datetime conversion can pass ``format=`` to ``pd.to_datetime``
+                and avoid the per-row ``dateutil`` fallback warning).
 
         Returns:
             Converted Series.
@@ -786,6 +818,14 @@ class FileInputDelimited(BaseComponent):
                 raise ValueError("Unmapped bool values found")
             return mapped
         elif col_type == "datetime":
+            # Honour the schema's date_pattern (Python strptime form, set by
+            # the converter from Talend's Java date pattern) so pandas can
+            # use the C-level vectorized path. Without format=, pandas falls
+            # back to dateutil per-row and emits the
+            # "Could not infer format" UserWarning.
+            date_pattern = (col_def or {}).get("date_pattern") or ""
+            if date_pattern:
+                return pd.to_datetime(series, format=date_pattern, errors="raise")
             return pd.to_datetime(series, errors="raise")
         return series
 
