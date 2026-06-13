@@ -132,7 +132,7 @@ class UniqueRow(BaseComponent):
                 if work is input_data:
                     work = input_data.copy()
                 temp_col = f"__uniq_ci_{col}__"
-                work[temp_col] = work[col].str.lower()
+                work[temp_col] = _safe_lower(work[col])
                 temp_map[col] = temp_col
 
         dedup_cols = [temp_map.get(c, c) for c in key_cols]
@@ -152,7 +152,7 @@ class UniqueRow(BaseComponent):
             if temp_map:
                 dup_ci = duplicate_df.copy()
                 for col, tc in temp_map.items():
-                    dup_ci[tc] = dup_ci[col].str.lower()
+                    dup_ci[tc] = _safe_lower(dup_ci[col])
                 once_mask = ~dup_ci.duplicated(subset=dedup_cols, keep="first")
             else:
                 once_mask = ~duplicate_df.duplicated(subset=dedup_cols, keep="first")

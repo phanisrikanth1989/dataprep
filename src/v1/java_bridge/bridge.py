@@ -118,7 +118,7 @@ def _coerce_to_decimal_or_none(v: Any) -> Optional[Decimal]:
         if s == "":
             return None
         try:
-            return Decimal(v)
+            return Decimal(s)
         except InvalidOperation:
             return None
 #Unknown types -- best effort string conversion else null.
@@ -494,13 +494,13 @@ class JavaBridge:
             mem_mb = -1.0
         logger.info(
             "[execute_java_row] rows=%d cols=%d code_len=%d chunk_size=%d "
-            "in-memory=%.1f MB (%.0f KB/row)",
+            "in-memory=%.1f MB (~%.0f KB/row)",
             total_rows,
             len(df.columns),
             len(java_code),
             chunk_size,
             mem_mb,
-            mem_mb / total_rows if total_rows > 0 else 0,
+            (mem_mb * 1000 / max(total_rows, 1)) if mem_mb > 0 else -1,
         )
 
         # Empty input : short-circuit. the Java side has no rows to process

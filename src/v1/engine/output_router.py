@@ -124,7 +124,7 @@ class OutputRouter:
             flow_type = flow["type"]
             flow_name = flow["name"]
 
-            result_key = FLOW_TYPE_TO_RESULT_KEY.get(flow_type)
+            result_key = _FLOW_TYPE_TO_RESULT_KEY.get(flow_type)
 
             value = result.get(result_key) if result_key else None
             # Fallback: if the standard result_key didn't match, try the flow
