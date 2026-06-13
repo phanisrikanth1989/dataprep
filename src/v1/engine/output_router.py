@@ -122,18 +122,23 @@ class OutputRouter:
         # Route via flow config
         for flow in self._outgoing.get(comp_id, []):
             flow_type = flow["type"]
-            result_key = _FLOW_TYPE_TO_RESULT_KEY.get(flow_type)
-            if result_key is None:
-                continue
+            flow_name = flow["name"]
 
-            value = result.get(result_key)
+            result_key = FLOW_TYPE_TO_RESULT_KEY.get(flow_type)
+
+            value = result.get(result_key) if result_key else None
+            # Fallback: if the standard result_key didn't match, try the flow
+            # name itself as a key in result (handles Map named outputs like
+            # "reject" or "out2" that are carried on type="flow" connectors).
+
+            if value is None and flow_name in result:
+                value = result[flow_name]
+
             if value is None:
                 continue
 
-            flow_name = flow["name"]
             self._data_flows[flow_name] = value
             logger.debug(f"Routed {comp_id} output to flow {flow_name}")
-
         # Named outputs (keys not in standard set)
         declared_outputs = set(self._component_outputs.get(comp_id, []))
         for key, value in result.items():

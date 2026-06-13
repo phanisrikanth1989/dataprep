@@ -91,7 +91,8 @@ class Trigger:
 
 
 class TriggerManager:
-    """Manages trigger execution flow between components and subjobs.
+    """
+    Manages trigger execution flow between components and subjobs.
 
     Handles five trigger types:
         - OnSubjobOk: fires when ALL components in the source subjob complete ok
@@ -99,18 +100,32 @@ class TriggerManager:
         - OnComponentOk: fires when a specific component completes ok
         - OnComponentError: fires when a specific component errors
         - RunIf: fires when a condition evaluates to True
-
     Condition evaluation uses sandboxed eval with restricted globals.
     """
 
-    def __init__(self, global_map: Any = None):
+    def __init__(self, global_map: Any = None, context_manager: Any = None):
+        """
+        Initialise the trigger manager.
+        Args:
+        global_map:The engine's GlobalMap, used by RunIf conditions that
+                reference `globalMap.get(...)` /`((Type)globalMap.get(...))`.
+        context_manager:The engine's ContextManager. Optional. When provided,
+                RunIf conditions that reference Talend context variables
+                (`${context.X}` or bare `context.X`) get those placeholders
+                substituted with current values *before* the expression is
+                handed to `eval()`.
+                Without this wiring such placeholders reach `eval()`
+                verbatim and raise `SyntaxError` (the converter does not
+                rewrite trigger conditions, so the placeholders are still
+                present at runtime).
+        """
         self.global_map = global_map
+        self.context_manager = context_manager
         self.triggers: List[Trigger] = []
         self.component_status: Dict[str, str] = {}
         self.subjob_components: Dict[str, List[str]] = {}
         self.component_to_subjob: Dict[str, str] = {}
         self.triggered_components: Set[str] = set()
-
     # ------------------------------------------------------------------
     # Registration
     # ------------------------------------------------------------------
@@ -263,6 +278,8 @@ class TriggerManager:
         with restricted globals (no builtins access).
 
         Handles:
+            - Talend context variable placeholders: ${context.X} or context.X
+            (substituted with python literal values if context_manager is provided)
             - Java cast types: ((Integer)...), ((Boolean)...), etc.
             - globalMap.get("key") lookups
             - Java operators: &&, ||, !, !=, ==, null, true, false
@@ -285,6 +302,15 @@ class TriggerManager:
         try:
             python_condition = condition
 
+            # Step 0: Resolve Talend context placeholders (${context.X} and
+            # bare context.X) with Python literals (repr) so they survive
+            # eval(). The converter leaves these placeholders in trigger
+            # conditions because trigger configs are not walked by
+            # ContextManager.resolve() (which only descends component
+            # configs before the eval invokes on the
+            # literal '${' and bare 'context.X' identifier).
+            python_condition = self._resolve_context_refs(python_condition)
+
             # Step 1: Replace all ((CastType)globalMap.get("key")) patterns
             python_condition = self._resolve_casts(python_condition)
 
@@ -296,7 +322,7 @@ class TriggerManager:
 
             # Step 4: Evaluate with restricted globals
             local_vars: Dict[str, Any] = {}
-            result = eval(python_condition, _SAFE_GLOBALS, local_vars)  # noqa: S307
+            result = eval(python_condition,_SAFE_GLOBALS,local_vars)  # noqa: S307
             logger.debug(f"Condition '{condition}' evaluated to {result}")
             return bool(result)
 
@@ -310,6 +336,51 @@ class TriggerManager:
                 cause=e,
             ) from e
 
+    def _resolve_context_refs(self, condition: str) -> str:
+        """
+        Replace "${context.X}" and bare "context.X" with Python literals.
+
+        Mirrors the two regex shapes used by
+        ``ContextManager.resolve_string`` but, unlike that method which
+        substitutes ``str(value)`` (suitable for textual config values),
+        this one substitutes ``repr(value)`` so the resulting expression is
+        a valid Python literal once handed to ``eval()``.
+
+        For example with ``context.OUTPUT_OK_FILE_FLG = "Y"``::
+            "Y".lower() == str(${context.OUTPUT_OK_FILE_FLG})
+            or
+            "Y".lower() == str('Y')
+        When ``self.context_manager`` is ``None`` or the variable is not
+        defined, the original placeholder is left in place so the existing
+        downstream error path surfaces a meaningful message rather than a
+        silent False. Bare ``context.X`` references whose name is also not
+        defined are likewise left untouched.
+        """
+        if self.context_manager is None:
+            return condition
+        _MISSING = object()
+        def _dollar_brace(match: re.Match) -> str:
+            var_name = match.group(1)
+            value = self.context_manager.get(var_name, _MISSING)
+
+            if value is _MISSING:
+                # Leave the placeholder so eval() raises a cleaner error
+                # and callers can see it matches resolve_string semantics.
+                return match.group(0)
+            return repr(_to_python_scalar(value))
+
+        def _bare(match: re.Match) -> str:
+            var_name = match.group(1)
+            value = self.context_manager.get(var_name, _MISSING)
+
+            if value is _MISSING:
+                return match.group(0)
+            return repr(_to_python_scalar(value))
+
+        condition = re.sub(r"\$\{context\.(\w+)\}",_dollar_brace,condition )
+        condition = re.sub(r"\bcontext\.(\w+)\b",_bare,condition )
+        return condition
+    
     def _resolve_casts(self, condition: str) -> str:
         """Replace ((CastType)globalMap.get("key")) with cast Python value.
 

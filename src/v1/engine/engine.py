@@ -98,7 +98,11 @@ class ETLEngine:
             default_context=self.job_config.get('default_context', 'Default'),
             java_bridge_manager=self.java_bridge_manager
         )
-        self.trigger_manager = TriggerManager(self.global_map)
+        # Pass context_manager to TriggerManager for evaluating trigger conditions so that 
+        #Run If triggers can access context variables.
+        #Converter phase 7.1: context_manager is now passed to TriggerManager for evaluating trigger conditions.
+        #placeholders are resolved using context_manager.get() instead of global_map.get(), allowing for dynamic context variable evaluation.
+        self.trigger_manager = TriggerManager(self.global_map, self.context_manager)
 
         self.components: Dict[str, BaseComponent] = {}
         self._initialize_components()
