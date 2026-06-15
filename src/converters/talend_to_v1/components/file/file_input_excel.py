@@ -41,6 +41,7 @@ from typing import Any, Dict, List
 
 from ..base import ComponentConverter, ComponentResult, TalendConnection, TalendNode
 from ..registry import REGISTRY
+from ...expression_converter import ExpressionConverter
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +205,9 @@ class FileInputExcelConverter(ComponentConverter):
         # ---- 1. Core parameters ----
         config: Dict[str, Any] = {}
         config["version_2007"] = self._get_bool(node, "VERSION_2007", False)
-        config["filepath"] = self._get_str(node, "FILENAME", "")
+        config["filepath"] = ExpressionConverter.mark_java_expression(
+            self._get_str(node, "FILENAME", "")
+        )
         config["password"] = ""  # Always empty -- never carry passwords into JSON
         config["all_sheets"] = self._get_bool(node, "ALL_SHEETS", False)
         config["header"] = self._get_int_or_context(node, "HEADER", 0)

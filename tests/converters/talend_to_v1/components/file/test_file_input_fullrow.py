@@ -63,6 +63,11 @@ class TestDefaults:
         result = FileInputFullRowConverter().convert(node, [], {})
         assert result.component["config"]["filename"] == ""
 
+    def test_filename_java_expression_marked(self):
+        node = _make_node(params={"FILENAME": '"context.dir + \'/fullrow.txt\'"'})
+        result = FileInputFullRowConverter().convert(node, [], {})
+        assert result.component["config"]["filename"].startswith("{{java}}")
+
     def test_row_separator_default(self):
         """ROWSEPARATOR defaults to '\\n'."""
         node = _make_node()

@@ -23,6 +23,7 @@ from typing import Any, Dict, List
 
 from ..base import ComponentConverter, ComponentResult, TalendConnection, TalendNode
 from ..registry import REGISTRY
+from ...expression_converter import ExpressionConverter
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,9 @@ class FileInputMSXMLConverter(ComponentConverter):
 
         # ---- 1. Core parameters ----
         config: Dict[str, Any] = {}
-        config["filename"] = self._get_str(node, "FILENAME", "")
+        config["filename"] = ExpressionConverter.mark_java_expression(
+            self._get_str(node, "FILENAME", "")
+        )
         config["root_loop_query"] = self._get_str(node, "ROOT_LOOP_QUERY", "/mailbox/emails/email")
         config["ignore_order"] = self._get_bool(node, "IGNORE_ORDER", False)
         config["die_on_error"] = self._get_bool(node, "DIE_ON_ERROR", False)

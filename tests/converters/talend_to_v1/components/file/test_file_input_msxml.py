@@ -79,6 +79,11 @@ class TestDefaults:
         result = FileInputMSXMLConverter().convert(node, [], {})
         assert result.component["config"]["filename"] == ""
 
+    def test_filename_java_expression_marked(self):
+        node = _make_node(params={"FILENAME": '"context.dir + \'/mailbox.xml\'"'})
+        result = FileInputMSXMLConverter().convert(node, [], {})
+        assert result.component["config"]["filename"].startswith("{{java}}")
+
     def test_root_loop_query_default(self):
         """Default root_loop_query is /mailbox/emails/email."""
         node = _make_node()

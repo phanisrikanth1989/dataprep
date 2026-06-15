@@ -36,6 +36,7 @@ from typing import Any, Dict, List
 
 from ..base import ComponentConverter, ComponentResult, TalendConnection, TalendNode
 from ..registry import REGISTRY
+from ...expression_converter import ExpressionConverter
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +135,9 @@ class FileInputPositionalConverter(ComponentConverter):
 
         # ---- 1. Core parameters ----
         config: Dict[str, Any] = {}
-        config["filepath"] = self._get_str(node, "FILENAME", "")
+        config["filepath"] = ExpressionConverter.mark_java_expression(
+            self._get_str(node, "FILENAME", "")
+        )
         config["row_separator"] = self._get_str(node, "ROWSEPARATOR", "\\n")
         config["pattern"] = self._get_str(node, "PATTERN", "5,4,5")
         config["pattern_units"] = self._get_str(node, "PATTERN_UNITS", "SYMBOLS")

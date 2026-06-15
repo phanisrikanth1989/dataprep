@@ -106,6 +106,11 @@ class TestDefaults:
         result = FileInputExcelConverter().convert(node, [], {})
         assert result.component["config"]["filepath"] == ""
 
+    def test_filepath_java_expression_marked(self):
+        node = _make_node(params={"FILENAME": '"context.dir + \'/report.xlsx\'"'})
+        result = FileInputExcelConverter().convert(node, [], {})
+        assert result.component["config"]["filepath"].startswith("{{java}}")
+
     def test_password_default(self):
         node = _make_node()
         result = FileInputExcelConverter().convert(node, [], {})
