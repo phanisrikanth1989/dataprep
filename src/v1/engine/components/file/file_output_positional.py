@@ -97,7 +97,15 @@ class FileOutputPositional(BaseComponent):
     VALID_ALIGNMENTS = ['L', 'R', 'C']
     VALID_KEEP_OPTIONS = ['ALL', 'LEFT', 'MIDDLE', 'RIGHT']
     NUMERIC_TYPES = [
-        'float', 'double', 'decimal',
+        'float', 'double', 'decimal','Decimal',
+
+
+
+
+
+
+
+        
         'id_Float', 'id_Double', 'id_BigDecimal',
     ]
     INTEGER_TYPES = [

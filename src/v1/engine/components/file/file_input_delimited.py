@@ -725,7 +725,7 @@ class FileInputDelimited(BaseComponent):
 
             try:
                 converted_cols[col_name] = self._vectorized_convert(
-                    df[col_name], col_type
+                    df[col_name], col_type, col_def
                 )
             except (ValueError, TypeError):
                 # Fall back to per-row conversion for this column.
