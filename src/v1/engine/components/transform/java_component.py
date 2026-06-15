@@ -55,6 +55,7 @@ from ...base_component import BaseComponent
 from ...component_registry import REGISTRY
 from ...exceptions import ComponentExecutionError, ConfigurationError, ExpressionError
 from ._code_component_mixin import CodeComponentMixin
+from .map.map_compiled_script import groovy_escape_expression
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +152,17 @@ class JavaComponent(CodeComponentMixin, BaseComponent):
         # D-07: prepend imports with newline separator.
         if imports:
             java_code = imports + "\n" + java_code
-
+        #Groovy escaping (D-24) -- the bridge's compile-time checks are not
+        # sufficient to prevent syntax errors from unescaped user code. The
+        # escape function is designed to be idempotent, so it won't double-escape if the
+        # user pre-escapes their code (e.g. to work around a known issue in their code editor).
+        # The escape function handles backslashes, quotes, and newlines, which are common sources of syntax errors in Groovy code blocks. This is a proactive measure to improve the user experience by reducing the likelihood of syntax errors due to unescaped characters.
+        # Note that this escaping is applied to the entire code block, including imports. If users need to include raw Groovy code in their imports, they should pre-escape it before placing it in the config.
+        # The escape function is designed to be safe for Java code as well, since Java syntax is a subset of Groovy syntax. However, users should be aware that certain characters in their Java code may be escaped, which could affect how the code is interpreted by the Java compiler. If users want to include raw Java code without escaping, they should pre-escape it before placing it in the config.
+        # The decision to apply Groovy escaping at the component level (instead of relying on the bridge's compile-time checks) is based on the desire to provide immediate feedback to users about potential syntax issues in their code, rather than allowing them to submit code that will fail at runtime. This proactive approach helps users identify and fix syntax issues early in the development process, improving the overall user experience.
+        # The escape function is designed to be idempotent, so it won't double-escape if the user pre-escapes their code (e.g. to work around a known issue in their code editor). This allows users to have control over the escaping process if they need to include raw Groovy or Java code in their config.
+        
+        java_code = groovy_escape_expression(java_code)
         # AP-9 fix: read bridge from self.java_bridge (set by engine), not from
         # self.context_manager.get_java_bridge() (legacy path).
         if self.java_bridge is None:

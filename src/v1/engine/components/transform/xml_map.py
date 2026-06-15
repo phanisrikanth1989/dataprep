@@ -1095,6 +1095,15 @@ class XMLMap(BaseComponent):
                     component_id, idx, col_name, raw_expr, expr_q,
                 )
 
+                # Skip columns if no mapping defind
+                if not raw_expr.strip():
+                    row[col_name] = ""
+                    logger.debug(
+                        "[%s] Node %d - Column '%s' has no expression; setting empty value",
+                        component_id, idx, col_name,
+                    )
+                    continue
+                
                 # Execute XPath expression with error handling
                 try:
                     if ns_prefix:

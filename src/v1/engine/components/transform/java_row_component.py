@@ -64,6 +64,7 @@ from ...base_component import BaseComponent
 from ...component_registry import REGISTRY
 from ...exceptions import ComponentExecutionError, ConfigurationError, ExpressionError  # noqa: F401  -- ExpressionError kept for symmetry with java_component.py and may surface from bridge wrapping
 from ._code_component_mixin import CodeComponentMixin
+from .map.map_compiled_script import groovy_escape_expression
 
 logger = logging.getLogger(__name__)
 
@@ -238,6 +239,15 @@ class JavaRowComponent(CodeComponentMixin, BaseComponent):
         if imports:
             java_code = imports + "\n" + java_code
 
+        #Groovy-escape the code to prevent bridge-level compile errors when the user
+        #intentionally includes Groovy string interpolation syntax (e.g. "def x = ${context.myVar}").
+        #The bridge un-escapes before compiling, so the user code receives the intended syntax
+        #without the user needing to double-escape in the config.
+        #
+        # The bridge handles Java and Groovy code, but Groovy is more likely to include string interpolation syntax that needs escaping. Java users can still include the literal "${context.myVar}" in their code if they want -- the groovy_escape_expression is a no-op when no Groovy interpolation patterns are present.
+        #
+        #
+        java_code = groovy_escape_expression(java_code)
         # AP-9 fix: read bridge from self.java_bridge (set by engine), not via
         # the legacy ContextManager-based bridge accessor used in pre-Phase-7.1
         # code components.
