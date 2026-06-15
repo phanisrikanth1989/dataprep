@@ -34,6 +34,8 @@ class ExpressionConverter:
         if value.startswith('${') and value.endswith('}'):
             return False
 
+        if ExpressionConverter._looks_like_file_path(value):
+            return False
         # Check for Java-specific patterns
 
         # 1. Routine calls (with or without routines. prefix)
@@ -136,6 +138,70 @@ class ExpressionConverter:
         # If none of the above patterns match, it's a simple literal
         return False
 
+
+
+
+
+
+
+
+    @staticmethod
+    def _looks_like_file_path(value: str) -> bool:
+        """Return True for plain literal file/URL paths.
+
+        Used to short-circuit Java-expression detection for values that are
+        unambiguously paths, so that special characters inside file names
+        (e.g. spaces, dots) do not trigger a false-positive
+        ``{{java}}`` marker, etc.
+        """
+        path = value.strip()
+
+        # Recognized shapes (no Java operators / quoting / parens around the
+        # path itself):
+        #
+        # - Drive-letter absolute paths: "C:/foo/bar.txt", "D:\\x\\y"
+        # - POSIX absolute paths: "/var/log/x.log"
+        # - UNC paths: "\\\\server\\share\\file"
+        # - URL-like locators: "http://", "https://", "ftp://",
+        #   "file://"
+
+        # A value is rejected if it contains characters that only appear in
+        # Java/Groovy source -- quotes, parentheses, '+', '<' (concatenation),
+        # a Talend ``context.``/``globalMap.`` reference. Hyphens, spaces,
+        # underscores, dots and '*' inside file names are allowed.
+
+        if not value:
+            return False
+        s = value.strip()
+        if not s:
+            return False
+        # Reject anything that contains tokens that only appear in code,
+        # not in literal paths.
+        if re.search(r"['()+=&|<>]", s):
+            return False
+        if "context." in s or "globalMap." in s or "routines." in s:
+            return False
+        # Multi-line strings are never paths.
+        if "\n" in s or "\r" in s:
+            return False
+        # URL-style.
+        if re.match(r"^[a-zA-Z][a-zA-Z0-9+.\-]*://", s):
+            return True
+        # Drive-letter absolute path: C:/... or C:\...
+        if re.match(r"^[A-Za-z]:[\\/]", s):
+            return True
+        
+        # UNC path.
+
+        if s.startswith("\\\\"):
+            return True
+        # POSIX absolute path: must contain at least one separator after
+        # the leading '/', so we don't catch single-token Java identifiers
+        # like '/'.
+        if s.startswith("/") and "/" in s[1:]:
+            return True
+
+        return False
     @staticmethod
     def mark_java_expression(value: str) -> str:
         """
@@ -190,10 +256,26 @@ class ExpressionConverter:
         expression = re.sub(r'globalMap\.get\("([^"]+)"\)', r"globalMap.get('\1')", expression)
         expression = re.sub(r'globalMap\.put\("([^"]+)",\s*([^)]+)\)', r"globalMap.put('\1', \2)", expression)
 
-        # Convert string methods
-        expression = expression.replace('.equals(', ' == ')
-        expression = expression.replace('.equalsIgnoreCase(', '.lower() == str(')
-        expression = expression.replace('.contains(', ' in ')
+        # Convert string methods.
+        # equalsIgnoreCase MUST be rewritten before equals (shared 'equals' prefix).
+        # The '.method(args)' form is matched as a whole so the trailing ')' is
+        # consumed in the replacement -- native str.replace('.equals(', ...)
+        # would otherwise leave a dangling ')'.
+        # -> '"Y" == ${context.X}' Args are restricted to non-paren content
+        #   ([^()]*) so simple Talend trigger conditions are rewritten cleanly;
+        #   nested-call arguments fall through unchanged (and are flagged for
+        #   manual review by trigger_mapper).
+
+        expression = re.sub(r'\.equalsIgnoreCase\(([^()]*)\)', r'.lower() == str(\1).lower()', expression)
+        expression = re.sub(r'\.equals\(([^()]*)\)', r' == \1', expression)
+
+        # Java's <receiver>.contains(<arg>) tests whether <arg> is a substring
+        # of <receiver> -- the Python equivalent is '<arg>' in <receiver>,
+        # NOT the naive textual swap '<receiver>' in <arg>' (which inverts the
+        # truth value because Python's 'a in b' tests if *a* is a substring of
+        # *b*). The dedicated helper performs balanced-paren scanning to handle
+        # receivers like '(globalMap.get("K"))' or 'df["col"]' correctly.
+        expression = re.sub(r'\.contains\(([^()]*)\)', r' in \1', expression)
         expression = expression.replace('.startsWith(', '.startswith(')
         expression = expression.replace('.endsWith(', '.endswith(')
         expression = expression.replace('.length()', '.__len__()')

@@ -335,16 +335,27 @@ class TalendToV1Converter:
             if not isinstance(from_schema, dict) or not isinstance(to_schema, dict):
                 continue
 
-            # Prefer per-connector schema (e.g. FILTER vs REJECT for tFilterRow)
-            # so reject paths receive their distinct columns (errorMessage, etc.).
-            # ENG-WR-09: normalize both outputs_map keys and connector_key to uppercase
-            # so lowercase keys (e.g. {"filter": [...]}) match uppercase flow types.
+            # Prefer per-connector schema 
+
+            # Two lookup keys are supported for maximum compatibility with various Talend components
+            #1. flow name (e.g. "row1") if present in outputs_map
+            #2. connector type (e.g. "FILTER") if present in outputs_map
+            #Both keys are normalized to uppercase for case-insensitive matching (ENG-WR-09 fix).
+            #
+            # This allows components to specify distinct output schemas for different flows (e.g. main vs reject)
+            #   and also allows matching based on connector type when flow names are not used or not unique.
+            #
+            # If neither key is found in outputs_map, falls back to generic "output" schema if present.
             upstream_output = None
             outputs_map = from_schema.get("outputs")
             if isinstance(outputs_map, dict):
                 norm_map = {str(k).upper(): v for k, v in outputs_map.items()}
-                connector_key = (flow.get("type") or "").upper()
-                upstream_output = norm_map.get(connector_key)
+                flow_name_key = str(flow.get("name") or "").upper()
+                if flow_name_key:
+                    upstream_output = norm_map.get(flow_name_key)
+                if upstream_output is None:
+                    connector_key = (flow.get("type") or "").upper()
+                    upstream_output = norm_map.get(connector_key)
 
             if upstream_output is None:
                 upstream_output = from_schema.get("output")

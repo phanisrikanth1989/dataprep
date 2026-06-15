@@ -151,7 +151,11 @@ class ComponentConverter(ABC):
         if isinstance(value, int):
             return value
         if isinstance(value, str):
-            stripped = value.strip().strip('"')
+            stripped = value.strip().strip('"').strip()
+            if not stripped:
+                # Empty string is treated as missing, so return the default.
+                # Engine doesn't choke on int() with empty string, but we want to preserve the original intent.
+                return default
             if stripped.lstrip("-").isdigit():
                 return int(stripped)
             # Preserve context references and other expressions as-is so the
