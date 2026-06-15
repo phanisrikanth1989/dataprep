@@ -276,7 +276,7 @@ class JavaBridge:
             "--add-opens=java.base/java.nio=ALL-UNNAMED",
             "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
             "--add-opens=java.base/java.lang=ALL-UNNAMED",
-            "--Duser.timezone=UTC",
+            "-Duser.timezone=UTC",
             f"-Dpy4j.port={port}",
             "-cp", classpath,
             "com.citi.gru.etl.JavaBridge",

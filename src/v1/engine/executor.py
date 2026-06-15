@@ -117,27 +117,7 @@ class Executor:
         pending_subjobs = deque(self.execution_plan.initial_subjobs)
         logger.info("Initial subjobs: %s", list(pending_subjobs))
 
-        while pending_subjobs:
-            subjob_id = pending_subjobs.popleft()
-            if subjob_id in self._attempted_subjobs:
-                continue
-            self._attempted_subjobs.add(subjob_id)
-            logger.info("Executing subjob: %s", subjob_id)
-
-            result = self._execute_subjob(subjob_id)
-
-            # Collect triggered subjobs (OnSubjobOk/Error/RunIf) and append to queue
-            triggered = self._collect_triggered_subjobs(subjob_id, result)
-            pending_subjobs.extend(triggered)
-
-            # Also collect any subjobs triggered by OnComponentOk during subjob execution
-            if self._component_triggered_subjobs:
-                pending_subjobs.extend(self._component_triggered_subjobs)
-                self._component_triggered_subjobs = []
-
-            if self._job_terminated:
-                logger.info("Job terminated by tDie component")
-                break
+        self._drain_pending_subjobs(pending_subjobs)
 
         execution_time = time.time() - start_time
 
@@ -207,6 +187,39 @@ class Executor:
             status, len(self.executed_components), len(self.failed_components), execution_time,
         )
         return stats
+
+    def _drain_pending_subjobs(self, pending_subjobs: deque[str]) -> None:
+        """Drain queued subjobs, including any newly triggered subjobs.
+
+        This helper is used by the top-level job loop and by iterate bodies so
+        RunIf / OnComponentOk targets execute immediately in the current
+        iteration context instead of being deferred until the parent iterate
+        component finishes.
+
+        Args:
+            pending_subjobs: Queue of subjob IDs to execute.
+        """
+        while pending_subjobs:
+            subjob_id = pending_subjobs.popleft()
+            if subjob_id in self._attempted_subjobs:
+                continue
+            self._attempted_subjobs.add(subjob_id)
+            logger.info("Executing subjob: %s", subjob_id)
+
+            result = self._execute_subjob(subjob_id)
+
+            # Collect triggered subjobs (OnSubjobOk/Error/RunIf) and append to queue.
+            triggered = self._collect_triggered_subjobs(subjob_id, result)
+            pending_subjobs.extend(triggered)
+
+            # Also collect any subjobs triggered by OnComponentOk during subjob execution.
+            if self._component_triggered_subjobs:
+                pending_subjobs.extend(self._component_triggered_subjobs)
+                self._component_triggered_subjobs = []
+
+            if self._job_terminated:
+                logger.info("Job terminated by tDie component")
+                break
 
     # ------------------------------------------------------------------
     # Subjob execution -- THE building block for Phase 10
@@ -514,6 +527,12 @@ class Executor:
                 self.output_router.clear_partial_subjob_flows(
                     body_component_set, self.executed_components
                 )
+
+                # Run any subjobs triggered during this iteration before moving to the next item.
+                if self._component_triggered_subjobs:
+                    pending_subjobs = deque(self._component_triggered_subjobs)
+                    self._component_triggered_subjobs = []
+                    self._drain_pending_subjobs(pending_subjobs)
 
                 # Check for tDie termination
                 if self._job_terminated:

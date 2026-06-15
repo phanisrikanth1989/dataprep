@@ -28,7 +28,7 @@ from src.v1.engine.global_map import GlobalMap
 from src.v1.engine.output_router import OutputRouter
 from src.v1.engine.trigger_manager import TriggerManager
 
-from tests.v1.engine.conftest import StubComponent, make_stub_component
+from tests.v1.engine.conftest import IterateStubComponent, StubComponent, make_stub_component
 
 
 # ---------------------------------------------------------------------------
@@ -45,6 +45,23 @@ class OrderTrackingComponent(StubComponent):
     def _process(self, input_data=None):
         _execution_order.append(self.id)
         return super()._process(input_data)
+
+
+class FileListIterateStubComponent(IterateStubComponent):
+    """Iterate stub that writes Talend-style file-list keys into globalMap."""
+
+    def prepare(self) -> None:
+        _execution_order.append(self.id)
+
+    def set_iteration_globalmap(self, item) -> None:
+        if self.global_map is None:
+            return
+        self.global_map.put(f"{self.id}_CURRENT_FILE", item)
+        self.global_map.put(f"{self.id}_CURRENT_FILEPATH", f"C:/files/{item}")
+        self.global_map.put(f"{self.id}_CURRENT_FILEDIRECTORY", "C:/files")
+        self.global_map.put(f"{self.id}_CURRENT_FILEEXTENSION", item.rsplit('.', 1)[-1])
+        self.global_map.put(f"{self.id}_NB_FILE", getattr(self, "_stub_counter", 0) + 1)
+        self._stub_counter = getattr(self, "_stub_counter", 0) + 1
 
 
 def _make_component(comp_id, config=None, global_map=None, context_manager=None, track_order=False):
@@ -387,6 +404,88 @@ class TestRunIfTrigger:
         assert "A" in executor.executed_components
         # B was not executed -- but also no stall error since it's a RunIf target
         # The stall detection should not fire for RunIf targets that didn't fire
+
+    def test_runif_targets_fire_per_iteration_for_filelist(self):
+        """RunIf targets must execute during each iteration, not after the iterate source finishes."""
+        _execution_order.clear()
+        executor = _build_executor(
+            components_config=[
+                {"id": "tFileList_1", "type": "FileList"},
+                {"id": "tJava_1", "type": "Stub"},
+                {"id": "tFileInputExcel_1", "type": "Stub"},
+                {"id": "tFileInputExcel_2", "type": "Stub"},
+            ],
+            flows_config=[
+                {"name": "iterate1", "from": "tFileList_1", "to": "tJava_1", "type": "iterate"},
+            ],
+            triggers_config=[
+                {
+                    "type": "RunIf",
+                    "from": "tJava_1",
+                    "to": "tFileInputExcel_1",
+                    "condition": '"Customer" in globalMap.get("tFileList_1_CURRENT_FILE")',
+                },
+                {
+                    "type": "RunIf",
+                    "from": "tJava_1",
+                    "to": "tFileInputExcel_2",
+                    "condition": '"Order" in globalMap.get("tFileList_1_CURRENT_FILE")',
+                },
+            ],
+            subjobs={
+                "subjob_1": ["tFileList_1", "tJava_1"],
+                "subjob_2": ["tFileInputExcel_1"],
+                "subjob_3": ["tFileInputExcel_2"],
+            },
+            track_order=True,
+        )
+
+        file_list = FileListIterateStubComponent(
+            "tFileList_1",
+            {"items": ["Customer_Master.xlsx", "Orders_2026.xlsx"]},
+            executor.global_map,
+            ContextManager(initial_context={"Default": {}}),
+        )
+        file_list.config = copy.deepcopy(file_list._original_config)
+
+        tjava = OrderTrackingComponent(
+            "tJava_1",
+            {},
+            executor.global_map,
+            ContextManager(initial_context={"Default": {}}),
+        )
+        tjava.config = copy.deepcopy(tjava._original_config)
+
+        excel1 = OrderTrackingComponent(
+            "tFileInputExcel_1",
+            {},
+            executor.global_map,
+            ContextManager(initial_context={"Default": {}}),
+        )
+        excel1.config = copy.deepcopy(excel1._original_config)
+
+        excel2 = OrderTrackingComponent(
+            "tFileInputExcel_2",
+            {},
+            executor.global_map,
+            ContextManager(initial_context={"Default": {}}),
+        )
+        excel2.config = copy.deepcopy(excel2._original_config)
+
+        executor.components["tFileList_1"] = file_list
+        executor.components["tJava_1"] = tjava
+        executor.components["tFileInputExcel_1"] = excel1
+        executor.components["tFileInputExcel_2"] = excel2
+
+        stats = executor.execute_job()
+        assert stats["status"] == "success"
+        assert _execution_order[:4] == [
+            "tFileList_1",
+            "tJava_1",
+            "tFileInputExcel_1",
+            "tJava_1",
+        ]
+        assert _execution_order[-1] == "tFileInputExcel_2"
 
 
 # ---------------------------------------------------------------------------

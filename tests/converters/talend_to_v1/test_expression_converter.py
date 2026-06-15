@@ -369,8 +369,8 @@ class TestConvert:
         # equalsIgnoreCase -> .lower() == str(
         out = ExpressionConverter.convert('a.equalsIgnoreCase("B")')
         assert ".lower() == str(" in out
-        # contains -> ' in '
-        assert " in " in ExpressionConverter.convert('a.contains("b")')
+        # contains -> '<arg> in <receiver>'
+        assert ExpressionConverter.convert('a.contains("b")') == '"b" in a'
         # startsWith -> .startswith
         assert ".startswith(" in ExpressionConverter.convert(
             'a.startsWith("b")'

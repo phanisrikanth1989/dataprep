@@ -273,9 +273,8 @@ class ExpressionConverter:
         # of <receiver> -- the Python equivalent is '<arg>' in <receiver>,
         # NOT the naive textual swap '<receiver>' in <arg>' (which inverts the
         # truth value because Python's 'a in b' tests if *a* is a substring of
-        # *b*). The dedicated helper performs balanced-paren scanning to handle
-        # receivers like '(globalMap.get("K"))' or 'df["col"]' correctly.
-        expression = re.sub(r'\.contains\(([^()]*)\)', r' in \1', expression)
+        # *b*).
+        expression = re.sub(r'(.+?)\.contains\(([^()]*)\)', r'\2 in \1', expression)
         expression = expression.replace('.startsWith(', '.startswith(')
         expression = expression.replace('.endsWith(', '.endswith(')
         expression = expression.replace('.length()', '.__len__()')
