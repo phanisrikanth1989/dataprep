@@ -237,6 +237,77 @@ class TestOracleAutoDetect:
         assert eng.oracle_manager is not None
 
 
+@pytest.mark.unit
+class TestMSSqlManagerStartFailureCleanup:
+    """When mssql_manager.start() raises, _cleanup runs and exception re-raises."""
+
+    def test_mssql_init_failure_calls_stop(self, monkeypatch):
+        cfg = {
+            "job_name": "j",
+            "context": {"Default": {}},
+            "components": [],
+            "flows": [],
+            "triggers": [],
+            "subjobs": {},
+            "mssql_config": {"enabled": True},
+        }
+        from src.v1.engine import engine as eng_mod
+
+        stop_calls = []
+
+        class _FakeMSSqlConnectionManager:
+            def start(self):
+                raise RuntimeError("boom mssql start")
+
+            def stop(self):
+                stop_calls.append(True)
+
+        monkeypatch.setattr(
+            eng_mod, "MSSqlConnectionManager", _FakeMSSqlConnectionManager
+        )
+        with pytest.raises(RuntimeError, match="boom mssql start"):
+            ETLEngine(cfg)
+        assert stop_calls == [True]
+
+
+@pytest.mark.unit
+class TestMSSqlAutoDetectAndWiring:
+    """has_mssql_components wires up the manager, injects it into components,
+    and _cleanup stops it."""
+
+    def test_mssql_component_triggers_manager_injection_and_cleanup(self, monkeypatch):
+        cfg = {
+            "job_name": "j",
+            "context": {"Default": {}},
+            "components": [
+                {"id": "ms", "type": "MSSqlConnection",
+                 "config": {"host": "h"}}
+            ],
+            "flows": [],
+            "triggers": [],
+            "subjobs": {"s1": ["ms"]},
+        }
+        from src.v1.engine import engine as eng_mod
+
+        stop_calls = []
+
+        class _FakeMSSql:
+            def start(self):
+                pass
+
+            def stop(self):
+                stop_calls.append(True)
+
+        monkeypatch.setattr(eng_mod, "MSSqlConnectionManager", _FakeMSSql)
+        eng = ETLEngine(cfg)
+        assert eng.mssql_manager is not None
+        # Manager injected into the component.
+        assert eng.components["ms"].mssql_manager is eng.mssql_manager
+        # _cleanup stops the manager.
+        eng._cleanup()
+        assert stop_calls == [True]
+
+
 # ---------------------------------------------------------------------------
 # Python routine manager wiring
 # ---------------------------------------------------------------------------

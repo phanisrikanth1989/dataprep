@@ -15,6 +15,7 @@ from .exceptions import ETLError
 from .java_bridge_manager import JavaBridgeManager
 from .python_routine_manager import PythonRoutineManager
 from .oracle_connection_manager import OracleConnectionManager
+from .mssql_connection_manager import MSSqlConnectionManager
 from .component_registry import REGISTRY
 from . import components as _components  # noqa: F401 -- triggers decorator registration
 from .execution_plan import ExecutionPlan
@@ -75,6 +76,12 @@ class ETLEngine:
             "OracleConnection", "tOracleConnection", "tDBConnection",
             "OracleRow", "tOracleRow",
             "OracleOutput", "tOracleOutput",
+            "OracleInput", "tOracleInput",
+            "OracleSP", "tOracleSP",
+            "OracleBulkExec", "tOracleBulkExec",
+            "OracleCommit", "tOracleCommit",
+            "OracleRollback", "tOracleRollback",
+            "OracleClose", "tOracleClose",
         }
         has_oracle_components = any(
             c.get('type') in oracle_component_types
@@ -89,6 +96,26 @@ class ETLEngine:
                 self.oracle_manager.stop()
                 raise
             logger.info("Oracle connection manager initialized (thick_mode=%s)", thick_mode)
+
+        # MSSql connection manager (parallel to Oracle; pyodbc driver)
+        self.mssql_manager = None
+        mssql_config = self.job_config.get('mssql_config', {})
+        mssql_component_types = {
+            "MSSqlConnection", "tMSSqlConnection",
+            "MSSqlInput", "tMSSqlInput",
+        }
+        has_mssql_components = any(
+            c.get('type') in mssql_component_types
+            for c in self.job_config.get('components', [])
+        )
+        if has_mssql_components or mssql_config.get('enabled', False):
+            self.mssql_manager = MSSqlConnectionManager()
+            try:
+                self.mssql_manager.start()
+            except Exception:
+                self.mssql_manager.stop()
+                raise
+            logger.info("MSSql connection manager initialized")
 
         # Core services
         self.job_name = self.job_config.get('job_name', 'unnamed_job')
@@ -170,6 +197,8 @@ class ETLEngine:
                 component.python_routine_manager = self.python_routine_manager
             if self.oracle_manager:
                 component.oracle_manager = self.oracle_manager
+            if self.mssql_manager:
+                component.mssql_manager = self.mssql_manager
 
             self.components[comp_id] = component
 
@@ -257,13 +286,16 @@ class ETLEngine:
         }
 
     def _cleanup(self) -> None:
-        """Cleanup resources including Java bridge and Oracle connections."""
+        """Cleanup resources including Java bridge and database connections."""
         if self.java_bridge_manager:
             logger.info("Shutting down Java bridge...")
             self.java_bridge_manager.stop()
         if self.oracle_manager:
             logger.info("Closing Oracle connections...")
             self.oracle_manager.stop()
+        if self.mssql_manager:
+            logger.info("Closing MSSql connections...")
+            self.mssql_manager.stop()
 
     def __enter__(self):
         """Context manager entry."""
