@@ -1,0 +1,153 @@
+{
+  "job_name": "Job_pagination",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {}
+  },
+  "components": [
+    {
+      "id": "tFileInputDelimited_1",
+      "type": "FileInputDelimited",
+      "original_type": "tFileInputDelimited",
+      "config": {
+        "filepath": "tests/fixtures/jobs/transform/_pagination_io/input.psv",
+        "fieldseparator": "|",
+        "row_separator": "\\n",
+        "header_rows": 1,
+        "footer_rows": 0,
+        "encoding": "UTF-8",
+        "csv_option": false,
+        "remove_empty_row": true,
+        "die_on_error": false,
+        "trim_all": false,
+        "trim_select": []
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {"name": "SUBACC", "type": "str", "nullable": false, "key": false},
+          {"name": "IDRORCR", "type": "str", "nullable": true, "key": false},
+          {"name": "IAMOUNT", "type": "str", "nullable": true, "key": false},
+          {"name": "OPBAL", "type": "str", "nullable": true, "key": false},
+          {"name": "STMTPG", "type": "str", "nullable": true, "key": false},
+          {"name": "CLBAL", "type": "str", "nullable": true, "key": false}
+        ]
+      },
+      "inputs": [],
+      "outputs": ["row1"]
+    },
+    {
+      "id": "tPagination_1",
+      "type": "Pagination",
+      "original_type": "tPagination",
+      "config": {
+        "component_type": "Pagination",
+        "page_size": 2,
+        "account_column": "SUBACC",
+        "dc_flag_column": "IDRORCR",
+        "amount_column": "IAMOUNT",
+        "page_column": "STMTPG",
+        "opening_balance_column": "OPBAL",
+        "closing_balance_column": "CLBAL",
+        "debit_column": "AMT_D",
+        "credit_column": "AMT_C",
+        "debit_flag_value": "D",
+        "credit_flag_value": "C",
+        "null_token": "NULL"
+      },
+      "schema": {
+        "input": [
+          {"name": "SUBACC", "type": "str", "nullable": false, "key": false},
+          {"name": "IDRORCR", "type": "str", "nullable": true, "key": false},
+          {"name": "IAMOUNT", "type": "str", "nullable": true, "key": false},
+          {"name": "OPBAL", "type": "str", "nullable": true, "key": false},
+          {"name": "STMTPG", "type": "str", "nullable": true, "key": false},
+          {"name": "CLBAL", "type": "str", "nullable": true, "key": false}
+        ],
+        "output": [
+          {"name": "SUBACC", "type": "str", "nullable": true, "key": false},
+          {"name": "IDRORCR", "type": "str", "nullable": true, "key": false},
+          {"name": "IAMOUNT", "type": "str", "nullable": true, "key": false},
+          {"name": "OPBAL", "type": "str", "nullable": true, "key": false},
+          {"name": "STMTPG", "type": "str", "nullable": true, "key": false},
+          {"name": "CLBAL", "type": "str", "nullable": true, "key": false},
+          {"name": "AMT_D", "type": "str", "nullable": true, "key": false},
+          {"name": "AMT_C", "type": "str", "nullable": true, "key": false}
+        ]
+      },
+      "inputs": ["row1"],
+      "outputs": ["out_main", "detail"]
+    },
+    {
+      "id": "tFileOutputDelimited_summary",
+      "type": "FileOutputDelimited",
+      "original_type": "tFileOutputDelimited",
+      "config": {
+        "filepath": "tests/fixtures/jobs/transform/_pagination_io/summary_out.psv",
+        "fieldseparator": "|",
+        "row_separator": "\\n",
+        "encoding": "UTF-8",
+        "include_header": true,
+        "append": false,
+        "create_directory": true,
+        "split": false,
+        "file_exist_exception": false
+      },
+      "schema": {
+        "input": [
+          {"name": "SUBACC", "type": "str", "nullable": true, "key": false},
+          {"name": "IDRORCR", "type": "str", "nullable": true, "key": false},
+          {"name": "IAMOUNT", "type": "str", "nullable": true, "key": false},
+          {"name": "OPBAL", "type": "str", "nullable": true, "key": false},
+          {"name": "STMTPG", "type": "str", "nullable": true, "key": false},
+          {"name": "CLBAL", "type": "str", "nullable": true, "key": false},
+          {"name": "AMT_D", "type": "str", "nullable": true, "key": false},
+          {"name": "AMT_C", "type": "str", "nullable": true, "key": false}
+        ],
+        "output": []
+      },
+      "inputs": ["out_main"],
+      "outputs": []
+    },
+    {
+      "id": "tFileOutputDelimited_detail",
+      "type": "FileOutputDelimited",
+      "original_type": "tFileOutputDelimited",
+      "config": {
+        "filepath": "tests/fixtures/jobs/transform/_pagination_io/detail_out.psv",
+        "fieldseparator": "|",
+        "row_separator": "\\n",
+        "encoding": "UTF-8",
+        "include_header": true,
+        "append": false,
+        "create_directory": true,
+        "split": false,
+        "file_exist_exception": false
+      },
+      "schema": {
+        "input": [
+          {"name": "SUBACC", "type": "str", "nullable": true, "key": false},
+          {"name": "IDRORCR", "type": "str", "nullable": true, "key": false},
+          {"name": "IAMOUNT", "type": "str", "nullable": true, "key": false},
+          {"name": "OPBAL", "type": "str", "nullable": true, "key": false},
+          {"name": "STMTPG", "type": "str", "nullable": true, "key": false},
+          {"name": "CLBAL", "type": "str", "nullable": true, "key": false}
+        ],
+        "output": []
+      },
+      "inputs": ["detail"],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {"name": "row1", "from": "tFileInputDelimited_1", "to": "tPagination_1", "type": "flow"},
+    {"name": "out_main", "from": "tPagination_1", "to": "tFileOutputDelimited_summary", "type": "flow"},
+    {"name": "detail", "from": "tPagination_1", "to": "tFileOutputDelimited_detail", "type": "flow"}
+  ],
+  "triggers": [],
+  "subjobs": {
+    "subjob_1": ["tFileInputDelimited_1", "tPagination_1", "tFileOutputDelimited_summary", "tFileOutputDelimited_detail"]
+  },
+  "java_config": {"enabled": false, "routines": [], "libraries": []}
+}

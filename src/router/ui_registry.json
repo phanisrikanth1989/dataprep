@@ -9110,6 +9110,173 @@
       }
     ]
   },
+  "tPagination": {
+    "label": "Pagination",
+    "icon": "layers",
+    "category": "Transform",
+    "connectors": {
+      "inputs": [
+        {
+          "name": "main",
+          "type": "row",
+          "label": "Main",
+          "required": true,
+          "maxConnections": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "main",
+          "type": "row",
+          "label": "Summary (per page)"
+        },
+        {
+          "name": "detail",
+          "type": "row",
+          "label": "Detail (per row)"
+        }
+      ],
+      "triggers": {
+        "outgoing": [
+          "OnComponentOk",
+          "OnComponentError",
+          "OnSubjobOk",
+          "OnSubjobError",
+          "RunIf"
+        ],
+        "incoming": [
+          "OnComponentOk",
+          "OnComponentError",
+          "OnSubjobOk",
+          "OnSubjobError",
+          "RunIf"
+        ]
+      }
+    },
+    "groups": [
+      {
+        "id": "basic",
+        "label": "Basic Settings"
+      },
+      {
+        "id": "advanced",
+        "label": "Advanced Settings"
+      }
+    ],
+    "properties": [
+      {
+        "key": "page_size",
+        "label": "Page Size (rows per page)",
+        "type": "number",
+        "default": 10000,
+        "group": "basic",
+        "min": 1,
+        "required": true,
+        "tooltip": "Rows per page within an account. A new page starts every N rows (e.g. 100, 1000, 100000)."
+      },
+      {
+        "key": "account_column",
+        "label": "Account Column",
+        "type": "text",
+        "default": "SUBACC",
+        "group": "basic",
+        "required": true,
+        "tooltip": "Grouping/sort key. Rows are sorted by this column (as an integer) before paging, and pages reset per account."
+      },
+      {
+        "key": "dc_flag_column",
+        "label": "Debit/Credit Flag Column",
+        "type": "text",
+        "default": "IDRORCR",
+        "group": "basic",
+        "required": true,
+        "tooltip": "Column holding the debit/credit indicator. Also the secondary sort key."
+      },
+      {
+        "key": "amount_column",
+        "label": "Amount Column",
+        "type": "text",
+        "default": "IAMOUNT",
+        "group": "basic",
+        "required": true,
+        "tooltip": "Source amount, split into the debit/credit columns based on the flag."
+      },
+      {
+        "key": "page_column",
+        "label": "Page Number Column",
+        "type": "text",
+        "default": "STMTPG",
+        "group": "basic",
+        "required": true,
+        "tooltip": "Output column that receives the assigned page number (created if absent)."
+      },
+      {
+        "key": "opening_balance_column",
+        "label": "Opening Balance Column",
+        "type": "text",
+        "default": "OPBAL",
+        "group": "basic",
+        "required": true,
+        "tooltip": "Opening balance column. Aggregated as MIN per page, then carried forward across pages."
+      },
+      {
+        "key": "closing_balance_column",
+        "label": "Closing Balance Column",
+        "type": "text",
+        "default": "CLBAL",
+        "group": "basic",
+        "required": true,
+        "tooltip": "Output column for the per-page closing balance (opening - debit + credit)."
+      },
+      {
+        "key": "debit_column",
+        "label": "Debit Column (derived)",
+        "type": "text",
+        "default": "AMT_D",
+        "group": "advanced",
+        "tooltip": "Name of the derived summed-debit column added to the summary output."
+      },
+      {
+        "key": "credit_column",
+        "label": "Credit Column (derived)",
+        "type": "text",
+        "default": "AMT_C",
+        "group": "advanced",
+        "tooltip": "Name of the derived summed-credit column added to the summary output."
+      },
+      {
+        "key": "debit_flag_value",
+        "label": "Debit Flag Value",
+        "type": "text",
+        "default": "D",
+        "group": "advanced",
+        "tooltip": "Flag value (in the Debit/Credit column) that marks a debit row."
+      },
+      {
+        "key": "credit_flag_value",
+        "label": "Credit Flag Value",
+        "type": "text",
+        "default": "C",
+        "group": "advanced",
+        "tooltip": "Flag value (in the Debit/Credit column) that marks a credit row."
+      },
+      {
+        "key": "null_token",
+        "label": "Null Token",
+        "type": "text",
+        "default": "NULL",
+        "group": "advanced",
+        "tooltip": "Amount value treated as empty/zero (e.g. the literal NULL)."
+      },
+      {
+        "key": "label",
+        "label": "Label",
+        "type": "text",
+        "default": "",
+        "group": "basic"
+      }
+    ]
+  },
   "tFilterColumns": {
     "label": "Filter Columns",
     "icon": "columns",

@@ -15,6 +15,7 @@ from .join import Join
 from .log_row import LogRow
 from .map import Map
 from .normalize import Normalize
+from .pagination import Pagination
 from .pivot_to_columns_delimited import PivotToColumnsDelimited
 from .python_component import PythonComponent
 from .python_dataframe_component import PythonDataFrameComponent
@@ -53,6 +54,7 @@ __all__ = [
     'LogRow',
     'Map',
     'Normalize',
+    'Pagination',
     'PivotToColumnsDelimited',
     'PythonComponent',
     'PythonDataFrameComponent',
