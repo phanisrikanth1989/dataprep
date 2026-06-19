@@ -1061,10 +1061,10 @@
     },
     {
       "id": "tPagination_1",
-      "type": "PaginationSorted",
-      "original_type": "tPaginationSorted",
+      "type": "Pagination",
+      "original_type": "tPagination",
       "config": {
-        "component_type": "PaginationSorted",
+        "component_type": "Pagination",
         "page_size": 10000,
         "sort_columns": ["SUBACC", "OPBALCCY", "CLBALDATE"],
         "absolute_balance": true,

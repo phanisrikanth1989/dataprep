@@ -1,8 +1,6 @@
-"""Pagination component - pagination with a configurable ASCENDING sort.
+"""Pagination component - statement pagination with a configurable ASCENDING sort.
 
-Backup-variant of :class:`Pagination`. The statement-pagination math (page
-numbering per account, per-page debit/credit totals, running-balance
-carry-forward) is identical; the differences are:
+Talend equivalent: tPagination. Key characteristics:
 
   * Rows are sorted by ``sort_columns`` -- a list of column names compared as
     PLAIN STRINGS, ascending. There is no ``int()`` cast on the account, so
@@ -14,8 +12,6 @@ carry-forward) is identical; the differences are:
     row of a page carries that page's ``AMT_D`` / ``AMT_C`` totals and the
     computed opening / closing balance (``OPBAL`` / ``CLBAL`` are overwritten
     with the carried page open/close).
-
-This keeps ``pagination.py`` untouched as the original (aggregated) version.
 
 The logic runs in three passes:
 

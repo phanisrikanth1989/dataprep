@@ -1,15 +1,15 @@
 """Tests for the Pagination engine component (Pagination / tPagination).
 
-Covers:
-  TestRegistration   -- v1 name + Talend alias registered
-  TestValidation     -- page_size / column-name config validation
-  TestPagination     -- per-account page assignment + boundary at page_size
-  TestSplit          -- debit/credit split incl. NULL / blank / non-D/C flag
-  TestAggregation    -- SUM debit/credit, MIN opening balance, 0 -> "0" quirk
-  TestRunningBalance -- carry-forward across pages, reset on account / page 1
-  TestFlows          -- both main + detail flows, detail schema
-  TestConfigurable   -- custom column-name mapping end to end
-  TestEdgeCases      -- empty / None input guard
+Statement pagination with a configurable ASCENDING multi-column sort:
+
+  * Sort keys come from ``sort_columns`` and are compared as PLAIN STRINGS,
+    ascending (no ``int()`` cast on the account).
+  * The D/C flag column (``dc_flag_column``) is NOT a sort key -- it drives the
+    debit/credit split during aggregation only.
+  * The ``main`` flow is 1:1 with the input (no aggregation): every row is
+    stamped with its PAGE's AMT_D/AMT_C and the computed OPBAL/CLBAL (broadcast).
+  * Optional config-gated derived columns: absolute balance, D/C sign columns,
+    multi-page flag.
 """
 import pandas as pd
 import pytest
@@ -25,14 +25,25 @@ from src.v1.engine.global_map import GlobalMap
 # Fixtures / helpers
 # ----------------------------------------------------------------
 
-_DEFAULT_CONFIG = {"page_size": 2}
+_SORT_COLS = ["SUBACC", "OPBALCCY", "CLBALDATE"]
+
+_CONFIG = {
+    "page_size": 2,
+    "sort_columns": _SORT_COLS,
+    "account_column": "SUBACC",
+    "dc_flag_column": "DRORCR",
+    "amount_column": "AMOUNT",
+    "page_column": "STMTPG",
+    "opening_balance_column": "OPBAL",
+    "closing_balance_column": "CLBAL",
+}
 
 
 def _make_component(config=None, global_map=None, context_manager=None):
     """Build a Pagination component with stock defaults."""
     gm = global_map if global_map is not None else GlobalMap()
     cm = context_manager if context_manager is not None else ContextManager()
-    cfg = dict(config if config is not None else _DEFAULT_CONFIG)
+    cfg = dict(config if config is not None else {"page_size": 2})
     comp = Pagination(
         component_id="tPagination_1",
         config=cfg,
@@ -47,24 +58,29 @@ def _make_component(config=None, global_map=None, context_manager=None):
 def _make_df():
     """Two accounts; account 1 spans two pages at page_size=2.
 
-    Input order is intentionally unsorted to exercise the (int(account), flag) sort.
+    Input order is intentionally scrambled so the (SUBACC, OPBALCCY, CLBALDATE)
+    ascending sort -- NOT the DRORCR flag -- determines row order.
+
+    Sorted account-1 order is EUR/240103, USD/240101, USD/240102:
+      page 1 -> {EUR D 30, USD C 20}, page 2 -> {USD D 10}.
     """
     return pd.DataFrame({
-        "SUBACC":  ["1", "1", "1", "2"],
-        "IDRORCR": ["D", "D", "C", "D"],
-        "IAMOUNT": ["30", "20", "100", "40"],
-        "OPBAL":   ["50.00", "50.00", "50.00", "200.00"],
-        "STMTPG":  ["", "", "", ""],
-        "CLBAL":   ["", "", "", ""],
+        "SUBACC":    ["1", "1", "1", "2"],
+        "OPBALCCY":  ["USD", "USD", "EUR", "USD"],
+        "CLBALDATE": ["240102", "240101", "240103", "240101"],
+        "DRORCR":    ["D", "C", "D", "D"],
+        "AMOUNT":    ["10", "20", "30", "40"],
+        "OPBAL":     ["50.00", "50.00", "50.00", "200.00"],
+        "STMTPG":    ["", "", "", ""],
+        "CLBAL":     ["", "", "", ""],
     })
 
 
 def _by_page(main_df):
-    """Index summary rows by (SUBACC, STMTPG) for easy assertions."""
-    return {
-        (r["SUBACC"], r["STMTPG"]): r
-        for _, r in main_df.iterrows()
-    }
+    """Index main rows by (SUBACC, page-as-str). Page values are identical across
+    all rows of a page (broadcast), so collapsing to the last row per page is fine
+    for page-level value assertions."""
+    return {(str(r["SUBACC"]), str(r["STMTPG"])): r for _, r in main_df.iterrows()}
 
 
 # ----------------------------------------------------------------
@@ -82,15 +98,221 @@ class TestRegistration:
 
 
 # ----------------------------------------------------------------
+# TestSort -- the headline behaviour
+# ----------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestSort:
+    def test_detail_sorted_by_three_keys_ascending(self):
+        detail = _make_component(config=_CONFIG)._process(_make_df())["detail"]
+        # account 1: EUR/240103, USD/240101, USD/240102 ; then account 2.
+        assert detail["OPBALCCY"].tolist() == ["EUR", "USD", "USD", "USD"]
+        assert detail["CLBALDATE"].tolist() == ["240103", "240101", "240102", "240101"]
+        assert detail["DRORCR"].tolist() == ["D", "C", "D", "D"]
+
+    def test_page_assigned_in_sorted_order(self):
+        detail = _make_component(config=_CONFIG)._process(_make_df())["detail"]
+        assert detail["STMTPG"].tolist() == [1, 1, 2, 1]
+
+    def test_account_sorted_as_string_not_numeric(self):
+        # String ascending: "10" sorts before "2".
+        df = pd.DataFrame({
+            "SUBACC":    ["2", "10"],
+            "OPBALCCY":  ["USD", "USD"],
+            "CLBALDATE": ["240101", "240101"],
+            "DRORCR":    ["D", "D"],
+            "AMOUNT":    ["1", "2"],
+            "OPBAL":     ["0", "0"],
+            "STMTPG":    ["", ""],
+            "CLBAL":     ["", ""],
+        })
+        detail = _make_component(config=_CONFIG)._process(df)["detail"]
+        assert detail["SUBACC"].tolist() == ["10", "2"]
+
+    def test_dc_flag_is_not_a_sort_key(self):
+        # Same (SUBACC, OPBALCCY, CLBALDATE) for both rows -> stable input order
+        # is preserved regardless of DRORCR value (C before D here).
+        df = pd.DataFrame({
+            "SUBACC":    ["1", "1"],
+            "OPBALCCY":  ["USD", "USD"],
+            "CLBALDATE": ["240101", "240101"],
+            "DRORCR":    ["C", "D"],
+            "AMOUNT":    ["5", "7"],
+            "OPBAL":     ["0", "0"],
+            "STMTPG":    ["", ""],
+            "CLBAL":     ["", ""],
+        })
+        detail = _make_component(config=_CONFIG)._process(df)["detail"]
+        assert detail["DRORCR"].tolist() == ["C", "D"]
+
+
+# ----------------------------------------------------------------
+# TestSplit -- DRORCR still drives debit/credit
+# ----------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestSplit:
+    def test_debit_credit_split_uses_dc_flag(self):
+        rows = _by_page(_make_component(config=_CONFIG)._process(_make_df())["main"])
+        # page (1,1): EUR D 30 + USD C 20
+        assert rows[("1", "1")]["AMT_D"] == "30.00"
+        assert rows[("1", "1")]["AMT_C"] == "20.00"
+        # page (1,2): USD D 10
+        assert rows[("1", "2")]["AMT_D"] == "10.00"
+        assert rows[("1", "2")]["AMT_C"] == "0"
+
+    def test_null_blank_and_nan_amounts_become_zero(self):
+        # NULL token, blank string, and float NaN all parse to zero (no contribution).
+        df = pd.DataFrame({
+            "SUBACC":    ["1", "1", "1", "1"],
+            "OPBALCCY":  ["USD", "USD", "USD", "USD"],
+            "CLBALDATE": ["240101", "240101", "240101", "240101"],
+            "DRORCR":    ["D", "C", "D", "C"],
+            "AMOUNT":    ["NULL", "", float("nan"), "20.00"],
+            "OPBAL":     ["0", "0", "0", "0"],
+            "STMTPG":    ["", "", "", ""],
+            "CLBAL":     ["", "", "", ""],
+        })
+        rows = _by_page(_make_component(config={**_CONFIG, "page_size": 10})._process(df)["main"])
+        page = rows[("1", "1")]
+        assert page["AMT_D"] == "0"       # NULL + NaN debits -> zero
+        assert page["AMT_C"] == "20.00"   # only the real credit counts
+
+
+# ----------------------------------------------------------------
+# TestMainBroadcast -- main keeps every row + per-page values
+# ----------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestMainBroadcast:
+    def test_main_is_one_to_one_with_input(self):
+        df = _make_df()
+        main = _make_component(config=_CONFIG)._process(df)["main"]
+        assert len(main) == len(df)  # 4 in -> 4 out (no aggregation)
+        combos = {(r["SUBACC"], int(r["STMTPG"])) for _, r in main.iterrows()}
+        assert combos == {("1", 1), ("1", 2), ("2", 1)}
+
+    def test_main_columns_are_detail_plus_amt(self):
+        res = _make_component(config=_CONFIG)._process(_make_df())
+        main, detail = res["main"], res["detail"]
+        assert list(main.columns) == list(detail.columns) + ["AMT_D", "AMT_C"]
+
+    def test_each_row_keeps_its_own_passthrough(self):
+        # No first-row carry: every row retains its OWN pass-through value.
+        df = _make_df()
+        df["SIDE"] = ["S0", "S1", "S2", "S3"]  # input index 0..3
+        main = _make_component(config=_CONFIG)._process(df)["main"]
+        # main is in sorted order: idx2, idx1, idx0 (acct1), idx3 (acct2).
+        assert main["SIDE"].tolist() == ["S2", "S1", "S0", "S3"]
+
+    def test_page_values_identical_across_rows_of_page(self):
+        main = _make_component(config=_CONFIG)._process(_make_df())["main"]
+        pg1 = main[(main["SUBACC"] == "1") & (main["STMTPG"] == 1)]
+        assert len(pg1) == 2  # two rows share page 1
+        assert set(pg1["AMT_D"]) == {"30.00"}
+        assert set(pg1["AMT_C"]) == {"20.00"}
+        assert set(pg1["OPBAL"]) == {"50.00"}
+        assert set(pg1["CLBAL"]) == {"40.00"}
+
+    def test_running_balance_carries_across_pages(self):
+        rows = _by_page(_make_component(config=_CONFIG)._process(_make_df())["main"])
+        # page1: 50 - 30 + 20 = 40 ; page2 opens at 40, 40 - 10 + 0 = 30
+        assert rows[("1", "1")]["OPBAL"] == "50.00"
+        assert rows[("1", "1")]["CLBAL"] == "40.00"
+        assert rows[("1", "2")]["OPBAL"] == "40.00"   # carry-forward, overwrites raw 50.00
+        assert rows[("1", "2")]["CLBAL"] == "30.00"
+
+    def test_balance_resets_on_account_change(self):
+        rows = _by_page(_make_component(config=_CONFIG)._process(_make_df())["main"])
+        assert rows[("2", "1")]["OPBAL"] == "200.00"
+        assert rows[("2", "1")]["CLBAL"] == "160.00"
+
+
+# ----------------------------------------------------------------
+# TestDerivedColumns -- config-gated abs / sign / multi-page flag
+# ----------------------------------------------------------------
+
+_DERIVED = {
+    **_CONFIG,
+    "absolute_balance": True,
+    "opening_sign_column": "OPBALSIGN",
+    "closing_sign_column": "CLBALSIGN",
+    "multipage_column": "CLBALTP",
+    "multipage_value": "M",
+    "multipage_single_value": "F",
+}
+
+
+def _derived_df():
+    """Account 1 spans 2 pages and goes negative; account 2 is single-page."""
+    return pd.DataFrame({
+        "SUBACC":    ["1", "1", "1", "2"],
+        "OPBALCCY":  ["USD", "USD", "USD", "USD"],
+        "CLBALDATE": ["240101", "240102", "240103", "240101"],
+        "DRORCR":    ["D", "D", "C", "C"],
+        "AMOUNT":    ["100", "100", "10", "5"],
+        "OPBAL":     ["50.00", "50.00", "50.00", "100.00"],
+        "OPBALSIGN": ["", "", "", ""],
+        "CLBALSIGN": ["", "", "", ""],
+        "CLBALTP":   ["", "", "", ""],
+        "STMTPG":    ["", "", "", ""],
+        "CLBAL":     ["", "", "", ""],
+    })
+
+
+@pytest.mark.unit
+class TestDerivedColumns:
+    def test_absolute_balance(self):
+        rows = _by_page(_make_component(config=_DERIVED)._process(_derived_df())["main"])
+        # page1: 50 - 200 = -150 -> abs 150 ; opening 50 -> 50
+        assert rows[("1", "1")]["OPBAL"] == "50.00"
+        assert rows[("1", "1")]["CLBAL"] == "150.00"
+        assert rows[("2", "1")]["CLBAL"] == "105.00"
+
+    def test_sign_columns_from_signed_value(self):
+        rows = _by_page(_make_component(config=_DERIVED)._process(_derived_df())["main"])
+        assert rows[("1", "1")]["OPBALSIGN"] == "C"   # +50
+        assert rows[("1", "1")]["CLBALSIGN"] == "D"   # -150
+        assert rows[("1", "2")]["CLBALSIGN"] == "D"   # -140
+        assert rows[("2", "1")]["CLBALSIGN"] == "C"   # +105
+
+    def test_zero_balance_sign_is_credit(self):
+        df = pd.DataFrame({
+            "SUBACC": ["9"], "OPBALCCY": ["USD"], "CLBALDATE": ["240101"],
+            "DRORCR": ["D"], "AMOUNT": ["100.00"], "OPBAL": ["100.00"],
+            "OPBALSIGN": [""], "CLBALSIGN": [""], "CLBALTP": [""],
+            "STMTPG": [""], "CLBAL": [""],
+        })
+        rows = _by_page(_make_component(config=_DERIVED)._process(df)["main"])
+        assert rows[("9", "1")]["CLBAL"] == "0.00"     # 100 - 100
+        assert rows[("9", "1")]["CLBALSIGN"] == "C"     # zero -> credit
+
+    def test_multipage_flag_overwrites_clbaltp(self):
+        rows = _by_page(_make_component(config=_DERIVED)._process(_derived_df())["main"])
+        assert rows[("1", "1")]["CLBALTP"] == "M"   # account 1 spans 2 pages
+        assert rows[("1", "2")]["CLBALTP"] == "M"
+        assert rows[("2", "1")]["CLBALTP"] == "F"   # account 2 single page
+
+    def test_derived_off_by_default(self):
+        # Without the derived keys, balances are NOT absolute and sign/type untouched.
+        rows = _by_page(_make_component(config=_CONFIG)._process(_derived_df())["main"])
+        assert rows[("1", "1")]["CLBAL"] == "-150.00"   # raw, not abs
+        assert rows[("1", "1")]["OPBALSIGN"] == ""        # untouched input
+        assert rows[("1", "1")]["CLBALTP"] == ""          # untouched input
+
+
+# ----------------------------------------------------------------
 # TestValidation
 # ----------------------------------------------------------------
 
 
 @pytest.mark.unit
 class TestValidation:
-    def test_default_page_size_is_valid(self):
-        comp = _make_component(config={})
-        comp._validate_config()  # no raise
+    def test_default_config_valid(self):
+        _make_component(config={})._validate_config()  # no raise
 
     def test_zero_page_size_raises(self):
         comp = _make_component(config={"page_size": 0})
@@ -125,259 +347,42 @@ class TestValidation:
         with pytest.raises(ConfigurationError):
             comp._validate_config()
 
+    def test_non_list_sort_columns_raises(self):
+        comp = _make_component(config={"sort_columns": "SUBACC"})
+        with pytest.raises(ConfigurationError) as ei:
+            comp._validate_config()
+        assert "sort_columns" in str(ei.value)
+
+    def test_empty_sort_column_entry_raises(self):
+        comp = _make_component(config={"sort_columns": ["SUBACC", ""]})
+        with pytest.raises(ConfigurationError):
+            comp._validate_config()
+
+    def test_non_bool_absolute_balance_raises(self):
+        comp = _make_component(config={"absolute_balance": "yes"})
+        with pytest.raises(ConfigurationError) as ei:
+            comp._validate_config()
+        assert "absolute_balance" in str(ei.value)
+
+    def test_non_string_sign_column_raises(self):
+        comp = _make_component(config={"opening_sign_column": 123})
+        with pytest.raises(ConfigurationError) as ei:
+            comp._validate_config()
+        assert "opening_sign_column" in str(ei.value)
+
     def test_missing_required_input_column_raises(self):
-        comp = _make_component(config={"page_size": 2})
-        df = pd.DataFrame({"SUBACC": ["1"], "IDRORCR": ["D"]})  # no IAMOUNT
+        df = _make_df().drop(columns=["AMOUNT"])
+        comp = _make_component(config=_CONFIG)
         with pytest.raises(ConfigurationError) as ei:
             comp._process(df)
-        assert "IAMOUNT" in str(ei.value)
+        assert "AMOUNT" in str(ei.value)
 
-
-# ----------------------------------------------------------------
-# TestPagination
-# ----------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestPagination:
-    def test_page_breaks_every_page_size_rows(self):
-        comp = _make_component(config={"page_size": 2})
-        detail = comp._process(_make_df())["detail"]
-        # Sorted order: acct1 -> C,D,D (pages 1,1,2); acct2 -> D (page 1)
-        assert detail["STMTPG"].tolist() == [1, 1, 2, 1]
-
-    def test_page_resets_per_account(self):
-        # Three rows in account 2 -> its own pages 1,1,2 independent of account 1.
-        df = pd.DataFrame({
-            "SUBACC":  ["1", "2", "2", "2"],
-            "IDRORCR": ["D", "D", "D", "D"],
-            "IAMOUNT": ["1", "2", "3", "4"],
-            "OPBAL":   ["0", "0", "0", "0"],
-            "STMTPG":  ["", "", "", ""],
-            "CLBAL":   ["", "", "", ""],
-        })
-        comp = _make_component(config={"page_size": 2})
-        detail = comp._process(df)["detail"]
-        assert detail["SUBACC"].tolist() == ["1", "2", "2", "2"]
-        assert detail["STMTPG"].tolist() == [1, 1, 1, 2]
-
-    def test_large_page_size_single_page(self):
-        comp = _make_component(config={"page_size": 100000})
-        main = comp._process(_make_df())["main"]
-        # Account 1 collapses to a single page; account 2 to one page -> 2 summary rows.
-        assert len(main) == 2
-        assert set(main["STMTPG"]) == {"1"}
-
-
-# ----------------------------------------------------------------
-# TestSplit
-# ----------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestSplit:
-    def test_debit_credit_amounts_split_and_summed(self):
-        comp = _make_component(config={"page_size": 2})
-        rows = _by_page(comp._process(_make_df())["main"])
-        # Page (1,1): C 100 + D 30
-        assert rows[("1", "1")]["AMT_D"] == "30.00"
-        assert rows[("1", "1")]["AMT_C"] == "100.00"
-
-    def test_null_blank_and_unknown_flag_become_zero(self):
-        df = pd.DataFrame({
-            "SUBACC":  ["1", "1", "1"],
-            "IDRORCR": ["D", "C", "X"],
-            "IAMOUNT": ["NULL", "", "999"],   # null token / blank / non-D-C flag
-            "OPBAL":   ["", "", ""],
-            "STMTPG":  ["", "", ""],
-            "CLBAL":   ["", "", ""],
-        })
-        comp = _make_component(config={"page_size": 10})
-        rows = _by_page(comp._process(df)["main"])
-        page = rows[("1", "1")]
-        assert page["AMT_D"] == "0"
-        assert page["AMT_C"] == "0"
-
-    def test_nan_amount_becomes_zero(self):
-        # A real float NaN in the amount column must be treated as null, not parsed.
-        df = pd.DataFrame({
-            "SUBACC":  ["1", "1"],
-            "IDRORCR": ["D", "C"],
-            "IAMOUNT": [float("nan"), "20.00"],
-            "OPBAL":   ["0", "0"],
-            "STMTPG":  ["", ""],
-            "CLBAL":   ["", ""],
-        })
-        comp = _make_component(config={"page_size": 10})
-        rows = _by_page(comp._process(df)["main"])
-        page = rows[("1", "1")]
-        assert page["AMT_D"] == "0"      # NaN debit -> zero
-        assert page["AMT_C"] == "20.00"  # credit unaffected
-
-
-# ----------------------------------------------------------------
-# TestAggregation
-# ----------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestAggregation:
-    def test_min_opening_balance_per_page(self):
-        df = pd.DataFrame({
-            "SUBACC":  ["1", "1"],
-            "IDRORCR": ["D", "D"],
-            "IAMOUNT": ["1", "2"],
-            "OPBAL":   ["80.00", "30.00"],   # MIN -> 30.00
-            "STMTPG":  ["", ""],
-            "CLBAL":   ["", ""],
-        })
-        comp = _make_component(config={"page_size": 10})
-        rows = _by_page(comp._process(df)["main"])
-        assert rows[("1", "1")]["OPBAL"] == "30.00"
-
-    def test_zero_sum_formats_as_bare_zero(self):
-        # Exact-zero credit total must render as "0", not "0.00" (parity quirk).
-        rows = _by_page(_make_component(config={"page_size": 2})._process(_make_df())["main"])
-        assert rows[("1", "2")]["AMT_C"] == "0"
-
-    def test_nonzero_sum_formats_two_decimals(self):
-        rows = _by_page(_make_component(config={"page_size": 2})._process(_make_df())["main"])
-        assert rows[("1", "2")]["AMT_D"] == "20.00"
-
-
-# ----------------------------------------------------------------
-# TestRunningBalance
-# ----------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestRunningBalance:
-    def test_carry_forward_within_account(self):
-        rows = _by_page(_make_component(config={"page_size": 2})._process(_make_df())["main"])
-        # Page1 closing carries into page2 opening.
-        assert rows[("1", "1")]["CLBAL"] == "120.00"
-        assert rows[("1", "2")]["OPBAL"] == "120.00"
-        assert rows[("1", "2")]["CLBAL"] == "100.00"
-
-    def test_balance_resets_on_account_change(self):
-        rows = _by_page(_make_component(config={"page_size": 2})._process(_make_df())["main"])
-        # Account 2 page 1 opens at its own OPBAL (200.00), not account 1's closing.
-        assert rows[("2", "1")]["OPBAL"] == "200.00"
-        assert rows[("2", "1")]["CLBAL"] == "160.00"
-
-    def test_balance_resets_on_page_one(self):
-        # Two accounts each with one page; page==1 always resets to that page's OPBAL.
-        df = pd.DataFrame({
-            "SUBACC":  ["5", "9"],
-            "IDRORCR": ["D", "C"],
-            "IAMOUNT": ["10.00", "5.00"],
-            "OPBAL":   ["100.00", "70.00"],
-            "STMTPG":  ["", ""],
-            "CLBAL":   ["", ""],
-        })
-        rows = _by_page(_make_component(config={"page_size": 10})._process(df)["main"])
-        assert rows[("5", "1")]["OPBAL"] == "100.00"
-        assert rows[("5", "1")]["CLBAL"] == "90.00"
-        assert rows[("9", "1")]["OPBAL"] == "70.00"
-        assert rows[("9", "1")]["CLBAL"] == "75.00"
-
-
-# ----------------------------------------------------------------
-# TestFlows
-# ----------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestFlows:
-    def test_both_flows_returned(self):
-        result = _make_component(config={"page_size": 2})._process(_make_df())
-        assert set(result.keys()) == {"main", "detail"}
-        assert isinstance(result["main"], pd.DataFrame)
-        assert isinstance(result["detail"], pd.DataFrame)
-
-    def test_detail_keeps_input_columns_plus_filled_page(self):
-        df = _make_df()
-        detail = _make_component(config={"page_size": 2})._process(df)["detail"]
-        assert list(detail.columns) == list(df.columns)
-        assert detail["STMTPG"].tolist() == [1, 1, 2, 1]
-
-    def test_summary_columns_are_input_plus_derived(self):
-        df = _make_df()
-        main = _make_component(config={"page_size": 2})._process(df)["main"]
-        assert list(main.columns) == list(df.columns) + ["AMT_D", "AMT_C"]
-
-    def test_unrelated_columns_blank_in_summary(self):
-        df = _make_df()
-        df["NARRATIVE"] = ["a", "b", "c", "d"]
-        main = _make_component(config={"page_size": 2})._process(df)["main"]
-        assert (main["NARRATIVE"] == "").all()
-
-    def test_stats_updated(self):
-        comp = _make_component(config={"page_size": 2})
-        comp._process(_make_df())
-        assert comp.stats["NB_LINE"] == 4
-        assert comp.stats["NB_LINE_OK"] == 3
-        assert comp.stats["NB_LINE_REJECT"] == 0
-
-
-# ----------------------------------------------------------------
-# TestConfigurable
-# ----------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestConfigurable:
-    def test_custom_column_names(self):
-        df = pd.DataFrame({
-            "ACCT":   ["1", "1"],
-            "DC":     ["D", "C"],
-            "AMT":    ["10.00", "40.00"],
-            "OPEN":   ["100.00", "100.00"],
-            "PAGE":   ["", ""],
-            "CLOSE":  ["", ""],
-        })
-        config = {
-            "page_size": 10,
-            "account_column": "ACCT",
-            "dc_flag_column": "DC",
-            "amount_column": "AMT",
-            "page_column": "PAGE",
-            "opening_balance_column": "OPEN",
-            "closing_balance_column": "CLOSE",
-            "debit_column": "DR",
-            "credit_column": "CR",
-        }
-        result = _make_component(config=config)._process(df)
-        main = result["main"]
-        assert list(main.columns) == list(df.columns) + ["DR", "CR"]
-        row = main.iloc[0]
-        assert row["ACCT"] == "1"
-        assert row["PAGE"] == "1"
-        assert row["DR"] == "10.00"
-        assert row["CR"] == "40.00"
-        assert row["OPEN"] == "100.00"
-        assert row["CLOSE"] == "130.00"  # 100 - 10 + 40
-        assert result["detail"]["PAGE"].tolist() == [1, 1]
-
-    def test_custom_flag_and_null_token(self):
-        df = pd.DataFrame({
-            "SUBACC":  ["1", "1"],
-            "IDRORCR": ["DR", "CR"],
-            "IAMOUNT": ["5.00", "NIL"],
-            "OPBAL":   ["0", "0"],
-            "STMTPG":  ["", ""],
-            "CLBAL":   ["", ""],
-        })
-        config = {
-            "page_size": 10,
-            "debit_flag_value": "DR",
-            "credit_flag_value": "CR",
-            "null_token": "NIL",
-        }
-        rows = _by_page(_make_component(config=config)._process(df)["main"])
-        page = rows[("1", "1")]
-        assert page["AMT_D"] == "5.00"
-        assert page["AMT_C"] == "0"   # NIL treated as null
+    def test_missing_sort_column_in_data_raises(self):
+        df = _make_df().drop(columns=["CLBALDATE"])
+        comp = _make_component(config=_CONFIG)
+        with pytest.raises(ConfigurationError) as ei:
+            comp._process(df)
+        assert "CLBALDATE" in str(ei.value)
 
 
 # ----------------------------------------------------------------
@@ -388,12 +393,12 @@ class TestConfigurable:
 @pytest.mark.unit
 class TestEdgeCases:
     def test_empty_dataframe(self):
-        empty = pd.DataFrame(columns=["SUBACC", "IDRORCR", "IAMOUNT"])
-        result = _make_component(config={"page_size": 2})._process(empty)
+        empty = pd.DataFrame(columns=["SUBACC", "OPBALCCY", "CLBALDATE", "DRORCR", "AMOUNT"])
+        result = _make_component(config=_CONFIG)._process(empty)
         assert result["main"].empty
         assert result["detail"].empty
 
     def test_none_input(self):
-        result = _make_component(config={"page_size": 2})._process(None)
+        result = _make_component(config=_CONFIG)._process(None)
         assert result["main"] is None
         assert result["detail"] is None
