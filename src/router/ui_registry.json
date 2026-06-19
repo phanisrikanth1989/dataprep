@@ -9181,7 +9181,22 @@
         "default": "SUBACC",
         "group": "basic",
         "required": true,
-        "tooltip": "Grouping/sort key. Rows are sorted by this column (as an integer) before paging, and pages reset per account."
+        "tooltip": "Grouping/account key. Pages reset per account and the running balance resets on account change. Row order is set by Sort Columns, not this column."
+      },
+      {
+        "key": "sort_columns",
+        "label": "Sort Columns",
+        "type": "table",
+        "default": [],
+        "group": "basic",
+        "columns": [
+          {
+            "key": "column",
+            "label": "Column",
+            "type": "text"
+          }
+        ],
+        "tooltip": "Ascending sort keys, compared as plain strings (no numeric cast, so \"10\" sorts before \"2\"). Applied in order before paging. Defaults to the Account Column when empty."
       },
       {
         "key": "dc_flag_column",
@@ -9190,7 +9205,7 @@
         "default": "IDRORCR",
         "group": "basic",
         "required": true,
-        "tooltip": "Column holding the debit/credit indicator. Also the secondary sort key."
+        "tooltip": "Column holding the debit/credit indicator. Drives the debit/credit split during aggregation only -- it is NOT a sort key."
       },
       {
         "key": "amount_column",
@@ -9267,6 +9282,62 @@
         "default": "NULL",
         "group": "advanced",
         "tooltip": "Amount value treated as empty/zero (e.g. the literal NULL)."
+      },
+      {
+        "key": "absolute_balance",
+        "label": "Absolute Balance",
+        "type": "checkbox",
+        "default": false,
+        "group": "advanced",
+        "tooltip": "Emit the opening/closing balances as absolute values on the summary flow. Sign columns are derived from the signed balance before this conversion."
+      },
+      {
+        "key": "opening_sign_column",
+        "label": "Opening Sign Column",
+        "type": "text",
+        "default": "",
+        "group": "advanced",
+        "tooltip": "Column to receive the opening balance's debit/credit sign (negative -> Debit Flag Value, else Credit Flag Value). Leave blank to disable."
+      },
+      {
+        "key": "closing_sign_column",
+        "label": "Closing Sign Column",
+        "type": "text",
+        "default": "",
+        "group": "advanced",
+        "tooltip": "Column to receive the closing balance's debit/credit sign (negative -> Debit Flag Value, else Credit Flag Value). Leave blank to disable."
+      },
+      {
+        "key": "opening_multipage_column",
+        "label": "Opening Multi-page Flag Column",
+        "type": "text",
+        "default": "",
+        "group": "advanced",
+        "tooltip": "Column for the opening 'balance is final' flag. Single-page accounts and the FIRST page of a multi-page account get the Single-page Value; later pages get the Multi-page Value. Leave blank to disable."
+      },
+      {
+        "key": "closing_multipage_column",
+        "label": "Closing Multi-page Flag Column",
+        "type": "text",
+        "default": "",
+        "group": "advanced",
+        "tooltip": "Column for the closing 'balance is final' flag. Single-page accounts and the LAST page of a multi-page account get the Single-page Value; earlier pages get the Multi-page Value. Leave blank to disable."
+      },
+      {
+        "key": "multipage_value",
+        "label": "Multi-page Value",
+        "type": "text",
+        "default": "M",
+        "group": "advanced",
+        "tooltip": "Flag value written when a page is NOT final for the multi-page columns (e.g. M)."
+      },
+      {
+        "key": "multipage_single_value",
+        "label": "Single-page / Final Value",
+        "type": "text",
+        "default": "",
+        "group": "advanced",
+        "tooltip": "Flag value written when a page IS final for the multi-page columns (e.g. F)."
       },
       {
         "key": "label",
