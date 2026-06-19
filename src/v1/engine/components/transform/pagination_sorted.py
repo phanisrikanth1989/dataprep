@@ -35,6 +35,14 @@ Output flows:
     detail  -- every input row (sorted) with only the page number filled; the
                raw OPBAL passes through and no AMT_D/AMT_C/closing is computed.
 
+Optional derived columns on the main flow (all config-gated, off by default):
+    * absolute_balance -- emit OPBAL/CLBAL as absolute values.
+    * opening_sign_column / closing_sign_column -- write the D/C sign of the
+      SIGNED balance (negative -> debit_flag_value, else credit_flag_value),
+      derived before any absolute conversion.
+    * multipage_column -- write multipage_value when the account spans more than
+      one page, else multipage_single_value.
+
 Config keys (all optional; defaults match the original hardcoded names):
     page_size               -- rows per page per account (int, default 10000)
     sort_columns            -- ascending sort keys, string compare
@@ -50,6 +58,12 @@ Config keys (all optional; defaults match the original hardcoded names):
     debit_flag_value        -- flag value meaning debit (default "D")
     credit_flag_value       -- flag value meaning credit (default "C")
     null_token              -- amount value treated as empty (default "NULL")
+    absolute_balance        -- abs OPBAL/CLBAL on the main flow (bool, default False)
+    opening_sign_column     -- column for the opening-balance D/C sign (default "")
+    closing_sign_column     -- column for the closing-balance D/C sign (default "")
+    multipage_column        -- column for the multi-page flag (default "")
+    multipage_value         -- value when account spans >1 page (default "M")
+    multipage_single_value  -- value when account fits in one page (default "")
 """
 
 from __future__ import annotations
@@ -81,6 +95,16 @@ _NAME_KEYS = (
     "debit_flag_value",
     "credit_flag_value",
     "null_token",
+)
+
+# Optional derived-column config keys -- may be empty ("" = feature off), so they
+# are validated as plain strings rather than non-empty names.
+_OPTIONAL_NAME_KEYS = (
+    "opening_sign_column",
+    "closing_sign_column",
+    "multipage_column",
+    "multipage_value",
+    "multipage_single_value",
 )
 
 
@@ -117,6 +141,18 @@ class PaginationSorted(BaseComponent):
                     raise ConfigurationError(
                         f"[{self.id}] '{key}' must be a non-empty string, got {value!r}"
                     )
+        if "absolute_balance" in self.config and not isinstance(
+            self.config["absolute_balance"], bool
+        ):
+            raise ConfigurationError(
+                f"[{self.id}] 'absolute_balance' must be a bool, "
+                f"got {self.config['absolute_balance']!r}"
+            )
+        for key in _OPTIONAL_NAME_KEYS:
+            if key in self.config and not isinstance(self.config[key], str):
+                raise ConfigurationError(
+                    f"[{self.id}] '{key}' must be a string, got {self.config[key]!r}"
+                )
 
     # ------------------------------------------------------------------
     # Processing
@@ -141,6 +177,12 @@ class PaginationSorted(BaseComponent):
         credit_flag = self.config.get("credit_flag_value", "C")
         null_token = self.config.get("null_token", "NULL")
         sort_columns = self.config.get("sort_columns") or [account_col]
+        absolute_balance = self.config.get("absolute_balance", False)
+        opening_sign_col = self.config.get("opening_sign_column", "")
+        closing_sign_col = self.config.get("closing_sign_column", "")
+        multipage_col = self.config.get("multipage_column", "")
+        multipage_value = self.config.get("multipage_value", "M")
+        multipage_single_value = self.config.get("multipage_single_value", "")
 
         for required in (account_col, flag_col, amount_col):
             if required not in input_data.columns:
@@ -176,11 +218,15 @@ class PaginationSorted(BaseComponent):
             groups, account_col, opening_col, closing_col, debit_col, credit_col,
         )
 
-        # ---- Broadcast page values onto every detail row -> main flow ----
-        main_df = self._broadcast_page_values(
-            detail_df, page_values, account_col, page_col,
-            debit_col, credit_col, opening_col, closing_col,
+        # ---- Optional derived columns (abs balance / sign / multi-page flag) ----
+        page_values = self._apply_derived_columns(
+            page_values, opening_col, closing_col, debit_flag, credit_flag,
+            absolute_balance, opening_sign_col, closing_sign_col,
+            multipage_col, multipage_value, multipage_single_value,
         )
+
+        # ---- Broadcast page values onto every detail row -> main flow ----
+        main_df = self._broadcast_page_values(detail_df, page_values, account_col, page_col)
 
         self._update_stats(rows_read=len(input_data), rows_ok=len(main_df), rows_reject=0)
         logger.info(
@@ -295,27 +341,70 @@ class PaginationSorted(BaseComponent):
             }
         return page_values
 
+    def _apply_derived_columns(
+        self, page_values: Dict[tuple, Dict[str, str]],
+        opening_col: str, closing_col: str, debit_flag: str, credit_flag: str,
+        absolute_balance: bool, opening_sign_col: str, closing_sign_col: str,
+        multipage_col: str, multipage_value: str, multipage_single_value: str,
+    ) -> Dict[tuple, Dict[str, str]]:
+        """Augment each page's value dict with optional derived columns.
+
+        All features are config-gated (off by default). Signs are taken from the
+        SIGNED balance before any absolute conversion; ``multipage`` reflects
+        whether the account spans more than one page.
+        """
+        if not (absolute_balance or opening_sign_col or closing_sign_col or multipage_col):
+            return page_values
+
+        acct_pages: Dict[str, set] = {}
+        for acct, pg in page_values:
+            acct_pages.setdefault(acct, set()).add(pg)
+
+        for (acct, pg), vals in page_values.items():
+            ob = self._parse_decimal(vals[opening_col])
+            cb = self._parse_decimal(vals[closing_col])
+            if opening_sign_col:
+                vals[opening_sign_col] = debit_flag if ob < 0 else credit_flag
+            if closing_sign_col:
+                vals[closing_sign_col] = debit_flag if cb < 0 else credit_flag
+            if absolute_balance:
+                vals[opening_col] = f"{abs(ob)}"
+                vals[closing_col] = f"{abs(cb)}"
+            if multipage_col:
+                vals[multipage_col] = (
+                    multipage_value if len(acct_pages[acct]) > 1 else multipage_single_value
+                )
+        return page_values
+
     @staticmethod
     def _broadcast_page_values(
         detail_df: pd.DataFrame, page_values: Dict[tuple, Dict[str, str]],
         account_col: str, page_col: str,
-        debit_col: str, credit_col: str, opening_col: str, closing_col: str,
     ) -> pd.DataFrame:
-        """Stamp each row with its page's totals/balances (main flow, 1:1 with input).
+        """Stamp each row with its page's values (main flow, 1:1 with input).
 
-        AMT_D / AMT_C are appended; OPBAL / CLBAL are overwritten in place with the
-        carried page open / close. Page values repeat across all rows of a page.
+        New columns (AMT_D / AMT_C and any derived columns) are appended; columns
+        that already exist (OPBAL / CLBAL / sign / type) are overwritten in place.
+        Page values repeat across all rows of a page.
         """
         main_df = detail_df.copy()
         acct_vals = detail_df[account_col].tolist()
         page_vals = detail_df[page_col].tolist()
 
-        target_cols = (debit_col, credit_col, opening_col, closing_col)
+        # Stamp the union of keys present across the per-page dicts (stable order).
+        target_cols: List[str] = []
+        seen = set()
+        for vals in page_values.values():
+            for col in vals:
+                if col not in seen:
+                    seen.add(col)
+                    target_cols.append(col)
+
         collected: Dict[str, List[str]] = {col: [] for col in target_cols}
         for i in range(len(detail_df)):
             pv = page_values[(str(acct_vals[i]), int(page_vals[i]))]
             for col in target_cols:
-                collected[col].append(pv[col])
+                collected[col].append(pv.get(col, ""))
         for col in target_cols:
             main_df[col] = collected[col]
         return main_df
@@ -323,6 +412,12 @@ class PaginationSorted(BaseComponent):
     # ------------------------------------------------------------------
     # Pure utilities
     # ------------------------------------------------------------------
+    @staticmethod
+    def _parse_decimal(text: str) -> Decimal:
+        """Parse a formatted balance string back to Decimal (blank -> 0)."""
+        stripped = str(text).strip()
+        return Decimal(stripped) if stripped else _DECIMAL_ZERO
+
     @staticmethod
     def _to_decimal_amount(raw: Any, null_token: str) -> Optional[Decimal]:
         """Parse an amount cell to Decimal, or None for null/blank values."""
