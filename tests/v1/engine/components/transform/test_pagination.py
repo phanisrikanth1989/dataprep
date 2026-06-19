@@ -240,7 +240,8 @@ _DERIVED = {
     "absolute_balance": True,
     "opening_sign_column": "OPBALSIGN",
     "closing_sign_column": "CLBALSIGN",
-    "multipage_column": "CLBALTP",
+    "opening_multipage_column": "OPBALTP",
+    "closing_multipage_column": "CLBALTP",
     "multipage_value": "M",
     "multipage_single_value": "F",
 }
@@ -257,6 +258,7 @@ def _derived_df():
         "OPBAL":     ["50.00", "50.00", "50.00", "100.00"],
         "OPBALSIGN": ["", "", "", ""],
         "CLBALSIGN": ["", "", "", ""],
+        "OPBALTP":   ["", "", "", ""],
         "CLBALTP":   ["", "", "", ""],
         "STMTPG":    ["", "", "", ""],
         "CLBAL":     ["", "", "", ""],
@@ -290,17 +292,26 @@ class TestDerivedColumns:
         assert rows[("9", "1")]["CLBAL"] == "0.00"     # 100 - 100
         assert rows[("9", "1")]["CLBALSIGN"] == "C"     # zero -> credit
 
-    def test_multipage_flag_overwrites_clbaltp(self):
+    def test_opening_multipage_flag_marks_first_page_final(self):
+        # OPBALTP: F on page 1, M on later pages; single-page account -> F.
         rows = _by_page(_make_component(config=_DERIVED)._process(_derived_df())["main"])
-        assert rows[("1", "1")]["CLBALTP"] == "M"   # account 1 spans 2 pages
-        assert rows[("1", "2")]["CLBALTP"] == "M"
-        assert rows[("2", "1")]["CLBALTP"] == "F"   # account 2 single page
+        assert rows[("1", "1")]["OPBALTP"] == "F"   # first page of a multi-page acct
+        assert rows[("1", "2")]["OPBALTP"] == "M"   # later page
+        assert rows[("2", "1")]["OPBALTP"] == "F"   # single-page account
+
+    def test_closing_multipage_flag_marks_last_page_final(self):
+        # CLBALTP: F on the last page (== max STMTPG), M before it; single-page -> F.
+        rows = _by_page(_make_component(config=_DERIVED)._process(_derived_df())["main"])
+        assert rows[("1", "1")]["CLBALTP"] == "M"   # not yet the last page
+        assert rows[("1", "2")]["CLBALTP"] == "F"   # last page of the account
+        assert rows[("2", "1")]["CLBALTP"] == "F"   # single-page account
 
     def test_derived_off_by_default(self):
         # Without the derived keys, balances are NOT absolute and sign/type untouched.
         rows = _by_page(_make_component(config=_CONFIG)._process(_derived_df())["main"])
         assert rows[("1", "1")]["CLBAL"] == "-150.00"   # raw, not abs
         assert rows[("1", "1")]["OPBALSIGN"] == ""        # untouched input
+        assert rows[("1", "1")]["OPBALTP"] == ""          # untouched input
         assert rows[("1", "1")]["CLBALTP"] == ""          # untouched input
 
 

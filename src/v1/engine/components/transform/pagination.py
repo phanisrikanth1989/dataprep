@@ -36,8 +36,11 @@ Optional derived columns on the main flow (all config-gated, off by default):
     * opening_sign_column / closing_sign_column -- write the D/C sign of the
       SIGNED balance (negative -> debit_flag_value, else credit_flag_value),
       derived before any absolute conversion.
-    * multipage_column -- write multipage_value when the account spans more than
-      one page, else multipage_single_value.
+    * opening_multipage_column / closing_multipage_column -- per-page "balance is
+      final" flags. Single-page accounts get multipage_single_value on both. For
+      multi-page accounts the opening flag is the single value on the FIRST page
+      (multi value elsewhere) and the closing flag is the single value on the LAST
+      page (multi value elsewhere).
 
 Config keys (all optional; defaults match the original hardcoded names):
     page_size               -- rows per page per account (int, default 10000)
@@ -57,9 +60,12 @@ Config keys (all optional; defaults match the original hardcoded names):
     absolute_balance        -- abs OPBAL/CLBAL on the main flow (bool, default False)
     opening_sign_column     -- column for the opening-balance D/C sign (default "")
     closing_sign_column     -- column for the closing-balance D/C sign (default "")
-    multipage_column        -- column for the multi-page flag (default "")
-    multipage_value         -- value when account spans >1 page (default "M")
-    multipage_single_value  -- value when account fits in one page (default "")
+    opening_multipage_column -- column for the opening "final" flag, set on the
+                               first page of a multi-page account (default "")
+    closing_multipage_column -- column for the closing "final" flag, set on the
+                               last page of a multi-page account (default "")
+    multipage_value         -- "not final" flag value (default "M")
+    multipage_single_value  -- "final" flag value (default "")
 """
 
 from __future__ import annotations
@@ -98,7 +104,8 @@ _NAME_KEYS = (
 _OPTIONAL_NAME_KEYS = (
     "opening_sign_column",
     "closing_sign_column",
-    "multipage_column",
+    "opening_multipage_column",
+    "closing_multipage_column",
     "multipage_value",
     "multipage_single_value",
 )
@@ -176,7 +183,8 @@ class Pagination(BaseComponent):
         absolute_balance = self.config.get("absolute_balance", False)
         opening_sign_col = self.config.get("opening_sign_column", "")
         closing_sign_col = self.config.get("closing_sign_column", "")
-        multipage_col = self.config.get("multipage_column", "")
+        opening_multipage_col = self.config.get("opening_multipage_column", "")
+        closing_multipage_col = self.config.get("closing_multipage_column", "")
         multipage_value = self.config.get("multipage_value", "M")
         multipage_single_value = self.config.get("multipage_single_value", "")
 
@@ -218,7 +226,8 @@ class Pagination(BaseComponent):
         page_values = self._apply_derived_columns(
             page_values, opening_col, closing_col, debit_flag, credit_flag,
             absolute_balance, opening_sign_col, closing_sign_col,
-            multipage_col, multipage_value, multipage_single_value,
+            opening_multipage_col, closing_multipage_col,
+            multipage_value, multipage_single_value,
         )
 
         # ---- Broadcast page values onto every detail row -> main flow ----
@@ -341,20 +350,34 @@ class Pagination(BaseComponent):
         self, page_values: Dict[tuple, Dict[str, str]],
         opening_col: str, closing_col: str, debit_flag: str, credit_flag: str,
         absolute_balance: bool, opening_sign_col: str, closing_sign_col: str,
-        multipage_col: str, multipage_value: str, multipage_single_value: str,
+        opening_multipage_col: str, closing_multipage_col: str,
+        multipage_value: str, multipage_single_value: str,
     ) -> Dict[tuple, Dict[str, str]]:
         """Augment each page's value dict with optional derived columns.
 
         All features are config-gated (off by default). Signs are taken from the
-        SIGNED balance before any absolute conversion; ``multipage`` reflects
-        whether the account spans more than one page.
+        SIGNED balance before any absolute conversion.
+
+        Multi-page flags are per-row (per-page), gated by the account's max page
+        (``maxpg``). When ``maxpg`` is 1 (single page) both flags are the single
+        value. When the account spans more than one page:
+
+          * opening flag (``OPBALTP``): single value on page 1, else multi value --
+            the opening balance is final on the FIRST page.
+          * closing flag (``CLBALTP``): single value on the LAST page (page ==
+            maxpg), else multi value -- the closing balance is final on the LAST
+            page.
         """
-        if not (absolute_balance or opening_sign_col or closing_sign_col or multipage_col):
+        if not (
+            absolute_balance or opening_sign_col or closing_sign_col
+            or opening_multipage_col or closing_multipage_col
+        ):
             return page_values
 
-        acct_pages: Dict[str, set] = {}
+        max_page: Dict[str, int] = {}
         for acct, pg in page_values:
-            acct_pages.setdefault(acct, set()).add(pg)
+            if pg > max_page.get(acct, 0):
+                max_page[acct] = pg
 
         for (acct, pg), vals in page_values.items():
             ob = self._parse_decimal(vals[opening_col])
@@ -366,9 +389,13 @@ class Pagination(BaseComponent):
             if absolute_balance:
                 vals[opening_col] = f"{abs(ob)}"
                 vals[closing_col] = f"{abs(cb)}"
-            if multipage_col:
-                vals[multipage_col] = (
-                    multipage_value if len(acct_pages[acct]) > 1 else multipage_single_value
+            if opening_multipage_col:
+                vals[opening_multipage_col] = (
+                    multipage_single_value if pg == 1 else multipage_value
+                )
+            if closing_multipage_col:
+                vals[closing_multipage_col] = (
+                    multipage_single_value if pg == max_page[acct] else multipage_value
                 )
         return page_values
 
