@@ -211,7 +211,8 @@ class ETLEngine:
                 trigger['type'],
                 trigger.get('from_component') or trigger.get('from'),
                 trigger.get('to_component') or trigger.get('to'),
-                trigger.get('condition')
+                trigger.get('condition'),
+                output_id=int(trigger.get('output_id', 0) or 0),
             )
 
         for comp_config in self.job_config.get('components', []):
@@ -222,6 +223,7 @@ class ETLEngine:
                     comp_id,
                     trigger.get('target_component') or trigger.get('to'),
                     trigger.get('condition')
+                    output_id=int(trigger.get('output_id', 0) or 0),
                 )
 
         logger.info(f"Initialized {len(self.trigger_manager.triggers)} triggers")

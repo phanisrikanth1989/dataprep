@@ -2,15 +2,18 @@
 
 Owns the main execution loop. Uses ExecutionPlan for ordering,
 OutputRouter for data routing, TriggerManager for inter-subjob flow.
-
 Key design:
 - _execute_subjob() is THE building block for Phase 10 iterate support.
-  It will be called in a loop per iteration item.
+- It will be called in a loop per iterate item.
 - OnSubjobOk triggers fire ONLY after ALL subjob components complete.
 - OnComponentOk triggers fire after each individual component.
 - tDie raises ComponentExecutionError with exit_code to stop the entire job.
-- Trigger firing uses an iterative queue (collections.deque), NOT recursion,
-  to avoid hitting Python's recursion limit on long trigger chains.
+- Trigger firing uses an iterative DEPTH-FIRST queue (collections.deque
+  used as a stack via extendleft/popleft), NOT recursion, to avoid hitting
+  Python's recursion limit on long trigger chains. Depth-first matches
+  Talend's runtime semantics: each branch's full subtree completes before
+  the next sibling starts (critical for globalMap-dependent fan-outs).
+
 """
 from __future__ import annotations
 
@@ -189,15 +192,24 @@ class Executor:
         return stats
 
     def _drain_pending_subjobs(self, pending_subjobs: deque[str]) -> None:
-        """Drain queued subjobs, including any newly triggered subjobs.
+        """Drain queued subjobs depth-first to honour Talend's trigger semantics.
 
-        This helper is used by the top-level job loop and by iterate bodies so
-        RunIf / OnComponentOk targets execute immediately in the current
-        iteration context instead of being deferred until the parent iterate
-        component finishes.
+        Talend's runtime is **synchronous and depth-first** for triggers:
+        when a parent fires three OnComponentOk targets in fan-out order
+        (outputId 1, 2, 3), branch 1's *entire* downstream chain
+        (OnSubjobOk → OnComponentOk → ...) must complete before branch 2
+        starts. globalMap-dependent chains break under any other order;
+        branch 2 reads keys that branch 1's deeper nested subjob was
+        supposed to write.
+
+        We achieve this iteratively (no recursion → no stack-overflow on
+        long trigger chains) by **prepending** newly-discovered children
+        to the front of the deque instead of appending to the back, so
+        the deque acts as a depth-first stack while still being shared
+        with the iterate code path that constructs its own deque.
 
         Args:
-            pending_subjobs: Queue of subjob IDs to execute.
+            pending_subjobs: Queue of subjob IDs to execute. Mutated in place.
         """
         while pending_subjobs:
             subjob_id = pending_subjobs.popleft()
@@ -208,14 +220,23 @@ class Executor:
 
             result = self._execute_subjob(subjob_id)
 
-            # Collect triggered subjobs (OnSubjobOk/Error/RunIf) and append to queue.
-            triggered = self._collect_triggered_subjobs(subjob_id, result)
-            pending_subjobs.extend(triggered)
-
-            # Also collect any subjobs triggered by OnComponentOk during subjob execution.
+            # Gather every child subjob this one just spawned, in firing order:
+            #   1. OnComponentOk cross-subjob targets that fired during the
+            #      subjob's component-by-component execution. These are
+            #      already sorted by outputId inside the TriggerManager.
+            #   2. OnSubjobOk / OnSubjobError / RunIf targets that are
+            #      evaluated *after* the subjob's overall result is known.
+            children: list[str] = []
             if self._component_triggered_subjobs:
-                pending_subjobs.extend(self._component_triggered_subjobs)
+                children.extend(self._component_triggered_subjobs)
                 self._component_triggered_subjobs = []
+            children.extend(self._collect_triggered_subjobs(subjob_id, result))
+
+            # Depth-first: prepend so children run before remaining siblings
+            # already in the queue. ``extendleft`` reverses input order, so
+            # reverse first to keep the firing order intact at the front.
+            if children:
+                pending_subjobs.extendleft(reversed(children))
 
             if self._job_terminated:
                 logger.info("Job terminated by tDie component")

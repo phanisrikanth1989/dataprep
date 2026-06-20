@@ -77,18 +77,27 @@ class TriggerType(Enum):
 
 
 class Trigger:
-    """Represents a trigger connection between components."""
+    """Represents a trigger connection between components.
 
-    def __init__(self, trigger_type: str, from_component: str, to_component: str,
-                 condition: Optional[str] = None):
+    ``output_id`` mirrors Talend Studio's ``<connection outputId="N">``
+    attribute and records the visual fan-out order (OnComponentOk,
+    OnSubjobOk, etc.). The TriggerManager iterates triggers from the
+    same source in ascending ``output_id`` order, so multi-trigger chains
+    (one branch writes globalMap, the next branch reads it) execute the
+    same way Talend does. Default 0 makes single-trigger sources and
+    data-flow connections sort first stably.
+    """
+
+    def __init__(self,trigger_type: str,from_component: str,to_component: str,
+                 condition: Optional[str] = None,output_id: int = 0):
         self.type = TriggerType(trigger_type) if isinstance(trigger_type, str) else trigger_type
         self.from_component = from_component
         self.to_component = to_component
         self.condition = condition
+        self.output_id = output_id
 
     def __repr__(self):
         return f"Trigger({self.type.value}: {self.from_component} -> {self.to_component})"
-
 
 class TriggerManager:
     """
@@ -130,19 +139,26 @@ class TriggerManager:
     # Registration
     # ------------------------------------------------------------------
 
-    def add_trigger(self, trigger_type: str, from_component: str,
-                    to_component: str, condition: Optional[str] = None) -> None:
-        """Add a trigger to the manager.
-
-        Args:
-            trigger_type: One of the TriggerType values (e.g. 'OnSubjobOk').
-            from_component: Source component ID.
-            to_component: Target component ID to trigger.
-            condition: Optional condition expression (for RunIf triggers).
-        """
-        trigger = Trigger(trigger_type, from_component, to_component, condition)
-        self.triggers.append(trigger)
-        logger.debug(f"Added trigger: {trigger}")
+def add_trigger(self, trigger_type: str, from_component: str,
+                to_component: str, condition: Optional[str] = None,
+                output_id: int = 0) -> None:
+    """
+    Add a trigger to the manager.
+    Args:
+        trigger_type: One of the TriggerType values (e.g. "OnSubjobOk").
+        from_component: Source component ID.
+        to_component: Target component ID to trigger.
+        condition: Optional condition expression (for RunIf triggers).
+        output_id: Talend Studio visual fan-out order from the XML
+            ``<connection outputId="N">`` attribute. Within a single
+            source's trigger group, triggers fire in ascending
+            ``output_id`` order (see ``get_triggered_components``).
+            Default 0 keeps single-trigger sources and data-flow
+            connections sorting first.
+    """
+    trigger = Trigger(trigger_type, from_component, to_component, condition, output_id)
+    self.triggers.append(trigger)
+    logger.debug(f"Added trigger: {trigger} (output_id={output_id})")
 
     def register_subjob(self, subjob_id: str, component_ids: List[str]) -> None:
         """Register a subjob and its member components.
@@ -175,21 +191,40 @@ class TriggerManager:
     # ------------------------------------------------------------------
 
     def get_triggered_components(self, component_id: str) -> List[str]:
-        """Get components that should be triggered by this component completing.
+        """
+        Get components that should be triggered by this component completing.
 
         Evaluates all registered triggers to determine which downstream
         components should execute next.
+
+        Triggers from the same source are evaluated in ascending
+        ``output_id`` order (Talend Studio visual fan-out, OnComponentOk1,
+        OnComponentOk2, ...). This matters when one branch writes a
+        ``globalMap`` key, the next branch consumes it -- firing the branches
+        out of order would let the consumer see a stale / missing value.
 
         Args:
             component_id: The component that just finished.
 
         Returns:
-            List of component IDs to execute next.
+            List of component IDs to execute next, ordered by output_id
+            within the same source. Triggers from different sources
+            preserve their relative registration order.
         """
         triggered: List[str] = []
-
-        for trigger in self.triggers:
+        # Stable sort by output_id keeps triggers from the same source
+        # in Talend's visual fan-out order, even if the JSON was hand-edited
+        # and the converter's sort was bypassed. Triggers whose component
+        # IDs differ are evaluated independently, so the sort only
+        # affects the targets we actually emit. The converter already sorts
+        # by (from, output_id) so in the common path this is a no-op.
+        sorted_triggers = sorted(
+            self.triggers,
+            key=lambda t: getattr(t, "output_id", 0),
+        )
+        for trigger in sorted_triggers:
             # Skip already-triggered components (idempotency)
+            
             if trigger.to_component in self.triggered_components:
                 continue
 
