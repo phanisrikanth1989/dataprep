@@ -129,7 +129,7 @@ def _quote_ident(name: str) -> str:
     Raises:
         ConfigurationError: If ``name`` does not match the safe pattern.
     """
-    if not isinstance(name, str) or not IDENTIFIER_RE.match(name):
+    if not isinstance(name, str) or not _IDENTIFIER_RE.match(name):
         raise ConfigurationError(
             f"Invalid Oracle identifier {name!r}. "
             "Must match ^[A-Za-z][A-Za-z0-9_$#]*$ "
@@ -305,7 +305,7 @@ class OracleOutput(BaseComponent):
         use_ts = self.config.get("use_timestamp_for_date_type", True)
         cols_sql: List[str] = []
         pk_cols: List[str] = []
-        for col in self.output_schema:
+        for col in self._schema_cols():
             name = col["name"]
             quoted = _quote_ident(name)  # T-11-04: validates before quoting
             otype = _column_to_oracle_type(col, use_ts)
@@ -427,6 +427,42 @@ class OracleOutput(BaseComponent):
     # DML helpers
     # ------------------------------------------------------------------
 
+    def _schema_cols(self) -> List[Dict[str, Any]]:
+        """Return the per-column schema metadata for this sink.
+        Talend ``tOracleOutput`` is a sink; data flows IN, nothing flows
+        OUT. The converter therefore writes the parsed schema to
+        ``schema["input"]`` (see
+        ``src/converters/talend_to_v1/components/database/oracle_output.py``)
+        and the engine wires it onto ``self.input_schema``
+        (``engine.py``). ``self.output_schema`` is intentionally
+        ``[]`` for sinks.
+        Earlier engine code read ``self.output_schema`` directly which
+        always returned ``[]`` at runtime, causing
+        ``_insertable_columns()`` to be empty and the INSERT path to
+        raise ``INSERT requires at least one insertable column`` even
+        though the upstream map delivered 304 columns.
+        This helper mirrors the correct pattern already used by the
+        sister sink ``oracle_bulk_exec.py:261`` (``self.input_schema``)
+        while preserving backward compatibility with unit tests that
+        wire the schema via ``component.schema``. If neither path
+        contains schema metadata, the helper gracefully
+        falls back to ``output_schema``.
+
+        Returns:
+            List of column-metadata dicts (``name``, ``type``, nullable, key,
+            length, ...). Empty list when neither side is populated.
+        """
+
+        # ``getattr`` with default mirrors ``oracle_bulk_exec.py:261`` and
+        # tolerates legacy unit-test fixtures that build the component
+        # without going through the engine wiring which would normally
+        # set both attributes.
+        in_schema = (
+            getattr(self, "input_schema", None) or []
+            or getattr(self, "output_schema", None) or []
+        )
+        return in_schema or out_schema
+
     def _key_columns(self) -> List[str]:
         """Return primary key column names.
 
@@ -436,7 +472,7 @@ class OracleOutput(BaseComponent):
         if self.config.get("use_field_options", False):
             fo = self.config.get("field_options", []) or []
             return [r["column"] for r in fo if r.get("update_key", False)]
-        return [c["name"] for c in self.output_schema if c.get("key", False)]
+        return [c["name"] for c in self._schema_cols if c.get("key", False)]
 
     def _updatable_columns(self) -> List[str]:
         """Return columns that go in the SET clause of UPDATE.
@@ -450,7 +486,7 @@ class OracleOutput(BaseComponent):
                 r["column"] for r in fo
                 if r.get("updatable", True) and not r.get("update_key", False)
             ]
-        return [c["name"] for c in self.output_schema if not c.get("key", False)]
+        return [c["name"] for c in self._schema_cols if not c.get("key", False)]
 
     def _insertable_columns(self) -> List[str]:
         """Return columns that go in the INSERT column list.
@@ -461,7 +497,7 @@ class OracleOutput(BaseComponent):
         if self.config.get("use_field_options", False):
             fo = self.config.get("field_options", []) or []
             return [r["column"] for r in fo if r.get("insertable", True)]
-        return [c["name"] for c in self.output_schema]
+        return [c["name"] for c in self._schema_cols]
 
     def _build_insert_sql(self) -> str:
         """Build the INSERT INTO ... VALUES (:1, :2, ...) SQL."""
@@ -803,10 +839,14 @@ class OracleOutput(BaseComponent):
             raise NotImplementedError(
                 f"data_action {data_action} not handled"
             )
-        return [
-            tuple(row[c] if pd.notna(row[c]) else None for c in cols)
-            for _, row in df.iterrows()
-        ]
+        # Vectorized NA→None. iterrows() creates a pd.Series per row and
+        # calls pd.notna() per cell → ~1.24M Python-level calls for 36k×34
+        # frame. where(pd.notna(df), df, None) does the work in
+        # one C-level pass and materializes a single pandas/NumPy array with
+        # Python None (unlike df.where().to_numpy() which keeps np.nan for
+        # float-dtype columns).
+        sub = df[cols]
+        return [tuple(row) for row in sub.to_numpy(dtype=object, na_value=None)]
 
     def _build_input_sizes(self, data_action: str) -> List[Any]:
         """Build cursor.setinputsizes args list per the SQL bind order (D-B1).
@@ -836,7 +876,7 @@ class OracleOutput(BaseComponent):
             cols_in_order = self._key_columns()
         else:
             return []
-        schema_by_name = {c["name"]: c for c in self.output_schema}
+        schema_by_name = {c["name"]: c for c in self._schema_cols()}
         sizes: List[Any] = []
         for cname in cols_in_order:
             col = schema_by_name.get(cname, {"type": "str"})
@@ -847,20 +887,27 @@ class OracleOutput(BaseComponent):
                 "Decimal", "float", "double", "bool",
             ):
                 sizes.append(oracledb.NUMBER)
-            elif ctype == "str":
-                if clength and int(clength) <= 4000:
-                    sizes.append(int(clength))
-                else:
-                    sizes.append(oracledb.DB_TYPE_CLOB)
-            elif ctype == "datetime":
+            elif cType == "str":
+                # Always None, including for CLOB (length > 4000 / no length).
+                # Passing DB_TYPE_CLOB triggers oracledb LOB streaming protocol
+                # which opens a SEPARATE ROUND TRIP PER VALUE PER ROW (36k
+                # rows × N_CLOB_columns ⇒ tens of thousands of round-trips).
+                # With None, oracledb uses inline/deferred LOB write inside the
+                # executemany batch (same single round trip for the whole chunk).
+                sizes.append(None)
+            elif cType == "datetime":
+                # Must hint: Python datetime is ambiguous between Oracle DATE and
+                # TIMESTAMP. This is the only type that genuinely needs a hint.
                 sizes.append(
                     oracledb.DB_TYPE_TIMESTAMP if use_ts else oracledb.DB_TYPE_DATE
                 )
-            elif ctype == "bytes":
-                if clength and int(clength) <= 2000:
+            elif cType == "bytes":
+                if cLength and int(cLength) <= 2000:
+                    # Hint RAW to distinguish from BLOB for small byte columns.
                     sizes.append(oracledb.DB_TYPE_RAW)
                 else:
-                    sizes.append(oracledb.DB_TYPE_BLOB)
+                    # Same as CLOB: None avoids per-value BLOB streaming overhead.
+                    sizes.append(None)
             else:
                 sizes.append(None)
         return sizes
@@ -981,12 +1028,27 @@ class OracleOutput(BaseComponent):
                     raise NotImplementedError(
                         f"data_action {data_action} not handled"
                     )
-
+                
+                _t0 = time.monotonic()
                 rows = self._dataframe_to_param_list(input_data, data_action)
+                _t1 = time.monotonic()
+                logger.info(
+                    "[%s] param prep: %.2fs for %d rows",
+                self.id, _t1 - _t0, len(rows),
+                )
+
                 input_sizes = (
                     self._build_input_sizes(data_action) if not is_upsert else []
                 )
+                # setinputsizes persists for the cursor lifetime - call once
+                # before the first executemany, NOT once per chunk.
+                # Skip entirely when every entry is None (pure numeric/varchar/str
+                # workloads) because it is redundant.
+                if input_sizes and any(s is not None for s in input_sizes):
+                    cursor.setinputsizes(*input_sizes)
 
+                _t_exec_total = 0.0
+                _t_commit_total = 0.0
                 since_commit = 0
                 for chunk_start in range(0, len(rows), batch_size):
                     chunk = rows[chunk_start:chunk_start + batch_size]
@@ -1008,9 +1070,10 @@ class OracleOutput(BaseComponent):
                             rejected += len(chunk_reject)
                             all_reject_dfs.append(chunk_reject)
                     else:
-                        if input_sizes:
-                            cursor.setinputsizes(*input_sizes)
+                        _te = time.monotonic()
                         cursor.executemany(sql, chunk, batcherrors=True)
+                        _t_exec_total += time.monotonic() - _te
+
                         batch_errors = cursor.getbatcherrors() or []
 
                         ok = len(chunk) - len(batch_errors)
@@ -1021,31 +1084,39 @@ class OracleOutput(BaseComponent):
                         elif data_action == "DELETE":
                             deleted += ok
                         rejected += len(batch_errors)
-
                         if batch_errors:
                             all_reject_dfs.append(
                                 self._build_reject_chunk(chunk_df, batch_errors)
                             )
 
-                    # Commit cycle (D-B2 + Pitfall 7: explicit commit when
+                    # Commit cycle (D-B2 + Pitfall 7; explicit commit when
                     # batcherrors=True; auto-commit DOES NOT fire when
                     # batcherrors flag is set on a single-row batch failure).
                     since_commit += len(chunk)
                     if since_commit >= commit_every:
+                        _tc = time.monotonic()
                         conn.commit()
+                        _t_commit_total += time.monotonic() - _tc
                         since_commit = 0
 
                 if since_commit > 0:
+                    _tc = time.monotonic()
                     conn.commit()
+                    _t_commit_total += time.monotonic() - _tc
 
+                logger.info(
+                        "[%s] timing breakdown — param prep=%.2fs executemany=%.2fs "
+                        "commits=%.2fs total_rows=%d",
+                        self.id, t1 - t0, _t_exec_total, _t_commit_total, len(rows),
+                )
             # 3. globalMap stat keys (D-C8)
             if self.global_map is not None:
-                n = len(input_data) if input_data is not None else 0
-                self.global_map.put(f"{self.id}_NB_LINE", n)
-                self.global_map.put(f"{self.id}_NB_LINE_INSERTED", inserted)
-                self.global_map.put(f"{self.id}_NB_LINE_UPDATED", updated)
-                self.global_map.put(f"{self.id}_NB_LINE_DELETED", deleted)
-                self.global_map.put(f"{self.id}_NB_LINE_REJECTED", rejected)
+                    n = len(input_data) if input_data is not None else 0
+                    self.global_map.put(f"{self.id}_NB_LINE", n)
+                    self.global_map.put(f"{self.id}_NB_LINE_INSERTED", inserted)
+                    self.global_map.put(f"{self.id}_NB_LINE_UPDATED", updated)
+                    self.global_map.put(f"{self.id}_NB_LINE_DELETED", deleted)
+                    self.global_map.put(f"{self.id}_NB_LINE_REJECTED", rejected)
 
             reject_df = (
                 pd.concat(all_reject_dfs, ignore_index=True)
@@ -1056,16 +1127,16 @@ class OracleOutput(BaseComponent):
             #
             # WR-01 (Talend-parity, intentional): die_on_error fires AFTER
             # the per-batch commit cycle has run. Successfully-inserted rows
-            # from earlier chunks (and from the same chunk's non-rejected
-            # rows, since executemany+batcherrors=True allows partial-batch
-            # success) remain committed in the target table. This mirrors
-            # Talend tOracleOutput's behavior: Talend's _main.javajet commits
-            # at COMMIT_EVERY thresholds and the job-abort path does NOT
-            # rollback already-committed work. We deliberately do NOT call
+            # from earlier chunks (and from the same chunk before a non-rejectable
+            # failure) remain committed in the target table. This mirrors
+            # Talend tOracleOutput's behavior. Talend's main-javajet commits
+            # at COMMIT_EVERY thresholds and the job-abort path only sees NOT
+            # yet-committed work. We deliberately DO NOT call
             # conn.rollback() here -- that would diverge from Talend semantics
             # and surprise jobs that depend on committed-up-to-failure-point
-            # checkpointing. Operators relying on all-or-nothing semantics
-            # should set commit_every very high (e.g., > input row count)
+            # behavior.
+            # Jobs requiring strict all-or-nothing semantics
+            # should set commit_every very high (e.g. > input row count)
             # so only one commit fires at the end of a successful run.
             die_on_error = self.config.get("die_on_error", False)
             if die_on_error and reject_df is not None and len(reject_df) > 0:
@@ -1076,22 +1147,22 @@ class OracleOutput(BaseComponent):
                 )
 
             logger.info(
-                "[%s] Wrote (inserted=%d, updated=%d, deleted=%d, rejected=%d) to %s",
-                self.id, inserted, updated, deleted, rejected,
-                self._qualified_table(),
+                    "[%s] wrote (inserted=%d updated=%d deleted=%d rejected=%d) to %s",
+                    self.id, inserted, updated, deleted, rejected,
+                    self._qualified_table(),
             )
         finally:
             try:
                 cursor.close()
             except Exception:  # noqa: BLE001 -- cleanup must not mask original
                 logger.warning("[%s] cursor.close() raised; ignoring", self.id)
-            if owns_connection:
-                try:
-                    self.oracle_manager.close(self.id)
-                except Exception:  # noqa: BLE001
-                    logger.warning(
-                        "[%s] oracle_manager.close() raised; ignoring", self.id
-                    )
 
-        # Sink: main is empty; reject carries the error rows
-        return {"main": pd.DataFrame(), "reject": reject_df}
+                if owns_connection:
+                    try:
+                        self.oracle_manager.close(self.id)
+                    except Exception:  # noqa: BLE001
+                        logger.warning(
+                            "[%s] oracle_manager.close() raised; ignoring", self.id
+                        )
+            # Sink; main is empty; reject carries the error rows
+            return {"main": pd.DataFrame(), "reject": reject_df}
