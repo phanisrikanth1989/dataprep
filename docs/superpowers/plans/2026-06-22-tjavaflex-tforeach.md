@@ -57,12 +57,13 @@ Dependency order: Task 0 (confirm Java API) -> 1 (script-gen) -> 2 (Java bridge)
 **Interfaces:**
 - Produces (record these verbatim in the plan execution notes for later tasks):
   - `RowWrapper` read accessor (e.g. `row.get("col")` or property `row.col`) and write accessor (e.g. `row.set("col", v)` or `row.col = v`).
-  - How `executeJavaRow` builds the Groovy `Binding`, where user code is spliced, and how the compiled-script cache key is computed.
-  - How `ArrowSerializer` turns a `List<RowWrapper>` (output) + output schema into Arrow bytes, and input Arrow bytes into `List<RowWrapper>`.
+  - The `executeTMapCompiled` (JavaBridge.java:475-516) structure -- `groovyShell.parse(script)` ONCE, ONE shared `Binding`, `script.run()` ONCE with the loop INSIDE the Groovy body. THIS is the model for `executeJavaFlex` (NOT `executeJavaRow`, which parses fresh per call, binds singular `input_row`/`output_row`, and loops Java-side).
+  - The `compiledScriptClasses` cache is componentId-keyed + tMap-only; `executeJavaRow` does NOT use it (parses fresh each call). `executeJavaFlex` should likewise parse fresh -- do NOT rely on that cache.
+  - Input: `buildArrowRowWrapper`/`extractTypedValue` (JavaBridge.java:780-841) -> `List<RowWrapper> input`. Output is NEW code: pre-size N empty `RowWrapper`s on `outputSchema`, then after `run()` read each `wrapper.getOutputRow().get(col)` into `Object[]` columns keyed by `outputSchema` and call `ArrowSerializer.createOutputRootFromData(allocator, dataMap, outputSchema)`. There is NO existing List<RowWrapper>->Arrow path to copy.
   - The Py4J Base64 length-overflow guard pattern in `execute_java_row` (so `execute_java_flex` raises a clear error instead of silently truncating).
 
-- [ ] **Step 1:** Read the four Java sources + the two bridge.py regions. In the plan notes, write the exact `RowWrapper` get/set signatures, the `Binding` variable names used by `executeJavaRow`, and the `ArrowSerializer` entry points.
-- [ ] **Step 2:** Confirm whether the compiled-script cache (`compiledScriptClasses`, a `ConcurrentHashMap`) keys on source string; note the key so `executeJavaFlex` reuses it.
+- [ ] **Step 1:** Read the four Java sources + the two bridge.py regions. In the plan notes, write the exact `RowWrapper` get/set/getOutputRow signatures, the `executeTMapCompiled` parse/Binding/run structure (the model), and the `buildArrowRowWrapper`/`extractTypedValue`/`createOutputRootFromData` signatures.
+- [ ] **Step 2:** Confirm `compiledScriptClasses` is componentId-keyed + tMap-only and that `executeJavaRow` parses fresh each call; record that `executeJavaFlex` will parse fresh (no cache reliance) and that the output `List<RowWrapper>` -> Arrow serialization is new code with no template.
 - [ ] **Step 3:** No code change. Deliverable: a short "Confirmed Java API" note appended to this plan file under Task 0, consumed by Tasks 2-3. Commit the note.
 
 ```bash
@@ -170,8 +171,12 @@ def build_script(*, code_start: str, code_main: str, code_end: str,
     lines: list[str] = []
     lines.append(code_start or "")
     lines.append("for (int __i = 0; __i < input.size(); __i++) {")
-    lines.append(f"    {input_row_name} = input.get(__i);")
-    lines.append(f"    {output_row_name} = output.get(__i);")
+    # Groovy loop-locals via `def` (NOT bare assignment, which would leak into
+    # the script Binding and risk colliding with the bound input/output names).
+    # Spec sec 6 shows `RowWrapper row1 = ...` illustratively; `def` avoids
+    # needing the RowWrapper type imported into the script scope.
+    lines.append(f"    def {input_row_name} = input.get(__i);")
+    lines.append(f"    def {output_row_name} = output.get(__i);")
     lines.extend(before)
     lines.append(code_main or "")
     lines.extend(after)
@@ -203,10 +208,9 @@ git commit -m "feat(java_flex): add Groovy script generator for tJavaFlex"
 **Interfaces:**
 - Produces: `public byte[] executeJavaFlex(byte[] arrowData, String script, java.util.Map<String,String> outputSchema, java.util.Map<String,String> inputSchema)`
   - Deserialize `arrowData` -> `List<RowWrapper> input` (using the Task 0 `ArrowSerializer` entry point).
-  - Build `List<RowWrapper> output` of the SAME length, each on `outputSchema` (1:1 cardinality).
-  - Bind `input`, `output`, `globalMap`, `context` into the Groovy `Binding` (reuse the `executeJavaRow` binding setup confirmed in Task 0). The user script declares START vars as top-level locals.
-  - Compile via the existing compiled-script cache keyed on `script`; run once.
-  - Serialize `output` -> Arrow bytes on `outputSchema`; return.
+  - Build `List<RowWrapper> output` of the SAME length, each pre-sized on `outputSchema` (1:1 cardinality). NEW code -- no template.
+  - Model on `executeTMapCompiled` (Task 0): build ONE `Binding` with `input` (List<RowWrapper>), `output` (the pre-sized list), `globalMap`, `context`; `groovyShell.parse(script)` ONCE; `script.run()` ONCE (the for-loop lives inside the Groovy body, so START locals persist across rows and into END). Do NOT reuse `executeJavaRow`'s per-row fresh-Script pattern; do NOT use the componentId cache (parse fresh).
+  - Serialize: read each `output` wrapper's `getOutputRow().get(col)` into `Object[]` columns keyed by `outputSchema`, then `ArrowSerializer.createOutputRootFromData(...)` -> Arrow bytes; return.
 
 - [ ] **Step 1: Write the failing JUnit test**
 
@@ -229,7 +233,7 @@ git commit -m "feat(java_flex): add Groovy script generator for tJavaFlex"
 Run: `cd src/v1/java_bridge/java && mvn -q -Dtest=JavaBridgeFlexTest test`
 Expected: compile error (`executeJavaFlex` not found) or test FAIL.
 
-- [ ] **Step 3: Implement `executeJavaFlex`** in `JavaBridge.java`, reusing the confirmed (Task 0) ArrowSerializer + RowWrapper + compiled-script-cache calls. Bind `input`/`output`/`globalMap`/`context`; compile `script`; run; serialize `output`.
+- [ ] **Step 3: Implement `executeJavaFlex`** in `JavaBridge.java` following the `executeTMapCompiled` structure (parse once, one Binding, run once): build `List<RowWrapper> input` via `buildArrowRowWrapper`/`extractTypedValue`; pre-size `List<RowWrapper> output` (N empty wrappers on `outputSchema`); bind `input`/`output`/`globalMap`/`context`; `groovyShell.parse(script)` then `run()` once; read each `output` wrapper's `getOutputRow()` into `Object[]` columns and call `ArrowSerializer.createOutputRootFromData(...)`. This output path is NEW code, not a copy of `executeJavaRow`.
 
 - [ ] **Step 4: Run to verify pass + rebuild jar**
 
@@ -277,7 +281,7 @@ def test_execute_java_flex_shares_start_var_across_rows(java_bridge):
         " row2.id=row1.id; row2.name=row1.name;\n"
         " n++; row2.total=n; }\n"
     )
-    out = java_bridge.bridge.execute_java_flex(
+    out = java_bridge.execute_java_flex(
         df, script=script,
         output_schema={"id": "int", "name": "str", "total": "int"},
         input_schema={"id": "int", "name": "str"},
@@ -289,10 +293,10 @@ def test_execute_java_flex_shares_start_var_across_rows(java_bridge):
 def test_execute_java_flex_empty_input_runs_once(java_bridge):
     df = pd.DataFrame({"id": []})
     script = "globalMap.put(\"ran\", \"yes\");\nfor(int __i=0;__i<input.size();__i++){}\n"
-    out = java_bridge.bridge.execute_java_flex(
+    out = java_bridge.execute_java_flex(
         df, script=script, output_schema={"id": "int"}, input_schema={"id": "int"})
     assert out.empty and list(out.columns) == ["id"]
-    assert java_bridge.bridge.global_map.get("ran") == "yes"
+    assert java_bridge.global_map.get("ran") == "yes"
 ```
 (Use the session `java_bridge` fixture from `tests/v1/java_bridge/conftest.py`; adjust the accessor to match how other java tests reach the bridge object.)
 
@@ -359,7 +363,7 @@ def test_main_and_start_end_once(java_bridge):
     }
     gm = GlobalMap()
     comp = _make(cfg, gm=gm)
-    comp.java_bridge = java_bridge.bridge
+    comp.java_bridge = java_bridge
     out = comp._process(pd.DataFrame({"id": [10, 20, 30]}))
     assert list(out["main"]["total"]) == [1, 2, 3]
     assert out["reject"] is None
@@ -377,13 +381,29 @@ def test_empty_input_still_runs_start_end(java_bridge):
     assert out["main"].empty and gm.get("ran") == "y"
 
 
+@pytest.mark.java
+def test_auto_propagate_copies_matching_input_cols(java_bridge):
+    cfg = {"code_start": "", "code_main": "", "code_end": "",
+           "auto_propagate": True, "propagate_timing": "before",
+           "input_row_name": "row1", "output_row_name": "row2",
+           "output_schema": [{"name": "id", "type": "int"}, {"name": "name", "type": "str"}]}
+    comp = _make(cfg); comp.java_bridge = java_bridge
+    # input_cols come from schema_inputs_map (engine wires this from schema.inputs);
+    # set it directly since we bypass ETLEngine here.
+    comp.schema_inputs_map = {"row1": [{"name": "id", "type": "int"},
+                                       {"name": "name", "type": "str"}]}
+    out = comp._process(pd.DataFrame({"id": [1], "name": ["a"]}))
+    # MAIN is empty -> values arrive ONLY via auto-propagate
+    assert out["main"].iloc[0]["id"] == 1 and out["main"].iloc[0]["name"] == "a"
+
+
 def test_validate_config_rejects_bad_timing():
     with pytest.raises(Exception):
         _make({"propagate_timing": "sideways"})._validate_config()
 ```
 
 - [ ] **Step 2: Run to verify fail** -- `python -m pytest -o addopts= tests/v1/engine/components/transform/test_java_flex.py -q` -> FAIL (import).
-- [ ] **Step 3: Implement `JavaFlexComponent`** modeled on `java_row_component.py`: `_validate_config` (structural: strings optional; `auto_propagate` bool; `propagate_timing in {"before","after"}`; `output_schema` dict|list); `_process`: normalize schemas, `build_script(...)`, prepend `imports`, `groovy_escape_expression`, sync globalMap/context in, `self.java_bridge.execute_java_flex(...)`, sync back, return `{"main", "reject": None}` (always call bridge, even empty input). Add the import to `__init__.py` and the three keys to `SKIP_RESOLUTION_KEYS`.
+- [ ] **Step 3: Implement `JavaFlexComponent`** modeled on `java_row_component.py`: `_validate_config` (structural: strings optional; `auto_propagate` bool; `propagate_timing in {"before","after"}`; `output_schema` dict|list); `_process`: derive `output_cols` from `config['output_schema']` (like tJavaRow at java_row_component.py:198 -- NOT `self.output_schema`) and `input_cols` from `schema_inputs_map`/`input_schema` (java_row_component.py:222-235), pass BOTH to `build_script(...)` so auto-propagate copies the upstream same-named cols; prepend `imports`, `groovy_escape_expression`, sync globalMap/context in, `self.java_bridge.execute_java_flex(...)`, sync back, return `{"main", "reject": None}` (always call bridge, even empty input). Add the import to `__init__.py` and the three keys to `SKIP_RESOLUTION_KEYS`.
 - [ ] **Step 4: Run to verify pass** -- both unit (`-o addopts=`) and `-m java` selections PASS.
 - [ ] **Step 5: Commit**
 
@@ -402,20 +422,50 @@ git commit -m "feat(engine): add JavaFlexComponent (tJavaFlex)"
 - Test: `tests/converters/talend_to_v1/components/transform/test_java_flex.py`
 
 **Interfaces:**
-- Produces: `JavaFlexConverter` registered as `tJavaFlex`. Emits the config-key contract from spec section 5: `code_start/code_main/code_end` (from `CODE_START/CODE_MAIN/CODE_END`), `imports` (`IMPORT`), `auto_propagate` (`DATA_AUTO_PROPAGATE`), `propagate_timing` (V4.0->`before`, V3.2->`after`, else `before`), `input_row_name`/`output_row_name` (incoming/outgoing FLOW connection labels, defaults `row1`/`row2`), `output_schema` (output FLOW metadata), `tstatcatcher_stats`, `label`. Multiple output flows -> append a `needs_review` entry.
+- Produces: `JavaFlexConverter` registered as `tJavaFlex`. Emits the config-key contract from spec section 5: `code_start/code_main/code_end` (from `CODE_START/CODE_MAIN/CODE_END`), `imports` (`IMPORT`), `auto_propagate` (`DATA_AUTO_PROPAGATE`), `propagate_timing` (V4.0->`before`, V3.2->`after`, else `before`), `input_row_name`/`output_row_name` (from the incoming/outgoing FLOW connection `.name` -- the XML `label` attribute is stored in `TalendConnection.name`, there is NO `.label` field; read via the base `_incoming`/`_outgoing` helpers, base.py:219/226; defaults `row1`/`row2`), `tstatcatcher_stats`, `label`. Multiple output flows -> append a `needs_review` entry.
+  - SCHEMA: emit `schema={'input': [], 'output': <node FLOW cols>}`. The `'input'` key MUST be present (even as `[]`) so the converter's `_propagate_input_schemas` (converter.py:367) fills it from the UPSTREAM 5-col output. The tJavaFlex node's own FLOW metadata is the 9-col OUTPUT, so do NOT use it as `schema.input`; the engine reads `output_schema` from `config['output_schema']` and `input_cols` from `schema_inputs_map`/`input_schema`. If `schema.input` is omitted, auto-propagate emits zero copies and the E2E passthrough breaks.
 
-- [ ] **Step 1: Write failing tests** off the real sample `tests/talend_xml_samples/Job_tJavaFlex_0.1.item` (parse via the existing `_make_node`/test helpers used by `test_java_row_component.py`):
+- [ ] **Step 1: Write failing tests** that parse the REAL sample via `XmlParser` (NOT `_make_node` -- inline params would make the extraction assertions tautological, proving nothing about XML decoding / version-timing / connection row-name derivation). Reserve `_make_node` only for synthetic edge cases.
 
 ```python
-# assert converter extracts:
-#   config["code_start"] contains "int totalCount = 0;"
-#   config["code_main"] contains "row2.customer_id = customerId;"
-#   config["code_end"] contains "Total records"
-#   config["auto_propagate"] is True
-#   config["propagate_timing"] == "before"   # Version_V4.0 true
-#   config["imports"] startswith "//import"
-#   output_schema has the 4 added columns (status, processed_time, error_reason, is_valid)
+# tests/converters/talend_to_v1/components/transform/test_java_flex.py
+from src.converters.talend_to_v1.xml_parser import XmlParser
+from src.converters.talend_to_v1.components.transform.java_flex import JavaFlexConverter
+
+
+def _node_and_conns():
+    job = XmlParser().parse("tests/talend_xml_samples/Job_tJavaFlex_0.1.item")
+    node = next(n for n in job.nodes if n.component_type == "tJavaFlex")
+    return node, job.connections
+
+
+def test_extracts_code_sections_and_flags():
+    node, conns = _node_and_conns()
+    cfg = JavaFlexConverter().convert(node, conns, {}).component["config"]
+    assert "int totalCount = 0;" in cfg["code_start"]
+    assert "row2.customer_id = customerId;" in cfg["code_main"]
+    assert "Total records" in cfg["code_end"]
+    assert cfg["auto_propagate"] is True
+    assert cfg["propagate_timing"] == "before"      # Version_V4.0 true
+    assert cfg["imports"].startswith("//import")
+
+
+def test_derives_row_names_from_connections():        # the NEW, untested logic
+    node, conns = _node_and_conns()
+    cfg = JavaFlexConverter().convert(node, conns, {}).component["config"]
+    assert cfg["input_row_name"] == "row1"            # incoming FLOW .name
+    assert cfg["output_row_name"] == "row2"           # outgoing FLOW .name
+
+
+def test_output_schema_adds_columns_and_input_key_present():
+    node, conns = _node_and_conns()
+    comp = JavaFlexConverter().convert(node, conns, {}).component
+    out_names = [c["name"] for c in comp["schema"]["output"]]
+    for added in ("status", "processed_time", "error_reason", "is_valid"):
+        assert added in out_names
+    assert "input" in comp["schema"]                  # MUST exist for propagation
 ```
+(Confirm the exact `XmlParser` API, `job.nodes`/`job.connections` attribute names, and the `component['config']`/`component['schema']` shape against an existing converter test that parses a real `.item` before finalizing.)
 
 - [ ] **Step 2: Run to verify fail** -> FAIL (no converter).
 - [ ] **Step 3: Implement `JavaFlexConverter`** modeled on the tJavaRow converter; map params per the contract; derive row names from connections; build the component dict with input/output schema; emit `needs_review` only for >1 output flow.
@@ -453,7 +503,10 @@ git commit -m "feat(converter): add tJavaFlex converter"
 
 **Interfaces:** No runtime behavior change.
 
-- [ ] **Step 1:** If any existing test asserts the `needs_review` "no engine implementation" entry, update it to assert it is ABSENT. Add edge tests if missing: empty values list -> zero iterations; single value -> `CURRENT_VALUE` set + `CURRENT_ITERATION==1`.
+- [ ] **Step 1:** Rewrite ALL THREE existing needs_review tests in `tests/converters/talend_to_v1/components/iterate/test_foreach.py` -- removing the converter's single needs_review entry makes the list empty, which HARD-FAILS `test_needs_review_present` and makes the two `for entry in result.needs_review:` loop tests pass VACUOUSLY (zero iterations, no assertion):
+  - `test_needs_review_present` (~line 190): change to assert `result.needs_review == []`.
+  - `test_needs_review_severity_engine_gap` (~196) and `test_needs_review_has_component_id` (~203): DELETE (they only made sense for the engine-gap entry), or repoint at a real remaining assertion -- do NOT leave bare `for ... assert` loops over an empty list.
+  Also add (if missing) engine edge tests: empty values list -> zero iterations; single value -> `CURRENT_VALUE` set + `CURRENT_ITERATION == 1`.
 - [ ] **Step 2: Run to verify the new/updated tests fail** (needs_review still present).
 - [ ] **Step 3:** Remove the `needs_review.append({...})` block in `foreach.py` (the converter's "no concrete engine implementation" entry).
 - [ ] **Step 4: Run both tForeach suites -- all green.**
@@ -470,15 +523,37 @@ python -m pytest -o addopts= tests/v1/engine/components/iterate/test_foreach.py 
 
 **Files:** all new modules from Tasks 1-5.
 
-- [ ] **Step 1:** Run the per-module gate scoped to the new files:
+- [ ] **Step 1:** Check coverage for the NEW modules. The whole-repo gate CANNOT be used as-is: with 159 pre-existing failures pytest exits non-zero (a literal `&&` would skip the gate), and `check_per_module_coverage.py` is whole-repo with no path filter so it would (correctly) FAIL on the 9 pre-existing below-floor modules. So decouple from pytest's exit and scope to the new files:
 
 ```bash
-rm -f .coverage* && python -m pytest tests/ -m "not oracle" -n auto \
-  --cov=src/v1/engine --cov=src/converters --cov-report=json \
-  && python scripts/check_per_module_coverage.py coverage.json --floor 95
+# coverage.json is written during pytest teardown regardless of failures; `; true`
+# keeps the shell going. Then assert ONLY the new modules' percent_covered >= 95.
+rm -f .coverage* coverage.json
+python -m pytest tests/ -m "not oracle" -n auto \
+  --cov=src/v1/engine --cov=src/converters --cov-report=json ; true
+python - <<'PY'
+import json
+NEW = [
+  "src/v1/engine/components/transform/java_flex.py",
+  "src/v1/engine/components/transform/java_flex_script.py",
+  "src/converters/talend_to_v1/components/transform/java_flex.py",
+]
+files = json.load(open("coverage.json"))["files"]
+bad = []
+for p in NEW:
+    rec = files.get(p)
+    if rec is None:
+        bad.append((p, "NOT MEASURED -- module never imported (gate blind spot)")); continue
+    s = rec["summary"]; print(f"{s['percent_covered']:6.1f}%  {p}  (missing {s['missing_lines']})")
+    if s["percent_covered"] < 95.0:
+        bad.append((p, f"{s['percent_covered']:.1f}% < 95%"))
+if bad:
+    print("FAIL (new modules):"); [print("  -", p, "::", why) for p, why in bad]; raise SystemExit(1)
+print("PASS: all new tJavaFlex modules >= 95%")
+PY
 ```
 
-- [ ] **Step 2:** For any new module below 95%, add targeted tests (e.g. `_validate_config` error branches, `propagate_timing=="after"`, multi-output `needs_review`). Do NOT chase coverage on the 159 pre-existing failures (Phase 3.1) -- they are unrelated and out of scope; confirm the new modules themselves are >= 95%.
+- [ ] **Step 2:** For any new module below 95% (per the scoped check), add targeted tests (`_validate_config` error branches, `propagate_timing=="after"`, multi-output `needs_review`, empty-input path, the bridge-missing error). Do NOT touch the 159 pre-existing failures or the 9 pre-existing below-floor modules -- the whole-repo gate stays red until Phase 3.1; this task only proves the NEW modules clear the floor. (Also eyeball `bridge.py`'s coverage to confirm `execute_java_flex` did not regress the shared module.)
 - [ ] **Step 3: Commit** any added coverage tests (`test(java_flex): cover validation + timing branches`).
 
 ---
@@ -492,6 +567,21 @@ rm -f .coverage* && python -m pytest tests/ -m "not oracle" -n auto \
 **Type consistency:** `build_script(...)` signature (Task 1) matches its caller in Task 4; `execute_java_flex(df, *, script, output_schema, input_schema)` (Task 3) matches its caller in Task 4 and the Java `executeJavaFlex(arrowData, script, outputSchema, inputSchema)` (Task 2); row-var names flow converter (Task 5) -> engine config -> `build_script` (Task 1) consistently.
 
 ## Notes / risks (carried from spec)
-- Confirm `RowWrapper` get/set + `ArrowSerializer` entry points in Task 0 before Tasks 2-3.
+- Confirm `RowWrapper` get/set/getOutputRow + `buildArrowRowWrapper`/`createOutputRootFromData` entry points in Task 0 before Tasks 2-3.
 - JVM 64KB per-method bytecode limit for very large MAIN blocks: surface the compile error clearly; document. Rare.
 - Legacy `Version_V2_0` timing defaults to `before`.
+- Minor (add when convenient): a Task 2/Task 4 test with a REAL (non-comment) `import` (e.g. `import java.text.SimpleDateFormat;` + short name in CODE_START) to prove imports prepended above CODE_START compile as a Groovy script. The sample's IMPORT is a comment and CODE_START uses FQNs, so the sample itself does not exercise this; the same prepend mechanism is already proven for tJavaRow (`test_imports_compiles_real_bridge`).
+
+## Code-review revisions (2026-06-22)
+
+Applied after a multi-agent adversarial review of this plan (grounded in the real code). 2 critical + 5 important findings fixed:
+
+- **[critical] Task 8 gate unexecutable** -- `&&` short-circuited on the 159-failure red suite, and the gate script is whole-repo (fails on 9 pre-existing below-floor modules). Replaced with a decoupled run (`; true`) + an inline `coverage.json` check scoped to the NEW modules only.
+- **[critical] `java_bridge` fixture has no `.bridge`** -- the fixture yields the `JavaBridge` directly. Fixed every test snippet: `java_bridge.execute_java_flex(...)`, `java_bridge.global_map`, `comp.java_bridge = java_bridge`.
+- **[important] Task 2 "reuse executeJavaRow" was wrong** -- `executeJavaRow` is per-row (singular vars, Java-side loop). Re-scoped Task 0/Task 2 to the `executeTMapCompiled` model (parse-once / one-Binding / run-once) and flagged the `List<RowWrapper>` output construction + Arrow serialization as NEW code (helpers: `buildArrowRowWrapper`/`extractTypedValue`/`getOutputRow`/`createOutputRootFromData`); no componentId-cache reliance (parse fresh).
+- **[important] converter must keep `schema.input`** -- the tJavaFlex node's FLOW metadata is the 9-col OUTPUT; emit `schema={'input':[],'output':...}` so propagation fills input from the upstream 5 cols, else auto-propagate copies nothing. Documented `output_cols`<-config / `input_cols`<-schema_inputs_map in Task 4 + added an auto-propagate engine test.
+- **[important] converter row-name derivation** -- `TalendConnection` has no `.label` (it's `.name`); read via `_incoming`/`_outgoing`. Added `input_row_name`/`output_row_name` assertions.
+- **[important] converter tests were tautological** -- switched Task 5 tests to parse the real `.item` via `XmlParser` (not `_make_node`).
+- **[important] Task 7 needs_review churn** -- explicitly rewrite all 3 needs_review tests (assert empty; delete the 2 now-vacuous loop tests).
+
+Refuted on verification (NOT changed): "no one-scope precedent exists" (false -- `executeTMapCompiled` is exactly that); auto-propagate "read-after-write hazard" (false -- `row1`/`row2` are separate wrappers); the imports/cache-key "break" (false -- cache is componentId-keyed and unused by the row path; spec/plan agree imports go first). A minor row-var hygiene nit from that thread WAS applied (loop vars emitted as `def` locals, not bare Binding assignments).
