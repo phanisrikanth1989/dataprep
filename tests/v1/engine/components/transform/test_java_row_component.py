@@ -139,6 +139,48 @@ class TestValidation:
         # No raise -- shape is str, content check happens later.
         comp._validate_config()
 
+    def test_chunk_size_non_numeric_raises(self):
+        """chunk_size='abc' (non-numeric str) -> ConfigurationError (int() raises ValueError)."""
+        config = dict(_DEFAULT_CONFIG)
+        config["chunk_size"] = "abc"
+        comp = _make_component(config=config)
+        with pytest.raises(ConfigurationError) as ei:
+            comp._validate_config()
+        msg = str(ei.value)
+        assert "[tJavaRow_1]" in msg
+        assert "chunk_size" in msg
+        # Original TypeError/ValueError preserved as the cause.
+        assert isinstance(ei.value.__cause__, (TypeError, ValueError))
+
+    def test_chunk_size_zero_raises(self):
+        """chunk_size=0 -> ConfigurationError (must be positive)."""
+        config = dict(_DEFAULT_CONFIG)
+        config["chunk_size"] = 0
+        comp = _make_component(config=config)
+        with pytest.raises(ConfigurationError) as ei:
+            comp._validate_config()
+        msg = str(ei.value)
+        assert "[tJavaRow_1]" in msg
+        assert "chunk_size" in msg
+        assert "positive" in msg
+
+    def test_chunk_size_negative_raises(self):
+        """chunk_size=-5 -> ConfigurationError (must be positive)."""
+        config = dict(_DEFAULT_CONFIG)
+        config["chunk_size"] = -5
+        comp = _make_component(config=config)
+        with pytest.raises(ConfigurationError) as ei:
+            comp._validate_config()
+        assert "chunk_size" in str(ei.value)
+
+    def test_chunk_size_numeric_string_accepted(self):
+        """chunk_size='50000' (numeric str) passes _validate_config."""
+        config = dict(_DEFAULT_CONFIG)
+        config["chunk_size"] = "50000"
+        comp = _make_component(config=config)
+        # No raise -- numeric strings coerce cleanly to a positive int.
+        comp._validate_config()
+
 
 # ----------------------------------------------------------------
 # TestEdgeCases -- empty input short-circuit + AP-9 bridge guard
@@ -225,6 +267,100 @@ class TestImports:
         kwargs = bridge.execute_java_row.call_args.kwargs
         sent = kwargs["java_code"]
         assert sent == 'output_row.put("a", input_row.get("a"));'
+
+
+# ----------------------------------------------------------------
+# TestSchemaNormalization -- output_schema + input_schema_dict shaping
+# ----------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestSchemaNormalization:
+    """Bridge contract: output_schema is normalized to dict[str, str]; the
+    upstream declared schema is forwarded as input_schema so unechoed columns
+    keep their declared type during Arrow serialization."""
+
+    def test_output_schema_list_normalized_to_dict(self):
+        """Converter-style list output_schema -> dict[name, type] forwarded to the bridge."""
+        config = dict(_DEFAULT_CONFIG)
+        # Converter emits list[{"name": ..., "type": ...}]; include a malformed
+        # entry (no "name") and a non-dict to exercise the comprehension guard.
+        config["output_schema"] = [
+            {"name": "a", "type": "int"},
+            {"name": "b"},  # missing type -> defaults to "str"
+            {"type": "float"},  # missing name -> skipped
+            "not-a-dict",  # non-dict -> skipped
+        ]
+        df = pd.DataFrame({"a": [1]})
+        bridge = MagicMock()
+        bridge.context = {}
+        bridge.global_map = {}
+        bridge.execute_java_row.return_value = pd.DataFrame({"a": [1], "b": ["x"]})
+        comp = _make_component(config=config, java_bridge=bridge)
+
+        comp._process(input_data=df)
+
+        kwargs = bridge.execute_java_row.call_args.kwargs
+        assert kwargs["output_schema"] == {"a": "int", "b": "str"}
+
+    def test_output_schema_none_normalized_to_empty_dict(self):
+        """output_schema absent/None -> bridge receives {} (None branch)."""
+        config = dict(_DEFAULT_CONFIG)
+        config.pop("output_schema", None)
+        df = pd.DataFrame({"a": [1]})
+        bridge = MagicMock()
+        bridge.context = {}
+        bridge.global_map = {}
+        bridge.execute_java_row.return_value = pd.DataFrame({"a": [1]})
+        comp = _make_component(config=config, java_bridge=bridge)
+
+        comp._process(input_data=df)
+
+        kwargs = bridge.execute_java_row.call_args.kwargs
+        assert kwargs["output_schema"] == {}
+
+    def test_schema_inputs_map_builds_input_schema_dict(self):
+        """schema_inputs_map (per-flow) -> input_schema dict forwarded to the bridge."""
+        config = dict(_DEFAULT_CONFIG)
+        df = pd.DataFrame({"a": [1], "incr": [5]})
+        bridge = MagicMock()
+        bridge.context = {}
+        bridge.global_map = {}
+        bridge.execute_java_row.return_value = df
+        comp = _make_component(config=config, java_bridge=bridge)
+        # Engine populates schema_inputs_map from comp_config.schema.inputs.
+        # Include a malformed col (no "name") and a non-dict to exercise guards.
+        comp.schema_inputs_map = {
+            "row1": [
+                {"name": "a", "type": "int"},
+                {"name": "incr", "type": "int"},
+                {"type": "float"},  # no name -> skipped
+                "junk",  # non-dict -> skipped
+            ],
+            "ignored_non_list": "not-a-list",  # non-list flow -> skipped
+        }
+
+        comp._process(input_data=df)
+
+        kwargs = bridge.execute_java_row.call_args.kwargs
+        assert kwargs["input_schema"] == {"a": "int", "incr": "int"}
+
+    def test_input_schema_falls_back_to_flat_input_schema(self):
+        """Empty schema_inputs_map -> fall back to flat self.input_schema list."""
+        config = dict(_DEFAULT_CONFIG)
+        df = pd.DataFrame({"a": [1]})
+        bridge = MagicMock()
+        bridge.context = {}
+        bridge.global_map = {}
+        bridge.execute_java_row.return_value = df
+        comp = _make_component(config=config, java_bridge=bridge)
+        comp.schema_inputs_map = {}
+        comp.input_schema = [{"name": "a", "type": "int"}]
+
+        comp._process(input_data=df)
+
+        kwargs = bridge.execute_java_row.call_args.kwargs
+        assert kwargs["input_schema"] == {"a": "int"}
 
 
 # ----------------------------------------------------------------

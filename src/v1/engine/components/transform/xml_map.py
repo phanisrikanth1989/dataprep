@@ -368,7 +368,7 @@ def _broaden_ancestor_if_empty(
     try:
         res2 = ctx.xpath(broadened, namespaces=nsmap)
         return res2
-    except Exception:
+    except Exception:  # pragma: no cover -- defensive: broadened shares 'tail' with the primary xpath above, so any parse error already returned None at line 354 before reaching here
         return res  # fallback to original empty
 
 
@@ -726,7 +726,7 @@ class XMLMap(BaseComponent):
         else:
             return f"./{cleaned}"
 
-        return cleaned
+        return cleaned  # pragma: no cover -- unreachable: every if/elif/else branch above returns
 
     def _clean_looping_element(self, raw_looping_element: str, root: etree._Element) -> str:
         """
@@ -1136,7 +1136,7 @@ class XMLMap(BaseComponent):
                             result = root.xpath(fb_expr_q, namespaces=nsmap)
                         else:
                             result = root.xpath(fb_expr_q)
-                    except Exception as fe:
+                    except Exception as fe:  # pragma: no cover -- defensive: fallback shares tail+nsmap with the primary, so any parse error already raised (and continued) at the primary xpath above
                         logger.debug(
                             "[%s] Fallback XPath error for '%s': %s",
                             component_id, col_name, fe,
@@ -1395,7 +1395,7 @@ class XMLMap(BaseComponent):
             df = pd.DataFrame(main_rows)
             want_cols = [c["name"] for c in output_schema]
             for c in want_cols:
-                if c not in df.columns:
+                if c not in df.columns:  # pragma: no cover -- defensive: row evaluators always emit every output_schema column
                     df[c] = ""
             df = df[want_cols]
         else:

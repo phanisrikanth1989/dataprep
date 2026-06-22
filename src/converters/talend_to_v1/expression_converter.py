@@ -133,7 +133,10 @@ class ExpressionConverter:
         # But be careful: filepath="/data" should not trigger
         # Only if it's clear concatenation like: "file" + ".csv"
         if re.search(r'["\w]\s*\+\s*["\w]', value):
-            return True
+            # Unreachable: the concat regex requires a '+', but any '+' is matched
+            # first by the '\+' java_operator (which has no carve-out) and returns
+            # True at line 115 before control can reach this branch.
+            return True  # pragma: no cover
 
         # If none of the above patterns match, it's a simple literal
         return False

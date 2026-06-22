@@ -419,3 +419,103 @@ class TestConvert:
         """Numeric.round / Numeric.abs."""
         assert "round(" in ExpressionConverter.convert("Numeric.round(x)")
         assert "abs(" in ExpressionConverter.convert("Numeric.abs(x)")
+
+
+# ---------------------------------------------------------------------------
+# detect_java_expression -- '/' URL carve-out *continue* (line 97)
+# ---------------------------------------------------------------------------
+
+
+class TestDetectUrlCarveoutContinue:
+    """Cover line 97: the `continue` inside the '/' operator carve-out.
+
+    For line 97 to execute, ``_looks_like_file_path`` must return False (so the
+    operator loop is reached) AND the '/' operator must be the first matching
+    java_operator while the value carries an http/https/ftp/'//' prefix. A value
+    with a trailing comparison char (e.g. '>') is rejected by
+    ``_looks_like_file_path`` (its reject regex includes '<>'), yet still starts
+    with 'http://', so the '/' branch hits ``continue`` (line 97) before the
+    later '>' operator forces a True result.
+    """
+
+    @pytest.mark.unit
+    def test_http_prefix_with_extra_operator_executes_continue(self):
+        """http://...> bypasses _looks_like_file_path then continues on '/'."""
+        # _looks_like_file_path('http://a>b') is False because of '>'.
+        assert ExpressionConverter._looks_like_file_path("http://a>b") is False
+        # Detection still returns True (the '>' operator catches it), but the
+        # '/' carve-out `continue` at line 97 is exercised en route.
+        assert ExpressionConverter.detect_java_expression("http://a>b") is True
+
+    @pytest.mark.unit
+    def test_protocol_relative_prefix_with_extra_operator_continue(self):
+        """//host...> also bypasses _looks_like_file_path and continues on '/'."""
+        assert ExpressionConverter._looks_like_file_path("//host>x") is False
+        assert ExpressionConverter.detect_java_expression("//host>x") is True
+
+
+# ---------------------------------------------------------------------------
+# _looks_like_file_path -- direct unit tests for guard/shape branches
+# ---------------------------------------------------------------------------
+
+
+class TestLooksLikeFilePath:
+    """Cover the early guards and recognised path shapes of the private helper
+    that are not reachable from detect_java_expression's pre-stripped inputs:
+    empty (174), whitespace-only (177), newline-containing (186), UNC (197).
+    """
+
+    @pytest.mark.unit
+    def test_empty_string_returns_false(self):
+        """Empty value hits the `if not value` guard -> False (line 174)."""
+        assert ExpressionConverter._looks_like_file_path("") is False
+
+    @pytest.mark.unit
+    def test_whitespace_only_returns_false(self):
+        """Truthy value that strips to '' hits `if not s` -> False (line 177)."""
+        assert ExpressionConverter._looks_like_file_path("   ") is False
+
+    @pytest.mark.unit
+    def test_newline_containing_path_returns_false(self):
+        """A multi-line string is never a path -> False (line 186)."""
+        assert ExpressionConverter._looks_like_file_path("/var/log\nfoo") is False
+
+    @pytest.mark.unit
+    def test_carriage_return_containing_path_returns_false(self):
+        """A '\\r'-containing string is never a path -> False (line 186)."""
+        assert ExpressionConverter._looks_like_file_path("/a\rb") is False
+
+    @pytest.mark.unit
+    def test_unc_path_returns_true(self):
+        r"""A UNC path (leading \\) is recognised -> True (line 197)."""
+        assert ExpressionConverter._looks_like_file_path(r"\\server\share\file") is True
+
+    @pytest.mark.unit
+    def test_url_shape_returns_true(self):
+        """URL-style locator is recognised -> True (line 188)."""
+        assert ExpressionConverter._looks_like_file_path("http://host/x") is True
+
+    @pytest.mark.unit
+    def test_drive_letter_path_returns_true(self):
+        """Drive-letter absolute path is recognised -> True (line 191)."""
+        assert ExpressionConverter._looks_like_file_path("C:/foo/bar.txt") is True
+
+    @pytest.mark.unit
+    def test_posix_absolute_path_returns_true(self):
+        """POSIX absolute path with a separator is recognised -> True (line 201)."""
+        assert ExpressionConverter._looks_like_file_path("/var/log/x.log") is True
+
+    @pytest.mark.unit
+    def test_code_chars_rejected(self):
+        """A value containing code-only chars is rejected -> False (line 180-181)."""
+        assert ExpressionConverter._looks_like_file_path("a(b)") is False
+
+    @pytest.mark.unit
+    def test_context_reference_rejected(self):
+        """A value containing a context. reference is rejected -> False (line 182-183)."""
+        assert ExpressionConverter._looks_like_file_path("/x/context.var") is False
+
+    @pytest.mark.unit
+    def test_plain_token_returns_false(self):
+        """A bare token matching no recognised shape -> False (line 204)."""
+        assert ExpressionConverter._looks_like_file_path("plain") is False

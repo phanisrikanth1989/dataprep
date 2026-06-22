@@ -296,7 +296,7 @@ def _detect_looping_element(
                 break
 
     # Normalize to plain string
-    if isinstance(looping_element, (list, tuple, dict)):
+    if isinstance(looping_element, (list, tuple, dict)):  # pragma: no cover - defensive: ET callers only yield str/None
         if isinstance(looping_element, dict):
             looping_element = str(next(iter(looping_element.values()), ""))
         else:
@@ -380,7 +380,7 @@ def _rewrite_expressions_for_loop(
                     new_xpath = "./" + "/".join(rel_parts)
                 else:
                     new_xpath = f"./{loop_name}"
-            else:
+            else:  # pragma: no cover - unreachable: in_loop True implies a matching part, so loop_index is never None
                 new_xpath = "./" + "/".join(field_parts)
             logger.debug("Field %s inside loop: %s", out_col, new_xpath)
         elif loop_full_parts:

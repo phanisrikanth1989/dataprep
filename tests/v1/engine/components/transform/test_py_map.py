@@ -996,3 +996,819 @@ class TestRowAttributeMissing:
         assert row.id == 42
         with pytest.raises(AttributeError, match="no column"):
             _ = row.missing
+
+
+# ------------------------------------------------------------------
+# Coverage lift -- lifecycle hook / parsing branches
+# ------------------------------------------------------------------
+
+
+def _bare_pymap(config, global_map=None, context_manager=None):
+    """Build a PyMap and prime comp.config like ETLEngine does.
+
+    Direct _process / helper calls bypass execute()'s config deepcopy, so
+    we set comp.config explicitly (per the test conventions).
+    """
+    gm = global_map if global_map is not None else GlobalMap()
+    comp = PyMap(
+        component_id="py_map_test",
+        config=copy.deepcopy(config),
+        global_map=gm,
+        context_manager=context_manager,
+    )
+    comp.config = copy.deepcopy(config)
+    return comp
+
+
+@pytest.mark.unit
+class TestResolveExpressions:
+    """_resolve_expressions scalar-field handling (L189-195)."""
+
+    def test_no_context_manager_returns_early(self):
+        """context_manager is None -> early return, no resolution (L190)."""
+        cfg = copy.deepcopy(_SIMPLE_CONFIG)
+        cfg["label"] = "context.env"
+        comp = _bare_pymap(cfg, context_manager=None)
+        comp._resolve_expressions()
+        # Unchanged -- no resolution attempted.
+        assert comp.config["label"] == "context.env"
+
+    def test_scalar_string_fields_resolved(self):
+        """String label / die_on_error / enable_auto_convert_type resolve (L193)."""
+        cm = ContextManager()
+        cm.set("env", "prod")
+        cfg = copy.deepcopy(_SIMPLE_CONFIG)
+        cfg["label"] = "context.env"
+        cfg["die_on_error"] = "True"
+        cfg["enable_auto_convert_type"] = "context.env"
+        comp = _bare_pymap(cfg, context_manager=cm)
+        comp._resolve_expressions()
+        assert comp.config["label"] == "prod"
+        assert comp.config["die_on_error"] == "True"
+        assert comp.config["enable_auto_convert_type"] == "prod"
+
+
+@pytest.mark.unit
+class TestUpdateStatsBranches:
+    """_update_stats_from_result skips the 'stats' key (L213)."""
+
+    def test_stats_key_skipped(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        comp.stats = {"NB_LINE": 0, "NB_LINE_OK": 0, "NB_LINE_REJECT": 0}
+        result = {
+            "stats": {"ignored": 99},
+            "out1": pd.DataFrame([{"id": 1}, {"id": 2}]),
+        }
+        comp._update_stats_from_result(result)
+        assert comp.stats["NB_LINE"] == 2
+        assert comp.stats["NB_LINE_OK"] == 2
+        assert comp.stats["NB_LINE_REJECT"] == 0
+
+
+@pytest.mark.unit
+class TestValidationJoinKeyFields:
+    """Join-key field validation (L268, L273)."""
+
+    def test_join_key_missing_lookup_column_raises(self):
+        cfg = copy.deepcopy(_LOOKUP_CONFIG)
+        cfg["inputs"]["lookups"][0]["join_keys"] = [{"expression": "row1.key"}]
+        comp = _make_pymap(config=cfg)
+        with pytest.raises(ConfigurationError, match="lookup_column"):
+            comp.execute(_input_dict())
+
+    def test_join_key_missing_expression_raises(self):
+        cfg = copy.deepcopy(_LOOKUP_CONFIG)
+        cfg["inputs"]["lookups"][0]["join_keys"] = [{"lookup_column": "key"}]
+        comp = _make_pymap(config=cfg)
+        with pytest.raises(ConfigurationError, match="expression"):
+            comp.execute(_input_dict())
+
+
+@pytest.mark.unit
+class TestParseInputsNone:
+    """_parse_inputs returns None for unexpected input types (L451)."""
+
+    def test_unexpected_type_returns_none(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        assert comp._parse_inputs(["not", "supported"]) is None
+
+    def test_unexpected_type_via_process_returns_empty(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        result = comp._process(12345)
+        assert "out1" in result
+        assert result["out1"].empty
+
+
+# ------------------------------------------------------------------
+# Coverage lift -- main / lookup filter branches
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestMainAndLookupFilters:
+    """Main-input filter (L341-345) and lookup filter (L379) branches."""
+
+    def test_main_filter_drops_rows(self):
+        cfg = copy.deepcopy(_SIMPLE_CONFIG)
+        cfg["inputs"]["main"]["activate_filter"] = True
+        cfg["inputs"]["main"]["filter"] = "row1['val'] > 15"
+        comp = _make_pymap(config=cfg)
+        result = comp.execute({"row1": _main_df()})
+        # Only id=2 (val=20) and id=3 (val=30) survive.
+        assert set(result["out1"]["id"]) == {2, 3}
+
+    def test_main_filter_empties_returns_empty_outputs(self):
+        """Main empty after filter -> early empty outputs (L343-345)."""
+        cfg = copy.deepcopy(_SIMPLE_CONFIG)
+        cfg["inputs"]["main"]["activate_filter"] = True
+        cfg["inputs"]["main"]["filter"] = "row1['val'] > 1000"
+        comp = _make_pymap(config=cfg)
+        result = comp.execute({"row1": _main_df()})
+        assert result["out1"].empty
+
+    def test_lookup_filter_load_once(self):
+        """LOAD_ONCE lookup filter applied before join (L379)."""
+        cfg = copy.deepcopy(_LOOKUP_CONFIG)
+        cfg["inputs"]["lookups"][0]["activate_filter"] = True
+        cfg["inputs"]["lookups"][0]["filter"] = "row2['label'] == 'Alpha'"
+        comp = _make_pymap(config=cfg)
+        main = pd.DataFrame([
+            {"id": 1, "key": "A", "val": 1, "price": 1.0},
+            {"id": 2, "key": "B", "val": 2, "price": 2.0},
+        ])
+        lookup = pd.DataFrame([
+            {"key": "A", "label": "Alpha"},
+            {"key": "B", "label": "Beta"},
+        ])
+        result = comp.execute({"row1": main, "row2": lookup})
+        out = result["out1"]
+        # Only the 'Alpha' lookup row survives the filter; B is unmatched -> NaN.
+        assert out[out["id"] == 1].iloc[0]["label"] == "Alpha"
+        assert pd.isna(out[out["id"] == 2].iloc[0]["label"])
+
+
+@pytest.mark.unit
+class TestApplyFilterPyDirect:
+    """Direct _apply_filter_py coverage incl. empty / bad-expr (L542-565)."""
+
+    def test_empty_df_short_circuits(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        empty = pd.DataFrame(columns=["a"])
+        out = comp._apply_filter_py(empty, "a > 0", "row1")
+        assert out.empty
+
+    def test_blank_filter_short_circuits(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        df = pd.DataFrame([{"a": 1}])
+        out = comp._apply_filter_py(df, "", "row1")
+        assert len(out) == 1
+
+    def test_filter_keeps_truthy_rows(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        df = pd.DataFrame([{"a": 1}, {"a": 5}, {"a": 9}])
+        out = comp._apply_filter_py(df, "a > 4", "row1")
+        assert list(out["a"]) == [5, 9]
+
+    def test_bad_filter_expression_drops_row(self):
+        """Exception in filter eval -> mask False (L557-558)."""
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        df = pd.DataFrame([{"a": 1}, {"a": 2}])
+        out = comp._apply_filter_py(df, "a.nonexistent_method()", "row1")
+        assert out.empty
+
+
+# ------------------------------------------------------------------
+# Coverage lift -- equality join branches
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestEqualityJoinBranches:
+    """_join_equality fallback / inner-join / dup-column branches."""
+
+    def test_non_simple_expression_fallback(self):
+        """Non-simple join expression falls back to raw expr key (L607-609).
+
+        The expression is not a bare table.column reference, so the left
+        join key becomes the expression string itself. That column name does
+        not exist in the joined frame, so pandas merge raises KeyError --
+        surfaced (via die_on_error) as ComponentExecutionError. The point is
+        to exercise the else-branch fallback at L607-609.
+        """
+        cfg = copy.deepcopy(_LOOKUP_CONFIG)
+        cfg["inputs"]["lookups"][0]["join_keys"] = [
+            {"lookup_column": "key", "expression": "row1.key + '_x'"},
+        ]
+        comp = _make_pymap(config=cfg)
+        with pytest.raises(ComponentExecutionError):
+            comp.execute(_input_dict())
+
+    def test_non_simple_expression_fallback_helper_direct(self):
+        """Direct _join_equality with a non-simple expression hits L607-609.
+
+        Verifies the fallback appends the raw expression as the left key and
+        that the subsequent merge raises KeyError on the missing column.
+        """
+        comp = _bare_pymap(_LOOKUP_CONFIG)
+        joined = pd.DataFrame([{"id": 1, "key": "A", "val": 1, "price": 1.0}])
+        lookup = pd.DataFrame([{"key": "A", "label": "Alpha"}])
+        lookup_cfg = {
+            "name": "row2",
+            "join_keys": [{"lookup_column": "key", "expression": "row1.key + '_x'"}],
+            "join_mode": "LEFT_OUTER_JOIN",
+            "matching_mode": "UNIQUE_MATCH",
+        }
+        with pytest.raises(KeyError):
+            comp._join_equality(joined, lookup, lookup_cfg)
+
+    def test_inner_join_null_keys_routed_to_reject(self):
+        """INNER_JOIN with all-null main keys routes null rows to reject (L653)."""
+        cfg = copy.deepcopy(_LOOKUP_CONFIG)
+        cfg["inputs"]["lookups"][0]["join_mode"] = "INNER_JOIN"
+        cfg["outputs"].append({
+            "name": "reject1",
+            "is_reject": False,
+            "inner_join_reject": True,
+            "filter": "",
+            "activate_filter": False,
+            "columns": [{"name": "id", "expression": "row1['id']"}],
+        })
+        comp = _make_pymap(config=cfg)
+        # One matchable row (B), one unmatched (C), one null-key row.
+        main = pd.DataFrame([
+            {"id": 1, "key": "B", "val": 1, "price": 1.0},
+            {"id": 2, "key": "C", "val": 2, "price": 2.0},
+            {"id": 3, "key": None, "val": 3, "price": 3.0},
+        ])
+        result = comp.execute({"row1": main, "row2": _lookup_df()})
+        assert set(result["out1"]["id"]) == {1}
+        # Both unmatched (C) and null-key (None) rows land in rejects.
+        assert set(result["reject1"]["id"]) == {2, 3}
+
+    def test_duplicate_key_columns_dropped(self):
+        """__dup__ suffixed columns from merge are dropped (L668-670).
+
+        The joined frame already carries a column named like a prefixed
+        lookup column ('row2.label'); after prefixing the lookup the merge
+        produces a 'row2.label__dup__' column that must be removed.
+        """
+        comp = _bare_pymap(_LOOKUP_CONFIG)
+        # Pre-existing prefixed column collides with the lookup's prefixed col.
+        joined = pd.DataFrame([{"id": 1, "key": "A", "row2.label": "stale"}])
+        lookup = pd.DataFrame([{"key": "A", "label": "Alpha"}])
+        lookup_cfg = {
+            "name": "row2",
+            "join_keys": [{"lookup_column": "key", "expression": "row1.key"}],
+            "join_mode": "LEFT_OUTER_JOIN",
+            "matching_mode": "UNIQUE_MATCH",
+        }
+        merged, rejects = comp._join_equality(joined, lookup, lookup_cfg)
+        # No __dup__ columns leaked into the merged frame.
+        assert not any(str(c).endswith("__dup__") for c in merged.columns)
+        assert "row2.label" in merged.columns
+
+
+# ------------------------------------------------------------------
+# Coverage lift -- RELOAD_AT_EACH_ROW branches
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestReloadBranches:
+    """RELOAD_AT_EACH_ROW filter / non-simple / inner-reject branches."""
+
+    def test_reload_with_filter_matches(self):
+        """RELOAD filter re-evaluated per row (L723-724, L821-834)."""
+        cfg = copy.deepcopy(_LOOKUP_CONFIG)
+        cfg["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
+        cfg["inputs"]["lookups"][0]["activate_filter"] = True
+        # Filter references the lookup row; keeps only 'Alpha'.
+        cfg["inputs"]["lookups"][0]["filter"] = "row2['label'] == 'Alpha'"
+        comp = _make_pymap(config=cfg)
+        main = pd.DataFrame([
+            {"id": 1, "key": "A", "val": 1, "price": 1.0},
+            {"id": 2, "key": "B", "val": 2, "price": 2.0},
+        ])
+        lookup = pd.DataFrame([
+            {"key": "A", "label": "Alpha"},
+            {"key": "B", "label": "Beta"},
+        ])
+        result = comp.execute({"row1": main, "row2": lookup})
+        out = result["out1"]
+        assert out[out["id"] == 1].iloc[0]["label"] == "Alpha"
+        # Row 2 (key B) -> filter removes Beta -> empty filtered -> NaN (L737-738).
+        assert pd.isna(out[out["id"] == 2].iloc[0]["label"])
+
+    def test_reload_filter_empties_inner_join_rejects(self):
+        """RELOAD + INNER_JOIN: empty filtered lookup -> reject (L734-735)."""
+        cfg = copy.deepcopy(_LOOKUP_CONFIG)
+        cfg["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
+        cfg["inputs"]["lookups"][0]["join_mode"] = "INNER_JOIN"
+        cfg["inputs"]["lookups"][0]["activate_filter"] = True
+        cfg["inputs"]["lookups"][0]["filter"] = "row2['label'] == 'NEVER'"
+        cfg["outputs"].append({
+            "name": "reject1",
+            "is_reject": False,
+            "inner_join_reject": True,
+            "filter": "",
+            "activate_filter": False,
+            "columns": [{"name": "id", "expression": "row1['id']"}],
+        })
+        comp = _make_pymap(config=cfg)
+        main = pd.DataFrame([{"id": 1, "key": "A", "val": 1, "price": 1.0}])
+        result = comp.execute({"row1": main, "row2": _lookup_df()})
+        # No lookup row passes the filter -> main row rejected.
+        assert result["out1"].empty
+        assert set(result["reject1"]["id"]) == {1}
+
+    def test_reload_left_outer_empty_filter_keeps_main(self):
+        """RELOAD + LEFT_OUTER: empty filtered lookup -> raw main row kept (L737)."""
+        comp = _bare_pymap(_LOOKUP_CONFIG)
+        joined = pd.DataFrame([{"id": 1, "key": "A", "val": 1, "price": 1.0}])
+        lookup = pd.DataFrame([{"key": "A", "label": "Alpha"}])
+        lookup_cfg = {
+            "name": "row2",
+            "lookup_mode": "RELOAD_AT_EACH_ROW",
+            "activate_filter": True,
+            "filter": "row2['label'] == 'NEVER'",  # empties lookup every row
+            "join_keys": [{"lookup_column": "key", "expression": "row1.key"}],
+            "join_mode": "LEFT_OUTER_JOIN",
+            "matching_mode": "UNIQUE_MATCH",
+        }
+        result_df, rejects = comp._join_reload_per_row(joined, lookup, lookup_cfg)
+        # Main row preserved; no inner-join rejects for LEFT_OUTER.
+        assert len(result_df) == 1
+        assert list(result_df["id"]) == [1]
+        assert rejects is None
+
+    def test_reload_non_simple_expression_no_match(self):
+        """RELOAD non-simple join expr -> main_val None -> no match (L755, L758-759)."""
+        cfg = copy.deepcopy(_LOOKUP_CONFIG)
+        cfg["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
+        cfg["inputs"]["lookups"][0]["join_keys"] = [
+            {"lookup_column": "key", "expression": "row1.key + '_x'"},
+        ]
+        comp = _make_pymap(config=cfg)
+        main = pd.DataFrame([{"id": 1, "key": "A", "val": 1, "price": 1.0}])
+        result = comp.execute({"row1": main, "row2": _lookup_df()})
+        # Non-simple expr -> main_val None -> pd.isna -> no match -> LEFT NaN.
+        assert pd.isna(result["out1"].iloc[0]["label"])
+
+    def test_reload_inner_join_unmatched_rejected(self):
+        """RELOAD + INNER_JOIN unmatched key routes to reject (L773)."""
+        cfg = copy.deepcopy(_LOOKUP_CONFIG)
+        cfg["inputs"]["lookups"][0]["lookup_mode"] = "RELOAD_AT_EACH_ROW"
+        cfg["inputs"]["lookups"][0]["join_mode"] = "INNER_JOIN"
+        cfg["outputs"].append({
+            "name": "reject1",
+            "is_reject": False,
+            "inner_join_reject": True,
+            "filter": "",
+            "activate_filter": False,
+            "columns": [{"name": "id", "expression": "row1['id']"}],
+        })
+        comp = _make_pymap(config=cfg)
+        main = pd.DataFrame([
+            {"id": 1, "key": "A", "val": 1, "price": 1.0},
+            {"id": 2, "key": "ZZZ", "val": 2, "price": 2.0},
+        ])
+        result = comp.execute({"row1": main, "row2": _lookup_df()})
+        assert set(result["out1"]["id"]) == {1}
+        assert set(result["reject1"]["id"]) == {2}
+
+
+@pytest.mark.unit
+class TestApplyReloadFilterDirect:
+    """Direct _apply_reload_filter coverage incl. bad-expr (L821-834)."""
+
+    def test_reload_filter_keeps_matching_rows(self):
+        comp = _bare_pymap(_LOOKUP_CONFIG)
+        lookup = pd.DataFrame([
+            {"key": "A", "label": "Alpha"},
+            {"key": "B", "label": "Beta"},
+        ])
+        main_row = pd.Series({"id": 1, "key": "A"})
+        out = comp._apply_reload_filter(
+            lookup, "row2['key'] == key", "row2", main_row
+        )
+        assert list(out["label"]) == ["Alpha"]
+
+    def test_reload_filter_bad_expression_drops_row(self):
+        """TypeError/ValueError in reload filter -> mask False (L832-833)."""
+        comp = _bare_pymap(_LOOKUP_CONFIG)
+        lookup = pd.DataFrame([{"key": "A", "label": "Alpha"}])
+        main_row = pd.Series({"id": 1, "key": "A"})
+        # 'None < 1' raises TypeError per row -> all dropped.
+        out = comp._apply_reload_filter(
+            lookup, "None < 1", "row2", main_row
+        )
+        assert out.empty
+
+
+@pytest.mark.unit
+class TestReloadLargeDatasetWarning:
+    """RELOAD large-dataset O(n*m) warning (L707)."""
+
+    def test_large_reload_logs_warning(self, caplog):
+        cfg = copy.deepcopy(_LOOKUP_CONFIG)
+        comp = _bare_pymap(cfg)
+        # >10000 x >10000 triggers the warning path; keep keys non-matching
+        # so the per-row loop stays cheap (LEFT_OUTER NaN fill).
+        n = 10001
+        joined = pd.DataFrame({
+            "id": range(n),
+            "key": ["X"] * n,
+            "val": [0] * n,
+            "price": [0.0] * n,
+        })
+        lookup = pd.DataFrame({
+            "key": ["Y"] * n,
+            "label": ["L"] * n,
+        })
+        lookup_cfg = cfg["inputs"]["lookups"][0]
+        with caplog.at_level("WARNING"):
+            result_df, rejects = comp._join_reload_per_row(
+                joined, lookup, lookup_cfg
+            )
+        assert any("O(n*m)" in r.getMessage() for r in caplog.records)
+        assert len(result_df) == n
+
+
+# ------------------------------------------------------------------
+# Coverage lift -- variable / output / row-dict branches
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestVariableBranches:
+    """Variable evaluation skips empty name/expression (L872)."""
+
+    def test_variable_without_name_or_expression_skipped(self):
+        cfg = copy.deepcopy(_SIMPLE_CONFIG)
+        cfg["variables"] = [
+            {"name": "", "expression": "1 + 1"},          # no name -> skipped
+            {"name": "v_noexpr", "expression": ""},        # no expr -> skipped
+            {"name": "v_ok", "expression": "row1['val'] * 2"},
+        ]
+        cfg["outputs"][0]["columns"] = [
+            {"name": "id", "expression": "row1['id']"},
+            {"name": "doubled", "expression": "Var['v_ok']"},
+        ]
+        comp = _make_pymap(config=cfg)
+        result = comp.execute({"row1": _main_df()})
+        assert list(result["out1"]["doubled"]) == [20, 40, 60]
+
+
+@pytest.mark.unit
+class TestOutputFilterBadExpression:
+    """Output filter eval exception -> keep=False -> reject (L947-948)."""
+
+    def test_bad_output_filter_routes_to_reject(self):
+        cfg = copy.deepcopy(_SIMPLE_CONFIG)
+        cfg["outputs"][0]["activate_filter"] = True
+        cfg["outputs"][0]["filter"] = "row1['no_such_col'] > 0"
+        cfg["outputs"].append({
+            "name": "rej",
+            "is_reject": True,
+            "inner_join_reject": False,
+            "filter": "",
+            "activate_filter": False,
+            "columns": [
+                {"name": "id", "expression": "row1['id']"},
+                {"name": "val", "expression": "row1['val']"},
+            ],
+        })
+        comp = _make_pymap(config=cfg)
+        result = comp.execute({"row1": _main_df()})
+        # Filter raises for every row -> all rows rejected.
+        assert result["out1"].empty
+        assert len(result["rej"]) == 3
+
+
+@pytest.mark.unit
+class TestRejectConcatToExisting:
+    """Filter rejects concat into an already-populated reject output (L976)."""
+
+    def test_reject_output_accumulates_across_outputs(self):
+        cfg = copy.deepcopy(_SIMPLE_CONFIG)
+        # Two non-reject outputs, both filtering everything out to the same
+        # is_reject output. The second output's rejects concat onto the
+        # already-populated reject DataFrame.
+        cfg["outputs"][0]["activate_filter"] = True
+        cfg["outputs"][0]["filter"] = "False"
+        cfg["outputs"].append({
+            "name": "out2",
+            "is_reject": False,
+            "inner_join_reject": False,
+            "filter": "False",
+            "activate_filter": True,
+            "columns": [
+                {"name": "id", "expression": "row1['id']"},
+                {"name": "val", "expression": "row1['val']"},
+            ],
+        })
+        cfg["outputs"].append({
+            "name": "rej",
+            "is_reject": True,
+            "inner_join_reject": False,
+            "filter": "",
+            "activate_filter": False,
+            "columns": [
+                {"name": "id", "expression": "row1['id']"},
+                {"name": "val", "expression": "row1['val']"},
+            ],
+        })
+        comp = _make_pymap(config=cfg)
+        result = comp.execute({"row1": _main_df()})
+        # 3 rows rejected by out1 + 3 by out2 = 6 rows in reject.
+        assert len(result["rej"]) == 6
+
+
+@pytest.mark.unit
+class TestBuildRowDictsVarPrefix:
+    """_build_row_dicts skips Var.-prefixed columns (L1049-1050)."""
+
+    def test_var_prefixed_column_excluded_from_main(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        df = pd.DataFrame([{"id": 1, "Var.tmp": 99, "name": "x"}])
+        row = df.iloc[0]
+        row_dicts = comp._build_row_dicts(row, "row1", [], df)
+        main = row_dicts["row1"]
+        assert "id" in main
+        assert "name" in main
+        # Var.-prefixed columns are handled separately, not in the main dict.
+        assert "Var.tmp" not in main
+
+
+# ------------------------------------------------------------------
+# Coverage lift -- inner-join reject routing concat (L1104)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestInnerJoinRejectConcat:
+    """Inner-join rejects from two lookups concat into one reject output."""
+
+    def test_two_lookups_reject_concat(self):
+        cfg = copy.deepcopy(_SIMPLE_CONFIG)
+        cfg["inputs"]["lookups"] = [
+            {
+                "name": "row2",
+                "matching_mode": "UNIQUE_MATCH",
+                "lookup_mode": "LOAD_ONCE",
+                "filter": "",
+                "activate_filter": False,
+                "join_keys": [{"lookup_column": "key", "expression": "row1.key"}],
+                "join_mode": "INNER_JOIN",
+            },
+            {
+                "name": "row3",
+                "matching_mode": "UNIQUE_MATCH",
+                "lookup_mode": "LOAD_ONCE",
+                "filter": "",
+                "activate_filter": False,
+                "join_keys": [{"lookup_column": "k2", "expression": "row1.k2"}],
+                "join_mode": "INNER_JOIN",
+            },
+        ]
+        cfg["outputs"][0]["columns"] = [{"name": "id", "expression": "row1['id']"}]
+        cfg["outputs"].append({
+            "name": "reject1",
+            "is_reject": False,
+            "inner_join_reject": True,
+            "filter": "",
+            "activate_filter": False,
+            "columns": [{"name": "id", "expression": "row1['id']"}],
+        })
+        comp = _make_pymap(config=cfg)
+        main = pd.DataFrame([
+            {"id": 1, "key": "A", "k2": "P", "val": 1, "price": 1.0},
+            {"id": 2, "key": "MISS", "k2": "P", "val": 2, "price": 2.0},
+        ])
+        row2 = pd.DataFrame([{"key": "A", "label": "Alpha"}])
+        row3 = pd.DataFrame([{"k2": "P", "tag": "Pee"}])
+        result = comp.execute({"row1": main, "row2": row2, "row3": row3})
+        # id=2 missed row2's INNER_JOIN -> reject. Concat across both lookups.
+        assert "reject1" in result
+        assert 2 in list(result["reject1"]["id"])
+
+    def test_route_into_existing_nonempty_reject(self):
+        """Reject output already populated -> rejects concat onto it (L1103-1104)."""
+        outputs_config = [
+            {
+                "name": "reject1",
+                "is_reject": False,
+                "inner_join_reject": True,
+                "columns": [{"name": "id", "expression": "row1['id']"}],
+            }
+        ]
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        # Pre-populate the reject output so the concat branch (not else) runs.
+        result = {"reject1": pd.DataFrame([{"id": 99}])}
+        inner_rejects = {"row2": pd.DataFrame([{"id": 1}, {"id": 2}])}
+        comp._route_inner_join_rejects(result, inner_rejects, outputs_config)
+        assert sorted(result["reject1"]["id"]) == [1, 2, 99]
+
+
+# ------------------------------------------------------------------
+# Coverage lift -- helper utility branches (direct calls)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestHelperUtilityBranches:
+    """Direct unit coverage for small helper branches."""
+
+    def test_get_output_config_missing_returns_none(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        assert comp._get_output_config("nope") is None
+
+    def test_find_column_prefixed(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        df = pd.DataFrame(columns=["t.c", "plain", "Var.v"])
+        assert comp._find_column(df, "t", "c") == "t.c"
+
+    def test_find_column_plain(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        df = pd.DataFrame(columns=["t.c", "plain", "Var.v"])
+        assert comp._find_column(df, "missing", "plain") == "plain"
+
+    def test_find_column_var_prefix(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        df = pd.DataFrame(columns=["t.c", "plain", "Var.v"])
+        assert comp._find_column(df, "missing", "v") == "Var.v"
+
+    def test_find_column_not_found(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        df = pd.DataFrame(columns=["t.c", "plain"])
+        assert comp._find_column(df, "missing", "nope") is None
+
+    def test_matching_mode_empty_df(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        empty = pd.DataFrame(columns=["k"])
+        out = comp._apply_matching_mode(empty, ["k"], "UNIQUE_MATCH")
+        assert out.empty
+
+    def test_matching_mode_no_existing_keys(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        df = pd.DataFrame([{"a": 1}])
+        out = comp._apply_matching_mode(df, ["nonkey"], "UNIQUE_MATCH")
+        assert out.equals(df)
+
+    def test_matching_mode_unknown_defaults_to_unique(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        df = pd.DataFrame([{"k": 1}, {"k": 1}, {"k": 2}])
+        out = comp._apply_matching_mode(df, ["k"], "WEIRD_MODE")
+        # Defaults to UNIQUE_MATCH (keep last) -> dedup by k.
+        assert len(out) == 2
+
+    def test_prefilter_null_keys_empty_df(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        nonnull, nullkey = comp._prefilter_null_keys(
+            pd.DataFrame(columns=["k"]), ["k"]
+        )
+        assert nonnull.empty
+        assert nullkey.empty
+
+    def test_prefilter_null_keys_no_existing_keys(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        df = pd.DataFrame([{"a": 1}])
+        nonnull, nullkey = comp._prefilter_null_keys(df, ["nonkey"])
+        assert len(nonnull) == 1
+        assert nullkey.empty
+
+
+@pytest.mark.unit
+class TestAutoConvertJoinKeysBranches:
+    """_auto_convert_join_keys type-coercion branches (L1271-1289)."""
+
+    def test_missing_key_columns_skipped(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        main = pd.DataFrame({"k": [1]})
+        lookup = pd.DataFrame({"other": [1]})
+        m2, l2 = comp._auto_convert_join_keys(main, lookup, ["k"], ["k"])
+        assert "k" in m2.columns
+
+    def test_same_dtype_skipped(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        main = pd.DataFrame({"k": [1]})
+        lookup = pd.DataFrame({"k": [2]})
+        m2, l2 = comp._auto_convert_join_keys(main, lookup, ["k"], ["k"])
+        assert m2["k"].dtype == lookup["k"].dtype
+
+    def test_string_left_numeric_right(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        main = pd.DataFrame({"k": ["1", "2"]})
+        lookup = pd.DataFrame({"k": [1, 2]})
+        m2, l2 = comp._auto_convert_join_keys(main, lookup, ["k"], ["k"])
+        assert pd.api.types.is_numeric_dtype(m2["k"])
+
+    def test_numeric_left_string_right(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        main = pd.DataFrame({"k": [1, 2]})
+        lookup = pd.DataFrame({"k": ["1", "2"]})
+        m2, l2 = comp._auto_convert_join_keys(main, lookup, ["k"], ["k"])
+        assert pd.api.types.is_numeric_dtype(l2["k"])
+
+    def test_int_left_float_right(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        main = pd.DataFrame({"k": pd.Series([1, 2], dtype="int64")})
+        lookup = pd.DataFrame({"k": pd.Series([1.0, 2.0], dtype="float64")})
+        m2, l2 = comp._auto_convert_join_keys(main, lookup, ["k"], ["k"])
+        assert m2["k"].dtype == np.dtype("float64")
+
+    def test_float_left_int_right(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        main = pd.DataFrame({"k": pd.Series([1.0, 2.0], dtype="float64")})
+        lookup = pd.DataFrame({"k": pd.Series([1, 2], dtype="int64")})
+        m2, l2 = comp._auto_convert_join_keys(main, lookup, ["k"], ["k"])
+        assert l2["k"].dtype == np.dtype("float64")
+
+    def test_categorical_right_safe_issubdtype_typeerror(self):
+        """Categorical dtype makes np.issubdtype raise -> _safe_issubdtype False (L1271-1272)."""
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        main = pd.DataFrame({"k": pd.Series(["a", "b"], dtype="object")})
+        lookup = pd.DataFrame({"k": pd.Series(["a", "b"], dtype="category")})
+        # Must not raise; the TypeError is swallowed and no conversion happens.
+        m2, l2 = comp._auto_convert_join_keys(main, lookup, ["k"], ["k"])
+        assert m2["k"].dtype == np.dtype("object")
+        assert isinstance(l2["k"].dtype, pd.CategoricalDtype)
+
+
+@pytest.mark.unit
+class TestValuesEqualBranches:
+    """_values_equal type-aware comparison branches (L1306-1317)."""
+
+    def test_numeric_numeric_equal(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        assert comp._values_equal(1, 1.0) is True
+        assert comp._values_equal(1, 2) is False
+
+    def test_numeric_string_convertible(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        assert comp._values_equal(1, "1") is True
+
+    def test_numeric_string_not_convertible(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        assert comp._values_equal(1, "abc") is False
+
+    def test_string_numeric_convertible(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        assert comp._values_equal("2", 2) is True
+
+    def test_string_numeric_not_convertible(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        assert comp._values_equal("abc", 2) is False
+
+    def test_string_string_equal(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        assert comp._values_equal("x", "x") is True
+        assert comp._values_equal("x", "y") is False
+
+
+@pytest.mark.unit
+class TestSizeGuardBranches:
+    """_check_size_guard warn / fail thresholds (L1334, L1340)."""
+
+    def test_size_guard_fail_raises(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        with pytest.raises(ComponentExecutionError, match="would produce"):
+            comp._check_size_guard(20_000, 6_000, "ALL_MATCHES")
+
+    def test_size_guard_warn_logs(self, caplog):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        with caplog.at_level("WARNING"):
+            comp._check_size_guard(2_000, 6_000, "ALL_MATCHES")
+        assert any("consider using" in r.getMessage() for r in caplog.records)
+
+    def test_size_guard_below_warn_noop(self):
+        comp = _bare_pymap(_SIMPLE_CONFIG)
+        # No exception, no requirement on logs.
+        comp._check_size_guard(10, 10, "ALL_MATCHES")
+
+
+@pytest.mark.unit
+class TestNoRowsAfterLookups:
+    """joined_df empty after lookups -> early route of rejects (L397-403)."""
+
+    def test_inner_join_all_unmatched_empties_joined(self):
+        """All main rows unmatched in INNER_JOIN -> joined empty, rejects routed."""
+        cfg = copy.deepcopy(_LOOKUP_CONFIG)
+        cfg["inputs"]["lookups"][0]["join_mode"] = "INNER_JOIN"
+        cfg["outputs"].append({
+            "name": "reject1",
+            "is_reject": False,
+            "inner_join_reject": True,
+            "filter": "",
+            "activate_filter": False,
+            "columns": [{"name": "id", "expression": "row1['id']"}],
+        })
+        comp = _make_pymap(config=cfg)
+        # No main key matches the lookup -> joined_df becomes empty.
+        main = pd.DataFrame([
+            {"id": 1, "key": "ZZZ", "val": 1, "price": 1.0},
+            {"id": 2, "key": "YYY", "val": 2, "price": 2.0},
+        ])
+        result = comp.execute({"row1": main, "row2": _lookup_df()})
+        assert result["out1"].empty
+        assert set(result["reject1"]["id"]) == {1, 2}

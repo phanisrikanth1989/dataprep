@@ -672,3 +672,218 @@ class TestStreamingPath:
         assert any("strategy=dom" in msg for msg in strategy_logs), (
             "Expected 'strategy=dom' in logs; got: %s" % strategy_logs
         )
+
+
+# ------------------------------------------------------------------
+# TestDocumentPassing -- Tests 33-35 (document-passing / "/" loop_query and "." xpath)
+# ------------------------------------------------------------------
+
+@pytest.mark.unit
+class TestDocumentPassing:
+    def test_root_loop_query_selects_document_root(self, tmp_path):
+        """Test 33 (line 175): loop_query "/" treats the whole document root as a single
+        loop node ([root]) -- Talend document-passing pattern -- yielding exactly one row."""
+        xml_file = _write_xml(tmp_path, _SAMPLE_XML)
+        comp = _make_component({
+            "filepath": xml_file,
+            "loop_query": "/",
+            # empty xpath -> element text of the root (line 348)
+            "mapping": [{"column": "doc", "xpath": ""}],
+        })
+        result = _direct_process(comp)
+        df = result["main"]
+        assert len(df) == 1
+        assert len(result["reject"]) == 0
+
+    def test_dot_xpath_serializes_whole_node(self, tmp_path):
+        """Test 34 (lines 353-356): MAPPING xpath="." serializes the loop element back to
+        an XML string (document-passing into a downstream tXMLMap step)."""
+        xml_file = _write_xml(tmp_path, _SAMPLE_XML)
+        comp = _make_component({
+            "filepath": xml_file,
+            "loop_query": "/bills/bill",
+            "mapping": [{"column": "raw", "xpath": "."}],
+        })
+        result = _direct_process(comp)
+        df = result["main"]
+        assert len(df) == 5
+        # Each serialized value is the full <bill> element XML
+        first = df.iloc[0]["raw"]
+        assert isinstance(first, str)
+        assert first.startswith("<bill")
+        assert "<amount>10.5</amount>" in first
+
+    def test_empty_xpath_returns_element_text(self, tmp_path):
+        """Test 35 (line 348): MAPPING xpath="" returns the loop element's own text content."""
+        xml = textwrap.dedent("""\
+            <?xml version="1.0" encoding="UTF-8"?>
+            <root>
+              <item>alpha</item>
+              <item>beta</item>
+            </root>
+        """)
+        xml_file = _write_xml(tmp_path, xml)
+        comp = _make_component({
+            "filepath": xml_file,
+            "loop_query": "/root/item",
+            "mapping": [{"column": "txt", "xpath": ""}],
+        })
+        result = _direct_process(comp)
+        df = result["main"]
+        assert len(df) == 2
+        assert list(df["txt"]) == ["alpha", "beta"]
+
+
+# ------------------------------------------------------------------
+# TestBuildNsmapEdge -- Tests 36-37 (defensive except in _build_nsmap)
+# ------------------------------------------------------------------
+
+@pytest.mark.unit
+class TestBuildNsmapEdge:
+    def test_build_nsmap_swallows_iteration_error(self):
+        """Test 36 (lines 254-255): if iterating the element tree raises, _build_nsmap
+        returns whatever was collected so far instead of propagating -- defensive guard."""
+        comp = _make_component({
+            "filepath": "/f.xml",
+            "loop_query": "//bill",
+        })
+
+        class _BoomElement:
+            def iter(self):
+                raise RuntimeError("iteration blew up")
+
+        # ignore_ns=False so the walk is attempted; the raised error is swallowed -> {}
+        result = comp._build_nsmap(_BoomElement(), ignore_ns=False)
+        assert result == {}
+
+    def test_dot_xpath_tostring_failure_returns_empty(self, tmp_path):
+        """Test 37 (lines 355-356): when etree.tostring raises for the "." node serialization,
+        the except path returns "" rather than propagating."""
+        import src.v1.engine.components.file.file_input_xml as mod
+
+        comp = _make_component({
+            "filepath": "/f.xml",
+            "loop_query": "//bill",
+        })
+
+        # Build a real loop node, then force tostring to blow up.
+        node = mod.etree.fromstring("<bill id='1'><amount>10.5</amount></bill>")
+        orig_tostring = mod.etree.tostring
+
+        def _boom(*args, **kwargs):
+            raise ValueError("cannot serialize")
+
+        mod.etree.tostring = _boom
+        try:
+            value = comp._eval_mapping_xpath(node, ".", {})
+        finally:
+            mod.etree.tostring = orig_tostring
+        assert value == ""
+
+
+# ------------------------------------------------------------------
+# TestResidualBranches -- Tests 38-43 (error/limit/smart-result paths)
+# ------------------------------------------------------------------
+
+@pytest.mark.unit
+class TestResidualBranches:
+    def test_unparseable_limit_raises_configuration_error(self, tmp_path):
+        """Test 38 (lines 132-133): a non-integer LIMIT value raises ConfigurationError."""
+        xml_file = _write_xml(tmp_path, _SAMPLE_XML)
+        comp = _make_component({
+            "filepath": xml_file,
+            "loop_query": "/bills/bill",
+            "mapping": [{"column": "amount", "xpath": "amount"}],
+            "limit": "not-a-number",
+        })
+        with pytest.raises(ConfigurationError, match="LIMIT"):
+            _direct_process(comp)
+
+    def test_missing_file_die_on_error_true_raises(self):
+        """Test 39 (line 141): missing file with die_on_error=True raises FileOperationError."""
+        comp = _make_component({
+            "filepath": "/no/such/file.xml",
+            "loop_query": "//bill",
+            "die_on_error": True,
+        })
+        with pytest.raises(FileOperationError, match="not found"):
+            _direct_process(comp)
+
+    def test_malformed_xml_die_false_routes_reject(self, tmp_path):
+        """Test 40 (lines 156-157): malformed XML with die_on_error=False -> PARSE_ERROR reject."""
+        xml_file = _write_xml(tmp_path, "<bills><bill></bills>", name="bad.xml")
+        comp = _make_component({
+            "filepath": xml_file,
+            "loop_query": "/bills/bill",
+            "mapping": [{"column": "amount", "xpath": "amount"}],
+            "die_on_error": False,
+        })
+        result = _direct_process(comp)
+        assert len(result["main"]) == 0
+        assert result["reject"].iloc[0]["errorCode"] == "PARSE_ERROR"
+
+    def test_malformed_xml_die_true_raises(self, tmp_path):
+        """Test 41 (lines 152-155): malformed XML with die_on_error=True raises FileOperationError."""
+        xml_file = _write_xml(tmp_path, "<bills><bill></bills>", name="bad2.xml")
+        comp = _make_component({
+            "filepath": xml_file,
+            "loop_query": "/bills/bill",
+            "mapping": [{"column": "amount", "xpath": "amount"}],
+            "die_on_error": True,
+        })
+        with pytest.raises(FileOperationError, match="parse failed"):
+            _direct_process(comp)
+
+    def test_bad_loop_query_xpath_die_false_routes_reject(self, tmp_path):
+        """Test 42 (lines 178/183): an invalid LOOP_QUERY XPath with die_on_error=False
+        routes to an XPATH_ERROR reject row instead of raising."""
+        xml_file = _write_xml(tmp_path, _SAMPLE_XML)
+        comp = _make_component({
+            "filepath": xml_file,
+            "loop_query": "/bills/bill[",  # unbalanced bracket -> XPathEvalError
+            "mapping": [{"column": "amount", "xpath": "amount"}],
+            "die_on_error": False,
+        })
+        result = _direct_process(comp)
+        assert len(result["main"]) == 0
+        assert result["reject"].iloc[0]["errorCode"] == "XPATH_ERROR"
+
+    def test_bad_loop_query_xpath_die_true_raises(self, tmp_path):
+        """Test 43 (lines 179-182): an invalid LOOP_QUERY XPath with die_on_error=True raises."""
+        xml_file = _write_xml(tmp_path, _SAMPLE_XML)
+        comp = _make_component({
+            "filepath": xml_file,
+            "loop_query": "/bills/bill[",
+            "mapping": [{"column": "amount", "xpath": "amount"}],
+            "die_on_error": True,
+        })
+        with pytest.raises(FileOperationError, match="LOOP_QUERY XPath invalid"):
+            _direct_process(comp)
+
+    def test_smart_xpath_result_stringified(self, tmp_path):
+        """Test 44 (line 371): an XPath returning a smart (non-element) value -- e.g. a
+        text() node -- has no .text attribute, so it is stringified via str(first)."""
+        xml_file = _write_xml(tmp_path, _SAMPLE_XML)
+        comp = _make_component({
+            "filepath": xml_file,
+            "loop_query": "/bills/bill",
+            # text() returns a list of _ElementUnicodeResult (smart strings) with no
+            # .text attribute -> falls through to the str(first) branch (line 371).
+            "mapping": [{"column": "amt", "xpath": "amount/text()"}],
+        })
+        result = _direct_process(comp)
+        df = result["main"]
+        assert len(df) == 5
+        assert df.iloc[0]["amt"] == "10.5"
+
+    def test_streaming_limit_cap(self, synthetic_60mb_xml):
+        """Test 45 (line 201): streaming path honors LIMIT (idx >= limit break)."""
+        comp = _make_component({
+            "filepath": str(synthetic_60mb_xml),
+            "loop_query": "/root/item",
+            "mapping": [{"column": "item_id", "xpath": "id"}],
+            "xml_streaming_threshold_mb": 50,
+            "limit": "10",
+        })
+        result = _direct_process(comp)
+        assert len(result["main"]) == 10
