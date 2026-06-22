@@ -609,7 +609,107 @@ class JavaBridge:
         if len(output_chunks) == 1:
             return output_chunks[0]
         return pd.concat(output_chunks, ignore_index=True)
-        
+
+    def execute_java_flex(
+        self,
+        df: pd.DataFrame,
+        *,
+        script: str,
+        output_schema: dict[str, str],
+        input_schema: dict[str, str] | None = None,
+    ) -> pd.DataFrame:
+        """Execute a tJavaFlex Groovy script ONCE over the whole DataFrame.
+
+        Unlike :meth:`execute_java_row`, the entire script runs a single time
+        on the Java side: START locals, the row loop, and END all share one
+        scope (Talend tJavaFlex parity). The row loop lives inside the Groovy
+        body (built by ``java_flex_script.build_script``), so a START variable
+        such as ``int totalCount = 0`` persists across rows and into END.
+
+        Single-call only -- this method does NOT chunk. Chunking would split
+        the input across separate ``script.run()`` calls and break cross-row
+        START/END state, so an over-large payload raises a clear error instead
+        (see ``_PY4J_BYTE_ARG_SAFE_LIMIT``).
+
+        Empty input still calls the bridge: START and END must execute exactly
+        once even when there are zero rows. An empty DataFrame with the
+        declared ``output_schema`` columns is returned in that case (the Java
+        side produces a zero-row Arrow batch with those columns).
+
+        Args:
+            df: Input DataFrame (one bridge call, no chunking).
+            script: Pre-assembled Groovy unit (START + row loop + END).
+            output_schema: Output column name -> Python type string mapping.
+            input_schema: Optional input column name -> Python type string
+                mapping. Used as the authoritative type source when an input
+                column is not echoed to ``output_schema`` (same role as in
+                :meth:`execute_java_row`), so an upstream ``object``/``float64``
+                column is not silently downgraded from its declared ``int``.
+
+        Returns:
+            Output DataFrame with the ``output_schema`` columns.
+
+        Raises:
+            JavaBridgeError: On any Java-side failure (via
+                ``_call_java_with_sync``).
+            ValueError: If the serialized Arrow payload exceeds the Py4J
+                Base64 byte[] safe limit (single-call cannot be chunked).
+        """
+        total_rows = len(df)
+        logger.debug(
+            "[execute_java_flex] rows=%d cols=%d script_len=%d",
+            total_rows,
+            len(df.columns),
+            len(script),
+        )
+
+        # The Java side passes ``output_schema`` straight to
+        # ``ArrowSerializer.createOutputRootFromData``, which keys off the
+        # PYTHON type strings (str/int/float/bool/datetime/Decimal/object) --
+        # NOT the Java type names. So forward the Python-string schemas as-is.
+        # ``input_schema`` is informational on the Java side (input values
+        # come from the Arrow vectors), but keep it in the same form.
+        java_output_schema = dict(output_schema)
+        java_input_schema = dict(input_schema or {})
+
+        # Build the input schema for Arrow serialization with the same
+        # type-resolution precedence as execute_java_row (output > input >
+        # pandas inference). Even for empty input we serialize the frame so
+        # the Java side sees the declared columns/types.
+        schema_dict = self._schema_dict_from_df_and_output(
+            df, output_schema, input_schema=input_schema,
+        )
+        arrow_bytes = self._df_to_arrow_bytes(df, schema_dict)
+
+        # Single-call guard: tJavaFlex cannot be chunked (cross-row START
+        # state would break). Refuse an over-large payload with a clear error
+        # instead of silently truncating or splitting.
+        if len(arrow_bytes) > _PY4J_BYTE_ARG_SAFE_LIMIT:
+            raise ValueError(
+                f"[execute_java_flex] Arrow payload {len(arrow_bytes) / 1e9:.2f} GB "
+                f"exceeds the Py4J safe limit {_PY4J_BYTE_ARG_SAFE_LIMIT / 1e9:.2f} GB. "
+                f"tJavaFlex runs as a single bridge call (START/END share one "
+                f"scope across all rows) and cannot be chunked."
+            )
+
+        def _call():
+            return self.java_bridge.executeJavaFlex(
+                arrow_bytes,
+                script,
+                java_output_schema,
+                java_input_schema,
+            )
+
+        result_bytes = self._call_java_with_sync(_call)
+        out_df = self._arrow_bytes_to_df(result_bytes, output_schema)
+
+        # Guarantee the declared output columns even on an empty result so
+        # callers always see a stable shape (Java emits a zero-row batch with
+        # these columns, but normalize defensively).
+        if total_rows == 0 and list(out_df.columns) != list(output_schema.keys()):
+            return pd.DataFrame({col: [] for col in output_schema.keys()})
+        return out_df
+
     def execute_one_time_expression(self, expression: str) -> Any:
         """Execute a single Java expression.
 

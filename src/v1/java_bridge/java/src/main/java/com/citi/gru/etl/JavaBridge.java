@@ -275,6 +275,113 @@ public class JavaBridge {
     }
 
     // ------------------------------------------------------------------
+    // Flex-level execution (tJavaFlex)
+    // ------------------------------------------------------------------
+
+    /**
+     * Execute a tJavaFlex-style Groovy script ONCE over all input rows.
+     *
+     * <p>
+     * Unlike {@link #executeJavaRow}, the whole script runs a single time:
+     * the row loop lives INSIDE the Groovy body. START locals declared above
+     * the loop (e.g. {@code int totalCount = 0}) therefore persist across
+     * every row and into the END block -- Talend's tJavaFlex one-scope
+     * semantics. Modelled on {@link #executeTMapCompiled} (parse once / one
+     * Binding / run once), NOT on the per-row fresh-Script pattern of
+     * {@link #executeJavaRow}. The script is parsed fresh on every call and
+     * does NOT use the componentId-keyed tMap cache.
+     *
+     * <p>
+     * Cardinality is 1:1 -- one output {@link RowWrapper} per input row. The
+     * script reads {@code input.get(i)} and writes {@code output.get(i)} (both
+     * are bound as {@code List<RowWrapper>}). After the run, each output
+     * wrapper's {@link RowWrapper#getOutputRow()} is read column-by-column
+     * into Arrow output.
+     *
+     * @param arrowData    input DataFrame serialised as Arrow IPC bytes
+     * @param script       Groovy source (START + row loop + END as one unit)
+     * @param outputSchema output column types: {colName: pythonTypeString}
+     * @param inputSchema  input column types (informational; the actual input
+     *                     values come from {@code arrowData} vectors)
+     * @return Arrow IPC bytes containing the output DataFrame
+     */
+    public byte[] executeJavaFlex(byte[] arrowData, String script,
+            Map<String, String> outputSchema,
+            Map<String, String> inputSchema) throws Exception {
+
+        ByteArrayInputStream inputStream = new ByteArrayInputStream(arrowData);
+        try (ArrowStreamReader reader = new ArrowStreamReader(inputStream, allocator)) {
+            VectorSchemaRoot inputRoot = reader.getVectorSchemaRoot();
+            boolean loaded = reader.loadNextBatch();
+            if (!loaded) {
+                logger.warning("[JavaBridge] No batch loaded from Arrow stream -- input may be empty or corrupt");
+            }
+
+            int rowCount = inputRoot.getRowCount();
+            logger.info("[JavaBridge] executeJavaFlex: " + rowCount + " rows, "
+                    + outputSchema.size() + " output columns");
+            logger.fine("[JavaBridge] executeJavaFlex script:\n" + script);
+
+            // Build input row wrappers (1 per row) reading from Arrow vectors.
+            // tableName is null -- tJavaFlex columns are plain (no table prefix).
+            List<RowWrapper> input = new ArrayList<>(rowCount);
+            for (int i = 0; i < rowCount; i++) {
+                input.add(buildArrowRowWrapper(inputRoot, i, null));
+            }
+
+            // Pre-size N empty output wrappers (1:1 cardinality). The script
+            // populates each via output.get(i).col = value.
+            List<RowWrapper> output = new ArrayList<>(rowCount);
+            for (int i = 0; i < rowCount; i++) {
+                output.add(new RowWrapper());
+            }
+
+            // ONE Binding shared by the whole script (parse once / run once).
+            // Exposes input/output as List<RowWrapper> plus the shared
+            // globalMap/context (same exposure as executeTMapCompiled).
+            Binding binding = new Binding();
+            binding.setVariable("input", input);
+            binding.setVariable("output", output);
+            binding.setVariable("context", context);
+            binding.setVariable("globalMap", globalMap);
+            addRoutinesToBinding(binding);
+
+            GroovyShell shell = new GroovyShell(binding);
+            Script compiledScript = shell.parse(script);
+            compiledScript.setBinding(binding);
+
+            long execStart = System.currentTimeMillis();
+            compiledScript.run();
+            long execTime = System.currentTimeMillis() - execStart;
+            logger.info("[JavaBridge] executeJavaFlex: executed in " + execTime + " ms");
+
+            // Serialize: read each output wrapper's outputRow into per-column
+            // Object[] arrays keyed by outputSchema (column-oriented for
+            // ArrowSerializer). LinkedHashMap preserves declared column order.
+            Map<String, Object[]> columnData = new LinkedHashMap<>();
+            for (String colName : outputSchema.keySet()) {
+                columnData.put(colName, new Object[rowCount]);
+            }
+            for (int i = 0; i < rowCount; i++) {
+                Map<String, Object> outValues = output.get(i).getOutputRow();
+                for (String colName : outputSchema.keySet()) {
+                    columnData.get(colName)[i] = outValues.get(colName);
+                }
+            }
+
+            try (VectorSchemaRoot outputRoot = ArrowSerializer.createOutputRootFromData(
+                    allocator, columnData, outputSchema)) {
+                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+                ArrowStreamWriter writer = new ArrowStreamWriter(outputRoot, null, outputStream);
+                writer.start();
+                writer.writeBatch();
+                writer.close();
+                return outputStream.toByteArray();
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
     // One-time expression execution
     // ------------------------------------------------------------------
 
