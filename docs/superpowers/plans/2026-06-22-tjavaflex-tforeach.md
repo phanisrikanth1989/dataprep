@@ -71,6 +71,103 @@ git add docs/superpowers/plans/2026-06-22-tjavaflex-tforeach.md
 git commit -m "docs(plan): record confirmed Java bridge API for tJavaFlex"
 ```
 
+## Confirmed Java API (Task 0)
+
+All four source files verified. No plan assumptions turned out wrong.
+
+### RowWrapper (RowWrapper.java)
+
+- Read: `Object get(String columnName)` (line 50) -- checks outputRow first, then inputRow.
+  Groovy syntax: `row.columnName` (propertyMissing line 114).
+- Write: `void set(String columnName, Object value)` (line 63) -- writes to outputRow.
+  Groovy syntax: `row.columnName = value` (propertyMissing line 123).
+- Output: `Map<String, Object> getOutputRow()` (line 90).
+- Load input: `void setInputRow(Map<String, Object> row)` (line 81).
+- Reset output: `void reset()` (line 99) -- clears outputRow only.
+
+### executeTMapCompiled -- THE model for executeJavaFlex (JavaBridge.java lines 475-516)
+
+Signature: `Map<String, byte[]> executeTMapCompiled(String javaScript, byte[] arrowData,
+  Map<String, List<String>> outputSchemas, Map<String, String> outputTypes,
+  String mainTableName, List<String> lookupNames,
+  Map<String, Object> contextVars, Map<String, Object> globalMapVars)`
+
+Structure (parse-once / one-Binding / run-once):
+1. Deserialize arrowData -> VectorSchemaRoot.
+2. Build ONE Binding via `buildTMapBinding(inputRoot, rowCount, ...)` (line 500).
+3. `GroovyShell shell = new GroovyShell(compileBinding); Script compiledScript = shell.parse(javaScript)` (lines 502-503).
+4. `compiledScript.setBinding(compileBinding)` (line 504).
+5. `Object scriptResult = compiledScript.run()` ONCE (line 507) -- the FOR LOOP lives INSIDE the Groovy body.
+6. Cast result and convert outputs to Arrow.
+
+This is the correct model: START/END code runs once outside the loop; the loop is Groovy-side.
+
+### executeJavaRow -- NOT the model (JavaBridge.java lines 185-275)
+
+- Compiles the script once (line 212), caches the CLASS, but creates a FRESH Script instance
+  PER ROW via `scriptClass.getDeclaredConstructor().newInstance()` (line 224).
+- The FOR LOOP is Java-side (lines 221-258). Each row gets a fresh Binding with singular
+  `input_row`/`output_row` variables. Cross-row shared state is IMPOSSIBLE.
+- Does NOT use `compiledScriptClasses` cache.
+- Confirmed NOT the model for executeJavaFlex.
+
+### compiledScriptClasses cache (JavaBridge.java lines 64-92)
+
+- `ConcurrentHashMap<String, CachedTMapMeta>` keyed by componentId.
+- Only populated by `compileTMapScript(...)` (line 562).
+- Only consumed by `executeCompiledTMap(...)` and its alias `executeCompiledTMapChunked(...)`.
+- Neither `executeJavaRow` nor `executeTMapCompiled` reads or writes this cache.
+- Confirmed: tMap-only cache. executeJavaFlex MUST parse fresh (no cache reliance).
+
+### buildArrowRowWrapper / extractTypedValue (JavaBridge.java)
+
+`private RowWrapper buildArrowRowWrapper(VectorSchemaRoot root, int rowIndex, String tableName)` (line 821):
+- Iterates FieldVectors, calls `extractTypedValue` for typed value, stores under plain name
+  and under short name (strips `tableName.` prefix). Calls `wrapper.setInputRow(rowMap)`.
+
+`private static Object extractTypedValue(FieldVector vec, int rowIndex)` (line 780):
+- Null -> null. VarCharVector -> String, BigIntVector -> long, IntVector -> int,
+  Float8Vector -> double, Float4Vector -> float, SmallIntVector -> short, TinyIntVector -> byte,
+  BitVector -> boolean, TimeStampNanoVector -> Date (nanos/1_000_000), DecimalVector/Decimal256Vector -> BigDecimal,
+  else -> raw.toString().
+
+### ArrowSerializer.createOutputRootFromData (ArrowSerializer.java lines 113-151)
+
+Signature: `public static VectorSchemaRoot createOutputRootFromData(
+  BufferAllocator allocator, Map<String, Object[]> data, Map<String, String> schema)`
+
+- Input is COLUMN-ORIENTED: Map of colName -> Object[rowCount].
+- `schema` maps colName -> Python type string (str/int/float/bool/datetime/Decimal/object).
+- Decimal uses precision=38, scale=18 by default.
+- Caller must close the returned root.
+
+### Output RowWrapper -> Arrow (NEW code -- no template)
+
+No existing List<RowWrapper> -> Arrow output path in JavaBridge.java. For executeJavaFlex:
+1. Pre-size N empty RowWrapper objects (1:1 with input rows).
+2. Bind as `List<RowWrapper> output` in the Groovy Binding.
+3. After `run()`: for each wrapper, call `wrapper.getOutputRow().get(colName)` to build
+   per-column `Object[]` arrays.
+4. Call `ArrowSerializer.createOutputRootFromData(allocator, columnData, outputSchema)`.
+
+### Py4J overflow guard (bridge.py lines 39-44)
+
+Constant: `_PY4J_BYTE_ARG_SAFE_LIMIT = 1_500_000_000` (line 44). Raw Arrow cap at 1.5 GB
+keeps Base64-expanded payload (~2.0 GB) below the signed 32-bit int limit (~2.14 GB).
+
+Pattern (execute_java_row, lines 545-595): pre-flight `len(arrow_bytes) > limit` -> halve range;
+runtime `NegativeArraySizeException` or `py4j.Base64` in exception message -> same halve-and-retry;
+single unsplittable row -> re-raise.
+
+For executeJavaFlex (single-call): raise a clear error immediately if
+`len(arrow_bytes) > _PY4J_BYTE_ARG_SAFE_LIMIT` -- do NOT chunk (START state would break).
+
+### Note on executeCompiledTMapChunked
+
+It is a backward-compat alias for `executeCompiledTMap` (JavaBridge.java lines 630-636).
+The Python-side `execute_compiled_tmap_chunked` calls `executeCompiledTMap` on the Java side
+(bridge.py line 972). This has no impact on executeJavaFlex design.
+
 ---
 
 ### Task 1: Script generator `java_flex_script.build_script`
