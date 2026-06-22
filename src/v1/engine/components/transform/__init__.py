@@ -10,6 +10,7 @@ from .extract_positional_fields import ExtractPositionalFields
 from .extract_xml_fields import ExtractXMLField
 from .filter_rows import FilterRows
 from .java_component import JavaComponent
+from .java_flex import JavaFlexComponent
 from .java_row_component import JavaRowComponent
 from .join import Join
 from .log_row import LogRow
@@ -49,6 +50,7 @@ __all__ = [
     'ExtractXMLField',
     'FilterRows',
     'JavaComponent',
+    'JavaFlexComponent',
     'JavaRowComponent',
     'Join',
     'LogRow',

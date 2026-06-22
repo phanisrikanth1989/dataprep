@@ -64,6 +64,9 @@ class ContextManager:
         "java_code",
         "imports",
         "python_code",
+        "code_start",
+        "code_main",
+        "code_end",
     })
 
     # Type converters mapping Talend type IDs and Python type names to actual
