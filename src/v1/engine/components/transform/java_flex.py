@@ -242,6 +242,12 @@ class JavaFlexComponent(CodeComponentMixin, BaseComponent):
             )
 
         # ---- 6. Push engine state into bridge BEFORE call ----
+        # This is the Python->Java half of the sync: it seeds the bridge's
+        # context/global_map dicts so execute_java_flex forwards them into the
+        # Groovy Binding before the script compiles (upstream tSetGlobalVar /
+        # context values must be visible to user code). It is NOT redundant with
+        # _call_java_with_sync, which only pulls Java->Python state BACK after
+        # the run (step 8 reads those values into the engine). Do not remove.
         if self.global_map:
             self.java_bridge.global_map.update(self.global_map._map)
         if self.context_manager:
