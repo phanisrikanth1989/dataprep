@@ -101,6 +101,17 @@ class JavaFlexConverter(ComponentConverter):
             "output": output_schema,
         }
 
+        # ---- 6b. Converter-generated config['output_schema'] for engine ----
+        # The engine JavaFlexComponent derives output_cols / the bridge output
+        # schema from config['output_schema'] (same contract as JavaRowComponent).
+        # Without it the bridge gets an empty output schema and emits zero output
+        # columns. Mirror java_row_component.py:46-51.
+        config["output_schema"] = [
+            {"name": col["name"], "type": col["type"]}
+            for col in output_schema
+            if "name" in col and "type" in col
+        ]
+
         # ---- 7. Build component wrapper ----
         component = self._build_component_dict(
             node=node,

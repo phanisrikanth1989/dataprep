@@ -58,7 +58,7 @@ logger = logging.getLogger(__name__)
 _VALID_PROPAGATE_TIMINGS = frozenset({"before", "after"})
 
 
-@REGISTRY.register("JavaFlex", "tJavaFlex")
+@REGISTRY.register("JavaFlexComponent", "JavaFlex", "tJavaFlex")
 class JavaFlexComponent(CodeComponentMixin, BaseComponent):
     """tJavaFlex engine implementation -- single-scope Groovy execution.
 
