@@ -376,7 +376,7 @@ def test_empty_input_still_runs_start_end(java_bridge):
            "auto_propagate": False, "propagate_timing": "before",
            "input_row_name": "row1", "output_row_name": "row2",
            "output_schema": [{"name": "id", "type": "int"}]}
-    gm = GlobalMap(); comp = _make(cfg, gm=gm); comp.java_bridge = java_bridge.bridge
+    gm = GlobalMap(); comp = _make(cfg, gm=gm); comp.java_bridge = java_bridge
     out = comp._process(pd.DataFrame({"id": []}))
     assert out["main"].empty and gm.get("ran") == "y"
 
