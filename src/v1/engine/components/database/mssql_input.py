@@ -156,7 +156,7 @@ class MSSqlInput(BaseComponent):
         else:
             cols = [c for c in self._trim_column_names() if c in df.columns]
         for col in cols:
-            if df[col].dtype == object:
+            if df[col].dtype == object or pd.api.types.is_string_dtype(df[col].dtype):
                 df[col] = df[col].map(
                     lambda v: v.strip() if isinstance(v, str) else v
                 )

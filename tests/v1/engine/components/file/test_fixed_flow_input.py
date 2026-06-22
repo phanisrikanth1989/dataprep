@@ -210,13 +210,17 @@ class TestIntableMode:
         # intable_data is not read; result is empty
         assert len(df) == 0
 
-    def test_nb_rows_limits_output(self):
+    def test_nb_rows_ignored_in_intable_mode(self):
+        """nb_rows has no effect in intable mode: every intable entry-pair is
+        emitted as a row regardless of nb_rows (Talend parity -- the table
+        contents define the row count)."""
         cfg = dict(self._INTABLE_CONFIG)
         cfg["nb_rows"] = 1
         comp = _make(cfg)
         df = comp.execute(None)["main"]
-        assert len(df) == 1
+        assert len(df) == 2  # both entry-pairs emitted despite nb_rows=1
         assert df.iloc[0]["name"] == "Alice"
+        assert df.iloc[1]["name"] == "Bob"
 
     def test_no_null_padding_beyond_data(self):
         """If intable has fewer rows than nb_rows, no null rows are appended."""

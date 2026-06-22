@@ -234,9 +234,9 @@ class TestE2eFileInputXML:
         def patch(cfg, tp):
             for comp in cfg.get("components", []):
                 if comp.get("type") in ("FileInputXML", "tFileInputXML"):
-                    # Converter writes "filepath"; engine reads "filename" -- bridge the gap
-                    comp["config"]["filename"] = str(xml_file)
-                    comp["config"].pop("filepath", None)
+                    # Converter writes "filepath" and the engine reads "filepath";
+                    # point it at the test XML fixture.
+                    comp["config"]["filepath"] = str(xml_file)
 
         stats = _convert_and_patch_run(
             "Job_tFileInputXML_0.1.item", tmp_path, patch_fn=patch
@@ -383,12 +383,12 @@ class TestE2eXMLMap:
             for comp in cfg.get("components", []):
                 if comp.get("type") in ("FileInputXML", "tFileInputXML"):
                     comp_id = comp.get("id", "")
-                    # Converter writes "filepath"; engine reads "filename" -- bridge the gap
+                    # Converter writes "filepath" and the engine reads "filepath";
+                    # point each input at its test XML fixture.
                     if "2" in comp_id:
-                        comp["config"]["filename"] = str(departments_xml)
+                        comp["config"]["filepath"] = str(departments_xml)
                     else:
-                        comp["config"]["filename"] = str(employees_xml)
-                    comp["config"].pop("filepath", None)
+                        comp["config"]["filepath"] = str(employees_xml)
 
         stats = _convert_and_patch_run(
             "Job_tXMLMap_0.1.item", tmp_path, patch_fn=patch

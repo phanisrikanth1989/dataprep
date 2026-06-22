@@ -293,7 +293,7 @@ class FileInputPositional(BaseComponent):
             # that decode to U+FFFD or other non-printable chars, causing Java
             # bridge failures ("Wrapping \ufffd failed").
             # Replace them with spaces to preserve positional alignment.
-            _NON_PRINTABLE_RE = re.compile(r'[^\x20-\x7E\t\n\r]')
+            _NON_PRINTABLE_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F�]')
 
             string_cols = df.select_dtypes(include=['object']).columns
             for col in string_cols:

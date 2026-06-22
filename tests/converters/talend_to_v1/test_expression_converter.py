@@ -137,35 +137,33 @@ class TestDetectUnaryAndCast:
 
 
 class TestDetectOperatorCarveouts:
-    """Cover lines 95, 103-113: / URL skip, / file-path skip, - negative number
-    skip, - hyphenated identifier skip.
+    """Carve-outs that keep URLs / file paths / negative numbers / hyphenated
+    identifiers from being misdetected as Java expressions.
     """
 
-    def test_http_url_division_carve_out_visited(self):
-        """http://... -> the '/' carve-out at line 95 is visited (URL prefix)
-        even though the value ultimately returns True via the '//' Java-comment
-        rule at line 128. The carve-out itself is the line we want to cover.
+    def test_http_url_not_detected_as_java(self):
+        """http://... is a literal URL, not a Java expression.
+
+        ``_looks_like_file_path`` recognises URL-like locators (http://,
+        https://, ftp://, file://, and protocol-relative //) and short-circuits
+        detection to False so they are not wrapped as ``{{java}}`` markers.
         """
-        # This exercises lines 93-95 (the URL startswith carve-out at the '/'
-        # operator iteration); subsequent rules at 128 still flag the value.
         assert ExpressionConverter.detect_java_expression(
             "http://example.com/path"
-        ) is True
+        ) is False
 
-    def test_https_url_division_carve_out_visited(self):
+    def test_https_url_not_detected_as_java(self):
         assert ExpressionConverter.detect_java_expression(
             "https://example.com/x"
-        ) is True
+        ) is False
 
-    def test_protocol_relative_url_carve_out_visited(self):
-        """'//' is in the URL carve-out list at line 95 -- visited but the
-        value also matches the '//' Java-comment rule at line 128 -> True."""
-        assert ExpressionConverter.detect_java_expression("//cdn/host/x") is True
+    def test_protocol_relative_url_not_detected_as_java(self):
+        """Protocol-relative ``//host/...`` is treated as a literal locator."""
+        assert ExpressionConverter.detect_java_expression("//cdn/host/x") is False
 
-    def test_ftp_url_carve_out_visited(self):
-        """ftp://... is also in the carve-out list at line 95."""
-        # ftp://srv/a contains '//' which trips the Java-comment rule at 128
-        assert ExpressionConverter.detect_java_expression("ftp://srv/a") is True
+    def test_ftp_url_not_detected_as_java(self):
+        """ftp://... is a literal URL, not Java."""
+        assert ExpressionConverter.detect_java_expression("ftp://srv/a") is False
 
     def test_unix_filepath_not_detected(self):
         """/var/log/foo.log -> not Java (line 99)."""

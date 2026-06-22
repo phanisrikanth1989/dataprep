@@ -96,25 +96,26 @@ _DATA_ACTIONS_UPSERT = frozenset({"INSERT_OR_UPDATE", "UPDATE_OR_INSERT"})
 
 def _quote_ident(name: str) -> str:
     """
-    Validate an Oracle identifier and return it ready for SQL emission (T-11-04).
+    Validate an Oracle identifier and return it double-quoted for SQL (T-11-04).
 
-    Validates ``name`` against the Oracle non-quoted identifier pattern
-    (letter start, then letters/digits/_/$/#) and returns it **without**
-    quotes. Oracle stores unquoted identifiers at create time and runtime,
-    which emits identifiers unquoted so Oracle's default lookup rules
-    (auto-uppercase) finds tables / columns that were created with the
-    standard unquoted DDL.
+    Validates ``name`` against the safe identifier pattern (letter start,
+    then letters/digits/_/$/#) and returns it wrapped in double quotes,
+    preserving case. Quoting is required so reserved-word identifiers
+    (``GROUP``, ``ORDER``, ...) and legacy names with ``$`` / ``#`` remain
+    valid in Oracle DDL/DML, and so the emitted name matches the on-disk
+    identifier exactly (e.g. ``"HR"."EMP"``).
 
-    Why no quotes:
-        Oracle treats ``"foo"`` as a case-sensitive literal lookup of
-        lowercase ``foo``. Job configs (and Talend ``context.*`` variables)
-        originated from human-maintained ``.cfg`` files while the actual
-        table on disk is stored uppercase (``CITI_BSER_RUN_DETAILS``)
-        because the DDL was unquoted. Wrapping in quotes therefore caused
-        spurious ORA-00942 failures. Talend never quotes; we now mirror that.
+    Note on case / ORA-00942:
+        Quoted identifiers are case-sensitive in Oracle. A job config whose
+        table-name case does not match the on-disk object (e.g. lowercase
+        ``citi_bser_run_details`` vs. uppercase ``CITI_BSER_RUN_DETAILS``)
+        must be corrected upstream in the job config -- the engine quotes
+        faithfully rather than papering over bad-case data by stripping
+        quotes, which would break reserved-word and special-character
+        identifiers.
 
     Safety:
-        SQL-injection protection is preserved by ``IDENTIFIER_RE`` --
+        SQL-injection protection is preserved by ``_IDENTIFIER_RE`` --
         only ``[A-Za-z][A-Za-z0-9_$#]*`` survives, so semicolons, dashes,
         spaces, embedded quotes, and other metachars still raise
         ``ConfigurationError`` before the identifier is interpolated into
@@ -124,19 +125,19 @@ def _quote_ident(name: str) -> str:
         name: The identifier (column / table / schema name) to validate.
 
     Returns:
-        The validated identifier verbatim (no surrounding quotes).
+        The validated identifier wrapped in double quotes (case preserved).
 
     Raises:
         ConfigurationError: If ``name`` does not match the safe pattern.
     """
-    if not isinstance(name, str) or not IDENTIFIER_RE.match(name):
+    if not isinstance(name, str) or not _IDENTIFIER_RE.match(name):
         raise ConfigurationError(
             f"Invalid Oracle identifier {name!r}. "
             "Must match ^[A-Za-z][A-Za-z0-9_$#]*$ "
             "(letter start, then letters/digits/_/$/#)."
         )
 
-    return name
+    return f'"{name}"'
 
 
 def _column_to_oracle_type(col: Dict[str, Any], use_timestamp_for_date: bool) -> str:
@@ -249,39 +250,30 @@ class OracleOutput(BaseComponent):
     # DDL helpers
     # ------------------------------------------------------------------
 
-    def qualified_table(self) -> str:
+    def _qualified_table(self) -> str:
         """Return the qualified table name for SQL emission (T-11-04).
 
-        Identifiers are validated by ``_quote_ident`` (rejects SQL metachars)
-        and emitted unquoted so Oracle auto-uppercase lookup matches
-        Talend's runtime, which never wraps identifiers in double
-        quotes. This avoids ``ORA-00942`` when a job config carries a
-        lowercase table name (e.g. ``citi_bser_run_details``) while the
-        actual table is stored uppercase (``CITI_BSER_RUN_DETAILS``).
+        Identifiers are validated and double-quoted by ``_quote_ident``
+        (rejects SQL metachars, preserves case, and keeps reserved-word
+        table/schema names valid in Oracle DDL/DML).
+
+        Schema precedence: ``schema_db`` (canonical) then ``dbschema``
+        (legacy alias). The schema is always included when set, regardless
+        of ``use_existing_connection`` -- this mirrors Talend's generated
+        FQN and the engine's pre-refactor behaviour.
 
         Returns:
-            ``<schema>.<table>`` when schema_db is set and
-            ``use_existing_connection`` is False; otherwise ``<table>``.
+            ``"<schema>"."<table>"`` when a schema is set; otherwise
+            ``"<table>"``.
 
         Raises:
-            ConfigurationError: If the table or schema_db identifier fails
+            ConfigurationError: If the table or schema identifier fails
             ``_quote_ident`` validation.
         """
-        
-        # When reusing an upstream connection (use_existing_connection=True),
-        # schema_db is not applicable - Oracle resolves the table against the
-        # connection user's default schema. Talend's generated code leaves
-        # schema blank in this mode, and preserving that behaviour prevents
-        # FQN mismatches when multiple contexts share the same value for both
-        # schema_db and table.
-        use_existing = self.config.get("use_existing_connection", False)
-        table = self._quote_ident(
-            self.config.get("table") or self.config.get("dbschema") or ""
+        schema = (
+            self.config.get("schema_db") or self.config.get("dbschema") or ""
         ).strip()
-        logger.debug(
-            "%s qualified_table: use_existing=%s schema_db=%r table=%r",
-            self.id, use_existing, schema, table
-        )
+        table = (self.config.get("table") or "").strip()
         if schema:
             qualified = f"{_quote_ident(schema)}.{_quote_ident(table)}"
             logger.info("[%s] target table: %s", self.id, qualified)

@@ -1487,7 +1487,7 @@ class TestCoverageLift1408DateFormatter:
 
 @pytest.mark.unit
 class TestCoverageLift1408DecimalFormatter:
-    """Branches inside _apply_decimal_precision."""
+    """Branches inside _format_decimal_columns (schema-iterating decimal formatter)."""
 
     def test_skips_non_dict_schema_entries(self):
         """non-dict schema entry -> continue (392-393)."""
@@ -1495,7 +1495,7 @@ class TestCoverageLift1408DecimalFormatter:
         comp.input_schema = ["not_a_dict",
                              {"name": "amt", "type": "decimal", "precision": 2}]
         df = pd.DataFrame({"amt": [12.345]})
-        out = comp._apply_decimal_precision(df.copy())
+        out = comp._format_decimal_columns(df.copy())
         assert list(out["amt"]) == ["12.35"]
 
     def test_skips_columns_missing_from_dataframe(self):
@@ -1503,27 +1503,29 @@ class TestCoverageLift1408DecimalFormatter:
         comp = _make_component()
         comp.input_schema = [{"name": "missing", "type": "decimal", "precision": 2}]
         df = pd.DataFrame({"present": [1.0]})
-        out = comp._apply_decimal_precision(df.copy())
+        out = comp._format_decimal_columns(df.copy())
         assert "missing" not in out.columns
 
     def test_skips_when_precision_missing_or_negative(self):
-        """precision None / < 0 -> continue (line 401)."""
+        """precision None / < 0 -> natural-precision string (decimal/bigdecimal)."""
         comp = _make_component()
         comp.input_schema = [
             {"name": "a", "type": "decimal"},
             {"name": "b", "type": "decimal", "precision": -1},
         ]
         df = pd.DataFrame({"a": [1.5], "b": [2.5]})
-        out = comp._apply_decimal_precision(df.copy())
-        assert out["a"].iloc[0] == 1.5
-        assert out["b"].iloc[0] == 2.5
+        out = comp._format_decimal_columns(df.copy())
+        # No/negative precision on a decimal column -> Talend natural precision
+        # (trailing zeros stripped via Decimal.normalize), emitted as a string.
+        assert out["a"].iloc[0] == "1.5"
+        assert out["b"].iloc[0] == "2.5"
 
     def test_fmt_handles_none_nan_and_format_fallback(self):
         """_fmt: None / NaN / format / TypeError fallback (405-414)."""
         comp = _make_component()
         comp.input_schema = [{"name": "amt", "type": "decimal", "precision": 2}]
         df = pd.DataFrame({"amt": [None, float("nan"), 12.345, "not_numeric"]})
-        out = comp._apply_decimal_precision(df.copy())
+        out = comp._format_decimal_columns(df.copy())
         vals = list(out["amt"])
         assert vals[0] == ""
         assert vals[1] == ""
