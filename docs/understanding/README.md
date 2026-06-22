@@ -21,6 +21,7 @@ real source. Every high-severity claim here was verified against HEAD, not infer
 | 05 | [Database Layer (Oracle/MSSQL)](05-database-layer.md) | The newest code: Oracle/MSSQL connection managers + all DB components, SQL emission, identifier handling (ORA-00942), transactions, reliability. |
 | 06 | [API, Tooling & Coverage](06-api-tooling-coverage.md) | The HTTP API, Python routines, build/config, and the **95% per-module coverage gate** (how it works, what is in/out of scope). |
 | 07 | [Findings, Risks & Improvements](07-findings-and-risks.md) | The actionable punch-list: all 163 findings prioritized by severity, plus strengths to preserve and open questions. |
+| 08 | [Coverage & Tests (Phase 2)](08-coverage-and-tests.md) | The measured coverage state (gate FAILS, 9 modules below the 95% floor), all 159 failing tests root-caused and classified (code bug vs stale test vs decision), the per-module coverage-gap plan, the test-harness guide, and the **Phase 3 work-list**. |
 
 ## State of the branch (must read)
 
