@@ -303,11 +303,22 @@ public class JavaBridge {
      * @param outputSchema output column types: {colName: pythonTypeString}
      * @param inputSchema  input column types (informational; the actual input
      *                     values come from {@code arrowData} vectors)
+     * @param contextVars   context variables to merge (Python engine values)
+     * @param globalMapVars globalMap variables to merge (Python engine values)
      * @return Arrow IPC bytes containing the output DataFrame
      */
     public byte[] executeJavaFlex(byte[] arrowData, String script,
             Map<String, String> outputSchema,
-            Map<String, String> inputSchema) throws Exception {
+            Map<String, String> inputSchema,
+            Map<String, Object> contextVars,
+            Map<String, Object> globalMapVars) throws Exception {
+
+        // Forward Python->Java state BEFORE building the Binding so the bound
+        // context/globalMap carry upstream values (tSetGlobalVar, context
+        // params, tFileRowCount, etc.). Same exposure as executeJavaRow /
+        // executeTMapCompiled.
+        this.context.putAll(contextVars);
+        this.globalMap.putAll(globalMapVars);
 
         ByteArrayInputStream inputStream = new ByteArrayInputStream(arrowData);
         try (ArrowStreamReader reader = new ArrowStreamReader(inputStream, allocator)) {

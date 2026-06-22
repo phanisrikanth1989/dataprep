@@ -698,6 +698,8 @@ class JavaBridge:
                 script,
                 java_output_schema,
                 java_input_schema,
+                self.context,
+                _coerce_global_map_for_java(self.global_map),
             )
 
         result_bytes = self._call_java_with_sync(_call)

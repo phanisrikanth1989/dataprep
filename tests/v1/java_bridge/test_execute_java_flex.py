@@ -39,3 +39,58 @@ def test_execute_java_flex_empty_input_runs_once(java_bridge):
         df, script=script, output_schema={"id": "int"}, input_schema={"id": "int"})
     assert out.empty and list(out.columns) == ["id"]
     assert java_bridge.global_map.get("ran") == "yes"
+
+
+@pytest.mark.java
+def test_execute_java_flex_forward_syncs_context_and_global_map(java_bridge):
+    """A flex MAIN must read context/globalMap values set by upstream Python.
+
+    Seed bridge state BEFORE the call (as an upstream tSetGlobalVar /
+    context param would) and assert the script sees the forwarded values.
+    """
+    # Seed upstream state the same way other live java tests do.
+    java_bridge.context["upstream_ctx"] = "hi"
+    java_bridge.global_map["upstream_gm"] = 7
+    try:
+        df = pd.DataFrame({"id": [1, 2]})
+        script = (
+            "for (int __i=0; __i<input.size(); __i++){\n"
+            " row1=input.get(__i); row2=output.get(__i);\n"
+            " row2.id=row1.id;\n"
+            " row2.ctx=context.get(\"upstream_ctx\");\n"
+            " row2.gm=globalMap.get(\"upstream_gm\"); }\n"
+        )
+        out = java_bridge.execute_java_flex(
+            df, script=script,
+            output_schema={"id": "int", "ctx": "str", "gm": "int"},
+            input_schema={"id": "int"},
+        )
+        assert list(out["id"]) == [1, 2]
+        assert list(out["ctx"]) == ["hi", "hi"]      # forwarded context.*
+        assert list(out["gm"]) == [7, 7]             # forwarded globalMap value
+    finally:
+        java_bridge.context.pop("upstream_ctx", None)
+        java_bridge.global_map.pop("upstream_gm", None)
+
+
+@pytest.mark.java
+def test_execute_java_flex_output_only_column(java_bridge):
+    """An output_schema column absent from the input is emitted from MAIN.
+
+    Input has only ``id``; MAIN propagates ``id`` and sets ``status`` (an
+    output-only column). The output must carry both.
+    """
+    df = pd.DataFrame({"id": [10, 20]})
+    script = (
+        "for (int __i=0; __i<input.size(); __i++){\n"
+        " row1=input.get(__i); row2=output.get(__i);\n"
+        " row2.id=row1.id;\n"
+        " row2.status=\"OK\"; }\n"
+    )
+    out = java_bridge.execute_java_flex(
+        df, script=script,
+        output_schema={"id": "int", "status": "str"},
+        input_schema={"id": "int"},
+    )
+    assert list(out["id"]) == [10, 20]               # input propagated
+    assert list(out["status"]) == ["OK", "OK"]       # output-only column set
