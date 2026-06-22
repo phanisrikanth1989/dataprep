@@ -222,7 +222,7 @@ class ETLEngine:
                     trigger['type'],
                     comp_id,
                     trigger.get('target_component') or trigger.get('to'),
-                    trigger.get('condition')
+                    trigger.get('condition'),
                     output_id=int(trigger.get('output_id', 0) or 0),
                 )
 

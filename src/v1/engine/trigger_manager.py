@@ -139,26 +139,26 @@ class TriggerManager:
     # Registration
     # ------------------------------------------------------------------
 
-def add_trigger(self, trigger_type: str, from_component: str,
-                to_component: str, condition: Optional[str] = None,
-                output_id: int = 0) -> None:
-    """
-    Add a trigger to the manager.
-    Args:
-        trigger_type: One of the TriggerType values (e.g. "OnSubjobOk").
-        from_component: Source component ID.
-        to_component: Target component ID to trigger.
-        condition: Optional condition expression (for RunIf triggers).
-        output_id: Talend Studio visual fan-out order from the XML
-            ``<connection outputId="N">`` attribute. Within a single
-            source's trigger group, triggers fire in ascending
-            ``output_id`` order (see ``get_triggered_components``).
-            Default 0 keeps single-trigger sources and data-flow
-            connections sorting first.
-    """
-    trigger = Trigger(trigger_type, from_component, to_component, condition, output_id)
-    self.triggers.append(trigger)
-    logger.debug(f"Added trigger: {trigger} (output_id={output_id})")
+    def add_trigger(self, trigger_type: str, from_component: str,
+                    to_component: str, condition: Optional[str] = None,
+                    output_id: int = 0) -> None:
+        """
+        Add a trigger to the manager.
+        Args:
+            trigger_type: One of the TriggerType values (e.g. "OnSubjobOk").
+            from_component: Source component ID.
+            to_component: Target component ID to trigger.
+            condition: Optional condition expression (for RunIf triggers).
+            output_id: Talend Studio visual fan-out order from the XML
+                ``<connection outputId="N">`` attribute. Within a single
+                source's trigger group, triggers fire in ascending
+                ``output_id`` order (see ``get_triggered_components``).
+                Default 0 keeps single-trigger sources and data-flow
+                connections sorting first.
+        """
+        trigger = Trigger(trigger_type, from_component, to_component, condition, output_id)
+        self.triggers.append(trigger)
+        logger.debug(f"Added trigger: {trigger} (output_id={output_id})")
 
     def register_subjob(self, subjob_id: str, component_ids: List[str]) -> None:
         """Register a subjob and its member components.
