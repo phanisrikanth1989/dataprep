@@ -584,6 +584,7 @@ class FileOutputDelimited(BaseComponent):
         row_separator: str,
         text_enclosure: str,
         escape_char: str,
+        append: bool = False,
         input_data: Optional[pd.DataFrame] = None,
     ) -> None:
         """Handle empty or None input data.

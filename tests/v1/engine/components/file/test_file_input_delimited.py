@@ -121,6 +121,21 @@ class TestDefaults:
         comp = _make_component(config=config)
         result = comp.execute(None)
         assert len(result["main"]) == 1
+        # The non-printable scrubber must NOT mangle valid Latin-1/ISO-8859-15
+        # data: the Euro sign is printable text and must survive verbatim.
+        assert result["main"].iloc[0]["name"] == "\u20ac"
+
+    def test_control_bytes_scrubbed_latin1_preserved(self, tmp_path):
+        # A C0 control byte (0x01) must be scrubbed to a space, while a valid
+        # accented Latin-1 char (e-acute) in the same field is preserved.
+        filepath = _write_file(
+            tmp_path, "ctrl.csv", "1;A\x01\u00e9;10.5\n", encoding="iso-8859-15"
+        )
+        config = {**_DEFAULT_CONFIG, "filepath": filepath}
+        comp = _make_component(config=config)
+        result = comp.execute(None)
+        assert len(result["main"]) == 1
+        assert result["main"].iloc[0]["name"] == "A \u00e9"
 
     def test_default_header_rows_is_zero(self, tmp_path):
         filepath = _write_file(tmp_path, "hdr.csv", "1;Alice;10.5\n2;Bob;20.0\n")

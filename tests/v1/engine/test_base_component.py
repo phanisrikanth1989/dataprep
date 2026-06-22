@@ -1449,13 +1449,13 @@ class TestEmptyVsNull:
 
 @pytest.mark.unit
 class TestValidateSchemaLengthZero:
-    """validate_schema must NOT truncate string columns when schema length=0.
+    """validate_schema treats string ``length`` as informational metadata and
+    never truncates string columns -- matching Talend, where ``length`` drives
+    schema display / code generation only and is never enforced at runtime.
 
-    Bug fixed: length=0 is Talend's default for auto-generated columns such
-    as pivot_key and pivot_value from tUnpivotRow.  The old code ran
-    ``v[:col_length]`` which evaluates as ``v[:0] == ''``, silently emptying
-    every string value in the column.  The fix adds an ``if col_length > 0:``
-    guard so that length=0 is treated as "unbounded".
+    length=0 in particular is Talend's default for auto-generated columns such
+    as pivot_key / pivot_value from tUnpivotRow; positive lengths are likewise
+    not enforced (a value longer than ``length`` is left unchanged).
     """
 
     def test_length_zero_leaves_values_unchanged(self):
@@ -1481,15 +1481,15 @@ class TestValidateSchemaLengthZero:
             "length=0 produced empty strings — the guard fix is not applied"
         )
 
-    def test_positive_length_still_truncates(self):
-        """Positive length still truncates values that exceed it (no regression)."""
+    def test_positive_length_does_not_truncate(self):
+        """Positive length is informational only -- values are NOT truncated."""
         df = pd.DataFrame({"col": ["hello_world", "hi", "toolongstring"]})
         schema = [{"name": "col", "type": "str", "nullable": True, "length": 5}]
         comp = ConcreteComponent("c1", {})
         result = comp.validate_schema(df, schema)
-        assert result["col"].iloc[0] == "hello",  "'hello_world'[:5] should be 'hello'"
-        assert result["col"].iloc[1] == "hi",     "'hi' is under limit, must be unchanged"
-        assert result["col"].iloc[2] == "toolon"[:5], "'toolongstring'[:5] should be 'toolo'"
+        assert result["col"].iloc[0] == "hello_world", "length is informational; no truncation"
+        assert result["col"].iloc[1] == "hi", "value under limit is unchanged"
+        assert result["col"].iloc[2] == "toolongstring", "value over limit must be unchanged"
 
     def test_length_none_no_truncation(self):
         """Missing 'length' key means no truncation is applied."""

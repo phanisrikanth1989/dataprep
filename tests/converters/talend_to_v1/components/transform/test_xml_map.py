@@ -836,3 +836,329 @@ class TestConverterRawXmlEdges:
         assert any("nodeData element not found" in w for w in warnings), (
             f"Expected 'nodeData element not found' warning; got {warnings}"
         )
+
+
+# ==================================================================
+# Coverage lift: _extract_loop_nodes, _rewrite outside-loop relative,
+# _build_expression_contexts_multi, and the multi-loop converter dispatch.
+# ==================================================================
+
+
+class TestExtractLoopNodes:
+    """Cover _extract_loop_nodes EMF-path parsing branches."""
+
+    def _extract(self):
+        from src.converters.talend_to_v1.components.transform.xml_map import (
+            _extract_loop_nodes,
+        )
+        return _extract_loop_nodes
+
+    def test_raw_xml_none_returns_empty(self):
+        """raw_xml=None -> early return []."""
+        extract = self._extract()
+        assert extract(None, {}) == []
+
+    def test_blank_inputloopnodes_skipped(self):
+        """An inputLoopNodesTables with blank inputloopnodes attr is skipped."""
+        extract = self._extract()
+        raw_xml = ET.fromstring(
+            '<node>'
+            '  <outputTrees name="out1">'
+            '    <inputLoopNodesTables inputloopnodes="   " />'
+            '  </outputTrees>'
+            '</node>'
+        )
+        assert extract(raw_xml, {}) == []
+
+    def test_no_path_parts_in_emf_path_skipped(self):
+        """An EMF path with no @inputTrees/@nodes/@children tokens is skipped."""
+        extract = self._extract()
+        raw_xml = ET.fromstring(
+            '<node>'
+            '  <outputTrees name="out1">'
+            '    <inputLoopNodesTables inputloopnodes="//@garbage/@noindex" />'
+            '  </outputTrees>'
+            '</node>'
+        )
+        assert extract(raw_xml, {}) == []
+
+    def test_emf_path_resolves_to_loop_name(self):
+        """A resolvable EMF path -> the corresponding node name in loop_nodes."""
+        extract = self._extract()
+        raw_xml = ET.fromstring(
+            '<node>'
+            '  <outputTrees name="out1">'
+            '    <inputLoopNodesTables '
+            '       inputloopnodes="//@node.0/@nodeData/@inputTrees.0/@nodes.0/@children.0" />'
+            '  </outputTrees>'
+            '</node>'
+        )
+        node_map = {
+            "inputTrees.0/@nodes.0": ("doc", "ELEMENT", {}),
+            "inputTrees.0/@nodes.0/@children.0": ("item", "ELEMENT", {}),
+        }
+        assert extract(raw_xml, node_map) == ["item"]
+
+    def test_emf_path_nonzero_inputtrees_prefix(self):
+        """An @inputTrees.1 token overrides the default tree prefix (lines 254-255)."""
+        extract = self._extract()
+        raw_xml = ET.fromstring(
+            '<node>'
+            '  <outputTrees name="out1">'
+            '    <inputLoopNodesTables '
+            '       inputloopnodes="//@nodeData/@inputTrees.1/@nodes.0/@children.0" />'
+            '  </outputTrees>'
+            '</node>'
+        )
+        node_map = {
+            "inputTrees.1/@nodes.0/@children.0": ("lookup_item", "ELEMENT", {}),
+        }
+        assert extract(raw_xml, node_map) == ["lookup_item"]
+
+    def test_duplicate_loop_names_deduped(self):
+        """The same loop name appearing twice is only added once."""
+        extract = self._extract()
+        emf = "//@nodeData/@inputTrees.0/@nodes.0/@children.0"
+        raw_xml = ET.fromstring(
+            '<node>'
+            '  <outputTrees name="out1">'
+            f'    <inputLoopNodesTables inputloopnodes="{emf} {emf}" />'
+            '  </outputTrees>'
+            '</node>'
+        )
+        node_map = {
+            "inputTrees.0/@nodes.0/@children.0": ("item", "ELEMENT", {}),
+        }
+        assert extract(raw_xml, node_map) == ["item"]
+
+    def test_unresolvable_emf_path_yields_no_name(self):
+        """An EMF path whose full_path is not in the node_map adds no name."""
+        extract = self._extract()
+        raw_xml = ET.fromstring(
+            '<node>'
+            '  <outputTrees name="out1">'
+            '    <inputLoopNodesTables '
+            '       inputloopnodes="//@nodeData/@inputTrees.0/@nodes.9/@children.9" />'
+            '  </outputTrees>'
+            '</node>'
+        )
+        node_map = {
+            "inputTrees.0/@nodes.0/@children.0": ("item", "ELEMENT", {}),
+        }
+        assert extract(raw_xml, node_map) == []
+
+
+class TestRewriteOutsideLoopRelative:
+    """Cover the elif loop_full_parts branch (relative ../ traversal)."""
+
+    def _rewrite(self):
+        from src.converters.talend_to_v1.components.transform.xml_map import (
+            _rewrite_expressions_for_loop,
+        )
+        return _rewrite_expressions_for_loop
+
+    def test_outside_loop_uses_relative_up_traversal(self):
+        """A field outside the loop is rewritten with ../ once loop path is known."""
+        rewrite = self._rewrite()
+        # An inside-loop expression lets the function infer the loop's full path:
+        #   loop_full_parts = ['company', 'employee'] (loop_name='employee').
+        # The outside field './company/name' shares the 'company' prefix, so it
+        # navigates up one level (employee -> company) then to 'name': '../name'.
+        exprs = {
+            "emp_id": "./company/employee/id",   # inside loop
+            "company_name": "./company/name",    # outside loop
+        }
+        result = rewrite(exprs, "employee")
+        assert result["emp_id"] == "./id"
+        assert result["company_name"] == "./../name"
+
+    def test_outside_loop_no_common_prefix(self):
+        """Outside field sharing no prefix climbs all loop levels then descends."""
+        rewrite = self._rewrite()
+        exprs = {
+            "emp_id": "./company/employee/id",   # inside loop; loop path len 2
+            "other": "./root/other",             # no shared prefix
+        }
+        result = rewrite(exprs, "employee")
+        # levels_up = 2 (whole loop path), down_parts = ['root','other']
+        assert result["other"] == "./../../root/other"
+
+
+class TestBuildExpressionContextsMulti:
+    """Cover _build_expression_contexts_multi (multi-loop XPath rewrite)."""
+
+    def _build(self):
+        from src.converters.talend_to_v1.components.transform.xml_map import (
+            _build_expression_contexts_multi,
+        )
+        return _build_expression_contexts_multi
+
+    def test_no_loop_nodes_returns_inputs_and_empty_contexts(self):
+        """Empty loop_nodes -> (expressions_raw, {}) early return (line 430-431)."""
+        build = self._build()
+        exprs = {"a": "./x/y"}
+        rewritten, contexts = build(exprs, [])
+        assert rewritten == exprs
+        assert contexts == {}
+
+    def test_field_in_deepest_loop(self):
+        """A field under the deepest loop axis is rewritten relative to that loop."""
+        build = self._build()
+        # loop_nodes primary='employee', secondary='address'.
+        # Field path contains both; deepest match is 'address' (higher index).
+        exprs = {
+            "city": "./company/employee/addresses/address/city",
+        }
+        rewritten, contexts = build(exprs, ["employee", "address"])
+        assert rewritten["city"] == "./city"
+        assert contexts["city"] == "address"
+
+    def test_field_in_primary_loop_only(self):
+        """A field under only the primary loop is owned by that loop."""
+        build = self._build()
+        exprs = {
+            "emp_id": "./company/employee/id",
+        }
+        rewritten, contexts = build(exprs, ["employee", "address"])
+        assert rewritten["emp_id"] == "./id"
+        assert contexts["emp_id"] == "employee"
+
+    def test_field_inside_loop_is_loop_itself(self):
+        """A field whose last part IS the loop element -> '.' (no remaining parts)."""
+        build = self._build()
+        exprs = {
+            "addr": "./company/employee/address",
+        }
+        rewritten, contexts = build(exprs, ["employee", "address"])
+        assert rewritten["addr"] == "."
+        assert contexts["addr"] == "address"
+
+    def test_field_outside_all_loops_relative_to_primary(self):
+        """A field outside all loops uses the primary loop context with ../ paths."""
+        build = self._build()
+        exprs = {
+            "emp_id": "./company/employee/id",   # establishes primary path
+            "co_name": "./company/name",         # outside all loops
+        }
+        rewritten, contexts = build(exprs, ["employee", "address"])
+        # primary_full_path = ['company','employee']; co_name shares 'company'
+        # -> up 1 (employee), down to 'name': '../name'
+        assert rewritten["co_name"] == "./../name"
+        assert contexts["co_name"] == "employee"
+
+    def test_field_outside_all_loops_no_primary_path(self):
+        """Outside field with no inferable primary path -> kept as ./<parts>."""
+        build = self._build()
+        # No expression contains 'employee' or 'address', so loop_node_full_paths
+        # stays empty -> primary_full_path = [] -> else branch keeps absolute parts.
+        exprs = {
+            "lonely": "./root/value",
+        }
+        rewritten, contexts = build(exprs, ["employee", "address"])
+        assert rewritten["lonely"] == "./root/value"
+        assert contexts["lonely"] == "employee"
+
+    def test_empty_xpath_passthrough(self):
+        """An empty xpath value passes through, owned by the primary loop."""
+        build = self._build()
+        exprs = {"blank": ""}
+        rewritten, contexts = build(exprs, ["employee", "address"])
+        assert rewritten["blank"] == ""
+        assert contexts["blank"] == "employee"
+
+
+class TestConverterMultiLoopDispatch:
+    """Cover the converter's multi-loop dispatch (loop_nodes[0] and multi rewrite)."""
+
+    def _multi_loop_raw_xml(self):
+        """Build a tXMLMap raw_xml with two loop axes via inputLoopNodesTables.
+
+        The input tree has nested 'item' and 'detail' loop elements; the
+        inputLoopNodesTables list references both, so _extract_loop_nodes
+        returns two names, triggering the multi-loop branch.
+        """
+        input_tree = (
+            '<inputTrees name="row1" matchingMode="ALL_ROWS" lookupMode="LOAD_ONCE" lookup="false">'
+            '  <nodes name="doc" expression="row1.payload" type="id_Document" xpath="/">'
+            '    <children name="root" type="id_String" xpath="root" nodeType="ELEMENT" loop="false">'
+            '      <children name="item" type="id_String" xpath="item" nodeType="ELEMENT" loop="true">'
+            '        <children name="iid" type="id_String" xpath="iid" nodeType="ELEMENT" loop="false" />'
+            '        <children name="detail" type="id_String" xpath="detail" nodeType="ELEMENT" loop="true">'
+            '          <children name="did" type="id_String" xpath="did" nodeType="ELEMENT" loop="false" />'
+            '        </children>'
+            '      </children>'
+            '    </children>'
+            '  </nodes>'
+            '</inputTrees>'
+        )
+        # Connections: out col 0 (iid) <- item/iid; out col 1 (did) <- item/detail/did
+        connections = (
+            '<connections '
+            ' source="inputTrees.0/@nodes.0/@children.0/@children.0/@children.0" '
+            ' target="outputTrees.0/@nodes.0" sourceExpression="" />'
+            '<connections '
+            ' source="inputTrees.0/@nodes.0/@children.0/@children.0/@children.1/@children.0" '
+            ' target="outputTrees.0/@nodes.1" sourceExpression="" />'
+        )
+        metadata = (
+            '<metadata connector="FLOW" name="out1">'
+            '  <column name="iid" type="id_String" nullable="true" key="false" length="50" precision="-1" />'
+            '  <column name="did" type="id_String" nullable="true" key="false" length="50" precision="-1" />'
+            '</metadata>'
+        )
+        # outputTrees must contain the inputLoopNodesTables referencing both loops.
+        output_trees = (
+            '<outputTrees name="out1">'
+            '  <nodes name="iid" expression="" type="id_String" xpath="iid" />'
+            '  <nodes name="did" expression="" type="id_String" xpath="did" />'
+            '  <inputLoopNodesTables '
+            '     inputloopnodes="//@nodeData/@inputTrees.0/@nodes.0/@children.0/@children.0 '
+            '//@nodeData/@inputTrees.0/@nodes.0/@children.0/@children.0/@children.1" />'
+            '</outputTrees>'
+        )
+        return _make_raw_xml(
+            input_trees_xml=input_tree,
+            output_trees_xml=output_trees,
+            connections_xml=connections,
+            metadata_xml=metadata,
+        )
+
+    def test_multi_loop_sets_loop_nodes_and_contexts(self):
+        """Two loop axes -> loop_nodes has 2 entries, looping_element=loop_nodes[0],
+        and _build_expression_contexts_multi runs (expression_contexts populated)."""
+        raw_xml = self._multi_loop_raw_xml()
+        result = _convert(raw_xml=raw_xml)
+        cfg = result.component["config"]
+
+        assert cfg["loop_nodes"] == ["item", "detail"]
+        assert cfg["looping_element"] == "item"
+        # Multi-loop branch populates per-column contexts.
+        assert cfg["expression_contexts"]
+        assert set(cfg["expression_contexts"].values()) <= {"item", "detail"}
+        # iid is inside 'item'; did is inside the deeper 'detail' loop.
+        assert cfg["expression_contexts"]["iid"] == "item"
+        assert cfg["expression_contexts"]["did"] == "detail"
+
+    def test_single_loop_node_from_extract_uses_index_zero(self):
+        """A single resolved loop node -> looping_element=loop_nodes[0] (line 629)
+        and the single-loop rewrite path (len==1, not multi)."""
+        input_tree = _SIMPLE_INPUT_TREE
+        output_trees = (
+            '<outputTrees name="out1">'
+            '  <nodes name="id" expression="" type="id_String" xpath="id" />'
+            '  <inputLoopNodesTables '
+            '     inputloopnodes="//@nodeData/@inputTrees.0/@nodes.0/@children.0/@children.0" />'
+            '</outputTrees>'
+        )
+        raw_xml = _make_raw_xml(
+            input_trees_xml=input_tree,
+            output_trees_xml=output_trees,
+            connections_xml=_SIMPLE_CONNECTIONS,
+            metadata_xml=_SIMPLE_METADATA,
+        )
+        result = _convert(raw_xml=raw_xml)
+        cfg = result.component["config"]
+        assert cfg["loop_nodes"] == ["item"]
+        assert cfg["looping_element"] == "item"
+        # Single-loop: expression_contexts stays empty (multi branch not taken).
+        assert cfg["expression_contexts"] == {}

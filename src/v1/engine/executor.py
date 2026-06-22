@@ -410,6 +410,22 @@ class Executor:
         iter_component._iterate_depth = self._current_iterate_depth + 1
         self._current_iterate_depth += 1
 
+        # D-C2/D-D4: subjobs reached via THIS iterate source's own subjob-level
+        # OnSubjobOk/OnSubjobError must fire exactly ONCE after the loop (handled
+        # by the caller's _collect_triggered_subjobs), not per-iteration. The last
+        # body component completing makes get_triggered_components surface them, so
+        # we exclude those targets from the mid-loop drain below -- running them
+        # early would execute downstream consumers (e.g. a reject sink) before
+        # later iterations and make clear_partial_subjob_flows discard body reject
+        # flows before they are accumulated. Per-iteration RunIf / OnComponentOk
+        # targets fired by body components are NOT deferred.
+        iter_source_subjob = self.execution_plan.component_to_subjob.get(cid)
+        deferred_post_loop_subjobs: set[str] = set()
+        if iter_source_subjob is not None:
+            for edge in self.execution_plan.get_all_trigger_edges_from_subjob(iter_source_subjob):
+                if edge.to_subjob is not None and edge.trigger_type in ("OnSubjobOk", "OnSubjobError"):
+                    deferred_post_loop_subjobs.add(edge.to_subjob)
+
         try:
             total_hint = iter_component.total_iterations
             # D-H1: iterate-start log
@@ -549,11 +565,22 @@ class Executor:
                     body_component_set, self.executed_components
                 )
 
-                # Run any subjobs triggered during this iteration before moving to the next item.
+                # Run subjobs triggered during this iteration before the next item,
+                # but DEFER the iterate source's own OnSubjobOk/OnSubjobError targets
+                # (D-C2: they fire once after the loop). Per-iteration RunIf /
+                # OnComponentOk targets fired by body components run now.
                 if self._component_triggered_subjobs:
-                    pending_subjobs = deque(self._component_triggered_subjobs)
-                    self._component_triggered_subjobs = []
-                    self._drain_pending_subjobs(pending_subjobs)
+                    to_run = [
+                        sj for sj in self._component_triggered_subjobs
+                        if sj not in deferred_post_loop_subjobs
+                    ]
+                    deferred = [
+                        sj for sj in self._component_triggered_subjobs
+                        if sj in deferred_post_loop_subjobs
+                    ]
+                    self._component_triggered_subjobs = list(dict.fromkeys(deferred))
+                    if to_run:
+                        self._drain_pending_subjobs(deque(to_run))
 
                 # Check for tDie termination
                 if self._job_terminated:

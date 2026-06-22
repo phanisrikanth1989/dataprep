@@ -301,9 +301,11 @@ class TestSchema:
     """Verify schema extraction."""
 
     def test_schema_empty(self):
-        """tMap uses empty schema -- multi-flow drives routing."""
+        """tMap emits per-input-flow schemas under ``schema.inputs`` so the
+        Java bridge boundary check can resolve each flow. A default node with a
+        single empty ``row1`` input flow yields ``{'inputs': {'row1': []}}``."""
         result = _convert()
-        assert result.component["schema"] == {}
+        assert result.component["schema"] == {"inputs": {"row1": []}}
 
 
 # ------------------------------------------------------------------

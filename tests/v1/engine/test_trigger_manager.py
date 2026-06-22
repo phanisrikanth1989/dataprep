@@ -3,9 +3,11 @@
 Covers: ENG-06 (operator corruption), ENG-10 (OnSubjobOk timing),
 NEW-04 (sandboxed eval), NEW-05 (cast types), trigger routing.
 """
+import numpy as np
 import pytest
 from src.v1.engine.trigger_manager import TriggerManager, TriggerType, Trigger
 from src.v1.engine.global_map import GlobalMap
+from src.v1.engine.context_manager import ContextManager
 from src.v1.engine.exceptions import TriggerEvaluationError
 
 
@@ -866,3 +868,122 @@ class TestResolveCastsValueErrorFloat:
         gm.put("k", "not-a-float")
         out = tm._resolve_casts('((Float)globalMap.get("k"))')
         assert out == "0"
+
+
+# ---------------------------------------------------------------------------
+# 13. _to_python_scalar numpy .item() path (lines 63-66)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestToPythonScalarNumpy:
+    """numpy scalars stored in globalMap are coerced via .item() so repr()
+    produces an eval-safe literal (numpy>=2.0 repr is 'np.int64(7)')."""
+
+    def test_numpy_int_scalar_resolves_to_native_literal(self):
+        """A np.int64 globalMap value is converted to a plain int literal."""
+        tm, gm = _make_tm()
+        gm.put("count", np.int64(7))
+        # Without _to_python_scalar, repr(np.int64(7)) leaks 'np.int64(7)'
+        # and eval() would raise (np not in scope). It must compare cleanly.
+        assert tm._evaluate_condition('globalMap.get("count") == 7') is True
+
+    def test_numpy_float_scalar_in_comparison(self):
+        """A np.float64 globalMap value evaluates correctly in a comparison."""
+        tm, gm = _make_tm()
+        gm.put("rate", np.float64(3.5))
+        assert tm._evaluate_condition('globalMap.get("rate") > 3.0') is True
+
+    def test_numpy_bool_scalar_truthy(self):
+        """A np.bool_ globalMap value is coerced to a native bool literal."""
+        tm, gm = _make_tm()
+        gm.put("flag", np.bool_(True))
+        assert tm._evaluate_condition('globalMap.get("flag")') is True
+
+    def test_item_raising_falls_back_to_original_value(self):
+        """A value with an .item attribute that raises on call falls into the
+        except branch and is returned unchanged (lines 65-66)."""
+        class HasFailingItem:
+            def item(self):
+                raise ValueError("not a real numpy scalar")
+
+            def __repr__(self):
+                return "42"  # an eval-safe literal so the pipeline still runs
+
+        tm, gm = _make_tm()
+        gm._map["weird"] = HasFailingItem()
+        # _to_python_scalar tries .item() (raises ValueError) -> returns the
+        # original object; repr() yields "42" so the comparison evaluates.
+        assert tm._evaluate_condition('globalMap.get("weird") == 42') is True
+
+
+# ---------------------------------------------------------------------------
+# 14. _resolve_context_refs context placeholder resolution (lines 394-413)
+# ---------------------------------------------------------------------------
+
+
+def _make_tm_with_ctx(context_vars):
+    """Build a TriggerManager wired to a ContextManager seeded with vars."""
+    gm = GlobalMap()
+    cm = ContextManager()
+    for name, value in context_vars.items():
+        cm.set(name, value)
+    return TriggerManager(global_map=gm, context_manager=cm), gm, cm
+
+
+@pytest.mark.unit
+class TestResolveContextRefs:
+    """${context.X} and bare context.X are replaced with repr() literals when
+    the var is defined; left untouched when context_manager is None or the
+    var is undefined."""
+
+    def test_no_context_manager_returns_condition_unchanged(self):
+        """With context_manager=None the placeholder is returned verbatim."""
+        tm, gm = _make_tm()  # context_manager defaults to None
+        cond = '"Y" == ${context.FLAG}'
+        assert tm._resolve_context_refs(cond) == cond
+
+    def test_dollar_brace_defined_substitutes_repr(self):
+        """${context.X} for a defined var is replaced with repr(value)."""
+        tm, gm, cm = _make_tm_with_ctx({"FLAG": "Y"})
+        out = tm._resolve_context_refs('"Y" == ${context.FLAG}')
+        assert out == '"Y" == \'Y\''
+
+    def test_dollar_brace_undefined_left_in_place(self):
+        """${context.X} for an undefined var is left untouched (sentinel path)."""
+        tm, gm, cm = _make_tm_with_ctx({"OTHER": "Z"})
+        out = tm._resolve_context_refs('"Y" == ${context.MISSING}')
+        assert "${context.MISSING}" in out
+
+    def test_bare_context_defined_substitutes_repr(self):
+        """Bare context.X for a defined var is replaced with repr(value)."""
+        tm, gm, cm = _make_tm_with_ctx({"COUNT": 5})
+        out = tm._resolve_context_refs('context.COUNT > 0')
+        assert out == '5 > 0'
+
+    def test_bare_context_undefined_left_in_place(self):
+        """Bare context.X for an undefined var is left untouched."""
+        tm, gm, cm = _make_tm_with_ctx({"OTHER": "Z"})
+        out = tm._resolve_context_refs('context.MISSING > 0')
+        assert "context.MISSING" in out
+
+    def test_dollar_brace_numpy_value_coerced(self):
+        """${context.X} holding a numpy scalar is coerced to a native literal."""
+        tm, gm, cm = _make_tm_with_ctx({"N": np.int64(3)})
+        out = tm._resolve_context_refs('${context.N} == 3')
+        assert out == '3 == 3'
+
+    def test_runif_resolves_context_ref_end_to_end(self):
+        """RunIf condition using ${context.X} evaluates True through the
+        full _evaluate_condition pipeline."""
+        gm = GlobalMap()
+        cm = ContextManager()
+        cm.set("OUTPUT_OK_FILE_FLG", "Y")
+        tm = TriggerManager(global_map=gm, context_manager=cm)
+        tm.add_trigger(
+            "RunIf", "comp_a", "comp_b",
+            condition='"Y" == ${context.OUTPUT_OK_FILE_FLG}',
+        )
+        tm.set_component_status("comp_a", "ok")
+        triggered = tm.get_triggered_components("comp_a")
+        assert "comp_b" in triggered

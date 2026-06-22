@@ -1278,7 +1278,7 @@ class TestFileInputXmlLimitInvalid:
         xml_file = tmp_path / "in.xml"
         xml_file.write_text(_FI_XML_SIMPLE, encoding="utf-8")
         comp = _fi_xml_comp({
-            "filename": str(xml_file),
+            "filepath": str(xml_file),
             "loop_query": "//bill",
             "mapping": [{"column": "amount", "xpath": "amount"}],
             "limit": "not_a_number",
@@ -1296,7 +1296,7 @@ class TestFileInputXmlParseErrorDieOnError:
         bad = tmp_path / "bad.xml"
         bad.write_text("<<<not xml", encoding="utf-8")
         comp = _fi_xml_comp({
-            "filename": str(bad),
+            "filepath": str(bad),
             "loop_query": "//item",
             "mapping": [{"column": "val", "xpath": "val"}],
             "die_on_error": True,
@@ -1309,7 +1309,7 @@ class TestFileInputXmlParseErrorDieOnError:
         bad = tmp_path / "bad.xml"
         bad.write_text("<<<not xml", encoding="utf-8")
         comp = _fi_xml_comp({
-            "filename": str(bad),
+            "filepath": str(bad),
             "loop_query": "//item",
             "mapping": [{"column": "val", "xpath": "val"}],
             "die_on_error": False,
@@ -1327,7 +1327,7 @@ class TestFileInputXmlXpathError:
         xml_file = tmp_path / "valid.xml"
         xml_file.write_text(_FI_XML_SIMPLE, encoding="utf-8")
         comp = _fi_xml_comp({
-            "filename": str(xml_file),
+            "filepath": str(xml_file),
             "loop_query": "invalid[[[",
             "mapping": [{"column": "amount", "xpath": "amount"}],
             "die_on_error": True,
@@ -1340,7 +1340,7 @@ class TestFileInputXmlXpathError:
         xml_file = tmp_path / "valid.xml"
         xml_file.write_text(_FI_XML_SIMPLE, encoding="utf-8")
         comp = _fi_xml_comp({
-            "filename": str(xml_file),
+            "filepath": str(xml_file),
             "loop_query": "invalid[[[",
             "mapping": [{"column": "amount", "xpath": "amount"}],
             "die_on_error": False,
@@ -1356,7 +1356,7 @@ class TestFileInputXmlFileNotFound:
     def test_file_not_found_die_on_error_true_raises(self):
         """Lines 141-143: missing file + die_on_error=True -> FileOperationError."""
         comp = _fi_xml_comp({
-            "filename": "/nonexistent/path/to/missing.xml",
+            "filepath": "/nonexistent/path/to/missing.xml",
             "loop_query": "//item",
             "mapping": [{"column": "val", "xpath": "val"}],
             "die_on_error": True,
@@ -1367,7 +1367,7 @@ class TestFileInputXmlFileNotFound:
     def test_file_not_found_die_on_error_false_returns_reject(self):
         """Lines 144-146: missing file + die_on_error=False -> reject row."""
         comp = _fi_xml_comp({
-            "filename": "/nonexistent/path/to/missing.xml",
+            "filepath": "/nonexistent/path/to/missing.xml",
             "loop_query": "//item",
             "mapping": [{"column": "val", "xpath": "val"}],
             "die_on_error": False,
@@ -1391,7 +1391,7 @@ class TestFileInputXmlNormalizeLoopQueryIgnoreNs:
         xml_file = tmp_path / "ns.xml"
         xml_file.write_text(ns_xml, encoding="utf-8")
         comp = _fi_xml_comp({
-            "filename": str(xml_file),
+            "filepath": str(xml_file),
             "loop_query": "/ns:bills/ns:bill",
             "mapping": [{"column": "amount", "xpath": "ns:amount"}],
             "ignore_ns": True,
@@ -1411,7 +1411,7 @@ class TestFileInputXmlStreamingLimitCap:
         xml_file = tmp_path / "big.xml"
         xml_file.write_text(xml_content, encoding="utf-8")
         comp = _fi_xml_comp({
-            "filename": str(xml_file),
+            "filepath": str(xml_file),
             "loop_query": "//item",
             "mapping": [{"column": "id", "xpath": "id"}],
             "limit": "5",
@@ -1430,7 +1430,7 @@ class TestFileInputXmlMappingXpathError:
         xml_file = tmp_path / "valid.xml"
         xml_file.write_text(_FI_XML_SIMPLE, encoding="utf-8")
         comp = _fi_xml_comp({
-            "filename": str(xml_file),
+            "filepath": str(xml_file),
             "loop_query": "//bill",
             "mapping": [{"column": "amount", "xpath": "invalid[[["}],
             "die_on_error": True,
@@ -2005,7 +2005,7 @@ class TestFileInputXmlExtractNodeMappingXpathError:
         xml_file = tmp_path / "valid.xml"
         xml_file.write_text(_FI_XML_SIMPLE, encoding="utf-8")
         comp = _fi_xml_comp({
-            "filename": str(xml_file),
+            "filepath": str(xml_file),
             "loop_query": "//bill",
             "mapping": [{"column": "amount", "xpath": "invalid[[["}],
             "die_on_error": False,

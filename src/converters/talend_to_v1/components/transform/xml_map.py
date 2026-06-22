@@ -296,7 +296,7 @@ def _detect_looping_element(
                 break
 
     # Normalize to plain string
-    if isinstance(looping_element, (list, tuple, dict)):
+    if isinstance(looping_element, (list, tuple, dict)):  # pragma: no cover - defensive: ET callers only yield str/None
         if isinstance(looping_element, dict):
             looping_element = str(next(iter(looping_element.values()), ""))
         else:
@@ -380,7 +380,7 @@ def _rewrite_expressions_for_loop(
                     new_xpath = "./" + "/".join(rel_parts)
                 else:
                     new_xpath = f"./{loop_name}"
-            else:
+            else:  # pragma: no cover - unreachable: in_loop True implies a matching part, so loop_index is never None
                 new_xpath = "./" + "/".join(field_parts)
             logger.debug("Field %s inside loop: %s", out_col, new_xpath)
         elif loop_full_parts:
@@ -710,6 +710,18 @@ class XMLMapConverter(ComponentConverter):
         # These are emitted ONLY when the specific sub-feature flag is active in
         # this Talend node. The engine logs a warning at runtime and ignores the
         # sub-feature (warn-and-ignore contract). See 12-01-AUDIT.md D-E1 table.
+
+        if activate_expression_filter:
+            needs_review.append({
+                "feature": "expression_filter",
+                "reason": (
+                    "tXMLMap expression_filter (Java) is not executed by the Phase 12 engine. "
+                    "The engine logs a warning and ignores the filter. Tracked for Phase 13."
+                ),
+                "phase": "12",
+                "component": node.component_id,
+                "severity": "engine_gap",
+            })
 
         has_lookup = any(
             tree.get("lookup", False) for tree in input_trees
