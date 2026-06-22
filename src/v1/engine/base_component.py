@@ -1041,6 +1041,18 @@ class BaseComponent(ABC):
             if precision is not None and col_type == "Decimal":
                 result = self._apply_decimal_precision(result, col_name, precision)
 
+            # G-03: Apply precision for float columns (Talend rounds Float/Double
+            # schema columns to their declared precision).
+            if precision is not None and col_type == "float":
+                try:
+                    precision_int = int(precision)
+                    result[col_name] = result[col_name].round(precision_int)
+                except (TypeError, ValueError) as exc:
+                    logger.warning(
+                        f"[{self.id}] Invalid precision {precision!r} for float column "
+                        f"'{col_name}'; skipping rounding: {exc}"
+                    )
+
         return result
 
     @staticmethod

@@ -709,7 +709,10 @@ class FileInputExcel(BaseComponent):
                     except Exception as e:
                         logger.warning(f"[{self.id}] Date conversion failed for column {col_name}: {e}")
 
-            return df
+        # Always return the DataFrame; when date conversion is globally disabled
+        # (or no columns are selected) the frame passes through unchanged, matching
+        # Talend and the declared -> pd.DataFrame contract.
+        return df
 
     def _read_sheet(self, wb: openpyxl.Workbook, sheet_name: str) -> pd.DataFrame:
         """

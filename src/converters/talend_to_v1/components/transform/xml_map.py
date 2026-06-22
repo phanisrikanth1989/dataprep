@@ -711,6 +711,18 @@ class XMLMapConverter(ComponentConverter):
         # this Talend node. The engine logs a warning at runtime and ignores the
         # sub-feature (warn-and-ignore contract). See 12-01-AUDIT.md D-E1 table.
 
+        if activate_expression_filter:
+            needs_review.append({
+                "feature": "expression_filter",
+                "reason": (
+                    "tXMLMap expression_filter (Java) is not executed by the Phase 12 engine. "
+                    "The engine logs a warning and ignores the filter. Tracked for Phase 13."
+                ),
+                "phase": "12",
+                "component": node.component_id,
+                "severity": "engine_gap",
+            })
+
         has_lookup = any(
             tree.get("lookup", False) for tree in input_trees
         )

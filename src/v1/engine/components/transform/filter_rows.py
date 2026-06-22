@@ -224,8 +224,6 @@ class FilterRows(BaseComponent):
         """
         # Early return for empty input
         if input_data is None or input_data.empty:
-            empty_reject = pd.DataFrame() if input_data is None else input_data.head(0).copy()
-            empty_reject["errorMessage"] = pd.Series(dtype="str")  # Ensure errorMessage column exists
             return {"main": input_data, "reject": None}
 
         use_advanced = self.config.get("use_advanced", False)
@@ -261,14 +259,12 @@ class FilterRows(BaseComponent):
         # BaseComponent.execute() step 7c (_apply_output_schema_validation) owns schema
         # validation. Calling it here would double-validate and violate lifecycle ownership.
 
-        # Always return reject dataframe (even if empty) so downstream components on
-        # reject flow execute even with 0 rows.
-        if reject_df.empty:
-            reject_df["errorMessage"] = pd.Series(dtype="str")  # Ensure errorMessage column exists
-
+        # tFilterRow's REJECT link carries only rejected rows; emit None when
+        # nothing was rejected -- consistent with the empty-input path above and
+        # with what the reject-flow consumers expect (an empty reject is None).
         return {
             "main": main_df,
-            "reject": reject_df,
+            "reject": reject_df if not reject_df.empty else None,
         }
 
     # ------------------------------------------------------------------
