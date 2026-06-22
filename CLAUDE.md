@@ -121,7 +121,7 @@ Deprecated. Treat as read-only history — useful for "what did phase N decide a
 - `snake_case` for functions, methods, variables. Private members prefixed with single underscore.
 - Static helpers prefixed `_`: `_get_str()`, `_get_bool()`, `_get_int()`, `_parse_schema()`.
 - Module-level private helpers prefixed `_`: `_safe_int()`, `_parse_conditions()`.
-- Constants `UPPER_SNAKE_CASE`: `REGISTRY`, `COMPONENT_REGISTRY`, `DEFAULT_DELIMITER`, `MEMORY_THRESHOLD_MB`.
+- Constants `UPPER_SNAKE_CASE`: `REGISTRY`, `DEFAULT_DELIMITER`, `MEMORY_THRESHOLD_MB`.
 - Private module-level constants prefixed `_`: `_FLOW_CONNECTOR_TYPES`, `_JAVA_COMPONENT_TYPES`, `_DATE_TOKENS`, `_SKIP_FIELDS`.
 - `PascalCase` for classes, dataclasses, enums. Enum members `UPPER_SNAKE_CASE`: `ExecutionMode.BATCH`, `ComponentStatus.SUCCESS`.
 - Exception classes end with `Error`: `ETLError`, `ConfigurationError`, `FileOperationError`.
@@ -221,7 +221,7 @@ Phase 14 locked the final per-module table on 2026-05-11. Historical per-module 
 
 **Engine core** — `src/v1/engine/engine.py`. `ETLEngine` with component registry, execution loop, flow management. Depends on `GlobalMap`, `ContextManager`, `TriggerManager`, `BaseComponent`, `JavaBridgeManager`, `PythonRoutineManager`. Used via `run_job()` CLI or programmatically.
 
-**Engine components** — `src/v1/engine/components/`. ~50 component classes by category (file, transform, aggregate, context, control). Inherit `BaseComponent` from `base_component.py` or `BaseIterateComponent` from `base_iterate_component.py`. Looked up by `ETLEngine` via `COMPONENT_REGISTRY`.
+**Engine components** — `src/v1/engine/components/`. ~50 component classes by category (file, transform, aggregate, context, control). Inherit `BaseComponent` from `base_component.py` or `BaseIterateComponent` from `base_iterate_component.py`. Looked up by `ETLEngine` via the decorator `REGISTRY` (`src/v1/engine/component_registry.py`).
 
 **Engine services** — `src/v1/engine/` (top-level files). `GlobalMap`, `ContextManager`, `TriggerManager`, `JavaBridgeManager`, `PythonRoutineManager`, `exceptions.py`. Used by engine core and all components.
 
@@ -245,7 +245,7 @@ Phase 14 locked the final per-module table on 2026-05-11. Historical per-module 
 
 **`REGISTRY`** (converter) — `src/converters/talend_to_v1/components/registry.py`. Decorator-based: `@REGISTRY.register("tDie")`. Singleton `REGISTRY = ConverterRegistry()`.
 
-**`COMPONENT_REGISTRY`** (engine) — `ETLEngine` class attribute in `src/v1/engine/engine.py`. Static dict, manually maintained, maps both camelCase (`FileInputDelimited`) and Talend (`tFileInputDelimited`) names.
+**`REGISTRY`** (engine) — decorator-based `ComponentRegistry` singleton in `src/v1/engine/component_registry.py` (mirrors the converter registry). Components self-register via `@REGISTRY.register("FileInputDelimited", "tFileInputDelimited")` (both the camelCase and Talend `t`-prefixed names map to the same class); registration fires through `__init__.py` imports. `ETLEngine._initialize_components()` resolves classes via `REGISTRY.get(comp_type)` (`engine.py:171`). There is no static `COMPONENT_REGISTRY` dict — only two small special-case type groupings (`oracle_component_types`, `mssql_component_types`) in `engine.py` for DB-connection routing.
 
 ### Error Handling (system-wide)
 - `ETLError` → `ConfigurationError`, `DataValidationError`, `ComponentExecutionError`, `FileOperationError`, `JavaBridgeError`, `ExpressionError`, `SchemaError`.
