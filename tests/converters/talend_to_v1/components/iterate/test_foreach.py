@@ -185,27 +185,13 @@ class TestComponentStructure:
 
 
 class TestNeedsReview:
-    """Verify needs_review entries for engine gaps."""
+    """Verify needs_review is empty (engine impl now exists)."""
 
-    def test_needs_review_present(self):
-        """needs_review list is non-empty since no engine impl exists."""
+    def test_needs_review_empty(self):
+        """needs_review is empty: the engine implementation exists and is complete."""
         node = _make_node()
         result = ForeachConverter().convert(node, [], {})
-        assert len(result.needs_review) > 0
-
-    def test_needs_review_severity_engine_gap(self):
-        """All needs_review entries have severity 'engine_gap'."""
-        node = _make_node()
-        result = ForeachConverter().convert(node, [], {})
-        for entry in result.needs_review:
-            assert entry["severity"] == "engine_gap"
-
-    def test_needs_review_has_component_id(self):
-        """All needs_review entries have the correct component id."""
-        node = _make_node(component_id="test_comp")
-        result = ForeachConverter().convert(node, [], {})
-        for entry in result.needs_review:
-            assert entry["component"] == "test_comp"
+        assert result.needs_review == []
 
     def test_no_framework_param_needs_review(self):
         """Framework params (tstatcatcher_stats, label) must NOT have needs_review."""

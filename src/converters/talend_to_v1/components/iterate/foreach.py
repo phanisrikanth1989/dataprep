@@ -82,14 +82,7 @@ class ForeachConverter(ComponentConverter):
             schema={"input": [], "output": []},
         )
 
-        # ---- 5. Engine gap needs_review entries ----
-        needs_review.append({
-            "issue": "No concrete engine implementation for tForeach -- only BaseIterateComponent abstract base exists. All config keys are extracted for future engine support.",
-            "component": node.component_id,
-            "severity": "engine_gap",
-        })
-
-        # ---- 6. Return ----
+        # ---- 5. Return ----
         return ComponentResult(
             component=component,
             warnings=warnings,
