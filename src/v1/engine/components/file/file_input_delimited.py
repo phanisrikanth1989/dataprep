@@ -72,7 +72,8 @@ _VALIDATION_CHUNK_SIZE = 50000
 # We replace each offending codepoint with a single space -- this preserves
 # row count and column count, never alters delimiter positions, and is the
 # same scrub pattern used by ``file_input_positional.py``.
-_NON_PRINTABLE_RE = re.compile(r'[^\x20-\x7E\t\n\r]')
+#_NON_PRINTABLE_RE = re.compile(r'[^\x20-\x7E\t\n\r]')
+_NON_PRINTABLE_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F�]')
 
 # Row separators that Python/pandas handle natively via universal newline.
 # Anything else requires raw-read + manual split to match Talend behaviour.

@@ -173,7 +173,7 @@ class OracleInput(BaseComponent):
             return df
         if self.config.get("trim_all_column", False):
             for col in df.columns:
-                if df[col].dtype == object:
+                if df[col].dtype == object or pd.api.types.is_string_dtype(df[col].dtype):
                     df[col] = df[col].map(
                         lambda v: v.strip() if isinstance(v, str) else v
                     )
@@ -181,7 +181,7 @@ class OracleInput(BaseComponent):
 
         trim_cols = self._trim_column_names()
         for col in trim_cols:
-            if col in df.columns and df[col].dtype == object:
+            if col in df.columns and (df[col].dtype == object or pd.api.types.is_string_dtype(df[col].dtype)):
                 df[col] = df[col].map(
                     lambda v: v.strip() if isinstance(v, str) else v
                 )
@@ -204,6 +204,6 @@ class OracleInput(BaseComponent):
         if df.empty or not self.config.get("no_null_values", False):
             return df
         for col in df.columns:
-            if df[col].dtype == object:
+            if df[col].dtype == object or pd.api.types.is_string_dtype(df[col].dtype):
                 df[col] = df[col].map(lambda v: "" if v is None else v)
         return df

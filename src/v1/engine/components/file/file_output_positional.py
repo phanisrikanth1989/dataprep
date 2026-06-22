@@ -533,10 +533,13 @@ class FileOutputPositional(BaseComponent):
             else:  # 'L' (default)
                 series = series.str.ljust(size, pad)
 
-            # Ensure every value is exactly 'size' characters for fixed-width output.
-            # Truncate to size if value overflows (positional files require fixed row length).
-            series = series.str[:size]
-            
+            # Pad/truncate to exactly 'size' chars for fixed-width output, EXCEPT
+            # under KEEP=ALL where Talend tFileOutputPositional intentionally lets
+            # the value overflow the column width (no truncation). LEFT/MIDDLE/RIGHT
+            # were already clamped to <= size above, so this guard only spares ALL.
+            if keep != 'ALL':
+                series = series.str[:size]
+
             formatted.append(series)
 
         return formatted
