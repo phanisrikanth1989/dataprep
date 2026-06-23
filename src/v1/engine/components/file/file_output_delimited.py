@@ -445,7 +445,7 @@ class FileOutputDelimited(BaseComponent):
                 # `except Exception` catch-all here was defensive-only and
                 # unreachable; deleted to honour the project rule "fix the
                 # source, no fallbacks".
-                series = pd.to_datetime(series, errors="coerce")
+                series = pd.to_datetime(series, format=pattern, errors="coerce")
             formatted = series.dt.strftime(pattern)
             df[name] = formatted.where(series.notna(), "")
         return df

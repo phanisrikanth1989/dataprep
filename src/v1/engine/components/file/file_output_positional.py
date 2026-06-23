@@ -97,15 +97,7 @@ class FileOutputPositional(BaseComponent):
     VALID_ALIGNMENTS = ['L', 'R', 'C']
     VALID_KEEP_OPTIONS = ['ALL', 'LEFT', 'MIDDLE', 'RIGHT']
     NUMERIC_TYPES = [
-        'float', 'double', 'decimal','Decimal',
-
-
-
-
-
-
-
-        
+        'float', 'double', 'decimal','Decimal',  
         'id_Float', 'id_Double', 'id_BigDecimal',
     ]
     INTEGER_TYPES = [
@@ -491,7 +483,7 @@ class FileOutputPositional(BaseComponent):
             if col_type in self.NUMERIC_TYPES:
                 precision = schema_entry.get('precision', self.DEFAULT_PRECISION)
                 def _fmt_float(v: str, _p: int = precision) -> str:
-                    if v == '':
+                    if v == '' or v == 'None':
                         return ''
                     try:
                         return f'{float(v):.{_p}f}'
@@ -500,7 +492,7 @@ class FileOutputPositional(BaseComponent):
                 series = series.apply(_fmt_float)
             elif col_type in self.INTEGER_TYPES:
                 def _fmt_int(v: str) -> str:
-                    if v == '':
+                    if v == '' or v == 'None':
                         return ''
                     try:
                         return str(int(float(v)))

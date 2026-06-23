@@ -262,7 +262,7 @@ class FixedFlowInputComponent(BaseComponent):
 
         # ContextManager handles ${context.X} and context.X patterns
         try:
-            resolved = self.context_manager.resolve_string(value) if self.context_manager else value
+            resolved = self.context_manager.resolve_string(value)
         except Exception:
             resolved = value
 

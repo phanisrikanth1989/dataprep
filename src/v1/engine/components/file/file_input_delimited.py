@@ -357,14 +357,19 @@ class FileInputDelimited(BaseComponent):
                 ).astype(str)
 
             reassembled = "\n".join(lines)
+            effective_sep = field_separator
+            if len(field_separator) > 1:
+                effective_sep = re.escape(field_separator)
             read_params_custom: dict[str, Any] = {
                 "filepath_or_buffer": StringIO(reassembled),
-                "sep": field_separator,
+                "sep": effective_sep,
                 "header": None,
                 "quoting": csv.QUOTE_NONE,
                 "dtype": str,
                 "keep_default_na": False,
             }
+            if len(field_separator) > 1:
+                read_params_custom["engine"] = "python"
             if schema_cols:
                 #Do NOT pass names/usecols: read raw then align to schema.
                 pass
@@ -379,9 +384,14 @@ class FileInputDelimited(BaseComponent):
             return self._align_columns_to_schema(raw_df, schema_cols)
 
         # ---- Standard row separator: pandas handles natively ----
+        effective_sep = field_separator
+        use_python_engine = footer_rows > 0 or len(field_separator) > 1
+        if len(field_separator) > 1:
+            effective_sep = re.escape(field_separator)
+            
         read_params: dict[str, Any] = {
             "filepath_or_buffer": filepath,
-            "sep": field_separator,
+            "sep": effective_sep,
             "header": None,
             "skiprows": header_rows if header_rows > 0 else None,
             "skipfooter": footer_rows if footer_rows > 0 else 0,
@@ -397,7 +407,7 @@ class FileInputDelimited(BaseComponent):
         if nrows is not None and nrows > 0 and footer_rows == 0:
             read_params["nrows"] = nrows
 
-        if footer_rows > 0:
+        if use_python_engine:
             read_params["engine"] = "python"
 
         try:
