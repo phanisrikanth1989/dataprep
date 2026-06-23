@@ -34,6 +34,30 @@ _VALUES_FIELDS = ("SCHEMA_COLUMN", "VALUE")
 _VALUES_GROUP_SIZE = len(_VALUES_FIELDS)
 
 
+# ----------------------------
+# Value-unwrapping helper
+# ----------------------------
+
+def _unwrap_talend_value(val: str) -> str:
+    """
+    Strip exactly one pair of Talend wrapper quotes.
+
+    Talend serializes VALUE entries as "\"<java-expr>\"" — one outer
+    quote pair wrapping the actual Java expression. The Java expression
+    itself frequently contains string literals, so blindly
+    calling ``str.strip('"')`` is wrong: it greedily peels
+    every trailing/leading '"' and silently turns a valid Java string
+    literal into an unterminated one ("context.xx".cbal" -> Groovy
+    Compile error "Unexpected character: '\"'").
+
+    Mirrors the safe outer-pair peel in ``ComponentConverter._get_str``.
+
+    """
+    if isinstance(val, str) and len(val) >= 2 and val.startswith('"') and val.endswith('"'):
+        return val[1:-1]
+
+    return val
+
 # ------------------------------------------------------------------
 # TABLE parser functions
 # ------------------------------------------------------------------
@@ -42,7 +66,7 @@ def _parse_values(raw: Any) -> List[Dict[str, Any]]:
 
     Each group of 2 consecutive elementRef entries maps to one row:
       SCHEMA_COLUMN -> schema_column (str)
-      VALUE         -> value (str, quotes stripped)
+      VALUE         -> value (str, ONE outer wrapper quote pair stripped)
 
     Incomplete trailing groups (< 2 entries) are skipped.
     """
@@ -62,7 +86,7 @@ def _parse_values(raw: Any) -> List[Dict[str, Any]]:
             if ref == "SCHEMA_COLUMN":
                 row["schema_column"] = val.strip('"')
             elif ref == "VALUE":
-                stripped = val.strip('"')
+                stripped = _unwrap_talend_value(val)
                 row["value"] = ExpressionConverter.mark_java_expression(stripped)
         if row:
             result.append(row)
