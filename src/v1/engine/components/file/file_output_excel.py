@@ -316,7 +316,7 @@ class FileOutputExcel(BaseComponent):
 
             current_row = start_row
 
-            # Build per-column number formats for Decimal precision (applied to cells)
+            # Build per-column number formats for Decimal/float precision (applied to cells)
             col_formats = self._build_col_formats()
 
             def _clean_val(value):
@@ -354,7 +354,7 @@ class FileOutputExcel(BaseComponent):
                 for col_idx, value in enumerate(row_values):
                     cell = sheet.cell(row=current_row, column=start_col + col_idx)
                     cell.value = value  # type: ignore[union-attr]
-                    # Apply number format for Decimal precision columns
+                    # Apply number format for Decimal/float precision columns
                     col_name = column_names[col_idx] if col_idx < len(column_names) else None
                     if col_name and col_name in col_formats:
                         cell.number_format = col_formats[col_name]
@@ -462,7 +462,7 @@ class FileOutputExcel(BaseComponent):
                     # Pass the schema's date_pattern as ``format=`` so pandas
                     # uses the vectorised C parser instead of dateutil
                     # (which emits a "Could not infer format" UserWarning).
-                    series = pd.to_datetime(series, errors="coerce")
+                    series = pd.to_datetime(series, format=pattern, errors="coerce")
                 except Exception:
                     logger.warning(
                         f"[{self.id}] Column '{name}' could not be coerced "
@@ -476,7 +476,7 @@ class FileOutputExcel(BaseComponent):
     def _build_col_formats(self) -> dict:
         """Build a mapping of column name -> openpyxl number format string.
 
-        For Decimal columns with a ``precision`` defined in the schema,
+        For Decimal/float columns with a ``precision`` defined in the schema,
         returns an Excel number format like ``"0.0000000000"`` (precision zeros
         after the decimal point) so the cell displays exactly that many decimal
         places.  
