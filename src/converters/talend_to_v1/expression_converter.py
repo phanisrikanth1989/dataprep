@@ -227,6 +227,131 @@ class ExpressionConverter:
         return value
 
     @staticmethod
+    def _find_receiver_start(s: str, end: int, lower_bound: int = 0) -> int:
+        """Walk backwards from ``end`` to locate the start of the receiver
+        expression that immediately precedes a method call.
+
+        The receiver of a Java method call (e.g. the ``x`` in ``x.contains(y)``)
+        can take several shapes that all need to be respected:
+
+        - A plain identifier or dotted chain: ``foo``, ``obj.field.value``
+        - A balanced parenthesised expression: ``((String)x)``
+        - A method-call chain: ``routines.Util.parse(input).strip()``
+
+        Walking the source backwards from the position of the trailing ``.``
+        we accept characters that belong to such a receiver and stop as soon
+        as we hit a token that cannot be part of one (whitespace before an
+        operator, a ``;``, ``&&``, ``||``, the start of the slice, etc).
+
+        Args:
+            s: Full source string.
+            end: Exclusive end position; ``s[end]`` is typically the ``.``
+                of the trailing method call.
+            lower_bound: Inclusive lower bound for the walk -- never look
+                further left than this index.
+
+        Returns:
+            The inclusive start index of the receiver.
+        """
+        i = end - 1
+
+        # Skip trailing whitespace.
+        while i >= lower_bound and s[i].isspace():
+            i -= 1
+        while i >= lower_bound:
+            ch = s[i]
+            # Match the corresponding '(' by counting depth.
+            if ch == ')':
+                depth = 1
+                i -= 1
+                while i >= lower_bound and depth > 0:
+                    if s[i] == ')':
+                        depth += 1
+                    elif s[i] == '(':
+                        depth -= 1
+                    i -= 1
+                # If the parens were unbalanced we stop here (safety net).
+                if depth != 0:
+                    return i + 2
+                # i now points to the char BEFORE the matching '('; continue
+                # the outer loop in case the receiver is a chained call such
+                # as ``foo.bar().baz()`` (we should consume ``foo.bar()`` too).
+            elif ch.isalnum() or ch in "._":
+                i -= 1
+            else:
+                break
+        return i + 1
+
+
+    @staticmethod
+    def _convert_contains_calls(expression: str) -> str:
+        """
+        Convert every Java ``<receiver>.contains(<arg>)`` to Python
+        ``<arg> in <receiver>``.
+
+        Unlike a naive regex, this implementation is paren-aware: it walks
+        backwards from each ``.contains(`` to identify the receiver and
+        forwards through balanced parens to capture the argument. As a
+        result it handles:
+
+        - Multiple ``.contains()`` calls joined by ``&&`` / ``||``
+        - Parenthesised receivers: ``((globalMap.get("k"))).contains("v")``
+        - Method-chain receivers: ``foo.bar().contains("v")``
+        - Arguments containing nested parens: ``x.contains(y(z))``
+
+        Args:
+            expression: Source expression (post cast/globalMap normalisation).
+
+        Returns:
+            Expression with ``.contains()`` calls rewritten in Python form.
+        """
+        if not expression or ".contains(" not in expression:
+            return expression
+            
+        out: list[str] = []
+        pos = 0
+        n = len(expression)
+
+        while pos < n:
+            idx = expression.find(".contains(", pos)
+            if idx == -1:
+                out.append(expression[pos:])
+                break
+            # Locate the matching ')' for the .contains( argument list,
+            # honouring nested parens inside the argument.
+            arg_start = idx + len(".contains(")
+            depth = 1
+            j = arg_start
+            while j < n and depth > 0:
+                ch = expression[j]
+                if ch == '(':
+                    depth += 1
+                elif ch == ')':
+                    depth -= 1
+                    if depth == 0:
+                        break
+                j += 1
+            if depth != 0:
+                # Unbalanced: emit the rest verbatim and stop.
+                out.append(expression[pos:])
+                break
+            arg = expression[arg_start:j]
+            # Walk backwards to delimit the receiver. We never look further
+            # left than the end of the previous already-emitted segment
+            # (``pos``) so prior clauses cannot be swallowed.
+            receiver_start = ExpressionConverter._find_receiver_start(
+                expression, idx, lower_bound=pos
+            )
+            receiver = expression[receiver_start:idx]
+            # Emit the prefix that is NOT part of the receiver, then the
+            # rewritten ``<arg> in <receiver>`` path.
+            out.append(expression[pos:receiver_start])
+            out.append(f"({arg} in ({receiver}))")
+            # Advance past the ')'
+            pos = j + 1
+
+        return "".join(out)
+    @staticmethod
     def convert(expression: str) -> str:
         """
         Convert Talend/Java expression to Python

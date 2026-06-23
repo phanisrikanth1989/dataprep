@@ -247,6 +247,10 @@ class XmlParser:
 
             connector_type = conn_elem.get("connectorName", "")
             label = conn_elem.get("label", "")
+            try:
+                output_id = int(conn_elem.get("outputId", "0") or "0")
+            except (TypeError, ValueError):
+                output_id = 0
 
             # Extract UNIQUE_NAME and CONDITION from elementParameters;
             # capture all other name/value pairs into params dict.
@@ -272,6 +276,7 @@ class XmlParser:
                     connector_type=connector_type,
                     condition=condition,
                     params=params,
+                    output_id=output_id,
                 )
             )
 
