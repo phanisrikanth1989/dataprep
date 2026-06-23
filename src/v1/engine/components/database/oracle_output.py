@@ -275,9 +275,9 @@ class OracleOutput(BaseComponent):
         # FQN mismatches when multiple contexts share the same value for both
         # schema_db and table.
         use_existing = self.config.get("use_existing_connection", False)
-        table = self._quote_ident(
-            self.config.get("table") or self.config.get("dbschema") or ""
-        ).strip()
+        table = self.config["table"].strip()
+        schema = "" if use_existing else ( self.config.get("schema_db", "").strip() or self.config.get("dbschema", "").strip()  or "")
+
         logger.debug(
             "%s qualified_table: use_existing=%s schema_db=%r table=%r",
             self.id, use_existing, schema, table
@@ -457,10 +457,8 @@ class OracleOutput(BaseComponent):
         # tolerates legacy unit-test fixtures that build the component
         # without going through the engine wiring which would normally
         # set both attributes.
-        in_schema = (
-            getattr(self, "input_schema", None) or []
-            or getattr(self, "output_schema", None) or []
-        )
+        in_schema = getattr(self, "input_schema", None) or []
+        out_schema = getattr(self, "output_schema", None) or []
         return in_schema or out_schema
 
     def _key_columns(self) -> List[str]:
@@ -472,7 +470,7 @@ class OracleOutput(BaseComponent):
         if self.config.get("use_field_options", False):
             fo = self.config.get("field_options", []) or []
             return [r["column"] for r in fo if r.get("update_key", False)]
-        return [c["name"] for c in self._schema_cols if c.get("key", False)]
+        return [c["name"] for c in self._schema_cols() if c.get("key", False)]
 
     def _updatable_columns(self) -> List[str]:
         """Return columns that go in the SET clause of UPDATE.
@@ -486,7 +484,7 @@ class OracleOutput(BaseComponent):
                 r["column"] for r in fo
                 if r.get("updatable", True) and not r.get("update_key", False)
             ]
-        return [c["name"] for c in self._schema_cols if not c.get("key", False)]
+        return [c["name"] for c in self._schema_cols() if not c.get("key", False)]
 
     def _insertable_columns(self) -> List[str]:
         """Return columns that go in the INSERT column list.
@@ -497,7 +495,7 @@ class OracleOutput(BaseComponent):
         if self.config.get("use_field_options", False):
             fo = self.config.get("field_options", []) or []
             return [r["column"] for r in fo if r.get("insertable", True)]
-        return [c["name"] for c in self._schema_cols]
+        return [c["name"] for c in self._schema_cols()]
 
     def _build_insert_sql(self) -> str:
         """Build the INSERT INTO ... VALUES (:1, :2, ...) SQL."""
@@ -774,7 +772,7 @@ class OracleOutput(BaseComponent):
         if update_chunk:
             update_sql = self._build_update_sql()
             input_sizes_update = self._build_input_sizes("UPDATE")
-            if input_sizes_update:
+            if input_sizes_update and any(s is not None for s in input_sizes_update):
                 cursor.setinputsizes(*input_sizes_update)
             cursor.executemany(update_sql, update_chunk, batcherrors=True)
             update_errors = list(cursor.getbatcherrors() or [])
@@ -783,7 +781,7 @@ class OracleOutput(BaseComponent):
         if unmatched_chunk:
             insert_sql = self._build_insert_sql()
             input_sizes_insert = self._build_input_sizes("INSERT")
-            if input_sizes_insert:
+            if input_sizes_insert and any(s is not None for s in input_sizes_insert):
                 cursor.setinputsizes(*input_sizes_insert)
             cursor.executemany(insert_sql, unmatched_chunk, batcherrors=True)
             insert_errors = list(cursor.getbatcherrors() or [])
@@ -886,8 +884,8 @@ class OracleOutput(BaseComponent):
                 "int", "long", "short", "byte", "BigInteger",
                 "Decimal", "float", "double", "bool",
             ):
-                sizes.append(oracledb.NUMBER)
-            elif cType == "str":
+                sizes.append(None)
+            elif ctype == "str":
                 # Always None, including for CLOB (length > 4000 / no length).
                 # Passing DB_TYPE_CLOB triggers oracledb LOB streaming protocol
                 # which opens a SEPARATE ROUND TRIP PER VALUE PER ROW (36k
@@ -895,14 +893,14 @@ class OracleOutput(BaseComponent):
                 # With None, oracledb uses inline/deferred LOB write inside the
                 # executemany batch (same single round trip for the whole chunk).
                 sizes.append(None)
-            elif cType == "datetime":
+            elif ctype == "datetime":
                 # Must hint: Python datetime is ambiguous between Oracle DATE and
                 # TIMESTAMP. This is the only type that genuinely needs a hint.
                 sizes.append(
                     oracledb.DB_TYPE_TIMESTAMP if use_ts else oracledb.DB_TYPE_DATE
                 )
-            elif cType == "bytes":
-                if cLength and int(cLength) <= 2000:
+            elif ctype == "bytes":
+                if clength and int(clength) <= 2000:
                     # Hint RAW to distinguish from BLOB for small byte columns.
                     sizes.append(oracledb.DB_TYPE_RAW)
                 else:
