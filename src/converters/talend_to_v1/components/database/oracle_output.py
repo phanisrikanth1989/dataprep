@@ -78,7 +78,7 @@ class OracleOutputConverter(ComponentConverter):
         config["user"] = self._get_str(node, "USER", "")
 
         # NOTE: _java.xml param name is PASS (not PASSWORD)
-        config["password"] = self._get_str(node, "PASS", "")
+        config["password"] = self._extract_password(self._get_str(node, "PASS", ""), log_id=node.component_id)
 
         # ---- 2. Table and action parameters ----
         config["table"] = self._get_str(node, "TABLE", "")

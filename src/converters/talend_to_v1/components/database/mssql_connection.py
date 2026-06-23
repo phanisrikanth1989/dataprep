@@ -30,9 +30,6 @@ from ..registry import REGISTRY
 
 logger = logging.getLogger(__name__)
 
-_ENCRYPTED_PREFIX = "enc:system.encryption.key.v1:"
-
-
 @REGISTRY.register("tMSSqlConnection")
 class MSSqlConnectionConverter(ComponentConverter):
     """Convert Talend tMSSqlConnection to v1 engine config."""
@@ -54,7 +51,7 @@ class MSSqlConnectionConverter(ComponentConverter):
         config["schema_db"] = self._get_str(node, "SCHEMA_DB", "")
         config["dbname"] = self._get_str(node, "DBNAME", "")
         config["user"] = self._get_str(node, "USER", "")
-        config["password"] = self._extract_password(self._get_str(node, "PASS", ""))
+        config["password"] = self._extract_password(self._get_str(node, "PASS", ""), log_id =node.component_id,)
         config["encoding"] = self._get_str(node, "ENCODING", "ISO-8859-15")
         config["properties"] = self._get_str(node, "PROPERTIES", "")
 

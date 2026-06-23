@@ -70,7 +70,7 @@ class OracleConnectionConverter(ComponentConverter):
         config["local_service_name"] = self._get_str(node, "LOCAL_SERVICE_NAME", "")
         config["schema_db"] = self._get_str(node, "SCHEMA_DB", "")
         config["user"] = self._get_str(node, "USER", "")
-        config["password"] = self._get_str(node, "PASS", "")
+        config["password"] = self._extract_password(self._get_str(node, "PASS", ""), log_id=node.component_id)
         config["jdbc_url"] = self._get_str(node, "JDBC_URL", "jdbc:oracle:thin:USER/MDP@server")
 
         # ---- 3. Configuration parameters ----
