@@ -399,7 +399,8 @@ class ExpressionConverter:
         # NOT the naive textual swap '<receiver>' in <arg>' (which inverts the
         # truth value because Python's 'a in b' tests if *a* is a substring of
         # *b*).
-        expression = re.sub(r'(.+?)\.contains\(([^()]*)\)', r'\2 in \1', expression)
+        #expression = re.sub(r'(.+?)\.contains\(([^()]*)\)', r'\2 in \1', expression)
+        expression = ExpressionConverter._convert_contains_calls(expression)
         expression = expression.replace('.startsWith(', '.startswith(')
         expression = expression.replace('.endsWith(', '.endswith(')
         expression = expression.replace('.length()', '.__len__()')

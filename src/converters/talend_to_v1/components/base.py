@@ -41,6 +41,7 @@ class TalendConnection:
     connector_type: str
     condition: Optional[str] = None
     params: Dict[str, str] = field(default_factory=dict)
+    output_id : int = 0
 
 
 @dataclass
