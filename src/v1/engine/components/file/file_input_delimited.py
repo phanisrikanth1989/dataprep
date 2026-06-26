@@ -79,6 +79,19 @@ _NON_PRINTABLE_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F�]')
 # Anything else requires raw-read + manual split to match Talend behaviour.
 _STANDARD_ROW_SEPARATORS = {"\n", "\r\n", "\r"}
 
+# Decode error policy for all file reads.
+# Talend reads through java.io.InputStreamReader, which defaults to
+# CodingErrorAction.REPLACE: bytes that are malformed or unmappable in the
+# declared charset become U+FFFD instead of raising. Python's open()/read_csv
+# default to "strict" and raise UnicodeDecodeError, so a job that ran cleanly
+# in Talend (e.g. a file with extended bytes declared as US-ASCII) would hard
+# crash here. Using "replace" matches Talend byte-for-byte: one replacement
+# char per bad byte, so field/delimiter positions are preserved (unlike
+# "ignore", which drops bytes and shifts columns). The resulting U+FFFD is
+# then scrubbed to a space by _NON_PRINTABLE_RE before the row crosses the
+# Py4J bridge.
+_DECODE_ERRORS = "replace"
+
 # Deferred feature flags and their descriptions (D-21).
 _DEFERRED_FEATURES = {
     "uncompress": "Compressed file reading",
@@ -335,7 +348,7 @@ class FileInputDelimited(BaseComponent):
         # ---- Non-standard row separator: raw read + manual split ----
         if row_separator not in _STANDARD_ROW_SEPARATORS:
             try:
-                with open(filepath, "r", encoding=encoding) as f:
+                with open(filepath, "r", encoding=encoding, errors=_DECODE_ERRORS) as f:
                     content = f.read()
             except Exception as e:
                 raise FileOperationError(
@@ -396,6 +409,7 @@ class FileInputDelimited(BaseComponent):
             "skiprows": header_rows if header_rows > 0 else None,
             "skipfooter": footer_rows if footer_rows > 0 else 0,
             "encoding": encoding,
+            "encoding_errors": _DECODE_ERRORS,
             "quoting": csv.QUOTE_NONE,
             "dtype": str,
             "keep_default_na": False,
@@ -491,7 +505,7 @@ class FileInputDelimited(BaseComponent):
         # ---- Non-standard row separator: raw read + manual split ----
         if row_separator not in _STANDARD_ROW_SEPARATORS:
             try:
-                with open(filepath, "r", encoding=encoding) as f:
+                with open(filepath, "r", encoding=encoding, errors=_DECODE_ERRORS) as f:
                     content = f.read()
             except FileNotFoundError as e:
                 raise FileOperationError(
@@ -542,7 +556,7 @@ class FileInputDelimited(BaseComponent):
 
         # ---- Standard row separator: native line handling ----
         try:
-            with open(filepath, "r", encoding=encoding, newline="") as f:
+            with open(filepath, "r", encoding=encoding, newline="", errors=_DECODE_ERRORS) as f:
                 # Configure csv.reader for RFC4180
                 reader_kwargs: dict[str, Any] = {
                     "delimiter": field_separator,

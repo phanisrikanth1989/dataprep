@@ -1755,3 +1755,64 @@ class TestCoverageLift1408PipelineFixtures:
         # Both output files created
         assert out_main.exists()
         assert out_reject.exists()
+
+
+@pytest.mark.unit
+class TestLenientDecoding:
+    """Bytes outside the declared encoding must not crash the read.
+
+    Talend reads through java.io.InputStreamReader, which defaults to
+    CodingErrorAction.REPLACE -- malformed/unmappable bytes become U+FFFD
+    rather than raising. The engine must match this so jobs that ran in
+    Talend (e.g. a file with extended bytes declared as US-ASCII) do not
+    hard-crash with UnicodeDecodeError.
+
+    The replacement char (U+FFFD) is then scrubbed to a space by the
+    existing _NON_PRINTABLE_RE pass, so it never reaches the Py4J bridge.
+    """
+
+    # 0xb7 (middle dot in Latin-1/-9) is not representable in US-ASCII.
+    _BAD_BYTE_ROW = b"1;Al\xb7ce;10.5\n"
+
+    def test_extended_byte_with_ascii_encoding_does_not_crash(self, tmp_path):
+        f = tmp_path / "ascii_bad.csv"
+        f.write_bytes(self._BAD_BYTE_ROW)
+        config = {**_DEFAULT_CONFIG, "filepath": str(f), "encoding": "US-ASCII"}
+        comp = _make_component(config=config)
+
+        result = comp.execute(None)
+
+        assert len(result["main"]) == 1
+        # Field boundaries preserved (one replaced char, not dropped/shifted)
+        assert result["main"].iloc[0]["id"] == 1
+        assert result["main"].iloc[0]["value"] == 10.5
+
+    def test_replacement_char_is_scrubbed_not_present(self, tmp_path):
+        f = tmp_path / "ascii_bad2.csv"
+        f.write_bytes(self._BAD_BYTE_ROW)
+        config = {**_DEFAULT_CONFIG, "filepath": str(f), "encoding": "US-ASCII"}
+        comp = _make_component(config=config)
+
+        result = comp.execute(None)
+
+        name = result["main"].iloc[0]["name"]
+        # U+FFFD must not survive into the output (would crash the bridge);
+        # the scrub turns it into a space -> "Al ce".
+        assert "�" not in name
+        assert name == "Al ce"
+
+    def test_extended_byte_csv_option_path_does_not_crash(self, tmp_path):
+        f = tmp_path / "ascii_bad_csv.csv"
+        f.write_bytes(self._BAD_BYTE_ROW)
+        config = {
+            **_DEFAULT_CONFIG,
+            "filepath": str(f),
+            "encoding": "US-ASCII",
+            "csv_option": True,
+        }
+        comp = _make_component(config=config)
+
+        result = comp.execute(None)
+
+        assert len(result["main"]) == 1
+        assert result["main"].iloc[0]["id"] == 1
