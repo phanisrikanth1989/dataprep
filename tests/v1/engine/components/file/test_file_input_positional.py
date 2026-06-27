@@ -745,3 +745,63 @@ class TestCoverageLift1408FileNotFoundSoftFail:
                                 "die_on_error": False})
         result = comp._process()
         assert len(result["main"]) == 0
+
+
+@pytest.mark.unit
+class TestLenientDecoding:
+    """Bytes outside the declared encoding must not crash the read.
+
+    Talend reads through java.io.InputStreamReader, which defaults to
+    CodingErrorAction.REPLACE -- malformed/unmappable bytes become U+FFFD
+    rather than raising. The engine must match this so jobs that ran in
+    Talend (e.g. a file with extended bytes declared as US-ASCII) do not
+    hard-crash with UnicodeDecodeError.
+
+    The replacement char (U+FFFD) is then scrubbed to a space by the
+    existing _NON_PRINTABLE_RE pass, so it never reaches the Py4J bridge.
+    Mirrors the delimited-input lenient-decoding tests.
+    """
+
+    # 0xb7 (middle dot in Latin-1/-9) is not representable in US-ASCII.
+    # Layout: name(5) "Al<bad>ce", age(4) "0025".
+    _BAD_BYTE_ROW = b"Al\xb7ce0025\n"
+    _SCHEMA = [
+        {"name": "name", "type": "str"},
+        {"name": "age", "type": "int"},
+    ]
+
+    def test_extended_byte_with_ascii_encoding_does_not_crash(self, tmp_path):
+        f = tmp_path / "ascii_bad.txt"
+        f.write_bytes(self._BAD_BYTE_ROW)
+        config = {
+            "filepath": str(f),
+            "pattern": "5,4",
+            "encoding": "US-ASCII",
+            "die_on_error": True,
+        }
+        comp = _make_component(config, schema=self._SCHEMA)
+
+        result = comp.execute()
+
+        # Field boundaries preserved (one replaced char, not dropped/shifted)
+        assert len(result["main"]) == 1
+        assert result["main"].iloc[0]["age"] == 25
+
+    def test_replacement_char_is_scrubbed_not_present(self, tmp_path):
+        f = tmp_path / "ascii_bad2.txt"
+        f.write_bytes(self._BAD_BYTE_ROW)
+        config = {
+            "filepath": str(f),
+            "pattern": "5,4",
+            "encoding": "US-ASCII",
+            "die_on_error": True,
+        }
+        comp = _make_component(config, schema=self._SCHEMA)
+
+        result = comp.execute()
+
+        name = result["main"].iloc[0]["name"]
+        # U+FFFD must not survive into the output (would crash the bridge);
+        # the scrub turns it into a space -> "Al ce".
+        assert "�" not in name
+        assert name == "Al ce"

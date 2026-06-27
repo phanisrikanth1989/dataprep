@@ -17,6 +17,33 @@ from ...exceptions import ConfigurationError, FileOperationError, ComponentExecu
 
 logger = logging.getLogger(__name__)
 
+# Non-printable byte scrubber.
+# Positional files may contain raw bytes (e.g. 0x00-0x1F, 0x7F-0x9F) or
+# unmappable codepoints that decode to U+FFFD when the file's declared
+# encoding (default ISO-8859-15) cannot represent the byte. Such characters
+# survive into string columns and later cause ``Wrapping � failed`` /
+# ``Wrapping <bad-row> failed`` errors when the row is marshalled across
+# the Py4J bridge to the Java engine (e.g. by tMap's globalMap / context
+# payload).
+#
+# We replace each offending codepoint with a single space -- this preserves
+# row count and column count, never alters positional field alignment, and is
+# the same scrub pattern used by ``file_input_delimited.py``.
+_NON_PRINTABLE_RE = re.compile(r'[^\x20-\x7E\t\n\r]')
+
+# Decode error policy for all file reads.
+# Talend reads through java.io.InputStreamReader, which defaults to
+# CodingErrorAction.REPLACE: bytes that are malformed or unmappable in the
+# declared charset become U+FFFD instead of raising. Python's open()/read_fwf
+# default to "strict" and raise UnicodeDecodeError, so a job that ran cleanly
+# in Talend (e.g. a file with extended bytes declared as US-ASCII) would hard
+# crash here. Using "replace" matches Talend byte-for-byte: one replacement
+# char per bad byte, so positional field alignment is preserved (unlike
+# "ignore", which drops bytes and shifts columns). The resulting U+FFFD is
+# then scrubbed to a space by _NON_PRINTABLE_RE before the row crosses the
+# Py4J bridge.
+_DECODE_ERRORS = "replace"
+
 
 @REGISTRY.register("FileInputPositional", "tFileInputPositional")
 class FileInputPositional(BaseComponent):
@@ -276,6 +303,7 @@ class FileInputPositional(BaseComponent):
                 filepath,
                 widths=widths,
                 encoding=encoding,
+                encoding_errors=_DECODE_ERRORS,
                 header=None,
                 names=names,
                 skiprows=header_rows,
@@ -293,9 +321,7 @@ class FileInputPositional(BaseComponent):
             # that decode to U+FFFD or other non-printable chars, causing Java
             # bridge failures ("Wrapping \ufffd failed").
             # Replace them with spaces to preserve positional alignment.
-            #_NON_PRINTABLE_RE = re.compile(r'[^\x20-\x7E\t\n\r]')
-            _NON_PRINTABLE_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F�]')
-
+            # See module-level _NON_PRINTABLE_RE / _DECODE_ERRORS for details.
             string_cols = df.select_dtypes(include=['object']).columns
             for col in string_cols:
                 df[col] = df[col].apply(
