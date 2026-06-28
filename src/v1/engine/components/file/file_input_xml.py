@@ -16,6 +16,11 @@ Audit items closed:
     ENG-FIX-006: Encoding honored via lxml XML decl handling
     ENG-FIX-007: LIMIT enforced (empty=unlimited, "0"=zero, N=cap)
     ENG-FIX-008: Bare @attr XPath on loop element resolved correctly
+    ENG-FIX-009: Namespace-agnostic matching (Talend parity) -- unprefixed
+        LOOP_QUERY / MAPPING steps match by local-name(), so documents with a
+        default namespace (xmlns="...") still match. Streaming uses '{*}tag'.
+    ENG-FIX-010: MAPPING "." returns the element text value (Talend getText),
+        not the serialized XML subtree.
     STD-FIX-001: ConfigurationError / FileOperationError, no RuntimeError
     NEW-XML-001: lxml only, zero stdlib xml.etree references
     NEW-XML-002: Secure parser via _xml_io.secure_xml_parser()
@@ -42,7 +47,7 @@ class FileInputXML(BaseComponent):
     """Read XML file -> DataFrame; threshold-switched DOM/streaming.
 
     Config keys (after converter mapping):
-        filename (str): Path to the XML file.  Required.
+        filepath (str): Path to the XML file.  Required.  (Talend FILENAME)
         loop_query (str): XPath expression identifying the repeating element.  Required.
         mapping (list[dict]): Each entry has keys ``column`` (str), ``xpath`` (str),
             and optionally ``nodecheck`` (bool).
@@ -57,6 +62,10 @@ class FileInputXML(BaseComponent):
         check_date (bool): Enable date checking.  Default False.
         use_separator (bool): Use separators.  Default False.
     """
+
+    # XPath step = leading name token (no '[' or '/') + optional predicate(s).
+    # Used by _localize_xpath to rewrite element-name steps to local-name().
+    _STEP_RE = re.compile(r"^([^\[]+)(\[.*\])?$")
 
     # ---- Error code constants (S-3 reject schema) ----
     _ERR_FILE_MISSING = "FILE_MISSING"
@@ -165,7 +174,10 @@ class FileInputXML(BaseComponent):
             root = tree.getroot()
             # Pitfall P-5: walk descendants, not just root.nsmap
             nsmap = self._build_nsmap(root, ignore_ns)
-            loop_xpath = self._normalize_loop_query(loop_query, ignore_ns)
+            # ENG-FIX-009 (Talend parity): match element-name steps by local
+            # name so a default namespace (xmlns="...") does not break an
+            # unprefixed LOOP_QUERY -- exactly as Talend's tFileInputXML does.
+            loop_xpath = self._localize_xpath(loop_query)
             try:
                 # XPath "/" selects the document root node, which lxml cannot
                 # return as an element list -- treat it as [root] directly.
@@ -191,10 +203,16 @@ class FileInputXML(BaseComponent):
                 )
         else:
             # ---- Streaming path ----
-            # Derive tag name: last segment of loop_query, strip leading slashes and @
-            loop_tag = loop_query.rstrip("/").split("/")[-1]
+            # Derive tag name: last segment of loop_query, strip slashes, @, prefix.
+            loop_local = loop_query.rstrip("/").split("/")[-1]
             # P-7: use removeprefix, not lstrip
-            loop_tag = loop_tag.removeprefix("@")
+            loop_local = loop_local.removeprefix("@")
+            # Drop any namespace prefix (ns:tag -> tag).
+            if ":" in loop_local:
+                loop_local = loop_local.split(":", 1)[1]
+            # ENG-FIX-009 (Talend parity): '{*}tag' matches the tag in ANY
+            # namespace (and no namespace), mirroring Talend's local-name loop.
+            loop_tag = "{*}" + loop_local
             idx = 0
             for node in _xml_io.iterparse_loop_query(filepath, loop_tag):
                 if limit is not None and idx >= limit:
@@ -255,22 +273,48 @@ class FileInputXML(BaseComponent):
             pass
         return collected
 
-    def _normalize_loop_query(self, query: str, ignore_ns: bool) -> str:
-        """Apply ignore_ns transform: strip namespace prefixes from XPath if requested.
+    def _localize_xpath(self, xpath: str) -> str:
+        """Rewrite element-name steps to match by local name (ENG-FIX-009).
 
-        When ignore_ns=True, replaces "/prefix:tag" segments with
-        "/*[local-name()='tag']" -- the XPath 1.0 equivalent of Talend's IGNORE_NS flag.
+        Talend's tFileInputXML is namespace-agnostic by default: an unprefixed
+        path matches elements regardless of any default or prefixed namespace.
+        Standard XPath 1.0 (lxml) instead binds an unprefixed name to *no*
+        namespace, so a document with a default namespace (xmlns="...") matches
+        nothing. This rewrites each element-name step ``foo`` (or ``ns:foo``) to
+        ``*[local-name()='foo']`` so matching ignores namespaces, mirroring
+        Talend. Applies to both LOOP_QUERY and MAPPING xpaths.
+
+        Steps left untouched: ``.``, ``..``, ``*``, ``@attr``, the empty segments
+        produced by ``//``, function steps (e.g. ``text()``), and any trailing
+        predicates (``[1]``, ``[@id='x']``).
 
         Args:
-            query: Raw LOOP_QUERY string from config.
-            ignore_ns: Whether to strip namespace prefixes.
+            xpath: Raw XPath string from config (loop or mapping).
 
         Returns:
-            Transformed (or unchanged) XPath string.
+            Namespace-agnostic XPath string ("" and "/" returned unchanged).
         """
-        if not ignore_ns:
-            return query
-        return re.sub(r"/(\w+):(\w+)", r"/*[local-name()='\2']", query)
+        if not xpath or xpath.strip() == "/":
+            return xpath
+        return "/".join(self._localize_step(step) for step in xpath.split("/"))
+
+    @classmethod
+    def _localize_step(cls, step: str) -> str:
+        """Rewrite a single path step to local-name() form, preserving predicates."""
+        if step in ("", ".", "..", "*") or step.startswith("@"):
+            return step
+        m = cls._STEP_RE.match(step)
+        if not m:
+            # Malformed step (e.g. "amount[") -- leave it so lxml raises and the
+            # row routes to REJECT, instead of silently mangling it.
+            return step
+        name = m.group(1)
+        pred = m.group(2) or ""
+        if ":" in name:  # ns:tag -> tag (namespace ignored)
+            name = name.split(":", 1)[1]
+        if name == "*" or name.endswith("()"):  # wildcard / function step
+            return step
+        return "*[local-name()='%s']%s" % (name, pred)
 
     def _extract_node(
         self,
@@ -346,19 +390,18 @@ class FileInputXML(BaseComponent):
         if not expr:
             # Default: take element text
             return node.text or ""
-        # XPath "." means the current node itself -- serialize it to an XML string.
-        # This is the Talend "document-passing" mode: the entire element is captured
-        # as a string value (e.g. to feed into tXMLMap on the next step).
+        # ENG-FIX-010: XPath "." -> the element's string value (its text and the
+        # text of all descendants), matching Talend's getText() for a "." column.
+        # NOT the serialized XML subtree.
         if expr == ".":
-            try:
-                return etree.tostring(node, encoding="unicode")
-            except Exception:
-                return ""
+            return node.xpath("string(.)") or ""
         # ENG-FIX-008: bare @attr means "attribute on the loop element"
         if expr.startswith("@"):
             return node.get(expr[1:]) or ""
+        # ENG-FIX-009: match by local name so namespaced docs resolve like Talend.
+        local_expr = self._localize_xpath(expr)
         try:
-            results = node.xpath(expr, namespaces=nsmap)
+            results = node.xpath(local_expr, namespaces=nsmap)
         except etree.XPathEvalError:
             raise
         if not results:

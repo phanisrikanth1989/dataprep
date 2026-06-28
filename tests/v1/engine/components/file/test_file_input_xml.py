@@ -672,3 +672,89 @@ class TestStreamingPath:
         assert any("strategy=dom" in msg for msg in strategy_logs), (
             "Expected 'strategy=dom' in logs; got: %s" % strategy_logs
         )
+
+
+# ------------------------------------------------------------------
+# TestDefaultNamespace -- Tests 33-35 (Talend parity: namespace-agnostic match)
+# ------------------------------------------------------------------
+
+# Mirrors the eurex.xml structure: a default namespace on the root, a deeply
+# nested loop element, relative ".." mappings climbing to siblings/ancestors,
+# a bare "@attr" mapping, and a "." self mapping (Talend returns the text).
+_DEFAULT_NS_XML = textwrap.dedent("""\
+    <?xml version="1.0" encoding="UTF-8"?>
+    <cb012 xmlns="http://www.eurex.com/demo">
+      <rptHdr><exchNam>EUREX</exchNam></rptHdr>
+      <cb012Grp>
+        <cb012KeyGrp2><currTypCod>CHF</currTypCod></cb012KeyGrp2>
+        <cb012Rec id="r1">
+          <trnLngQty>0</trnLngQty>
+          <trnTyp>OPN</trnTyp>
+        </cb012Rec>
+      </cb012Grp>
+    </cb012>
+""")
+
+_DEFAULT_NS_MAPPING = [
+    {"column": "exchNam", "xpath": "../../../rptHdr/exchNam"},
+    {"column": "currTypCod", "xpath": "../../cb012KeyGrp2/currTypCod"},
+    {"column": "trnLngQty", "xpath": "../trnLngQty"},
+    {"column": "rec_id", "xpath": "../@id"},
+    {"column": "trntype", "xpath": "."},
+]
+
+
+def _assert_eurex_row(df):
+    assert len(df) == 1
+    row = df.iloc[0]
+    assert row["exchNam"] == "EUREX"
+    assert row["currTypCod"] == "CHF"
+    assert row["trnLngQty"] == "0"
+    assert row["rec_id"] == "r1"
+    # "." must return the element's text value ("OPN"), not serialized XML.
+    assert row["trntype"] == "OPN"
+
+
+@pytest.mark.unit
+class TestDefaultNamespace:
+    def test_dom_default_namespace_unprefixed_loop_matches(self, tmp_path):
+        """Test 33: default-namespace doc + unprefixed LOOP_QUERY extracts the row (DOM).
+
+        Regression for the eurex.xml bug: standard XPath binds unprefixed names
+        to no-namespace, so the engine read 0 rows where Talend read 1.
+        """
+        xml_file = _write_xml(tmp_path, _DEFAULT_NS_XML, name="ns.xml")
+        comp = _make_component({
+            "filepath": xml_file,
+            "loop_query": "/cb012/cb012Grp/cb012Rec/trnTyp",
+            "mapping": _DEFAULT_NS_MAPPING,
+        })
+        result = _direct_process(comp)
+        _assert_eurex_row(result["main"])
+        assert len(result["reject"]) == 0
+
+    def test_streaming_default_namespace_unprefixed_loop_matches(self, tmp_path):
+        """Test 34: same doc via the streaming path ({*} wildcard tag match)."""
+        xml_file = _write_xml(tmp_path, _DEFAULT_NS_XML, name="ns_stream.xml")
+        comp = _make_component({
+            "filepath": xml_file,
+            "loop_query": "/cb012/cb012Grp/cb012Rec/trnTyp",
+            "mapping": _DEFAULT_NS_MAPPING,
+            "xml_streaming_threshold_mb": 0,  # force streaming
+        })
+        result = _direct_process(comp)
+        _assert_eurex_row(result["main"])
+
+    def test_dot_mapping_returns_text_not_serialized_xml(self, tmp_path):
+        """Test 35: a '.' mapping returns the element text, matching Talend."""
+        xml_file = _write_xml(tmp_path, _SAMPLE_XML)
+        comp = _make_component({
+            "filepath": xml_file,
+            "loop_query": "/bills/bill/amount",
+            "mapping": [{"column": "amt", "xpath": "."}],
+        })
+        result = _direct_process(comp)
+        df = result["main"]
+        assert len(df) == 5
+        assert df.iloc[0]["amt"] == "10.5"
+        assert "<" not in df.iloc[0]["amt"]  # not serialized XML
