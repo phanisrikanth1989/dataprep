@@ -707,29 +707,22 @@ class FileOutputDelimited(BaseComponent):
                     df, filepath, field_sep, line_sep, encoding,
                     include_header, text_enclosure, escape_char, mode,
                 )
-            elif len(field_sep) > 1:
-                # Multi-char delimiter, non-CSV: raw concatenation mode.
-                # Python csv module only accepts single-char; raw mode handles multi-char.
+            else:
+                # Non-CSV mode (ANY separator length): raw string concatenation,
+                # matching Talend tFileOutputDelimited. ENG-WR-12: routed through
+                # _write_raw_mode for every separator length.
+                #
+                # The old single-char path used df.to_csv(quoting=QUOTE_NONE,
+                # escapechar=None), which Python's csv writer rejects whenever a
+                # value contains the separator or a newline -- raising
+                # "_csv.Error: need to escape, but no escapechar set". That is the
+                # opposite of the intended "raw mode": Talend writes the value
+                # verbatim (ambiguous, but no crash). Raw concatenation does that
+                # and also preserves literal backslashes (ENG-WR-05).
                 self._write_raw_mode(
                     df, filepath, field_sep, line_sep, encoding,
                     include_header, csv_option, text_enclosure,
                     escape_char, mode,
-                )
-            else:
-                # Single-char delimiter, non-CSV: use pandas to_csv.
-                # ENG-WR-05: escapechar=None -- do NOT escape backslashes.
-                # Talend's non-CSV mode is raw string concatenation; backslash-
-                # bearing values must pass through without modification.
-                df.to_csv(
-                    filepath,
-                    sep=field_sep,
-                    header=include_header,
-                    index=False,
-                    encoding=encoding,
-                    quoting=csv.QUOTE_NONE,
-                    lineterminator=line_sep,
-                    mode=mode,
-                    escapechar=None,  # ENG-WR-05: no escape -- match Talend raw mode
                 )
         except FileOperationError:
             raise
@@ -827,13 +820,37 @@ class FileOutputDelimited(BaseComponent):
             for row in df.itertuples(index=False, name=None):
                 if csv_option:
                     values = [
-                        self._enclose_field(str(v), text_enclosure, escape_char)
+                        self._enclose_field(self._raw_str(v), text_enclosure, escape_char)
                         for v in row
                     ]
                 else:
-                    values = [str(v) for v in row]
+                    values = [self._raw_str(v) for v in row]
                 f.write(field_sep.join(values))
                 f.write(line_sep)
+
+    @staticmethod
+    def _raw_str(value: Any) -> str:
+        """Stringify a value for raw (non-CSV) output.
+
+        Nulls (None / NaN / NaT / pd.NA) render as an empty string -- matching
+        Talend tFileOutputDelimited and the previous single-char ``to_csv``
+        behaviour. Every other value uses ``str()``.
+
+        Args:
+            value: Cell value from the DataFrame row.
+
+        Returns:
+            Empty string for nulls; ``str(value)`` otherwise.
+        """
+        if value is None:
+            return ""
+        try:
+            if pd.isna(value):
+                return ""
+        except (TypeError, ValueError):
+            # pd.isna raises on array-like values; those are non-null scalars here.
+            pass
+        return str(value)
 
     @staticmethod
     def _enclose_field(value: str, text_enclosure: str, escape_char: str) -> str:
