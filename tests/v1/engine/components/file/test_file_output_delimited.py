@@ -1176,6 +1176,73 @@ class TestEscape:
 
 
 # ------------------------------------------------------------------
+# TestSeparatorInValueRawMode (ENG-WR-12: non-CSV is raw concatenation)
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestSeparatorInValueRawMode:
+    """Non-CSV mode must concatenate raw (Talend parity), never raise 'need to escape'.
+
+    Regression for the csv.QUOTE_NONE + escapechar=None crash: a single-char
+    separator with a value that contains that separator (or a newline) raised
+    `_csv.Error: need to escape, but no escapechar set` from pandas.to_csv.
+    """
+
+    def _cfg(self, tmp_path, name, sep=";"):
+        return {
+            **_DEFAULT_CONFIG,
+            "filepath": str(tmp_path / name),
+            "fieldseparator": sep,
+            "csv_option": False,
+            "file_exist_exception": False,
+            "os_line_separator": False,
+            "row_separator": "\\n",
+            "encoding": "utf-8",
+        }
+
+    def test_value_containing_single_char_separator_writes_raw(self, tmp_path):
+        """Single-char ';' + value containing ';' -> raw concat, no crash."""
+        cfg = self._cfg(tmp_path, "sep_in_val.csv")
+        comp = _make_component(config=cfg)
+        comp.config = dict(cfg)
+        df = pd.DataFrame([{"addr": "Main St; Apt 5", "city": "NYC"}])
+        comp._process(df)  # must NOT raise "need to escape"
+        content = open(cfg["filepath"], encoding="utf-8").read()
+        assert content == "Main St; Apt 5;NYC\n"
+
+    def test_value_containing_newline_does_not_crash(self, tmp_path):
+        """Embedded newline in a value -> written raw, no crash."""
+        cfg = self._cfg(tmp_path, "nl_in_val.csv")
+        comp = _make_component(config=cfg)
+        comp.config = dict(cfg)
+        df = pd.DataFrame([{"note": "line1\nline2", "city": "NYC"}])
+        comp._process(df)  # must NOT raise
+        content = open(cfg["filepath"], encoding="utf-8").read()
+        assert content == "line1\nline2;NYC\n"
+
+    def test_null_value_written_as_empty_single_char(self, tmp_path):
+        """None/NaN -> empty string (Talend parity), not 'None'/'nan'."""
+        cfg = self._cfg(tmp_path, "null_single.csv")
+        comp = _make_component(config=cfg)
+        comp.config = dict(cfg)
+        df = pd.DataFrame([{"a": "x", "b": None}])
+        comp._process(df)
+        content = open(cfg["filepath"], encoding="utf-8").read()
+        assert content == "x;\n"
+
+    def test_null_value_written_as_empty_multi_char(self, tmp_path):
+        """Multi-char separator: None/NaN -> empty string (consistent with single-char)."""
+        cfg = self._cfg(tmp_path, "null_multi.csv", sep="<>")
+        comp = _make_component(config=cfg)
+        comp.config = dict(cfg)
+        df = pd.DataFrame([{"a": "x", "b": None}])
+        comp._process(df)
+        content = open(cfg["filepath"], encoding="utf-8").read()
+        assert content == "x<>\n"
+
+
+# ------------------------------------------------------------------
 # TestBoolCoercion (ENG-WR-11)
 # ------------------------------------------------------------------
 
@@ -1647,11 +1714,11 @@ class TestCoverageLift1408RawWriteFailure:
         comp = _make_component(config=cfg)
         comp.config = dict(cfg)
 
-        # Single-char + non-CSV -> pandas.to_csv path. Force OSError there.
-        def boom(self_df, *a, **k):
+        # Non-CSV -> _write_raw_mode path. Force OSError there.
+        def boom(*a, **k):
             raise OSError("simulated write failure")
 
-        monkeypatch.setattr(pd.DataFrame, "to_csv", boom)
+        monkeypatch.setattr(comp, "_write_raw_mode", boom)
         with pytest.raises(
             (FileOperationError, ComponentExecutionError),
             match="Failed to write file",
@@ -1667,10 +1734,10 @@ class TestCoverageLift1408RawWriteFailure:
         comp = _make_component(config=cfg)
         comp.config = dict(cfg)
 
-        def raise_foe(self_df, *a, **k):
+        def raise_foe(*a, **k):
             raise FileOperationError("inner-writer-error")
 
-        monkeypatch.setattr(pd.DataFrame, "to_csv", raise_foe)
+        monkeypatch.setattr(comp, "_write_raw_mode", raise_foe)
         # The original FileOperationError surfaces unchanged (no double-wrapping)
         with pytest.raises(
             (FileOperationError, ComponentExecutionError),
