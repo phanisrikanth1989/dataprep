@@ -1449,20 +1449,24 @@ class JavaBridge:
         """Build a schema dict for input DF serialization.
 
         Type-resolution precedence (highest first):
-            1. ``output_schema[col]`` -- column is echoed to output, must
-            keep the declared output type for round-trip parity.
-            2. ``input_schema[col]`` -- column is declared in the upstream
-            flow's schema (e.g. tJavaRow ``schema.inputs.<flow>``) but
-            NOT echoed to output. This is the authoritative type the
-            component author wrote in the JSON; the engine must trust
-            it before falling back to pandas dtype guessing. Without
-            this rung, an upstream component that returns a column as
-            pandas ``object`` (mixed strings) or ``float64``
-            (NaN-promoted from a left join) would silently downgrade
-            an ``int`` declaration to Arrow VarChar/Float64, breaking
-            ``int x = input_row.col`` primitive coercion in the row
-            body. Talend has no analogous degradation because it uses
-            the input flow's metadata directly.
+            1. ``input_schema[col]`` -- the authoritative type for the INPUT
+            DataFrame. The frame being serialized holds input-flow values, so
+            its declared input type MUST win. This is critical for tJavaRow
+            bodies that READ a column as one type and EMIT it as another
+            (e.g. ``output_row.b = Float.parseFloat(input_row.b)`` where ``b``
+            is ``str`` on input but ``float`` on output). If the output type
+            were used here, an input value like the empty string ``""`` would
+            be coerced (``pd.to_numeric("") -> NaN -> Arrow null``) BEFORE the
+            row body runs, so ``input_row.b`` arrives as Java ``null`` and any
+            ``.length()`` / ``.equals()`` / ``parseFloat`` on it throws an NPE.
+            It also preserves ``int x = input_row.col`` primitive coercion for
+            input-only columns the body reads but does not re-emit.
+            2. ``output_schema[col]`` -- fallback when the column is NOT in
+            ``input_schema`` (e.g. ``input_schema`` was not supplied, or is
+            partial). The output type is applied to the RESULT separately when
+            it is deserialized (``_arrow_bytes_to_df(result_bytes,
+            output_schema)``), so using it for input serialization here is only
+            a best-effort hint for passthrough columns.
             3. pandas dtype inference -- last-resort fallback.
 
         Args:
@@ -1477,11 +1481,11 @@ class JavaBridge:
         input_schema = input_schema or {}
         schema_dict: dict[str, str] = {}
         for col in df.columns:
-            if col in output_schema:
-                schema_dict[col] = output_schema[col]
-                continue
             if col in input_schema:
                 schema_dict[col] = input_schema[col]
+                continue
+            if col in output_schema:
+                schema_dict[col] = output_schema[col]
                 continue
             pandas_dtype = str(df[col].dtype)
             if pandas_dtype.startswith("int"):
