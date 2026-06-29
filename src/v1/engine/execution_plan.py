@@ -47,6 +47,15 @@ _ITERATE_TYPES: frozenset[str] = frozenset({
     "Foreach", "tForeach",
 })
 
+# ---------------------------------------------------------------------------
+# Pre-job / post-job marker component types (tPrejob / tPostjob)
+# A subjob containing one of these is forced first (prejob) or last (postjob)
+# among the initial subjobs. See _initial_subjobs ordering below.
+# ---------------------------------------------------------------------------
+
+_PREJOB_TYPES: frozenset[str] = frozenset({"Prejob", "tPrejob"})
+_POSTJOB_TYPES: frozenset[str] = frozenset({"Postjob", "tPostjob"})
+
 
 # ---------------------------------------------------------------------------
 # Dataclasses
@@ -152,15 +161,44 @@ class ExecutionPlan:
         # ---- 3. Build trigger edge list ----
         self._trigger_edges: list[TriggerEdge] = self._build_trigger_edges()
 
-        # ---- 4. Compute initial subjobs ----
+        # ---- 4a. Classify pre-job / post-job subjobs by component type ----
+        # A subjob is a prejob/postjob subjob if it contains a tPrejob/tPostjob
+        # marker component. These markers connect to their phase logic via a
+        # trigger (not a flow), so each marker sits in its own singleton subjob.
+        self._prejob_subjobs: set[str] = set()
+        self._postjob_subjobs: set[str] = set()
+        for subjob_id, comp_ids in self._subjobs_dict.items():
+            for comp_id in comp_ids:
+                ctype = self._components.get(comp_id, {}).get("type", "")
+                if ctype in _PREJOB_TYPES:
+                    self._prejob_subjobs.add(subjob_id)
+                elif ctype in _POSTJOB_TYPES:
+                    self._postjob_subjobs.add(subjob_id)
+
+        # ---- 4b. Compute initial subjobs, ordered prejob-first / postjob-last ----
+        # The marker subjobs are "initial" in the trigger graph (nothing triggers
+        # them), so without explicit ordering they would interleave arbitrarily
+        # with the main subjobs. Force prejob subjobs to the front and postjob
+        # subjobs to the back; the executor's depth-first drain then keeps each
+        # phase's whole trigger chain in the right place (postjob runs last).
         triggered_subjob_ids: set[str] = set()
         for edge in self._trigger_edges:
             if edge.to_subjob is not None:
                 triggered_subjob_ids.add(edge.to_subjob)
-        self._initial_subjobs: list[str] = [
+        raw_initial = [
             sid for sid in self._subjobs_dict
             if sid not in triggered_subjob_ids
         ]
+        prejob_first = [sid for sid in raw_initial if sid in self._prejob_subjobs]
+        postjob_last = [
+            sid for sid in raw_initial
+            if sid in self._postjob_subjobs and sid not in self._prejob_subjobs
+        ]
+        normal = [
+            sid for sid in raw_initial
+            if sid not in self._prejob_subjobs and sid not in self._postjob_subjobs
+        ]
+        self._initial_subjobs: list[str] = prejob_first + normal + postjob_last
 
         # ---- 5. Build streaming metadata ----
         self._streaming_metadata: dict[str, StreamingMetadata] = {}
@@ -505,8 +543,18 @@ class ExecutionPlan:
 
     @property
     def initial_subjobs(self) -> list[str]:
-        """Subjob IDs not targeted by any trigger."""
+        """Subjob IDs not targeted by any trigger, ordered prejob-first / postjob-last."""
         return self._initial_subjobs
+
+    @property
+    def prejob_subjobs(self) -> set[str]:
+        """Subjob IDs that contain a tPrejob marker component (run first)."""
+        return self._prejob_subjobs
+
+    @property
+    def postjob_subjobs(self) -> set[str]:
+        """Subjob IDs that contain a tPostjob marker component (run last; skipped on failure)."""
+        return self._postjob_subjobs
 
     @property
     def component_to_subjob(self) -> dict[str, str]:

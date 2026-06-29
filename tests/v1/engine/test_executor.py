@@ -969,3 +969,100 @@ class TestLegacyLogIterationProgressShim:
         with caplog.at_level("DEBUG"):
             executor._log_iteration_progress(_FakeIter(), 1, 5)
         assert "Iteration 1 / 5" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Pre-job / post-job orchestration (tPrejob / tPostjob)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+class TestPrejobPostjobExecution:
+    """Pre-job runs first, post-job runs last; post-job is skipped on failure.
+
+    The marker components are typed tPrejob/tPostjob in config (so ExecutionPlan
+    classifies their subjobs) but instantiated as OrderTrackingComponents by the
+    test harness, which records execution order.
+    """
+
+    def _full_job(self, track_order=True, main_fails=False):
+        """pre -> (preLogic), main, post -> (postLogic) across 5 singleton subjobs."""
+        return _build_executor(
+            components_config=[
+                {"id": "pre", "type": "tPrejob"},
+                {"id": "preLogic", "type": "Stub"},
+                {"id": "main", "type": "Stub",
+                 "config": {"should_fail": main_fails}},
+                {"id": "post", "type": "tPostjob"},
+                {"id": "postLogic", "type": "Stub"},
+            ],
+            triggers_config=[
+                {"type": "OnSubjobOk", "from": "pre", "to": "preLogic"},
+                {"type": "OnSubjobOk", "from": "post", "to": "postLogic"},
+            ],
+            subjobs={
+                "s_main": ["main"],
+                "s_post": ["post"],
+                "s_postLogic": ["postLogic"],
+                "s_pre": ["pre"],
+                "s_preLogic": ["preLogic"],
+            },
+            track_order=track_order,
+        )
+
+    def test_full_order_prejob_main_postjob(self):
+        """On success: pre and its logic first, main in the middle, post + its logic last."""
+        _execution_order.clear()
+        executor = self._full_job()
+        stats = executor.execute_job()
+
+        assert stats["status"] == "success"
+        # Pre-job phase precedes main precedes post-job phase.
+        assert _execution_order.index("pre") < _execution_order.index("preLogic")
+        assert _execution_order.index("preLogic") < _execution_order.index("main")
+        assert _execution_order.index("main") < _execution_order.index("post")
+        assert _execution_order.index("post") < _execution_order.index("postLogic")
+        # post-job logic is dead last.
+        assert _execution_order[-1] == "postLogic"
+
+    def test_postjob_runs_on_full_success(self):
+        _execution_order.clear()
+        executor = self._full_job()
+        executor.execute_job()
+        assert "post" in executor.executed_components
+        assert "postLogic" in executor.executed_components
+
+    def test_postjob_skipped_when_main_fails(self):
+        """A main failure skips the post-job marker AND its triggered logic."""
+        _execution_order.clear()
+        executor = self._full_job(main_fails=True)
+        stats = executor.execute_job()
+
+        assert stats["status"] == "failed"
+        # main attempted, but post-job phase never ran.
+        assert "main" in executor.executed_components
+        assert "post" not in executor.executed_components
+        assert "postLogic" not in executor.executed_components
+        assert "post" not in _execution_order
+        assert "postLogic" not in _execution_order
+
+    def test_postjob_marker_marked_skipped_on_failure(self):
+        """Skipped post-job marker gets a 'skipped' status (not a stall)."""
+        _execution_order.clear()
+        executor = self._full_job(main_fails=True)
+        executor.execute_job()  # must not raise a stall ConfigurationError
+        assert executor.execution_stats.get("post", {}).get("status") == "skipped"
+
+    def test_prejob_runs_even_when_only_markers(self):
+        """A job that is only pre/post markers still runs the pre-job, skips nothing."""
+        _execution_order.clear()
+        executor = _build_executor(
+            components_config=[
+                {"id": "pre", "type": "tPrejob"},
+                {"id": "post", "type": "tPostjob"},
+            ],
+            subjobs={"s_post": ["post"], "s_pre": ["pre"]},
+            track_order=True,
+        )
+        stats = executor.execute_job()
+        assert stats["status"] == "success"
+        assert _execution_order == ["pre", "post"]

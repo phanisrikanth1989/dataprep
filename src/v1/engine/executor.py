@@ -215,6 +215,25 @@ class Executor:
             subjob_id = pending_subjobs.popleft()
             if subjob_id in self._attempted_subjobs:
                 continue
+
+            # PostJob success-gate: a postjob subjob runs only when nothing has
+            # failed. This is a deliberate divergence from Talend's always-run
+            # cleanup semantics, chosen for this engine -- flip this single
+            # condition to restore Talend parity. Because the tPostjob marker
+            # is skipped here, its OnSubjobOk never fires, so the post-job logic
+            # subjob it would have triggered is skipped too. The postjob subjob
+            # is seeded last and drained depth-first, so by the time it is popped
+            # every main subjob has run and failed_components is complete.
+            if subjob_id in self.execution_plan.postjob_subjobs and (
+                self.failed_components or self._job_terminated
+            ):
+                logger.info(
+                    "Skipping postjob subjob %s: %d failed component(s), terminated=%s",
+                    subjob_id, len(self.failed_components), self._job_terminated,
+                )
+                self._mark_subjob_skipped(subjob_id)
+                continue
+
             self._attempted_subjobs.add(subjob_id)
             logger.info("Executing subjob: %s", subjob_id)
 
@@ -241,6 +260,24 @@ class Executor:
             if self._job_terminated:
                 logger.info("Job terminated by tDie component")
                 break
+
+    def _mark_subjob_skipped(self, subjob_id: str) -> None:
+        """Mark every component in a subjob as skipped (no-op if already recorded).
+
+        Used by the postjob success-gate so the skipped marker components show a
+        'skipped' status and are excluded from stall detection. The subjob is
+        NOT added to _attempted_subjobs, so its components are excluded from
+        stall detection regardless; this just makes the stats explicit.
+
+        Args:
+            subjob_id: The subjob whose components should be marked skipped.
+        """
+        try:
+            plan = self.execution_plan.get_subjob_plan(subjob_id)
+        except KeyError:
+            return
+        for comp_id in plan.component_ids:
+            self.execution_stats.setdefault(comp_id, {"status": "skipped"})
 
     # ------------------------------------------------------------------
     # Subjob execution -- THE building block for Phase 10

@@ -489,3 +489,79 @@ class TestRealJobConfig:
         edges = plan.get_triggered_subjobs("OnComponentOk", "tContextLoad_1")
         assert len(edges) == 1
         assert edges[0].to_component == "tJava_1"
+
+
+# ---------------------------------------------------------------------------
+# Pre-job / post-job ordering (tPrejob / tPostjob)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+class TestPrejobPostjobOrdering:
+    """tPrejob subjobs sort first, tPostjob subjobs sort last among initial subjobs."""
+
+    def _plan(self):
+        # Three independent (untriggered) subjobs: a prejob marker, a main
+        # subjob, and a postjob marker. Each marker connects to its phase logic
+        # via a trigger, so on its own it is an initial singleton subjob.
+        return _make_plan(
+            components=[
+                {"id": "pre", "type": "tPrejob"},
+                {"id": "main", "type": "FileInputDelimited"},
+                {"id": "post", "type": "tPostjob"},
+            ],
+            subjobs={"s_main": ["main"], "s_post": ["post"], "s_pre": ["pre"]},
+        )
+
+    def test_prejob_subjob_detected(self):
+        assert self._plan().prejob_subjobs == {"s_pre"}
+
+    def test_postjob_subjob_detected(self):
+        assert self._plan().postjob_subjobs == {"s_post"}
+
+    def test_v1_typed_markers_detected(self):
+        """Detection matches the V1 names (Prejob/Postjob), not just t-prefixed."""
+        plan = _make_plan(
+            components=[
+                {"id": "pre", "type": "Prejob"},
+                {"id": "post", "type": "Postjob"},
+            ],
+            subjobs={"s_pre": ["pre"], "s_post": ["post"]},
+        )
+        assert plan.prejob_subjobs == {"s_pre"}
+        assert plan.postjob_subjobs == {"s_post"}
+
+    def test_initial_order_is_pre_main_post(self):
+        # Subjobs dict deliberately lists main, post, pre out of order to prove
+        # the ordering is enforced rather than incidental.
+        order = self._plan().initial_subjobs
+        assert order.index("s_pre") < order.index("s_main") < order.index("s_post")
+
+    def test_postjob_last_with_multiple_main_subjobs(self):
+        plan = _make_plan(
+            components=[
+                {"id": "pre", "type": "tPrejob"},
+                {"id": "m1", "type": "LogRow"},
+                {"id": "m2", "type": "LogRow"},
+                {"id": "post", "type": "tPostjob"},
+            ],
+            subjobs={
+                "s_m1": ["m1"], "s_post": ["post"], "s_m2": ["m2"], "s_pre": ["pre"],
+            },
+        )
+        order = plan.initial_subjobs
+        assert order[0] == "s_pre"
+        assert order[-1] == "s_post"
+        assert set(order[1:-1]) == {"s_m1", "s_m2"}
+
+    def test_no_markers_leaves_order_unchanged(self):
+        plan = _make_plan(
+            components=[{"id": "a", "type": "LogRow"}, {"id": "b", "type": "LogRow"}],
+            subjobs={"s_a": ["a"], "s_b": ["b"]},
+        )
+        assert plan.prejob_subjobs == set()
+        assert plan.postjob_subjobs == set()
+        assert plan.initial_subjobs == ["s_a", "s_b"]
+
+    def test_marker_subjob_not_duplicated_in_initial(self):
+        order = self._plan().initial_subjobs
+        assert len(order) == len(set(order)) == 3
