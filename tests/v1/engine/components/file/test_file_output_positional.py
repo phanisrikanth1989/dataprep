@@ -470,6 +470,120 @@ class TestDeleteEmptyFile:
 
 
 # ------------------------------------------------------------------
+# 11b. Empty input: append no-op
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestEmptyInputAppend:
+    """append=True with 0 input rows must run without failing and must NOT
+    truncate a file an earlier component already wrote to the same path
+    (Talend parity with tFileOutputDelimited)."""
+
+    def test_append_empty_input_does_not_raise(self, tmp_path):
+        out = str(tmp_path / "out.txt")
+        comp = _make_component({
+            "filepath": out,
+            "formats": _SIMPLE_FORMATS,
+            "append": True,
+        })
+        result = comp._process(pd.DataFrame())  # must not raise
+        assert "main" in result
+
+    def test_append_empty_input_preserves_existing_file(self, tmp_path):
+        out = str(tmp_path / "out.txt")
+        (tmp_path / "out.txt").write_text("PRIOR-CONTENT\n", encoding="ISO-8859-15")
+        comp = _make_component({
+            "filepath": out,
+            "formats": _SIMPLE_FORMATS,
+            "append": True,
+        })
+        comp._process(pd.DataFrame())
+        assert _read_text(out) == "PRIOR-CONTENT\n"  # untouched
+
+    def test_append_empty_after_data_keeps_rows(self, tmp_path):
+        """Realistic flow: writer emits rows, a later append-writer gets 0 rows."""
+        out = str(tmp_path / "out.txt")
+        cfg = {"filepath": out, "formats": _SIMPLE_FORMATS, "include_header": False}
+        _make_component(cfg)._process(_SIMPLE_DATA)                        # 2 data rows
+        _make_component({**cfg, "append": True})._process(pd.DataFrame())  # 0 rows
+        lines = _read_text(out).splitlines()
+        assert len(lines) == 2  # nothing appended, nothing truncated
+
+
+# ------------------------------------------------------------------
+# 11c. Empty input: include_header writes header-only file
+# ------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestEmptyInputIncludeHeader:
+    """include_header=True with 0 input rows writes a header-only file."""
+
+    def test_header_only_file_created(self, tmp_path):
+        out = str(tmp_path / "out.txt")
+        comp = _make_component({
+            "filepath": out,
+            "formats": _SIMPLE_FORMATS,
+            "include_header": True,
+        })
+        comp._process(pd.DataFrame())
+        assert os.path.exists(out)
+        lines = _read_text(out).splitlines()
+        assert len(lines) == 1            # header only, zero data rows
+        assert lines[0].startswith("name")
+        assert "age" in lines[0]
+
+    def test_header_only_fixed_width_layout(self, tmp_path):
+        out = str(tmp_path / "out.txt")
+        comp = _make_component({
+            "filepath": out,
+            "formats": _SIMPLE_FORMATS,
+            "include_header": True,
+        })
+        comp._process(pd.DataFrame())
+        # name -> ljust(10, " "); age -> rjust(5, "0")
+        assert _read_text(out) == "name      " + "00age" + "\n"
+
+    def test_header_only_compressed(self, tmp_path):
+        out = str(tmp_path / "out.txt.gz")
+        comp = _make_component({
+            "filepath": out,
+            "formats": _SIMPLE_FORMATS,
+            "include_header": True,
+            "compress": True,
+        })
+        comp._process(pd.DataFrame())
+        with gzip.open(out, "rb") as fh:
+            content = fh.read().decode("ISO-8859-15")
+        assert content == "name      00age\n"
+
+    def test_append_takes_precedence_over_header(self, tmp_path):
+        """append=True + include_header=True + 0 rows -> no-op (do not clobber)."""
+        out = str(tmp_path / "out.txt")
+        (tmp_path / "out.txt").write_text("PRIOR\n", encoding="ISO-8859-15")
+        comp = _make_component({
+            "filepath": out,
+            "formats": _SIMPLE_FORMATS,
+            "include_header": True,
+            "append": True,
+        })
+        comp._process(pd.DataFrame())
+        assert _read_text(out) == "PRIOR\n"  # append wins, header not rewritten
+
+
+@pytest.mark.unit
+class TestEmptyInputDefault:
+    """Default empty handling (no append/header/delete) writes no file."""
+
+    def test_default_empty_input_creates_no_file(self, tmp_path):
+        out = str(tmp_path / "out.txt")
+        comp = _make_component({"filepath": out, "formats": _SIMPLE_FORMATS})
+        comp._process(pd.DataFrame())
+        assert not os.path.exists(out)
+
+
+# ------------------------------------------------------------------
 # 12. flushonrow config key aliases
 # ------------------------------------------------------------------
 

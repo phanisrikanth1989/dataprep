@@ -263,12 +263,35 @@ class FileOutputPositional(BaseComponent):
         # ---- 3. Empty input handling ------------------------------------
         if input_data is None or (hasattr(input_data, 'empty') and input_data.empty):
             logger.info("[%s] Empty input received", self.id)
-            if delete_empty_file and os.path.exists(filepath):
-                try:
-                    os.remove(filepath)
-                    logger.info("[%s] Deleted empty output file: %s", self.id, filepath)
-                except OSError as exc:
-                    logger.warning("[%s] Could not delete file %s: %s", self.id, filepath, exc)
+            # Precedence mirrors tFileOutputDelimited so the two sinks behave the
+            # same on 0 rows:
+            #   append            -> no-op (don't clobber a file an earlier
+            #                        component wrote to the same path)
+            #   delete_empty_file -> remove an existing file
+            #   include_header    -> write a header-only file (0 data rows)
+            #   otherwise         -> write nothing
+            if append:
+                logger.debug(
+                    "[%s] Empty input with append=True; leaving '%s' untouched",
+                    self.id, filepath,
+                )
+            elif delete_empty_file:
+                if os.path.exists(filepath):
+                    try:
+                        os.remove(filepath)
+                        logger.info("[%s] Deleted empty output file: %s", self.id, filepath)
+                    except OSError as exc:
+                        logger.warning("[%s] Could not delete file %s: %s", self.id, filepath, exc)
+            elif include_header:
+                # Reuse the normal writer with an empty frame: it emits the header
+                # row and zero data rows, so we don't duplicate file/compress logic.
+                if isinstance(row_separator, str):
+                    row_separator = row_separator.encode('utf-8').decode('unicode_escape')
+                self._write_positional_file(
+                    pd.DataFrame(), filepath, formats, row_separator,
+                    append, include_header, compress, encoding, create,
+                    flush_on_row, flush_on_row_num,
+                )
             self._update_stats(0, 0, 0)
             return {'main': pd.DataFrame()}
 
