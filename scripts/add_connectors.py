@@ -29,19 +29,18 @@ def _in_lookup(required=False, max_conn=-1):
     return {"name": "lookup", "type": "row", "label": "Lookup", "required": required, "maxConnections": max_conn}
 
 def _out_main(label="Main", max_conn=1):
-    p = {"name": "main", "type": "row", "label": label}
-    if max_conn != 1:
-        p["maxConnections"] = max_conn
-    return p
+    # maxConnections always emitted (explicit), mirroring the input ports.
+    # main row outputs are single-connection (1); fan-out (tReplicate) passes -1.
+    return {"name": "main", "type": "row", "label": label, "maxConnections": max_conn}
 
 def _out_reject():
-    return {"name": "reject", "type": "row", "label": "Reject"}
+    return {"name": "reject", "type": "row", "label": "Reject", "maxConnections": 1}
 
 def _out_duplicate():
-    return {"name": "duplicate", "type": "row", "label": "Duplicate"}
+    return {"name": "duplicate", "type": "row", "label": "Duplicate", "maxConnections": 1}
 
 def _out_iterate():
-    return {"name": "iterate", "type": "iterate", "label": "Iterate"}
+    return {"name": "iterate", "type": "iterate", "label": "Iterate", "maxConnections": 1}
 
 def _all_triggers():
     return {"outgoing": list(ALL_TRIGGERS), "incoming": list(ALL_TRIGGERS)}
@@ -243,6 +242,16 @@ CONNECTOR_MAP = {
         "triggers": _all_triggers(),
     },
 
+    # ═══════════════════════ PAGINATION ═════════════════════════
+    "tPagination": {
+        "inputs": [_in_main()],
+        "outputs": [
+            _out_main(label="Summary (per page)"),
+            {"name": "detail", "type": "row", "label": "Detail (per row)", "maxConnections": 1},
+        ],
+        "triggers": _all_triggers(),
+    },
+
     # ═══════════════════════ CODE ═══════════════════════════════
     "tJava": {
         "inputs": [_in_main(required=False)],
@@ -268,9 +277,14 @@ def add_connectors(registry: dict) -> dict:
             updated[comp_name] = comp_data
             continue
 
-        # Build new ordered dict: label, icon, category, connectors, groups, properties
+        # Build new ordered dict: label, icon, category, connectors, groups, properties.
+        # Drop any pre-existing 'connectors' key so re-runs are idempotent -- it is
+        # re-inserted fresh from CONNECTOR_MAP right after 'category'. Without this,
+        # copying the stale key would clobber the freshly injected one.
         new_comp = OrderedDict()
         for key, value in comp_data.items():
+            if key == "connectors":
+                continue
             new_comp[key] = value
             if key == "category":
                 new_comp["connectors"] = CONNECTOR_MAP[comp_name]
