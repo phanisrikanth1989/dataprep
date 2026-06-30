@@ -4,6 +4,7 @@ Backward-compatible API: ETLEngine, run_job(), CLI entry point preserved.
 """
 import json
 import logging
+import os
 from typing import Dict, Any
 import argparse
 
@@ -21,6 +22,7 @@ from . import components as _components  # noqa: F401 -- triggers decorator regi
 from .execution_plan import ExecutionPlan
 from .output_router import OutputRouter
 from .executor import Executor
+from .child_job_runner import RunContext, ChildJobRunner
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +32,14 @@ class ETLEngine:
     ExecutionPlan, OutputRouter, and REGISTRY.
     """
 
-    def __init__(self, job_config: Dict[str, Any]):
+    def __init__(self, job_config: Dict[str, Any], _run_context=None):
         """Initialize ETL engine with job configuration."""
-        # Load configuration
+        # Load configuration (remember the source path so tRunJob can resolve siblings)
+        self._job_path = None
+        self._job_dir = None
         if isinstance(job_config, str):
+            self._job_path = os.path.abspath(job_config)
+            self._job_dir = os.path.dirname(self._job_path)
             with open(job_config, 'r') as f:
                 self.job_config = json.load(f)
         else:
@@ -131,6 +137,20 @@ class ETLEngine:
         #placeholders are resolved using context_manager.get() instead of global_map.get(), allowing for dynamic context variable evaluation.
         self.trigger_manager = TriggerManager(self.global_map, self.context_manager)
 
+        # tRunJob support: root RunContext (or the inherited one for a nested child) + the runner.
+        engine_cfg = self.job_config.get("engine_config", {})
+        if _run_context is not None:
+            self._run_context = _run_context
+        else:
+            self._run_context = RunContext(
+                base_dir=self._job_dir,
+                jobs_dir=engine_cfg.get("jobs_dir"),
+                call_stack=[self._job_path or self.job_name],
+                depth=0,
+                max_depth=int(engine_cfg.get("max_run_job_depth", 2)),
+            )
+        self._child_job_runner = ChildJobRunner(self._run_context)
+
         self.components: Dict[str, BaseComponent] = {}
         self._initialize_components()
         self._initialize_triggers()
@@ -199,6 +219,7 @@ class ETLEngine:
                 component.oracle_manager = self.oracle_manager
             if self.mssql_manager:
                 component.mssql_manager = self.mssql_manager
+            component.child_job_runner = self._child_job_runner
 
             self.components[comp_id] = component
 
