@@ -151,14 +151,7 @@ class RunJobConverter(ComponentConverter):
         config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
         config["label"] = self._get_str(node, "LABEL", "")
 
-        # ---- 5. Engine gap needs_review entries ----
-        needs_review.append({
-            "issue": "No concrete engine implementation for tRunJob. All config keys are extracted for future engine support.",
-            "component": node.component_id,
-            "severity": "engine_gap",
-        })
-
-        # ---- 6. Return ----
+        # ---- 5. Return ----
         component = self._build_component_dict(
             node=node,
             type_name="tRunJob",
