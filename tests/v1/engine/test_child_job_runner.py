@@ -62,3 +62,16 @@ def test_child_run_context_increments(tmp_path):
     child = _runner(base_dir=str(tmp_path), call_stack=["/root/A.json"], depth=0)._child_run_context(p)
     assert child.depth == 1 and child.call_stack == ["/root/A.json", p]
     assert child.base_dir == str(tmp_path)
+
+
+@pytest.mark.unit
+def test_depth_at_limit_allowed(tmp_path):
+    # depth+1 == max_depth must NOT raise (kills the > -> >= mutant)
+    r = _runner(base_dir=str(tmp_path), depth=1, max_depth=2)
+    assert r._check_cycle_and_depth(os.path.join(str(tmp_path), "B.json")) is None
+
+
+@pytest.mark.unit
+def test_no_cycle_no_depth_passes(tmp_path):
+    r = _runner(base_dir=str(tmp_path), call_stack=["/root/A.json"], depth=0, max_depth=2)
+    assert r._check_cycle_and_depth(os.path.join(str(tmp_path), "B.json")) is None
