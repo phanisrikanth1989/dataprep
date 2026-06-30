@@ -1,3 +1,4 @@
+import json
 import os
 from types import SimpleNamespace
 
@@ -111,3 +112,53 @@ def test_seed_warns_and_skips_undeclared(caplog):
     child = _child_with_group("Default", "input_path")
     _runner()._seed_context(child, {}, {"nope": "x"}, "Default")
     assert "nope" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# _map_result (Task 7 -- pure unit, no engine)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+@pytest.mark.parametrize("stats,exp_code", [
+    ({"status": "success", "job_aborted": False}, 0),
+    ({"status": "error", "job_aborted": True}, -1),
+    ({"status": "failed", "job_aborted": True}, -1),
+    ({"status": "failed", "job_aborted": False}, 0),    # tolerated die_on_error=false failure
+    ({"status": "error", "error": "boom"}, -1),         # engine raised inside execute()
+])
+def test_map_result(stats, exp_code):
+    assert ChildJobRunner._map_result(stats).return_code == exp_code
+
+
+# ---------------------------------------------------------------------------
+# run() integration tests with real fixture child JSONs (Task 7)
+# ---------------------------------------------------------------------------
+
+def _write_child(dirpath, name, components):
+    cfg = {"job_name": name, "components": components, "flows": [], "triggers": [],
+           "subjobs": {}, "context": {"Default": {}}}
+    path = os.path.join(str(dirpath), f"{name}.json")
+    with open(path, "w") as f:
+        json.dump(cfg, f)
+    return path
+
+
+@pytest.mark.unit
+def test_run_success_child(tmp_path):
+    _write_child(tmp_path, "Child", [{"id": "pre_1", "type": "tPrejob", "config": {}, "schema": {}}])
+    res = _runner(base_dir=str(tmp_path)).run("Child", {}, {})
+    assert res.return_code == 0 and res.status == "success"
+
+
+@pytest.mark.unit
+def test_run_missing_child_is_negative_one_not_raise(tmp_path):
+    res = _runner(base_dir=str(tmp_path)).run("Nope", {}, {})
+    assert res.return_code == -1 and res.stacktrace
+
+
+@pytest.mark.unit
+def test_run_cycle_raises(tmp_path):
+    p = os.path.join(str(tmp_path), "Child.json")
+    _write_child(tmp_path, "Child", [{"id": "pre_1", "type": "tPrejob", "config": {}, "schema": {}}])
+    with pytest.raises(ConfigurationError, match="cycle"):
+        _runner(base_dir=str(tmp_path), call_stack=[p]).run("Child", {}, {})

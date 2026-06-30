@@ -148,3 +148,59 @@ class ChildJobRunner:
                         "[ChildJobRunner] context override '%s' not defined in child job; skipped",
                         name,
                     )
+
+    def run(self, process: str, whole_context: Dict[str, Any],
+            param_overrides: Dict[str, Any], context_name: str = "Default") -> ChildResult:
+        """Run a child job in-process as a nested ETLEngine.
+
+        Cycle/depth errors always propagate (fatal). All other failures
+        (bad path, construction error, runtime error) are caught and returned
+        as a ChildResult with return_code=-1 so the parent component's
+        die_on_error model governs uniformly.
+
+        Args:
+            process: Child job process name (filename without .json extension).
+            whole_context: Flat dict of parent context values to propagate.
+            param_overrides: Flat dict of explicit context_params from the
+                tRunJob component config (highest priority).
+            context_name: The context group name from the tRunJob config.
+
+        Returns:
+            ChildResult with status, return_code, and optional stacktrace.
+
+        Raises:
+            ConfigurationError: On cycle detection or depth overflow (always fatal).
+        """
+        from .engine import ETLEngine  # local import breaks the engine <-> runner cycle
+        child_path = self._resolve_path(process)
+        self._check_cycle_and_depth(child_path)            # cycle/depth: always-fatal, propagate
+        child_ctx = self._child_run_context(child_path)
+        try:
+            if not os.path.isfile(child_path):
+                raise ConfigurationError(f"child job file not found: {child_path}")
+            with ETLEngine(child_path, _run_context=child_ctx) as child:
+                self._seed_context(child, whole_context, param_overrides, context_name)
+                stats = child.execute()
+            return self._map_result(stats)
+        except Exception as exc:                           # construction / seeding / run failures
+            logger.error("[ChildJobRunner] child job '%s' failed: %s", process, exc)
+            tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+            return ChildResult(status="error", return_code=-1, stacktrace=tb)
+
+    @staticmethod
+    def _map_result(stats: Dict[str, Any]) -> ChildResult:
+        """Map an ETLEngine stats dict to a ChildResult.
+
+        Args:
+            stats: The dict returned by ``ETLEngine.execute()``.
+
+        Returns:
+            ChildResult reflecting success, abort, tolerated-failure, or error.
+        """
+        if "error" in stats:                               # engine raised inside execute()
+            return ChildResult("error", -1, str(stats.get("error")))
+        if stats.get("status") == "success":
+            return ChildResult("success", 0, None)
+        if stats.get("job_aborted"):                       # tDie/exit OR die_on_error=true failure
+            return ChildResult("error", -1, None)
+        return ChildResult("completed_with_tolerated_errors", 0, None)
