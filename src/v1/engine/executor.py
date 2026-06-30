@@ -177,12 +177,20 @@ class Executor:
         else:
             status = "success"
 
+        # tRunJob (B3): distinguish a FATAL abort (tDie/exit, or a die_on_error=true
+        # component failure) from TOLERATED die_on_error=false failures the job ran past.
+        job_aborted = self._job_terminated or any(
+            getattr(self.components.get(cid), "die_on_error", True)
+            for cid in self.failed_components
+        )
+
         stats = {
             "status": status,
             "execution_time": execution_time,
             "components_executed": len(self.executed_components),
             "components_failed": len(self.failed_components),
             "component_stats": self.execution_stats,
+            "job_aborted": job_aborted,
         }
 
         logger.info(
