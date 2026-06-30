@@ -481,7 +481,7 @@ Engine change 4 (B5). If construction fails AFTER the JVM starts, `with ETLEngin
 
 - [ ] **Step 1: Write the failing test**
 
-A construction failure after the manager-None init is triggered by an invalid plan (an unknown trigger target makes `execution_plan.validate()` raise). We assert `_cleanup` is invoked. Java is not required, so we assert via a monkeypatched `_cleanup` spy.
+A construction failure after the manager-None init is triggered by an invalid plan: a 2-node flow cycle makes `ExecutionPlan`'s topological sort raise `ConfigurationError` during construction (`engine.py:144`), inside the Step-3 wrapped post-JVM region. We assert `_cleanup` is invoked. Java is not required, so we assert via a monkeypatched `_cleanup` spy.
 
 ```python
 # tests/v1/engine/test_engine_ctor_rollback.py
@@ -495,10 +495,14 @@ def test_cleanup_called_on_construction_failure(monkeypatch):
     calls = {"n": 0}
     monkeypatch.setattr(ETLEngine, "_cleanup", lambda self: calls.__setitem__("n", calls["n"] + 1))
     bad = {"job_name": "bad",
-           "components": [{"id": "pre_1", "type": "tPrejob", "config": {}, "schema": {}}],
-           # trigger to a non-existent component -> ExecutionPlan.validate() raises
-           "triggers": [{"type": "OnSubjobOk", "from": "pre_1", "to": "ghost", "output_id": 0}],
-           "flows": [], "subjobs": {}, "context": {"Default": {}}}
+           "components": [{"id": "a", "type": "tFilterRow", "config": {}, "schema": {}},
+                          {"id": "b", "type": "tFilterRow", "config": {}, "schema": {}}],
+           "triggers": [],
+           # 2-node flow cycle -> ExecutionPlan topo-sort raises ConfigurationError during
+           # construction (engine.py:144), inside the Step-3 wrapped post-JVM region.
+           "flows": [{"name": "f1", "from": "a", "to": "b", "type": "flow"},
+                     {"name": "f2", "from": "b", "to": "a", "type": "flow"}],
+           "subjobs": {}, "context": {"Default": {}}}
     with pytest.raises(Exception):
         ETLEngine(bad)
     assert calls["n"] >= 1
@@ -507,7 +511,7 @@ def test_cleanup_called_on_construction_failure(monkeypatch):
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/v1/engine/test_engine_ctor_rollback.py -v`
-Expected: FAIL -- `_cleanup` is not called during construction yet (`assert calls["n"] >= 1` fails). If `validate()` does not raise on this input, change the test to point a flow `to` a non-existent component instead; confirm the chosen input raises during `ETLEngine(bad)` before fixing.
+Expected: FAIL -- construction now raises (the flow cycle), but `_cleanup` is not yet wrapped, so `assert calls["n"] >= 1` fails. Confirm the input actually raises during `ETLEngine(bad)` before adding the rollback.
 
 - [ ] **Step 3: Hoist manager `None`-init and wrap the post-JVM body**
 
@@ -790,6 +794,7 @@ The `BaseComponent` itself: validate config, build the two parent-side context d
 
 ```python
 # tests/v1/engine/components/control/test_run_job.py
+import logging
 import re
 import pytest
 from src.v1.engine.component_registry import REGISTRY
@@ -828,7 +833,7 @@ def test_success_writes_zero_and_returns_none():
     comp = _make({"process": "Child", "die_on_child_error": True},
                  _FakeRunner(ChildResult("success", 0)), gm=gm)
     out = comp.execute(None)
-    assert out == {"main": None, "reject": None}
+    assert out["main"] is None and out["reject"] is None
     assert gm.get("tRunJob_1_CHILD_RETURN_CODE") == 0
 
 
@@ -838,7 +843,9 @@ def test_die_on_child_error_kills_parent():
                  _FakeRunner(ChildResult("error", -1, "trace")))
     with pytest.raises(ComponentExecutionError) as ei:
         comp.execute(None)
-    assert getattr(ei.value, "exit_code", None) == -1
+    # execute() re-wraps the component's ComponentExecutionError, so the exit_code set in
+    # _process lives on the ORIGINAL exception at ei.value.cause, NOT on the wrapper.
+    assert ei.value.cause.exit_code == -1
 
 
 @pytest.mark.unit
@@ -847,7 +854,7 @@ def test_die_off_continues_and_records_code():
     comp = _make({"process": "Child", "die_on_child_error": False},
                  _FakeRunner(ChildResult("error", -1, "trace")), gm=gm)
     out = comp.execute(None)
-    assert out == {"main": None, "reject": None}
+    assert out["main"] is None and out["reject"] is None
     assert gm.get("tRunJob_1_CHILD_RETURN_CODE") == -1
     assert gm.get("tRunJob_1_CHILD_EXCEPTION_STACKTRACE") == "trace"
 
@@ -879,6 +886,55 @@ def test_validate_rejects_empty_process():
     comp = _make({"process": ""}, _FakeRunner(ChildResult("success", 0)))
     with pytest.raises(ConfigurationError):
         comp.execute(None)
+
+
+@pytest.mark.unit
+def test_validate_rejects_dynamic_context():
+    comp = _make({"process": "Child", "use_dynamic_context": True},
+                 _FakeRunner(ChildResult("success", 0)))
+    with pytest.raises(ConfigurationError):
+        comp.execute(None)
+
+
+@pytest.mark.unit
+def test_ignored_key_warns_but_runs(caplog):
+    gm = GlobalMap()
+    comp = _make({"process": "Child", "die_on_child_error": False,
+                  "use_independent_process": True},
+                 _FakeRunner(ChildResult("success", 0)), gm=gm)
+    with caplog.at_level(logging.WARNING):
+        out = comp.execute(None)
+    assert out["main"] is None and out["reject"] is None
+    assert any("use_independent_process" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.unit
+def test_missing_runner_raises():
+    comp = _make({"process": "Child"}, _FakeRunner(ChildResult("success", 0)))
+    comp.child_job_runner = None
+    with pytest.raises(ConfigurationError):
+        comp.execute(None)
+
+
+@pytest.mark.unit
+def test_empty_param_name_skipped():
+    runner = _FakeRunner(ChildResult("success", 0))
+    comp = _make({"process": "Child", "die_on_child_error": False, "context_params":
+                  [{"param_name": "", "param_value": "x"},
+                   {"param_name": "ok", "param_value": "v"}]}, runner)
+    comp.execute(None)
+    _, _, param_overrides, _ = runner.calls[0]
+    assert param_overrides == {"ok": "v"}
+
+
+@pytest.mark.unit
+def test_param_value_passthrough_when_not_globalmap():
+    runner = _FakeRunner(ChildResult("success", 0))
+    comp = _make({"process": "Child", "die_on_child_error": False, "context_params":
+                  [{"param_name": "p", "param_value": "literal"}]}, runner)
+    comp.execute(None)
+    _, _, param_overrides, _ = runner.calls[0]
+    assert param_overrides == {"p": "literal"}
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -991,7 +1047,7 @@ from . import run_job  # noqa: F401
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `python -m pytest tests/v1/engine/components/control/test_run_job.py -v`
-Expected: PASS (7 tests). If `ContextManager` has no `.context` attribute, use the read-all accessor it exposes (confirm in `src/v1/engine/context_manager.py`) and adjust `whole_context`.
+Expected: PASS (12 tests). If `ContextManager` has no `.context` attribute, use the read-all accessor it exposes (confirm in `src/v1/engine/context_manager.py`) and adjust `whole_context`.
 
 - [ ] **Step 6: Commit**
 
@@ -1094,9 +1150,9 @@ Now the engine implements tRunJob, drop the converter's advisory `engine_gap` en
 - Modify: `src/converters/talend_to_v1/components/control/run_job.py` (`:154-159`)
 - Test: `tests/converters/talend_to_v1/components/control/test_run_job.py` (locate the existing test asserting `needs_review`; update it)
 
-- [ ] **Step 1: Update the converter test to expect NO engine_gap entry**
+- [ ] **Step 1: Update the converter tests to expect NO engine_gap entry**
 
-Find the existing test that asserts the `engine_gap` needs_review (grep: `engine_gap` under `tests/converters/.../control/`). Change it to assert there is no `engine_gap` entry:
+Removing the `engine_gap` append empties `needs_review`, which breaks all FOUR tests in the converter's `TestNeedsReview` class: `test_needs_review_count`, `test_needs_review_is_engine_gap`, `test_needs_review_message`, `test_needs_review_has_component_id` (grep the broader token `needs_review` in `tests/converters/talend_to_v1/components/control/test_run_job.py` to find them all). Collapse those four into the single assertion below (`test_no_framework_param_needs_review`, if present, iterates the now-empty list and still passes -- leave it):
 
 ```python
 @pytest.mark.unit
@@ -1162,7 +1218,7 @@ rm -f .coverage* && python -m pytest tests/ -m "not oracle" -n auto \
   --cov-report=term-missing --cov-report=json \
   && python scripts/check_per_module_coverage.py coverage.json --floor 95
 ```
-Expected: exit 0; `child_job_runner.py` and `components/control/run_job.py` at >= 95% line coverage. If a residual branch is uncovered, add a focused test (e.g. the `_resolve_globalmap` non-string path, the `child_job_runner is None` guard, the `transmit_whole_context` true path) rather than lowering the floor.
+Expected: exit 0; `child_job_runner.py` and `components/control/run_job.py` at >= 95% line coverage. With the Task 8 unit tests (including the 5 added for the validate / ignored-key / missing-runner / empty-param / passthrough paths), `run_job.py` is expected at >= 95% directly. If any residual line is uncovered, add a focused test for that exact line rather than lowering the floor.
 
 - [ ] **Confirm no regressions in the engine + converter suites**
 
