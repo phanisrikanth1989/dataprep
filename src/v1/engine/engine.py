@@ -47,6 +47,9 @@ class ETLEngine:
 
         # Java bridge
         self.java_bridge_manager = None
+        self.python_routine_manager = None  # hoisted: safe for _cleanup() if post-JVM init fails
+        self.oracle_manager = None          # hoisted
+        self.mssql_manager = None          # hoisted
         java_config = self.job_config.get('java_config', {})
         if java_config.get('enabled', False):
             routines = java_config.get('routines', [])
@@ -63,125 +66,129 @@ class ETLEngine:
             logger.info("Java bridge initialized with %d routines, %d libraries, %d routine JARs",
                         len(routines), len(libraries), len(routine_jars))
 
-        # Python routine manager
-        self.python_routine_manager = None
-        python_config = self.job_config.get('python_config', {})
-        if python_config.get('enabled', False):
-            routines_dir = python_config.get('routines_dir', 'src/python_routines')
-            required_routines = python_config.get('routines', [])
-            self.python_routine_manager = PythonRoutineManager(
-                routines_dir, required_routines=required_routines or None
+        # --- constructor rollback (B5): release the JVM/connections if any later
+        #     construction step raises, since `with ETLEngine(...)` cannot reach __exit__
+        #     when the constructor itself fails. ---
+        try:
+            # Python routine manager
+            python_config = self.job_config.get('python_config', {})
+            if python_config.get('enabled', False):
+                routines_dir = python_config.get('routines_dir', 'src/python_routines')
+                required_routines = python_config.get('routines', [])
+                self.python_routine_manager = PythonRoutineManager(
+                    routines_dir, required_routines=required_routines or None
+                )
+                logger.info("Python routine manager initialized from %s", routines_dir)
+
+            # Oracle connection manager (D-A1, D-A2, D-A4b)
+            oracle_config = self.job_config.get('oracle_config', {})
+            # Auto-detect Oracle components in the job config
+            oracle_component_types = {
+                "OracleConnection", "tOracleConnection", "tDBConnection",
+                "OracleRow", "tOracleRow",
+                "OracleOutput", "tOracleOutput",
+                "OracleInput", "tOracleInput",
+                "OracleSP", "tOracleSP",
+                "OracleBulkExec", "tOracleBulkExec",
+                "OracleCommit", "tOracleCommit",
+                "OracleRollback", "tOracleRollback",
+                "OracleClose", "tOracleClose",
+            }
+            has_oracle_components = any(
+                c.get('type') in oracle_component_types
+                for c in self.job_config.get('components', [])
             )
-            logger.info("Python routine manager initialized from %s", routines_dir)
+            if has_oracle_components or oracle_config.get('enabled', False):
+                thick_mode = bool(oracle_config.get('thick_mode', False))
+                self.oracle_manager = OracleConnectionManager(thick_mode=thick_mode)
+                try:
+                    self.oracle_manager.start()
+                except Exception:
+                    self.oracle_manager.stop()
+                    raise
+                logger.info("Oracle connection manager initialized (thick_mode=%s)", thick_mode)
 
-        # Oracle connection manager (D-A1, D-A2, D-A4b)
-        self.oracle_manager = None
-        oracle_config = self.job_config.get('oracle_config', {})
-        # Auto-detect Oracle components in the job config
-        oracle_component_types = {
-            "OracleConnection", "tOracleConnection", "tDBConnection",
-            "OracleRow", "tOracleRow",
-            "OracleOutput", "tOracleOutput",
-            "OracleInput", "tOracleInput",
-            "OracleSP", "tOracleSP",
-            "OracleBulkExec", "tOracleBulkExec",
-            "OracleCommit", "tOracleCommit",
-            "OracleRollback", "tOracleRollback",
-            "OracleClose", "tOracleClose",
-        }
-        has_oracle_components = any(
-            c.get('type') in oracle_component_types
-            for c in self.job_config.get('components', [])
-        )
-        if has_oracle_components or oracle_config.get('enabled', False):
-            thick_mode = bool(oracle_config.get('thick_mode', False))
-            self.oracle_manager = OracleConnectionManager(thick_mode=thick_mode)
-            try:
-                self.oracle_manager.start()
-            except Exception:
-                self.oracle_manager.stop()
-                raise
-            logger.info("Oracle connection manager initialized (thick_mode=%s)", thick_mode)
-
-        # MSSql connection manager (parallel to Oracle; pyodbc driver)
-        self.mssql_manager = None
-        mssql_config = self.job_config.get('mssql_config', {})
-        mssql_component_types = {
-            "MSSqlConnection", "tMSSqlConnection",
-            "MSSqlInput", "tMSSqlInput",
-        }
-        has_mssql_components = any(
-            c.get('type') in mssql_component_types
-            for c in self.job_config.get('components', [])
-        )
-        if has_mssql_components or mssql_config.get('enabled', False):
-            self.mssql_manager = MSSqlConnectionManager()
-            try:
-                self.mssql_manager.start()
-            except Exception:
-                self.mssql_manager.stop()
-                raise
-            logger.info("MSSql connection manager initialized")
-
-        # Core services
-        self.job_name = self.job_config.get('job_name', 'unnamed_job')
-        self.global_map = GlobalMap()
-        self.context_manager = ContextManager(
-            initial_context=self.job_config.get('context', {}),
-            default_context=self.job_config.get('default_context', 'Default'),
-            java_bridge_manager=self.java_bridge_manager
-        )
-        # Pass context_manager to TriggerManager for evaluating trigger conditions so that 
-        #Run If triggers can access context variables.
-        #Converter phase 7.1: context_manager is now passed to TriggerManager for evaluating trigger conditions.
-        #placeholders are resolved using context_manager.get() instead of global_map.get(), allowing for dynamic context variable evaluation.
-        self.trigger_manager = TriggerManager(self.global_map, self.context_manager)
-
-        # tRunJob support: root RunContext (or the inherited one for a nested child) + the runner.
-        engine_cfg = self.job_config.get("engine_config", {})
-        if _run_context is not None:
-            self._run_context = _run_context
-        else:
-            self._run_context = RunContext(
-                base_dir=self._job_dir,
-                jobs_dir=engine_cfg.get("jobs_dir"),
-                call_stack=[self._job_path or self.job_name],
-                depth=0,
-                max_depth=int(engine_cfg.get("max_run_job_depth", 2)),
+            # MSSql connection manager (parallel to Oracle; pyodbc driver)
+            mssql_config = self.job_config.get('mssql_config', {})
+            mssql_component_types = {
+                "MSSqlConnection", "tMSSqlConnection",
+                "MSSqlInput", "tMSSqlInput",
+            }
+            has_mssql_components = any(
+                c.get('type') in mssql_component_types
+                for c in self.job_config.get('components', [])
             )
-        self._child_job_runner = ChildJobRunner(self._run_context)
+            if has_mssql_components or mssql_config.get('enabled', False):
+                self.mssql_manager = MSSqlConnectionManager()
+                try:
+                    self.mssql_manager.start()
+                except Exception:
+                    self.mssql_manager.stop()
+                    raise
+                logger.info("MSSql connection manager initialized")
 
-        self.components: Dict[str, BaseComponent] = {}
-        self._initialize_components()
-        self._initialize_triggers()
-
-        # Build execution plan, output router, executor
-        components_config = self.job_config.get('components', [])
-        flows_config = self.job_config.get('flows', [])
-        triggers_config = self.job_config.get('triggers', [])
-        subjobs_dict = self._build_subjobs_dict()
-        # Empty dict (no components have subjob_id) -> None triggers auto-detection
-        self.execution_plan = ExecutionPlan(
-            components_config, flows_config, triggers_config, subjobs_dict or None
-        )
-        self.execution_plan.validate()
-        for subjob_id in self.execution_plan.all_subjob_ids:
-            plan = self.execution_plan.get_subjob_plan(subjob_id)
-            self.trigger_manager.register_subjob(subjob_id, list(plan.component_ids))
-        self.output_router = OutputRouter(flows_config, components_config)
-        # D-H6: read iterate log threshold from job_config["engine_config"]["iterate"]
-        from .iterate_logging import DEFAULT_LOG_PER_ITER_THRESHOLD
-        engine_cfg = self.job_config.get("engine_config", {})
-        iterate_log_threshold = (
-            engine_cfg.get("iterate", {}).get(
-                "log_per_iter_threshold", DEFAULT_LOG_PER_ITER_THRESHOLD
+            # Core services
+            self.job_name = self.job_config.get('job_name', 'unnamed_job')
+            self.global_map = GlobalMap()
+            self.context_manager = ContextManager(
+                initial_context=self.job_config.get('context', {}),
+                default_context=self.job_config.get('default_context', 'Default'),
+                java_bridge_manager=self.java_bridge_manager
             )
-        )
-        self.executor = Executor(
-            self.components, self.execution_plan, self.output_router,
-            self.trigger_manager, self.global_map,
-            iterate_log_threshold=iterate_log_threshold,
-        )
+            # Pass context_manager to TriggerManager for evaluating trigger conditions so that
+            #Run If triggers can access context variables.
+            #Converter phase 7.1: context_manager is now passed to TriggerManager for evaluating trigger conditions.
+            #placeholders are resolved using context_manager.get() instead of global_map.get(), allowing for dynamic context variable evaluation.
+            self.trigger_manager = TriggerManager(self.global_map, self.context_manager)
+
+            # tRunJob support: root RunContext (or the inherited one for a nested child) + the runner.
+            engine_cfg = self.job_config.get("engine_config", {})
+            if _run_context is not None:
+                self._run_context = _run_context
+            else:
+                self._run_context = RunContext(
+                    base_dir=self._job_dir,
+                    jobs_dir=engine_cfg.get("jobs_dir"),
+                    call_stack=[self._job_path or self.job_name],
+                    depth=0,
+                    max_depth=int(engine_cfg.get("max_run_job_depth", 2)),
+                )
+            self._child_job_runner = ChildJobRunner(self._run_context)
+
+            self.components: Dict[str, BaseComponent] = {}
+            self._initialize_components()
+            self._initialize_triggers()
+
+            # Build execution plan, output router, executor
+            components_config = self.job_config.get('components', [])
+            flows_config = self.job_config.get('flows', [])
+            triggers_config = self.job_config.get('triggers', [])
+            subjobs_dict = self._build_subjobs_dict()
+            # Empty dict (no components have subjob_id) -> None triggers auto-detection
+            self.execution_plan = ExecutionPlan(
+                components_config, flows_config, triggers_config, subjobs_dict or None
+            )
+            self.execution_plan.validate()
+            for subjob_id in self.execution_plan.all_subjob_ids:
+                plan = self.execution_plan.get_subjob_plan(subjob_id)
+                self.trigger_manager.register_subjob(subjob_id, list(plan.component_ids))
+            self.output_router = OutputRouter(flows_config, components_config)
+            # D-H6: read iterate log threshold from job_config["engine_config"]["iterate"]
+            from .iterate_logging import DEFAULT_LOG_PER_ITER_THRESHOLD
+            engine_cfg = self.job_config.get("engine_config", {})
+            iterate_log_threshold = (
+                engine_cfg.get("iterate", {}).get(
+                    "log_per_iter_threshold", DEFAULT_LOG_PER_ITER_THRESHOLD
+                )
+            )
+            self.executor = Executor(
+                self.components, self.execution_plan, self.output_router,
+                self.trigger_manager, self.global_map,
+                iterate_log_threshold=iterate_log_threshold,
+            )
+        except Exception:
+            self._cleanup()
+            raise
 
     def _initialize_components(self) -> None:
         """Initialize all components from configuration using REGISTRY."""
