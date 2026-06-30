@@ -200,6 +200,11 @@ for group in ctx_block.values():                             # union across all 
 for name, meta in selected.items():                          # selected/default group's type wins
     declared_types[name] = meta.get("type")
 
+# Apply the context_name-selected group's default VALUES (child-default < selected group), so a child
+# run with a non-default context_name uses that group's values for variables nobody overrides.
+for name, meta in selected.items():
+    child.context_manager.set(name, meta.get("value"), meta.get("type"))
+
 for source in (whole_context, param_overrides):             # param_overrides applied last (win)
     for name, value in source.items():
         if name in declared_types:
@@ -216,7 +221,7 @@ Verified: the ETLEngine wrapper `set_context_variable(name, value)` does NOT coe
 Character/Date/BigDecimal/Object` plus python `str/int/float/bool/Decimal/datetime/object`
 (`context_manager.py:75-101`). Only `id_Date` parses dates.
 
-Precedence (last wins): child defaults < `transmit_whole_context` < `context_params`.
+Precedence (last wins): child defaults < `context_name`-selected group < `transmit_whole_context` < `context_params`.
 - child defaults: from the child JSON `context` block (built by the child ETLEngine's ContextManager).
 - `transmit_whole_context` (if true): overlay the parent's CURRENT context values onto the child,
   matching by name across the child's declared vars; names the child defines nowhere are WARNED and
