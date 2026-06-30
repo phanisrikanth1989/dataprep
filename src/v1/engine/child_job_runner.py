@@ -4,15 +4,23 @@ See docs/superpowers/specs/2026-06-30-trunjob-component-design.md.
 """
 from __future__ import annotations
 
+import glob
 import logging
 import os
+import re
 import traceback
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
+
+# Talend exports carry the job VERSION as a filename suffix ("_0.1"), e.g.
+# "child_job_0.1.json". A tRunJob references the child by bare name ("child_job")
+# with PROCESS_TYPE_VERSION="Latest". This matches a pure numeric dotted version
+# suffix (at least MAJOR.MINOR) so non-version suffixes ("_backup") are ignored.
+_VERSION_SUFFIX = re.compile(r"\d+(?:\.\d+)+")
 
 
 @dataclass
@@ -42,11 +50,21 @@ class ChildJobRunner:
     def _resolve_path(self, process: str) -> str:
         """Return the absolute path to the child job JSON config.
 
+        A tRunJob references the child by bare job name (e.g. ``child_job``) while
+        the exported config carries the job VERSION as a filename suffix (e.g.
+        ``child_job_0.1.json``). Resolution order, mirroring Talend's
+        ``PROCESS_TYPE_VERSION="Latest"``:
+
+        1. Exact ``<base>/<process>.json`` if it exists (explicit name wins).
+        2. Otherwise the highest-version ``<base>/<process>_<M.m>.json`` sibling.
+        3. Otherwise the canonical ``<base>/<process>.json`` (non-existent), so the
+           caller's existence check raises a clear "file not found" with that name.
+
         Args:
-            process: The job process name (filename without extension).
+            process: The job process name (bare job name, no extension/version).
 
         Returns:
-            Absolute path string of the form ``<base>/<process>.json``.
+            Absolute path string of the resolved child job config.
 
         Raises:
             ConfigurationError: If neither ``base_dir`` nor ``jobs_dir`` is set.
@@ -57,7 +75,41 @@ class ChildJobRunner:
                 f"cannot resolve child job '{process}': engine started from an "
                 f"in-memory config with no engine_config.jobs_dir"
             )
-        return os.path.join(os.path.abspath(base), f"{process}.json")
+        base = os.path.abspath(base)
+        exact = os.path.join(base, f"{process}.json")
+        if os.path.isfile(exact):
+            return exact
+        versioned = self._latest_versioned(base, process)
+        return versioned if versioned else exact
+
+    @staticmethod
+    def _latest_versioned(base: str, process: str) -> Optional[str]:
+        """Return the highest-version ``<process>_<M.m>.json`` in ``base``, or None.
+
+        Only pure numeric dotted suffixes (``0.1``, ``0.10``, ``1.0`` ...) qualify;
+        versions are compared numerically (so ``0.10`` > ``0.2``), not lexically.
+        Siblings of a different job that merely share a name prefix are rejected
+        because their suffix after ``<process>_`` is not a pure version.
+
+        Args:
+            base: Absolute directory to search.
+            process: Bare child job name.
+
+        Returns:
+            Absolute path of the newest matching versioned sibling, or None.
+        """
+        prefix = f"{process}_"
+        pattern = os.path.join(glob.escape(base), glob.escape(prefix) + "*.json")
+        best_path: Optional[str] = None
+        best_key: Optional[Tuple[int, ...]] = None
+        for path in glob.glob(pattern):
+            suffix = os.path.basename(path)[len(prefix):-len(".json")]
+            if not _VERSION_SUFFIX.fullmatch(suffix):
+                continue
+            key = tuple(int(part) for part in suffix.split("."))
+            if best_key is None or key > best_key:
+                best_key, best_path = key, path
+        return best_path
 
     def _check_cycle_and_depth(self, child_path: str) -> None:
         """Raise ConfigurationError if the child path creates a cycle or exceeds max depth.

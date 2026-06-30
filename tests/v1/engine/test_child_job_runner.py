@@ -218,3 +218,74 @@ def test_run_cycle_raises(tmp_path):
     _write_child(tmp_path, "Child", [{"id": "pre_1", "type": "tPrejob", "config": {}, "schema": {}}])
     with pytest.raises(ConfigurationError, match="cycle"):
         _runner(base_dir=str(tmp_path), call_stack=[p]).run("Child", {}, {})
+
+
+# ---------------------------------------------------------------------------
+# _resolve_path -- Talend version-suffix resolution ("Latest" semantics)
+#
+# A tRunJob references a child by bare job NAME ("child_job"), while the exported
+# config carries the job VERSION as a filename suffix ("child_job_0.1.json").
+# With no exact <process>.json, resolution must find the newest versioned sibling.
+# ---------------------------------------------------------------------------
+
+def _touch(dirpath, name):
+    path = os.path.join(str(dirpath), name)
+    with open(path, "w") as f:
+        f.write("{}")
+    return path
+
+
+def _write_child_versioned(dirpath, name, version, components):
+    cfg = {"job_name": f"{name}_{version}", "components": components, "flows": [],
+           "triggers": [], "subjobs": {}, "context": {"Default": {}}}
+    path = os.path.join(str(dirpath), f"{name}_{version}.json")
+    with open(path, "w") as f:
+        json.dump(cfg, f)
+    return path
+
+
+@pytest.mark.unit
+def test_resolve_path_versioned_fallback(tmp_path):
+    # process="child_job"; only the versioned export exists on disk.
+    want = _touch(tmp_path, "child_job_0.1.json")
+    assert _runner(base_dir=str(tmp_path))._resolve_path("child_job") == want
+
+
+@pytest.mark.unit
+def test_resolve_path_exact_wins_over_versioned(tmp_path):
+    exact = _touch(tmp_path, "child_job.json")
+    _touch(tmp_path, "child_job_0.2.json")
+    assert _runner(base_dir=str(tmp_path))._resolve_path("child_job") == exact
+
+
+@pytest.mark.unit
+def test_resolve_path_picks_latest_version_numerically(tmp_path):
+    _touch(tmp_path, "child_job_0.1.json")
+    _touch(tmp_path, "child_job_0.2.json")
+    want = _touch(tmp_path, "child_job_0.10.json")   # 0.10 > 0.2 numerically, not lexically
+    assert _runner(base_dir=str(tmp_path))._resolve_path("child_job") == want
+
+
+@pytest.mark.unit
+def test_resolve_path_ignores_non_version_suffix(tmp_path):
+    # 'child_job_backup.json' is not a version export -> must not be selected.
+    _touch(tmp_path, "child_job_backup.json")
+    expected = os.path.join(os.path.abspath(str(tmp_path)), "child_job.json")
+    assert _runner(base_dir=str(tmp_path))._resolve_path("child_job") == expected
+
+
+@pytest.mark.unit
+def test_resolve_path_does_not_cross_match_sibling_jobs(tmp_path):
+    # process='child' must not resolve to a different job that merely shares a prefix.
+    _touch(tmp_path, "child_job_0.1.json")
+    expected = os.path.join(os.path.abspath(str(tmp_path)), "child.json")
+    assert _runner(base_dir=str(tmp_path))._resolve_path("child") == expected
+
+
+@pytest.mark.unit
+def test_run_resolves_versioned_child(tmp_path):
+    # End-to-end through run(): a versioned child JSON is found and executed.
+    _write_child_versioned(tmp_path, "Child", "0.1",
+                           [{"id": "pre_1", "type": "tPrejob", "config": {}, "schema": {}}])
+    res = _runner(base_dir=str(tmp_path)).run("Child", {}, {})
+    assert res.return_code == 0 and res.status == "success"
