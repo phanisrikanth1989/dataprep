@@ -1,0 +1,26 @@
+/* ---------------------------------------------------------------- */
+/* Autosys job {{ lob }}_{{ job_name }} */
+/* Generated from {{ lob }}/json/{{ job_name }}.json */
+/* Same JIL runs in UAT and PROD; $ENV is a box-level variable */
+/* (uat on the UAT server, prod on the PROD server) so one committed */
+/* JIL works in both - same tag flows both (design 5.3 / 7). */
+/* ---------------------------------------------------------------- */
+
+insert_job: {{ lob }}_{{ job_name }}   job_type: c
+
+command: {{ run_script }} {{ lob }} {{ job_name }} $ENV
+machine: {{ machine }}
+owner: {{ owner }}
+permission: gx,wx
+
+date_conditions: 1
+days_of_week: {{ days_of_week }}
+start_times: "{{ start_times }}"
+{% if condition_expr %}
+condition: {{ condition_expr }}
+{% endif %}
+std_out_file: /app/dataprep/logs/{{ lob }}_{{ job_name }}.out
+std_err_file: /app/dataprep/logs/{{ lob }}_{{ job_name }}.err
+alarm_if_fail: 1
+max_run_alarm: {{ max_run_alarm }}
+description: "{{ description }}"
