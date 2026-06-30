@@ -140,3 +140,90 @@ def test_param_value_passthrough_when_not_globalmap():
     comp.execute(None)
     _, _, param_overrides, _ = runner.calls[0]
     assert param_overrides == {"p": "literal"}
+
+
+# ---------------------------------------------------------------------------
+# M2: _resolve_globalmap -- full-match only, fail loud on composed expressions
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_cast_wrapped_globalmap_resolves():
+    # L4: ((String)globalMap.get("KEY")) must resolve to the stored value
+    gm = GlobalMap()
+    gm.put("tFileList_1_CURRENT_FILEPATH", "/data/today.csv")
+    runner = _FakeRunner(ChildResult("success", 0))
+    comp = _make({"process": "Child", "die_on_child_error": False, "context_params":
+                  [{"param_name": "in_file",
+                    "param_value": '((String)globalMap.get("tFileList_1_CURRENT_FILEPATH"))'}]},
+                 runner, gm=gm)
+    comp.execute(None)
+    _, _, param_overrides, _ = runner.calls[0]
+    assert param_overrides == {"in_file": "/data/today.csv"}
+
+
+@pytest.mark.unit
+def test_composed_globalmap_raises_config_error():
+    # L6: '"/data/" + globalMap.get("F")' must raise ConfigurationError, not silently mis-resolve
+    gm = GlobalMap()
+    gm.put("F", "filename")
+    comp = _make({"process": "Child", "die_on_child_error": False, "context_params":
+                  [{"param_name": "p",
+                    "param_value": '"/data/" + globalMap.get("F")'}]},
+                 _FakeRunner(ChildResult("success", 0)), gm=gm)
+    with pytest.raises(ConfigurationError):
+        comp.execute(None)
+
+
+@pytest.mark.unit
+def test_double_globalmap_raises_config_error():
+    # L7: double globalMap.get in one expression must raise ConfigurationError
+    gm = GlobalMap()
+    gm.put("A", "a")
+    gm.put("B", "b")
+    comp = _make({"process": "Child", "die_on_child_error": False, "context_params":
+                  [{"param_name": "p",
+                    "param_value": 'globalMap.get("A")+globalMap.get("B")'}]},
+                 _FakeRunner(ChildResult("success", 0)), gm=gm)
+    with pytest.raises(ConfigurationError):
+        comp.execute(None)
+
+
+# ---------------------------------------------------------------------------
+# L2: transmit_whole_context flag
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_transmit_whole_context_true():
+    ctx = ContextManager()
+    ctx.set("env", "prod", None)
+    runner = _FakeRunner(ChildResult("success", 0))
+    comp = _make({"process": "Child", "die_on_child_error": False, "transmit_whole_context": True},
+                 runner, ctx=ctx)
+    comp.execute(None)
+    _, whole_context, _, _ = runner.calls[0]
+    assert "env" in whole_context
+
+
+@pytest.mark.unit
+def test_transmit_whole_context_false():
+    ctx = ContextManager()
+    ctx.set("env", "prod", None)
+    runner = _FakeRunner(ChildResult("success", 0))
+    comp = _make({"process": "Child", "die_on_child_error": False},
+                 runner, ctx=ctx)
+    comp.execute(None)
+    _, whole_context, _, _ = runner.calls[0]
+    assert whole_context == {}
+
+
+# ---------------------------------------------------------------------------
+# L3: context_name passthrough to runner
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_context_name_passthrough():
+    runner = _FakeRunner(ChildResult("success", 0))
+    comp = _make({"process": "Child", "die_on_child_error": False, "context_name": "PROD"}, runner)
+    comp.execute(None)
+    _, _, _, context_name = runner.calls[0]
+    assert context_name == "PROD"

@@ -14,8 +14,14 @@ from ...exceptions import ComponentExecutionError, ConfigurationError
 
 logger = logging.getLogger(__name__)
 
-# globalMap.get("KEY"), tolerating a Java cast wrapper e.g. ((String)globalMap.get("KEY"))
-_GLOBALMAP_GET = re.compile(r'globalMap\.get\(\s*"([^"]+)"\s*\)')
+# Full-match anchored patterns for the two supported forms:
+#   ((Type)globalMap.get("KEY"))   -- Java cast wrapper
+#   globalMap.get("KEY")           -- bare form
+# Composed expressions (e.g. "/data/" + globalMap.get("F")) do NOT match and trigger an error.
+_GLOBALMAP_PURE = re.compile(
+    r'\(\(\s*\w+\s*\)\s*globalMap\.get\(\s*"([^"]+)"\s*\)\s*\)'   # ((Type)globalMap.get("KEY"))
+    r'|globalMap\.get\(\s*"([^"]+)"\s*\)'                          # globalMap.get("KEY")
+)
 
 # Keys that mean nothing in the Python engine; warn once if set to a non-default truthy value.
 _IGNORED_IF_SET = (
@@ -79,10 +85,15 @@ class RunJob(BaseComponent):
         return overrides
 
     def _resolve_globalmap(self, raw: Any) -> Any:
-        # context.X / ${context.X} are already resolved by BaseComponent.execute() before _process.
-        # Resolve a globalMap.get("KEY") reference (optionally cast-wrapped) from the parent globalMap.
-        if isinstance(raw, str):
-            m = _GLOBALMAP_GET.search(raw)
-            if m:
-                return self.global_map.get(m.group(1))
+        # context.X / ${context.X} already resolved by execute() before _process.
+        if not isinstance(raw, str):
+            return raw
+        m = _GLOBALMAP_PURE.fullmatch(raw.strip())
+        if m:
+            return self.global_map.get(m.group(1) or m.group(2))
+        if "globalMap.get(" in raw:
+            raise ConfigurationError(
+                f"[{self.id}] tRunJob: unsupported composed context_param expression {raw!r}; "
+                f"only a bare globalMap.get(\"KEY\") (optionally cast-wrapped) is supported"
+            )
         return raw

@@ -138,6 +138,12 @@ class ChildJobRunner:
         for name, meta in selected.items():
             declared_types[name] = (meta or {}).get("type")
 
+        # Overlay the selected group's default VALUES onto the child before explicit overrides.
+        # Precedence: child-default < context_name-selected-group < whole_context < param_overrides.
+        # This is a no-op when context_name resolves to the child's own default_context.
+        for name, meta in selected.items():
+            child.context_manager.set(name, (meta or {}).get("value"), declared_types.get(name))
+
         # Apply whole_context first, then param_overrides (so overrides win).
         for source in (whole_context, param_overrides):
             for name, value in source.items():

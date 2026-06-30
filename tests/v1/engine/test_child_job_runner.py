@@ -134,6 +134,17 @@ def test_seed_uses_union_across_all_groups():
 
 
 @pytest.mark.unit
+def test_seed_context_name_selects_group_values():
+    # M1: when context_name points to a non-default group, that group's VALUES must win
+    # over the child's own default-group values for variables not explicitly overridden.
+    ctx = {"Default": {"db_host": {"value": "dev.db", "type": "id_String"}},
+           "PROD": {"db_host": {"value": "prod.db", "type": "id_String"}}}
+    child = _child_with_groups(ctx, default_context="Default")
+    _runner()._seed_context(child, {}, {}, context_name="PROD")
+    assert child.context_manager.get("db_host") == "prod.db"
+
+
+@pytest.mark.unit
 def test_seed_selected_group_type_wins():
     # B2: same variable in two groups with different type tokens.
     # PROD declares id_Integer; Default declares id_String.
