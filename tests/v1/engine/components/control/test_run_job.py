@@ -227,3 +227,96 @@ def test_context_name_passthrough():
     comp.execute(None)
     _, _, _, context_name = runner.calls[0]
     assert context_name == "PROD"
+
+
+# ---------------------------------------------------------------------------
+# Broadened globalMap cast forms (FQN, array, generic, single-paren)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_fqn_cast_resolves():
+    # ((java.util.Date)globalMap.get("BATCH_DATE")) must resolve to the stored value.
+    gm = GlobalMap()
+    gm.put("BATCH_DATE", "2024-01-01")
+    runner = _FakeRunner(ChildResult("success", 0))
+    comp = _make({"process": "Child", "die_on_child_error": False, "context_params":
+                  [{"param_name": "dt",
+                    "param_value": '((java.util.Date)globalMap.get("BATCH_DATE"))'}]},
+                 runner, gm=gm)
+    comp.execute(None)
+    _, _, param_overrides, _ = runner.calls[0]
+    assert param_overrides == {"dt": "2024-01-01"}
+
+
+@pytest.mark.unit
+def test_array_cast_resolves():
+    # ((Integer[])globalMap.get("ARR")) must resolve to the stored value.
+    gm = GlobalMap()
+    gm.put("ARR", [1, 2, 3])
+    runner = _FakeRunner(ChildResult("success", 0))
+    comp = _make({"process": "Child", "die_on_child_error": False, "context_params":
+                  [{"param_name": "arr",
+                    "param_value": '((Integer[])globalMap.get("ARR"))'}]},
+                 runner, gm=gm)
+    comp.execute(None)
+    _, _, param_overrides, _ = runner.calls[0]
+    assert param_overrides == {"arr": [1, 2, 3]}
+
+
+@pytest.mark.unit
+def test_generic_cast_resolves():
+    # ((List<String>)globalMap.get("LST")) must resolve to the stored value.
+    gm = GlobalMap()
+    gm.put("LST", ["a", "b"])
+    runner = _FakeRunner(ChildResult("success", 0))
+    comp = _make({"process": "Child", "die_on_child_error": False, "context_params":
+                  [{"param_name": "lst",
+                    "param_value": '((List<String>)globalMap.get("LST"))'}]},
+                 runner, gm=gm)
+    comp.execute(None)
+    _, _, param_overrides, _ = runner.calls[0]
+    assert param_overrides == {"lst": ["a", "b"]}
+
+
+@pytest.mark.unit
+def test_single_paren_cast_resolves():
+    # (String)globalMap.get("K") must resolve to the stored value.
+    gm = GlobalMap()
+    gm.put("K", "hello")
+    runner = _FakeRunner(ChildResult("success", 0))
+    comp = _make({"process": "Child", "die_on_child_error": False, "context_params":
+                  [{"param_name": "p",
+                    "param_value": '(String)globalMap.get("K")'}]},
+                 runner, gm=gm)
+    comp.execute(None)
+    _, _, param_overrides, _ = runner.calls[0]
+    assert param_overrides == {"p": "hello"}
+
+
+@pytest.mark.unit
+def test_whitespace_padded_resolves():
+    # '  globalMap.get("K")  ' and '  ((String)globalMap.get("K"))  ' must resolve
+    # after strip() -- pins the strip() call in _resolve_globalmap.
+    gm = GlobalMap()
+    gm.put("K", "world")
+    runner = _FakeRunner(ChildResult("success", 0))
+    comp = _make({"process": "Child", "die_on_child_error": False, "context_params":
+                  [{"param_name": "bare", "param_value": '  globalMap.get("K")  '},
+                   {"param_name": "cast", "param_value": '  ((String)globalMap.get("K"))  '}]},
+                 runner, gm=gm)
+    comp.execute(None)
+    _, _, param_overrides, _ = runner.calls[0]
+    assert param_overrides == {"bare": "world", "cast": "world"}
+
+
+@pytest.mark.unit
+def test_none_param_value_passthrough():
+    # L2: a context_params row with param_name set but NO param_value key must produce
+    # override value None (covers the non-string early-return branch in _resolve_globalmap).
+    runner = _FakeRunner(ChildResult("success", 0))
+    comp = _make({"process": "Child", "die_on_child_error": False, "context_params":
+                  [{"param_name": "p"}]},  # no param_value key
+                 runner)
+    comp.execute(None)
+    _, _, param_overrides, _ = runner.calls[0]
+    assert param_overrides == {"p": None}

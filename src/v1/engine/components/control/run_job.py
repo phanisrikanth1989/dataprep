@@ -14,13 +14,15 @@ from ...exceptions import ComponentExecutionError, ConfigurationError
 
 logger = logging.getLogger(__name__)
 
-# Full-match anchored patterns for the two supported forms:
-#   ((Type)globalMap.get("KEY"))   -- Java cast wrapper
+# Full-match anchored patterns for all supported forms:
+#   ((Type)globalMap.get("KEY"))   -- Java double-paren cast wrapper (FQN, array, generic ok)
+#   (Type)globalMap.get("KEY")     -- single-paren cast (e.g. (String)globalMap.get("K"))
 #   globalMap.get("KEY")           -- bare form
 # Composed expressions (e.g. "/data/" + globalMap.get("F")) do NOT match and trigger an error.
 _GLOBALMAP_PURE = re.compile(
-    r'\(\(\s*\w+\s*\)\s*globalMap\.get\(\s*"([^"]+)"\s*\)\s*\)'   # ((Type)globalMap.get("KEY"))
-    r'|globalMap\.get\(\s*"([^"]+)"\s*\)'                          # globalMap.get("KEY")
+    r'\(\s*\(\s*[^)]+\s*\)\s*globalMap\.get\(\s*"([^"]+)"\s*\)\s*\)'  # ((Type)globalMap.get("KEY"))
+    r'|\(\s*[^)]+\s*\)\s*globalMap\.get\(\s*"([^"]+)"\s*\)'           # (Type)globalMap.get("KEY")
+    r'|globalMap\.get\(\s*"([^"]+)"\s*\)'                             # globalMap.get("KEY")
 )
 
 # Keys that mean nothing in the Python engine; warn once if set to a non-default truthy value.
@@ -90,7 +92,7 @@ class RunJob(BaseComponent):
             return raw
         m = _GLOBALMAP_PURE.fullmatch(raw.strip())
         if m:
-            return self.global_map.get(m.group(1) or m.group(2))
+            return self.global_map.get(m.group(1) or m.group(2) or m.group(3))
         if "globalMap.get(" in raw:
             raise ConfigurationError(
                 f"[{self.id}] tRunJob: unsupported composed context_param expression {raw!r}; "

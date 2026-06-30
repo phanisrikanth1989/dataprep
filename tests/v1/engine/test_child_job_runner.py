@@ -157,6 +157,19 @@ def test_seed_selected_group_type_wins():
     assert got == 42 and isinstance(got, int)
 
 
+@pytest.mark.unit
+def test_seed_whole_context_wins_over_selected_group():
+    # L4: whole_context overlay must win over the selected-group value overlay.
+    # db_host exists in both Default (dev.db) and PROD (prod.db).
+    # Calling with whole_context={"db_host": "whole"} and context_name="PROD" must
+    # yield "whole", not "prod.db".
+    ctx = {"Default": {"db_host": {"value": "dev.db", "type": "id_String"}},
+           "PROD": {"db_host": {"value": "prod.db", "type": "id_String"}}}
+    child = _child_with_groups(ctx, default_context="Default")
+    _runner()._seed_context(child, {"db_host": "whole"}, {}, context_name="PROD")
+    assert child.context_manager.get("db_host") == "whole"
+
+
 # ---------------------------------------------------------------------------
 # _map_result (Task 7 -- pure unit, no engine)
 # ---------------------------------------------------------------------------
