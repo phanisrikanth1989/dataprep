@@ -93,3 +93,58 @@ class ChildJobRunner:
             depth=self.run_context.depth + 1,
             max_depth=self.run_context.max_depth,
         )
+
+    def _seed_context(self, child: Any, whole_context: Dict[str, Any],
+                      param_overrides: Dict[str, Any], context_name: str = "Default") -> None:
+        """Apply parent context overrides onto the child engine's ContextManager.
+
+        Iterates over ALL context groups the child defines (not only the group
+        named by ``context_name``) to build the set of declared variable names.
+        This is the B1 fix: a child whose only group is e.g. "PROD" (no "Default")
+        must still receive its seeded overrides even when ``context_name="Default"``.
+
+        Type tokens are resolved per-variable: the selected/default group wins when
+        a name appears in multiple groups.  ``param_overrides`` are applied last so
+        they win over ``whole_context`` values.
+
+        Variables that are not declared in any child group trigger a WARNING and are
+        silently dropped (never applied) -- never silently skipped without a log line.
+
+        Args:
+            child: Object exposing ``.job_config`` (dict) and ``.context_manager``
+                (a ``ContextManager`` instance).
+            whole_context: Flat dict of parent context values to propagate.
+            param_overrides: Flat dict of explicit ``context_params`` from the
+                tRunJob component config (highest priority).
+            context_name: The context group name from the tRunJob config (used only
+                to determine which group's type token wins on a name collision).
+        """
+        ctx_block = child.job_config.get("context", {}) or {}
+
+        # Determine the "selected" group whose type token takes precedence on collision.
+        selected: Dict[str, Any] = (
+            ctx_block.get(context_name)
+            or ctx_block.get(child.job_config.get("default_context", "Default"), {})
+            or {}
+        )
+
+        # Build union of all declared names with their type tokens (all groups first,
+        # then selected group overwrites to let selected type win on collision).
+        declared_types: Dict[str, Any] = {}
+        for group in ctx_block.values():
+            if isinstance(group, dict):
+                for name, meta in group.items():
+                    declared_types.setdefault(name, (meta or {}).get("type"))
+        for name, meta in selected.items():
+            declared_types[name] = (meta or {}).get("type")
+
+        # Apply whole_context first, then param_overrides (so overrides win).
+        for source in (whole_context, param_overrides):
+            for name, value in source.items():
+                if name in declared_types:
+                    child.context_manager.set(name, value, declared_types[name])
+                else:
+                    logger.warning(
+                        "[ChildJobRunner] context override '%s' not defined in child job; skipped",
+                        name,
+                    )

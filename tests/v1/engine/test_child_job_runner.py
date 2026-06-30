@@ -1,8 +1,10 @@
 import os
+from types import SimpleNamespace
 
 import pytest
 
 from src.v1.engine.child_job_runner import ChildJobRunner, ChildResult, RunContext
+from src.v1.engine.context_manager import ContextManager
 from src.v1.engine.exceptions import ConfigurationError
 
 
@@ -75,3 +77,37 @@ def test_depth_at_limit_allowed(tmp_path):
 def test_no_cycle_no_depth_passes(tmp_path):
     r = _runner(base_dir=str(tmp_path), call_stack=["/root/A.json"], depth=0, max_depth=2)
     assert r._check_cycle_and_depth(os.path.join(str(tmp_path), "B.json")) is None
+
+
+# ---------------------------------------------------------------------------
+# _seed_context (Task 6 -- B1 typed context merge)
+# ---------------------------------------------------------------------------
+
+def _child_with_group(group_name, var, value="/default", vtype="id_String"):
+    ctx_block = {group_name: {var: {"value": value, "type": vtype}}}
+    return SimpleNamespace(
+        job_config={"context": ctx_block, "default_context": group_name},
+        context_manager=ContextManager(initial_context=ctx_block, default_context=group_name),
+    )
+
+
+@pytest.mark.unit
+def test_seed_applies_param_overrides_despite_context_name_mismatch():
+    # B1: child has only a PROD group; tRunJob context_name defaults to "Default".
+    child = _child_with_group("PROD", "input_path")
+    _runner()._seed_context(child, {}, {"input_path": "/runtime/today.csv"}, context_name="Default")
+    assert child.context_manager.get("input_path") == "/runtime/today.csv"
+
+
+@pytest.mark.unit
+def test_seed_params_win_over_whole_context():
+    child = _child_with_group("Default", "input_path")
+    _runner()._seed_context(child, {"input_path": "/whole"}, {"input_path": "/param"}, "Default")
+    assert child.context_manager.get("input_path") == "/param"
+
+
+@pytest.mark.unit
+def test_seed_warns_and_skips_undeclared(caplog):
+    child = _child_with_group("Default", "input_path")
+    _runner()._seed_context(child, {}, {"nope": "x"}, "Default")
+    assert "nope" in caplog.text
