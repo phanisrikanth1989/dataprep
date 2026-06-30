@@ -114,6 +114,38 @@ def test_seed_warns_and_skips_undeclared(caplog):
     assert "nope" in caplog.text
 
 
+def _child_with_groups(ctx_block, default_context):
+    """Build a child namespace with multiple context groups."""
+    return SimpleNamespace(
+        job_config={"context": ctx_block, "default_context": default_context},
+        context_manager=ContextManager(initial_context=ctx_block, default_context=default_context),
+    )
+
+
+@pytest.mark.unit
+def test_seed_uses_union_across_all_groups():
+    # B1: override variable lives in PROD group only; context_name is DEV.
+    # The union loop must discover 'x' from PROD and apply the override.
+    ctx = {"DEV": {"y": {"value": "d", "type": "id_String"}},
+           "PROD": {"x": {"value": "p", "type": "id_String"}}}
+    child = _child_with_groups(ctx, default_context="DEV")
+    _runner()._seed_context(child, {}, {"x": "/runtime/override.csv"}, context_name="DEV")
+    assert child.context_manager.get("x") == "/runtime/override.csv"
+
+
+@pytest.mark.unit
+def test_seed_selected_group_type_wins():
+    # B2: same variable in two groups with different type tokens.
+    # PROD declares id_Integer; Default declares id_String.
+    # When context_name=PROD, the integer coercion must be applied.
+    ctx = {"Default": {"amt": {"value": "0", "type": "id_String"}},
+           "PROD": {"amt": {"value": "0", "type": "id_Integer"}}}
+    child = _child_with_groups(ctx, default_context="Default")
+    _runner()._seed_context(child, {}, {"amt": "42"}, context_name="PROD")
+    got = child.context_manager.get("amt")
+    assert got == 42 and isinstance(got, int)
+
+
 # ---------------------------------------------------------------------------
 # _map_result (Task 7 -- pure unit, no engine)
 # ---------------------------------------------------------------------------

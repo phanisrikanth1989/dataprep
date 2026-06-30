@@ -101,11 +101,7 @@ class ETLEngine:
             if has_oracle_components or oracle_config.get('enabled', False):
                 thick_mode = bool(oracle_config.get('thick_mode', False))
                 self.oracle_manager = OracleConnectionManager(thick_mode=thick_mode)
-                try:
-                    self.oracle_manager.start()
-                except Exception:
-                    self.oracle_manager.stop()
-                    raise
+                self.oracle_manager.start()
                 logger.info("Oracle connection manager initialized (thick_mode=%s)", thick_mode)
 
             # MSSql connection manager (parallel to Oracle; pyodbc driver)
@@ -120,11 +116,7 @@ class ETLEngine:
             )
             if has_mssql_components or mssql_config.get('enabled', False):
                 self.mssql_manager = MSSqlConnectionManager()
-                try:
-                    self.mssql_manager.start()
-                except Exception:
-                    self.mssql_manager.stop()
-                    raise
+                self.mssql_manager.start()
                 logger.info("MSSql connection manager initialized")
 
             # Core services
