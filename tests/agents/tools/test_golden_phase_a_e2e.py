@@ -77,12 +77,21 @@ def test_harness_passes_on_golden(java_bridge, tmp_path):
     assert rep["passed"] is True, rep["reasons"]
 
     # Oracle-of-oracle: the engine's matched/break partition must equal the
-    # independent reference matcher's, and be exactly the expected key sets.
+    # independent reference matcher's -- compared on FULL row content, not just
+    # the cc key set, so a misjoin (right cc but wrong amt/name carried across)
+    # is also caught. Both frames are computed at runtime from the golden CSVs.
     main_df = pd.read_csv(_GOLDEN / "main.csv", sep=";", dtype=str, keep_default_na=False)
     lookup_df = pd.read_csv(_GOLDEN / "lookup.csv", sep=";", dtype=str, keep_default_na=False)
     ref = match_phase_a(main_df, lookup_df, keys=["cc"])
-    assert set(rr.outputs["out_matched"]["cc"]) == set(ref["matched"]["cc"]) == {"US", "UK"}
-    assert set(rr.outputs["out_reject"]["cc"]) == set(ref["breaks"]["cc"]) == {"FR", "DE"}
+
+    def _rows(df, cols):
+        return sorted(tuple(str(df.iloc[i][c]) for c in cols) for i in range(len(df)))
+
+    assert _rows(rr.outputs["out_matched"], ["cc", "amt", "name"]) == \
+        _rows(ref["matched"], ["cc", "amt", "name"]) == \
+        [("UK", "20", "United Kingdom"), ("US", "10", "United States")]
+    assert _rows(rr.outputs["out_reject"], ["cc", "amt"]) == \
+        _rows(ref["breaks"], ["cc", "amt"]) == [("DE", "40"), ("FR", "30")]
 
 
 def test_harness_fails_on_mutated_expected(java_bridge, tmp_path):

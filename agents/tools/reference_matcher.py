@@ -60,7 +60,9 @@ def match_phase_a(main: pd.DataFrame, lookup: pd.DataFrame, keys: list, on_multi
         first_lookup = lookup.drop_duplicates(subset=keys, keep="first")
         matched = matched_seed[main_cols].merge(first_lookup, on=keys, how="inner", suffixes=("_main", "_lookup"))
 
-    breaks = pd.concat(break_frames, ignore_index=True) if break_frames else pd.DataFrame(columns=main_cols + ["break_reason"])
+    # break_frames is always seeded with the no_match frame above, so it is never
+    # empty -- concat unconditionally (the prior empty-DataFrame else was dead).
+    breaks = pd.concat(break_frames, ignore_index=True)
     stats = {
         "n_matched": int(len(matched)),
         "n_break_no_match": int(len(no_match)),
