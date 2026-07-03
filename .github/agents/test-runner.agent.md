@@ -24,16 +24,17 @@ of correctness.
    ```
    python -m agents.tools.run_and_validate \
      --job agents/work/<job>/job.json \
-     --golden-dir <GOLDEN_DIR> \
-     --out agents/work/<job>/test_report.json
+     --golden-dir <GOLDEN_DIR>
    ```
 
    The orchestrator gives you `<job>` and `<GOLDEN_DIR>`. The golden directory holds
-   `manifest.json` plus each `<name>_expected.csv`.
+   `manifest.json` plus each `<name>_expected.csv`. Omit `--out` on purpose: with no `--out` the
+   harness prints the verdict JSON to STDOUT (the CLI defaults to stdout when `--out` is absent),
+   and you capture that stdout through the terminal tool -- you have no read tool and need none.
 
-2. Return the resulting `test_report.json` content VERBATIM as your result -- the `passed` boolean,
-   the `engine` block, the per-output `outputs` diffs, and the `reasons` list, exactly as written.
-   Do not summarize, re-interpret, soften, or add a verdict of your own.
+2. Return the harness STDOUT VERBATIM as your result -- the `passed` boolean, the `engine` block,
+   the per-output `outputs` diffs, and the `reasons` list, exactly as written. Do not summarize,
+   re-interpret, soften, or add a verdict of your own.
 
 ## Hard rules
 

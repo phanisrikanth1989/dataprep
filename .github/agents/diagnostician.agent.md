@@ -6,6 +6,7 @@ description: >-
   (json-path, expected type/enum, diff shape) -- never from raw data values.
 tools:
   - read/files
+  - edit/files
 user-invocable: false
 disable-model-invocation: false
 ---

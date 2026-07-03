@@ -6,6 +6,7 @@ description: >-
   engine component set, preferring vectorized nodes. Plans the graph shape -- no config, no wiring.
 tools:
   - read/files
+  - edit/files
   - search/codebase
 user-invocable: false
 disable-model-invocation: false

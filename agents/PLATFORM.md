@@ -36,12 +36,12 @@ Design pillars (all locked in the pivot):
 
   | Stage | Agent | Reads | Writes | Tools |
   |-------|-------|-------|--------|-------|
-  | 1 | doc-interpreter | extract_doc.json      | requirement_spec.json | read/files, search/codebase |
-  | 2 | flow-designer   | requirement_spec.json | flow_plan.json        | read/files, search/codebase |
+  | 1 | doc-interpreter | extract_doc.json      | requirement_spec.json | read/files, edit/files, search/codebase |
+  | 2 | flow-designer   | requirement_spec.json | flow_plan.json        | read/files, edit/files, search/codebase |
   | 3 | configurator    | flow_plan.json        | job_draft.json        | read/files, edit/files, run/terminal |
   | 4 | assembler       | job_draft.json        | job.json              | read/files, edit/files |
   | 5 | test-runner     | job.json (+ golden)   | test_report.json      | run/terminal |
-  | 6 | diagnostician   | test_report.json (FAILED) | feedback.json     | read/files |
+  | 6 | diagnostician   | test_report.json (FAILED) | feedback.json     | read/files, edit/files |
 
   - doc-interpreter and diagnostician are data-blind: they reason only from schema / rules /
     derived structural facts / diff shapes, never from real `sample_input` or `expected_output`

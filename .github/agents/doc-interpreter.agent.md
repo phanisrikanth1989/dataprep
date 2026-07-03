@@ -6,6 +6,7 @@ description: >-
   rules, and the derived structural facts -- never from real sample or expected data values.
 tools:
   - read/files
+  - edit/files
   - search/codebase
 user-invocable: false
 disable-model-invocation: false

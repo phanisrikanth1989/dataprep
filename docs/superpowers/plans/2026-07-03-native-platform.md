@@ -507,12 +507,12 @@ git commit -m "feat(agents): render dataprep-recon Agent Skill from code-verifie
 - [ ] **Step 1: Author the six agents**
 
 Author each `.agent.md` per the spec roster (Sec 5) + the pivot. Every file: frontmatter with `user-invocable: false`, `disable-model-invocation: false`, NO `model:`, a narrow `tools` list, and a body (ASCII) covering: role responsibility, the input artifact it reads + the output artifact it writes (JSON, under `agents/work/<job>/`), the contracts (below), and "consult the `dataprep-recon` skill" where knowledge is needed.
-- `doc-interpreter` (tools: read/search): reads the `extract_doc` JSON artifact -> writes `requirement_spec.json` (schema + rules with `kind/cardinality/keys/direction/on_tolerance_fail/duplicate_disposition`, per spec Sec 5.2) + the derived facts; flags ambiguity for the human.
-- `flow-designer` (tools: read/search): reads `requirement_spec.json` -> writes `flow_plan.json` (components + the recon pattern); picks from the allowlist (Sec 11.2); tMap is the match primitive.
+- `doc-interpreter` (tools: read/edit/search): reads the `extract_doc` JSON artifact -> writes `requirement_spec.json` (schema + rules with `kind/cardinality/keys/direction/on_tolerance_fail/duplicate_disposition`, per spec Sec 5.2) + the derived facts; flags ambiguity for the human.
+- `flow-designer` (tools: read/edit/search): reads `requirement_spec.json` -> writes `flow_plan.json` (components + the recon pattern); picks from the allowlist (Sec 11.2); tMap is the match primitive.
 - `configurator` (tools: read/edit): reads `flow_plan.json` + the skill -> writes `job_draft.json` (`{components:[{id,type,config,schema}]}`); MUST run `python -m agents.tools.validate_config` on each component and fix every error before finishing.
 - `assembler` (tools: read/edit): reads `job_draft.json` -> writes `job.json` adding the **job-envelope** (`flows` type:flow+name, per-component `inputs`/`outputs`, `subjob_id`, `schema` as `{input,output}`) per `job-envelope.md`. Wiring only.
 - `test-runner` (tools: terminal only): runs `python -m agents.tools.run_and_validate --job job.json --golden-dir DIR`, returns the `test_report.json` verdict verbatim. Makes NO judgment about correctness — the harness decides.
-- `diagnostician` (tools: read): reads a FAILED `test_report.json` -> writes `feedback.json` naming the likely owner stage + a value-blind why/fix (per spec Sec 9 owner routing). Does not see raw data values.
+- `diagnostician` (tools: read/edit): reads a FAILED `test_report.json` -> writes `feedback.json` naming the likely owner stage + a value-blind why/fix (per spec Sec 9 owner routing). Does not see raw data values.
 
 - [ ] **Step 2: Write the failing gate test**
 
