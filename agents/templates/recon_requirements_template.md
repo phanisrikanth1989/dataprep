@@ -1,4 +1,4 @@
-# Recon Requirements Template
+# Enrichment Requirements Template
 
 Author the requirements as a `.docx` with exactly these four Heading-1 blocks.
 `extract_doc` parses them deterministically; keep them as real Word tables
@@ -19,15 +19,16 @@ One row per column of each input source. Type is one of
 
 ## Transformation Rules
 One table. Header row: `ID | Kind | Description`.
-Kind is one of `match, tolerance, filter, aggregate, derive`.
+Kind is one of `join, schema_validate, filter, aggregate, sort, derive`.
 
 ## Sample Input
 One Heading-2 per source (named exactly as in "Inputs and Schema").
 Under each, one table whose header row is that source's column names, with a
-handful of real rows (include a null, a break, and a tolerance edge).
+handful of real rows (include a null, plus rows that both do and do not match a
+lookup key, so enrichment and null-enrichment are both exercised).
 
 ## Expected Output
-One Heading-2 per output (e.g. `matched`, `breaks`, `summary`).
+One Heading-2 per output (e.g. `enriched`, `rejected`, `summary`).
 Under each, one table whose header row is the output's columns; suffix each
 composite-key column with `*` (e.g. `txn_id*`). Rows are the expected result
 for the Sample Input above. These rows are the test oracle and stay local.

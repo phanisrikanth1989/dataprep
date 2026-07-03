@@ -46,8 +46,10 @@ Design pillars (all locked in the pivot):
   - doc-interpreter and diagnostician are data-blind: they reason only from schema / rules /
     derived structural facts / diff shapes, never from real `sample_input` or `expected_output`
     cell values.
-  - flow-designer picks components only from the recon allowlist; tMap (`Map`) is the sole match
-    primitive (tJoin is excluded).
+  - flow-designer may use ANY of the ~86 registered engine components: the 8 curated ones get
+    strict config validation, and the ~78 uncurated ones are usable too, grounded in the engine
+    source and the oracle. tMap (`Map`) is a join/lookup/expression primitive, and tJoin is the
+    default single-key enrich join.
   - configurator runs `validate_config` on every component and fixes every reported error before
     finishing.
   - assembler wires the engine job envelope only; it never changes a component's `config`.
@@ -202,7 +204,7 @@ verdict of record is `test_report.json`.
 
 Tested locally (in this repo, no Copilot host needed):
 - The deterministic tooling: `extract_doc`, `validate_config`, `run_and_validate` (oracle),
-  `reference_matcher`, `render_skills`, `audit_log`, `component_schema`, `check_schema_drift`.
+  `render_skills`, `audit_log`, `component_schema`, `check_schema_drift`.
   Covered by `tests/agents/`.
 - The authored agent + skill frontmatter: `validate_tree('.github/agents', '.github/skills')`
   returns `[]` -- names present, no `model:` key, `tools:`/`agents:` are lists, the orchestrator's

@@ -2,7 +2,7 @@
 
 - **Date:** 2026-07-03
 - **Version:** v3 (full autonomous system; hardened after two adversarial review rounds)
-- **PLATFORM SUPERSEDED (2026-07-03):** Citi VS Code updated 1.106 -> 1.122. The MCP-server + sampling orchestration (Sec 4, 13), the `.claude/skills` load surface (C4, Sec 6.3), and the 1.106 data-egress framing (C2, Sec 2 control 4) are SUPERSEDED by the native subagents + Agent Skills design in `2026-07-03-copilot-etl-agents-v1122-pivot.md` (free-agent loop; don't-minimize-egress). The role logic, curated knowledge, oracle, contracts, and recon slice (Sec 5, 6.1-6.2, 8, 9, 10.4, 11) still hold.
+- **PLATFORM SUPERSEDED (2026-07-03):** Citi VS Code updated 1.106 -> 1.122. The MCP-server + sampling orchestration (Sec 4, 13), the `.claude/skills` load surface (C4, Sec 6.3), and the 1.106 data-egress framing (C2, Sec 2 control 4) are SUPERSEDED by the native subagents + Agent Skills design in `2026-07-03-copilot-etl-agents-v1122-pivot.md` (free-agent loop; don't-minimize-egress). The role logic, curated knowledge, and contracts (Sec 5 excluding 5.2, 6.1-6.2, 9, 10.4) still hold.
 - **DOMAIN SUPERSEDED (2026-07-03):** the tool does data ENRICHMENT/prep, not reconciliation (SmartStream TLM reconciles). The rule model (Sec 5.2), oracle framing (Sec 8), and recon slice + Phases A-D (Sec 11) are superseded by `2026-07-03-enrichment-scope-correction.md`.
 - **Status:** DRAFT — pending final verification + user sign-off
 - **Branch:** `feature/copilot-etl-agents`
