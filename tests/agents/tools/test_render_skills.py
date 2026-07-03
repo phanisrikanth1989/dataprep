@@ -21,3 +21,16 @@ def test_write_skill_produces_valid_skill(tmp_path):
     assert validate_skill(skill_md, "dataprep-recon") == []
     assert (root / "config-reference.md").exists()
     assert (root / "job-envelope.md").exists()
+
+
+def test_job_envelope_has_json_example():
+    from agents.tools.render_skills import render_job_envelope
+    md = render_job_envelope()
+    assert "```json" in md and '"subjob_id"' in md and '"type": "flow"' in md
+
+
+def test_keep_enum_renders_json_false():
+    from agents.tools.render_skills import render_config_reference
+    md = render_config_reference()
+    assert "false" in md                     # UniqueRow keep enum includes JSON false
+    assert "one of first, last, False" not in md   # not Python False (adjust to your exact separator)

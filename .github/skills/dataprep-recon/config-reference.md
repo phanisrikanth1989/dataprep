@@ -8,7 +8,7 @@ Aliases: tAggregateRow
     - `output_column`: type=str; REQUIRED
 - `operations`: type=list; default=[]
   items:
-    - `function`: type=str; REQUIRED; one of avg, count, count_distinct, first, last, list, list_object, max, median, min, population_std_dev, std, sum, union, variance
+    - `function`: type=str; REQUIRED; one of "avg", "count", "count_distinct", "first", "last", "list", "list_object", "max", "median", "min", "population_std_dev", "std", "sum", "union", "variance"
     - `input_column`: type=str; REQUIRED
     - `output_column`: type=str
     - `ignore_null`: type=bool
@@ -82,11 +82,11 @@ Aliases: tFileOutputDelimited
 Aliases: FilterRow, tFilterRow, tFilterRows
 - `use_advanced`: type=bool; default=False
 - `advanced_cond`: type=str; default=''
-- `logical_op`: type=str; default='&&'; one of &&, ||, AND, OR
+- `logical_op`: type=str; default='&&'; one of "&&", "||", "AND", "OR"
 - `conditions`: type=list; default=[]
   items:
     - `column`: type=str; REQUIRED
-    - `operator`: type=str; REQUIRED; one of !=, <, <=, ==, >, >=, CONTAINS, ENDS_WITH, IS_NOT_NULL, IS_NULL, LENGTH_GT, LENGTH_LT, MATCHES, NOT_CONTAINS, STARTS_WITH
+    - `operator`: type=str; REQUIRED; one of "!=", "<", "<=", "==", ">", ">=", "CONTAINS", "ENDS_WITH", "IS_NOT_NULL", "IS_NULL", "LENGTH_GT", "LENGTH_LT", "MATCHES", "NOT_CONTAINS", "STARTS_WITH"
     - `function`: type=str
     - `value`: type=str
 
@@ -117,14 +117,14 @@ Aliases: tSortRow
 - `criteria`: type=list; default=[]; REQUIRED
   items:
     - `column`: type=str; REQUIRED
-    - `sort_type`: type=str; one of alpha, date, num
-    - `order`: type=str; one of asc, desc
+    - `sort_type`: type=str; one of "alpha", "date", "num"
+    - `order`: type=str; one of "asc", "desc"
 - `external`: type=bool; default=False
 
 ## UniqueRow
 Aliases: tUniqRow, tUniqueRow, tUnqRow
 - `key_columns`: type=list; default=[]
-- `keep`: type=any; default='first'; one of first, last, False
+- `keep`: type=any; default='first'; one of "first", "last", false
 - `case_sensitive`: type=bool; default=True
 - `output_duplicates`: type=bool; default=True
 - `is_reject_duplicate`: type=bool; default=True

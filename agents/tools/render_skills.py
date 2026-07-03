@@ -10,14 +10,9 @@ import logging
 from pathlib import Path
 
 from agents.knowledge.landmines import LANDMINES
-from agents.tools.component_schema import _SCHEMA_DIR, load_schema, resolve_enum_ref
+from agents.tools.component_schema import _SCHEMA_DIR, _index, resolve_enum_ref
 
 logger = logging.getLogger(__name__)
-
-
-def _index() -> dict:
-    with (_SCHEMA_DIR / "_index.json").open(encoding="utf-8") as fh:
-        return json.load(fh)
 
 
 def _resolved_values(spec: dict):
@@ -38,7 +33,7 @@ def _render_keys(keys: dict, indent: str = "") -> list:
             bits.append("REQUIRED")
         vals = _resolved_values(spec)
         if vals is not None:
-            bits.append("one of " + ", ".join(str(v) for v in vals))
+            bits.append("one of " + ", ".join(json.dumps(v) for v in vals))
         lines.append(f"{indent}- `{name}`: {'; '.join(bits)}")
         if spec.get("type") == "list" and isinstance(spec.get("item_keys"), dict):
             lines.append(f"{indent}  items:")
@@ -68,12 +63,12 @@ def render_landmines() -> str:
         comp = lm.get("component") or "GLOBAL"
         out.append(f"- **{lm['id']}** ({comp}): {lm['summary']}")
         out.append(f"  - guidance: {lm['guidance']}")
-    return "\n".join(out)
+    return "\n".join(out) + "\n"
 
 
 def render_job_envelope() -> str:
     """The engine-verified job.json envelope contract (from plan-3 Task 4)."""
-    return (
+    prose = (
         "# Job envelope contract (engine-verified)\n\n"
         "Every component needs a `subjob_id`. Component `schema` is "
         "`{\"input\": [...], \"output\": [...]}` (NOT a flat list). Flows are "
@@ -82,6 +77,27 @@ def render_job_envelope() -> str:
         "on a flow routes NOTHING; use `\"flow\"`. tMap one-sided breaks use an output with "
         "`inner_join_reject: true` (NOT `is_reject`, which stays empty for a join miss).\n"
     )
+    example = (
+        "\nMinimal envelope example:\n\n"
+        "```json\n"
+        "{\n"
+        '  "components": [\n'
+        '    {"id": "in_main", "type": "FileInputDelimited", "subjob_id": "sj1",\n'
+        '     "schema": {"input": [], "output": [{"name": "cc", "type": "string"}]},\n'
+        '     "config": {"filepath": "main.csv", "fieldseparator": ";"},\n'
+        '     "inputs": [], "outputs": ["main_flow"]},\n'
+        '    {"id": "out_matched", "type": "FileOutputDelimited", "subjob_id": "sj1",\n'
+        '     "schema": {"input": [{"name": "cc", "type": "string"}], "output": []},\n'
+        '     "config": {"filepath": "matched.csv", "fieldseparator": ";"},\n'
+        '     "inputs": ["matched_flow"], "outputs": []}\n'
+        "  ],\n"
+        '  "flows": [\n'
+        '    {"name": "matched_flow", "type": "flow", "from": "tmap", "to": "out_matched"}\n'
+        "  ]\n"
+        "}\n"
+        "```\n"
+    )
+    return prose + example
 
 
 _SKILL_FRONTMATTER = (
