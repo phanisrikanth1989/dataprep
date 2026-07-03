@@ -1,12 +1,14 @@
 ---
 name: dataprep-recon
 description: >-
-  Code-verified knowledge for building DataPrep recon ETL jobs: per-component config keys and
-  allowed values, config landmines, the job.json envelope contract, and the tMap match/break
-  patterns. Use when interpreting a recon requirement, designing the flow, configuring components,
-  or assembling/repairing a recon job.json.
+  Code-verified knowledge for building the recon team's DataPrep ENRICHMENT ETL jobs: per-component
+  config keys and allowed values, config landmines, the job.json envelope contract, and the tMap
+  lookup-join enrichment pattern. Use when interpreting an enrichment requirement, designing the
+  flow, configuring components, or assembling/repairing a job.json.
 ---
 # DataPrep recon knowledge
+
+recon = the recon TEAM; this tool does data ENRICHMENT/prep, not the reconciliation (SmartStream TLM reconciles).
 
 Load the resource that fits the task:
 

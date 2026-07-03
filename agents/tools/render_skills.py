@@ -74,25 +74,29 @@ def render_job_envelope() -> str:
         "`{\"input\": [...], \"output\": [...]}` (NOT a flat list). Flows are "
         "`{\"name\": <flow>, \"type\": \"flow\", \"from\": <id>, \"to\": <id>}` and each "
         "component carries `inputs`/`outputs` lists referencing flow names. `type:\"main\"` "
-        "on a flow routes NOTHING; use `\"flow\"`. tMap one-sided breaks use an output with "
-        "`inner_join_reject: true` (NOT `is_reject`, which stays empty for a join miss).\n"
+        "on a flow routes NOTHING; use `\"flow\"`. The default enrichment join is a "
+        "`LEFT_OUTER_JOIN` that KEEPS ALL source rows -- an unmatched source row still flows "
+        "out, with null lookup columns. `inner_join_reject: true` on an output is AVAILABLE if a "
+        "job must route unmatched source rows to a reject output (`is_reject` stays empty for a "
+        "join miss), but that is NOT the enrichment default.\n"
     )
     example = (
-        "\nMinimal envelope example:\n\n"
+        "\nMinimal envelope example (LEFT-join enrichment -- keeps all source rows, lookup "
+        "adds `country_name`):\n\n"
         "```json\n"
         "{\n"
         '  "components": [\n'
-        '    {"id": "in_main", "type": "FileInputDelimited", "subjob_id": "sj1",\n'
+        '    {"id": "in_source", "type": "FileInputDelimited", "subjob_id": "sj1",\n'
         '     "schema": {"input": [], "output": [{"name": "cc", "type": "string"}]},\n'
-        '     "config": {"filepath": "main.csv", "fieldseparator": ";"},\n'
-        '     "inputs": [], "outputs": ["main_flow"]},\n'
-        '    {"id": "out_matched", "type": "FileOutputDelimited", "subjob_id": "sj1",\n'
-        '     "schema": {"input": [{"name": "cc", "type": "string"}], "output": []},\n'
-        '     "config": {"filepath": "matched.csv", "fieldseparator": ";"},\n'
-        '     "inputs": ["matched_flow"], "outputs": []}\n'
+        '     "config": {"filepath": "source.csv", "fieldseparator": ";"},\n'
+        '     "inputs": [], "outputs": ["source_flow"]},\n'
+        '    {"id": "out_enriched", "type": "FileOutputDelimited", "subjob_id": "sj1",\n'
+        '     "schema": {"input": [{"name": "cc", "type": "string"}, {"name": "country_name", "type": "string"}], "output": []},\n'
+        '     "config": {"filepath": "enriched.csv", "fieldseparator": ";"},\n'
+        '     "inputs": ["enriched_flow"], "outputs": []}\n'
         "  ],\n"
         '  "flows": [\n'
-        '    {"name": "matched_flow", "type": "flow", "from": "tmap", "to": "out_matched"}\n'
+        '    {"name": "enriched_flow", "type": "flow", "from": "tmap", "to": "out_enriched"}\n'
         "  ]\n"
         "}\n"
         "```\n"
@@ -104,10 +108,10 @@ _SKILL_FRONTMATTER = (
     "---\n"
     "name: dataprep-recon\n"
     "description: >-\n"
-    "  Code-verified knowledge for building DataPrep recon ETL jobs: per-component config keys and\n"
-    "  allowed values, config landmines, the job.json envelope contract, and the tMap match/break\n"
-    "  patterns. Use when interpreting a recon requirement, designing the flow, configuring components,\n"
-    "  or assembling/repairing a recon job.json.\n"
+    "  Code-verified knowledge for building the recon team's DataPrep ENRICHMENT ETL jobs: per-component\n"
+    "  config keys and allowed values, config landmines, the job.json envelope contract, and the tMap\n"
+    "  lookup-join enrichment pattern. Use when interpreting an enrichment requirement, designing the\n"
+    "  flow, configuring components, or assembling/repairing a job.json.\n"
     "---\n"
 )
 
@@ -122,6 +126,8 @@ def write_skill(root: str = ".github/skills/dataprep-recon") -> None:
     body = (
         _SKILL_FRONTMATTER
         + "# DataPrep recon knowledge\n\n"
+        "recon = the recon TEAM; this tool does data ENRICHMENT/prep, not the reconciliation "
+        "(SmartStream TLM reconciles).\n\n"
         "Load the resource that fits the task:\n\n"
         "- `config-reference.md` - every allowed component config key + its resolved allowed values.\n"
         "- `landmines.md` - config traps that silently produce wrong output; respect each.\n"
