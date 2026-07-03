@@ -348,3 +348,45 @@ def extract_doc(path: str, raise_on_error: bool = True) -> ExtractResult:
         derived_facts=derived_facts,
         conformance=conformance,
     )
+
+
+def to_dict(result: "ExtractResult") -> dict:
+    """Serialize an ExtractResult (incl. nested dataclasses) to a JSON-able dict."""
+    from dataclasses import asdict
+    return asdict(result)
+
+
+def main(argv=None) -> int:
+    """CLI: extract a requirements .docx to one JSON artifact (all fields)."""
+    import argparse
+    import json
+    import sys
+
+    parser = argparse.ArgumentParser(description="Extract a recon requirements .docx to JSON.")
+    parser.add_argument("path", help="path to the requirements .docx")
+    parser.add_argument("--out", help="write JSON here (default: stdout)")
+    parser.add_argument("--no-raise", action="store_true",
+                        help="do not raise on a non-conformant doc; emit it with conformance.ok=false")
+    args = parser.parse_args(argv)
+
+    def _emit(payload):
+        text = json.dumps(payload, indent=2)
+        if args.out:
+            with open(args.out, "w", encoding="utf-8") as fh:
+                fh.write(text)
+        else:
+            sys.stdout.write(text + "\n")
+
+    try:
+        result = extract_doc(args.path, raise_on_error=not args.no_raise)
+    except ConformanceError as exc:
+        from dataclasses import asdict
+        _emit({"ok": False, "conformance": asdict(exc.report)})
+        return 2
+    _emit(to_dict(result))
+    return 0 if result.conformance.ok else 1
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())
