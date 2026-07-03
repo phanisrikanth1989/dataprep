@@ -56,3 +56,23 @@ def test_parse_schema_table_groups_by_source():
     assert schema["ledger"][0].nullable is False
     assert schema["ledger"][0].key is True
     assert schema["ledger"][1].key is False
+
+
+from agents.tools.extract_doc import _parse_rules_table
+
+
+def test_parse_rules_table():
+    doc = Document()
+    t = _table(
+        doc,
+        ["ID", "Kind", "Description"],
+        [
+            ["R1", "Match", "match ledger.txn_id to statement.ref_id"],
+            ["R2", "Tolerance", "amounts equal within 0.01"],
+            ["", "", ""],  # blank row ignored
+        ],
+    )
+    rules = _parse_rules_table(t)
+    assert len(rules) == 2
+    assert rules[0] == {"id": "R1", "kind": "match", "description": "match ledger.txn_id to statement.ref_id"}
+    assert rules[1]["kind"] == "tolerance"

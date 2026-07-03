@@ -113,3 +113,21 @@ def _parse_schema_table(table):
             )
         )
     return out
+
+
+def _parse_rules_table(table):
+    """Parse a Transformation-Rules table into a list of {id, kind, description} dicts."""
+    _, records = _table_records(table)
+    rules = []
+    for rec in records:
+        rid = rec.get("ID", "").strip()
+        if not rid:
+            continue
+        rules.append(
+            {
+                "id": rid,
+                "kind": rec.get("Kind", "").strip().lower(),
+                "description": rec.get("Description", "").strip(),
+            }
+        )
+    return rules
