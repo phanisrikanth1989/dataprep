@@ -1,4 +1,3 @@
-# tests/agents/tools/test_extract_doc.py
 from docx import Document
 
 from agents.tools.extract_doc import _read_sections
