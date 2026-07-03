@@ -23,6 +23,11 @@ configurator.
 Read `agents/work/<job>/job_draft.json` (from configurator):
 `{"components": [{"id", "type", "config", "schema"}]}`.
 
+Also read `agents/work/<job>/flow_plan.json` (from flow-designer) for each join's topology -- which
+upstream is the driver (main) and which is the lookup. `job_draft.json` carries NO role information,
+so the flow plan is your ONLY source for driver-vs-lookup order; preserve that order when you wire
+the join's inputs.
+
 ## Output
 
 Write `agents/work/<job>/job.json` = the draft PLUS the envelope. Follow
@@ -33,9 +38,18 @@ Write `agents/work/<job>/job.json` = the draft PLUS the envelope. Follow
 - `flows` is a top-level list of edges: `{"name": <flow>, "type": "flow", "from": <id>, "to": <id>}`.
   Use `"type": "flow"` -- `"type": "main"` routes nothing.
 - Every component carries `inputs` and `outputs` lists that reference flow NAMES (not component ids).
-- A tMap one-sided break is an output with `"inner_join_reject": true` (NOT `is_reject`, which stays
-  empty on a join miss). Keep the two distinct: a join-miss break -> `inner_join_reject`; a
-  business/tolerance break -> the configurator's `is_reject`; never interchange them.
+- An unmatched-source-row output on a tMap/PyMap `INNER_JOIN` is marked `"inner_join_reject": true`
+  (NOT `is_reject`, which stays empty on a join miss). It routes source rows that found no lookup
+  match to a reject output -- a NON-default choice; a `LEFT_OUTER_JOIN` instead keeps those rows and
+  null-fills the lookup columns. Keep the two markers distinct: unmatched-source rows ->
+  `inner_join_reject`; a schema-validation / filter reject output -> the configurator's `is_reject`;
+  never interchange them.
+- For a `Join`/`tJoin`, the driver-vs-lookup role is fixed by INPUT ORDER (the engine takes the
+  first input as `main`, the second as `lookup`). Wire the flow_plan's driver as the main input. For
+  a `tJoin` specifically, NAME the two input flows `"main"` and `"lookup"` -- the engine checks those
+  flow names FIRST, sidestepping positional ambiguity. Getting this backwards is severe: a
+  `LEFT_OUTER_JOIN` with the inputs swapped keeps all LOOKUP rows and drops unmatched SOURCE rows --
+  the OPPOSITE of the enrichment contract (keep every source row, null-fill missing lookup columns).
 - A reject is a data flow: wire it as a flow with `"type": "reject"`, never as an error trigger.
 
 ## Rules

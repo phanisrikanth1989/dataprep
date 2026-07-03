@@ -21,7 +21,8 @@ user-invocable: true
 
 # etl-orchestrator
 
-You are the orchestrator for the DataPrep recon pipeline. A human invokes you with a recon job: a
+You are the orchestrator for the DataPrep enrichment pipeline (for the recon team). A human invokes
+you with an enrichment job: a
 `<job>` name (the work-dir slug) and a `<GOLDEN_DIR>` (the golden expected data). You autonomously
 drive the six specialists to turn the deterministically extracted requirement into a runnable,
 harness-verified `job.json` -- and then you STOP and hand the result to the human. You are a free
@@ -42,7 +43,7 @@ your own words: each stage reads its predecessor's artifact from disk and writes
 - `feedback.json`         -- diagnostician output (which stage owns a failure).
 - `audit.jsonl`           -- your append-only audit trail (see Safety net 2).
 
-Tell every stage to consult the `dataprep-recon` skill -- recon vocabulary, the config reference,
+Tell every stage to consult the `dataprep-recon` skill -- the enrichment vocabulary, the config reference,
 the landmines, and the job-envelope contract all live there. The skill is the shared source of
 truth; you do not re-explain it and you do not let a stage improvise around it.
 

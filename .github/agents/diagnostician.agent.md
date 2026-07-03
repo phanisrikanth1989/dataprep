@@ -47,15 +47,19 @@ Write `agents/work/<job>/feedback.json`:
 - Missing / unexpected rows keyed on the join key, or a wrong cardinality (rows fan out or collapse)
   -> `doc-interpreter` (wrong key/cardinality in the spec) or `configurator` (key mis-set on the
   component). NEVER route a wrong key/cardinality to flow-designer.
-- `value_mismatch` on a tolerance/amount column (join lines up, values differ) -> `configurator`
-  (wrong tolerance threshold or post-join split).
+- `value_mismatch` on a joined or derived column (join lines up, values differ) -> `configurator`:
+  a wrong `ConvertType` cast, a numeric-precision gap (e.g. python_dataframe rounding), a date/number
+  FORMAT miss (the tMap output `pattern` vs the unwired `date_pattern` landmine), a wrong derivation,
+  or a post-join split.
 - A component absent from the executed graph, or `engine.dropped` non-empty (an unknown/mistyped
   component type), or a whole output empty because its producer never ran -> `flow-designer`
   (a needed component was not planned).
 - `reasons` naming an unknown / mistyped config key, or a component errored on its config -> 
   `configurator`.
 - A dangling flow, a wiring/envelope error, `unexpected_columns` / `missing_columns` from a
-  mis-wired schema, or a flow whose `from`/`to` does not resolve -> `assembler`.
+  mis-wired schema, a flow whose `from`/`to` does not resolve, or a join whose input/driver order is
+  mis-set (all lookup rows kept, unmatched source rows dropped -- the inverse of the enrichment
+  contract) -> `assembler`.
 - Anything you cannot confidently classify from the structural signals -> `human`.
 
 Name exactly ONE owner -- the most likely single cause. When the signals genuinely conflict or are

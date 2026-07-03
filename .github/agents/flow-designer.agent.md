@@ -81,9 +81,13 @@ either changes the output row count.
 - Default a lookup to a unique-key mode (`matching_mode` UNIQUE_MATCH or FIRST_MATCH) and dedup the
   lookup source first with `UniqueRow` or an `AggregateRow` pre-roll, so one source row maps to at
   most one lookup row.
-- `ALL_MATCHES` / `FILTER_AS_MATCH` / `RELOAD` deliberately fan out and are high-risk; `tMap` and
-  `PyMap` guard them at 10M rows (warn) and 100M rows (hard fail). Plan a fan-out mode ONLY when a
-  rule truly calls for a 1:N expansion, and say so in the pattern.
+- Fan-out modes deliberately expand rows and are high-risk, and the guards are UNEVEN. The 10M-row
+  (warn) / 100M-row (hard-fail) cross-product cap covers ONLY tMap `FILTER_AS_MATCH` / `CONSTANT_KEY`
+  and PyMap keyed `ALL_MATCHES`. `RELOAD` (RELOAD_AT_EACH_ROW) has NO hard cap in either engine -- it
+  re-matches the lookup for every source row (O(n*m) per-row), so avoid it on large inputs. tMap
+  keyed `ALL_MATCHES` fan-out is ALSO unguarded, so pre-dedup the lookup (`UniqueRow` /
+  `AggregateRow`) rather than rely on a cap. Plan a fan-out mode ONLY when a rule truly calls for a
+  1:N expansion, and say so in the pattern.
 - A source row with no lookup hit is governed by the join mode: LEFT_OUTER_JOIN keeps it with
   null-filled lookup columns (the usual enrichment default); INNER_JOIN drops it. Follow the
   requirement's `no_match` decision.
@@ -99,8 +103,9 @@ pass. Design around its caveats:
   route must come from the join node or a downstream `FilterRows` / `SchemaComplianceCheck`, never
   from python_dataframe.
 - UNSANDBOXED: its code runs with full Python builtins. Keep its use minimal, prefer the safer
-  vectorized curated nodes (`ConvertType`, `FilterColumns`, `FilterRows`) where they suffice, and
-  note in the node's `purpose` that its code will need human review.
+  vectorized nodes -- the curated `ConvertType` / `FilterRows`, or the vectorized (uncurated)
+  `FilterColumns` -- where they suffice, and note in the node's `purpose` that its code will need
+  human review.
 
 ## Schema validation
 
@@ -112,9 +117,12 @@ node.
 ## Canonical shape (pipelines vary -- add or drop stages per the rules)
 
 `[FileInputDelimited source] + [FileInputDelimited lookup] -> [tJoin | PyMap | tMap] (join/enrich)
--> [python_dataframe] (one vectorized enrich/derive/validate node) -> [SortRow] -> [AggregateRow] ->
-[FileOutputDelimited]`. Not every job has every stage. Keep the plan minimal -- the fewest nodes,
-vectorized wherever possible, that satisfy every rule.
+-> [python_dataframe] (one vectorized enrich/derive/validate node) -> [AggregateRow] -> [SortRow] ->
+[FileOutputDelimited]`. Aggregate BEFORE sort: `AggregateRow` (pandas groupby) regroups by its group
+key and discards any preceding row order, so place `SortRow` LAST to fix the TLM-facing output order
+-- the oracle diff is order-insensitive, so a wrong final order slips past it and ships to TLM. Not
+every job has every stage. Keep the plan minimal -- the fewest nodes, vectorized wherever possible,
+that satisfy every rule.
 
 ## Knowledge
 

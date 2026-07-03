@@ -71,7 +71,8 @@ sourced from the engine. Do not hand the assembler a draft with a known config e
 The code runs UNSANDBOXED with full Python builtins. Keep it MINIMAL -- only the vectorized casts /
 derivations / validations the plan calls for, no file I/O, no dynamic `exec` / `import` -- and
 surface the `python_code` verbatim so a human reviews it before the job runs. Where a curated
-vectorized node (`ConvertType`, `FilterColumns`, `FilterRows`) does the same work, prefer it.
+vectorized node (`ConvertType`, `FilterRows`) or the vectorized `FilterColumns` does the same work,
+prefer it.
 
 ## Knowledge and landmines
 
