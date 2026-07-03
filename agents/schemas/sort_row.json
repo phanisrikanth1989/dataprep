@@ -1,0 +1,13 @@
+{
+  "type": "SortRow",
+  "aliases": ["tSortRow"],
+  "source": "src/v1/engine/components/transform/sort_row.py",
+  "keys": {
+    "criteria": {"type": "list", "default": [], "required": true, "item_keys": {
+      "column": {"type": "str", "required": true},
+      "sort_type": {"type": "str", "enum_ref": "src.v1.engine.components.transform.sort_row:_VALID_SORT_TYPES"},
+      "order": {"type": "str", "enum_ref": "src.v1.engine.components.transform.sort_row:_VALID_ORDERS"}
+    }},
+    "external": {"type": "bool", "default": false}
+  }
+}

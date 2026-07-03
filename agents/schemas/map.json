@@ -1,0 +1,26 @@
+{
+  "type": "Map",
+  "aliases": ["tMap"],
+  "source": "src/v1/engine/components/transform/map/map_config.py",
+  "keys": {
+    "inputs": {"type": "dict", "required": true},
+    "outputs": {"type": "list", "required": true, "item_keys": {
+      "name": {"type": "str", "required": true},
+      "columns": {"type": "list", "required": true, "item_keys": {
+        "name": {"type": "str"},
+        "expression": {"type": "str"},
+        "type": {"type": "str"},
+        "nullable": {"type": "bool"},
+        "length": {"type": "int"},
+        "precision": {"type": "int"},
+        "date_pattern": {"type": "str"},
+        "pattern": {"type": "str"},
+        "operator": {"type": "str"}
+      }}
+    }},
+    "variables": {"type": "list", "default": []},
+    "die_on_error": {"type": "bool", "default": true},
+    "enable_auto_convert_type": {"type": "bool", "default": false},
+    "label": {"type": "str", "default": ""}
+  }
+}
