@@ -104,3 +104,23 @@ def test_parse_data_block_expected_output_extracts_composite_key():
     data, keys = _parse_data_block(items, extract_keys=True)
     assert keys["matched"] == ["txn_id", "src"]
     assert data["matched"] == [{"txn_id": "T1", "src": "ledger", "amt": "100.00"}]
+
+
+from agents.tools.extract_doc import compute_derived_facts
+
+
+def test_compute_derived_facts():
+    sample = {
+        "ledger": [
+            {"txn_id": "T1", "amt": "100"},
+            {"txn_id": "T2", "amt": ""},
+            {"txn_id": "T2", "amt": "50"},
+        ]
+    }
+    facts = compute_derived_facts(sample)["ledger"]
+    assert facts["txn_id"]["unique"] is False          # T2 repeats
+    assert facts["txn_id"]["max_group_size"] == 2
+    assert facts["txn_id"]["n_distinct"] == 2
+    assert facts["txn_id"]["null_rate"] == 0.0
+    assert facts["amt"]["null_rate"] == round(1 / 3, 4)  # one empty cell
+    assert facts["amt"]["unique"] is True                # 100, 50 distinct among non-null

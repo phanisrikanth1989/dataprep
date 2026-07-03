@@ -152,3 +152,39 @@ def _parse_data_block(items, extract_keys=False):
             header = [h.strip() for h in raw_header]
         data[name] = [dict(zip(header, r)) for r in matrix[1:]]
     return (data, keys) if extract_keys else data
+
+
+def compute_derived_facts(sample_input):
+    """Compute per-column structural facts from real sample rows.
+
+    These facts (not raw values) are what downstream LLM roles receive, so no
+    sample cell content leaks into the returned structure.
+
+    Args:
+        sample_input: Mapping of source name -> list of row dicts (Task 4 shape).
+
+    Returns:
+        Mapping of source -> column -> ``{"n_distinct", "null_rate", "unique",
+        "max_group_size"}``. An empty cell (``""``) counts as null; ``unique`` is
+        True only when there are non-null values and no value repeats.
+    """
+    facts = {}
+    for source, rows in sample_input.items():
+        n = len(rows)
+        columns = list(rows[0].keys()) if rows else []
+        col_facts = {}
+        for col in columns:
+            values = [r.get(col, "") for r in rows]
+            non_null = [v for v in values if v != ""]
+            counts = {}
+            for v in non_null:
+                counts[v] = counts.get(v, 0) + 1
+            max_group = max(counts.values()) if counts else 0
+            col_facts[col] = {
+                "n_distinct": len(counts),
+                "null_rate": round((n - len(non_null)) / n, 4) if n else 0.0,
+                "unique": bool(non_null) and max_group <= 1,
+                "max_group_size": max_group,
+            }
+        facts[source] = col_facts
+    return facts
