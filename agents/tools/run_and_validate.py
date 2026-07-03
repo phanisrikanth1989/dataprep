@@ -144,3 +144,97 @@ def run_job_capture(job_config: dict, work_dir) -> RunResult:
         outputs=outputs,
         raw_stats=stats,
     )
+
+
+def _bag(df: pd.DataFrame):
+    return sorted(tuple(str(v) for v in row) for row in df.itertuples(index=False, name=None))
+
+
+def diff_frames(actual, expected, keys):
+    """Diff an actual output frame vs expected: keyed diff, or bag equality if keys is None."""
+    if actual is None:
+        return {"equal": False, "missing": int(len(expected)), "unexpected": 0, "value_mismatch": 0,
+                "reason": "no actual output"}
+    if not keys:
+        a, e = _bag(actual), _bag(expected)
+        return {"equal": a == e, "actual_rows": len(actual), "expected_rows": len(expected)}
+    exp = expected.astype(str).set_index(keys, drop=False)
+    act = actual.astype(str).set_index(keys, drop=False)
+    missing = exp.index.difference(act.index)
+    unexpected = act.index.difference(exp.index)
+    common = exp.index.intersection(act.index)
+    cols = [c for c in expected.columns if c not in keys]
+    mismatch = 0
+    for idx in common:
+        er, ar = exp.loc[[idx]].iloc[0], act.loc[[idx]].iloc[0]
+        if any(er.get(c) != ar.get(c) for c in cols):
+            mismatch += 1
+    return {"equal": len(missing) == 0 and len(unexpected) == 0 and mismatch == 0,
+            "missing": int(len(missing)), "unexpected": int(len(unexpected)), "value_mismatch": int(mismatch)}
+
+
+def check(run_result, expected, output_map, keys) -> dict:
+    """Multi-signal PASS/FAIL: engine status + no dropped/errored components + per-output diffs."""
+    reasons = []
+    if run_result.status != "success":
+        reasons.append(f"engine status={run_result.status!r}" + (f": {run_result.error}" if run_result.error else ""))
+    if run_result.dropped_components:
+        reasons.append(f"dropped (unknown-type) components: {run_result.dropped_components}")
+    errored = [cid for cid, s in run_result.component_stats.items() if isinstance(s, dict) and s.get("status") == "error"]
+    if errored:
+        reasons.append(f"components errored: {errored}")
+
+    out_diffs = {}
+    for name, exp_df in expected.items():
+        comp_id = output_map.get(name)
+        actual = run_result.outputs.get(comp_id) if comp_id else None
+        d = diff_frames(actual, exp_df, keys.get(name))
+        out_diffs[name] = d
+        if not d.get("equal", False):
+            reasons.append(f"output {name!r} differs: {d}")
+
+    return {
+        "passed": not reasons,
+        "engine": {"status": run_result.status, "dropped": run_result.dropped_components,
+                   "global_map": run_result.global_map},
+        "outputs": out_diffs,
+        "reasons": reasons,
+    }
+
+
+def main(argv=None) -> int:
+    """CLI: run a job, diff against a golden dir, emit test_report.json."""
+    import argparse
+    import json
+    import sys
+
+    parser = argparse.ArgumentParser(description="Run a job and validate its output vs golden data.")
+    parser.add_argument("--job", required=True, help="path to the job.json")
+    parser.add_argument("--golden-dir", required=True, help="dir with <name>_expected.csv + manifest.json")
+    parser.add_argument("--out", help="write test_report JSON here (default: stdout)")
+    args = parser.parse_args(argv)
+
+    with open(args.job, encoding="utf-8") as fh:
+        job = json.load(fh)
+    gdir = Path(args.golden_dir)
+    manifest = json.loads((gdir / "manifest.json").read_text(encoding="utf-8"))
+    expected, output_map, keys = {}, {}, {}
+    for name, spec in manifest["outputs"].items():
+        sep = spec.get("sep", ",")
+        expected[name] = pd.read_csv(gdir / f"{name}_expected.csv", sep=sep, dtype=str, keep_default_na=False)
+        output_map[name] = spec["component"]
+        keys[name] = spec.get("keys")
+
+    run_result = run_job_capture(job, gdir)
+    report = check(run_result, expected, output_map, keys)
+    text = json.dumps(report, indent=2, default=str)
+    if args.out:
+        Path(args.out).write_text(text, encoding="utf-8")
+    else:
+        sys.stdout.write(text + "\n")
+    return 0 if report["passed"] else 1
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())
