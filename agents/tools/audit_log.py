@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -41,8 +42,6 @@ class AuditLog:
 def main(argv=None) -> int:
     """CLI: append one audit entry to <job-dir>/audit.jsonl."""
     import argparse
-    import json
-    import sys
     parser = argparse.ArgumentParser(description="Append one audit entry to <job-dir>/audit.jsonl.")
     parser.add_argument("--job-dir", required=True)
     parser.add_argument("--iteration", type=int, required=True)
@@ -57,10 +56,12 @@ def main(argv=None) -> int:
         except ValueError as exc:
             sys.stderr.write(f"--detail must be a JSON object: {exc}\n")
             return 2
+        if not isinstance(detail, dict):
+            sys.stderr.write("--detail must be a JSON object\n")
+            return 2
     AuditLog(args.job_dir).record(args.iteration, args.role, args.event, detail)
     return 0
 
 
 if __name__ == "__main__":
-    import sys
     sys.exit(main())

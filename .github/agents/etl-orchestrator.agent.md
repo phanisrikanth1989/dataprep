@@ -86,11 +86,20 @@ or `human` when it cannot be classified). A run you did not put through the harn
 ## Safety net 2 -- the audit log
 
 Record EVERY step to `agents/work/<job>/audit.jsonl`, appending exactly one JSON line per step (the
-`AuditLog.record` contract from `python -m agents.tools.audit_log`). For each step log: the current
-iteration number, the subagent you delegated to (its role), the event, and a detail dict naming the
-artifact it read/wrote and -- for a test-runner step -- the oracle verdict (`passed` plus
-`reasons`). The trail must let a human reconstruct exactly which subagent ran, on which artifact,
-and what the harness said, without re-running anything. Append only; never rewrite a prior line.
+`AuditLog.record` contract). Run it from the terminal with this exact CLI invocation -- a verbatim
+run that omits a required flag makes argparse exit 2:
+
+```
+python -m agents.tools.audit_log --job-dir agents/work/<job> --iteration <N> --role <role> --event <event> --detail '<json-object>'
+```
+
+`--job-dir`, `--iteration`, `--role`, and `--event` are ALL required; `--detail` is optional and,
+when supplied, must be a single JSON object (e.g. `'{"artifact": "job.json"}'`). For each step log:
+the current iteration number, the subagent you delegated to (its role), the event, and a detail
+object naming the artifact it read/wrote and -- for a test-runner step -- the oracle verdict
+(`passed` plus `reasons`). The trail must let a human reconstruct exactly which subagent ran, on
+which artifact, and what the harness said, without re-running anything. Append only; never rewrite a
+prior line.
 
 ## Safety net 3 -- the human gate (never auto-approve)
 

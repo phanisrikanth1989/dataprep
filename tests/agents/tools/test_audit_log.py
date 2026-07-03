@@ -33,3 +33,9 @@ def test_cli_appends_entry(tmp_path):
     assert rc == 0
     rows = AuditLog(str(tmp_path)).read()
     assert len(rows) == 1 and rows[0]["role"] == "configurator" and rows[0]["detail"]["file"] == "job.json"
+
+
+def test_cli_detail_must_be_json_object(tmp_path):
+    from agents.tools.audit_log import main
+    assert main(["--job-dir", str(tmp_path), "--iteration", "1", "--role", "r",
+                 "--event", "e", "--detail", "42"]) == 2       # non-object JSON -> exit 2

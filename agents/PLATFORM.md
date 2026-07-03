@@ -145,7 +145,10 @@ All stages read and write JSON files under one flat, agent-readable work dir,
 ### 1.5 The deterministic tools
 
 Python tools under `agents/tools/`. The four pipeline CLIs (extract_doc, validate_config,
-run_and_validate, render_skills) are what the specialists invoke from the auto-approved terminal.
+run_and_validate, render_skills) are what the specialists invoke from the auto-approved terminal;
+the orchestrator also runs `audit_log` from that same terminal at runtime. Every terminal call is
+covered by the one `python -m agents.tools.*` auto-approve wildcard, so these names are illustrative,
+not the approval boundary.
 The remaining two split by role -- they are NOT one "gate": `validate_agents` is the library-only
 CI/frontmatter gate (runs in the test suite, never invoked by an agent), while `audit_log` is a
 RUNTIME contract the orchestrator calls -- now via `python -m agents.tools.audit_log` -- to append
@@ -239,8 +242,9 @@ this repo. Where an item says ADJUST, make the edit in the install and mirror it
 
 - [ ] (d) `chat.tools.terminal.autoApprove` lets the tools run without a per-run prompt. With
   `chat.tools.terminal.autoApprove` configured for the `python -m agents.tools.*` commands
-  (`extract_doc`, `validate_config`, `run_and_validate`, `render_skills`), the configurator's
-  validate loop and the test-runner's harness run WITHOUT a per-run approval prompt. Confirm this
+  (`extract_doc`, `validate_config`, `run_and_validate`, `render_skills`, `audit_log`), the
+  configurator's validate loop, the test-runner's harness, and the orchestrator's audit-log append
+  run WITHOUT a per-run approval prompt. Confirm this
   setting is NOT locked by Citi org policy (if it is locked, the loop stalls on every terminal
   step -- escalate).
 
