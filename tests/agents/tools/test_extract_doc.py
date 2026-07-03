@@ -153,3 +153,146 @@ def test_conformance_empty_table_is_parse_error():
     report = _check_conformance(sections, {"ledger": ["x"]}, [{"id": "R1"}], {"ledger": []}, {"matched": [{"a": "1"}]})
     assert report.ok is False
     assert any("Sample Input" in e for e in report.parse_errors)
+
+
+import pytest
+
+from agents.tools.extract_doc import ConformanceError, extract_doc
+
+
+def _build_recon_docx(path):
+    doc = Document()
+    doc.add_heading("Inputs and Schema", level=1)
+    _table(doc, ["Source", "Column", "Type", "Nullable", "Key"], [
+        ["ledger", "txn_id", "str", "false", "true"],
+        ["ledger", "amt", "float", "false", "false"],
+        ["statement", "ref_id", "str", "false", "true"],
+        ["statement", "amt", "float", "false", "false"],
+    ])
+    doc.add_heading("Transformation Rules", level=1)
+    _table(doc, ["ID", "Kind", "Description"], [
+        ["R1", "match", "match ledger.txn_id to statement.ref_id"],
+        ["R2", "tolerance", "amounts equal within 0.01"],
+    ])
+    doc.add_heading("Sample Input", level=1)
+    doc.add_heading("ledger", level=2)
+    _table(doc, ["txn_id", "amt"], [["T1", "100.00"], ["T2", "50.00"]])
+    doc.add_heading("statement", level=2)
+    _table(doc, ["ref_id", "amt"], [["T1", "100.00"]])
+    doc.add_heading("Expected Output", level=1)
+    doc.add_heading("matched", level=2)
+    _table(doc, ["txn_id*", "amt"], [["T1", "100.00"]])
+    doc.add_heading("breaks", level=2)
+    _table(doc, ["txn_id*", "reason"], [["T2", "no_match"]])
+    doc.save(str(path))
+
+
+def test_extract_doc_end_to_end(tmp_path):
+    path = tmp_path / "recon.docx"
+    _build_recon_docx(path)
+
+    result = extract_doc(str(path))
+
+    assert result.conformance.ok is True
+    assert set(result.sources_schema) == {"ledger", "statement"}
+    assert result.rules[1]["kind"] == "tolerance"
+    assert result.sample_input["ledger"][0] == {"txn_id": "T1", "amt": "100.00"}
+    assert result.output_keys["matched"] == ["txn_id"]
+    assert result.expected_output["breaks"][0] == {"txn_id": "T2", "reason": "no_match"}
+    assert result.derived_facts["ledger"]["txn_id"]["unique"] is True
+
+
+def test_extract_doc_raises_on_missing_block(tmp_path):
+    doc = Document()
+    doc.add_heading("Inputs and Schema", level=1)
+    _table(doc, ["Source", "Column", "Type", "Nullable", "Key"], [["ledger", "txn_id", "str", "false", "true"]])
+    path = tmp_path / "bad.docx"
+    doc.save(str(path))
+
+    with pytest.raises(ConformanceError) as exc:
+        extract_doc(str(path))
+    assert "Transformation Rules" in exc.value.report.missing_blocks
+
+
+def test_extract_doc_raises_when_file_too_large(tmp_path, monkeypatch):
+    path = tmp_path / "recon.docx"
+    _build_recon_docx(path)
+    monkeypatch.setattr("agents.tools.extract_doc.MAX_DOCX_BYTES", 10)
+
+    with pytest.raises(ConformanceError) as exc:
+        extract_doc(str(path))
+    assert exc.value.report.ok is False
+    assert any("file too large" in e for e in exc.value.report.parse_errors)
+
+
+def _empty_table(doc, cols):
+    return doc.add_table(rows=0, cols=cols)
+
+
+def test_extract_doc_raises_with_parse_errors_on_degenerate_blocks(tmp_path):
+    # All four blocks present, but every table is empty/image-only (no parseable
+    # content), so the gate fails via parse_errors rather than missing_blocks.
+    doc = Document()
+    doc.add_heading("Inputs and Schema", level=1)
+    _empty_table(doc, 5)
+    doc.add_heading("Transformation Rules", level=1)
+    _empty_table(doc, 3)
+    doc.add_heading("Sample Input", level=1)
+    _table(doc, ["txn_id", "amt"], [["T1", "1"]])  # orphan table: no Heading-2 -> skipped
+    doc.add_heading("Expected Output", level=1)
+    doc.add_heading("matched", level=2)
+    _empty_table(doc, 2)
+    path = tmp_path / "degenerate.docx"
+    doc.save(str(path))
+
+    with pytest.raises(ConformanceError) as exc:
+        extract_doc(str(path))
+    errors = exc.value.report.parse_errors
+    assert exc.value.report.missing_blocks == []
+    assert any("Inputs and Schema" in e for e in errors)
+    assert any("Transformation Rules" in e for e in errors)
+    assert any("Sample Input" in e for e in errors)
+    assert any("Expected Output" in e for e in errors)
+
+
+def test_extract_doc_raise_on_error_false_returns_nonok_result(tmp_path):
+    doc = Document()
+    doc.add_heading("Inputs and Schema", level=1)
+    _table(doc, ["Source", "Column", "Type", "Nullable", "Key"], [["ledger", "txn_id", "str", "false", "true"]])
+    path = tmp_path / "partial.docx"
+    doc.save(str(path))
+
+    result = extract_doc(str(path), raise_on_error=False)
+
+    assert result.conformance.ok is False
+    assert "Transformation Rules" in result.conformance.missing_blocks
+    assert set(result.sources_schema) == {"ledger"}
+    assert result.rules == []
+
+
+def test_parse_schema_table_skips_blank_source_or_column():
+    doc = Document()
+    t = _table(
+        doc,
+        ["Source", "Column", "Type", "Nullable", "Key"],
+        [
+            ["ledger", "txn_id", "str", "false", "true"],
+            ["", "orphan", "str", "true", "false"],   # blank Source -> skipped
+            ["ledger", "", "str", "true", "false"],    # blank Column -> skipped
+        ],
+    )
+    schema = _parse_schema_table(t)
+    assert list(schema.keys()) == ["ledger"]
+    assert len(schema["ledger"]) == 1
+
+
+from types import SimpleNamespace
+
+from agents.tools.extract_doc import _heading_level
+
+
+def test_heading_level_edge_cases():
+    assert _heading_level(SimpleNamespace(style=SimpleNamespace(name="Normal"))) is None       # non-heading
+    assert _heading_level(SimpleNamespace(style=SimpleNamespace(name="Heading X"))) is None    # non-numeric suffix
+    assert _heading_level(SimpleNamespace(style=None)) is None                                  # no style
+    assert _heading_level(SimpleNamespace(style=SimpleNamespace(name="Heading 3"))) == 3        # valid heading

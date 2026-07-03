@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 
+from docx import Document
 from docx.oxml.table import CT_Tbl
 from docx.oxml.text.paragraph import CT_P
 from docx.table import Table
@@ -17,6 +19,8 @@ from docx.text.paragraph import Paragraph
 logger = logging.getLogger(__name__)
 
 REQUIRED_BLOCKS = ("Inputs and Schema", "Transformation Rules", "Sample Input", "Expected Output")
+
+MAX_DOCX_BYTES = 25 * 1024 * 1024
 
 
 @dataclass
@@ -209,3 +213,91 @@ def _check_conformance(sections, sources_schema, rules, sample_input, expected_o
         if not expected_output or all(len(rows) == 0 for rows in expected_output.values()):
             errors.append("Expected Output: no rows parsed")
     return ConformanceReport(ok=(not missing and not errors), missing_blocks=missing, parse_errors=errors)
+
+
+@dataclass
+class ExtractResult:
+    """Structured result of parsing a recon requirements ``.docx``.
+
+    ``sample_input`` and ``expected_output`` carry real cell values and are for
+    LOCAL oracle use only -- never send them to a model. Downstream LLM roles
+    receive ``derived_facts`` (structural facts) instead.
+
+    Attributes:
+        sources_schema: Source name -> list of ``ColumnSpec`` (Inputs and Schema).
+        rules: List of ``{id, kind, description}`` dicts (Transformation Rules).
+        sample_input: Source name -> list of real row dicts (Sample Input).
+        expected_output: Output name -> list of real row dicts (Expected Output).
+        output_keys: Output name -> list of composite-key column names (the
+            ``*``-suffixed columns).
+        derived_facts: Source -> column -> structural facts; the only
+            sample-derived data safe to send to a model.
+        conformance: The ``ConformanceReport`` for the parsed doc.
+    """
+    sources_schema: dict
+    rules: list
+    sample_input: dict
+    expected_output: dict
+    output_keys: dict
+    derived_facts: dict
+    conformance: ConformanceReport
+
+
+def extract_doc(path, raise_on_error=True):
+    """Deterministically extract a recon requirements ``.docx`` into an ``ExtractResult``.
+
+    Reads the four required Heading-1 blocks, parses each with its table parser,
+    gates the result through the conformance check, and computes derived
+    structural facts from the real sample rows.
+
+    Args:
+        path: Filesystem path to the requirements ``.docx``.
+        raise_on_error: When True (default), raise ``ConformanceError`` if the
+            doc fails the conformance gate. When False, return the
+            ``ExtractResult`` with a non-ok ``conformance`` report instead.
+
+    Returns:
+        An ``ExtractResult`` with the parsed schema, rules, sample input,
+        expected output, composite output keys, derived facts, and the
+        conformance report.
+
+    Raises:
+        ConformanceError: If the file exceeds ``MAX_DOCX_BYTES``, or if
+            ``raise_on_error`` is True and the doc is non-conformant.
+    """
+    file_path = Path(path)
+    size = file_path.stat().st_size
+    if size > MAX_DOCX_BYTES:
+        report = ConformanceReport(ok=False, parse_errors=[f"file too large: {size} bytes"])
+        raise ConformanceError(report)
+
+    doc = Document(str(file_path))
+    sections = _read_sections(doc)
+
+    sources_schema = {}
+    if sections.get("Inputs and Schema"):
+        sources_schema = _parse_schema_table(sections["Inputs and Schema"][0][1])
+    rules = []
+    if sections.get("Transformation Rules"):
+        rules = _parse_rules_table(sections["Transformation Rules"][0][1])
+    sample_input = _parse_data_block(sections.get("Sample Input", []))
+    expected_output, output_keys = _parse_data_block(sections.get("Expected Output", []), extract_keys=True)
+
+    conformance = _check_conformance(sections, sources_schema, rules, sample_input, expected_output)
+    if raise_on_error and not conformance.ok:
+        raise ConformanceError(conformance)
+
+    derived_facts = compute_derived_facts(sample_input)
+    logger.info(
+        "[extract_doc] %s: %d sources, %d rules, %d outputs",
+        file_path.name, len(sources_schema), len(rules), len(expected_output),
+    )
+    return ExtractResult(
+        sources_schema=sources_schema,
+        rules=rules,
+        sample_input=sample_input,
+        expected_output=expected_output,
+        output_keys=output_keys,
+        derived_facts=derived_facts,
+        conformance=conformance,
+    )
