@@ -1,0 +1,6 @@
+{
+  "outputs": {
+    "matched": {"component": "out_matched", "keys": ["cc"], "sep": ";"},
+    "reject": {"component": "out_reject", "keys": ["cc"], "sep": ";"}
+  }
+}
