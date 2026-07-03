@@ -54,6 +54,7 @@ def test_unhashable_enum_value_returns_error_not_crash():
 def test_unknown_schema_type_name_does_not_crash(monkeypatch):
     # A schema referencing a type name not in _PY_TYPES must skip the isinstance
     # check rather than KeyError-crash.
+    monkeypatch.setattr(vc, "is_curated", lambda ct: True)   # bypass curation gate to reach strict path
     monkeypatch.setattr(vc, "load_schema", lambda ct: {"keys": {"n": {"type": "integer"}}})
     assert vc.validate_config("X", {"n": 1}) == []   # must NOT raise
 
@@ -75,12 +76,14 @@ def test_nested_unknown_subkey_flagged_strict_only():
 
 
 def test_bool_flagged_for_int_field(monkeypatch):
+    monkeypatch.setattr(vc, "is_curated", lambda ct: True)   # bypass curation gate to reach strict path
     monkeypatch.setattr(vc, "load_schema", lambda ct: {"keys": {"n": {"type": "int"}}})
     assert any("n" in e for e in vc.validate_config("X", {"n": True}))
     assert vc.validate_config("X", {"n": 5}) == []          # a real int still passes
 
 
 def test_bool_flagged_for_float_field(monkeypatch):
+    monkeypatch.setattr(vc, "is_curated", lambda ct: True)   # bypass curation gate to reach strict path
     monkeypatch.setattr(vc, "load_schema", lambda ct: {"keys": {"n": {"type": "float"}}})
     assert any("n" in e for e in vc.validate_config("X", {"n": False}))
     assert vc.validate_config("X", {"n": 1.5}) == []
@@ -98,3 +101,20 @@ def test_empty_criteria_flagged_sortrow():
 def test_empty_outputs_flagged_map():
     errs = validate_config("Map", {"inputs": {}, "outputs": []})
     assert any("outputs" in e for e in errs)
+
+
+# ---------------------------------------------------------------------------
+# Full-component support -- uncurated types degrade gracefully (advisory only).
+# ---------------------------------------------------------------------------
+
+
+def test_uncurated_type_degrades_gracefully():
+    from agents.tools.validate_config import validate_config
+    # a real but non-curated component -> no hard error, no raise
+    assert validate_config("tPythonDataFrame", {"python_code": "df['x']=1", "anything": 2}) == []
+
+
+def test_is_curated_flags_curated_vs_not():
+    from agents.tools.component_schema import is_curated
+    assert is_curated("FilterRows") is True
+    assert is_curated("tPythonDataFrame") is False

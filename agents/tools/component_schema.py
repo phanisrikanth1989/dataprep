@@ -22,6 +22,23 @@ def _index() -> dict:
         return json.load(fh)
 
 
+def is_curated(component_type: str) -> bool:
+    """Return True iff the component type (or alias) has a curated schema.
+
+    Curated types are the keys of the ``_index.json`` index. Only curated types
+    get strict, enum_ref-backed validation; every other registered engine
+    component is validated advisory-only (correctness falls to the engine's own
+    ``_validate_config`` plus the oracle).
+
+    Args:
+        component_type: Engine component type or one of its aliases.
+
+    Returns:
+        True if a curated schema exists for the type, False otherwise.
+    """
+    return component_type in _index()
+
+
 def load_schema(component_type: str) -> dict:
     """Load the curated schema for a component type or alias."""
     filename = _index().get(component_type)

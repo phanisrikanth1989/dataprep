@@ -1,7 +1,11 @@
 """Validate a component config dict against its curated schema (pre-engine gate)."""
 from __future__ import annotations
 
-from agents.tools.component_schema import BASE_KEYS, IGNORED_KEYS, load_schema, resolve_enum_ref
+import logging
+
+from agents.tools.component_schema import BASE_KEYS, IGNORED_KEYS, is_curated, load_schema, resolve_enum_ref
+
+logger = logging.getLogger(__name__)
 
 _PY_TYPES = {"str": str, "int": int, "float": (int, float), "bool": bool, "list": list, "dict": dict}
 
@@ -61,7 +65,21 @@ def _required(name: str, spec: dict, config: dict) -> bool:
 
 
 def validate_config(component_type: str, config: dict, strict: bool = True) -> list:
-    """Return a list of config errors (empty = valid). strict flags unknown keys."""
+    """Return a list of config errors (empty = valid). strict flags unknown keys.
+
+    Only the curated component types are validated strictly against a curated,
+    enum_ref-backed schema. Every other registered engine component has no
+    curated schema and degrades gracefully to advisory-only (returns no errors);
+    correctness for those falls to the engine's own ``_validate_config`` plus the
+    oracle. This lets the agents drive the full engine component set instead of
+    only the 8 curated types.
+    """
+    if not is_curated(component_type):
+        logger.debug(
+            "[validate_config] %s has no curated schema; advisory only (engine + oracle gate it)",
+            component_type,
+        )
+        return []
     schema = load_schema(component_type)
     keys = schema["keys"]
     errors: list = []
@@ -98,7 +116,8 @@ def main(argv=None) -> int:
         sys.stderr.write(f"config in {args.config!r} is not a JSON object\n")
         return 2
     errors = validate_config(args.type, config, strict=not args.loose)
-    sys.stdout.write(json.dumps({"type": args.type, "valid": not errors, "errors": errors}) + "\n")
+    result = {"type": args.type, "valid": not errors, "errors": errors, "curated": is_curated(args.type)}
+    sys.stdout.write(json.dumps(result) + "\n")
     return 0 if not errors else 1
 
 
