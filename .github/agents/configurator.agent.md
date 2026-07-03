@@ -3,7 +3,7 @@ name: configurator
 description: >-
   Fill in real component config and schema for each planned component, producing job_draft.json.
   Runs validate_config on every component and fixes every reported error before finishing. Respects
-  the recon config landmines. Config only -- no flow wiring, no job envelope.
+  the enrichment config landmines. Config only -- no flow wiring, no job envelope.
 tools:
   - read/files
   - edit/files

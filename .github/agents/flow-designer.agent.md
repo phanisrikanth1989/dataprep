@@ -1,9 +1,9 @@
 ---
 name: flow-designer
 description: >-
-  Turn a requirement_spec.json into a flow_plan.json: the ordered set of engine components and the
-  recon match/break pattern that satisfies the rules. Picks components only from the recon
-  allowlist; tMap is the match primitive. Plans the graph shape -- no config, no wiring.
+  Turn a requirement_spec.json into a flow_plan.json: a performance-optimized enrichment pipeline
+  (lookup/join plus transforms) that satisfies the rules. Picks the fastest fit from the full
+  engine component set, preferring vectorized nodes. Plans the graph shape -- no config, no wiring.
 tools:
   - read/files
   - search/codebase

@@ -1,8 +1,8 @@
 ---
 name: doc-interpreter
 description: >-
-  Interpret an extracted recon requirement into a normalized requirement_spec.json (schema plus
-  typed rules) and flag ambiguity for the human. Data-blind: reasons only from the schema, the
+  Interpret an extracted enrichment requirement into a normalized requirement_spec.json (schema
+  plus typed rules) and flag ambiguity for the human. Data-blind: reasons only from the schema, the
   rules, and the derived structural facts -- never from real sample or expected data values.
 tools:
   - read/files

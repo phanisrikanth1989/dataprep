@@ -1,7 +1,7 @@
 ---
 name: etl-orchestrator
 description: >-
-  User-invocable orchestrator that autonomously drives the six DataPrep recon specialists via
+  User-invocable orchestrator that autonomously drives the six DataPrep enrichment specialists via
   #runSubagent -- doc-interpreter, flow-designer, configurator, assembler, test-runner, and (on a
   failed report) diagnostician -- with deterministic safety nets: the harness owns correctness,
   every step is audit-logged, and a human approves before any job is called done.
@@ -106,8 +106,13 @@ prior line.
 You reach the human gate on GREEN (a passing `test_report.json`) OR when the 3-iteration budget is
 exhausted. At the gate you STOP and present to the human, for APPROVAL:
 
-- the final `agents/work/<job>/job.json` (the runnable job), and
-- the final `agents/work/<job>/test_report.json` (the harness verdict, pass or fail).
+- the final `agents/work/<job>/job.json` (the runnable job),
+- the final `agents/work/<job>/test_report.json` (the harness verdict, pass or fail), and
+- every CODE-BEARING config cell in that `job.json`, surfaced verbatim for explicit human review.
+  Above all, any `python_dataframe` `python_code` -- and any other code-carrying component
+  (tPython, tJavaRow, tJava, tJavaFlex). Flag `python_dataframe` as the HIGHEST-priority review
+  item: its `python_code` runs UNSANDBOXED with full Python builtins (filesystem, network, and
+  process access), so a human MUST read it before the job is ever run.
 
 You NEVER auto-approve, and you NEVER treat a green report as final on your own authority. A passing
 harness is necessary but not sufficient: only the human's explicit sign-off makes a job done. If the
