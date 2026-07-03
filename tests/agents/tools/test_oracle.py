@@ -17,6 +17,13 @@ def test_diff_bag_when_no_keys():
     assert diff_frames(pd.DataFrame({"v": ["a"]}), exp, keys=None)["equal"] is False
 
 
+def test_keyed_diff_fails_loud_on_non_unique_key():
+    exp = pd.DataFrame({"cc": ["US", "US"], "name": ["A", "B"]})
+    act = pd.DataFrame({"cc": ["US", "US"], "name": ["A", "Z"]})
+    d = diff_frames(act, exp, keys=["cc"])
+    assert d["equal"] is False and "unique" in d.get("reason", "")
+
+
 def _rr(outputs, status="success", dropped=None, comp_err=None):
     cs = {"c": {"status": "error"}} if comp_err else {}
     return RunResult(status=status, outputs=outputs, dropped_components=dropped or [], component_stats=cs)

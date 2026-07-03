@@ -160,6 +160,9 @@ def diff_frames(actual, expected, keys):
         return {"equal": a == e, "actual_rows": len(actual), "expected_rows": len(expected)}
     exp = expected.astype(str).set_index(keys, drop=False)
     act = actual.astype(str).set_index(keys, drop=False)
+    if exp.index.has_duplicates or act.index.has_duplicates:
+        return {"equal": False, "missing": 0, "unexpected": 0, "value_mismatch": 0,
+                "reason": f"declared key {keys} is not unique in expected/actual"}
     missing = exp.index.difference(act.index)
     unexpected = act.index.difference(exp.index)
     common = exp.index.intersection(act.index)
