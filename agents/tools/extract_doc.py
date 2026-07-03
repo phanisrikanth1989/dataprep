@@ -131,3 +131,24 @@ def _parse_rules_table(table):
             }
         )
     return rules
+
+
+def _parse_data_block(items, extract_keys=False):
+    """Parse (subheading, table) pairs into name -> rows; optionally extract `*`-marked key columns."""
+    data = {}
+    keys = {}
+    for subheading, table in items:
+        name = (subheading or "").strip()
+        if not name:
+            continue
+        matrix = [[cell.text.strip() for cell in row.cells] for row in table.rows]
+        if not matrix:
+            continue
+        raw_header = matrix[0]
+        if extract_keys:
+            keys[name] = [h[:-1].strip() for h in raw_header if h.endswith("*")]
+            header = [(h[:-1].strip() if h.endswith("*") else h.strip()) for h in raw_header]
+        else:
+            header = [h.strip() for h in raw_header]
+        data[name] = [dict(zip(header, r)) for r in matrix[1:]]
+    return (data, keys) if extract_keys else data

@@ -76,3 +76,31 @@ def test_parse_rules_table():
     assert len(rules) == 2
     assert rules[0] == {"id": "R1", "kind": "match", "description": "match ledger.txn_id to statement.ref_id"}
     assert rules[1]["kind"] == "tolerance"
+
+
+from agents.tools.extract_doc import _parse_data_block
+
+
+def _named_table(doc, header, rows):
+    return _table(doc, header, rows)
+
+
+def test_parse_data_block_sample_input():
+    doc = Document()
+    items = [
+        ("ledger", _named_table(doc, ["txn_id", "amt"], [["T1", "100.00"], ["T2", "50.00"]])),
+        ("statement", _named_table(doc, ["ref_id", "amt"], [["T1", "100.00"]])),
+    ]
+    data = _parse_data_block(items)
+    assert data["ledger"] == [{"txn_id": "T1", "amt": "100.00"}, {"txn_id": "T2", "amt": "50.00"}]
+    assert data["statement"] == [{"ref_id": "T1", "amt": "100.00"}]
+
+
+def test_parse_data_block_expected_output_extracts_composite_key():
+    doc = Document()
+    items = [
+        ("matched", _named_table(doc, ["txn_id*", "src*", "amt"], [["T1", "ledger", "100.00"]])),
+    ]
+    data, keys = _parse_data_block(items, extract_keys=True)
+    assert keys["matched"] == ["txn_id", "src"]
+    assert data["matched"] == [{"txn_id": "T1", "src": "ledger", "amt": "100.00"}]
