@@ -14,3 +14,13 @@ def test_record_and_read_roundtrip(tmp_path):
 
 def test_read_missing_is_empty(tmp_path):
     assert AuditLog(str(tmp_path / "nope")).read() == []
+
+
+def test_read_skips_malformed_partial_line(tmp_path):
+    log = AuditLog(str(tmp_path))
+    log.record(1, "configurator", "artifact_written", {"file": "x"})
+    # simulate an interrupted process leaving a partial trailing line
+    with (tmp_path / "audit.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write('{"iteration": 2, "role": "test-ru')
+    rows = log.read()          # must NOT raise
+    assert len(rows) == 1 and rows[0]["role"] == "configurator"

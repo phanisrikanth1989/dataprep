@@ -25,5 +25,14 @@ class AuditLog:
         """Return all audit entries (empty list if the log does not exist)."""
         if not self._path.exists():
             return []
+        entries = []
         with self._path.open(encoding="utf-8") as fh:
-            return [json.loads(line) for line in fh if line.strip()]
+            for line in fh:
+                if not line.strip():
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    logger.warning("[audit_log] skipping malformed line")
+                    continue
+        return entries
