@@ -94,6 +94,9 @@ def main(argv=None) -> int:
     except (OSError, ValueError) as exc:
         sys.stderr.write(f"cannot read config {args.config!r}: {exc}\n")
         return 2
+    if not isinstance(config, dict):
+        sys.stderr.write(f"config in {args.config!r} is not a JSON object\n")
+        return 2
     errors = validate_config(args.type, config, strict=not args.loose)
     sys.stdout.write(json.dumps({"type": args.type, "valid": not errors, "errors": errors}) + "\n")
     return 0 if not errors else 1
