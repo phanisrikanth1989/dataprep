@@ -6,10 +6,12 @@ and harvests the run's signals into a ``RunResult``. The engine's ``execute()``
 returns two different dict shapes -- a success shape (with ``global_map`` and
 ``job_aborted``) and an exception shape (which has neither) -- so every field is
 read with ``.get()``. The ACTUAL output is read back from the produced FILES,
-not from in-memory flows (which the engine clears per subjob). A component whose
-``type`` is unknown to the engine registry is silently dropped and never appears
-in ``component_stats``, so dropped components are computed as the config ids that
-are absent from ``component_stats``.
+not from in-memory flows (which the engine clears per subjob). Dropped
+components are the config ids whose component ``type`` is not registered -- the
+exact rule the fail-open engine uses to silently skip a component
+(engine.py:192-194). This is NOT "absent from ``component_stats``": a known-type
+component that simply never ran (e.g. one in an untriggered conditional subjob)
+is legitimately missing from ``component_stats`` yet is NOT dropped.
 """
 from __future__ import annotations
 
@@ -39,8 +41,8 @@ class RunResult:
         global_map: Talend-compatible globalMap stats (NB_LINE, etc.). Absent
             from the engine's exception shape, so defaults to empty.
         component_stats: Per-component execution stats keyed by component id.
-        dropped_components: Config component ids that never executed (unknown
-            component type dropped by the engine registry).
+        dropped_components: Component ids whose type is unregistered
+            (engine-skipped).
         outputs: Actual output DataFrames read back from each FileOutput
             component's file, keyed by output-component id.
         raw_stats: The unmodified stats dict returned by ``ETLEngine.execute()``.
@@ -83,6 +85,15 @@ def _read_output(component: dict):
         return None
 
 
+def _dropped_components(components: list) -> list:
+    """Config ids whose component TYPE is not registered -- the engine silently
+    skips these (engine.py:192-194). A known-type component that simply did not
+    run (e.g. an untriggered conditional subjob) has a registered type and is
+    NOT dropped."""
+    from src.v1.engine.component_registry import REGISTRY
+    return [c.get("id") for c in components if REGISTRY.get(c.get("type")) is None]
+
+
 def run_job_capture(job_config: dict, work_dir) -> RunResult:
     """Run a job through ETLEngine and harvest its run signals into a RunResult.
 
@@ -100,7 +111,8 @@ def run_job_capture(job_config: dict, work_dir) -> RunResult:
 
     Returns:
         A ``RunResult`` capturing status, globalMap, per-component stats,
-        dropped components, and the actual output DataFrames.
+        component ids whose type is unregistered (engine-skipped), and the
+        actual output DataFrames.
     """
     from src.v1.engine.engine import ETLEngine
 
@@ -113,8 +125,7 @@ def run_job_capture(job_config: dict, work_dir) -> RunResult:
         return RunResult(status="error", error=str(exc))
 
     component_stats = stats.get("component_stats", {})
-    config_ids = [c.get("id") for c in job.get("components", [])]
-    dropped = [cid for cid in config_ids if cid and cid not in component_stats]
+    dropped = _dropped_components(job.get("components", []))
 
     outputs = {}
     for comp in job.get("components", []):

@@ -63,3 +63,13 @@ def test_capture_detects_dropped_unknown_component(tmp_path):
     job["components"].append({"id": "ghost", "type": "tNotARealComponent", "config": {}, "schema": []})
     rr = run_job_capture(job, tmp_path)
     assert "ghost" in rr.dropped_components
+
+
+def test_dropped_is_by_unregistered_type_not_missing_stats():
+    from agents.tools.run_and_validate import _dropped_components
+    comps = [
+        {"id": "a", "type": "FileInputDelimited"},        # registered -> NOT dropped
+        {"id": "b", "type": "FilterRows"},                # registered -> NOT dropped
+        {"id": "ghost", "type": "tNotARealComponent"},    # unregistered -> dropped
+    ]
+    assert _dropped_components(comps) == ["ghost"]
