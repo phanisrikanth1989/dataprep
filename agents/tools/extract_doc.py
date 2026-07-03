@@ -81,3 +81,35 @@ def _read_sections(doc):
         elif isinstance(block, Table) and current_h1 is not None:
             sections[current_h1].append((current_h2, block))
     return sections
+
+
+_TRUE = ("true", "yes", "y", "1")
+
+
+def _table_records(table):
+    """Flatten a docx table into (header row, [row-dict, ...]) with cells stripped."""
+    matrix = [[cell.text.strip() for cell in row.cells] for row in table.rows]
+    if not matrix:
+        return [], []
+    header = matrix[0]
+    return header, [dict(zip(header, r)) for r in matrix[1:]]
+
+
+def _parse_schema_table(table):
+    """Parse an Inputs-and-Schema table into source name -> list of ColumnSpec."""
+    _, records = _table_records(table)
+    out = {}
+    for rec in records:
+        source = rec.get("Source", "").strip()
+        column = rec.get("Column", "").strip()
+        if not source or not column:
+            continue
+        out.setdefault(source, []).append(
+            ColumnSpec(
+                name=column,
+                type=(rec.get("Type", "").strip() or "str"),
+                nullable=(rec.get("Nullable", "true").strip().lower() in _TRUE),
+                key=(rec.get("Key", "").strip().lower() in _TRUE),
+            )
+        )
+    return out
