@@ -96,6 +96,11 @@ Aliases: tMap
 - `outputs`: type=list; REQUIRED
   items:
     - `name`: type=str; REQUIRED
+    - `is_reject`: type=bool
+    - `inner_join_reject`: type=bool
+    - `catch_output_reject`: type=bool
+    - `activate_filter`: type=bool
+    - `filter`: type=str
     - `columns`: type=list; REQUIRED
       items:
         - `name`: type=str

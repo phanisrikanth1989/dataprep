@@ -7,6 +7,11 @@
     "inputs": {"type": "dict", "required": true},
     "outputs": {"type": "list", "required": true, "non_empty": true, "item_keys": {
       "name": {"type": "str", "required": true},
+      "is_reject": {"type": "bool"},
+      "inner_join_reject": {"type": "bool"},
+      "catch_output_reject": {"type": "bool"},
+      "activate_filter": {"type": "bool"},
+      "filter": {"type": "str"},
       "columns": {"type": "list", "required": true, "item_keys": {
         "name": {"type": "str"},
         "expression": {"type": "str"},

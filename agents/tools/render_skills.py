@@ -66,6 +66,43 @@ def render_landmines() -> str:
     return "\n".join(out) + "\n"
 
 
+_JOB_ENVELOPE_EXAMPLE_JSON = """{
+  "components": [
+    {"id": "in_source", "type": "FileInputDelimited", "subjob_id": "sj1",
+     "schema": {"input": [], "output": [{"name": "cc", "type": "str"}]},
+     "config": {"filepath": "source.csv", "fieldseparator": ";", "header_rows": 1},
+     "inputs": [], "outputs": ["source_flow"]},
+    {"id": "in_lookup", "type": "FileInputDelimited", "subjob_id": "sj1",
+     "schema": {"input": [], "output": [{"name": "cc", "type": "str"}, {"name": "country_name", "type": "str"}]},
+     "config": {"filepath": "countries.csv", "fieldseparator": ";", "header_rows": 1},
+     "inputs": [], "outputs": ["lookup_flow"]},
+    {"id": "join1", "type": "Map", "subjob_id": "sj1",
+     "schema": {"input": [{"name": "cc", "type": "str"}], "output": [{"name": "cc", "type": "str"}, {"name": "country_name", "type": "str"}]},
+     "config": {
+       "inputs": {
+         "main": {"name": "source_flow", "matching_mode": "UNIQUE_MATCH", "lookup_mode": "LOAD_ONCE"},
+         "lookups": [{"name": "lookup_flow", "join_mode": "LEFT_OUTER_JOIN",
+                      "join_keys": [{"lookup_column": "cc", "expression": "source_flow.cc", "operator": "="}]}]
+       },
+       "outputs": [{"name": "enriched_flow", "is_reject": false, "columns": [
+         {"name": "cc", "expression": "source_flow.cc", "type": "str"},
+         {"name": "country_name", "expression": "lookup_flow.country_name", "type": "str"}]}]
+     },
+     "inputs": ["source_flow", "lookup_flow"], "outputs": ["enriched_flow"]},
+    {"id": "out_enriched", "type": "FileOutputDelimited", "subjob_id": "sj1",
+     "schema": {"input": [{"name": "cc", "type": "str"}, {"name": "country_name", "type": "str"}], "output": []},
+     "config": {"filepath": "enriched.csv", "fieldseparator": ";", "include_header": true},
+     "inputs": ["enriched_flow"], "outputs": []}
+  ],
+  "flows": [
+    {"name": "source_flow", "type": "flow", "from": "in_source", "to": "join1"},
+    {"name": "lookup_flow", "type": "flow", "from": "in_lookup", "to": "join1"},
+    {"name": "enriched_flow", "type": "flow", "from": "join1", "to": "out_enriched"}
+  ]
+}
+"""
+
+
 def render_job_envelope() -> str:
     """The engine-verified job.json envelope contract (from plan-3 Task 4)."""
     prose = (
@@ -81,25 +118,12 @@ def render_job_envelope() -> str:
         "join miss), but that is NOT the enrichment default.\n"
     )
     example = (
-        "\nMinimal envelope example (LEFT-join enrichment -- keeps all source rows, lookup "
-        "adds `country_name`):\n\n"
+        "\nMinimal connected enrichment example (source + lookup -> LEFT-join tMap -> output; "
+        "every flow `from`/`to` is a real component id, and every component's `inputs`/`outputs` "
+        "names a real flow):\n\n"
         "```json\n"
-        "{\n"
-        '  "components": [\n'
-        '    {"id": "in_source", "type": "FileInputDelimited", "subjob_id": "sj1",\n'
-        '     "schema": {"input": [], "output": [{"name": "cc", "type": "string"}]},\n'
-        '     "config": {"filepath": "source.csv", "fieldseparator": ";"},\n'
-        '     "inputs": [], "outputs": ["source_flow"]},\n'
-        '    {"id": "out_enriched", "type": "FileOutputDelimited", "subjob_id": "sj1",\n'
-        '     "schema": {"input": [{"name": "cc", "type": "string"}, {"name": "country_name", "type": "string"}], "output": []},\n'
-        '     "config": {"filepath": "enriched.csv", "fieldseparator": ";"},\n'
-        '     "inputs": ["enriched_flow"], "outputs": []}\n'
-        "  ],\n"
-        '  "flows": [\n'
-        '    {"name": "enriched_flow", "type": "flow", "from": "tmap", "to": "out_enriched"}\n'
-        "  ]\n"
-        "}\n"
-        "```\n"
+        + _JOB_ENVELOPE_EXAMPLE_JSON
+        + "```\n"
     )
     return prose + example
 
