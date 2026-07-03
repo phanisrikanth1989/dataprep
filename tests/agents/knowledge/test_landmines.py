@@ -16,3 +16,9 @@ def test_landmines_for_map_includes_operator_noop():
     assert "tmap-operator-noop" in ids
     assert "tmap-operator-noop" in {lm["id"] for lm in landmines_for("tMap")}   # alias
     assert "die-on-error-dual-default" in ids                                   # global included
+
+
+def test_landmines_for_map_includes_mode_value_guides():
+    ids = {lm["id"] for lm in landmines_for("Map")}
+    assert {"tmap-join-mode-values", "tmap-matching-mode-values",
+            "tmap-lookup-mode-values"} <= ids
