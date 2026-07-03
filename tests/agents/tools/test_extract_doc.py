@@ -124,3 +124,32 @@ def test_compute_derived_facts():
     assert facts["txn_id"]["null_rate"] == 0.0
     assert facts["amt"]["null_rate"] == round(1 / 3, 4)  # one empty cell
     assert facts["amt"]["unique"] is True                # 100, 50 distinct among non-null
+
+
+from agents.tools.extract_doc import _check_conformance
+
+
+def test_conformance_ok():
+    sections = {b: [] for b in ("Inputs and Schema", "Transformation Rules", "Sample Input", "Expected Output")}
+    report = _check_conformance(
+        sections,
+        sources_schema={"ledger": ["x"]},
+        rules=[{"id": "R1"}],
+        sample_input={"ledger": [{"a": "1"}]},
+        expected_output={"matched": [{"a": "1"}]},
+    )
+    assert report.ok is True
+
+
+def test_conformance_missing_block():
+    sections = {"Inputs and Schema": [], "Transformation Rules": [], "Sample Input": []}
+    report = _check_conformance(sections, {"ledger": ["x"]}, [{"id": "R1"}], {"ledger": [{"a": "1"}]}, {})
+    assert report.ok is False
+    assert "Expected Output" in report.missing_blocks
+
+
+def test_conformance_empty_table_is_parse_error():
+    sections = {b: [] for b in ("Inputs and Schema", "Transformation Rules", "Sample Input", "Expected Output")}
+    report = _check_conformance(sections, {"ledger": ["x"]}, [{"id": "R1"}], {"ledger": []}, {"matched": [{"a": "1"}]})
+    assert report.ok is False
+    assert any("Sample Input" in e for e in report.parse_errors)

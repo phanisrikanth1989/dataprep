@@ -188,3 +188,24 @@ def compute_derived_facts(sample_input):
             }
         facts[source] = col_facts
     return facts
+
+
+def _check_conformance(sections, sources_schema, rules, sample_input, expected_output):
+    """Gate the parsed doc: ok only if all four blocks are present and non-empty.
+
+    A required block that is absent lands in ``missing_blocks``; a present block
+    whose table yielded no content (empty or image-only) lands in
+    ``parse_errors``. ``ok`` is True only when neither list has entries.
+    """
+    missing = [b for b in REQUIRED_BLOCKS if b not in sections]
+    errors = []
+    if not missing:
+        if not sources_schema:
+            errors.append("Inputs and Schema: no columns parsed (empty or image-only table?)")
+        if not rules:
+            errors.append("Transformation Rules: no rules parsed")
+        if not sample_input or all(len(rows) == 0 for rows in sample_input.values()):
+            errors.append("Sample Input: no rows parsed")
+        if not expected_output or all(len(rows) == 0 for rows in expected_output.values()):
+            errors.append("Expected Output: no rows parsed")
+    return ConformanceReport(ok=(not missing and not errors), missing_blocks=missing, parse_errors=errors)
