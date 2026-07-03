@@ -1,0 +1,133 @@
+# tests/agents/tools/test_surface_code_cells.py
+"""Deterministic surfacing of code-bearing config cells for the human gate (I-2)."""
+import json
+
+from agents.tools.surface_code_cells import main, surface_code_cells
+
+
+# ---- core extractor -------------------------------------------------------
+
+def test_surfaces_python_dataframe_as_unsandboxed():
+    job = {"components": [
+        {"id": "pdf", "type": "PythonDataFrameComponent", "config": {"python_code": "df['x']=1"}},
+        {"id": "py", "type": "tPython", "config": {"python_code": "pass"}},
+        {"id": "conv", "type": "ConvertType", "config": {"autocast": True}},
+    ]}
+    cells = surface_code_cells(job)
+    by = {c["component"]: c for c in cells}
+    assert by["pdf"]["unsandboxed"] is True and by["pdf"]["code"] == "df['x']=1"
+    assert by["py"]["unsandboxed"] is False
+    assert "conv" not in by            # no code cell
+    assert cells[0]["unsandboxed"] is True   # unsandboxed surfaced first
+
+
+def test_surfaces_java_marker_tmap_expression():
+    job = {"components": [{"id": "m", "type": "Map", "config": {"outputs": [
+        {"name": "out", "columns": [{"name": "c", "expression": "{{java}}row1.amt * 2"}]}]}}]}
+    cells = surface_code_cells(job)
+    assert any(c["component"] == "m" and "{{java}}" in c["code"] for c in cells)
+
+
+def test_cli(tmp_path, capsys):
+    p = tmp_path / "job.json"
+    p.write_text(json.dumps({"components": [
+        {"id": "pdf", "type": "tPythonDataFrame", "config": {"python_code": "df"}}]}))
+    rc = main(["--job", str(p)])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0 and out[0]["unsandboxed"] is True
+
+
+# ---- java components ------------------------------------------------------
+
+def test_java_components_surface_code_keys():
+    job = {"components": [
+        {"id": "j", "type": "tJava", "config": {"java_code": "System.out.println(1);"}},
+        {"id": "jr", "type": "tJavaRow", "config": {"java_code": "output_row.x = input_row.x;"}},
+        {"id": "jf", "type": "JavaFlex", "config": {
+            "code_start": "int i=0;", "code_main": "i++;", "code_end": "return i;"}},
+    ]}
+    cells = surface_code_cells(job)
+    by_field = {(c["component"], c["field"]): c for c in cells}
+    assert by_field[("j", "java_code")]["unsandboxed"] is False
+    assert by_field[("jr", "java_code")]["code"] == "output_row.x = input_row.x;"
+    # all three JavaFlex code segments surfaced verbatim
+    assert {("jf", "code_start"), ("jf", "code_main"), ("jf", "code_end")} <= set(by_field)
+    assert by_field[("jf", "code_main")]["code"] == "i++;"
+
+
+def test_python_row_is_sandboxed():
+    job = {"components": [
+        {"id": "pr", "type": "tPythonRow", "config": {"python_code": "output = input"}}]}
+    cells = surface_code_cells(job)
+    assert cells[0]["component"] == "pr" and cells[0]["unsandboxed"] is False
+
+
+# ---- dedup + ordering -----------------------------------------------------
+
+def test_dedup_prefers_explicit_unsandboxed_flag():
+    # A python_dataframe whose python_code ALSO carries a {{java}} marker: the
+    # explicit rule (unsandboxed True) must win over the generic marker rule,
+    # and the (component, field) pair must appear exactly once.
+    job = {"components": [
+        {"id": "pdf", "type": "PythonDataFrameComponent",
+         "config": {"python_code": "x = '{{java}}'"}}]}
+    cells = surface_code_cells(job)
+    pdf = [c for c in cells if c["component"] == "pdf" and c["field"] == "python_code"]
+    assert len(pdf) == 1 and pdf[0]["unsandboxed"] is True
+
+
+def test_ordering_unsandboxed_first_then_component_id():
+    job = {"components": [
+        {"id": "zzz", "type": "tPython", "config": {"python_code": "pass"}},
+        {"id": "aaa", "type": "tPythonDataFrame", "config": {"python_code": "df"}},
+        {"id": "mmm", "type": "tJava", "config": {"java_code": "x;"}},
+    ]}
+    cells = surface_code_cells(job)
+    assert cells[0]["component"] == "aaa" and cells[0]["unsandboxed"] is True
+    rest = [c["component"] for c in cells[1:]]
+    assert all(c["unsandboxed"] is False for c in cells[1:])
+    assert rest == sorted(rest)          # sandboxed cells ordered by component id
+
+
+def test_empty_string_code_not_surfaced():
+    job = {"components": [
+        {"id": "pdf", "type": "tPythonDataFrame", "config": {"python_code": "   "}}]}
+    assert surface_code_cells(job) == []
+
+
+def test_missing_or_malformed_shapes_do_not_crash():
+    assert surface_code_cells({}) == []
+    assert surface_code_cells({"components": "nope"}) == []
+    assert surface_code_cells({"components": [None, 5, {"id": "a"}]}) == []
+
+
+# ---- CLI edge cases -------------------------------------------------------
+
+def test_cli_missing_file_returns_two(tmp_path):
+    rc = main(["--job", str(tmp_path / "nope.json")])
+    assert rc == 2
+
+
+def test_cli_non_dict_job_returns_two(tmp_path):
+    p = tmp_path / "job.json"
+    p.write_text(json.dumps([1, 2, 3]))
+    assert main(["--job", str(p)]) == 2
+
+
+def test_cli_empty_job_zero_cells_exit_zero(tmp_path, capsys):
+    p = tmp_path / "job.json"
+    p.write_text(json.dumps({"components": []}))
+    rc = main(["--job", str(p)])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0 and out == []
+
+
+def test_cli_out_file_written(tmp_path):
+    p = tmp_path / "job.json"
+    p.write_text(json.dumps({"components": [
+        {"id": "pdf", "type": "tPythonDataFrame", "config": {"python_code": "df"}}]}))
+    outp = tmp_path / "cells.json"
+    rc = main(["--job", str(p), "--out", str(outp)])
+    assert rc == 0
+    cells = json.loads(outp.read_text())
+    assert cells[0]["unsandboxed"] is True and cells[0]["code"] == "df"

@@ -109,11 +109,21 @@ exhausted. At the gate you STOP and present to the human, for APPROVAL:
 
 - the final `agents/work/<job>/job.json` (the runnable job),
 - the final `agents/work/<job>/test_report.json` (the harness verdict, pass or fail), and
-- every CODE-BEARING config cell in that `job.json`, surfaced verbatim for explicit human review.
-  Above all, any `python_dataframe` `python_code` -- and any other code-carrying component
-  (tPython, tJavaRow, tJava, tJavaFlex). Flag `python_dataframe` as the HIGHEST-priority review
-  item: its `python_code` runs UNSANDBOXED with full Python builtins (filesystem, network, and
-  process access), so a human MUST read it before the job is ever run.
+- every CODE-BEARING config cell in that `job.json`, surfaced DETERMINISTICALLY -- never from your
+  own reading of the job, which is not a guarantee. Run this exact command from the terminal:
+
+  ```
+  python -m agents.tools.surface_code_cells --job agents/work/<job>/job.json
+  ```
+
+  and present its JSON output VERBATIM at the gate, alongside `job.json` and `test_report.json`. That
+  tool extracts every code-bearing cell -- `python_dataframe` / `tPython` / `tPythonRow` `python_code`,
+  `tJava` / `tJavaRow` / `tJavaFlex` code, and any free-form `{{java}}` tMap/filter expression -- and
+  stamps each with an `unsandboxed` flag. Call out every cell with `"unsandboxed": true` as the
+  HIGHEST-priority review item: that is `python_dataframe` `python_code`, which runs with FULL Python
+  builtins (filesystem, network, and process access) AND has ALREADY been executed by the harness
+  before this gate, so a human MUST read each such cell before the job is trusted or re-run. Do not
+  paraphrase, summarize, or truncate the cells -- the human reviews the exact code the tool emits.
 
 You NEVER auto-approve, and you NEVER treat a green report as final on your own authority. A passing
 harness is necessary but not sufficient: only the human's explicit sign-off makes a job done. If the
