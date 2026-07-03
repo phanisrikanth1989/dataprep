@@ -174,6 +174,10 @@ def diff_frames(actual, expected, keys):
     # A column present in ACTUAL but not EXPECTED is never value-checked below
     # (the loop iterates expected's columns), so it would silently pass. Flag it.
     extra_cols = [c for c in actual.columns if c not in expected.columns]
+    # Symmetric to extra_cols: an EXPECTED column absent from ACTUAL is only caught
+    # by the value loop when there are common rows, so the 0-rows case would slip
+    # through. Flag it unconditionally.
+    missing_cols = [c for c in expected.columns if c not in actual.columns]
     missing = exp.index.difference(act.index)
     unexpected = act.index.difference(exp.index)
     common = exp.index.intersection(act.index)
@@ -183,9 +187,10 @@ def diff_frames(actual, expected, keys):
         er, ar = exp.loc[[idx]].iloc[0], act.loc[[idx]].iloc[0]
         if any(er.get(c) != ar.get(c) for c in cols):
             mismatch += 1
-    return {"equal": len(missing) == 0 and len(unexpected) == 0 and mismatch == 0 and len(extra_cols) == 0,
+    return {"equal": len(missing) == 0 and len(unexpected) == 0 and mismatch == 0
+                     and len(extra_cols) == 0 and len(missing_cols) == 0,
             "missing": int(len(missing)), "unexpected": int(len(unexpected)), "value_mismatch": int(mismatch),
-            "unexpected_columns": extra_cols}
+            "unexpected_columns": extra_cols, "missing_columns": missing_cols}
 
 
 def check(run_result, expected, output_map, keys) -> dict:
@@ -251,7 +256,7 @@ def main(argv=None) -> int:
             expected[name] = pd.read_csv(gdir / f"{name}_expected.csv", sep=sep, dtype=str, keep_default_na=False)
             output_map[name] = spec["component"]
             keys[name] = spec.get("keys")
-    except (OSError, ValueError, KeyError) as exc:
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         _emit({"passed": False, "error": str(exc)})
         return 2
 

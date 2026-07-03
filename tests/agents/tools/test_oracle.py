@@ -69,3 +69,19 @@ def test_check_fails_on_dropped_component():
     rep = check(rr, exp, output_map={"matched": "out1"}, keys={"matched": ["cc"]})
     assert rep["passed"] is False
     assert any("dropped" in r for r in rep["reasons"])
+
+
+def test_keyed_diff_flags_missing_expected_column_zero_rows():
+    exp = pd.DataFrame({"cc": pd.Series([], dtype=str), "name": pd.Series([], dtype=str)})
+    act = pd.DataFrame({"cc": pd.Series([], dtype=str)})  # actual dropped 'name'
+    d = diff_frames(act, exp, keys=["cc"])
+    assert d["equal"] is False
+
+
+def test_cli_wrong_shape_manifest_returns_two(tmp_path):
+    from agents.tools.run_and_validate import main
+    job = tmp_path / "job.json"; job.write_text('{"components": [], "flows": []}')
+    gdir = tmp_path / "g"; gdir.mkdir()
+    (gdir / "manifest.json").write_text('[1, 2, 3]')   # valid JSON, wrong shape
+    rc = main(["--job", str(job), "--golden-dir", str(gdir)])
+    assert rc == 2
