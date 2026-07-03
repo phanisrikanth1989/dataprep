@@ -1,10 +1,13 @@
 # Design Spec: Copilot Multi-Agent ETL Config Generator
 
 - **Date:** 2026-07-03
-- **Status:** DRAFT — pending adversarial review + user sign-off
+- **Version:** v2 (hardened after 6-lens adversarial review)
+- **Status:** DRAFT — pending re-review + user sign-off
 - **Branch:** `feature/copilot-etl-agents`
 - **Owner:** Recon team (A Arun)
-- **Related:** `CLAUDE.md`, `docs/guides/AUTHORING_JOB_JSON.md`, `docs/JOB_CONFIGURATION_SCHEMA.md`, `src/router/ui_registry.json`, `docs/ai-prompts/*`
+- **Related:** `CLAUDE.md`, `docs/guides/AUTHORING_JOB_JSON.md`, `src/router/ui_registry.json`, `docs/ai-prompts/*`
+
+> **v1 -> v2:** v1 was reviewed by six adversarial lenses (platform, security, architecture, feedback-loop, LLM-reliability, recon-domain). Four returned "do not build as specified." The orchestration bets held; the oracle, rule model, security model, and LLM boundaries were redesigned. Section 15 is the findings-to-fix coverage matrix.
 
 ---
 
@@ -12,355 +15,317 @@
 
 ### 1.1 Goal
 
-A **dev-supervised, autonomous multi-agent system** that runs **entirely on the developer's laptop inside VS Code GitHub Copilot** and turns a **Word (`.docx`) requirements document** into a **validated DataPrep engine JSON job config**. It self-corrects through an **execution-based feedback loop** — generate config, run it through the real engine, diff actual output against the expected output in the doc, route failures back to the responsible upstream stage — looping automatically **3–5 times** before escalating to the developer, who gives final approval.
-
-The system is a **new authoring front door** for jobs that have **no Talend `.item` source** (the existing converter already handles those). It produces the same JSON the engine consumes, so **Talend feature-parity remains the correctness bar**.
+A **dev-supervised, autonomous multi-agent system** that runs **locally on the developer's laptop inside VS Code GitHub Copilot** and turns a **Word (`.docx`) requirements document** into a **validated DataPrep engine JSON job config**. It self-corrects through an **execution-based feedback loop** — generate config, run it through the real engine **in a sandbox**, check output against a **multi-signal oracle**, route failures **deterministically** to the responsible stage — looping automatically up to **3–5 times** before escalating to a developer who gives **final approval**. Correctness bar: **Talend parity**.
 
 ### 1.2 Success criteria
 
-1. From a filled recon requirements doc, the system produces a job JSON that **runs on the engine and matches the doc's expected output** for the sample input, with **no human edits**, on a meaningful fraction of the first recon slice.
-2. When it cannot, it **escalates with a precise, actionable diagnosis** (which stage, which rule/component, why) rather than a silent wrong answer.
-3. It stays **correct as the engine evolves** — the knowledge it reasons from is derived from and re-verified against engine/converter source, not stale prose.
+1. From a filled recon requirements doc, the system produces a job JSON that (a) passes the **multi-signal oracle** (sample-equality **and** invariants **and** a held-out sample), not merely sample-equality, and (b) a human approves. "Sample matches expected" is **necessary, not sufficient** (recon review C1).
+2. On failure, it escalates with a **precise, deterministically-routed** diagnosis, or returns the **best-scoring** attempt — never a confidently-wrong silent pass.
+3. It stays correct as the engine evolves (fingerprint/TTL self-healing) **and** as the Copilot model changes (model-identity stamp + golden tests).
 
 ### 1.3 Non-goals
 
-- Not a hosted service, web app, or anything running on a Citi server. **Local only.**
-- Not a replacement for the Talend→JSON converter (that path stays for jobs with `.item` sources).
-- Not database jobs, not non-file sources, in the first slice.
-- Not fully unattended production authoring — a human approves the final JSON.
+- Not a hosted service / server. **Local only.**
+- Not the Talend->JSON converter (that path stays for `.item` sources).
+- Not DB jobs, non-file sources, or **fuzzy/similarity matching** in the first slice (recon review — fuzzy is explicitly out; no engine component exists for it and the code-exec escape hatch is excluded for security).
+- Not fully unattended production authoring — a human approves before first real use.
 
 ### 1.4 Hard constraints
 
 | # | Constraint | Consequence |
 |---|---|---|
-| C1 | Runs **local** on the laptop inside VS Code; no hosted server; **no data egress** | MCP server is a local stdio subprocess; sample data never leaves the machine except via the user's existing Copilot model boundary (sampling) |
-| C2 | Target **VS Code 1.106** (Nov 12 2025 build) | No native subagents (1.107+), no Agent Skills (1.107+). Orchestration = MCP + sampling |
-| C3 | **Model-agnostic** | No dependency on any specific model brand; roles work with whatever the Copilot model is |
-| C4 | Agent definition files live in **`.github/agents/`** | VS Code only auto-discovers custom agents there (or via `chat.modeFilesLocations`) |
-| C5 | Knowledge grounded in **code-verified truth** | Everything except engine + converter code may be stale; knowledge pack is generated from source |
-| C6 | Dependencies allowed from **Citi internal artifact repo** (`mcp` SDK, `python-docx`, …) | Primary design uses proper libraries; a zero-dependency stdlib path is a documented fallback only |
-| C7 | First slice: **recon domain, files-only, transformation-rich** | Bounded component vocabulary; recon-shaped template + examples |
-| C8 | ASCII-only logs; fix-at-source (no defensive fallbacks); Talend parity non-negotiable | Inherited from `CLAUDE.md` project rules |
+| C1 | Runs **local**; no hosted server. **Sampling egresses prompt content to the Copilot model boundary** — so only **schema + rule text + synthetic/masked data** is ever sampled; **real sample/expected data stays local** to the deterministic oracle (never sampled). | See Sections 2, 7 |
+| C2 | Target **VS Code 1.106**; design for clean upgrade at >=1.107 | No native subagents/skills; MCP + sampling |
+| C3 | **Model-portable** (not "agnostic"): works with whatever model Copilot serves, but a **run of record pins a model** and stamps its identity. Reproducibility is scoped to *fixed model + fixed pack*. | See Sections 9, 4 |
+| C4 | Agent defs in **`.github/agents/`** | Thin shims; brains in `agents/` |
+| C5 | Knowledge grounded in **code-verified truth**, with `ui_registry.json` as primary shape source and **code as the drift-detector** | See Section 6 |
+| C6 | Dependencies allowed from the **Citi internal artifact repo** (`mcp`, `python-docx`, `jsonschema`, `defusedxml`); stdlib fallback documented | See Section 4.4 |
+| C7 | First slice: **recon, files-only**, and initially **one-sided exact/tolerance match + summary**; bidirectional/1:N/netting/waterfall are later phases | See Sections 10, 13 |
+| C8 | **`job.json` is executable code, not inert config** (tMap runs Groovy; tPython\* runs `exec`). Treated under the Section 2 threat model. | See Section 2 |
+| C9 | ASCII-only logs; fix-at-source; Talend parity | From `CLAUDE.md` |
 
-### 1.5 Assumptions to confirm (non-blocking)
+### 1.5 Assumptions — now HARD gates, not soft assumptions (platform/security reviews)
 
-- **A1:** The `mcp` Python SDK and `python-docx` are installable from Citi's internal artifact repository. *If not, fall back to the stdlib implementations (Section 3.4).* — user will confirm.
-- **A2:** MCP is enabled in the Citi Copilot (Tier-1 check **passed**), sampling is permitted, and the local server can be whitelisted if a registry policy is in force.
-- **A3:** The DataPrep engine runs from the laptop terminal against local sample data (confirmed: engine runs via terminal today).
+- **A1 (Phase 1 gate):** Sampling works on the Citi build with a **real `createMessage` round-trip**, the **approval UX is one-time-per-server** (not per-request — if per-request, the autonomous premise fails and we redesign), and a **known-good model can be pinned** via `chat.mcp.serverSampling`. Verified by a preflight self-test before any pipeline work.
+- **A2 (Phase 1 gate):** A local `.vscode/mcp.json` server is permitted under org MCP-registry policy, and sampling is not policy-blocked for this content.
+- **A3 (security gate):** InfoSec sign-off that **synthetic/masked** sample data over sampling is in-scope for the enterprise no-retention/no-train terms. (We do not send real data — see C1.)
+- **A4:** Internal artifact repo has `mcp`, `python-docx`, `jsonschema`, `defusedxml`; else stdlib fallback.
 
 ---
 
-## 2. System Overview
+## 2. Threat Model & Security Posture (NEW — top priority)
 
-### 2.1 End-to-end flow
+**Assets:** the developer's laptop + its ambient credentials (SSO/Kerberos, `~/.ssh`, `~/.aws`, browser profiles), the corporate network the laptop sits on, and real recon (financial) data. **Adversary inputs:** an **untrusted `.docx`** (authored/emailed by others) and **LLM output** (which the `.docx` can steer via prompt injection). **The danger:** `job.json` is executable code — tMap cell expressions run **unsandboxed Groovy** (`bridge.py` -> `JavaBridge.java`, no `SecureASTCustomizer`/`SecurityManager`), `tPythonDataFrame` runs `exec()` with real builtins, and file components read/write arbitrary paths. So the raw pipeline is a clean **`.docx` -> LLM -> config -> execution -> RCE-as-developer** chain, firing **during** the autonomous loop, **before** any human gate.
+
+**Controls (all mandatory):**
+
+1. **Sandboxed, out-of-process execution.** The oracle runs each generated job in a **fresh child process** (not in-process), under: no network, a **filesystem jail** (input dir read-only; output only under `agents/work/<job>/out`; reject absolute paths, `..`, symlinks-escaping-jail, UNC/network paths), no inherited secrets/tokens, and CPU/wall/memory limits. This single control neutralizes RCE blast radius, file-exfiltration, and cross-iteration state leakage.
+2. **Fail-closed component allowlist.** A pre-execution gate rejects any component `type` not on the recon slice allowlist (the engine itself is fail-*open* — `engine.py:186-193` warns-and-skips — so we cannot rely on it). **Code-bearing components** (tMap outputs/columns containing `{{java}}` free-form, `tPython*`, `tJava*`, `tPythonDataFrame`) are **blocked in the first slice**; tMap is allowed but its expressions are validated to a **safe subset** (no `System`/`Runtime`/`File`/`ProcessBuilder`/`Thread`/reflection/`.execute()`), and a `SecureASTCustomizer` denylist is added to the bridge as defense-in-depth.
+3. **Data minimization.** LLM roles receive **schema + rule text + synthetic/masked sample rows** only. **Real** `sample_input`/`expected_output` are extracted **deterministically** (Section 7.1) and never leave the local oracle. This closes the egress hole *and* the LLM-transcription-corruption hole in one move.
+4. **Human gate before first real use.** The mandatory human review shows the **component types**, any **code-bearing cells**, and the oracle summary — **un-batchable**, no auto-approve, and it never auto-collapses on a green report (a passing result must not suppress scrutiny).
+5. **Prompt-injection defenses.** `extract_doc` delimits doc content as **data, not instructions**; the Configurator emits **typed params chosen from an allowlist**, never free-form code; expected-output and engine-error text are **never fed verbatim** back into an LLM prompt (kills second-order injection via `feedback.json`).
+6. **Audit & secrets.** Each run records: `.docx` SHA-256, pack `source_fingerprint`, **model id+version**, prompts/responses, and final `job.json` hash into an **append-only** record. `agents/work/` is **encrypted-at-rest with a retention/secure-delete policy** — never "gitignore as a control." Every artifact is **secret-scanned** before write/sample; secrets never go in artifacts.
+7. **Hardened parsers.** `.docx`/XML parsing uses `defusedxml`/`python-docx` with entity resolution off, DTD disabled, and decompression-ratio/size caps (billion-laughs / zip-bomb).
+
+---
+
+## 3. System Overview
+
+### 3.1 End-to-end flow
 
 ```
- requirements.docx
+ requirements.docx (UNTRUSTED)
         |
         v
-  [extract_doc] (tool, deterministic)  ->  requirements.md (clean text + tables)
-        |
+  [extract_doc] (deterministic): requirements.md  +  deterministically-parsed tables:
+        |                          - schema, rules  -> to LLM
+        |                          - REAL sample_input / expected_output -> LOCAL ONLY (oracle)
+        |                          - synthetic/masked sample rows -> to LLM
+        |                          - template-conformance gate (4 blocks present + tables parsed)
         v
-  Doc-Interpreter (role, LLM)          ->  requirement_spec.json
-        |
+  Doc-Interpreter (LLM, synthetic data only)  -> requirement_spec.json   [validate+repair gate]
         v
-  Flow-Designer (role, LLM)            ->  flow_plan.json      --[optional human checkpoint]-->
-        |
+  Flow-Designer (LLM)                         -> flow_plan.json          [validate+repair gate]  --[HARD checkpoint if confidence!=high]-->
         v
-  Configurator (role, LLM)             ->  job_draft.json
-        |
+  Configurator (LLM)                          -> job_draft.json          [per-component config-key validator, BEFORE engine]
         v
-  Assembler (role, LLM + validator)    ->  job.json  (+ validation_report.json)
-        |
+  Assembler (LLM: wiring)                     -> job.json
+  Validator (deterministic tool)              -> validation_report.json  (schema + reference + allowlist)
         v
-  Test-Runner (tool, deterministic)    ->  test_report.json   (runs engine, diffs vs expected)
-        |
-     pass? --------------------------- yes --> [human approval] --> DONE (job.json)
+  Oracle / Test-Runner (deterministic, SANDBOXED): run engine (fresh subprocess), read stats/reject/skipped,
+     diff vs REAL expected (per-column tolerance), check invariants, held-out sample, mutation rows
+        |                                     -> test_report.json
+     pass(all signals)? -- yes --> [human review BEFORE first real use] --> DONE
         | no
         v
-  Diagnostician (role, LLM)            ->  feedback.json  (target stage + fix)
-        |
-        +--> orchestrator routes feedback to the named upstream stage; re-run from there
-             (loop budget: 3-5 iterations, then escalate to human with the diagnosis)
+  Deterministic router (code): pick target stage from the INVARIANT that broke  (Diagnostician LLM writes only the human-readable suggestion)
+        +--> re-run from target stage; invalidate stale downstream; freeze passing outputs; track best-so-far
+             (budget 3-5; escalate best attempt with a routed diagnosis)
 ```
 
-### 2.2 The two-layer decoupling (the core architectural bet)
+### 3.2 Two-layer decoupling (unchanged, still sound)
 
-- **Durable core (mechanism-agnostic, ~80% of the value):** the role prompts, the code-verified **knowledge pack**, the **test/validate harness**, and the **artifact contracts**. Identical no matter how orchestration is wired.
-- **Thin orchestration layer (platform-dependent):** how the roles are invoked and the loop is driven. On 1.106 this is an **MCP server** (Section 3). If the platform changes (1.107+ native subagents, or MCP disabled → handoffs), only this thin layer changes; the durable core is untouched.
-
-This is what lets us build now on 1.106 and upgrade cleanly at the end-July VS Code bump.
+Durable core (roles, knowledge pack, oracle, artifact contracts, schemas) is mechanism-agnostic; only the thin orchestration layer (MCP) is platform-dependent. Upgrades cleanly to >=1.107 native subagents/skills.
 
 ---
 
-## 3. Orchestration on VS Code 1.106
+## 4. Orchestration on VS Code 1.106
 
-### 3.1 Mechanism: local MCP server + sampling
+### 4.1 Mechanism (confirmed feasible by the platform lens)
 
-A single **local MCP server** (stdio transport — a child process VS Code launches; nothing listens on a network port, no data egress) exposes the pipeline as tools. It is registered in `.vscode/mcp.json`. A thin **kickoff custom agent** in `.github/agents/` starts a run and surfaces results in chat.
+A local **MCP server** (stdio) exposes the pipeline. **Verified:** a single MCP tool call can internally make **multiple nested `sampling/createMessage`** calls and **spawn subprocesses** — so the deterministic loop lives in server code, not LLM improvisation. Sampling uses the user's Copilot model, no external key.
 
-- **LLM roles** (Doc-Interpreter, Flow-Designer, Configurator, Assembler-reasoning, Diagnostician) are executed by the server via **MCP sampling** (`sampling/createMessage`) — the server asks VS Code to run a completion **on the user's Copilot model**. No external API key, model-agnostic. (Sampling is GA since VS Code 1.102; present in 1.106.)
-- **Deterministic steps** (extract_doc, run_and_validate, static validation, knowledge-pack lookup, freshness check) are plain code in tools — no sampling needed.
+### 4.2 Loop as a resumable server-side state machine
 
-### 3.2 Deterministic control loop (in code, not LLM-improvised)
+To avoid the "one multi-minute tool call with no timeout" hang (platform F1): the loop is a **state machine whose state persists to disk** after every stage. Each iteration is a **bounded** unit with a **wall-clock timeout** on each sampling call and each engine run; `notifications/progress` is emitted per stage; a hang is a first-class error that escalates. A killed/failed run **resumes from disk state**, not from scratch.
 
-The orchestration loop — sequencing, the 3–5 iteration budget, artifact read/write, feedback routing, human-gate handling — is **ordinary Python in the server**, not left to model improvisation. This is deliberate: a bank needs the control flow to be **deterministic, testable, and auditable**. The model's judgment is confined to well-scoped per-role sampling calls; the *orchestration* is code.
+### 4.3 Execution is server-owned and sandboxed
 
-`iteration_log.md` records every step, artifact version, and routing decision for audit.
+The engine runs in a **fresh subprocess the server spawns** (Section 2 control 1) — **not** via the agent's terminal tool (v1 inconsistency, platform F4 fixed). The server's interpreter (with pandas/pyarrow/py4j + a reachable JVM) is set in `.vscode/mcp.json`.
 
-### 3.3 Approvals (human-in-the-loop by default)
+### 4.4 Dependencies
 
-VS Code prompts for: server start approval, tool-call approval (allow-listable), and the first **sampling** approval per server. Terminal execution (the engine run) also prompts unless auto-approve is configured. We assume **manual approval** is required and design the UX around it (batch approvals where possible).
+Primary: `mcp`, `python-docx`, `jsonschema`, `defusedxml`. Stdlib fallback documented (JSON-RPC over stdio; `zipfile`+`defusedxml` for `.docx`). Per C6/A4.
 
-### 3.4 Dependencies (primary + fallback)
+### 4.5 Preflight (Phase-1 hard gate)
 
-- **Primary (per C6):** the official **`mcp` Python SDK** for the server; **`python-docx`** for `.docx` extraction; reuse the engine's existing env (pandas, lxml, openpyxl). Cleaner, more maintainable, standard.
-- **Fallback (only if a library is absent from the internal repo):** stdlib-only implementations — JSON-RPC 2.0 over stdio for the server; `zipfile` + `xml.etree` for `.docx` (a `.docx` is zipped XML). Documented so we can revert per-component without redesign.
-
-### 3.5 Kickoff agent (`.github/agents/etl-orchestrator.agent.md`)
-
-A `target: vscode` custom agent that (a) lists the MCP server's tools + the terminal tool, (b) starts a pipeline run against a doc the user points at, (c) shows the per-iteration progress and the final `job.json` + `test_report.json`, and (d) asks for final approval. Model-agnostic (no pinned model).
-
-### 3.6 Fallback orchestration (documented, not built first): handoffs
-
-If MCP is ever disabled org-wide, the same roles become native custom agents in `.github/agents/` chained by **handoffs** — the developer clicks to advance/loop. Same roles, same knowledge pack, same harness; only the wiring differs. Recorded in `PLATFORM.md`.
+On first use the server runs a **sampling self-test** (one trivial `createMessage`), asserts the pinned model responds, and reports approval-UX behavior (A1). Fails fast with remediation if sampling is blocked/broken/per-request.
 
 ---
 
-## 4. Agent Roster & Artifact Contracts
+## 5. Agent Roster & Artifact Contracts
 
-### 4.1 Roles
+### 5.1 Roles
 
-| Role | Kind | Consumes | Produces | Responsibility |
-|---|---|---|---|---|
-| **Orchestrator** | code | all | `iteration_log.md` | Drive the loop, route feedback, enforce gates + budget |
-| **Doc-Interpreter** | LLM | `requirements.md` + knowledge pack | `requirement_spec.json` | Extract schema, rules, sample in, expected out; flag ambiguities |
-| **Flow-Designer** | LLM | `requirement_spec.json` + knowledge pack | `flow_plan.json` | Map rules → component graph (no config yet); rule→component coverage |
-| **Configurator** | LLM | `flow_plan.json` + spec + knowledge pack | `job_draft.json` | Fill each component `config` + `schema` from code-verified specs |
-| **Assembler** | LLM + code | `job_draft.json` | `job.json` + `validation_report.json` | Wire flows/triggers/subjobs/context; run static validator; fix reference/wiring issues |
-| **Test-Runner** | code | `job.json` + sample/expected | `test_report.json` | Execute engine, diff actual vs expected, capture stats + classified error |
-| **Diagnostician** | LLM | `test_report.json` + knowledge pack | `feedback.json` | Classify failure; name the responsible upstream role + concrete fix |
-| **Knowledge-Maintainer** | LLM + code | engine/converter source | knowledge pack | Regenerate pack when stale (TTL or fingerprint) |
+| Role | Kind | Produces | Note |
+|---|---|---|---|
+| Orchestrator | code | `iteration_log`, state | Deterministic loop + routing + gates |
+| Doc-Interpreter | LLM | `requirement_spec.json` | Sees synthetic data only |
+| Flow-Designer | LLM | `flow_plan.json` | Chooses components + recon pattern |
+| Configurator | LLM | `job_draft.json` | Fills config; validated pre-engine |
+| Assembler | LLM | `job.json` | **Wiring only** (flows/triggers/subjobs/context) |
+| **Validator** | **code** | `validation_report.json` | **Split out of Assembler**: schema + reference + allowlist |
+| Oracle/Test-Runner | code | `test_report.json` | Sandboxed run + multi-signal check |
+| Diagnostician | LLM | `feedback.suggestion` | **Human-readable suggestion only; does NOT decide the stage** |
+| Router | code | `feedback.target_role` | Deterministic, from the broken invariant |
+| Knowledge-Maintainer | **code** | pack | **LLM-free** deterministic regeneration |
 
-Roles are **pluggable**: adding one (e.g., a Context-Parameter-Extractor) = a role prompt in `agents/roles/`, an artifact in/out, and a slot in the orchestrator sequence.
+Every **LLM->artifact boundary** passes through a shared **parse -> strip-fences -> strict `json.loads` -> jsonschema-validate -> repair-retry(<=3) -> hard-fail** gate (LLM-reliability C2). Enums are normalized to closed sets at each boundary.
 
-### 4.2 Artifact contracts (the interfaces)
+### 5.2 Rule model (expanded per recon review — the decisions that determine correctness)
 
-All artifacts live in `agents/work/<job_id>/` (gitignored). Every artifact carries `{ "schema_version": 1, "iteration": N }`.
+`requirement_spec.rules[]` entries carry:
+- `kind`: `match | tolerance | filter | aggregate | derive`
+- `cardinality`: `1:1 | 1:N | N:M` (drives UNIQUE_MATCH vs ALL_MATCHES)
+- `keys`: composite key columns per side
+- `priority`/`order`: for **waterfall** (try key A; else key B) — ordered multi-pass, not AND-merged lookups
+- `direction`/`unmatched_side`: `left_only | right_only | both` (drives the **two-pass** bidirectional-break pattern)
+- `on_tolerance_fail`: `break_reason | nonmatch` (out-of-tolerance = tolerance-break vs non-match — different outputs + summary)
+- `pre_group`/`net_on`: **netting** (aggregate before match)
+- `break_code`: from a **controlled enum** (not free text)
 
-**`requirement_spec.json`**
-```jsonc
-{
-  "job_name": "recon_ledger_vs_statement",
-  "domain": "recon",
-  "inputs": [
-    { "name": "ledger",   "file_hint": "ledger.csv",
-      "schema": [ { "name": "txn_id", "type": "str", "nullable": false, "key": true }, ... ] },
-    { "name": "statement","file_hint": "stmt.csv",  "schema": [ ... ] }
-  ],
-  "rules": [
-    { "id": "R1", "kind": "match",     "description": "match ledger.txn_id to statement.ref_id",
-      "details": { "left": "ledger.txn_id", "right": "statement.ref_id", "type": "exact" } },
-    { "id": "R2", "kind": "tolerance", "description": "amounts equal within 0.01",
-      "details": { "left": "ledger.amt", "right": "statement.amt", "abs_tol": 0.01 } },
-    { "id": "R3", "kind": "aggregate", "description": "count + sum breaks by reason" }
-  ],
-  "outputs": [
-    { "name": "matched", "schema": [ ... ] },
-    { "name": "breaks",  "schema": [ ... ] },
-    { "name": "summary", "schema": [ ... ] }
-  ],
-  "sample_input":    { "ledger": [ {row}, ... ], "statement": [ {row}, ... ] },
-  "expected_output": { "matched": [ ... ], "breaks": [ ... ], "summary": [ ... ] },
-  "ambiguities": [ { "rule_id": "R2", "question": "is tolerance absolute or percentage?" } ],
-  "confidence": "high|medium|low"
-}
-```
+The Doc-Interpreter **auto-flags ambiguity** (a match rule with a sibling tolerance rule but no `on_tolerance_fail`; a non-unique lookup key; a missing `direction`) -> forces the human checkpoint.
 
-**`flow_plan.json`**
-```jsonc
-{
-  "components": [ { "id": "tFileInputDelimited_1", "type": "FileInputDelimited",
-                    "purpose": "read ledger", "maps_to_rules": [] }, ... ],
-  "flows":     [ { "name": "row1", "from": "...", "to": "...", "type": "flow" }, ... ],
-  "triggers":  [ ... ],
-  "subjobs":   { "subjob_1": [ ... ] },
-  "rule_coverage": [ { "rule_id": "R1", "components": ["tMap_1"] }, ... ],
-  "uncovered_rules": [],
-  "open_questions": [ ]
-}
-```
+### 5.3 Contracts (fixed per architecture review)
 
-**`job.json`** — the actual engine job config (per `docs/JOB_CONFIGURATION_SCHEMA.md` / code-verified schema). `job_draft.json` is the same shape pre-assembly/validation.
-
-**`test_report.json`**
-```jsonc
-{
-  "status": "pass|fail|error",
-  "engine_status": "success|failed|error",
-  "outputs": {
-    "matched": { "expected_rows": 12, "actual_rows": 11,
-                 "missing": [ {row} ], "unexpected": [ {row} ],
-                 "column_diffs": [ { "row_key": "...", "column": "amt", "expected": 100.0, "actual": 100.01 } ] },
-    "breaks":  { ... }, "summary": { ... }
-  },
-  "engine_stats": { "tMap_1": { "NB_LINE": 100, "NB_LINE_REJECT": 3 }, ... },
-  "error": { "class": "DataValidationError", "component": "tMap_1",
-             "message": "...", "cause": "..." },   // null on non-exception failures
-  "iteration": 2
-}
-```
-
-**`feedback.json`**
-```jsonc
-{
-  "target_role": "configurator",         // configurator | flow_designer | doc_interpreter | assembler
-  "severity": "blocking",
-  "findings": [
-    { "anchor": "tMap_1", "problem": "amount tolerance not applied; exact compare used",
-      "evidence": "column_diffs on 'amt' off by 0.01", "suggested_fix": "apply abs_tol from R2 in the match expression" }
-  ],
-  "iteration": 2
-}
-```
+- **`requirement_spec.json`**: adds required `outputs[].key` (composite) for diffing; `sample_input`/`expected_output` are **references/checksums** to the locally-held real rows (values not inlined into what's sampled); `max_sample_rows` cap.
+- **`job_draft.json`** (Configurator) = `{components:[{id,type,config,schema}]}` **only**. **`job.json`** (Assembler) = draft **plus** `flows`/`triggers`/`subjobs`/`context`. ("Same shape" claim removed.) Flow keys are **`from`/`to`** (engine truth), not `source`/`target` (stale doc).
+- **`test_report.json`**: structured signals — per-output `expected_rows/actual_rows/missing/unexpected/column_diffs`, per-component `status`/reject-flow/`skipped`, **invariant results**, held-out result, and a normalized **failure signature**. `error` is derived from **engine stats**, not a caught exception (Section 7.3).
+- **`feedback.json`**: `target_role` (set by the **code router**), `findings[]` with `anchor` + rule-id, and the Diagnostician's `suggestion` (human-readable). Supports **multiple targets** (multi-root failures).
+- Every artifact has a **formal JSON Schema** (Draft 2020-12) generated by `gen_knowledge.py`; role prompts use **strict-JSON exemplars** (never jsonc-with-comments — that would teach invalid output).
+- Component **IDs are stable** across regenerations (deterministic id scheme) so feedback anchors / stats keys / prior approvals survive a stage re-run.
 
 ---
 
-## 5. Knowledge Pack & Self-Healing
+## 6. Knowledge Pack & Self-Healing (reworked)
 
-### 5.1 Contents
+### 6.1 Source of truth — inverted
 
-- **Per-component config spec:** for every engine component — valid `config` keys, types, defaults, required-ness, conditional relationships, and the output/reject/schema conventions.
-- **Job-schema rules:** top-level shape, flows vs triggers, subjob derivation, reject-as-flow, context/`java_config`.
-- **The landmines** (code-verified): `die_on_error` dual defaults, tMap named-outputs + triple-name agreement, reject is a data flow not a trigger, top-level `subjobs` ignored, etc.
+`ui_registry.json` is **primary** for keys/types/defaults/required + **conditional `visibleWhen`** (ast cannot derive these — architecture review proved 4 components need 4 incompatible extraction strategies; 21+ dynamic-key sites). Code-scrape (registration decorators + `_validate_config` required-ness) is the **drift-detector**. **Conflict rule:** registry wins on shape; code wins on required-ness; any mismatch raises a **stale flag** (which *is* the self-healing signal — resolving the C5 "registry may be stale" tension).
 
-### 5.2 Source of truth: generated from code
+### 6.2 Machine artifacts (LLM-free)
 
-`tools/gen_knowledge.py` derives the pack by parsing engine + converter **source** (Python `ast`): the `@REGISTRY.register(...)` decorators (valid type names/aliases), each component's `_validate_config` and `self.config.get(...)` reads (real keys + defaults), and the converter's Talend-param → JSON-key mappings. `src/router/ui_registry.json` is used as a **cross-check**, never as gospel (it can drift).
+`gen_knowledge.py` deterministically emits: (a) a **JSON Schema per component `config`** (keys/types/required/enums) and per artifact; (b) a fixed **landmine registry** as machine facts — `die_on_error` dual defaults, tMap triple-name agreement, **`operator` is a no-op**, **`matching_mode` default drops duplicate matches**, reject-is-a-flow-not-a-trigger, flow `from`/`to`; (c) a **recon pattern library** (Section 10.3); (d) one **code-verified golden recon job**. Prose is template-filled from these facts. **No LLM** in generation (LLM-reliability C7, architecture #4).
 
-### 5.3 SKILL.md shape (forward-compatible)
+### 6.3 One home, forward-compatible
 
-Each knowledge module is authored as a **`SKILL.md`-style file** (name + description frontmatter + body + bundled reference data), placed under `.claude/skills/<name>/`. On 1.106 the roles consume them as plain context (loaded by the server / referenced from an instructions file). At **≥1.107** these same files light up as **native Agent Skills** with zero rewrite (Copilot reads `.claude/skills/`).
+Single store: `.claude/skills/<name>/SKILL.md` (+ generated reference-data files). Loaded as plain context on 1.106; native skills at >=1.107 (experimental). `agents/knowledge` / `agents/registry` as separate trees are **removed** (kills triplication drift, architecture #3).
 
-### 5.4 TTL + fingerprint self-healing
+### 6.4 Freshness — code AND model drift
 
-Each knowledge file carries frontmatter: `generated_at`, `ttl_days`, `source_fingerprint` (hash of the engine/converter files it was derived from). `tools/check_freshness.py` marks a module stale when **either** the TTL lapses **or** the fingerprint ≠ current code hash (code-change is the stronger trigger). The **Knowledge-Maintainer** regenerates stale modules from source and resets the stamp. The orchestrator runs the freshness check at the start of every pipeline run.
+Stale when TTL lapses **or** `source_fingerprint` != code hash **or** the **pinned model identity changes** (LLM-reliability H3). Regeneration is the deterministic `gen_knowledge.py`; a model change also forces the **golden-test suite** to re-run before the system is trusted.
 
 ---
 
-## 6. Test Harness & Feedback Routing
+## 7. The Oracle & Test Harness (redesigned — was the weakest part)
 
-### 6.1 `tools/run_and_validate.py`
+### 7.1 Deterministic oracle extraction
 
-Deterministic CLI: `run_and_validate.py --job job.json --input <dir> --expected <dir> [--tolerance 0.01]`.
-Steps: (1) run the engine on `job.json` against the sample input (imports `ETLEngine`, in-process); (2) capture per-output DataFrames + engine stats + any classified exception; (3) diff each actual output against the expected output — row presence (missing/unexpected keyed by the output's key columns), per-column value diffs with type-aware + optional numeric tolerance, row counts; (4) emit `test_report.json`. Exit code reflects pass/fail/error.
+`extract_doc.py` parses the doc's Sample-Input and Expected-Output **tables directly** (python-docx cell walk) into typed rows, **checksums** them, and keeps them **local**. They are **never** routed through a sampling call (fixes LLM-transcription corruption C1 + egress F3 at once). A conformance gate fails fast if a block is missing, a table didn't parse, or it's an image-only table.
 
-### 6.2 Error taxonomy → responsible stage
+### 7.2 Multi-signal oracle (not sample-equality)
 
-Reuses the exception-class table from `docs/ai-prompts/DEBUG_JOB_FAILURE.md` + a failure→stage map:
+A config passes only if **all** hold:
+1. **Sample-equality** vs the real expected rows, with **per-column tolerance from the rule spec** — exact by default; **columns governed by a tolerance rule are compared EXACTLY** against expected (so the test can't mask the very tolerance bug it encodes — LLM-reliability C5 / recon M); break `break_code` compared as an **exact enum** (free text is a non-compared annotation), plus a **predicate-consistency** check (each break row actually satisfies its code's predicate).
+2. **Invariants** independent of the sample: row conservation (`matched + left_breaks == input_left`; symmetric for right), **sum reconciliation**, **no duplicate key in matched**, both-side break accounting, declared-key **uniqueness in expected**.
+3. **Held-out sample** the loop never sees, checked once before human approval (guards overfitting — recon C1, LLM-reliability M1).
+4. **Mutation rows** auto-injected (duplicate key, null key, one-sided-only, boundary tolerance) to exercise the edges a thin sample misses.
 
-| Failure signal | Likely responsible stage |
-|---|---|
-| `ConfigurationError` / invalid config key | Configurator |
-| `DataValidationError` / schema/type mismatch across a flow | Configurator (schema) or Assembler (wiring) |
-| Wrong values / wrong aggregation / logic mismatch (diff, no exception) | Flow-Designer (wrong component/graph) or Configurator (wrong expression) |
-| Reference/wiring error ("no flow named X") | Assembler |
-| Requirement genuinely ambiguous / expected-output itself unclear | Doc-Interpreter (raise to human) |
-| `JavaBridgeError` / `ExpressionError` | Configurator (expression) |
+Diffs use **composite output keys** (multiset/bag comparison when no unique key); test-comparison **epsilon is separate** from business tolerance.
 
-### 6.3 Loop control
+### 7.3 Reading engine failure signals (the taxonomy fix)
 
-- **Budget:** 3–5 automatic iterations (configurable). Each iteration re-runs **only from the responsible stage** forward (not the whole pipeline) using `feedback.json`.
-- **Convergence guards:** stop early if two consecutive iterations produce an identical `job.json` (no progress) or an identical failure signature (oscillation); escalate with the diagnosis.
-- **Human gates:** (a) *optional* checkpoint after Flow-Design (cheapest place to catch a misread — recommended on early/low-confidence runs); (b) *mandatory* final approval of `job.json` + `test_report.json`.
+The engine **swallows exceptions** (`executor.py:746-780` -> stats dict; `engine.py:277-289` -> error dict; tDie does not propagate — feedback-loop C1). So the oracle reads: job `status`, per-component `status=="error"` + `error` string, **non-empty reject flows**, and **`skipped`** components — each a first-class failure signal with its own route. **Additive engine change (owned by this project):** persist a **structured error record** (`component_id`, exception class, `cause`) into `execution_stats` so routing has a real signal instead of `str(e)`.
+
+### 7.4 Non-determinism quarantine
+
+Freeze the clock (inject an **as-of date** context var), force **deterministic `tFileList` order** in test mode, **seed** randomness. **Run the engine twice**; any column that differs run-to-run is flagged **non-comparable** and excluded from the diff (else dates/order/random cause permanent false-fails — feedback-loop C3).
 
 ---
 
-## 7. Repo Layout & Files
+## 8. Feedback Loop & Convergence
+
+- **Deterministic routing (code, not LLM):** the Router picks `target_role` from **the invariant that broke** — row-count/cardinality invariant -> Flow-Designer (graph/cardinality); value-only diff on conserved rows -> Configurator (expression); schema/reject/skipped -> Configurator(schema) or Assembler(wiring); unparseable/plain-exception -> human. The Diagnostician (LLM) writes only the human-readable *why/fix*, never the control decision (feedback-loop H2 / recon routing / LLM-reliability H2).
+- **Escalation ladder + history:** the Router sees prior routings/outcomes; after N no-improvement re-runs of a stage it escalates **one stage upstream** (including re-opening a **confidently-wrong** `requirement_spec.json` -> Doc-Interpreter, not only "ambiguous").
+- **Artifact invalidation:** re-running stage N may **invalidate/regenerate** stage N-1's artifact (fixes "stale upstream caps the fix" H2).
+- **Multi-target:** `feedback` can carry several findings; independent roots fan out per iteration (multi-root convergence H3).
+- **Per-output freeze:** already-passing outputs are frozen as **regression gates** so re-running a stage can't silently regress `matched` while fixing `breaks` (H5/M9).
+- **Best-so-far:** track a **monotonic diff-distance**; escalate/return the **best** attempt, not the last (H5).
+- **Convergence guards** operate on **canonicalized** artifacts (sorted keys, normalized expressions) and a **normalized failure signature** (class + component + rule-id + bucketed diff shape); detect **period-<=K cycles**, not just consecutive repeats.
+- **Scoped re-runs:** a re-run's new artifact is diffed against the prior; changes **outside the targeted anchor** are rejected (prevents collateral regressions M4).
+
+---
+
+## 9. LLM Reliability & Determinism (NEW)
+
+- **Per-boundary gate** (Section 5.1): strip -> strict parse -> jsonschema -> repair-retry -> hard-fail. Applied to **every** artifact, including `requirement_spec.json` (before it poisons downstream).
+- **Per-component config-key validator** at the Configurator->`job_draft` boundary (before the expensive engine run): unknown keys, wrong types, out-of-enum values (e.g., `join_mode not in {LEFT_OUTER_JOIN, INNER_JOIN}`) are **hard errors** (fixes "shallow validator at the wrong boundary" LLM-reliability C4 — the existing `validator.py` only does 4 shallow checks).
+- **Determinism substrate:** request `temperature:0` (best-effort hint), **cache** artifacts keyed by `hash(doc + pack_fingerprint + role_prompt + model_id)`, **canonicalize** every artifact, **golden-test** each role against frozen input/output pairs, **stamp model id+version** on every artifact. Reproducibility scoped to *fixed model + pack* (C3).
+- **Context budget:** load **only** the per-component specs for components present in `flow_plan.json` (not the 283 KB registry); priority order where **schemas + landmines are never truncated**; cap sample rows; set `maxTokens`; **truncation is a hard error**, not silent loss (H4).
+- **Mandatory low-confidence gate:** the human checkpoint fires when `confidence != high` **or** any independent signal (non-empty `ambiguities`/`uncovered_rules`, missing doc block, sample too thin to exercise a declared rule kind) — not the LLM's self-report alone (H5).
+
+---
+
+## 10. Recon First Slice + Pattern Library
+
+### 10.1 Scope (phased)
+
+Recon, files-only. **Phase A:** one-sided **exact-match** recon (matched + left-only breaks + summary). **Phase B:** **tolerance** (exact-join + post-split). **Phase C:** **bidirectional** breaks (two-pass). **Phase D:** **1:N/netting** (ALL_MATCHES + aggregate) and **waterfall** (ordered multi-pass). **Out of first slice:** fuzzy/similarity matching (no engine component; escape hatch excluded for security), DB.
+
+### 10.2 Component vocabulary + footgun neutralization
+
+Allowlist: `FileInput/Output{Delimited,Positional,Excel}`, **`Map` (tMap)**, `FilterRows`, `AggregateRow`, `SortRow`, `UniqueRow`, `ConvertType`, `Replace`, `Normalize`/`Denormalize`, `Unite`, `Replicate`. **tMap is THE recon matching primitive; `tJoin` is excluded from the recon slice** (can't do 1:N, one-sided reject only, and left-outer+reject **double-emits** — recon H). Footguns neutralized: **kill the `operator` field** in generated tMap JSON (any non-`=` is a silent no-op — engine raises on it as fix-at-source); **force `ALL_MATCHES`** when a lookup key is not schema-proven unique (default `UNIQUE_MATCH` silently drops duplicates).
+
+### 10.3 Pattern library + golden job
+
+The knowledge pack ships **named canonical recon patterns** (two-sided match, tolerance-as-exact-join-plus-split, netting, waterfall) and **one code-verified end-to-end golden recon job** (two-source: matched + both-side breaks + summary), re-verified against the engine. The Flow-Designer selects a pattern and the Configurator **few-shots from the golden job**, not from prose (recon L, LLM-reliability, architecture).
+
+---
+
+## 11. Repo Layout
 
 ```
-.github/agents/
-    etl-orchestrator.agent.md      # kickoff custom agent (target: vscode)
-    roles/                          # (fallback) per-role custom agents for handoffs mode
-.vscode/mcp.json                    # registers the local MCP server
-.claude/skills/<name>/SKILL.md      # knowledge modules (native skills at >=1.107)
+.github/agents/etl-orchestrator.agent.md     # kickoff agent (target: vscode)
+.vscode/mcp.json                              # local server + pinned interpreter
+.claude/skills/<name>/SKILL.md                # single knowledge home (+ generated schemas/reference)
 agents/
-    orchestrator/                   # MCP server + deterministic control loop
-    roles/                          # role prompts (doc-interpreter, flow-designer, ...)
-    knowledge/                      # generated pack (mirrors / sources .claude/skills)
-    registry/                       # generated per-component config spec
-    tools/                          # extract_doc.py, gen_knowledge.py,
-                                    #   run_and_validate.py, check_freshness.py
-    templates/                      # recon requirements-doc template + worked example
-    work/                           # per-job scratch artifacts (gitignored)
-    PLATFORM.md                     # version posture + upgrade playbook
-    README.md
+    orchestrator/        # MCP server + deterministic loop/router/state machine
+    roles/               # role prompts (strict-JSON exemplars)
+    tools/               # extract_doc, gen_knowledge, run_and_validate (sandbox), check_freshness, validate_artifact
+    schemas/             # generated JSON Schemas (artifacts + per-component config)
+    templates/           # recon .docx template + code-verified golden job
+    work/                # per-job artifacts (encrypted-at-rest, retention policy; NOT a gitignore control)
+    PLATFORM.md, README.md
 ```
 
-Note: agent *definitions* must sit in `.github/agents/` (C4); the *brains* (knowledge, tools, templates) sit in `agents/`. `.claude/skills/` holds the forward-compatible skill modules.
+---
+
+## 12. Platform Posture & Upgrade Playbook (`PLATFORM.md`)
+
+- Now: 1.106, MCP + sampling, resumable server-side loop.
+- >=1.107 (possible end-July update): native subagents + skills unlock (experimental) — roles can split into true subagents; `.claude/skills` load natively. Minimal rework.
+- If MCP/sampling disabled by policy: **handoffs** fallback (human-advanced; same roles/knowledge/oracle). Note: handoffs still sample the same (now synthetic) data.
+- Cost: ~tens of sampling calls/job draw on Copilot quota; budget it.
 
 ---
 
-## 8. Recon First Slice
+## 13. Build Sequence
 
-### 8.1 Scope
-
-Recon, **files-only**, transformation-rich. Component vocabulary:
-
-- **File in/out:** `FileInputDelimited`, `FileInputPositional`, `FileInputExcel`, `FileOutputDelimited`, `FileOutputPositional`, `FileOutputExcel`.
-- **Transforms:** `Map` (tMap), `FilterRows`, `AggregateRow`, `Join` (tJoin), `SortRow`, `UniqueRow`, `ConvertType`, `Replace`, `Normalize`/`Denormalize`, `Unite`, `Replicate`.
-- No database components, no non-file sources in this slice.
-
-### 8.2 Recon requirements-doc template
-
-A light `.docx` template (not too strict, not freeform) with four required blocks that survive text extraction (headings + tables):
-
-1. **Inputs & schema** — one table per source (columns, types, key flags).
-2. **Transformation / business rules** — prose, but each rule tagged with a stable id and a kind (match / tolerance / filter / aggregate / derive), recon-flavored (match keys, tolerances, break categories).
-3. **Sample input** — a handful of rows per source (enough to exercise nulls, a break, a tolerance edge).
-4. **Expected output** — matched / breaks / summary rows for that sample (the **test oracle**).
-
-### 8.3 Representative recon pattern (strawman until a real job is supplied)
-
-Two-source reconciliation: read source A + source B → normalize/convert types → match on key(s) with tolerance → split into **matched** and **breaks** (unmatched or out-of-tolerance, tagged with a break reason) → **summary** (counts + sums by reason) → write three files. To be refined against a real recon `.item`/JSON when available.
+- **Phase 0 — Safety + determinism foundations (no LLM, no MCP).** `gen_knowledge.py` (registry-primary + schemas + landmine registry + drift-detector), the **sandboxed `run_and_validate.py`** with the multi-signal oracle + invariants + non-determinism quarantine, `extract_doc.py` (deterministic tables + conformance gate), the **structured-error engine change**, the per-component config-key validator, the golden recon job. All verifiable from the terminal. **This is where the disqualifying findings are closed.**
+- **Phase 1 — MCP + sampling preflight (A1/A2/A3 gates).** Server skeleton + kickoff agent + sampling self-test + approval-UX verification + pinned model. One role (Configurator) end-to-end on a hand-made `flow_plan.json` for a Phase-A recon job.
+- **Phase 2 — Full loop, Phase-A recon.** All roles + deterministic router + resumable state machine + per-boundary gates, converging on one-sided exact-match recon.
+- **Phase 3 — Front door + tolerance (Phase B).** `.docx` -> Doc-Interpreter (synthetic-only) -> tolerance pattern.
+- **Phase 4 — Bidirectional / 1:N / netting / waterfall (Phases C-D), hardening, audit, PLATFORM.md.**
 
 ---
 
-## 9. Platform Posture & Upgrade Playbook (`PLATFORM.md`)
+## 14. Open Items & Residual Risks
 
-- **Now:** VS Code 1.106, MCP + sampling, autonomous loop.
-- **End-July VS Code update (unknown target version):**
-  - **≥1.107:** native subagents (`chat.customAgentInSubagent.enabled`) and Agent Skills unlock. Optionally split roles into true custom-agent subagents; knowledge modules become native skills. No core rewrite.
-  - **If MCP is ever disabled:** revert the thin orchestration layer to **handoffs** (Section 3.6).
-- **Dependency posture:** libraries from the internal artifact repo are primary; stdlib fallbacks documented (Section 3.4).
-
----
-
-## 10. Build Sequence / Phasing
-
-- **Phase 0 — Deterministic core (no MCP yet).** `gen_knowledge.py` + knowledge pack; `run_and_validate.py`; `extract_doc.py`; `check_freshness.py`. Each verifiable standalone from the terminal. Prove the harness diffs a known-good and known-bad recon job correctly.
-- **Phase 1 — MCP skeleton + one role.** Local MCP server (SDK) + the kickoff agent; one sampling-backed role (Configurator) end-to-end on a hand-made `flow_plan.json` for a trivial recon job. Proves sampling + tool-calls + terminal execution on the Citi laptop.
-- **Phase 2 — Full loop.** All six roles + the deterministic control loop + feedback routing, on a hand-written recon `requirement_spec.json` (skip the doc for now). Loop converges on a real file-based recon job.
-- **Phase 3 — Front door.** `extract_doc` + Doc-Interpreter + the recon template; run end-to-end from a `.docx`.
-- **Phase 4 — Hardening.** More recon jobs, convergence guards, human checkpoints, `PLATFORM.md`, TTL maintenance in the loop.
-
-Each phase is independently demoable and testable.
+- Confirm A1-A4 on the real Citi build (sampling round-trip, approval UX, model pin, org registry policy, artifact-repo libs).
+- Obtain one real recon `.item`/JSON to validate the golden job + template against reality.
+- Confirm the end-July VS Code target version (>=1.107 changes the upgrade path).
+- Residual: the sandbox is defense-in-depth, not proof; code-bearing components stay human-gated. Reproducibility is bounded to a pinned model. The oracle is stronger but still ultimately bounded by the human-authored expected data (mitigated by invariants + held-out + mutation, not eliminated).
 
 ---
 
-## Appendix A: Open items
+## 15. Findings-to-Fix Coverage (v1 review -> v2)
 
-- Confirm A1 (internal artifact repo has `mcp` + `python-docx`); if not, switch that component to the stdlib fallback.
-- Obtain one real recon job (converted JSON or `.item`) to replace the strawman in Sections 4/8.
-- Decide the exact `.docx` template layout with the recon team so extraction stays clean.
-- Confirm whether the end-July VS Code update lands ≥1.107 (would change the orchestration upgrade path).
-
-## Appendix B: Risks
-
-- **R-1 (platform):** MCP disabled by policy after all → fall back to handoffs (loses full automation). Mitigated by decoupling.
-- **R-2 (loop non-convergence):** LLM roles oscillate → convergence guards + human escalation with diagnosis.
-- **R-3 (knowledge drift):** engine changes silently break generated configs → fingerprint/TTL self-healing.
-- **R-4 (LLM invalid config):** Configurator invents keys → knowledge pack constrains + Assembler static-validates + engine execution is the hard gate.
-- **R-5 (doc ambiguity / weak oracle):** thin or ambiguous expected output → Doc-Interpreter flags low confidence; human checkpoint.
-- **R-6 (data governance):** sample data reaches the model via sampling → same trust boundary as normal Copilot use; document it explicitly for security review; keep samples minimal.
+| Lens | Finding | v2 fix |
+|---|---|---|
+| Security | F1 RCE (tMap Groovy / tPython exec), in-process | Sec 2.1 sandbox out-of-process; 2.2 allowlist + code-bearing blocked; safe-subset + SecureAST |
+| Security | F2 prompt-injection -> RCE chain | Sec 2.5 doc-as-data, typed-param allowlist, no error/expected text back to LLM |
+| Security | F3 / platform C1 data egress ("no egress" false) | C1 reworded; Sec 2.3 + 7.1 synthetic-to-LLM, real data local |
+| Security | F4 gate after danger; F5 file blast; F6 fail-open | Sec 2.4 gate before first use; 2.1 FS jail; 2.2 fail-closed allowlist |
+| Security | F7 audit/model; F8 secrets; F9 parsers | Sec 2.6 audit+model id+encryption; 2.6 secret scan; 2.7 defusedxml |
+| Feedback | C1 engine swallows exceptions | Sec 7.3 read stats/reject/skipped + structured-error engine change |
+| Feedback | C2 weak oracle / C3 non-determinism | Sec 7.2 multi-signal + held-out + mutation; 7.4 quarantine + run-twice |
+| Feedback | H1-H6 misroute/stale/multi-root/guards/die_on_error | Sec 8 deterministic router + ladder + invalidation + multi-target + freeze + best-so-far + canonical guards |
+| Architecture | knowledge-from-ast unreliable; source inversion | Sec 6.1 registry-primary + code drift-detector |
+| Architecture | triplication; Maintainer LLM; Assembler fused; contracts | Sec 6.3 one home; 6.2/5.1 LLM-free maintainer; 5.1 split Validator; 5.3 contracts fixed |
+| LLM-rel | C1 LLM-transcribed oracle; C2 no structured output; C3 no schemas | Sec 7.1 deterministic extraction; 5.1 per-boundary gate; 6.2 formal schemas |
+| LLM-rel | C4 shallow/late validation; C5 tolerance masks bug; C6 reproducibility | Sec 9 config-key validator; 7.2 exact-compare tolerance columns; 9 determinism substrate |
+| LLM-rel | H1-H6, M2 (jsonc), M3 enums | Sec 8 canonical guards; 9 context budget + mandatory low-conf gate; 5.3 strict exemplars; 5.1 enum normalize |
+| Recon | oracle overfit; operator no-op; bidirectional; tMap-vs-tJoin | Sec 7.2 invariants/held-out; 10.2 kill operator + tMap-only; 10.1/10.3 two-pass pattern |
+| Recon | rule model thin; matching_mode; reason text; routing | Sec 5.2 expanded rule model; 10.2 force ALL_MATCHES; 7.2 reason enum; 8 invariant routing |
+| Platform | control-loop feasible (confirmed); hang; model-dep; A2 gate; terminal | Sec 4.1 confirmed; 4.2 resumable state machine + timeouts; 4.5 preflight + pinned model; 1.5 hard gates; 4.3 subprocess |
 ```
