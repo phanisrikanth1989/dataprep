@@ -241,27 +241,36 @@ def main(argv=None) -> int:
         else:
             sys.stdout.write(out_text + "\n")
 
-    # Loading the job, manifest, and golden expected CSVs is all I/O + parsing on
-    # user-supplied paths. A missing/malformed manifest.json, absent golden dir,
-    # or missing <name>_expected.csv must produce a clean exit 2 (contract parity
-    # with validate_config), not a traceback.
+    # Everything here -- loading job/manifest/golden CSVs AND running+diffing the
+    # job -- is wrapped so ANY hard failure (missing/malformed manifest, absent
+    # golden dir, a mis-parsed frame whose declared key is absent -> KeyError in
+    # diff_frames, etc.) yields a clean exit 2 with an emitted report, never a bare
+    # traceback that writes no report. Contract parity with validate_config.
     try:
         with open(args.job, encoding="utf-8") as fh:
             job = json.load(fh)
         gdir = Path(args.golden_dir)
         manifest = json.loads((gdir / "manifest.json").read_text(encoding="utf-8"))
+        # An empty/absent outputs map verifies nothing, yet check() would iterate
+        # zero outputs and return passed=True -- a false green. Fail hard instead.
+        outputs_spec = manifest.get("outputs")
+        if not outputs_spec:
+            _emit({"passed": False, "error": "manifest declares no outputs to verify"})
+            return 2
         expected, output_map, keys = {}, {}, {}
-        for name, spec in manifest["outputs"].items():
-            sep = spec.get("sep", ",")
+        for name, spec in outputs_spec.items():
+            # Default to ';' -- the repo golden convention and what _read_output
+            # uses for the ACTUAL side. An explicit spec["sep"] still wins.
+            sep = spec.get("sep", ";")
             expected[name] = pd.read_csv(gdir / f"{name}_expected.csv", sep=sep, dtype=str, keep_default_na=False)
             output_map[name] = spec["component"]
             keys[name] = spec.get("keys")
+        run_result = run_job_capture(job, gdir)
+        report = check(run_result, expected, output_map, keys)
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         _emit({"passed": False, "error": str(exc)})
         return 2
 
-    run_result = run_job_capture(job, gdir)
-    report = check(run_result, expected, output_map, keys)
     _emit(report)
     return 0 if report["passed"] else 1
 

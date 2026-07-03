@@ -1,3 +1,5 @@
+import json
+
 import pandas as pd
 
 from agents.tools.run_and_validate import RunResult, check, diff_frames
@@ -85,3 +87,76 @@ def test_cli_wrong_shape_manifest_returns_two(tmp_path):
     (gdir / "manifest.json").write_text('[1, 2, 3]')   # valid JSON, wrong shape
     rc = main(["--job", str(job), "--golden-dir", str(gdir)])
     assert rc == 2
+
+
+# ---------------------------------------------------------------------------
+# main() happy-path CLI tests (bridge-free FileInputDelimited -> FileOutputDelimited
+# passthrough, no tMap / no {{java}}). The golden data is ';'-separated -- the repo
+# convention -- and the manifest OMITS 'sep' so the CLI's default separator is the
+# thing under test (guards I-4: the old ',' default mis-parses ';' golden data).
+# ---------------------------------------------------------------------------
+def _passthrough_job(in_csv, out_csv, sep=";"):
+    """A minimal engine-runnable passthrough job (shape mirrors test_run_capture)."""
+    cols = [{"name": "cc", "type": "str", "nullable": True, "key": False},
+            {"name": "amt", "type": "str", "nullable": True, "key": False}]
+    return {
+        "job_name": "passthrough",
+        "components": [
+            {"id": "in1", "type": "FileInputDelimited",
+             "config": {"filepath": str(in_csv), "fieldseparator": sep, "header_rows": 1,
+                        "die_on_error": False},
+             "inputs": [], "outputs": ["f1"],
+             "schema": {"input": [], "output": cols},
+             "subjob_id": "subjob_1", "is_subjob_start": True},
+            {"id": "out1", "type": "FileOutputDelimited",
+             "config": {"filepath": str(out_csv), "fieldseparator": sep, "include_header": True,
+                        "file_exist_exception": False, "create_directory": True},
+             "inputs": ["f1"], "outputs": [],
+             "schema": {"input": cols, "output": []},
+             "subjob_id": "subjob_1", "is_subjob_start": False},
+        ],
+        "flows": [{"name": "f1", "from": "in1", "to": "out1", "type": "flow"}],
+    }
+
+
+def _write_cli_case(tmp_path, expected_csv_text):
+    """Wire up job.json + golden dir (manifest OMITS sep) and return main() argv."""
+    src = tmp_path / "source.csv"
+    src.write_text("cc;amt\nUS;10\nUK;20\n")
+    job_path = tmp_path / "job.json"
+    job_path.write_text(json.dumps(_passthrough_job(src, tmp_path / "out.csv")))
+    gdir = tmp_path / "golden"; gdir.mkdir()
+    (gdir / "manifest.json").write_text(json.dumps({"outputs": {"out": {"component": "out1", "keys": ["cc"]}}}))
+    (gdir / "out_expected.csv").write_text(expected_csv_text)
+    report_path = tmp_path / "report.json"
+    return ["--job", str(job_path), "--golden-dir", str(gdir), "--out", str(report_path)], report_path
+
+
+def test_cli_main_passes_on_matching_output(tmp_path):
+    from agents.tools.run_and_validate import main
+    argv, report_path = _write_cli_case(tmp_path, "cc;amt\nUS;10\nUK;20\n")
+    rc = main(argv)
+    assert rc == 0
+    assert json.loads(report_path.read_text())["passed"] is True
+
+
+def test_cli_main_fails_on_mutated_expected(tmp_path):
+    from agents.tools.run_and_validate import main
+    # US amt mutated 10 -> 999: parses cleanly (return 1 is a DIFF fail, not a load error).
+    argv, report_path = _write_cli_case(tmp_path, "cc;amt\nUS;999\nUK;20\n")
+    rc = main(argv)
+    assert rc == 1
+    assert json.loads(report_path.read_text())["passed"] is False
+
+
+def test_cli_empty_outputs_returns_two(tmp_path):
+    from agents.tools.run_and_validate import main
+    job = tmp_path / "job.json"; job.write_text('{"components": [], "flows": []}')
+    gdir = tmp_path / "g"; gdir.mkdir()
+    (gdir / "manifest.json").write_text('{"outputs": {}}')
+    report_path = tmp_path / "report.json"
+    rc = main(["--job", str(job), "--golden-dir", str(gdir), "--out", str(report_path)])
+    assert rc == 2
+    rep = json.loads(report_path.read_text())
+    assert rep["passed"] is False
+    assert "no outputs" in rep["error"]
