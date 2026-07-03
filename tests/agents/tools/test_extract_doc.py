@@ -296,3 +296,149 @@ def test_heading_level_edge_cases():
     assert _heading_level(SimpleNamespace(style=SimpleNamespace(name="Heading X"))) is None    # non-numeric suffix
     assert _heading_level(SimpleNamespace(style=None)) is None                                  # no style
     assert _heading_level(SimpleNamespace(style=SimpleNamespace(name="Heading 3"))) == 3        # valid heading
+
+
+# ---------------------------------------------------------------------------
+# Important #1 -- no silent row loss when a name/section repeats across tables.
+# ---------------------------------------------------------------------------
+
+
+def test_parse_data_block_accumulates_rows_for_repeated_name():
+    # Two "ledger" tables (e.g. two Heading-2 "ledger" blocks under Sample Input)
+    # must contribute ALL their rows, not just the last table's.
+    doc = Document()
+    items = [
+        ("ledger", _named_table(doc, ["txn_id", "amt"], [["T1", "100.00"], ["T2", "50.00"]])),
+        ("ledger", _named_table(doc, ["txn_id", "amt"], [["T3", "25.00"], ["T4", "10.00"]])),
+    ]
+    data = _parse_data_block(items)
+    assert data["ledger"] == [
+        {"txn_id": "T1", "amt": "100.00"},
+        {"txn_id": "T2", "amt": "50.00"},
+        {"txn_id": "T3", "amt": "25.00"},
+        {"txn_id": "T4", "amt": "10.00"},
+    ]
+
+
+def test_parse_data_block_repeated_name_keeps_first_keys_and_all_rows():
+    doc = Document()
+    items = [
+        ("matched", _named_table(doc, ["txn_id*", "amt"], [["T1", "100.00"]])),
+        ("matched", _named_table(doc, ["txn_id", "amt"], [["T2", "50.00"]])),  # 2nd table: no key marker
+    ]
+    data, keys = _parse_data_block(items, extract_keys=True)
+    assert keys["matched"] == ["txn_id"]  # first occurrence's key columns retained
+    assert data["matched"] == [
+        {"txn_id": "T1", "amt": "100.00"},
+        {"txn_id": "T2", "amt": "50.00"},
+    ]
+
+
+def test_extract_doc_accumulates_repeated_sample_input_heading(tmp_path):
+    # Two "ledger" Heading-2 blocks under "Sample Input" -> both tables' rows kept.
+    doc = Document()
+    doc.add_heading("Inputs and Schema", level=1)
+    _table(doc, ["Source", "Column", "Type", "Nullable", "Key"], [["ledger", "txn_id", "str", "false", "true"]])
+    doc.add_heading("Transformation Rules", level=1)
+    _table(doc, ["ID", "Kind", "Description"], [["R1", "match", "m"]])
+    doc.add_heading("Sample Input", level=1)
+    doc.add_heading("ledger", level=2)
+    _table(doc, ["txn_id", "amt"], [["T1", "100.00"], ["T2", "50.00"]])
+    doc.add_heading("ledger", level=2)  # same source name, second table
+    _table(doc, ["txn_id", "amt"], [["T3", "25.00"]])
+    doc.add_heading("Expected Output", level=1)
+    doc.add_heading("matched", level=2)
+    _table(doc, ["txn_id*", "amt"], [["T1", "100.00"]])
+    path = tmp_path / "dup.docx"
+    doc.save(str(path))
+
+    result = extract_doc(str(path))
+
+    assert [r["txn_id"] for r in result.sample_input["ledger"]] == ["T1", "T2", "T3"]
+
+
+def test_extract_doc_merges_schema_split_across_tables(tmp_path):
+    # "Inputs and Schema" split across two tables -> all sources/columns present.
+    doc = Document()
+    doc.add_heading("Inputs and Schema", level=1)
+    _table(doc, ["Source", "Column", "Type", "Nullable", "Key"], [
+        ["ledger", "txn_id", "str", "false", "true"],
+        ["statement", "ref_id", "str", "false", "true"],
+    ])
+    _table(doc, ["Source", "Column", "Type", "Nullable", "Key"], [
+        ["ledger", "amt", "float", "false", "false"],
+        ["statement", "amt", "float", "false", "false"],
+    ])
+    doc.add_heading("Transformation Rules", level=1)
+    _table(doc, ["ID", "Kind", "Description"], [["R1", "match", "m"]])
+    doc.add_heading("Sample Input", level=1)
+    doc.add_heading("ledger", level=2)
+    _table(doc, ["txn_id", "amt"], [["T1", "100.00"]])
+    doc.add_heading("statement", level=2)
+    _table(doc, ["ref_id", "amt"], [["T1", "100.00"]])
+    doc.add_heading("Expected Output", level=1)
+    doc.add_heading("matched", level=2)
+    _table(doc, ["txn_id*", "amt"], [["T1", "100.00"]])
+    path = tmp_path / "split.docx"
+    doc.save(str(path))
+
+    result = extract_doc(str(path))
+
+    assert set(result.sources_schema) == {"ledger", "statement"}
+    assert [c.name for c in result.sources_schema["ledger"]] == ["txn_id", "amt"]
+    assert [c.name for c in result.sources_schema["statement"]] == ["ref_id", "amt"]
+
+
+def test_extract_doc_concatenates_rules_across_tables(tmp_path):
+    # "Transformation Rules" split across two tables -> rules concatenated.
+    doc = Document()
+    doc.add_heading("Inputs and Schema", level=1)
+    _table(doc, ["Source", "Column", "Type", "Nullable", "Key"], [["ledger", "txn_id", "str", "false", "true"]])
+    doc.add_heading("Transformation Rules", level=1)
+    _table(doc, ["ID", "Kind", "Description"], [["R1", "match", "m1"]])
+    _table(doc, ["ID", "Kind", "Description"], [["R2", "tolerance", "t1"]])
+    doc.add_heading("Sample Input", level=1)
+    doc.add_heading("ledger", level=2)
+    _table(doc, ["txn_id"], [["T1"]])
+    doc.add_heading("Expected Output", level=1)
+    doc.add_heading("matched", level=2)
+    _table(doc, ["txn_id*"], [["T1"]])
+    path = tmp_path / "rules.docx"
+    doc.save(str(path))
+
+    result = extract_doc(str(path))
+
+    assert [r["id"] for r in result.rules] == ["R1", "R2"]
+
+
+# ---------------------------------------------------------------------------
+# Important #3 -- open/parse failures are converted to ConformanceError.
+# ---------------------------------------------------------------------------
+
+
+def test_extract_doc_raises_conformance_on_non_docx_blob(tmp_path):
+    path = tmp_path / "notdocx.docx"
+    path.write_bytes(b"not a docx")
+    with pytest.raises(ConformanceError) as exc:
+        extract_doc(str(path))
+    assert exc.value.report.ok is False
+    assert any("could not open or parse docx" in e for e in exc.value.report.parse_errors)
+
+
+def test_extract_doc_raises_conformance_on_missing_file(tmp_path):
+    path = tmp_path / "does_not_exist.docx"
+    with pytest.raises(ConformanceError) as exc:
+        extract_doc(str(path))
+    assert exc.value.report.ok is False
+    assert any("could not open or parse docx" in e for e in exc.value.report.parse_errors)
+
+
+def test_extract_doc_non_docx_returns_nonok_result_when_not_raising(tmp_path):
+    path = tmp_path / "notdocx.docx"
+    path.write_bytes(b"not a docx")
+    result = extract_doc(str(path), raise_on_error=False)
+    assert result.conformance.ok is False
+    assert result.sources_schema == {}
+    assert result.rules == []
+    assert result.sample_input == {}
+    assert result.expected_output == {}
