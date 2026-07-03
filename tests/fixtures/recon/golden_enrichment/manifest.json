@@ -1,0 +1,5 @@
+{
+  "outputs": {
+    "enriched": {"component": "out_enriched", "keys": ["cc"], "sep": ";"}
+  }
+}

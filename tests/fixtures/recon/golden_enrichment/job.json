@@ -1,5 +1,5 @@
 {
-  "job_name": "golden_phase_a_recon",
+  "job_name": "golden_enrichment",
   "job_type": "Standard",
   "default_context": "Default",
   "context": {
@@ -7,11 +7,11 @@
   },
   "components": [
     {
-      "id": "in_main",
+      "id": "in_source",
       "type": "FileInputDelimited",
       "original_type": "tFileInputDelimited",
       "config": {
-        "filepath": "main.csv",
+        "filepath": "source.csv",
         "fieldseparator": ";",
         "row_separator": "\\n",
         "header_rows": 1,
@@ -89,14 +89,14 @@
                   "operator": "="
                 }
               ],
-              "join_mode": "INNER_JOIN"
+              "join_mode": "LEFT_OUTER_JOIN"
             }
           ]
         },
         "variables": [],
         "outputs": [
           {
-            "name": "matched",
+            "name": "enriched",
             "is_reject": false,
             "inner_join_reject": false,
             "filter": "",
@@ -106,17 +106,6 @@
               {"name": "amt", "expression": "{{java}}row1.amt", "type": "str", "nullable": true, "length": -1, "precision": -1, "pattern": ""},
               {"name": "name", "expression": "{{java}}row2.name", "type": "str", "nullable": true, "length": -1, "precision": -1, "pattern": ""}
             ]
-          },
-          {
-            "name": "reject",
-            "is_reject": false,
-            "inner_join_reject": true,
-            "filter": "",
-            "activate_filter": false,
-            "columns": [
-              {"name": "cc", "expression": "{{java}}row1.cc", "type": "str", "nullable": true, "length": -1, "precision": -1, "pattern": ""},
-              {"name": "amt", "expression": "{{java}}row1.amt", "type": "str", "nullable": true, "length": -1, "precision": -1, "pattern": ""}
-            ]
           }
         ],
         "die_on_error": true,
@@ -125,16 +114,72 @@
       },
       "schema": {},
       "inputs": ["row1", "row2"],
-      "outputs": ["matched", "reject"],
+      "outputs": ["enriched"],
       "subjob_id": "subjob_1",
       "is_subjob_start": false
     },
     {
-      "id": "out_matched",
+      "id": "conv",
+      "type": "ConvertType",
+      "original_type": "tConvertType",
+      "config": {
+        "autocast": false,
+        "manualtable": [
+          {"input_column": "amt", "output_column": "amt"}
+        ],
+        "emptytonull": false,
+        "dieonerror": false
+      },
+      "schema": {
+        "input": [
+          {"name": "cc", "type": "str", "nullable": true, "key": false, "length": 5},
+          {"name": "amt", "type": "str", "nullable": true, "key": false, "length": 20},
+          {"name": "name", "type": "str", "nullable": true, "key": false, "length": 50}
+        ],
+        "output": [
+          {"name": "cc", "type": "str", "nullable": true, "key": false, "length": 5},
+          {"name": "amt", "type": "str", "nullable": true, "key": false, "length": 20},
+          {"name": "name", "type": "str", "nullable": true, "key": false, "length": 50}
+        ]
+      },
+      "inputs": ["enriched"],
+      "outputs": ["conv_out"],
+      "subjob_id": "subjob_1",
+      "is_subjob_start": false
+    },
+    {
+      "id": "sort",
+      "type": "SortRow",
+      "original_type": "tSortRow",
+      "config": {
+        "criteria": [
+          {"column": "cc", "sort_type": "alpha", "order": "asc"}
+        ],
+        "external": false
+      },
+      "schema": {
+        "input": [
+          {"name": "cc", "type": "str", "nullable": true, "key": false, "length": 5},
+          {"name": "amt", "type": "str", "nullable": true, "key": false, "length": 20},
+          {"name": "name", "type": "str", "nullable": true, "key": false, "length": 50}
+        ],
+        "output": [
+          {"name": "cc", "type": "str", "nullable": true, "key": false, "length": 5},
+          {"name": "amt", "type": "str", "nullable": true, "key": false, "length": 20},
+          {"name": "name", "type": "str", "nullable": true, "key": false, "length": 50}
+        ]
+      },
+      "inputs": ["conv_out"],
+      "outputs": ["sort_out"],
+      "subjob_id": "subjob_1",
+      "is_subjob_start": false
+    },
+    {
+      "id": "out_enriched",
       "type": "FileOutputDelimited",
       "original_type": "tFileOutputDelimited",
       "config": {
-        "filepath": "matched.csv",
+        "filepath": "enriched.csv",
         "fieldseparator": ";",
         "row_separator": "\\n",
         "encoding": "UTF-8",
@@ -152,44 +197,18 @@
         ],
         "output": []
       },
-      "inputs": ["matched"],
-      "outputs": [],
-      "subjob_id": "subjob_1",
-      "is_subjob_start": false
-    },
-    {
-      "id": "out_reject",
-      "type": "FileOutputDelimited",
-      "original_type": "tFileOutputDelimited",
-      "config": {
-        "filepath": "reject.csv",
-        "fieldseparator": ";",
-        "row_separator": "\\n",
-        "encoding": "UTF-8",
-        "include_header": true,
-        "append": false,
-        "csv_option": false,
-        "create_directory": true,
-        "file_exist_exception": false
-      },
-      "schema": {
-        "input": [
-          {"name": "cc", "type": "str", "nullable": true, "key": false, "length": 5},
-          {"name": "amt", "type": "str", "nullable": true, "key": false, "length": 20}
-        ],
-        "output": []
-      },
-      "inputs": ["reject"],
+      "inputs": ["sort_out"],
       "outputs": [],
       "subjob_id": "subjob_1",
       "is_subjob_start": false
     }
   ],
   "flows": [
-    {"name": "row1", "from": "in_main", "to": "tmap", "type": "flow"},
+    {"name": "row1", "from": "in_source", "to": "tmap", "type": "flow"},
     {"name": "row2", "from": "in_lookup", "to": "tmap", "type": "flow"},
-    {"name": "matched", "from": "tmap", "to": "out_matched", "type": "flow"},
-    {"name": "reject", "from": "tmap", "to": "out_reject", "type": "flow"}
+    {"name": "enriched", "from": "tmap", "to": "conv", "type": "flow"},
+    {"name": "conv_out", "from": "conv", "to": "sort", "type": "flow"},
+    {"name": "sort_out", "from": "sort", "to": "out_enriched", "type": "flow"}
   ],
   "triggers": [],
   "java_config": {
