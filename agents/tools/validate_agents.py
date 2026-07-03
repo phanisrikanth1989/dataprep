@@ -23,7 +23,10 @@ def parse_frontmatter(text: str) -> dict:
     parts = text.split("---", 2)
     if len(parts) < 3:
         raise ValueError("unterminated frontmatter block")
-    data = yaml.safe_load(parts[1])
+    try:
+        data = yaml.safe_load(parts[1])
+    except yaml.YAMLError as exc:
+        raise ValueError(f"malformed frontmatter YAML: {exc}") from exc
     if not isinstance(data, dict):
         raise ValueError("frontmatter is not a mapping")
     return data
@@ -77,6 +80,8 @@ def validate_tree(agents_dir, skills_dir) -> list:
     """Validate all agents + skills and cross-check orchestrator `agents:` references."""
     errors: list = []
     agents_dir, skills_dir = Path(agents_dir), Path(skills_dir)
+    if not agents_dir.exists():
+        return [f"agents dir not found: {agents_dir}"]
     names = set()
     allowlists = []
     for af in sorted(agents_dir.glob("*.agent.md")):
@@ -98,4 +103,5 @@ def validate_tree(agents_dir, skills_dir) -> list:
         for ref in allow:
             if ref != "*" and ref not in names:
                 errors.append(f"{fname}: agents: references unknown agent {ref!r}")
+    logger.debug("validate_tree scanned %s: %d error(s)", agents_dir, len(errors))
     return errors

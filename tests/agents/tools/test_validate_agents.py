@@ -39,3 +39,38 @@ def test_missing_description_flagged():
 def test_skill_name_must_match_dir():
     text = "---\nname: other-name\ndescription: d\n---\nbody\n"
     assert any("match" in e for e in validate_skill(text, "dataprep-recon"))
+
+
+def test_malformed_yaml_is_reported_not_crashed():
+    text = "---\ntools: [edit/files, search\nname: x\n---\nbody\n"   # unclosed bracket
+    errs = validate_agent(text, "x.agent.md")                        # must NOT raise
+    assert errs and any("x.agent.md" in e for e in errs)
+
+
+def _write(p, text):
+    p.parent.mkdir(parents=True, exist_ok=True); p.write_text(text, encoding="utf-8")
+
+
+def test_validate_tree_clean_and_flags_unknown_ref(tmp_path):
+    from agents.tools.validate_agents import validate_tree
+    ad = tmp_path / "agents"; sd = tmp_path / "skills"
+    _write(ad / "configurator.agent.md", "---\nname: configurator\ndescription: d\nuser-invocable: false\n---\nb\n")
+    _write(ad / "orch.agent.md", "---\nname: orch\ndescription: d\nagents: ['configurator']\n---\nb\n")
+    _write(sd / "dataprep-recon" / "SKILL.md", "---\nname: dataprep-recon\ndescription: d\n---\nb\n")
+    assert validate_tree(ad, sd) == []
+    # now point the orchestrator at a ghost
+    _write(ad / "orch.agent.md", "---\nname: orch\ndescription: d\nagents: ['ghost']\n---\nb\n")
+    assert any("ghost" in e for e in validate_tree(ad, sd))
+
+
+def test_validate_tree_missing_dir_flagged(tmp_path):
+    from agents.tools.validate_agents import validate_tree
+    assert any("not found" in e for e in validate_tree(tmp_path / "nope", tmp_path / "s"))
+
+
+def test_validate_tree_tolerates_malformed_file(tmp_path):
+    from agents.tools.validate_agents import validate_tree
+    ad = tmp_path / "agents"; sd = tmp_path / "skills"; sd.mkdir(parents=True)
+    _write(ad / "bad.agent.md", "---\ntools: [oops\n---\nb\n")     # malformed yaml
+    errs = validate_tree(ad, sd)                                   # must NOT raise
+    assert any("bad.agent.md" in e for e in errs)
