@@ -1,0 +1,40 @@
+# Backlog: Copilot ETL Agents — deferred items
+
+- **Date:** 2026-07-03
+- **Branch:** `feature/copilot-etl-agents`
+- **Companion to:** `2026-07-03-copilot-etl-agents-design.md`
+
+Deferred per owner decision. **Section A** (engine changes) is delegated to the DataPrep engine team and is NOT on the agent-system critical path. **Section B** (agent-system follow-ups) folds into the implementation plan for this project. All items were surfaced by the adversarial review and verified against engine source; the specs below are the *corrected* versions.
+
+---
+
+## A. Engine changes (owner: engine team; deferred)
+
+Each is additive, must clear the 95% per-module coverage gate, and must preserve Talend parity + the no-re-conversion constraint. Anchors verified against current source.
+
+| # | Change | Corrected spec (do NOT implement the naive version) | Anchors |
+|---|---|---|---|
+| A1 | Raise on non-equality tMap join `operator` | Predicate is `raise if operator not in {"", "=", "=="}`. The converter emits `operator:""` by default, so `!= "="` would raise on **every existing converted job**. Only real inequality ops (`<,<=,>,>=,!=,STARTS_WITH,...`) raise. | `map_config.py:38,115`; `validate_config`; `map.py:106,113` (converter default) |
+| A2 | Cartesian-size guard on equality joins | Guard **only the `ALL_MATCHES` branch**, estimating real per-key fan-out (groupby-count product), NOT `main_n*lookup_n`. UNIQUE/FIRST/LAST already dedup the lookup, so no explosion is possible there; the naive product-guard false-fails ordinary large recon joins incl. Phase A. | `map_joins.py:150-231,240-333` (equality paths, no guard); `:446-463` (dedup); `:546-559` (existing product guard — do not reuse as-is) |
+| A3 | Injectable frozen clock + seed (test mode) | Hook `TalendDate.getCurrentDate` + `RandomUtils`; **also pin the subprocess JVM `-Duser.timezone`/`-Duser.language` to the Talend PROD values** (date *formatting* uses `TimeZone.getDefault()`/`Locale.getDefault()`), and enumerate ALL time/random routines (`getDate`, `getRandomDate`, `TalendString.getAsciiRandomString`'s `SecureRandom`), not just three. | `TalendDate.java:1149,125,1134`; `RandomUtils.java:49`; `TalendString.java:80` |
+| A4 | Persist structured error records | Additively record `component_id + exception class + cause` into `execution_stats` (today only `str(e)`; the cause class is dropped). The cause chain is already walked two lines away for the tDie/exit_code path. | `executor.py:746-780` |
+| A5 | Force `die_on_error=True` on allowlisted recon tMaps, + two coupled holes | (a) Re-raise the **RELOAD per-row** expression swallow so a bad row does not become a silent break; (b) the recon slice must **ban `catch_output_reject`** outputs on tMaps (it cancels the `die_on_error` raise and captures errors), and the oracle must treat that flow as errors-only, never breaks. | `map_joins.py:722-727` (RELOAD swallow); `map_compiled_script.py:405,511-514` (`has_error_tracking`); `map_config.py:69-78` (reject flavors) |
+
+Note: "duplicate-key break" is NOT an engine change — it is a pattern (`UniqueRow`/`AggregateRow` count -> route-to-break) built from existing components. It lives in the pattern library (design Section 11.3), not here.
+
+Until A1-A5 land, the agent system gates the phases that depend on them (esp. Phase B tolerance and deterministic-run tests); Phases 0-2 scaffolding (roles, knowledge, harness on 1:1 data with a fixed clock supplied at the config level) do not block on them.
+
+---
+
+## B. Agent-system design follow-ups (owner: this project; fold into the implementation plan)
+
+- **Knowledge extractor:** only tMap has typed dataclasses (`map_config.py`); the other 10 allowlisted recon transforms read `self.config.get(...)` with partial docstrings and no key manifest. Build a **reflect/probe extractor** (import the module, reflect enum dicts like `filter_rows.py:32-48` `_OPERATOR_MAP`, probe `_validate_config` with candidate configs) OR ship a **hand-curated key manifest per recon component**, drift-checked against `_validate_config`. Even for tMap, **union the dataclass fields with the component's direct `self.config.get` reads** (`rows_buffer_size`/`output_chunk_size` are read but not dataclass fields — `map_component.py:45`).
+- **Behavioral round-trip = regression tripwire only.** `BaseComponent` enforces no unknown/required-key contract (every read is `self.config.get(k, default)`), so the round-trip cannot observe accepted/ignored/required keys as a schema oracle. Use it as a coarse regression check on pinned golden configs; add `self.config.get` access tracing if real key-usage observation is needed.
+- **Cache key must cover the intra-boundary repair loop.** Include prior-draft hash + the single targeted-error id + turn index (or bypass cache on repair turns, memoizing only accepted outputs). The 5-term outer key freezes the adaptive-repair loop on a cache hit. Show the **full validation-error set per repair turn** (or add a repair-regression guard) to avoid one-error-at-a-time oscillation.
+- **Derived-facts residual:** the derived-facts approach assumes every value-literal the config needs (categorical domains, thresholds) is present in the **doc rule text**. If a rule needs a data-derived domain not in the doc, detect it up front and **route to human** rather than looping blind. Treat sample-derived uniqueness as **provisional** — only a **doc-declared** key constraint may suppress the duplicate-break flag.
+- **Reference matcher grounding:** the mutation-row oracle-of-oracle is a second re-implementation; ground the boundary/tie-break/null expectations against **one real Talend run** (ties to the "obtain a real recon job" open item). Downgrade design Sec 8.2 "validate correctness" wording to match the Sec 15 honest ceiling.
+- **`skipped` by set-difference** must subtract subjob-unreachable + `job_aborted` cascades, else any RunIf/OnComponentOk branch false-alarms as a "silently dropped component."
+- **Keyless tolerance** (match on amount/date within tolerance, no shared ID) is real recon, not expressible as exact-join-plus-split, and not auto-flagged: add an ambiguity flag "tolerance rule with no exact key -> human," and/or admit guarded `FILTER_AS_MATCH` (`map_joins.py:571`) as a Phase-D pattern.
+- **Tolerance pattern must pin `LEFT_OUTER_JOIN`** — under `INNER_JOIN`, join-misses divert to the separate `inner_join_reject` channel that bypasses the active script, so `is_reject` would miss them (`map_component.py:146-157,237-238`).
+- **Golden coverage:** grow to one golden job **per shipped pattern** (Sec 11.3) as the library grows; run the model-capability preflight **N>=2**.
+- **Opaque model id:** if the Copilot boundary exposes only a coarse model id, fold the preflight probe's **output hash** into `model_id` so a silent model swap invalidates cache + triggers freshness.

@@ -147,9 +147,9 @@ Single load surface `.claude/skills/<name>/SKILL.md`; generated schemas/golden j
 
 ---
 
-## 7. Engine Changes Workstream (authorized)
+## 7. Engine Changes (DEFERRED to backlog — owned by the engine team)
 
-Bounded, additive changes to the production engine, each shipped through the **95% per-module coverage gate**:
+Bounded, additive production-engine changes the agent system assumes will land. **Deferred and delegated per the owner's decision** — tracked with corrected, parity-safe predicates in `2026-07-03-copilot-etl-agents-backlog.md` **Section A** (and the non-engine follow-ups in **Section B**). They are NOT on the agent-system critical path: until they land, the phases that depend on them (esp. Phase B tolerance, deterministic-run tests) are gated, while Phases 0-2 scaffolding (roles, knowledge, harness on 1:1 data with a config-level fixed clock) proceed. Summary of the deferred set:
 
 | Change | Why | Anchor |
 |---|---|---|
