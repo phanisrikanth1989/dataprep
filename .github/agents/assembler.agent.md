@@ -34,7 +34,8 @@ Write `agents/work/<job>/job.json` = the draft PLUS the envelope. Follow
   Use `"type": "flow"` -- `"type": "main"` routes nothing.
 - Every component carries `inputs` and `outputs` lists that reference flow NAMES (not component ids).
 - A tMap one-sided break is an output with `"inner_join_reject": true` (NOT `is_reject`, which stays
-  empty on a join miss).
+  empty on a join miss). Keep the two distinct: a join-miss break -> `inner_join_reject`; a
+  business/tolerance break -> the configurator's `is_reject`; never interchange them.
 - A reject is a data flow: wire it as a flow with `"type": "reject"`, never as an error trigger.
 
 ## Rules

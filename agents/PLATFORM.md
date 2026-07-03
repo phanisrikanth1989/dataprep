@@ -144,8 +144,12 @@ All stages read and write JSON files under one flat, agent-readable work dir,
 
 ### 1.5 The deterministic tools
 
-Python tools under `agents/tools/`. The four run-via-terminal CLIs are what the agents invoke
-(auto-approved terminal); the two library modules are the local build/CI gate.
+Python tools under `agents/tools/`. The four pipeline CLIs (extract_doc, validate_config,
+run_and_validate, render_skills) are what the specialists invoke from the auto-approved terminal.
+The remaining two split by role -- they are NOT one "gate": `validate_agents` is the library-only
+CI/frontmatter gate (runs in the test suite, never invoked by an agent), while `audit_log` is a
+RUNTIME contract the orchestrator calls -- now via `python -m agents.tools.audit_log` -- to append
+each audit line (safety net 2).
 
 | Tool | Invocation | Role |
 |------|-----------|------|
@@ -154,7 +158,7 @@ Python tools under `agents/tools/`. The four run-via-terminal CLIs are what the 
 | run_and_validate | `python -m agents.tools.run_and_validate --job job.json --golden-dir DIR --out test_report.json` | The PASS/FAIL oracle: whole-job parity vs golden. Exit 0 pass / 1 fail / 2 load error. |
 | render_skills | `python -m agents.tools.render_skills` | Regenerates `.github/skills/dataprep-recon/` from the live schemas + landmines (enum_refs resolved). |
 | validate_agents | `agents.tools.validate_agents.validate_tree(agents_dir, skills_dir)` (library) | Frontmatter + model-agnostic gate over all `.agent.md`/`SKILL.md`; cross-checks the `agents:` allowlist. Runs in the test suite / CI. |
-| audit_log | `agents.tools.audit_log.AuditLog(job_dir).record/read` (library) | The append-only JSONL audit trail contract (safety net 2). |
+| audit_log | `python -m agents.tools.audit_log --job-dir D --iteration N --role R --event E [--detail JSON]` (orchestrator runtime); `AuditLog(job_dir).record/read` as a library | The append-only JSONL audit trail (safety net 2) -- a runtime contract, not a CI gate. |
 
 ---
 

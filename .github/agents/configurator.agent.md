@@ -62,4 +62,6 @@ Respect each landmine, notably:
 - Set `join_mode` to exactly `LEFT_OUTER_JOIN` or `INNER_JOIN`; any other string degrades silently.
 - Emit a tMap output column's date format under `pattern` (not `date_pattern`, which is unwired).
 - Use `is_reject` / complementary output filters for business breaks; never `catch_output_reject`
-  (it captures expression errors only and cancels die-on-error).
+  (it captures expression errors only and cancels die-on-error). Do not conflate with the
+  assembler's `inner_join_reject` (business/tolerance break -> `is_reject`; a join-miss break ->
+  `inner_join_reject`; never interchange them).

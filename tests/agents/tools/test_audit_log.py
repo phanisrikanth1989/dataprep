@@ -24,3 +24,12 @@ def test_read_skips_malformed_partial_line(tmp_path):
         fh.write('{"iteration": 2, "role": "test-ru')
     rows = log.read()          # must NOT raise
     assert len(rows) == 1 and rows[0]["role"] == "configurator"
+
+
+def test_cli_appends_entry(tmp_path):
+    from agents.tools.audit_log import main, AuditLog
+    rc = main(["--job-dir", str(tmp_path), "--iteration", "1", "--role", "configurator",
+               "--event", "artifact_written", "--detail", '{"file": "job.json"}'])
+    assert rc == 0
+    rows = AuditLog(str(tmp_path)).read()
+    assert len(rows) == 1 and rows[0]["role"] == "configurator" and rows[0]["detail"]["file"] == "job.json"
