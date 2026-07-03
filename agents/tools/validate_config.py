@@ -75,3 +75,30 @@ def validate_config(component_type: str, config: dict, strict: bool = True) -> l
         elif name in config:
             _check_key(name, config[name], spec, errors, strict)
     return errors
+
+
+def main(argv=None) -> int:
+    """CLI: validate a component config JSON file against its curated schema."""
+    import argparse
+    import json
+    import sys
+
+    parser = argparse.ArgumentParser(description="Validate a component config against its schema.")
+    parser.add_argument("--type", required=True, help="component type (or alias)")
+    parser.add_argument("--config", required=True, help="path to a JSON file holding the component config dict")
+    parser.add_argument("--loose", action="store_true", help="strict=False (skip the unknown-key check)")
+    args = parser.parse_args(argv)
+    try:
+        with open(args.config, encoding="utf-8") as fh:
+            config = json.load(fh)
+    except (OSError, ValueError) as exc:
+        sys.stderr.write(f"cannot read config {args.config!r}: {exc}\n")
+        return 2
+    errors = validate_config(args.type, config, strict=not args.loose)
+    sys.stdout.write(json.dumps({"type": args.type, "valid": not errors, "errors": errors}) + "\n")
+    return 0 if not errors else 1
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())
