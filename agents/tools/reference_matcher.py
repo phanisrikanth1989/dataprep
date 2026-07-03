@@ -26,11 +26,12 @@ def match_phase_a(main: pd.DataFrame, lookup: pd.DataFrame, keys: list, on_multi
 
     Returns:
         {"matched": DataFrame, "breaks": DataFrame (with break_reason), "stats": {...}}.
+        On a non-key column-name collision between ``main`` and ``lookup``,
+        ``matched`` carries the two sides as ``<col>_main`` / ``<col>_lookup``.
     """
     if on_multi not in _VALID_ON_MULTI:
         raise ValueError(f"on_multi must be one of {_VALID_ON_MULTI}, got {on_multi!r}")
     main_cols = list(main.columns)
-    lookup_extra = [c for c in lookup.columns if c not in keys]
 
     # count lookup matches per key tuple
     counts = lookup.groupby(keys, dropna=False).size().rename("_n").reset_index()
@@ -53,11 +54,11 @@ def match_phase_a(main: pd.DataFrame, lookup: pd.DataFrame, keys: list, on_multi
 
     # join matched_seed to lookup for the carried lookup columns
     if on_multi == "all":
-        matched = matched_seed[main_cols].merge(lookup, on=keys, how="inner")
+        matched = matched_seed[main_cols].merge(lookup, on=keys, how="inner", suffixes=("_main", "_lookup"))
     else:
         # first-match: one lookup row per key
         first_lookup = lookup.drop_duplicates(subset=keys, keep="first")
-        matched = matched_seed[main_cols].merge(first_lookup, on=keys, how="inner")
+        matched = matched_seed[main_cols].merge(first_lookup, on=keys, how="inner", suffixes=("_main", "_lookup"))
 
     breaks = pd.concat(break_frames, ignore_index=True) if break_frames else pd.DataFrame(columns=main_cols + ["break_reason"])
     stats = {

@@ -34,3 +34,12 @@ def test_on_multi_break_flags_duplicate():
     r = match_phase_a(_main(), lookup, keys=["cc"], on_multi="break")
     assert r["stats"] == {"n_matched": 1, "n_break_no_match": 1, "n_break_multi": 1}
     assert set(r["breaks"].loc[r["breaks"]["break_reason"] == "multi_match", "cc"]) == {"US"}
+
+
+def test_shared_non_key_column_gets_deterministic_suffixes():
+    main = pd.DataFrame({"cc": ["US"], "src": ["A"]})
+    lookup = pd.DataFrame({"cc": ["US"], "src": ["B"], "name": ["United States"]})
+    r = match_phase_a(main, lookup, keys=["cc"])
+    cols = set(r["matched"].columns)
+    assert "src_main" in cols and "src_lookup" in cols
+    assert "src_x" not in cols and "src_y" not in cols
