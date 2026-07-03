@@ -21,6 +21,7 @@ REQUIRED_BLOCKS = ("Inputs and Schema", "Transformation Rules", "Sample Input", 
 
 @dataclass
 class ColumnSpec:
+    """A parsed schema column (name/type/nullable/key)."""
     name: str
     type: str
     nullable: bool = True
@@ -29,12 +30,14 @@ class ColumnSpec:
 
 @dataclass
 class ConformanceReport:
+    """The result of the requirements-doc conformance check."""
     ok: bool
     missing_blocks: list = field(default_factory=list)
     parse_errors: list = field(default_factory=list)
 
 
 class ConformanceError(Exception):
+    """Raised when the doc fails the conformance gate; carries `.report`."""
     def __init__(self, report: ConformanceReport):
         self.report = report
         super().__init__(
