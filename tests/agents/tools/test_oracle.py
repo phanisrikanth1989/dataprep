@@ -24,6 +24,33 @@ def test_keyed_diff_fails_loud_on_non_unique_key():
     assert d["equal"] is False and "unique" in d.get("reason", "")
 
 
+def test_keyed_diff_flags_extra_actual_column():
+    exp = pd.DataFrame({"cc": ["US"], "name": ["A"]})
+    act = pd.DataFrame({"cc": ["US"], "name": ["A"], "leaked": ["X"]})
+    d = diff_frames(act, exp, keys=["cc"])
+    assert d["equal"] is False
+
+
+def test_bag_mode_column_order_insensitive():
+    exp = pd.DataFrame({"a": ["1"], "b": ["2"]})
+    act = pd.DataFrame({"b": ["2"], "a": ["1"]})
+    assert diff_frames(act, exp, keys=None)["equal"] is True
+
+
+def test_bag_mode_flags_column_name_mismatch():
+    exp = pd.DataFrame({"a": ["1"]})
+    act = pd.DataFrame({"z": ["1"]})
+    assert diff_frames(act, exp, keys=None)["equal"] is False
+
+
+def test_cli_missing_golden_dir_returns_two(tmp_path, capsys):
+    from agents.tools.run_and_validate import main
+    job = tmp_path / "job.json"
+    job.write_text('{"components": [], "flows": []}')
+    rc = main(["--job", str(job), "--golden-dir", str(tmp_path / "nope")])
+    assert rc == 2
+
+
 def _rr(outputs, status="success", dropped=None, comp_err=None):
     cs = {"c": {"status": "error"}} if comp_err else {}
     return RunResult(status=status, outputs=outputs, dropped_components=dropped or [], component_stats=cs)

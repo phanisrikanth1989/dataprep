@@ -156,13 +156,24 @@ def diff_frames(actual, expected, keys):
         return {"equal": False, "missing": int(len(expected)), "unexpected": 0, "value_mismatch": 0,
                 "reason": "no actual output"}
     if not keys:
-        a, e = _bag(actual), _bag(expected)
+        # Bag equality must be column-NAME aware, not column-ORDER dependent: a
+        # different set of column names is a mismatch even with equal values, and
+        # a mere column reorder is not. Canonicalize actual onto expected's column
+        # order before bagging so order is irrelevant but names are enforced.
+        if set(actual.columns) != set(expected.columns):
+            return {"equal": False, "reason": "column set mismatch",
+                    "actual_rows": len(actual), "expected_rows": len(expected)}
+        a = _bag(actual[list(expected.columns)])
+        e = _bag(expected)
         return {"equal": a == e, "actual_rows": len(actual), "expected_rows": len(expected)}
     exp = expected.astype(str).set_index(keys, drop=False)
     act = actual.astype(str).set_index(keys, drop=False)
     if exp.index.has_duplicates or act.index.has_duplicates:
         return {"equal": False, "missing": 0, "unexpected": 0, "value_mismatch": 0,
                 "reason": f"declared key {keys} is not unique in expected/actual"}
+    # A column present in ACTUAL but not EXPECTED is never value-checked below
+    # (the loop iterates expected's columns), so it would silently pass. Flag it.
+    extra_cols = [c for c in actual.columns if c not in expected.columns]
     missing = exp.index.difference(act.index)
     unexpected = act.index.difference(exp.index)
     common = exp.index.intersection(act.index)
@@ -172,8 +183,9 @@ def diff_frames(actual, expected, keys):
         er, ar = exp.loc[[idx]].iloc[0], act.loc[[idx]].iloc[0]
         if any(er.get(c) != ar.get(c) for c in cols):
             mismatch += 1
-    return {"equal": len(missing) == 0 and len(unexpected) == 0 and mismatch == 0,
-            "missing": int(len(missing)), "unexpected": int(len(unexpected)), "value_mismatch": int(mismatch)}
+    return {"equal": len(missing) == 0 and len(unexpected) == 0 and mismatch == 0 and len(extra_cols) == 0,
+            "missing": int(len(missing)), "unexpected": int(len(unexpected)), "value_mismatch": int(mismatch),
+            "unexpected_columns": extra_cols}
 
 
 def check(run_result, expected, output_map, keys) -> dict:
@@ -217,24 +229,35 @@ def main(argv=None) -> int:
     parser.add_argument("--out", help="write test_report JSON here (default: stdout)")
     args = parser.parse_args(argv)
 
-    with open(args.job, encoding="utf-8") as fh:
-        job = json.load(fh)
-    gdir = Path(args.golden_dir)
-    manifest = json.loads((gdir / "manifest.json").read_text(encoding="utf-8"))
-    expected, output_map, keys = {}, {}, {}
-    for name, spec in manifest["outputs"].items():
-        sep = spec.get("sep", ",")
-        expected[name] = pd.read_csv(gdir / f"{name}_expected.csv", sep=sep, dtype=str, keep_default_na=False)
-        output_map[name] = spec["component"]
-        keys[name] = spec.get("keys")
+    def _emit(payload: dict) -> None:
+        out_text = json.dumps(payload, indent=2, default=str)
+        if args.out:
+            Path(args.out).write_text(out_text, encoding="utf-8")
+        else:
+            sys.stdout.write(out_text + "\n")
+
+    # Loading the job, manifest, and golden expected CSVs is all I/O + parsing on
+    # user-supplied paths. A missing/malformed manifest.json, absent golden dir,
+    # or missing <name>_expected.csv must produce a clean exit 2 (contract parity
+    # with validate_config), not a traceback.
+    try:
+        with open(args.job, encoding="utf-8") as fh:
+            job = json.load(fh)
+        gdir = Path(args.golden_dir)
+        manifest = json.loads((gdir / "manifest.json").read_text(encoding="utf-8"))
+        expected, output_map, keys = {}, {}, {}
+        for name, spec in manifest["outputs"].items():
+            sep = spec.get("sep", ",")
+            expected[name] = pd.read_csv(gdir / f"{name}_expected.csv", sep=sep, dtype=str, keep_default_na=False)
+            output_map[name] = spec["component"]
+            keys[name] = spec.get("keys")
+    except (OSError, ValueError, KeyError) as exc:
+        _emit({"passed": False, "error": str(exc)})
+        return 2
 
     run_result = run_job_capture(job, gdir)
     report = check(run_result, expected, output_map, keys)
-    text = json.dumps(report, indent=2, default=str)
-    if args.out:
-        Path(args.out).write_text(text, encoding="utf-8")
-    else:
-        sys.stdout.write(text + "\n")
+    _emit(report)
     return 0 if report["passed"] else 1
 
 
