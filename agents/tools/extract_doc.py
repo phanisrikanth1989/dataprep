@@ -1,0 +1,80 @@
+"""Deterministic extraction of a recon requirements .docx into structured data.
+
+Real sample/expected rows are returned for LOCAL oracle use only and must never
+be sent to a model. Derived structural facts (Task 5) are what downstream LLM
+roles receive.
+"""
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+
+from docx.oxml.table import CT_Tbl
+from docx.oxml.text.paragraph import CT_P
+from docx.table import Table
+from docx.text.paragraph import Paragraph
+
+logger = logging.getLogger(__name__)
+
+REQUIRED_BLOCKS = ("Inputs and Schema", "Transformation Rules", "Sample Input", "Expected Output")
+
+
+@dataclass
+class ColumnSpec:
+    name: str
+    type: str
+    nullable: bool = True
+    key: bool = False
+
+
+@dataclass
+class ConformanceReport:
+    ok: bool
+    missing_blocks: list = field(default_factory=list)
+    parse_errors: list = field(default_factory=list)
+
+
+class ConformanceError(Exception):
+    def __init__(self, report: ConformanceReport):
+        self.report = report
+        super().__init__(
+            f"[extract_doc] conformance failed: missing={report.missing_blocks} "
+            f"errors={report.parse_errors}"
+        )
+
+
+def _iter_block_items(doc):
+    for child in doc.element.body.iterchildren():
+        if isinstance(child, CT_P):
+            yield Paragraph(child, doc)
+        elif isinstance(child, CT_Tbl):
+            yield Table(child, doc)
+
+
+def _heading_level(paragraph):
+    style = paragraph.style
+    name = (style.name or "") if style is not None else ""
+    if name.startswith("Heading "):
+        try:
+            return int(name.split(" ", 1)[1])
+        except ValueError:
+            return None
+    return None
+
+
+def _read_sections(doc):
+    sections = {}
+    current_h1 = None
+    current_h2 = None
+    for block in _iter_block_items(doc):
+        if isinstance(block, Paragraph):
+            level = _heading_level(block)
+            if level == 1:
+                current_h1 = block.text.strip()
+                current_h2 = None
+                sections.setdefault(current_h1, [])
+            elif level == 2:
+                current_h2 = block.text.strip()
+        elif isinstance(block, Table) and current_h1 is not None:
+            sections[current_h1].append((current_h2, block))
+    return sections
