@@ -21,7 +21,7 @@ def _check_key(name: str, value, spec: dict, errors: list) -> None:
         return
     allowed = _valid_values(spec)
     if allowed is not None and value not in allowed:
-        errors.append(f"key {name!r}: value {value!r} not in allowed {sorted(allowed)}")
+        errors.append(f"key {name!r}: value {value!r} not in allowed {sorted(allowed, key=str)}")
     if spec.get("type") == "list" and "item_keys" in spec:
         for i, item in enumerate(value):
             if not isinstance(item, dict):

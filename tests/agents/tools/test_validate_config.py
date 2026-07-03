@@ -32,3 +32,8 @@ def test_out_of_enum_operator_flagged():
 def test_nested_missing_required_column():
     cfg = {"conditions": [{"operator": "=="}]}   # column required per item
     assert any("column" in e for e in validate_config("FilterRows", cfg))
+
+
+def test_invalid_uniquerow_keep_returns_error_not_crash():
+    errs = validate_config("UniqueRow", {"keep": "bogus"})   # must NOT raise
+    assert any("keep" in e for e in errs)
