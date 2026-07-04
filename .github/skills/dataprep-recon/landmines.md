@@ -20,5 +20,7 @@
   - guidance: Put matching_mode/lookup_mode on each inputs.lookups[] entry; a value on inputs.main is silently ignored and the lookup defaults to UNIQUE_MATCH/LOAD_ONCE.
 - **sortrow-alpha-default** (SortRow): SortRow sort_type defaults to 'alpha' (lexicographic); numeric/date columns mis-sort as strings
   - guidance: Set sort_type to 'num' or 'date' for any non-string sort column ('10' sorts before '9', dates non-chronologically under alpha). The order-insensitive oracle will NOT catch a mis-typed sort.
+- **sortrow-external-noop** (SortRow): SortRow `external` (external/disk sort) is NOT implemented -- accepted but ignored; SortRow always sorts fully in memory
+  - guidance: Do not rely on `external` for large-input memory relief; there is none. Shrink the input upstream or expect full in-memory sort.
 - **reject-is-a-data-flow** (GLOBAL): Reject is a data flow (type 'reject'), not a trigger; it routes through flows[], not triggers[].
   - guidance: Wire rejects as flows with type 'reject', not as OnComponentError triggers.

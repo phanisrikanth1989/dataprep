@@ -1,5 +1,8 @@
 # Knowledge Layer (curated config schemas + validator) Implementation Plan
 
+> **SUPERSEDED IN PART (2026-07-03) -- see `docs/superpowers/specs/2026-07-03-enrichment-scope-correction.md`.**
+> This plan is historical in part. The curated-schema / config-key validator / drift-checker / landmine-registry machinery it builds SHIPPED and is live; but the roadmap in "Next plans" at the foot predates the 1.122 native-platform pivot and the enrichment correction -- the `reference_matcher` and the standalone MCP-server plan it names were DROPPED. See the corrected 4-plan set in that section. Do not rewrite the body.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** Build the code-verified knowledge layer for the recon slice — curated per-component config schemas, a config-key validator that catches hallucinated/invalid config *before* the engine runs, a drift-checker that keeps the schemas honest against the engine source, and a landmine registry.
@@ -531,4 +534,4 @@ git commit -m "feat(agents): code-verified landmine registry for the recon slice
 **3. Type consistency:** `load_schema`, `resolve_enum_ref`, `BASE_KEYS`, `IGNORED_KEYS`, `validate_config(component_type, config, strict)`, `check_drift`, `LANDMINES`, `landmines_for` names/signatures are consistent across tasks.
 
 ## Next plans (not built here)
-3. Test harness + multi-signal oracle + reference matcher (consumes ExtractResult from plan 1 + these schemas). 4. MCP server + preflight. 5. Roles + loop.
+Corrected 4-plan set (post 1.122 pivot / enrichment correction; this is plan 2, already built): 1. `recon-doc-extraction` (`extract_doc`) -- built. 2. `knowledge-layer` (this plan) -- built. 3. `parity-harness` -- multi-signal oracle + run-and-validate (consumes ExtractResult from plan 1 + these schemas). 4. `native-platform` -- roles + deterministic feedback loop on native subagents + Agent Skills. DROPPED at the 1.122 pivot / enrichment correction: the `reference_matcher` (match/break cross-check -- a LEFT-join enrichment keeps all source rows, so there is no independent match) and the standalone MCP-server + sampling-preflight plan (superseded by the native platform).

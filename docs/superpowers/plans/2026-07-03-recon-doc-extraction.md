@@ -1,5 +1,8 @@
 # Recon Doc Extraction (`extract_doc`) Implementation Plan
 
+> **SUPERSEDED IN PART (2026-07-03) -- see `docs/superpowers/specs/2026-07-03-enrichment-scope-correction.md`.**
+> This plan is historical. The rule `kind` enum in this plan body (`Kind is one of match, tolerance, filter, aggregate, derive`, and the `match`/`tolerance` rule fixtures) is the PRE-CORRECTION reconciliation set. The SHIPPED `extract_doc` and `agents/templates/recon_requirements_template.md` use the ENRICHMENT kinds instead: `join | schema_validate | filter | aggregate | sort | derive`. The doc-contract, block iteration, derived-facts, and conformance-gate machinery below remain accurate; only the rule-kind vocabulary was recast by the enrichment correction. Do not rewrite the body.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a deterministic tool that parses a recon requirements `.docx` into structured data (schema, rules, real sample/expected rows, output keys) and computes per-column structural facts — the front door of the Copilot ETL agent system.
