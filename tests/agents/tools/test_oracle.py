@@ -182,3 +182,67 @@ def test_cli_empty_outputs_returns_two(tmp_path):
     rep = json.loads(report_path.read_text())
     assert rep["passed"] is False
     assert "no outputs" in rep["error"]
+
+
+# ---------------------------------------------------------------------------
+# I-a: FileOutputDelimited defaults include_header=False (engine default). The
+# readback must honor that: a headerless output's first line is DATA, not column
+# names, so it is read with header=None and columns ASSIGNED from the sink's
+# declared INPUT schema (a FileOutput writes its input columns). Reading it with
+# pandas' default header=0 would eat the first data row and mislabel the columns.
+# ---------------------------------------------------------------------------
+def test_read_output_headerless_uses_schema_names(tmp_path):
+    from agents.tools.run_and_validate import _read_output
+    (tmp_path / 'o.csv').write_text('US;10\nUK;20\n')   # headerless, ; sep
+    comp = {'id': 'o', 'type': 'FileOutputDelimited',
+            'config': {'filepath': str(tmp_path / 'o.csv'), 'fieldseparator': ';', 'include_header': False},
+            'schema': {'input': [{'name': 'cc'}, {'name': 'amt'}], 'output': []}}
+    df = _read_output(comp)
+    assert list(df.columns) == ['cc', 'amt'] and len(df) == 2 and set(df['cc']) == {'US', 'UK'}
+
+
+def test_read_output_header_true_still_reads_header_row(tmp_path):
+    # include_header=True keeps the current header=0 behavior: the first line names
+    # the columns and is NOT counted as a data row.
+    from agents.tools.run_and_validate import _read_output
+    (tmp_path / 'o.csv').write_text('cc;amt\nUS;10\nUK;20\n')
+    comp = {'id': 'o', 'type': 'FileOutputDelimited',
+            'config': {'filepath': str(tmp_path / 'o.csv'), 'fieldseparator': ';', 'include_header': True},
+            'schema': {'input': [{'name': 'cc'}, {'name': 'amt'}], 'output': []}}
+    df = _read_output(comp)
+    assert list(df.columns) == ['cc', 'amt'] and len(df) == 2 and set(df['cc']) == {'US', 'UK'}
+
+
+def test_read_output_headerless_no_schema_falls_back_to_int_columns(tmp_path):
+    # No declared input schema -> header=None with pandas' default integer columns,
+    # still keeping every data row (no row consumed as a header).
+    from agents.tools.run_and_validate import _read_output
+    (tmp_path / 'o.csv').write_text('US;10\nUK;20\n')
+    comp = {'id': 'o', 'type': 'FileOutputDelimited',
+            'config': {'filepath': str(tmp_path / 'o.csv'), 'fieldseparator': ';', 'include_header': False},
+            'schema': {'input': [], 'output': []}}
+    df = _read_output(comp)
+    assert len(df) == 2 and set(df.iloc[:, 0]) == {'US', 'UK'}
+
+
+def test_diff_frames_missing_key_no_crash():
+    import pandas as pd
+    from agents.tools.run_and_validate import diff_frames
+    d = diff_frames(pd.DataFrame({'wrong': ['x']}), pd.DataFrame({'cc': ['US']}), keys=['cc'])  # must NOT raise
+    assert d['equal'] is False
+    assert 'missing from actual output' in d.get('reason', '')
+
+
+# ---------------------------------------------------------------------------
+# #2/#9: only the delimited FileOutput family is read back. A declared output
+# whose producing component is a registered but NON-delimited writer (Positional/
+# Excel/XML) yields actual=None; check() must emit a clear "delimited only" reason
+# instead of the generic "no actual output" diff.
+# ---------------------------------------------------------------------------
+def test_check_non_delimited_output_gives_clear_reason():
+    exp = {"sheet": pd.DataFrame({"cc": ["US"]})}
+    rr = _rr({})  # nothing harvested -> actual is None
+    rep = check(rr, exp, output_map={"sheet": "xls1"}, keys={"sheet": ["cc"]},
+                output_types={"xls1": "FileOutputExcel"})
+    assert rep["passed"] is False
+    assert any("delimited only" in r for r in rep["reasons"])

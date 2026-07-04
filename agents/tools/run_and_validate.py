@@ -29,6 +29,17 @@ logger = logging.getLogger(__name__)
 # Talend t-prefixed name for the same class).
 _FILE_OUTPUT_TYPES = {"FileOutputDelimited", "tFileOutputDelimited"}
 
+# Registered FileOutput WRITERS whose produced files the readback does NOT harvest
+# (only the delimited family is read back). A declared output pointing at one of
+# these yields actual=None; check() reports a clear "delimited only" reason rather
+# than the generic "no actual output" diff (#2/#9).
+_NON_DELIMITED_OUTPUT_TYPES = {
+    "FileOutputPositional", "tFileOutputPositional",
+    "FileOutputExcel", "tFileOutputExcel",
+    "FileOutputXML", "tFileOutputXML",
+    "AdvancedFileOutputXML", "tAdvancedFileOutputXML",
+}
+
 
 @dataclass
 class RunResult:
@@ -58,6 +69,19 @@ class RunResult:
     raw_stats: dict = field(default_factory=dict)
 
 
+def _header_enabled(value) -> bool:
+    """True when ``include_header`` is on, matching FileOutputDelimited._bool.
+
+    JSON configs may carry booleans as the strings ``"true"``/``"false"``, and
+    Python's ``bool("false")`` is ``True`` -- so a naive truthiness check would
+    mis-read a headerless file whose config said ``"false"``. Coerce the same way
+    the engine does so the readback agrees with how the file was actually WRITTEN.
+    """
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "1", "yes")
+    return bool(value)
+
+
 def _read_output(component: dict):
     """Read a FileOutput component's produced file back into a DataFrame.
 
@@ -66,9 +90,20 @@ def _read_output(component: dict):
     with no pandas type inference. A missing or unreadable file yields None --
     that absence is itself a signal, not a crash.
 
+    Header handling MUST match how the engine wrote the file. FileOutputDelimited
+    defaults ``include_header=False`` (engine default), so a headerless file's
+    first line is DATA, not column names -- reading it with pandas' default
+    ``header=0`` would eat the first data row and mislabel the columns, and a keyed
+    diff would then ``KeyError`` on a key that "vanished". When the header is off,
+    read with ``header=None`` and ASSIGN column names from the sink's DECLARED input
+    columns (a FileOutput writes its INPUT schema); with no declared schema names,
+    fall back to ``header=None`` with pandas' default integer columns.
+
     Args:
-        component: A component config dict with a ``config.filepath`` and an
-            optional ``config.fieldseparator`` (defaults to ";").
+        component: A component config dict with a ``config.filepath``, an optional
+            ``config.fieldseparator`` (defaults to ";"), an optional
+            ``config.include_header`` (defaults False -- the engine default), and a
+            ``schema.input`` column list used to name headerless columns.
 
     Returns:
         A DataFrame of the file's contents, or None if the file is missing or
@@ -79,8 +114,16 @@ def _read_output(component: dict):
     if not path or not Path(path).exists():
         return None
     sep = cfg.get("fieldseparator", ";")
+    header_on = _header_enabled(cfg.get("include_header", False))
     try:
-        return pd.read_csv(path, sep=sep, dtype=str, keep_default_na=False)
+        if header_on:
+            return pd.read_csv(path, sep=sep, dtype=str, keep_default_na=False)
+        names = [c["name"] for c in component.get("schema", {}).get("input", [])
+                 if isinstance(c, dict) and c.get("name")]
+        if names:
+            return pd.read_csv(path, sep=sep, dtype=str, keep_default_na=False,
+                               header=None, names=names)
+        return pd.read_csv(path, sep=sep, dtype=str, keep_default_na=False, header=None)
     except Exception as exc:  # a malformed/empty output file is a signal, not a crash
         logger.warning("[run_and_validate] could not read output %s: %s", path, exc)
         return None
@@ -361,6 +404,13 @@ def diff_frames(actual, expected, keys):
         a = _bag(actual[list(expected.columns)])
         e = _bag(expected)
         return {"equal": a == e, "actual_rows": len(actual), "expected_rows": len(expected)}
+    # A keyed diff needs its key columns present in ACTUAL, else set_index() raises
+    # KeyError. A missing key column -- e.g. a headerless output mis-read, or a
+    # schema mismatch that dropped the key -- is a clean FAIL, not a crash.
+    missing_key_cols = [k for k in keys if k not in actual.columns]
+    if missing_key_cols:
+        return {"equal": False, "missing": int(len(expected)), "unexpected": 0, "value_mismatch": 0,
+                "reason": f"key columns {missing_key_cols} missing from actual output"}
     exp = expected.astype(str).set_index(keys, drop=False)
     act = actual.astype(str).set_index(keys, drop=False)
     if exp.index.has_duplicates or act.index.has_duplicates:
@@ -388,8 +438,16 @@ def diff_frames(actual, expected, keys):
             "unexpected_columns": extra_cols, "missing_columns": missing_cols}
 
 
-def check(run_result, expected, output_map, keys) -> dict:
-    """Multi-signal PASS/FAIL: engine status + no dropped/errored components + per-output diffs."""
+def check(run_result, expected, output_map, keys, output_types=None) -> dict:
+    """Multi-signal PASS/FAIL: engine status + no dropped/errored components + per-output diffs.
+
+    Args:
+        output_types: Optional map of output-component id -> component type. When a
+            declared output's producing component is a registered but NON-delimited
+            FileOutput writer (Positional/Excel/XML), its file is not harvested, so
+            the reason is the clearer "not supported for verification (delimited
+            only)" rather than the generic no-actual-output diff (#2/#9).
+    """
     reasons = []
     if run_result.status != "success":
         reasons.append(f"engine status={run_result.status!r}" + (f": {run_result.error}" if run_result.error else ""))
@@ -403,7 +461,12 @@ def check(run_result, expected, output_map, keys) -> dict:
     for name, exp_df in expected.items():
         comp_id = output_map.get(name)
         actual = run_result.outputs.get(comp_id) if comp_id else None
-        d = diff_frames(actual, exp_df, keys.get(name))
+        ctype = output_types.get(comp_id) if output_types else None
+        if actual is None and ctype in _NON_DELIMITED_OUTPUT_TYPES:
+            d = {"equal": False,
+                 "reason": f"output type {ctype} not supported for verification (delimited only)"}
+        else:
+            d = diff_frames(actual, exp_df, keys.get(name))
         out_diffs[name] = d
         if not d.get("equal", False):
             reasons.append(f"output {name!r} differs: {d}")
@@ -463,7 +526,10 @@ def main(argv=None) -> int:
         # Jail job outputs to the JOB FILE's own directory (its sandbox), not the
         # read-only golden dir -- run_job_capture refuses any output escaping it.
         run_result = run_job_capture(job, Path(args.job).parent)
-        report = check(run_result, expected, output_map, keys)
+        # id -> type, so check() can name a clearer reason when a declared output is a
+        # registered but non-delimited FileOutput writer (unharvested -> actual=None).
+        output_types = {c.get("id"): c.get("type") for c in job.get("components", [])}
+        report = check(run_result, expected, output_map, keys, output_types=output_types)
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         _emit({"passed": False, "error": str(exc)})
         return 2
