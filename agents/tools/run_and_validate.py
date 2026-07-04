@@ -95,44 +95,172 @@ def _dropped_components(components: list) -> list:
     return [c.get("id") for c in components if REGISTRY.get(c.get("type")) is None]
 
 
-def _is_file_output_type(comp_type) -> bool:
-    """True for any file-OUTPUT component -- FileOutputDelimited, FileOutputExcel,
-    ... -- in either the camelCase or the Talend ``t``-prefixed spelling. Used to
-    decide which components' ``filepath`` must be path-jailed to work_dir."""
-    return isinstance(comp_type, str) and (
-        comp_type.startswith("FileOutput") or comp_type.startswith("tFileOutput"))
+# Path-config manifest: for each engine component TYPE (registered under both the
+# camelCase and the Talend ``t``-prefixed spelling), the config keys that hold a
+# FILESYSTEM path. Used to (a) anchor RELATIVE paths under work_dir so the engine
+# reads/writes there regardless of the process CWD, and (b) jail ABSOLUTE paths to
+# work_dir. Keys are the exact ones each component reads from ``self.config``. The
+# earlier jail only covered the FileOutput* family, so ~8 other writers (FileCopy,
+# FileTouch, ChangeFileEncoding, PivotToColumnsDelimited, SwiftTransformer,
+# FileArchive/Unarchive) could write OUTSIDE work_dir with no check -- this closes
+# that gap by naming their write keys too.
+_PATH_CONFIG_KEYS = {
+    # ---- File INPUT (readers) ----
+    "FileInputDelimited": ["filepath"], "tFileInputDelimited": ["filepath"],
+    "FileInputExcel": ["filepath"], "tFileInputExcel": ["filepath"],
+    "FileInputPositional": ["filepath"], "tFileInputPositional": ["filepath"],
+    "FileInputXML": ["filepath"], "tFileInputXML": ["filepath"],
+    "FileInputFullRowComponent": ["filename"], "tFileInputFullRow": ["filename"],
+    "FileInputJSON": ["filename"], "tFileInputJSON": ["filename"],
+    "FileInputMSXML": ["filename"], "tFileInputMSXML": ["filename"],
+    "FileInputProperties": ["filename"], "tFileInputProperties": ["filename"],
+    "FileInputRaw": ["filename"], "tFileInputRaw": ["filename"],
+    # ---- File OUTPUT (writers) ----
+    "FileOutputDelimited": ["filepath"], "tFileOutputDelimited": ["filepath"],
+    "FileOutputPositional": ["filepath"], "tFileOutputPositional": ["filepath"],
+    "FileOutputExcel": ["filename"], "tFileOutputExcel": ["filename"],
+    "FileOutputXML": ["filename"], "tFileOutputXML": ["filename"],
+    "AdvancedFileOutputXML": ["filename"], "tAdvancedFileOutputXML": ["filename"],
+    # ---- Other WRITERS the FileOutput-only jail missed (C1) ----
+    "FileCopy": ["filename", "source_derectory", "source_directory", "source", "destination"],
+    "tFileCopy": ["filename", "source_derectory", "source_directory", "source", "destination"],
+    "FileTouch": ["filename", "FILENAME"], "tFileTouch": ["filename", "FILENAME"],
+    "ChangeFileEncoding": ["infile_name", "outfile_name"],
+    "tChangeFileEncoding": ["infile_name", "outfile_name"],
+    "PivotToColumnsDelimited": ["filename"], "tPivotToColumnsDelimited": ["filename"],
+    "SwiftTransformer": ["config_file", "output_file"],
+    "tSwiftDataTransformer": ["config_file", "output_file"],
+    "FileArchive": ["source", "target"], "FileArchiveComponent": ["source", "target"],
+    "tFileArchive": ["source", "target"],
+    "FileUnarchive": ["zipfile", "directory"], "FileUnarchiveComponent": ["zipfile", "directory"],
+    "tFileUnarchive": ["zipfile", "directory"],
+    # ---- File-operation components (walkers / deleters / probes) ----
+    "FileDelete": ["path", "PATH", "directory", "DIRECTORY", "filename", "FILENAME"],
+    "tFileDelete": ["path", "PATH", "directory", "DIRECTORY", "filename", "FILENAME"],
+    "FileExistComponent": ["file_name", "file_path", "FILE_NAME"],
+    "FileExist": ["file_name", "file_path", "FILE_NAME"],
+    "tFileExist": ["file_name", "file_path", "FILE_NAME"],
+    "FileList": ["DIRECTORY", "directory"], "tFileList": ["DIRECTORY", "directory"],
+    "FileProperties": ["filename"], "tFileProperties": ["filename"],
+    "FileRowCount": ["filename"], "tFileRowCount": ["filename"],
+}
+
+# FileOutput-family target files eligible for idempotent PRE-deletion (map TYPE ->
+# the single config key holding the produced file). FileOutputDelimited defaults
+# ``file_exist_exception=True``, so a stale target from a prior run would raise on
+# re-run; deleting a confirmed-inside-work_dir target first keeps re-runs green (I2).
+_OUTPUT_FILE_TARGET_KEY = {
+    "FileOutputDelimited": "filepath", "tFileOutputDelimited": "filepath",
+    "FileOutputPositional": "filepath", "tFileOutputPositional": "filepath",
+    "FileOutputExcel": "filename", "tFileOutputExcel": "filename",
+    "FileOutputXML": "filename", "tFileOutputXML": "filename",
+    "AdvancedFileOutputXML": "filename", "tAdvancedFileOutputXML": "filename",
+}
 
 
-def _escaping_output_path(components: list, work_dir) -> str | None:
-    """Return the first file-OUTPUT ``filepath`` that resolves OUTSIDE work_dir, else None.
+def _jail_value(value: str, root: Path) -> str | None:
+    """Jail one path VALUE to ``root``; return the value to STORE, or None if it escapes.
 
-    Each output component's ``config.filepath`` is resolved with ``os.path.realpath``
-    (which collapses ``..`` and follows symlinks) and required to live inside the
-    realpath of ``work_dir``. This is a security path-jail: an absolute-outside,
-    ``..``-escape, or symlink-escape path is refused so the engine never writes a
-    file outside work_dir. Both sides are realpath'd so a symlinked work_dir (e.g.
-    macOS ``/tmp`` -> ``/private/tmp``) compares consistently. A component with no
-    ``filepath`` writes nothing and is skipped.
+    A RELATIVE value is ANCHORED -- ``(root / value).resolve()`` -- so the engine
+    reads/writes it UNDER work_dir regardless of the process CWD (fixes I1); the
+    anchored result must still be inside root, so a ``../..`` anchor that climbs out
+    is refused. An ABSOLUTE value is kept as-authored, but its ``realpath`` (which
+    collapses ``..`` and follows symlinks) must be inside ``realpath(root)``, else it
+    is refused -- an absolute-outside, ``..``-escape, or symlink-escape is blocked.
+    """
+    if os.path.isabs(value):
+        resolved = Path(os.path.realpath(value))
+        return value if resolved.is_relative_to(root) else None
+    resolved = (root / value).resolve()
+    return str(resolved) if resolved.is_relative_to(root) else None
 
-    Args:
-        components: The job's component config dicts.
-        work_dir: The jail root; every output file must resolve inside it.
 
-    Returns:
-        The offending (as-authored) filepath string, or None if all outputs are
-        contained.
+def _looks_like_path(value: str) -> bool:
+    """Conservative path sniff for the default-deny fallback: an ABSOLUTE path, or a
+    value carrying a ``..`` traversal SEGMENT plus a separator. Deliberately narrow so
+    plain expression strings (``source_flow.cc``, ``amount / 100``, date patterns like
+    ``dd/MM/yyyy``) are NOT flagged -- only isabs or ``..``-traversal values are."""
+    if os.path.isabs(value):
+        return True
+    return os.sep in value and ".." in value.split(os.sep)
+
+
+def _scan_escaping_path(node, root: Path) -> str | None:
+    """Recursively scan a config subtree; return the first string that LOOKS like a
+    path yet escapes ``root``, else None. This is the default-deny catch-all for any
+    path-bearing key NOT in ``_PATH_CONFIG_KEYS`` -- an unmanifested absolute/``..``
+    write path cannot slip past the jail."""
+    if isinstance(node, dict):
+        for v in node.values():
+            hit = _scan_escaping_path(v, root)
+            if hit is not None:
+                return hit
+    elif isinstance(node, (list, tuple)):
+        for v in node:
+            hit = _scan_escaping_path(v, root)
+            if hit is not None:
+                return hit
+    elif isinstance(node, str) and node and _looks_like_path(node):
+        if not Path(os.path.realpath(node)).is_relative_to(root):
+            return node
+    return None
+
+
+def _anchor_and_jail_paths(job: dict, work_dir) -> str | None:
+    """Anchor RELATIVE paths under work_dir and JAIL every path to work_dir, in place
+    on ``job``. Returns the offending (as-authored) path if any escapes, else None.
+
+    Two layers run per component, in order:
+      1. Manifest layer -- each known path key (``_PATH_CONFIG_KEYS``) is anchored
+         (relative -> absolute under work_dir) or jail-checked (absolute must be
+         inside work_dir). This fixes the FileOutput-only allowlist: every registered
+         writer's write key is now jailed.
+      2. Default-deny fallback -- EVERY remaining string config value is sniffed with
+         ``_looks_like_path``; an absolute or ``..``-traversal value that escapes
+         work_dir is refused too, so a path-bearing key absent from the manifest still
+         cannot write outside the jail.
+
+    Both work_dir and each absolute path are ``realpath``'d so a symlinked work_dir
+    (e.g. macOS ``/tmp`` -> ``/private/tmp``) compares consistently.
     """
     root = Path(os.path.realpath(str(work_dir)))
-    for comp in components:
-        if not _is_file_output_type(comp.get("type")):
+    for comp in job.get("components", []):
+        cfg = comp.get("config")
+        if not isinstance(cfg, dict):
             continue
-        raw = (comp.get("config") or {}).get("filepath")
-        if not raw:
-            continue
-        resolved = Path(os.path.realpath(str(raw)))
-        if not resolved.is_relative_to(root):
-            return str(raw)
+        for key in _PATH_CONFIG_KEYS.get(comp.get("type"), ()):
+            val = cfg.get(key)
+            if not isinstance(val, str) or not val:
+                continue
+            jailed = _jail_value(val, root)
+            if jailed is None:
+                return val
+            cfg[key] = jailed
+        offending = _scan_escaping_path(cfg, root)
+        if offending is not None:
+            return offending
     return None
+
+
+def _clean_output_targets(job: dict, work_dir) -> None:
+    """Delete any already-existing declared FileOutput target FILE under work_dir
+    before the run, so a re-run starts clean (I2). Only paths confirmed inside
+    work_dir are removed and only regular files -- directories are never touched.
+    Call AFTER ``_anchor_and_jail_paths`` so target keys already hold jailed paths."""
+    root = Path(os.path.realpath(str(work_dir)))
+    for comp in job.get("components", []):
+        key = _OUTPUT_FILE_TARGET_KEY.get(comp.get("type"))
+        if not key:
+            continue
+        val = (comp.get("config") or {}).get(key)
+        if not isinstance(val, str) or not val:
+            continue
+        target = Path(os.path.realpath(val))
+        if target.is_relative_to(root) and target.is_file():
+            try:
+                target.unlink()
+            except OSError as exc:  # a non-removable stale target is a warning, not a crash
+                logger.warning("[run_and_validate] could not pre-delete output %s: %s", target, exc)
 
 
 def run_job_capture(job_config: dict, work_dir) -> RunResult:
@@ -143,22 +271,32 @@ def run_job_capture(job_config: dict, work_dir) -> RunResult:
     the engine is tolerated and converted into a uniform ``status="error"``
     result rather than propagating.
 
-    Before running, every file-OUTPUT component's ``filepath`` is path-jailed to
-    ``work_dir`` (see ``_escaping_output_path``). If ANY output path escapes -- an
-    absolute path outside work_dir, a ``..``-escape, or a symlink-escape -- the run
-    is REFUSED with ``status="error"`` and nothing is written; this blocks an
-    LLM-authored or doc-injected path (e.g. ``~/.ssh/authorized_keys``) from being
-    written before any human review.
+    Before running, the deep-copied job is rewritten so the jail root is
+    ``work_dir`` (see ``_anchor_and_jail_paths``):
+      * RELATIVE path-config values (the shape the skill teaches) are ANCHORED under
+        work_dir, so the engine reads/writes them there even though the CLI runs from
+        the workspace root (CWD != work_dir) -- a correct relative job is no longer
+        false-refused.
+      * ABSOLUTE path values must resolve INSIDE work_dir; an absolute-outside,
+        ``..``-escape, or symlink-escape is REFUSED with ``status="error"`` and nothing
+        is written. The jail is default-deny across ALL registered writers (not just
+        the FileOutput* family) plus a catch-all scan of every string config value, so
+        an LLM-authored or doc-injected path (e.g. ``~/.ssh/authorized_keys``) is
+        blocked before any human review.
+    After jailing, any already-existing declared FileOutput target file UNDER
+    work_dir is deleted (see ``_clean_output_targets``) so a re-run starts clean
+    despite ``file_exist_exception`` defaulting True. Output frames are then read
+    back from the SAME rewritten (jailed) filepaths the engine wrote.
 
     Args:
         job_config: The engine job configuration dict.
-        work_dir: The working directory for the run and the path-jail root: every
-            file-OUTPUT component's ``filepath`` must resolve inside it.
+        work_dir: The working directory for the run and the path-jail root: relatives
+            are anchored under it and every resolved path must live inside it.
 
     Returns:
         A ``RunResult`` capturing status, globalMap, per-component stats,
         component ids whose type is unregistered (engine-skipped), and the
-        actual output DataFrames. If an output path escapes work_dir, an error
+        actual output DataFrames. If any path escapes work_dir, an error
         ``RunResult`` whose ``error`` names the offending path (and the engine is
         never run).
     """
@@ -166,10 +304,13 @@ def run_job_capture(job_config: dict, work_dir) -> RunResult:
 
     job = copy.deepcopy(job_config)
 
-    escaped = _escaping_output_path(job.get("components", []), work_dir)
+    escaped = _anchor_and_jail_paths(job, work_dir)
     if escaped is not None:
-        logger.warning("[run_and_validate] output path escapes work_dir: %s", escaped)
-        return RunResult(status="error", error=f"output path escapes work_dir: {escaped}")
+        msg = f"path escapes work_dir: {escaped}"
+        logger.warning("[run_and_validate] %s", msg)
+        return RunResult(status="error", error=msg)
+
+    _clean_output_targets(job, work_dir)
 
     try:
         engine = ETLEngine(job)

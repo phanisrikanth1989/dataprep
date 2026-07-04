@@ -91,7 +91,7 @@ _JOB_ENVELOPE_EXAMPLE_JSON = """{
      "inputs": ["source_flow", "lookup_flow"], "outputs": ["enriched_flow"]},
     {"id": "out_enriched", "type": "FileOutputDelimited", "subjob_id": "sj1",
      "schema": {"input": [{"name": "cc", "type": "str"}, {"name": "country_name", "type": "str"}], "output": []},
-     "config": {"filepath": "enriched.csv", "fieldseparator": ";", "include_header": true},
+     "config": {"filepath": "enriched.csv", "fieldseparator": ";", "include_header": true, "file_exist_exception": false},
      "inputs": ["enriched_flow"], "outputs": []}
   ],
   "flows": [
