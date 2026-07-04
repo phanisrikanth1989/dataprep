@@ -15,6 +15,9 @@ Job-shape note:
     behaviour under test (output file captured into ``outputs[id]``; an
     unknown-type component surfaced in ``dropped_components``) is unchanged.
 """
+import uuid
+from pathlib import Path
+
 import pandas as pd
 
 from agents.tools.run_and_validate import RunResult, run_job_capture
@@ -73,3 +76,42 @@ def test_dropped_is_by_unregistered_type_not_missing_stats():
         {"id": "ghost", "type": "tNotARealComponent"},    # unregistered -> dropped
     ]
     assert _dropped_components(comps) == ["ghost"]
+
+
+# ---------------------------------------------------------------------------
+# I3: FileOutput filepaths are jailed to work_dir. A path that resolves OUTSIDE
+# work_dir (absolute-outside, '..'-escape, or symlink-escape) is refused BEFORE
+# the engine runs, so nothing is ever written outside the jail.
+# ---------------------------------------------------------------------------
+def test_capture_rejects_output_escaping_work_dir(tmp_path):
+    in_csv = tmp_path / "in.csv"
+    in_csv.write_text("cc,amt\nUS,10\n")
+    escape = Path("/tmp") / f"escape_{uuid.uuid4().hex}.csv"  # absolute, outside tmp_path
+    assert not escape.exists()
+    rr = run_job_capture(_passthrough_job(in_csv, escape), tmp_path)
+    assert rr.status == "error"
+    assert "escapes" in (rr.error or "")
+    assert not escape.exists()  # jail refused the run: nothing written outside work_dir
+
+
+def test_capture_rejects_dotdot_output_escape(tmp_path):
+    work = tmp_path / "work"
+    work.mkdir()
+    in_csv = work / "in.csv"
+    in_csv.write_text("cc,amt\nUS,10\n")
+    escape = work / ".." / f"escape_{uuid.uuid4().hex}.csv"  # '..' climbs out of work
+    landing = Path(escape).resolve()
+    assert not landing.exists()
+    rr = run_job_capture(_passthrough_job(in_csv, escape), work)
+    assert rr.status == "error"
+    assert "escapes" in (rr.error or "")
+    assert not landing.exists()
+
+
+def test_capture_allows_output_inside_work_dir(tmp_path):
+    in_csv = tmp_path / "in.csv"
+    in_csv.write_text("cc,amt\nUS,10\nUK,20\n")
+    out_csv = tmp_path / "out.csv"  # inside the jail
+    rr = run_job_capture(_passthrough_job(in_csv, out_csv), tmp_path)
+    assert rr.status == "success"
+    assert set(rr.outputs["out1"]["cc"]) == {"US", "UK"}

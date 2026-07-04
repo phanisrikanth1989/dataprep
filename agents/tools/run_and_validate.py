@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -94,6 +95,46 @@ def _dropped_components(components: list) -> list:
     return [c.get("id") for c in components if REGISTRY.get(c.get("type")) is None]
 
 
+def _is_file_output_type(comp_type) -> bool:
+    """True for any file-OUTPUT component -- FileOutputDelimited, FileOutputExcel,
+    ... -- in either the camelCase or the Talend ``t``-prefixed spelling. Used to
+    decide which components' ``filepath`` must be path-jailed to work_dir."""
+    return isinstance(comp_type, str) and (
+        comp_type.startswith("FileOutput") or comp_type.startswith("tFileOutput"))
+
+
+def _escaping_output_path(components: list, work_dir) -> str | None:
+    """Return the first file-OUTPUT ``filepath`` that resolves OUTSIDE work_dir, else None.
+
+    Each output component's ``config.filepath`` is resolved with ``os.path.realpath``
+    (which collapses ``..`` and follows symlinks) and required to live inside the
+    realpath of ``work_dir``. This is a security path-jail: an absolute-outside,
+    ``..``-escape, or symlink-escape path is refused so the engine never writes a
+    file outside work_dir. Both sides are realpath'd so a symlinked work_dir (e.g.
+    macOS ``/tmp`` -> ``/private/tmp``) compares consistently. A component with no
+    ``filepath`` writes nothing and is skipped.
+
+    Args:
+        components: The job's component config dicts.
+        work_dir: The jail root; every output file must resolve inside it.
+
+    Returns:
+        The offending (as-authored) filepath string, or None if all outputs are
+        contained.
+    """
+    root = Path(os.path.realpath(str(work_dir)))
+    for comp in components:
+        if not _is_file_output_type(comp.get("type")):
+            continue
+        raw = (comp.get("config") or {}).get("filepath")
+        if not raw:
+            continue
+        resolved = Path(os.path.realpath(str(raw)))
+        if not resolved.is_relative_to(root):
+            return str(raw)
+    return None
+
+
 def run_job_capture(job_config: dict, work_dir) -> RunResult:
     """Run a job through ETLEngine and harvest its run signals into a RunResult.
 
@@ -102,21 +143,34 @@ def run_job_capture(job_config: dict, work_dir) -> RunResult:
     the engine is tolerated and converted into a uniform ``status="error"``
     result rather than propagating.
 
+    Before running, every file-OUTPUT component's ``filepath`` is path-jailed to
+    ``work_dir`` (see ``_escaping_output_path``). If ANY output path escapes -- an
+    absolute path outside work_dir, a ``..``-escape, or a symlink-escape -- the run
+    is REFUSED with ``status="error"`` and nothing is written; this blocks an
+    LLM-authored or doc-injected path (e.g. ``~/.ssh/authorized_keys``) from being
+    written before any human review.
+
     Args:
         job_config: The engine job configuration dict.
-        work_dir: The working directory for the run. Reserved for Task 5
-            (resolving relative output paths / golden-data location); the
-            current capture reads the absolute ``filepath`` recorded on each
-            FileOutput component.
+        work_dir: The working directory for the run and the path-jail root: every
+            file-OUTPUT component's ``filepath`` must resolve inside it.
 
     Returns:
         A ``RunResult`` capturing status, globalMap, per-component stats,
         component ids whose type is unregistered (engine-skipped), and the
-        actual output DataFrames.
+        actual output DataFrames. If an output path escapes work_dir, an error
+        ``RunResult`` whose ``error`` names the offending path (and the engine is
+        never run).
     """
     from src.v1.engine.engine import ETLEngine
 
     job = copy.deepcopy(job_config)
+
+    escaped = _escaping_output_path(job.get("components", []), work_dir)
+    if escaped is not None:
+        logger.warning("[run_and_validate] output path escapes work_dir: %s", escaped)
+        return RunResult(status="error", error=f"output path escapes work_dir: {escaped}")
+
     try:
         engine = ETLEngine(job)
         stats = engine.execute()
@@ -265,7 +319,9 @@ def main(argv=None) -> int:
             expected[name] = pd.read_csv(gdir / f"{name}_expected.csv", sep=sep, dtype=str, keep_default_na=False)
             output_map[name] = spec["component"]
             keys[name] = spec.get("keys")
-        run_result = run_job_capture(job, gdir)
+        # Jail job outputs to the JOB FILE's own directory (its sandbox), not the
+        # read-only golden dir -- run_job_capture refuses any output escaping it.
+        run_result = run_job_capture(job, Path(args.job).parent)
         report = check(run_result, expected, output_map, keys)
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         _emit({"passed": False, "error": str(exc)})

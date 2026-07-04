@@ -13,6 +13,12 @@ def test_diff_keyed_detects_missing_and_mismatch():
     assert d["value_mismatch"] == 1  # US name X != A
 
 
+def test_diff_none_actual_is_not_equal():
+    # No actual output produced (e.g. output file never written) -> never equal.
+    d = diff_frames(None, pd.DataFrame({"cc": ["US"]}), keys=["cc"])
+    assert d["equal"] is False
+
+
 def test_diff_bag_when_no_keys():
     exp = pd.DataFrame({"v": ["a", "b"]})
     assert diff_frames(pd.DataFrame({"v": ["b", "a"]}), exp, keys=None)["equal"] is True
@@ -71,6 +77,22 @@ def test_check_fails_on_dropped_component():
     rep = check(rr, exp, output_map={"matched": "out1"}, keys={"matched": ["cc"]})
     assert rep["passed"] is False
     assert any("dropped" in r for r in rep["reasons"])
+
+
+def test_check_fails_on_engine_status_failed():
+    # Output MATCHES, but the engine status is not "success" -> must still FAIL.
+    exp = {"matched": pd.DataFrame({"cc": ["US"]})}
+    rr = _rr({"out1": pd.DataFrame({"cc": ["US"]})}, status="failed")
+    rep = check(rr, exp, output_map={"matched": "out1"}, keys={"matched": ["cc"]})
+    assert rep["passed"] is False and any("status" in r for r in rep["reasons"])
+
+
+def test_check_fails_on_component_error():
+    # Output MATCHES, but a component errored -> must still FAIL.
+    exp = {"matched": pd.DataFrame({"cc": ["US"]})}
+    rr = _rr({"out1": pd.DataFrame({"cc": ["US"]})}, comp_err=True)
+    rep = check(rr, exp, output_map={"matched": "out1"}, keys={"matched": ["cc"]})
+    assert rep["passed"] is False and any("error" in r.lower() for r in rep["reasons"])
 
 
 def test_keyed_diff_flags_missing_expected_column_zero_rows():
