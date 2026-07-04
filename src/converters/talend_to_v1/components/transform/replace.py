@@ -141,7 +141,13 @@ def _parse_advanced_subst(raw: Any) -> List[Dict[str, Any]]:
             if ref == "INPUT_COLUMN":
                 row["input_column"] = val.strip('"')
             elif ref == "SEARCH_COLUMN":
-                row["search_column"] = val.strip('"')
+                stripped = val.strip('"')
+                # Decode Java string escaping so \\w+ in XML becomes \w+ in JSON
+                try:
+                    stripped = stripped.encode("utf-8").decode("unicode_escape")
+                except (UnicodeDecodeError, ValueError):
+                    pass
+                row["search_column"] = stripped
             elif ref == "REPLACE_COLUMN":
                 row["replace_column"] = val.strip('"')
             elif ref == "COMMENT":

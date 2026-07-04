@@ -1,0 +1,189 @@
+{
+  "job_name": "Job_tOracleRow_0.1",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {}
+  },
+  "components": [
+    {
+      "id": "tDBConnection_1",
+      "type": "tOracleConnection",
+      "original_type": "tOracleConnection",
+      "position": {
+        "x": 224,
+        "y": 128
+      },
+      "config": {
+        "connection_type": "ORACLE_SERVICE_NAME",
+        "db_version": "ORACLE_18",
+        "rac_url": "localhost",
+        "use_tns_file": false,
+        "tns_file": "",
+        "host": "localhost",
+        "port": "1521",
+        "dbname": "FREEPDB1",
+        "local_service_name": "FREEPDB1",
+        "schema_db": "SYSTEM",
+        "user": "system",
+        "password": "enc:system.encryption.key.v1:qnMXbrbd5e7MfkpKYf1amObekiqe7olrTRAbfeDX5XuOpxSwczvzMaHQmQ==",
+        "jdbc_url": "jdbc:oracle:thin:USER/MDP@server",
+        "encoding": "ISO-8859-15",
+        "properties": "",
+        "use_shared_connection": false,
+        "shared_connection_name": "",
+        "specify_datasource_alias": false,
+        "datasource_alias": "",
+        "use_ssl": false,
+        "ssl_trustserver_truststore": "",
+        "need_client_auth": false,
+        "ssl_keystore": "",
+        "disable_cbc_protection": true,
+        "auto_commit": false,
+        "support_nls": false,
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [],
+        "output": []
+      },
+      "inputs": [],
+      "outputs": []
+    },
+    {
+      "id": "tDBRow_1",
+      "type": "tOracleRow",
+      "original_type": "tOracleRow",
+      "position": {
+        "x": 352,
+        "y": 128
+      },
+      "config": {
+        "use_existing_connection": true,
+        "connection": "tDBConnection_1",
+        "connection_type": "ORACLE_SID",
+        "db_version": "ORACLE_18",
+        "rac_url": "",
+        "host": "",
+        "port": "1521",
+        "dbname": "",
+        "local_service_name": "",
+        "schema_db": "",
+        "user": "",
+        "password": "enc:system.encryption.key.v1:DMaWxtdY0MV6MPYLzUWIkC4hlpkS3KZVsFWXdaP6",
+        "table": "",
+        "query": "BEGIN\r\n   EXECUTE IMMEDIATE 'CREATE TABLE TALEND_TEST (\r\n      ID NUMBER,\r\n      NAME VARCHAR2(50),\r\n      CREATED_DATE DATE\r\n   )';\r\nEXCEPTION\r\n   WHEN OTHERS THEN\r\n      IF SQLCODE != -955 THEN\r\n         RAISE;\r\n      END IF;\r\nEND;",
+        "use_nb_line": "NONE",
+        "specify_datasource_alias": false,
+        "datasource_alias": "",
+        "die_on_error": false,
+        "properties": "",
+        "propagate_record_set": false,
+        "record_set_column": "",
+        "use_preparedstatement": false,
+        "set_preparedstatement_parameters": [],
+        "encoding": "ISO-8859-15",
+        "commit_every": 10000,
+        "support_nls": false,
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [],
+        "output": []
+      },
+      "inputs": [],
+      "outputs": [
+        "row1"
+      ]
+    },
+    {
+      "id": "tDBCommit_1",
+      "type": "tOracleCommit",
+      "original_type": "tOracleCommit",
+      "position": {
+        "x": 512,
+        "y": 128
+      },
+      "config": {
+        "connection": "tDBConnection_1",
+        "close": true,
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [],
+        "output": [],
+        "inputs": {
+          "row1": []
+        }
+      },
+      "inputs": [
+        "row1"
+      ],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {
+      "name": "row1",
+      "from": "tDBRow_1",
+      "to": "tDBCommit_1",
+      "type": "flow"
+    }
+  ],
+  "triggers": [
+    {
+      "type": "OnSubjobOk",
+      "from": "tDBConnection_1",
+      "to": "tDBRow_1"
+    }
+  ],
+  "subjobs": {
+    "subjob_1": [
+      "tDBConnection_1"
+    ],
+    "subjob_2": [
+      "tDBRow_1",
+      "tDBCommit_1"
+    ]
+  },
+  "java_config": {
+    "enabled": false,
+    "routines": [
+      "routines.DataOperation",
+      "routines.Mathematical",
+      "routines.Numeric",
+      "routines.Relational",
+      "routines.StringHandling",
+      "routines.TalendDataGenerator",
+      "routines.TalendDate",
+      "routines.TalendStringUtil",
+      "routines.TalendString"
+    ],
+    "libraries": []
+  },
+  "_validation": {
+    "valid": true,
+    "summary": "Validation passed with no issues",
+    "issues": []
+  },
+  "_needs_review": [
+    {
+      "issue": "No concrete engine implementation for tOracleConnection. All config keys are extracted for future engine support.",
+      "component": "tDBConnection_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "No concrete engine implementation for tOracleRow. All config keys are extracted for future engine support.",
+      "component": "tDBRow_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "No concrete engine implementation for tOracleCommit. All config keys are extracted for future engine support.",
+      "component": "tDBCommit_1",
+      "severity": "engine_gap"
+    }
+  ]
+}

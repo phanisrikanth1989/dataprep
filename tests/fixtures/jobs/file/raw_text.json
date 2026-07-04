@@ -1,0 +1,61 @@
+{
+  "job_name": "Job_raw_text",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {}
+  },
+  "components": [
+    {
+      "id": "tFileInputRaw_1",
+      "type": "FileInputRaw",
+      "original_type": "tFileInputRaw",
+      "config": {
+        "filename": "TBD_via_mutations",
+        "as_string": true,
+        "encoding": "UTF-8",
+        "die_on_error": false
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {"name": "content", "type": "str", "nullable": false, "key": false}
+        ]
+      },
+      "inputs": [],
+      "outputs": ["row1"]
+    },
+    {
+      "id": "tFileOutputDelimited_1",
+      "type": "FileOutputDelimited",
+      "original_type": "tFileOutputDelimited",
+      "config": {
+        "filepath": "TBD_via_mutations",
+        "fieldseparator": ";",
+        "row_separator": "\\n",
+        "encoding": "UTF-8",
+        "include_header": false,
+        "append": false,
+        "create_directory": true,
+        "split": false,
+        "file_exist_exception": false
+      },
+      "schema": {
+        "input": [
+          {"name": "content", "type": "str", "nullable": false, "key": false}
+        ],
+        "output": []
+      },
+      "inputs": ["row1"],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {"name": "row1", "from": "tFileInputRaw_1", "to": "tFileOutputDelimited_1", "type": "flow"}
+  ],
+  "triggers": [],
+  "subjobs": {
+    "subjob_1": ["tFileInputRaw_1", "tFileOutputDelimited_1"]
+  },
+  "java_config": {"enabled": false, "routines": [], "libraries": []}
+}

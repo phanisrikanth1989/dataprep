@@ -117,6 +117,11 @@ class TestDefaults:
         result = FileInputJSONConverter().convert(node, [], {})
         assert result.component["config"]["filename"] == ""
 
+    def test_filename_java_expression_marked(self):
+        node = _make_node(params={"FILENAME": '"context.dir + \'/input.json\'"'})
+        result = FileInputJSONConverter().convert(node, [], {})
+        assert result.component["config"]["filename"].startswith("{{java}}")
+
     def test_loop_query_default(self):
         """LOOP_QUERY defaults to '/bills/bill/line' per _java.xml."""
         node = _make_node()

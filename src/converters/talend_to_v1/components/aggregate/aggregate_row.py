@@ -47,12 +47,12 @@ _FUNCTION_MAP: Dict[str, str] = {
     "first": "first",
     "last": "last",
     "list": "list",
-    "list_object": "list",              # engine has no list_object -- map to list
+    "list_object": "list_object",       # preserved -- engine implements as delimited string
     "distinct": "count_distinct",       # CONV-AGG-001: Talend distinct = count distinct
     "count_distinct": "count_distinct",
     "std_dev": "std",                   # CONV-AGG-002: Talend XML name -> engine std
     "standard_deviation": "std",        # alias -> engine std
-    "population_std_dev": "std",        # lossy: population (ddof=0) -> sample (ddof=1)
+    "population_std_dev": "population_std_dev",  # preserved -- engine handles ddof=0
     "union": "union",                   # passthrough -- no engine support
     "variance": "variance",
     "median": "median",
@@ -70,15 +70,9 @@ def _normalise_function(raw: str, warnings: Optional[List[str]] = None) -> str:
 
     if warnings is not None:
         if lowered == "list_object":
-            warnings.append(
-                "function 'list_object' mapped to 'list' -- "
-                "object references are not preserved"
-            )
+            pass  # no warning needed -- engine implements list_object as delimited string
         elif lowered == "population_std_dev":
-            warnings.append(
-                "function 'population_std_dev' mapped to 'std' (sample std) -- "
-                "population std (ddof=0) differs from sample std (ddof=1)"
-            )
+            pass  # no warning needed -- engine handles population_std_dev directly
         elif lowered == "union":
             warnings.append(
                 "function 'union' has no engine equivalent -- "
@@ -275,31 +269,16 @@ class AggregateRowConverter(ComponentConverter):
         schema = {"input": schema_cols, "output": schema_cols}
 
         # ---- 7. Engine gap needs_review entries (per-feature, conditional) ----
-        has_renaming = any(
-            gb.get("output_column") != gb.get("input_column")
-            for gb in groupbys
-        )
-        if has_renaming:
-            needs_review.append({
-                "issue": (
-                    "GROUPBYS OUTPUT_COLUMN differs from INPUT_COLUMN -- "
-                    "engine does not support group-by column renaming"
-                ),
-                "component": node.component_id,
-                "severity": "engine_gap",
-            })
-
-        has_ignore_null = any("ignore_null" in op for op in operations)
-        if has_ignore_null:
-            needs_review.append({
-                "issue": (
-                    "Engine ignores per-operation ignore_null flag entirely "
-                    "-- always uses pandas default skipna=True (ENG-AGG-002). "
-                    "When ignore_null=false, engine incorrectly skips nulls."
-                ),
-                "component": node.component_id,
-                "severity": "engine_gap",
-            })
+        # NOTE: previously-flagged engine gaps that have been RESOLVED:
+        #   - GROUPBYS output_column != input_column: engine renames groupby cols
+        #     via rename_map in _process() (aggregate_row.py:376-381).
+        #   - ignore_null per-operation: engine reads op.get("ignore_null", True)
+        #     and passes to _build_agg_func as skipna (aggregate_row.py:352-354).
+        #   - list function returns delimited string (not Python list) via
+        #     list_delimiter.join() (aggregate_row.py:142-144).
+        #   - list_object, union, population_std_dev now implemented in engine.
+        #   - USE_FINANCIAL_PRECISION read and applied across all numeric
+        #     functions (aggregate_row.py:336).
 
         if check_type_overflow:
             needs_review.append({
@@ -316,19 +295,6 @@ class AggregateRowConverter(ComponentConverter):
                 "issue": (
                     "CHECK_ULP is enabled but engine does not implement "
                     "ULP (unit in the last place) verification"
-                ),
-                "component": node.component_id,
-                "severity": "engine_gap",
-            })
-
-        has_list_function = any(op.get("function") == "list" for op in operations)
-        if has_list_function:
-            needs_review.append({
-                "issue": (
-                    "Talend 'list' function produces a delimited string "
-                    "(e.g. 'a,b,c') but engine 'list' returns a Python "
-                    "list object. Delimiter injected per-op but engine "
-                    "may use concat path instead."
                 ),
                 "component": node.component_id,
                 "severity": "engine_gap",

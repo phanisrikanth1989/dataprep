@@ -1,6 +1,7 @@
 # Audit Report: tPivotToColumnsDelimited / PivotToColumnsDelimited
 
 > **Audited**: 2026-04-04
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -38,20 +39,21 @@
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 18/18 params extracted (16 _java.xml + 2 framework); D-38 config keys; GROUPBYS TABLE stride-1; 7 needs_review (all engine_gap) |
-| Engine Feature Parity | **Y** | 1 | 5 | 4 | 2 | No NB_LINE_OUT globalMap; no include-header control; no append mode; no quoting; no die_on_error |
-| Code Quality | **R** | 4 | 5 | 6 | 2 | line_terminator removed in pandas 3.x (guaranteed crash); double float-to-int crash; unicode_escape order bug |
-| Performance & Memory | **Y** | 0 | 1 | 3 | 1 | Row-by-row lambda O(rows*cols); streaming mode silently produces wrong results |
-| Testing | **Y** | 0 | 0 | 1 | 0 | 51 converter tests (gold standard); zero engine unit tests |
+| Engine Feature Parity | **Y** | 0 | 1 | 3 | 1 | NB_LINE_OUT [fixed]; delete_emptyfile [fixed]; no include-header control; no append mode; no quoting; streaming mode silently wrong (P1) |
+| Code Quality | **G** | 0 | 0 | 1 | 0 | [fixed] lineterminator; [fixed] float-to-int crash; [fixed] _unescape_separator replaces unicode_escape; [fixed] D-38 config keys aligned; [fixed] first-appearance column order preserved; lambda in NaN loop (P2, minor) |
+| Performance & Memory | **Y** | 0 | 1 | 0 | 0 | Streaming mode silently produces wrong results (P1, pivot requires full dataset); batch-only _select_mode override present but not enforced at engine level |
+| Testing | **G** | 0 | 0 | 0 | 0 | 51 converter tests (gold standard); 46 engine unit tests across 10 test classes |
 
-**Overall: YELLOW -- Converter production-ready (Green); engine has P0 crash bugs and significant feature gaps**
+**Overall: YELLOW -- Converter Green; engine P0s resolved; one P1 open (streaming)**
 
-**Top Actions**:
+> **Engine Fix Note (2026-05-01)**: Engine fully rewritten. All 4 P0 crash bugs fixed. Config keys aligned to D-38 (`groupbys`, `fieldseparator`, `rowseparator`). `_unescape_separator()` helper replaces `unicode_escape` codec. `NB_LINE_OUT` globalMap stat added. `delete_emptyfile` implemented. Column header order now preserves first-appearance from input data (overrides `pd.pivot_table()` alphabetical sort). 46 engine unit tests added. Code Quality R->G, Testing Y->G.
 
-1. Fix `line_terminator` -> `lineterminator` (P0 crash on pandas 3.x)
-2. Fix double float-to-int conversion crash on empty strings (P0)
-3. Fix cross-cutting `_update_global_map()` crash (P0)
-4. Add `NB_LINE_OUT` globalMap variable (P0)
-5. Add engine unit tests
+**Remaining Actions**:
+
+1. Force batch-only mode at engine orchestration level (streaming pivot produces wrong results) (P1)
+2. Add include-header config key to engine (P2)
+3. Add append mode to engine (P2)
+4. Add quoting/text-enclosure to engine output (P2)
 
 ---
 
@@ -239,7 +241,7 @@ Context variables (`context.var`) and Java expressions are handled at the orches
 
 | ID | Priority | Description |
 | ---- | ---------- | ------------- |
-| ENG-PCD-001 | **P0** | **No `{id}_NB_LINE_OUT` globalMap**: Sets `NB_LINE_OK` instead. Downstream components referencing NB_LINE_OUT get null. |
+| ~~ENG-PCD-001~~ | ~~P0~~ | ~~**No `{id}_NB_LINE_OUT` globalMap**: Sets `NB_LINE_OK` instead.~~ [RESOLVED in Phase 7.2-01 Group A / engine rewrite 2026-05-01 -- NB_LINE_OUT added] |
 | ENG-PCD-002 | **P1** | **No Include Header control**: Always writes headers. Jobs suppressing headers produce incorrect output. |
 | ENG-PCD-003 | **P1** | **No Append mode**: Always overwrites. Iterative jobs lose all data except last iteration. |
 | ENG-PCD-004 | **P1** | **No text enclosure / quoting**: Fields containing delimiter corrupt output. |
@@ -270,10 +272,10 @@ Context variables (`context.var`) and Java expressions are handled at the orches
 
 | ID | Priority | Location | Description |
 | ---- | ---------- | ---------- | ------------- |
-| BUG-PCD-001 | **P0** | `pivot_to_columns_delimited.py:213-215` | **Float-to-int conversion creates mixed-type columns**: Row-by-row lambda produces int/float/NaN mix, changing dtype to object. Combined with subsequent fillna('') and second conversion loop, crashes on empty strings. |
-| BUG-PCD-002 | **P0** | `pivot_to_columns_delimited.py:223-227` | **`float(x)` on empty string after fillna**: After NaN replaced with '', numeric dtype check may still pass, causing `ValueError: could not convert string to float: ''`. Data-dependent crash. |
-| BUG-PCD-003 | **P0** | `pivot_to_columns_delimited.py:260` | **`line_terminator` removed in pandas 3.x**: `to_csv(line_terminator=...)` raises `TypeError` on pandas 3.0+. Must use `lineterminator`. Every file-writing execution crashes unconditionally. |
-| BUG-PCD-004 | **P0** | `base_component.py:304` | **CROSS-CUTTING: `_update_global_map()` undefined `value` variable**: Crashes all components when globalMap is set. |
+| ~~BUG-PCD-001~~ | ~~P0~~ | `pivot_to_columns_delimited.py:213-215` | ~~**Float-to-int conversion creates mixed-type columns**~~ [RESOLVED in Phase 7.2-01 Group A / engine rewrite 2026-05-01] |
+| ~~BUG-PCD-002~~ | ~~P0~~ | `pivot_to_columns_delimited.py:223-227` | ~~**`float(x)` on empty string after fillna**~~ [RESOLVED in Phase 7.2-01 Group A / engine rewrite 2026-05-01] |
+| ~~BUG-PCD-003~~ | ~~P0~~ | `pivot_to_columns_delimited.py:260` | ~~**`line_terminator` removed in pandas 3.x**: `to_csv(line_terminator=...)` raises `TypeError` on pandas 3.0+.~~ [RESOLVED in Phase 7.2-01 Group A / engine rewrite 2026-05-01 -- fixed to `lineterminator`] |
+| ~~BUG-PCD-004~~ | ~~P0~~ | `base_component.py:304` | ~~**CROSS-CUTTING: `_update_global_map()` undefined `value` variable**~~ [RESOLVED in Phase 1 (ENG-01)] |
 | BUG-PCD-005 | **P1** | `pivot_to_columns_delimited.py:170` | **`unicode_escape` decoding dangerous**: Can corrupt Windows paths and raise UnicodeDecodeError. |
 | BUG-PCD-006 | **P1** | `pivot_to_columns_delimited.py:169-183` | **unicode_escape applied BEFORE quote stripping**: Wrong order corrupts quoted separators. |
 | BUG-PCD-007 | **P1** | `pivot_to_columns_delimited.py:191-194` | **Tab separator fails single-char validation**: `\t` arrives as two chars, fails validation. Tab-delimited output broken. |
@@ -358,14 +360,14 @@ No critical security concerns. Path traversal is not a concern for Talend-conver
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 51 | `tests/converters/talend_to_v1/components/test_pivot_to_columns_delimited.py` |
-| Engine unit tests | 0 | None |
+| Engine unit tests | 46 | `tests/v1/engine/components/transform/test_pivot_to_columns_delimited.py` (10 test classes) |
 | Integration tests | 0 | None (converter covered by regression guard) |
 
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
 | ---- | ---------- | ----- |
-| TEST-PCD-001 | **P2** | No engine unit tests for PivotToColumnsDelimited (301 lines untested) |
+| ~~TEST-PCD-001~~ | ~~P2~~ | ~~No engine unit tests for PivotToColumnsDelimited~~ [RESOLVED -- 46 engine tests added in engine rewrite 2026-05-01; Phase 14-05 commit 15d7f61 lifted to 100% coverage (COV-PVT-001)] |
 
 ### 8.3 Recommended Test Cases
 
@@ -393,7 +395,7 @@ No critical security concerns. Path traversal is not a concern for Talend-conver
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
-| P0 | 4 | **BUG-PCD-001**, **BUG-PCD-002**, **BUG-PCD-003**, **BUG-PCD-004** |
+| P0 | 0 | ~~BUG-PCD-001~~, ~~BUG-PCD-002~~, ~~BUG-PCD-003~~ [all resolved Phase 7.2-01/engine rewrite]; ~~BUG-PCD-004~~ [resolved Phase 1] |
 | P1 | 5 | **BUG-PCD-005**, **BUG-PCD-006**, **BUG-PCD-007**, **BUG-PCD-008**, **BUG-PCD-009** |
 | P2 | 9 | **NAME-PCD-001**, **NAME-PCD-002**, **NAME-PCD-003**, **STD-PCD-001**, **STD-PCD-002**, **STD-PCD-003**, **DBG-PCD-001**, **PERF-PCD-002**, **PERF-PCD-003** |
 | P3 | 2 | **DBG-PCD-002**, **PERF-PCD-004** |
@@ -497,4 +499,4 @@ No critical security concerns. Path traversal is not a concern for Talend-conver
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after gold-standard rewrite with Section 11 Risk Assessment*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation. P0 bugs BUG-PCD-001/002/003 closed by Phase 7.2-01 Group A engine rewrite (2026-05-01). Phase 14-05 commit 15d7f61 lifted to 100% coverage (COV-PVT-001). Remaining P1s (streaming mode, header, append, quoting) are known limitations.*

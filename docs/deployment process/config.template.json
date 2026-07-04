@@ -1,0 +1,5 @@
+{
+{% for var in context_vars %}
+  "{{ var }}": ""{% if not loop.last %},{% endif %}
+{% endfor %}
+}

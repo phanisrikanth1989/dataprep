@@ -1,0 +1,33 @@
+# SWIFT block-formatter layout for tests/v1/engine/components/transform.
+# Loaded via SwiftBlockFormatter._load_layout_from_file(); the engine
+# extracts swift_layout.block4_layout (only string values are kept).
+#
+# Layout type 'S' = single-occurrence field; 'M' = multiple-occurrence.
+# Blocks 1, 2, and 5 are always parsed (no per-tag layout); block 3 is
+# optional. This file does NOT enable block 3 -- see mt_with_block3.yaml
+# for that.
+
+swift_layout:
+  block4_layout:
+    block4_20: "S"
+    block4_21: "S"
+    block4_23B: "S"
+    block4_25: "S"
+    block4_28C: "S"
+    block4_32A: "S"
+    block4_50K: "S"
+    block4_52A: "S"
+    block4_58A: "S"
+    block4_59: "S"
+    block4_60F: "S"
+    block4_61: "M"
+    block4_62F: "S"
+    block4_70: "S"
+    block4_71A: "S"
+    block4_86: "M"
+    # Defensive non-string values used by tests to exercise the
+    # int/float/dict-skip branches inside _load_layout_from_file. The
+    # parser logs warnings for these and either coerces or skips.
+    block4_int_coerce: 7
+    block4_dict_skip:
+      nested: "skip me"

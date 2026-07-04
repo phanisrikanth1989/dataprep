@@ -39,6 +39,7 @@ from typing import Any, Dict, List
 
 from ..base import ComponentConverter, ComponentResult, TalendConnection, TalendNode
 from ..registry import REGISTRY
+from ...expression_converter import ExpressionConverter
 
 logger = logging.getLogger(__name__)
 
@@ -132,15 +133,19 @@ class FileInputDelimitedConverter(ComponentConverter):
 
         # ---- 1. Core parameters ----
         config: Dict[str, Any] = {}
-        config["filepath"] = self._get_str(node, "FILENAME", "")
+        # Mark Java expressions in filepath (e.g. ((String)globalMap.get(...))) with {{java}}
+        # so the engine's Java bridge can resolve them at runtime.
+        config["filepath"] = ExpressionConverter.mark_java_expression(
+            self._get_str(node, "FILENAME", "")
+        )
         config["csv_option"] = self._get_bool(node, "CSV_OPTION", False)
         config["row_separator"] = self._get_str(node, "ROWSEPARATOR", "\\n")
         config["csv_row_separator"] = self._get_str(node, "CSVROWSEPARATOR", "\\n")
         config["fieldseparator"] = self._get_str(node, "FIELDSEPARATOR", ";")
         config["escape_char"] = self._get_str(node, "ESCAPE_CHAR", '"')
         config["text_enclosure"] = self._get_str(node, "TEXT_ENCLOSURE", '"')
-        config["header_rows"] = self._get_int(node, "HEADER", 0)
-        config["footer_rows"] = self._get_int(node, "FOOTER", 0)
+        config["header_rows"] = self._get_int_or_context(node, "HEADER", 0)
+        config["footer_rows"] = self._get_int_or_context(node, "FOOTER", 0)
         config["limit"] = self._get_str(node, "LIMIT", "")
         config["remove_empty_row"] = self._get_bool(node, "REMOVE_EMPTY_ROW", True)
         config["uncompress"] = self._get_bool(node, "UNCOMPRESS", False)
@@ -173,16 +178,14 @@ class FileInputDelimitedConverter(ComponentConverter):
         # ---- 6. Schema ----
         schema = {"input": [], "output": self._parse_schema(node)}
 
-        # ---- 7. Engine gap needs_review entries ----
-        # Engine reads "delimiter" but converter uses "fieldseparator" per D-38
+        # ---- 7. Engine gap needs_review entries (deferred features only) ----
+        # NOTE: keys removed after engine alignment (engine now reads them):
+        #   fieldseparator, csv_option, csv_row_separator, check_fields_num, check_date
+        # Remaining entries are TRULY deferred features (see _DEFERRED_FEATURES in
+        # src/v1/engine/components/file/file_input_delimited.py).
         _engine_gap_keys = [
-            ("fieldseparator", "engine reads 'delimiter' config key, not 'fieldseparator'"),
-            ("csv_option", "engine has no explicit RFC4180 CSV toggle"),
-            ("csv_row_separator", "engine uses only row_separator, ignores csv_row_separator"),
             ("split_record", "engine has no explicit multi-line field toggle"),
             ("random", "engine does not support random line extraction"),
-            ("check_fields_num", "engine does not validate row field count"),
-            ("check_date", "engine does not validate dates against schema patterns"),
             ("enable_decode", "engine does not support hex/octal number parsing"),
             ("advanced_separator", "engine has partial support -- applies to all string columns, not just numeric"),
             ("uncompress", "engine does not support compressed file reading"),

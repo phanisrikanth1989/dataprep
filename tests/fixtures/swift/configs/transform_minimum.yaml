@@ -1,0 +1,319 @@
+# SwiftTransformer minimum config -- exercises every output_field 'type'
+# branch in SwiftTransformer._get_field_value plus the parse / calc / post-
+# process / python-expression / placeholder branches.
+#
+# Inputs come from the upstream SwiftBlockFormatter pipe-delimited DataFrame.
+# Output column order is controlled by output_layout.
+
+transformer:
+  name: "SWIFT MINIMUM TEST"
+  version: "1.0"
+
+input_fields:
+  - messagetype
+  - block1bic
+  - block2bic
+  - block4_20
+  - block4_25
+  - block4_32A
+  - block4_60F
+  - block4_61
+
+output_fields:
+  - name: "SIDE"
+    type: "constant"
+    value: "S"
+    default: "S"
+
+  - name: "TERMID"
+    type: "direct"
+    source: "block1bic"
+    default: ""
+
+  - name: "DESTID"
+    type: "direct"
+    source: "block2bic"
+    default: ""
+
+  - name: "OURREF"
+    type: "direct"
+    source: "block4_20"
+    default: "NOREF"
+
+  - name: "ACCT"
+    type: "parsed"
+    source: "block4_25"
+    parse_config:
+      regex: "^(\\d+)"
+      group: 1
+    default: ""
+
+  - name: "ACCT_PREFIX"
+    type: "parsed"
+    source: "block4_25"
+    parse_config:
+      position:
+        start: 0
+        end: 4
+    default: ""
+
+  - name: "ACCT_FIRST_PART"
+    type: "parsed"
+    source: "block4_25"
+    parse_config:
+      split:
+        delimiter: "/"
+        index: 0
+    default: ""
+
+  - name: "VALDATE_RAW"
+    type: "transformation"
+    source: "block4_32A"
+    transform_config:
+      type: "balance_parse"
+      extract: "date"
+    default: ""
+
+  - name: "CURRENCY"
+    type: "transformation"
+    source: "block4_60F"
+    transform_config:
+      type: "balance_parse"
+      extract: "currency"
+    default: "USD"
+
+  - name: "BAL_SIGN"
+    type: "transformation"
+    source: "block4_60F"
+    transform_config:
+      type: "balance_parse"
+      extract: "sign"
+    default: ""
+
+  - name: "BAL_AMOUNT"
+    type: "transformation"
+    source: "block4_60F"
+    transform_config:
+      type: "balance_parse"
+      extract: "amount"
+    default: "0.00"
+
+  - name: "BAL_FULL"
+    type: "transformation"
+    source: "block4_60F"
+    transform_config:
+      type: "balance_parse"
+      extract: "full_text"
+    default: ""
+
+  - name: "MOVE_DATE"
+    type: "transformation"
+    source: "block4_61"
+    transform_config:
+      type: "movement_parse"
+      extract: "entry_date"
+    default: ""
+
+  - name: "MOVE_VALDATE"
+    type: "transformation"
+    source: "block4_61"
+    transform_config:
+      type: "movement_parse"
+      extract: "value_date"
+    default: ""
+
+  - name: "MOVE_DC"
+    type: "transformation"
+    source: "block4_61"
+    transform_config:
+      type: "movement_parse"
+      extract: "debit_credit"
+    default: ""
+
+  - name: "MOVE_AMOUNT"
+    type: "transformation"
+    source: "block4_61"
+    transform_config:
+      type: "movement_parse"
+      extract: "amount"
+    default: "0.00"
+
+  - name: "MOVE_TXNCODE"
+    type: "transformation"
+    source: "block4_61"
+    transform_config:
+      type: "movement_parse"
+      extract: "transaction_code"
+    default: ""
+
+  - name: "MOVE_REF"
+    type: "transformation"
+    source: "block4_61"
+    transform_config:
+      type: "movement_parse"
+      extract: "reference"
+    default: ""
+
+  - name: "MOVE_NAR"
+    type: "transformation"
+    source: "block4_61"
+    transform_config:
+      type: "movement_parse"
+      extract: "narrative"
+    default: ""
+
+  - name: "MTYPE_FMT"
+    type: "transformation"
+    source: "messagetype"
+    transform_config:
+      type: "format"
+      format_type: "upper"
+    default: ""
+
+  - name: "MTYPE_LOWER"
+    type: "transformation"
+    source: "messagetype"
+    transform_config:
+      type: "format"
+      format_type: "lower"
+    default: ""
+
+  - name: "MTYPE_TRIM"
+    type: "transformation"
+    source: "messagetype"
+    transform_config:
+      type: "format"
+      format_type: "trim"
+    default: ""
+
+  - name: "MTYPE_TABLE"
+    type: "transformation"
+    source: "messagetype"
+    transform_config:
+      type: "lookup"
+      lookup_table:
+        "103": "CUSTOMER_TRANSFER"
+        "202": "FI_TRANSFER"
+        "940": "STATEMENT"
+      default: "UNKNOWN"
+    default: ""
+
+  - name: "JOINED"
+    type: "calculated"
+    calc_config:
+      type: "concatenate"
+      fields: ["block1bic", "block2bic"]
+      separator: "|"
+    default: ""
+
+  - name: "FLAG_IS_103"
+    type: "calculated"
+    calc_config:
+      type: "conditional"
+      condition_field: "messagetype"
+      condition_value: "103"
+      true_value: "YES"
+      false_value: "NO"
+    default: ""
+
+  - name: "VAL_YEAR"
+    type: "calculated"
+    calc_config:
+      type: "date_extraction"
+      source_field: "block4_32A"
+      component: "year"
+    default: ""
+
+  - name: "TRUNC_REF"
+    type: "direct"
+    source: "block4_20"
+    default: ""
+    post_process:
+      type: "truncate"
+      max_length: 5
+
+  - name: "PADDED_REF"
+    type: "direct"
+    source: "block4_20"
+    default: ""
+    post_process:
+      type: "pad"
+      length: 20
+      pad_char: "*"
+      side: "right"
+
+  - name: "PADDED_REF_LEFT"
+    type: "direct"
+    source: "block4_20"
+    default: ""
+    post_process:
+      type: "pad"
+      length: 20
+      pad_char: "*"
+      side: "left"
+
+  - name: "REPLACED_REF"
+    type: "direct"
+    source: "block4_20"
+    default: ""
+    post_process:
+      type: "replace"
+      old: "REF"
+      new: "REPLACED"
+
+  - name: "PYEXP"
+    type: "python_expression"
+    python_expression: "input_row.get('block4_20', '')[:3]"
+    default: ""
+
+  - name: "PYEXP_USES_COMPUTED"
+    type: "python_expression"
+    python_expression: "computed.get('SIDE', '') + '-' + computed.get('TERMID', '')"
+    default: ""
+
+  - name: "PLACEHOLDER_FIELD"
+    type: "placeholder"
+    default: "PLACEHOLDER_DEFAULT"
+
+  - name: "UNKNOWN_TYPE"
+    type: "this_does_not_exist"
+    default: "FALLBACK_TO_DEFAULT"
+
+# Layout controls final column order. INTERMEDIATE is intentionally omitted to
+# exercise the "computed but not in output_layout" branch.
+output_layout:
+  - SIDE
+  - TERMID
+  - DESTID
+  - OURREF
+  - ACCT
+  - ACCT_PREFIX
+  - ACCT_FIRST_PART
+  - VALDATE_RAW
+  - CURRENCY
+  - BAL_SIGN
+  - BAL_AMOUNT
+  - BAL_FULL
+  - MOVE_DATE
+  - MOVE_VALDATE
+  - MOVE_DC
+  - MOVE_AMOUNT
+  - MOVE_TXNCODE
+  - MOVE_REF
+  - MOVE_NAR
+  - MTYPE_FMT
+  - MTYPE_LOWER
+  - MTYPE_TRIM
+  - MTYPE_TABLE
+  - JOINED
+  - FLAG_IS_103
+  - VAL_YEAR
+  - TRUNC_REF
+  - PADDED_REF
+  - PADDED_REF_LEFT
+  - REPLACED_REF
+  - PYEXP
+  - PYEXP_USES_COMPUTED
+  - PLACEHOLDER_FIELD
+  - UNKNOWN_TYPE
+  - NEVER_COMPUTED   # exercises the "field in output_layout but not computed" branch

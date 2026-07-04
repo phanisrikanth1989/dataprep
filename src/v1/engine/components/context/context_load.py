@@ -1,348 +1,311 @@
-"""
-ContextLoad Component
+"""Engine component for ContextLoad (tContextLoad).
 
-This module implements the ContextLoad component for loading context variables from files.
-The component supports multiple input formats and provides flexible context management capabilities.
+Loads context variables from an incoming DataFrame flow at runtime.
+All incoming key-value pairs are loaded unconditionally -- policies
+only control validation messages (warnings/errors), not whether
+variables are actually assigned.
 
-Author: Data Preparation Team
-Version: 1.0
-Last Updated: 2024
+Config keys consumed (9 total):
+  print_operations       (bool, default False)  -- log each loaded key-value pair
+  die_on_error           (bool, default False)  -- raise on unsuppressed ERROR message
+  disable_error          (bool, default False)  -- suppress ERROR-level messages
+  disable_warnings       (bool, default True)   -- suppress WARNING-level messages
+  disable_info           (bool, default True)   -- suppress INFO-level messages
+  load_new_variable      (str,  default "WARNING")  -- policy for keys not in existing context
+  not_load_old_variable  (str,  default "WARNING")  -- policy for context keys absent from flow
+  tstatcatcher_stats     (bool, default False)  -- enable tStatCatcher statistics
+  label                  (str,  default "")     -- component label for logging
 """
+import logging
+from typing import Any, Optional
 
 import pandas as pd
-from typing import Dict, Any, Optional
-import logging
-import os
+
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
+from ...exceptions import (
+    ComponentExecutionError,
+    ConfigurationError,
+    DataValidationError,
+)
 
 logger = logging.getLogger(__name__)
 
+# Valid values for closed-list policy config keys
+_VALID_POLICIES = {"ERROR", "WARNING", "INFO", "NO_WARNING"}
 
+
+@REGISTRY.register("ContextLoad", "tContextLoad")
 class ContextLoad(BaseComponent):
-    """
-    ContextLoad Component - Load context variables from files or DataFrames
+    """tContextLoad engine implementation.
 
-    This component loads context variables and makes them available to other components
-    in the data processing pipeline. It supports multiple input formats and provides
-    flexible configuration options.
+    Loads context variables from an incoming DataFrame with key/value
+    columns. Supports optional type column for type preservation.
+    Implements LOAD_NEW_VARIABLE and NOT_LOAD_OLD_VARIABLE validation
+    policies with DISABLE_* suppression flags and die_on_error
+    integration.
 
-    Supported Input Formats:
-    - Properties files (key=value format)
-    - CSV files with key/value columns
-    - CSV files with key/value/type columns
-    - Direct DataFrame input
-
-    Configuration Parameters:
-    - filepath (str): Path to the context file
-    - format (str): File format - 'properties' or 'csv' (default: 'properties')
-    - delimiter (str): Delimiter for properties format (default: '=')
-    - csv_separator (str): Separator for CSV format (default: ',')
-    - print_operations (bool): Whether to log loaded operations (default: False)
-    - error_if_not_exists (bool): Raise error if file doesn't exist (default: True)
-
-    Returns:
-    - Empty DataFrame (component loads context without producing data output)
-
-    Global Map Variables:
-    - {component_id}_NB_CONTEXT_LOADED: Number of context variables loaded
-
-    Examples:
-    ```python
-    # Load from properties file
-    context_load = ContextLoad({
-        'filepath': '/path/to/context.properties',
-        'format': 'properties',
-        'print_operations': True
-    })
-
-    # Load from CSV file
-    context_load = ContextLoad({
-        'filepath': '/path/to/context.csv',
-        'format': 'csv',
-        'csv_separator': ','
-    })
-    ```
+    Config keys:
+        print_operations: Log each loaded key-value pair.
+        die_on_error: Raise ComponentExecutionError on unsuppressed ERROR.
+        disable_error: Suppress ERROR-level validation messages.
+        disable_warnings: Suppress WARNING-level validation messages.
+        disable_info: Suppress INFO-level validation messages.
+        load_new_variable: Policy for keys not in existing context.
+        not_load_old_variable: Policy for context keys absent from flow.
+        tstatcatcher_stats: Enable tStatCatcher statistics.
+        label: Component label for logging.
     """
 
-    def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
-        """
-        Process context loading from file or DataFrame input
+    # ------------------------------------------------------------------
+    # Configuration Validation
+    # ------------------------------------------------------------------
 
-        Args:
-            input_data (Optional[pd.DataFrame]): Input DataFrame with context data.
-                                                 Must contain 'key' and 'value' columns.
-                                                 Optional 'type' column for type information.
+    def _validate_config(self) -> None:
+        """Validate component configuration.
 
-        Returns:
-            Dict[str, Any]: Dictionary containing empty main DataFrame
+        Checks that load_new_variable and not_load_old_variable are
+        valid policy strings. All config keys have defaults so no
+        required-key checks are needed.
 
         Raises:
-            ValueError: If required parameters are missing or invalid
-            FileNotFoundError: If context file doesn't exist and error_if_not_exists is True
-
-        Note:
-            This method handles two input modes:
-            1. DataFrame input: Processes context from provided DataFrame
-            2. File input: Loads context from specified file path
+            ConfigurationError: If a policy value is not in the allowed set.
         """
-        # Extract configuration parameters
-        filepath = self.config.get('filepath', '')
-        file_format = self.config.get('format', 'properties')
-        delimiter = self.config.get('delimiter', '=')
-        csv_separator = self.config.get('csv_separator', ',')
-        print_operations = self.config.get('print_operations', False)
-        error_if_not_exists = self.config.get('error_if_not_exists', True)
+        # Group B verdict (Phase 07.2): KEEP. load_new_variable and
+        # not_load_old_variable are closed-list policy enums (WARNING / ERROR /
+        # INFO / NO_WARNING). Converter emits these as literal strings, never
+        # as context vars. Membership check is allowed under Rule 12's
+        # closed-list-enum carve-out; defensive check is intentional.
+        load_new = str(self.config.get("load_new_variable", "WARNING")).upper()
+        if load_new not in _VALID_POLICIES:
+            raise ConfigurationError(
+                f"[{self.id}] Invalid load_new_variable '{load_new}'. "
+                f"Must be one of: {sorted(_VALID_POLICIES)}"
+            )
+        self.config["load_new_variable"] = load_new
 
-        # Process DataFrame input if provided
-        if input_data is not None:
-            return self._process_dataframe_input(input_data, print_operations)
+        not_load_old = str(self.config.get("not_load_old_variable", "WARNING")).upper()
+        if not_load_old not in _VALID_POLICIES:
+            raise ConfigurationError(
+                f"[{self.id}] Invalid not_load_old_variable '{not_load_old}'. "
+                f"Must be one of: {sorted(_VALID_POLICIES)}"
+            )
+        self.config["not_load_old_variable"] = not_load_old
 
-        # Process file input
-        return self._process_file_input(
-            filepath, file_format, delimiter, csv_separator,
-            print_operations, error_if_not_exists
+    # ------------------------------------------------------------------
+    # Core Processing
+    # ------------------------------------------------------------------
+
+    def _process(self, input_data: Optional[pd.DataFrame] = None) -> dict:
+        """Load context variables from input DataFrame.
+
+        Three-phase model:
+          A. Setup -- snapshot existing context keys.
+          B. Row processing -- load each key-value pair unconditionally.
+          C. Post-processing -- emit validation messages, set globalMap.
+
+        Args:
+            input_data: DataFrame with 'key' and 'value' columns,
+                and optionally a 'type' column.
+
+        Returns:
+            dict with 'main' key containing an empty DataFrame.
+
+        Raises:
+            DataValidationError: If input DataFrame lacks required columns.
+        """
+        print_operations = self.config.get("print_operations", False)
+
+        # Phase A -- Setup
+        assigned_keys: set[str] = set()
+        new_keys: set[str] = set()
+        existing_context_keys = (
+            set(self.context_manager.context.keys())
+            if self.context_manager
+            else set()
         )
 
-    def _process_dataframe_input(self, input_data: pd.DataFrame, print_operations: bool) -> Dict[str, Any]:
-        """
-        Process context loading from DataFrame input
+        # Phase B -- Row Processing
+        if input_data is not None and not input_data.empty:
+            # Validate required columns
+            if "key" not in input_data.columns or "value" not in input_data.columns:
+                raise DataValidationError(
+                    f"[{self.id}] Input DataFrame must have 'key' and 'value' "
+                    f"columns, got: {list(input_data.columns)}"
+                )
 
-        Args:
-            input_data (pd.DataFrame): Input DataFrame with context data
-            print_operations (bool): Whether to log loaded operations
+            # Vectorized extraction -- fillna before astype to avoid
+            # pandas NaN propagation through str operations
+            keys = input_data["key"].fillna("").astype(str).str.strip()
+            values = input_data["value"]
+            has_type = "type" in input_data.columns
+            if has_type:
+                types = input_data["type"]
 
-        Returns:
-            Dict[str, Any]: Dictionary containing empty main DataFrame
+            for i in range(len(input_data)):
+                key = str(keys.iloc[i]).strip()
 
-        Raises:
-            ValueError: If DataFrame doesn't have required columns
-        """
-        logger.debug(f"Component {self.id}: Processing DataFrame input: {input_data}")
-
-        # Validate required columns
-        if 'key' not in input_data.columns or 'value' not in input_data.columns:
-            raise ValueError("Input DataFrame must have 'key' and 'value' columns")
-
-        loaded_count = 0
-
-        # Process each row in the DataFrame
-        for _, row in input_data.iterrows():
-            key = str(row['key']).strip()
-            value = str(row['value'])
-
-            # Determine value type
-            value_type = self._determine_value_type(row, key, input_data.columns)
-
-            # Set context variable
-            if self.context_manager:
-                self.context_manager.set(key, value, value_type)
-
-            # Log operation if requested
-            if print_operations:
-                logger.info(f"Context loaded: {key} = {value} (type: {value_type})")
-
-            loaded_count += 1
-
-        # Update statistics and global map
-        self._update_component_stats(loaded_count)
-        logger.info(f"Component {self.id}: Loaded {loaded_count} context variables from input data")
-
-        return {'main': pd.DataFrame()}
-
-    def _process_file_input(self, filepath: str, file_format: str, delimiter: str,
-                            csv_separator: str, print_operations: bool,
-                            error_if_not_exists: bool) -> Dict[str, Any]:
-        """
-        Process context loading from file input
-
-        Args:
-            filepath (str): Path to the context file
-            file_format (str): File format ('properties' or 'csv')
-            delimiter (str): Key-value delimiter
-            csv_separator (str): Separator for CSV format
-            print_operations (bool): Whether to log loaded operations
-            error_if_not_exists (bool): Raise error if file doesn't exist
-
-        Returns:
-            Dict[str, Any]: Dictionary containing empty main DataFrame
-
-        Raises:
-            ValueError: If filepath is not provided
-            FileNotFoundError: If file doesn't exist and error_if_not_exists is True
-        """
-        # Validate filepath
-        if not filepath:
-            raise ValueError(f"Component {self.id}: filepath is required")
-
-        # Check file existence
-        if not os.path.exists(filepath):
-            if error_if_not_exists:
-                raise FileNotFoundError(f"Context file not found: {filepath}")
-            else:
-                logger.warning(f"Context file not found: {filepath}")
-                self._update_component_stats(0)
-                return {'main': pd.DataFrame()}
-
-        try:
-            # Load context based on format
-            if file_format == 'csv':
-                loaded_count = self._load_csv_context(filepath, csv_separator, print_operations)
-            else:  # properties format
-                loaded_count = self._load_properties_context(filepath, delimiter, print_operations)
-
-            # Update statistics and global map
-            self._update_component_stats(loaded_count)
-            logger.info(f"Component {self.id}: Loaded {loaded_count} context variables from {filepath}")
-
-            return {'main': pd.DataFrame()}
-
-        except Exception as e:
-            logger.error(f"Component {self.id}: Error loading context from {filepath}: {e}")
-            raise
-
-    def _load_csv_context(self, filepath: str, csv_separator: str, print_operations: bool) -> int:
-        """
-        Load context variables from CSV file
-
-        Args:
-            filepath (str): Path to CSV file
-            csv_separator (str): CSV separator character
-            print_operations (bool): Whether to log loaded operations
-
-        Returns:
-            int: Number of context variables loaded
-
-        Raises:
-            ValueError: If CSV doesn't have required columns
-        """
-        df = pd.read_csv(filepath, sep=csv_separator)
-
-        # Validate required columns
-        if 'key' not in df.columns or 'value' not in df.columns:
-            raise ValueError("CSV must have 'key' and 'value' columns")
-
-        loaded_count = 0
-
-        # Process each row
-        for _, row in df.iterrows():
-            key = str(row['key']).strip()
-            value = str(row['value'])
-
-            # Determine value type
-            value_type = self._determine_value_type(row, key, df.columns)
-
-            # Set context variable
-            if self.context_manager:
-                self.context_manager.set(key, value, value_type)
-
-            # Log operation if requested
-            if print_operations:
-                logger.info(f"Context loaded: {key} = {value} (type: {value_type})")
-
-            loaded_count += 1
-
-        return loaded_count
-
-    def _load_properties_context(self, filepath: str, delimiter: str, print_operations: bool) -> int:
-        """
-        Load context variables from properties file
-
-        Args:
-            filepath (str): Path to properties file
-            delimiter (str): Key-value delimiter
-            print_operations (bool): Whether to log loaded operations
-
-        Returns:
-            int: Number of context variables loaded
-        """
-        loaded_count = 0
-
-        with open(filepath, 'r', encoding='utf-8') as f:
-            for line_num, line in enumerate(f, 1):
-                line = line.strip()
-
-                # Skip empty lines and comments
-                if not line or line.startswith('#') or line.startswith('//'):
+                # Skip empty keys
+                if not key:
                     continue
 
-                # Parse key=value
-                if delimiter in line:
-                    key, value = line.split(delimiter, 1)
-                    key = key.strip()
-                    value = self._clean_value(value.strip())
+                # NaN safety: convert NaN/NaT to None
+                val = values.iloc[i]
+                if pd.isna(val):
+                    val = None
 
-                    # Get existing type from context manager
-                    value_type = None
-                    if self.context_manager and self.context_manager.get_type(key):
-                        value_type = self.context_manager.get_type(key)
-                        logger.debug(f"Component {self.id}: Using original type '{value_type}' for key '{key}'")
+                # Determine type: type column > existing type > default
+                value_type = self._determine_type(
+                    key,
+                    types.iloc[i] if has_type else None,
+                    has_type,
+                )
 
-                    # Set context variable
-                    if self.context_manager:
-                        self.context_manager.set(key, value, value_type)
-
-                    # Log operation if requested
-                    if print_operations:
-                        logger.info(f"Context loaded: {key} = {value} (type: {value_type})")
-
-                    loaded_count += 1
+                # Categorize key
+                if key in existing_context_keys:
+                    assigned_keys.add(key)
                 else:
-                    logger.warning(f"Line {line_num}: Invalid format (missing '{delimiter}'): {line}")
+                    new_keys.add(key)
 
-        return loaded_count
+                # Unconditionally assign to context
+                if self.context_manager:
+                    self.context_manager.set(key, val, value_type)
 
-    def _determine_value_type(self, row: pd.Series, key: str, columns: pd.Index) -> str:
-        """
-        Determine the appropriate type for a context variable
+                # Log operation if requested
+                if print_operations:
+                    logger.info(
+                        "[%s] Context loaded: %s = %s (type: %s)",
+                        self.id, key, val, value_type,
+                    )
 
-        Args:
-            row (pd.Series): Current row data
-            key (str): Context variable key
-            columns (pd.Index): Available DataFrame columns
+        # Phase C -- Post-Processing Validation
+        unloaded_keys = existing_context_keys - assigned_keys - new_keys
+        self._emit_validation_messages(new_keys, unloaded_keys)
 
-        Returns:
-            str: Type identifier for the context variable
-        """
-        # Check if type is explicitly provided
-        if 'type' in columns:
-            return row.get('type', 'id_String')
+        loaded_count = len(assigned_keys) + len(new_keys)
 
-        # Check existing context type
-        if self.context_manager and self.context_manager.get_type(key):
-            value_type = self.context_manager.get_type(key)
-            logger.debug(f"Component {self.id}: Using original type '{value_type}' for key '{key}'")
-            return value_type
+        # Set globalMap variables
+        if self.global_map:
+            self.global_map.put(f"{self.id}_NB_LINE", loaded_count)
+            self.global_map.put(f"{self.id}_NB_CONTEXT_LOADED", loaded_count)
+            new_keys_str = ",".join(sorted(new_keys)) if new_keys else ""
+            unloaded_keys_str = ",".join(sorted(unloaded_keys)) if unloaded_keys else ""
+            self.global_map.put(f"{self.id}_KEY_NOT_INCONTEXT", new_keys_str)
+            self.global_map.put(f"{self.id}_KEY_NOT_LOADED", unloaded_keys_str)
 
-        # Default to string type
-        return 'id_String'
-
-    def _clean_value(self, value: str) -> str:
-        """
-        Clean and normalize property values by removing quotes
-
-        Args:
-            value (str): Raw property value
-
-        Returns:
-            str: Cleaned property value
-        """
-        # Remove surrounding quotes if present
-        if value.startswith('"') and value.endswith('"'):
-            return value[1:-1]
-        elif value.startswith("'") and value.endswith("'"):
-            return value[1:-1]
-        return value
-
-    def _update_component_stats(self, loaded_count: int) -> None:
-        """
-        Update component statistics and global map variables
-
-        Args:
-            loaded_count (int): Number of context variables loaded
-        """
-        # Update internal statistics
+        # Update base stats
         self._update_stats(loaded_count, loaded_count, 0)
 
-        # Store count in global map
-        if self.global_map:
-            self.global_map.put(f"{self.id}_NB_CONTEXT_LOADED", loaded_count)
+        logger.info(
+            "[%s] Loaded %d context variables (%d new, %d updated, %d unloaded)",
+            self.id, loaded_count, len(new_keys), len(assigned_keys),
+            len(unloaded_keys),
+        )
+
+        return {"main": pd.DataFrame()}
+
+    # ------------------------------------------------------------------
+    # Type Determination
+    # ------------------------------------------------------------------
+
+    def _determine_type(
+        self,
+        key: str,
+        type_val: Any,
+        has_type_column: bool,
+    ) -> str:
+        """Determine the appropriate type for a context variable.
+
+        Priority:
+          1. Type column value (if present and not NaN).
+          2. Existing type from ContextManager.
+          3. Default: id_String.
+
+        Args:
+            key: Context variable key.
+            type_val: Value from the type column (or None).
+            has_type_column: Whether the DataFrame has a type column.
+
+        Returns:
+            Type identifier string.
+        """
+        # 1. Type column value
+        if has_type_column and type_val is not None and not pd.isna(type_val):
+            return str(type_val)
+
+        # 2. Existing type from ContextManager
+        if self.context_manager:
+            existing_type = self.context_manager.get_type(key)
+            if existing_type:
+                return existing_type
+
+        # 3. Default
+        return "id_String"
+
+    # ------------------------------------------------------------------
+    # Validation Message Emission
+    # ------------------------------------------------------------------
+
+    def _emit_validation_messages(
+        self,
+        new_keys: set[str],
+        unloaded_keys: set[str],
+    ) -> None:
+        """Emit validation messages for new and unloaded keys.
+
+        Args:
+            new_keys: Keys in the flow that were not in the existing context.
+            unloaded_keys: Keys in the existing context not present in the flow.
+        """
+        load_new_policy = self.config.get("load_new_variable", "WARNING")
+        not_load_old_policy = self.config.get("not_load_old_variable", "WARNING")
+
+        for key in sorted(new_keys):
+            message = f"New context variable '{key}' not in original job context"
+            self._emit_message(message, load_new_policy)
+
+        for key in sorted(unloaded_keys):
+            message = f"Context variable '{key}' not loaded from incoming flow"
+            self._emit_message(message, not_load_old_policy)
+
+    def _emit_message(self, message: str, level: str) -> None:
+        """Emit a validation message at the specified severity level.
+
+        Respects DISABLE_* flags and die_on_error configuration.
+
+        Args:
+            message: The validation message text.
+            level: Policy level -- "ERROR", "WARNING", "INFO", or "NO_WARNING".
+
+        Raises:
+            ComponentExecutionError: If level is ERROR, not suppressed,
+                and die_on_error is True.
+        """
+        # NO_WARNING means no message at all
+        if level == "NO_WARNING":
+            return
+
+        # Check DISABLE flags
+        disable_error = self.config.get("disable_error", False)
+        disable_warnings = self.config.get("disable_warnings", True)
+        disable_info = self.config.get("disable_info", True)
+
+        if level == "ERROR" and disable_error:
+            return
+        if level == "WARNING" and disable_warnings:
+            return
+        if level == "INFO" and disable_info:
+            return
+
+        # Emit the message at the appropriate log level
+        prefixed = f"[{self.id}] {message}"
+        if level == "ERROR":
+            logger.error(prefixed)
+        elif level == "WARNING":
+            logger.warning(prefixed)
+        elif level == "INFO":
+            logger.info(prefixed)
+
+        # die_on_error: raise if ERROR-level message was emitted (not suppressed)
+        if level == "ERROR" and self.config.get("die_on_error", False):
+            raise ComponentExecutionError(self.id, message)

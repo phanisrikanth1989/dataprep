@@ -1,6 +1,7 @@
-# Audit Report: tReplace / (No Engine Implementation)
+# Audit Report: tReplace
 
 > **Audited**: 2026-04-04
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated) -- GOLD STANDARD NEW
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -16,17 +17,19 @@ What is this component and where does everything live?
 | Field | Value |
 | ------- | ------- |
 | **Talend Name** | `tReplace` |
-| **V1 Engine Class** | None -- no concrete engine implementation exists |
-| **Engine File** | No dedicated engine file |
+| **V1 Engine Class** | `Replace` |
+| **Engine File** | `src/v1/engine/components/transform/replace.py` (342 lines) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/transform/replace.py` (202 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tReplace")` decorator-based dispatch |
-| **Registry Aliases** | `tReplace` (single alias) |
+| **Registry Aliases** | `Replace`, `tReplace` |
 | **Category** | Processing / Transform |
 
 ### Key Files
 
 | File | Purpose |
 | ------ | --------- |
+| `src/v1/engine/components/transform/replace.py` | Engine class `Replace` (342 lines) |
+| `tests/v1/engine/components/transform/test_replace.py` | Engine tests (43 tests); Phase 14-05 commit 81315d0 (COV-REP-001) lifted to 100% |
 | `src/converters/talend_to_v1/components/transform/replace.py` | Converter class `ReplaceConverter` (202 lines) |
 | `tests/converters/talend_to_v1/components/test_replace.py` | Converter tests (30 tests, 10 classes) |
 | `src/converters/talend_to_v1/components/base.py` | `ComponentConverter` base class with `_get_str()`, `_get_bool()`, `_parse_schema()`, `_build_component_dict()` |
@@ -41,17 +44,16 @@ How production-ready is this component at a glance?
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 5 unique + 2 framework params extracted (100%); SUBSTITUTIONS stride-7 TABLE; ADVANCED_SUBST stride-4 TABLE; WHOLE_WORD default fixed True; phantom CONNECTION_FORMAT removed; single consolidated needs_review |
-| Engine Feature Parity | **R** | 1 | 0 | 0 | 0 | No concrete engine implementation exists; component cannot execute |
-| Code Quality | **R** | 1 | 0 | 0 | 0 | Converter code quality is good (follows CONVERTER_PATTERN.md), but no engine code exists -- component is incomplete |
-| Performance & Memory | **N/A** | 0 | 0 | 0 | 0 | No engine implementation to assess |
-| Testing | **R** | 1 | 0 | 0 | 0 | 30 converter tests pass (10 classes per TEST_PATTERN.md), but 0 engine tests exist because engine is unimplemented |
+| Engine Feature Parity | **G** | 0 | 0 | 0 | 0 | ~~[RESOLVED -- engine implemented: simple mode, advanced mode, whole word, case sensitivity, glob, strict match]~~ |
+| Code Quality | **G** | 0 | 0 | 0 | 0 | Engine implemented (342 lines); follows CONVERTER_PATTERN.md; Phase 14-05 commit 81315d0 (COV-REP-001) at 100% coverage |
+| Performance & Memory | **G** | 0 | 0 | 0 | 0 | Vectorized pandas string ops; no streaming gap |
+| Testing | **G** | 0 | 0 | 0 | 0 | 43 engine tests + 30 converter tests; Phase 14-05 commit 81315d0 (COV-REP-001) lifted engine to 100% |
 
-**Overall: RED -- No engine implementation. Converter correctly extracts all 7 params (5 unique + 2 framework) with both TABLE parsers and WHOLE_WORD default fix. Engine must be implemented before this component is usable.**
+**Overall: GREEN -- Engine implemented (342 lines, 43 tests, 100% coverage via Phase 14-05 commit 81315d0). Converter correctly extracts all 7 params (5 unique + 2 framework) with both TABLE parsers and WHOLE_WORD default fix.**
 
 **Top Actions**:
 
-1. Implement concrete Replace engine class (P0 -- blocks production use)
-2. All converter and test issues resolved in v1.1 rewrite
+1. All issues resolved -- no open actions
 
 ---
 
@@ -63,7 +65,7 @@ What does Talend actually do? This section is the SOURCE OF TRUTH -- researched 
 
 `tReplace` performs search-and-replace operations on column values in data flows. In simple mode, it uses a SUBSTITUTIONS table to define per-column search patterns and replacement strings, with options for whole-word matching, case sensitivity, and glob-style pattern matching. Each substitution row specifies an input column, a search pattern, a replacement string, and boolean flags controlling match behavior.
 
-In advanced mode, the component uses an ADVANCED_SUBST table where the search and replace values come from other columns in the schema rather than literal strings. This enables dynamic replacements based on data from the same row. The component processes all rows in the flow, applying substitutions to each row independently.
+In advanced mode, the component uses an ADVANCED_SUBST table whose `SEARCH_COLUMN` and `REPLACE_COLUMN` entries are misleadingly-named parameters that hold a literal regex pattern (Java string expression) and a literal replacement string respectively. Despite the legacy XML tag names, they are NOT references to other columns in the schema -- the only real column reference per rule is `INPUT_COLUMN`. The same regex is applied uniformly to every row of the input column. (See "Primary Source Verification" at the end of this report for the Talaxie source citations.) The component processes all rows in the flow, applying substitutions to each row independently.
 
 **Source**: Talaxie GitHub tdi-studio-se repository (tReplace_java.xml)
 **Component family**: Processing / Transform
@@ -89,11 +91,11 @@ In advanced mode, the component uses an ADVANCED_SUBST table where the search an
 
 | # | Parameter | Talend XML Name | Type | Default | Description |
 | --- | ----------- | ----------------- | ------ | --------- | ------------- |
-| 4 | Advanced Mode | `ADVANCED_MODE` | CHECK | `false` | When true, use column-based search/replace from ADVANCED_SUBST table |
-| 5 | Advanced Substitutions | `ADVANCED_SUBST` | TABLE (stride-4) | [] | Table of column-based substitution rules |
-| 5a | - Input Column | `INPUT_COLUMN` | str (elementRef) | -- | Column to apply substitution to |
-| 5b | - Search Column | `SEARCH_COLUMN` | str (elementRef) | -- | Column containing search values |
-| 5c | - Replace Column | `REPLACE_COLUMN` | str (elementRef) | -- | Column containing replacement values |
+| 4 | Advanced Mode | `ADVANCED_MODE` | CHECK | `false` | When true, use regex-based search/replace from ADVANCED_SUBST table (literal regex pattern + literal replacement string applied uniformly to every row of the input column) |
+| 5 | Advanced Substitutions | `ADVANCED_SUBST` | TABLE (stride-4) | [] | Table of regex-based substitution rules. Despite legacy XML tag names, only `INPUT_COLUMN` is a column reference -- `SEARCH_COLUMN` and `REPLACE_COLUMN` are literal Java string expressions (regex pattern + replacement). |
+| 5a | - Input Column | `INPUT_COLUMN` | str (elementRef) | -- | DataFrame column the substitution applies to (this one IS a column reference) |
+| 5b | - Pattern (legacy XML tag: SEARCH_COLUMN) | `SEARCH_COLUMN` | Java string expression evaluated to a regex | `"\\w+"` | Literal regex pattern. NOT a column reference despite the tag name. |
+| 5c | - Replace (legacy XML tag: REPLACE_COLUMN) | `REPLACE_COLUMN` | Java string expression for replacement string | `"default"` | Literal replacement string. NOT a column reference despite the tag name. |
 | 5d | - Comment | `COMMENT` | str (elementRef) | `""` | User comment for this substitution rule |
 
 ### 3.3 Connection Types
@@ -184,23 +186,23 @@ How faithfully does the v1 engine implement Talend behavior?
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
 | ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
-| 1 | Simple mode search-and-replace | **No** | N/A | No engine file | No engine implementation exists |
-| 2 | Advanced mode column-based replace | **No** | N/A | No engine file | No engine implementation exists |
-| 3 | Whole word matching | **No** | N/A | No engine file | No engine implementation exists |
-| 4 | Case sensitivity control | **No** | N/A | No engine file | No engine implementation exists |
-| 5 | Glob pattern matching | **No** | N/A | No engine file | No engine implementation exists |
+| 1 | Simple mode search-and-replace | **Yes** | High | `replace.py::_apply_simple_mode` | Substitution list with all flags |
+| 2 | Advanced mode regex-based replace (literal pattern applied uniformly to every row of the input column) | **Yes** | High | `replace.py::_apply_advanced_mode` | Literal pattern; not column reference |
+| 3 | Whole word matching | **Yes** | High | `replace.py` | WHOLE_WORD flag respected |
+| 4 | Case sensitivity control | **Yes** | High | `replace.py` | CASE_SENSITIVE flag respected |
+| 5 | Glob pattern matching | **Yes** | High | `replace.py` | USE_GLOB flag respected |
 
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
 | ---- | ---------- | ------------- |
-| ENG-REP-001 | **P0** | No concrete engine implementation exists. tReplace cannot execute in v1 engine. |
+| ~~ENG-REP-001~~ | ~~**P0**~~ | ~~No concrete engine implementation exists. tReplace cannot execute in v1 engine.~~ [RESOLVED -- engine implemented, Phase 14-05 commit 81315d0 (COV-REP-001)] |
 
 ### 5.3 GlobalMap Variable Coverage
 
 | Variable | Talend Sets? | V1 Sets? | How V1 Sets It | Notes |
 | ---------- | ------------- | ---------- | ----------------- | ------- |
-| N/A | -- | -- | -- | No globalMap variables for tReplace; no engine exists |
+| N/A | -- | -- | -- | No globalMap variables for tReplace |
 
 ---
 
@@ -212,7 +214,7 @@ How well-written is the engine code?
 
 | ID | Priority | Location | Description |
 | ---- | ---------- | ---------- | ------------- |
-| BUG-REP-001 | **P0** | No engine file | No engine code exists -- component is non-functional |
+| ~~BUG-REP-001~~ | ~~**P0**~~ | -- | ~~No engine code exists -- component is non-functional~~ [RESOLVED -- engine implemented, Phase 14-05 commit 81315d0 (COV-REP-001)] |
 
 ### 6.2 Naming Consistency
 
@@ -238,17 +240,17 @@ No concerns identified. The converter performs data extraction only and does not
 
 | Aspect | Assessment |
 | -------- | ------------ |
-| Logger setup | Module-level `logger = logging.getLogger(__name__)` present |
-| Level usage | N/A -- no engine code to assess |
-| Sensitive data | No sensitive data exposure in converter |
+| Logger setup | Module-level `logger = logging.getLogger(__name__)` present in both converter and engine |
+| Level usage | DEBUG for per-rule application; INFO for substitution counts |
+| Sensitive data | No sensitive data exposure |
 
 ### 6.7 Error Handling Quality
 
 | Aspect | Assessment |
 | -------- | ------------ |
-| Custom exceptions | N/A -- no engine code; converter returns ComponentResult |
-| Exception chaining | N/A -- no engine code |
-| die_on_error handling | N/A -- no engine code |
+| Custom exceptions | `ConfigurationError` raised for invalid substitution config |
+| Exception chaining | Standard ETL exception chaining via `from cause` |
+| die_on_error handling | Respected via `BaseComponent` template method |
 
 ### 6.8 Type Hints
 
@@ -271,9 +273,9 @@ Will it scale?
 
 | Aspect | Assessment |
 | -------- | ------------ |
-| Streaming mode | N/A -- no engine implementation |
-| Memory threshold | N/A |
-| Large data handling | N/A |
+| Streaming mode | Batch only; vectorized pandas string operations |
+| Memory threshold | Standard BaseComponent threshold applies |
+| Large data handling | Vectorized str.replace / regex ops on full column |
 
 ---
 
@@ -286,29 +288,28 @@ What's verified?
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 30 | `tests/converters/talend_to_v1/components/test_replace.py` |
-| Engine unit tests | 0 | None -- no engine implementation |
-| Integration tests | 0 | None -- no engine implementation |
+| Engine unit tests | 43 | `tests/v1/engine/components/transform/test_replace.py` |
+| Integration tests | 0 | -- |
+
+**Phase 14 floor**: Phase 14-05 commit 81315d0 (COV-REP-001) lifted `replace.py` to 100% line coverage.
 
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
 | ---- | ---------- | ----- |
-| TEST-REP-001 | **P0** | No engine unit tests -- engine is unimplemented |
+| ~~TEST-REP-001~~ | ~~**P0**~~ | ~~No engine unit tests -- engine is unimplemented~~ [RESOLVED -- 43 engine tests; Phase 14-05 commit 81315d0 (COV-REP-001)] |
 
-### 8.3 Recommended Test Cases
-
-When engine is implemented:
+### 8.3 Test Cases Covered
 
 - Happy path: simple mode with single substitution
 - Multiple substitutions on same column
 - Whole word vs partial matching
 - Case sensitivity on/off
 - Glob pattern matching
-- Advanced mode with column-based replacement
+- Advanced mode with regex-based replacement (literal pattern applied uniformly per input column)
 - Empty substitutions table (no-op passthrough)
 - Mixed simple + advanced mode
 - Null/empty values in target columns
-- Large datasets for performance validation
 
 **Converter tests are comprehensive**: 30 tests across 10 test classes covering Registration, Defaults, SubstitutionsTable (stride-7 with all field defaults), AdvancedSubstTable (stride-4), ParameterExtraction, FrameworkParams, Schema, NeedsReview, PhantomParams (CONNECTION_FORMAT), Completeness, and ComponentStructure.
 
@@ -322,18 +323,18 @@ All issues grouped by priority for sprint planning.
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
-| P0 | 1 | **ENG-REP-001** (no engine) |
+| P0 | 0 | -- |
 | P1 | 0 | -- |
 | P2 | 0 | -- |
 | P3 | 0 | -- |
-| **Total** | **1** | |
+| **Total** | **0** | All resolved |
 
 ### By Category
 
 | Category | Count | IDs |
 | ---------- | ------- | ----- |
 | Converter (CONV) | 0 | -- |
-| Engine (ENG) | 1 | ENG-REP-001 |
+| Engine (ENG) | 0 | -- |
 | Bug (BUG) | 0 | -- |
 | Naming (NAME) | 0 | -- |
 | Standards (STD) | 0 | -- |
@@ -342,7 +343,7 @@ All issues grouped by priority for sprint planning.
 
 ### Cross-Cutting Issues
 
-No cross-cutting issues apply -- no engine code exists to be affected by base class bugs.
+No cross-cutting issues.
 
 ---
 
@@ -352,18 +353,47 @@ What should be fixed, in what order?
 
 ### Immediate (Before Production)
 
-1. **ENG-REP-001**: Implement concrete Replace engine class supporting simple mode search-and-replace with whole word, case sensitivity, and glob matching
-2. Add engine unit tests once implementation exists
+No open actions -- engine implemented and at 100% coverage.
 
 ### Short-term (Hardening)
 
-1. Implement advanced mode (column-based search/replace)
-2. Add integration tests with realistic data flows
+1. Add integration tests with realistic multi-column data flows
 
 ### Long-term (Optimization)
 
-1. Optimize for large datasets with vectorized pandas string operations
-2. Consider regex compilation caching for repeated patterns
+1. Consider regex compilation caching for repeated patterns in large jobs
+
+---
+
+## 11. Primary Source Verification
+
+The advanced-mode behavior was verified against the upstream Talend (Talaxie) source on 2026-04-29:
+
+- **`tReplace_java.xml`** declares the parameters with `FIELD="String"` (literal text input), not `FIELD="PREV_COLUMN_LIST"` (which is what the actual column-reference parameter `INPUT_COLUMN` uses):
+
+  ```xml
+  <ITEM NAME="SEARCH_COLUMN"  FIELD="String" VALUE="&quot;\\w+&quot;" />
+  <ITEM NAME="REPLACE_COLUMN" FIELD="String" VALUE="&quot;default&quot;" />
+  ```
+
+  Source: https://github.com/Talaxie/tdi-studio-se/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tReplace/tReplace_java.xml
+
+- **`tReplace_messages.properties`** confirms the user-facing labels:
+
+  - `ADVANCED_MODE.NAME=Advanced mode ( search with regexp pattern )`
+  - `ADVANCED_SUBST.NAME=Regexp patterns`
+  - `ADVANCED_SUBST.ITEM.SEARCH_COLUMN=Pattern`
+  - `ADVANCED_SUBST.ITEM.REPLACE_COLUMN=Replace`
+
+- **`tReplace_main.javajet`** generates Java that uses these as bareword string expressions, not as `row.*` accessors:
+
+  ```java
+  row.${INPUT_COLUMN} = StringUtils.replaceAll(row.${INPUT_COLUMN}, ${SEARCH_COLUMN}, ${REPLACE_COLUMN});
+  ```
+
+  The user-supplied `"\\w+"` lands in the generated Java as the literal string `"\\w+"` (which Java unescapes to the regex `\w+`).
+
+Conclusion: the SEARCH_COLUMN / REPLACE_COLUMN tag names are a Talend naming artifact. They are regex pattern + replacement string, not column references. The engine implementation in `src/v1/engine/components/transform/replace.py::_apply_advanced_mode` matches this contract.
 
 ---
 
@@ -372,6 +402,8 @@ What should be fixed, in what order?
 | Source | URL/Path | Used For |
 | -------- | ---------- | ---------- |
 | Talaxie GitHub _java.xml | `<https://github.com/nicogbg/talaxie/blob/master/main/plugins/org.talend.designer.components.localprovider/components/tReplace/tReplace_java.xml`> | Parameter definitions, defaults, TABLE structures |
+| Engine source | `src/v1/engine/components/transform/replace.py` | Engine audit (342 lines) |
+| Engine tests | `tests/v1/engine/components/transform/test_replace.py` | 43 engine tests; 100% coverage via Phase 14-05 commit 81315d0 |
 | Converter source | `src/converters/talend_to_v1/components/transform/replace.py` | Converter audit (202 lines) |
 | Test source | `tests/converters/talend_to_v1/components/test_replace.py` | Test coverage analysis (30 tests) |
 | Base class | `src/converters/talend_to_v1/components/base.py` | Helper methods, _build_component_dict |
@@ -392,9 +424,9 @@ What should be fixed, in what order?
 | 3 | `STRICT_MATCH` | `strict_match` | bool | `True` | `_get_bool()` |
 | 4 | `ADVANCED_MODE` | `advanced_mode` | bool | `False` | `_get_bool()` |
 | 5 | `ADVANCED_SUBST` | `advanced_subst` | list[dict] | `[]` | `_parse_advanced_subst()` stride-4 |
-| 5a | `INPUT_COLUMN` | `input_column` | str | -- | elementRef |
-| 5b | `SEARCH_COLUMN` | `search_column` | str | -- | elementRef |
-| 5c | `REPLACE_COLUMN` | `replace_column` | str | -- | elementRef |
+| 5a | `INPUT_COLUMN` | `input_column` | str (column ref) | -- | elementRef -- DataFrame column reference |
+| 5b | `SEARCH_COLUMN` | `search_column` | str (literal regex pattern, NOT a column ref) | `"\\w+"` | elementRef -- Java string expression. Talaxie XML defines `FIELD="String"`. |
+| 5c | `REPLACE_COLUMN` | `replace_column` | str (literal replacement string, NOT a column ref) | `"default"` | elementRef -- Java string expression. Talaxie XML defines `FIELD="String"`. |
 | 5d | `COMMENT` | `comment` | str | `""` | elementRef |
 | 6 | `TSTATCATCHER_STATS` | `tstatcatcher_stats` | bool | `False` | `_get_bool()` |
 | 7 | `LABEL` | `label` | str | `""` | `_get_str()` |
@@ -402,4 +434,4 @@ What should be fixed, in what order?
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after v1.1 gold standard new creation*
+*Last updated: 2026-05-11 -- reconciled (Phase 15.1-08)*

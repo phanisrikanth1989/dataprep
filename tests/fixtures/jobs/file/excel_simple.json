@@ -1,0 +1,75 @@
+{
+  "job_name": "Job_excel_simple",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {}
+  },
+  "components": [
+    {
+      "id": "tFileInputExcel_1",
+      "type": "FileInputExcel",
+      "original_type": "tFileInputExcel",
+      "config": {
+        "filepath": "TBD_via_mutations",
+        "all_sheets": false,
+        "sheetlist": [{"sheetname": "Sheet1"}],
+        "header": 1,
+        "footer": 0,
+        "first_column": 1,
+        "die_on_error": false,
+        "suppress_warn": false,
+        "advanced_separator": false,
+        "trimall": false,
+        "convertdatetostring": false,
+        "stopread_on_emptyrow": false
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {"name": "id", "type": "int", "nullable": false, "key": false},
+          {"name": "name", "type": "str", "nullable": false, "key": false},
+          {"name": "salary", "type": "float", "nullable": true, "key": false},
+          {"name": "hire_date", "type": "str", "nullable": true, "key": false}
+        ]
+      },
+      "inputs": [],
+      "outputs": ["row1"]
+    },
+    {
+      "id": "tFileOutputDelimited_1",
+      "type": "FileOutputDelimited",
+      "original_type": "tFileOutputDelimited",
+      "config": {
+        "filepath": "TBD_via_mutations",
+        "fieldseparator": ";",
+        "row_separator": "\\n",
+        "encoding": "UTF-8",
+        "include_header": true,
+        "append": false,
+        "create_directory": true,
+        "split": false,
+        "file_exist_exception": false
+      },
+      "schema": {
+        "input": [
+          {"name": "id", "type": "int", "nullable": false, "key": false},
+          {"name": "name", "type": "str", "nullable": false, "key": false},
+          {"name": "salary", "type": "float", "nullable": true, "key": false},
+          {"name": "hire_date", "type": "str", "nullable": true, "key": false}
+        ],
+        "output": []
+      },
+      "inputs": ["row1"],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {"name": "row1", "from": "tFileInputExcel_1", "to": "tFileOutputDelimited_1", "type": "flow"}
+  ],
+  "triggers": [],
+  "subjobs": {
+    "subjob_1": ["tFileInputExcel_1", "tFileOutputDelimited_1"]
+  },
+  "java_config": {"enabled": false, "routines": [], "libraries": []}
+}

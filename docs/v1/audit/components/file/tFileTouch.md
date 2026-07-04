@@ -1,11 +1,40 @@
 # Audit Report: tFileTouch / FileTouch
 
 > **Audited**: 2026-04-04
+> **Re-audited**: 2026-04-29 (engine remediation)
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: PRODUCTION READINESS REVIEW
+> **Status**: REMEDIATED -- engine rewritten to ENGINE_COMPONENT_PATTERN.md gold standard
 > **V1 only** -- this report is scoped to the v1 engine exclusively
+
+---
+
+## 0. 2026-04-29 Re-audit Summary (Engine Remediation)
+
+Engine rewrite at `src/v1/engine/components/file/file_touch.py` brings the
+component to gold-standard compliance.
+
+| Issue | Status | Resolution |
+| ----- | ------ | ---------- |
+| ~~BUG-FT-001 (P0)~~ | **FIXED** | Cross-cutting `_update_global_map()` already corrected in `base_component.py:617` (verified) |
+| ~~ENG-FT-001 (P1)~~ | **FIXED** | Engine now reads `createdir` (converter key) and falls back to legacy `create_directory` |
+| ~~ENG-FT-002 (P2)~~ | **FIXED** | Silent-failure bug eliminated; broad `except Exception` replaced with `except OSError`; `die_on_error` honoured; missing-parent-directory raises `FileOperationError` |
+| ~~Code-Quality P1 (no `_validate_config`)~~ | **FIXED** | `_validate_config()` raises `ConfigurationError` for missing `filename` and bad bool types |
+| ~~Code-Quality P2 (f-string in logger)~~ | **FIXED** | %-formatting throughout (Rule 8) |
+| ~~Code-Quality P2 (bare except)~~ | **FIXED** | Narrowed to `OSError` / `FileOperationError` |
+| ~~Code-Quality P3 (unused typing import)~~ | **FIXED** | Imports trimmed |
+| ~~ENG-FT-001 (ERROR_MESSAGE globalMap not set)~~ | **FIXED** | `{id}_ERROR_MESSAGE` set on failure |
+| ~~Testing P2 gap~~ | **FIXED** | New `tests/v1/engine/components/file/test_file_touch.py` (8 classes, 13 tests, all passing) |
+
+**Other improvements**:
+- Added `@REGISTRY.register("FileTouch", "tFileTouch")` (Rule 9)
+- Module docstring with Config Mapping table (Rule 1)
+- Replaced bare `ValueError` / `FileNotFoundError` with `ConfigurationError` / `FileOperationError` (Rule 7)
+- Returns `{"main": ..., "reject": None}` (Rule 3)
+
+**New Overall: GREEN**. Updated scorecard: P0=0 / P1=0 / P2=0 / P3=0.
 
 ---
 
@@ -18,7 +47,7 @@
 | **Engine File** | `src/v1/engine/components/file/file_touch.py` (99 lines) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/file/file_touch.py` (67 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tFileTouch")` decorator-based dispatch |
-| **Registry Aliases** | `tFileTouch` |
+| **Registry Aliases** | `FileTouch`, `tFileTouch` |
 | **Category** | File / Utility |
 | **Complexity** | Low -- utility component with 2 unique parameters, no data flow schema |
 
@@ -251,14 +280,14 @@ No concerns identified. File path comes from configuration, not user input. No e
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 22 | `tests/converters/talend_to_v1/components/test_file_touch.py` |
-| Engine unit tests | 0 | None |
+| Engine unit tests | 13 | `tests/v1/engine/components/file/test_file_touch.py` (8 classes, added 2026-04-29) |
 | Integration tests | Shared | `tests/converters/talend_to_v1/test_integration.py` |
+
+**Phase 14-08 note**: Per-module coverage floor lifted to >=95% (Phase 14 gate). Engine unit tests were added in the 2026-04-29 re-audit. [RESOLVED in Phase 14-08]
 
 ### 8.2 Test Gaps
 
-| ID | Priority | Gap |
-| ---- | ---------- | ----- |
-| TEST-FT-001 | **P2** | No engine unit tests for FileTouch. Engine implementation not tested independently. |
+~~TEST-FT-001 (P2) -- No engine unit tests for FileTouch.~~ [RESOLVED in Phase 14-08]
 
 ### 8.3 Recommended Test Cases
 
@@ -342,4 +371,4 @@ No concerns identified. File path comes from configuration, not user input. No e
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after Phase 10 gold standard rewrite*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation*

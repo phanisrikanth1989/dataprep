@@ -319,3 +319,46 @@ class TestComponentStructure:
         node = _make_node()
         result = JoinConverter().convert(node, [], {})
         assert isinstance(result.component["config"], dict)
+
+
+class TestParseHelperEdgeCases:
+    """Cover the trailing-incomplete-group and non-dict-entry branches in
+    _parse_join_key / _parse_lookup_cols (PLAN 14-12-extras gap closure)."""
+
+    def test_join_keys_incomplete_trailing_group_is_skipped(self):
+        from src.converters.talend_to_v1.components.transform.join import _parse_join_key
+        raw = [
+            {"elementRef": "INPUT_COLUMN", "value": '"id"'},
+            {"elementRef": "LOOKUP_COLUMN", "value": '"id"'},
+            {"elementRef": "INPUT_COLUMN", "value": '"orphan"'},
+        ]
+        assert _parse_join_key(raw) == [
+            {"input_column": "id", "lookup_column": "id"}
+        ]
+
+    def test_join_keys_non_dict_entry_is_ignored(self):
+        from src.converters.talend_to_v1.components.transform.join import _parse_join_key
+        raw = [
+            "not-a-dict",
+            {"elementRef": "LOOKUP_COLUMN", "value": '"id"'},
+        ]
+        assert _parse_join_key(raw) == [{"lookup_column": "id"}]
+
+    def test_lookup_cols_incomplete_trailing_group_is_skipped(self):
+        from src.converters.talend_to_v1.components.transform.join import _parse_lookup_cols
+        raw = [
+            {"elementRef": "OUTPUT_COLUMN", "value": '"name"'},
+            {"elementRef": "LOOKUP_COLUMN", "value": '"name"'},
+            {"elementRef": "OUTPUT_COLUMN", "value": '"orphan"'},
+        ]
+        assert _parse_lookup_cols(raw) == [
+            {"output_column": "name", "lookup_column": "name"}
+        ]
+
+    def test_lookup_cols_non_dict_entry_is_ignored(self):
+        from src.converters.talend_to_v1.components.transform.join import _parse_lookup_cols
+        raw = [
+            42,
+            {"elementRef": "LOOKUP_COLUMN", "value": '"id"'},
+        ]
+        assert _parse_lookup_cols(raw) == [{"lookup_column": "id"}]

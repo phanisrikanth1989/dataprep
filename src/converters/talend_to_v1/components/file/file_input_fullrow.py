@@ -22,6 +22,7 @@ from typing import Any, Dict, List
 
 from ..base import ComponentConverter, ComponentResult, TalendConnection, TalendNode
 from ..registry import REGISTRY
+from ...expression_converter import ExpressionConverter
 
 logger = logging.getLogger(__name__)
 
@@ -41,10 +42,12 @@ class FileInputFullRowConverter(ComponentConverter):
 
         # ---- 1. Core parameters ----
         config: Dict[str, Any] = {}
-        config["filename"] = self._get_str(node, "FILENAME", "")
+        config["filename"] = ExpressionConverter.mark_java_expression(
+            self._get_str(node, "FILENAME", "")
+        )
         config["row_separator"] = self._get_str(node, "ROWSEPARATOR", "\\n")
-        config["header_rows"] = self._get_int(node, "HEADER", 0)
-        config["footer_rows"] = self._get_int(node, "FOOTER", 0)
+        config["header_rows"] = self._get_int_or_context(node, "HEADER", 0)
+        config["footer_rows"] = self._get_int_or_context(node, "FOOTER", 0)
         config["limit"] = self._get_str(node, "LIMIT", "")
         config["remove_empty_row"] = self._get_bool(node, "REMOVE_EMPTY_ROW", True)
         config["encoding"] = self._get_str(node, "ENCODING", "ISO-8859-15")
@@ -63,21 +66,7 @@ class FileInputFullRowConverter(ComponentConverter):
         schema_cols = self._parse_schema(node)
         schema = {"input": [], "output": schema_cols}
 
-        # ---- 5. Engine gap needs_review entries (per D-36: per-feature) ----
-        _engine_gap_keys = [
-            ("header_rows", "engine does not support skipping header rows"),
-            ("footer_rows", "engine does not support skipping footer rows"),
-            ("random", "engine does not support random line extraction"),
-            ("nb_random", "engine does not support random line count"),
-        ]
-        for key, detail in _engine_gap_keys:
-            needs_review.append({
-                "issue": f"Engine does not read '{key}' config key -- {detail}",
-                "component": node.component_id,
-                "severity": "engine_gap",
-            })
-
-        # ---- 6. Build component wrapper ----
+        # ---- 5. Build component wrapper ----
         component = self._build_component_dict(
             node=node,
             type_name="FileInputFullRowComponent",
@@ -85,7 +74,7 @@ class FileInputFullRowConverter(ComponentConverter):
             schema=schema,
         )
 
-        # ---- 7. Return ----
+        # ---- 6. Return ----
         return ComponentResult(
             component=component,
             warnings=warnings,

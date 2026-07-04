@@ -15,10 +15,18 @@ from datetime import datetime
 from collections import defaultdict
 
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
+from ...exceptions import (
+    ComponentExecutionError,
+    ConfigurationError,
+    ETLError,
+    FileOperationError,
+)
 
 logger = logging.getLogger(__name__)
 
 
+@REGISTRY.register("SwiftTransformer", "tSwiftDataTransformer")
 class SwiftTransformer(BaseComponent):
     """
     Transform SWIFT pipe-delimited data from one format to another based on
@@ -40,16 +48,43 @@ class SwiftTransformer(BaseComponent):
         # Initialize transformation configuration
         self._init_transformer_config()
 
+    def _validate_config(self) -> None:
+        """Validate SwiftTransformer config (BaseComponent abstract).
+
+        SwiftTransformer is permissive: it accepts an external ``config_file``,
+        an inline ``transform_config``, OR falls back to a built-in default.
+        Validation only fails on type errors -- e.g. ``config_file`` present
+        but not a string, or ``transform_config`` present but not a dict.
+
+        Raises:
+            ConfigurationError: When a present option has the wrong shape.
+        """
+        cfg_file = self.config.get("config_file")
+        if cfg_file is not None and not isinstance(cfg_file, str):
+            raise ConfigurationError(
+                f"Component {self.id}: 'config_file' must be a string when provided"
+            )
+        inline = self.config.get("transform_config")
+        if inline is not None and not isinstance(inline, dict):
+            raise ConfigurationError(
+                f"Component {self.id}: 'transform_config' must be a mapping when provided"
+            )
+
     def _init_transformer_config(self):
         """Initialize transformation configuration - defer external config loading
-        until execution"""
+        until execution.
+
+        Reads ``_original_config`` because BaseComponent.__init__ leaves
+        ``self.config`` empty until ``execute()`` (ENG-09/ENG-21).
+        """
+        cfg = self._original_config
 
         # Store config file path for later resolution during execution
-        self.config_file = self.config.get('config_file')
+        self.config_file = cfg.get('config_file')
         self.transform_config = None  # Will be loaded during execution
 
         # Check if we have inline config as fallback
-        self.inline_config = self.config.get('transform_config', {})
+        self.inline_config = cfg.get('transform_config', {})
 
         if not self.config_file and not self.inline_config:
             # Use default configuration if neither external nor inline config provided
@@ -101,7 +136,9 @@ class SwiftTransformer(BaseComponent):
                 self.transform_config = self.inline_config if self.inline_config else self._get_default_transform_config()
 
             if not self.transform_config:
-                raise ValueError(f"Component {self.id}: No valid transformation configuration available")
+                raise ConfigurationError(
+                    f"Component {self.id}: No valid transformation configuration available"
+                )
 
             # Extract key configuration sections now that config is loaded
             self.input_fields = self.transform_config.get('input_fields', [])
@@ -123,25 +160,25 @@ class SwiftTransformer(BaseComponent):
             self._load_lookup_files()
 
     def _load_lookup_files(self):
-        """Load all lookup files into memory"""
+        """Load all lookup files into memory.
+
+        Per-row error handling: a missing or unreadable lookup file is logged
+        and skipped (lookup_data simply does not gain that key) so the rest of
+        the config still works. The component-level ``die_on_error`` flag is
+        consulted only at the top level of ``_process``; per-lookup failures
+        are non-fatal.
+        """
         for lookup in self.lookups_config:
             lookup_name = lookup.get('name', '')
             lookup_file = lookup.get('file', '')
 
             if not lookup_file:
-                logger.warning(f"Component {self.id}: Lookup {lookup_name} has no file specified")
+                logger.warning(
+                    f"Component {self.id}: Lookup {lookup_name} has no file specified"
+                )
                 continue
 
-    def _load_lookup_files(self):
-        """Load all lookup files into memory"""
-        for lookup in self.lookups_config:
-            lookup_name = lookup.get('name', '')
-            lookup_file = lookup.get('file', '')
-
-            if not lookup_file:
-                logger.warning(f"Component {self.id}: Lookup {lookup_name} has no file specified")
-                continue
-
+            resolved_lookup_file = lookup_file
             try:
                 # Resolve context variables in the lookup file path first
                 resolved_lookup_file = self.context_manager.resolve_string(lookup_file)
@@ -156,18 +193,29 @@ class SwiftTransformer(BaseComponent):
                     delimiter = '|'
 
                 # Read lookup file
-                lookup_df = pd.read_csv(lookup_file_path, delimiter=delimiter, dtype=str, keep_default_na=False)
+                lookup_df = pd.read_csv(
+                    lookup_file_path,
+                    delimiter=delimiter,
+                    dtype=str,
+                    keep_default_na=False,
+                )
 
                 # Store lookup data with config
                 self.lookup_data[lookup_name] = {
                     'data': lookup_df,
-                    'config': lookup
+                    'config': lookup,
                 }
 
-                logger.info(f"Component {self.id}: Loaded lookup {lookup_name} with {len(lookup_df)} rows from {lookup_file_path}")
+                logger.info(
+                    f"Component {self.id}: Loaded lookup {lookup_name} with "
+                    f"{len(lookup_df)} rows from {lookup_file_path}"
+                )
 
             except Exception as e:
-                logger.error(f"Component {self.id}: Error loading lookup file {resolved_lookup_file if 'resolved_lookup_file' in locals() else lookup_file}: {str(e)}")
+                logger.error(
+                    f"Component {self.id}: Error loading lookup file "
+                    f"{resolved_lookup_file}: {str(e)}"
+                )
 
     def _apply_lookups(self, output_row: Dict[str, Any], depends_on_lookup: bool =
         False) -> Dict[str, Any]:
@@ -256,7 +304,12 @@ class SwiftTransformer(BaseComponent):
         return output_row
 
     def _load_external_config(self, config_path: str) -> Dict[str, Any]:
-        """Load configuration from external YAML or JSON file"""
+        """Load configuration from external YAML or JSON file.
+
+        Raises:
+            FileOperationError: when the file cannot be read or parsed.
+        """
+        resolved_config_path = config_path
         try:
             # Resolve context variables in the config path first
             resolved_config_path = self.context_manager.resolve_string(config_path)
@@ -270,12 +323,17 @@ class SwiftTransformer(BaseComponent):
                 else:
                     config = json.load(file)
 
-            logger.info(f"Component {self.id}: Loaded external config from {resolved_config_path}")
+            logger.info(
+                f"Component {self.id}: Loaded external config from {resolved_config_path}"
+            )
             return config
 
         except Exception as e:
-            logger.error(f"Component {self.id}: Error loading config {resolved_config_path if 'resolved_config_path' in locals() else config_path}: {str(e)}")
-            raise ValueError(f"Failed to load transformation config: {str(e)}")
+            logger.error(
+                f"Component {self.id}: Error loading config "
+                f"{resolved_config_path}: {str(e)}"
+            )
+            raise FileOperationError(f"Failed to load transformation config: {str(e)}")
 
     def _get_default_transform_config(self) -> Dict[str, Any]:
         """Get default transformation configuration for SWIFT data"""
@@ -390,13 +448,15 @@ class SwiftTransformer(BaseComponent):
 
             return {'main': transformed_df}
 
+        except ETLError:
+            # Already a structured engine error -- propagate to BaseComponent.
+            raise
         except Exception as e:
             error_msg = f"Error transforming SWIFT data: {str(e)}"
             if self.config.get('die_on_error', True):
-                raise RuntimeError(error_msg)
-            else:
-                logger.error(f"Component {self.id}: {error_msg}")
-                self._update_stats(0, 0, 1)
+                raise ComponentExecutionError(self.id, error_msg, cause=e)
+            logger.error(f"Component {self.id}: {error_msg}")
+            self._update_stats(0, 0, 1)
             return {'main': pd.DataFrame()}
 
     def _transform_rows(self, input_df: pd.DataFrame) -> pd.DataFrame:
@@ -875,4 +935,4 @@ class SwiftTransformer(BaseComponent):
 
         except Exception as e:
             logger.error(f"Component {self.id}: Error writing output file: {str(e)}")
-            raise
+            raise FileOperationError(f"Error writing output file {file_path}: {str(e)}")

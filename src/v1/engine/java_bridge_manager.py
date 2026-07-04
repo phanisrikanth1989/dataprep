@@ -5,6 +5,8 @@ import logging
 import socket
 from typing import Optional, List
 
+from .exceptions import JavaBridgeError
+
 logger = logging.getLogger(__name__)
 
 
@@ -14,7 +16,8 @@ class JavaBridgeManager:
     Each job gets its own Java process to ensure isolation.
     """
 
-    def __init__(self, enable: bool = True, routines: Optional[List[str]] = None, libraries: Optional[List[str]] = None):
+    def __init__(self, enable: bool = True, routines: Optional[List[str]] = None,
+                 libraries: Optional[List[str]] = None, routine_jars: Optional[List[str]] = None):
         """
         Initialize Java bridge manager
 
@@ -22,6 +25,7 @@ class JavaBridgeManager:
             enable: Whether to enable Java execution
             routines: List of routine class names to load (e.g., ['routines.StringUtils', 'routines.DateUtil'])
             libraries: List of required JAR files (e.g., ['commons-lang3-3.14.0.jar', 'gson-2.8.9.jar'])
+            routine_jars: List of JAR file paths or directories to add to JVM classpath
         """
         self.enable = enable
         self.bridge = None
@@ -29,63 +33,97 @@ class JavaBridgeManager:
         self.port = None
         self.routines = routines or []
         self.libraries = libraries or []
+        self.routine_jars = routine_jars or []
 
     def start(self):
-        """Start Java bridge with dynamic port allocation"""
+        """Start Java bridge with dynamic port allocation.
+
+        Retries port allocation up to 3 times to handle TOCTOU races where
+        another process claims the port between _find_free_port() releasing
+        the socket and the Java process binding to it.
+        """
         if not self.enable:
             logger.info("Java execution disabled")
             return
 
+        max_port_retries = 3
+        last_error = None
+
+        for attempt in range(1, max_port_retries + 1):
+            try:
+                # Find available port
+                self.port = self._find_free_port()
+                logger.info("[OK] Starting Java bridge on port %d (attempt %d/%d)", self.port, attempt, max_port_retries)
+
+                # Import and initialize bridge
+                from src.v1.java_bridge import JavaBridge
+
+                self.bridge = JavaBridge()
+                self.bridge.start(port=self.port, routine_jars=self.routine_jars)
+                self.is_running = True
+                break  # Success -- exit retry loop
+            except Exception as e:
+                last_error = e
+                if attempt < max_port_retries and "Address already in use" in str(e):
+                    logger.warning("[WARN] Port %d in use, retrying with new port...", self.port)
+                    # Clean up failed bridge before retry
+                    if self.bridge:
+                        try:
+                            self.bridge.stop()
+                        except Exception:
+                            pass
+                        self.bridge = None
+                    continue
+                # Not a port race or final attempt -- fall through to outer handler
+                raise
+
+        if not self.is_running:
+            raise JavaBridgeError(f"Java bridge failed to start after {max_port_retries} attempts: {last_error}") from last_error
+
         try:
-            # Find available port
-            self.port = self._find_free_port()
-            logger.info(f"Starting Java bridge on port {self.port}")
 
-            # Import and initialize bridge
-            from src.v1.java_bridge import JavaBridge
-
-            self.bridge = JavaBridge()
-            self.bridge.start(port=self.port)
-            self.is_running = True
-
-            logger.info(f"Java bridge started successfully on port {self.port}")
+            # Sync Python log level to Java side (D-16)
+            python_level = logger.getEffectiveLevel()
+            self.bridge.set_log_level(python_level)
+            logger.info("[OK] Java bridge started on port %d, log level synced", self.port)
 
             # Validate required libraries if specified
             if self.libraries:
-                logger.info(f"Validating {len(self.libraries)} required library(ies)...")
+                logger.info("[OK] Validating %d required library(ies)...", len(self.libraries))
                 missing_libraries = self.bridge.validate_libraries(self.libraries)
                 if missing_libraries:
                     error_msg = f"Missing required libraries: {missing_libraries}"
-                    logger.error(f"{error_msg}")
+                    logger.error("[ERROR] %s", error_msg)
                     self.bridge.stop()
                     raise RuntimeError(error_msg)
-                logger.info(f"All {len(self.libraries)} libraries are available on classpath")
+                logger.info("[OK] All %d libraries are available on classpath", len(self.libraries))
 
             # Load routines if specified
             if self.routines:
-                logger.info(f"Loading {len(self.routines)} routine(s)...")
+                logger.info("[OK] Loading %d routine(s)...", len(self.routines))
+                failed_routines = []
                 for routine_class in self.routines:
                     try:
                         self.bridge.load_routine(routine_class)
-                        logger.info(f"Loaded: {routine_class}")
+                        logger.info("[OK] Loaded: %s", routine_class)
                     except Exception as e:
-                        logger.error(f"Failed to load {routine_class}")
+                        logger.error("[ERROR] Failed to load %s: %s", routine_class, e)
+                        failed_routines.append(routine_class)
+                if failed_routines:
+                    raise JavaBridgeError(f"Failed to load routines: {failed_routines}")
 
         except Exception as e:
-            logger.error(f"Failed to start Java bridge: {e}")
-            logger.warning("Java execution will be disabled. Components will fall back to Python execution.")
-            self.enable = False
-            self.bridge = None
-            self.is_running = False
+            logger.error("[ERROR] Java bridge failed to start: %s", e, exc_info=True)
+            raise JavaBridgeError(f"Java bridge failed to start: {e}") from e
 
     def stop(self):
         """Stop Java bridge and cleanup"""
         if self.bridge and self.is_running:
             try:
                 self.bridge.stop()
-                logger.info(f"Java bridge stopped (port {self.port})")
+                logger.info("[OK] Java bridge stopped (port %s)", self.port)
             except Exception as e:
-                logger.error(f"Error stopping Java bridge: {e}")
+                logger.error("[ERROR] Error stopping Java bridge: %s", e)
             finally:
                 self.bridge = None
                 self.is_running = False

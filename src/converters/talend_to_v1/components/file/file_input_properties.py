@@ -17,6 +17,7 @@ from typing import Any, Dict, List
 
 from ..base import ComponentConverter, ComponentResult, TalendConnection, TalendNode
 from ..registry import REGISTRY
+from ...expression_converter import ExpressionConverter
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,9 @@ class FileInputPropertiesConverter(ComponentConverter):
         config["file_format"] = self._get_str(node, "FILE_FORMAT", "PROPERTIES_FORMAT")
         config["retrive_mode"] = self._get_str(node, "RETRIVE_MODE", "RETRIVE_BY_SECTION")
         config["section_name"] = self._get_str(node, "SECTION_NAME", "section")
-        config["filename"] = self._get_str(node, "FILENAME", "")
+        config["filename"] = ExpressionConverter.mark_java_expression(
+            self._get_str(node, "FILENAME", "")
+        )
         config["encoding"] = self._get_str(node, "ENCODING", "ISO-8859-15")
 
         # ---- 2. Framework parameters (ALWAYS LAST) ----

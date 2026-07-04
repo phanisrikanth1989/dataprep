@@ -1,120 +1,99 @@
-"""
-tFileExist component - Checks if a file exists at a specified path
+"""tFileExist component - Checks if a file or directory exists.
 
 Talend equivalent: tFileExist
-"""
 
+Config mapping (Talend XML param -> v1 engine config key):
+    FILE_NAME           -> file_name (preferred); also accepts ``file_path``
+                          and legacy ``FILE_NAME`` for backward compatibility
+    (engine extension)  -> check_directory  (bool, default False)
+                          When True, only directories satisfy the check.
+
+GlobalMap variables (Talend parity):
+    {id}_EXISTS    (bool)   - whether the path exists at check time
+    {id}_FILENAME  (string) - resolved file path that was checked
+
+Statistics:
+    NB_LINE         = 1 (one existence check)
+    NB_LINE_OK      = 1 (the check itself always succeeds as an operation)
+    NB_LINE_REJECT  = 0
+"""
 import os
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, Optional
 import logging
 
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
+from ...exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
+
+@REGISTRY.register("FileExistComponent", "FileExist", "tFileExist")
 class FileExistComponent(BaseComponent):
-    """
-    Checks if a file or directory exists at the specified path.
+    """Checks whether a file (or directory) exists at the configured path.
 
-    Configuration:
-        file_path (str): Path to the file or directory to check. Required.
-        check_directory (bool): Whether to check for directory existence specifically. Default: False
-
-    Inputs:
-        None: This component does not process input data
-
-    Outputs:
-        main: Dictionary containing file existence status
-
-    Statistics:
-        NB_LINE: Number of existence checks performed (always 1)
-        NB_LINE_OK: Number of successful checks (always 1)
-        NB_LINE_REJECT: Number of failed checks (always 0)
-
-    Example configuration:
-    {
-        "file_path": "/path/to/file.txt",
-        "check_directory": false
-    }
-
-    Notes:
-        - Also accepts legacy 'FILE_NAME' parameter for backward compatibility
-        - Returns file_exists boolean in the result dictionary
+    Trigger-only component -- emits no row data. Sets ``{id}_EXISTS`` and
+    ``{id}_FILENAME`` in globalMap so downstream RUN_IF triggers can branch
+    on the result, matching Talend's tFileExist behaviour.
     """
 
-    def _validate_config(self) -> List[str]:
-        """
-        Validate component configuration.
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
 
-        Returns:
-            List of error messages (empty if valid)
-        """
-        errors = []
+    def _resolve_file_path(self) -> str:
+        """Return the configured path, accepting all converter aliases."""
+        return (
+            self.config.get("file_name")
+            or self.config.get("file_path")
+            or self.config.get("FILE_NAME")
+            or ""
+        )
 
-        # Check for either new or legacy parameter
-        file_path = self.config.get('file_path') or self.config.get('FILE_NAME')
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
 
-        if not file_path:
-            errors.append("Missing required config: 'file_path' (or legacy 'FILE_NAME')")
-        elif not isinstance(file_path, str):
-            errors.append("Config 'file_path' must be a string")
-        elif not file_path.strip():
-            errors.append("Config 'file_path' cannot be empty")
-
-        # Optional field validation
-        if 'check_directory' in self.config:
-            if not isinstance(self.config['check_directory'], bool):
-                errors.append("Config 'check_directory' must be a boolean")
-
-        return errors
+    def _validate_config(self) -> None:
+        path = self._resolve_file_path()
+        if not isinstance(path, str) or not path.strip():
+            raise ConfigurationError(
+                f"[{self.id}] Missing required config key 'file_name' "
+                "(also accepts 'file_path' or legacy 'FILE_NAME')"
+            )
+        check_directory = self.config.get("check_directory", False)
+        if not isinstance(check_directory, bool):
+            raise ConfigurationError(
+                f"[{self.id}] Config 'check_directory' must be a boolean"
+            )
 
     def _process(self, input_data: Optional[Any] = None) -> Dict[str, Any]:
-        """
-        Check if the file or directory exists.
+        file_path = self._resolve_file_path()
+        check_directory = self.config.get("check_directory", False)
 
-        Args:
-            input_data: Not used for this component
+        logger.info("[%s] File existence check started: %s", self.id, file_path)
 
-        Returns:
-            Dictionary containing:
-                - 'main': Dictionary with file_exists boolean status
+        if check_directory:
+            file_exists = os.path.isdir(file_path)
+            check_type = "directory"
+        else:
+            file_exists = os.path.exists(file_path)
+            check_type = "file/directory"
 
-        Raises:
-            ValueError: If required configuration is missing
-        """
-        # Support both new and legacy parameter names for backward compatibility
-        file_path = self.config.get('file_path') or self.config.get('FILE_NAME')
-        check_directory = self.config.get('check_directory', False)
+        # The check itself is an operation -- always OK.
+        self._update_stats(rows_read=1, rows_ok=1, rows_reject=0)
 
-        logger.info(f"[{self.id}] File existence check started: {file_path}")
+        # Talend-parity globalMap variables.
+        if self.global_map is not None:
+            self.global_map.put(f"{self.id}_EXISTS", bool(file_exists))
+            self.global_map.put(f"{self.id}_FILENAME", file_path)
 
-        rows_processed = 1
+        logger.info(
+            "[%s] File existence check complete: %s '%s' exists=%s",
+            self.id, check_type, file_path, file_exists,
+        )
 
-        if not file_path:
-            error_msg = "Missing required config: 'file_path' (or legacy 'FILE_NAME')"
-            logger.error(f"[{self.id}] {error_msg}")
-            raise ValueError(f"[{self.id}] {error_msg}")
-
-        try:
-            # Perform existence check
-            if check_directory:
-                file_exists = os.path.isdir(file_path)
-                check_type = "directory"
-            else:
-                file_exists = os.path.exists(file_path)
-                check_type = "file/directory"
-
-            # Update statistics - existence checks always succeed as operations
-            self._update_stats(rows_processed, 1, 0)
-
-            result = {'file_exists': file_exists}
-
-            logger.info(f"[{self.id}] File existence check complete: "
-                        f"{check_type} '{file_path}' exists={file_exists}")
-
-        except Exception as e:
-            logger.error(f"[{self.id}] File existence check failed: {e}")
-            self._update_stats(rows_processed, 0, 1)
-            raise
-
-        return {'main': result}
+        return {
+            "main": {"file_exists": bool(file_exists), "file_path": file_path},
+            "reject": None,
+        }

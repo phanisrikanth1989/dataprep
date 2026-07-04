@@ -1,168 +1,83 @@
-"""
-SleepComponent - Introduces a delay in the execution of the job.
+"""Engine component for Sleep (tSleep).
 
-Talend equivalent: tSleep
+Pauses job execution for a configurable duration then passes data through unchanged.
+
+Config keys consumed (3 total):
+  pause_duration      (str | int | float, default "1") -- sleep duration in seconds
+  tstatcatcher_stats  (bool, default False)            -- framework param
+  label               (str, default "")                -- framework param
 """
 import logging
+import math
 import time
-from typing import Dict, Any, Optional, List
+from typing import Optional
 
 import pandas as pd
 
 from ...base_component import BaseComponent
-from ...exceptions import ConfigurationError, ComponentExecutionError
+from ...component_registry import REGISTRY
+from ...exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
 
-class SleepComponent(BaseComponent):
-    """
-    Introduce a configurable delay in job execution flow.
+@REGISTRY.register("Sleep", "SleepComponent", "tSleep")
+class Sleep(BaseComponent):
+    """tSleep engine implementation.
 
-    This component pauses job execution for a specified duration, useful for
-    timing control, rate limiting, or waiting for external systems. The pause
-    duration can be configured statically or dynamically using context variables.
+    Pauses execution for the configured duration then passes input data
+    through unchanged to the next component.
 
-    Configuration:
-        pause_duration (float): Duration to sleep in seconds. Default: 0
-                               Supports context variables like ${context.delay}
-
-    Inputs:
-        main: Optional input DataFrame (passed through unchanged)
-
-    Outputs:
-        main: Same as input DataFrame (pass-through component)
-
-    Statistics:
-        NB_LINE: Always 1 (represents one sleep operation)
-        NB_LINE_OK: Always 1 (sleep operations don't fail)
-        NB_LINE_REJECT: Always 0
-
-    Example configuration:
-        {
-            "pause_duration": 5.5
-        }
-
-    # With context variable
-        {
-            "pause_duration": "${context.sleep_seconds}"
-        }
-
-    Notes:
-        - Component blocks execution thread during sleep
-        - Input data is passed through unchanged
-        - Duration supports decimal values for sub-second precision
-        - Zero or negative duration results in no sleep operation
-        - Context variables are resolved before sleep execution
+    Config keys:
+        pause_duration: Seconds to sleep (int, float, or numeric string).
     """
 
-    def _validate_config(self) -> List[str]:
+    # ------------------------------------------------------------------
+    # Configuration Validation
+    # ------------------------------------------------------------------
+
+    def _validate_config(self) -> None:
+        """Raise ConfigurationError if pause_duration is an unsupported type.
+
+        Called on unresolved config. Accepts int, float, and string (which
+        may be a numeric string or a context variable resolved later).
         """
-        Validate component configuration.
+        duration = self.config.get("pause_duration", 0)
+        if not isinstance(duration, (int, float, str)):
+            raise ConfigurationError(
+                f"[{self.id}] Config 'pause_duration' must be a number or string; "
+                f"got {type(duration).__name__}"
+            )
 
-        Returns:
-            List of error messages (empty if valid)
-        """
-        errors = []
+    # ------------------------------------------------------------------
+    # Core Processing
+    # ------------------------------------------------------------------
 
-        # pause_duration is optional with default, but validate if present
-        if 'pause_duration' in self.config:
-            duration = self.config['pause_duration']
-
-            # Allow string values for context variables
-            if isinstance(duration, str):
-                # Context variables like ${context.var} are valid
-                if not (duration.strip().startswith('${') and duration.strip().endswith('}')):
-                    # If it's a string but not a context variable, try to parse as number
-                    try:
-                        float(duration)
-                    except (ValueError, TypeError):
-                        errors.append("Config 'pause_duration' must be a number, context variable, or numeric string")
-            elif not isinstance(duration, (int, float)):
-                errors.append("Config 'pause_duration' must be a number or context variable")
-
-        return errors
-
-    def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
-        """
-        Execute sleep operation for configured duration.
-
-        Args:
-            input_data: Input DataFrame (optional, passed through unchanged)
-
-        Returns:
-            Dictionary containing 'main' DataFrame (same as input)
-
-        Raises:
-            ConfigurationError: If configuration is invalid
-            ComponentExecutionError: If sleep operation fails
-        """
-        logger.info(f"[{self.id}] Processing started: executing sleep operation")
-
+    def _process(self, input_data: Optional[pd.DataFrame] = None) -> dict:
+        """Sleep for configured duration then pass input through unchanged."""
+        duration_raw = self.config.get("pause_duration", 0)
         try:
-            # Validate configuration
-            config_errors = self._validate_config()
-            if config_errors:
-                error_msg = f"Invalid configuration: {'; '.join(config_errors)}"
-                logger.error(f"[{self.id}] {error_msg}")
-                raise ConfigurationError(error_msg)
+            pause_duration = float(duration_raw)
+        except (ValueError, TypeError):
+            logger.warning(
+                f"[{self.id}] Cannot parse pause_duration '{duration_raw}'; skipping sleep"
+            )
+            pause_duration = 0.0
 
-            # Get pause duration with safe conversion
-            pause_duration = self._get_pause_duration()
+        if not math.isfinite(pause_duration):
+            logger.warning(
+                f"[{self.id}] pause_duration is not finite ({pause_duration}); skipping sleep"
+            )
+            pause_duration = 0.0
 
-            # Log sleep start
+        if pause_duration > 0:
             logger.info(f"[{self.id}] Sleeping for {pause_duration} seconds")
-
-            # Sleep only if positive (zero functionality preserved)
-            if pause_duration > 0:
-                time.sleep(pause_duration)
-            else:
-                logger.debug(f"[{self.id}] Skipping sleep for non-positive duration: {pause_duration}")
-
-            # Log completion
+            time.sleep(pause_duration)
             logger.info(f"[{self.id}] Sleep completed")
+        else:
+            logger.debug(f"[{self.id}] Skipping sleep: non-positive duration ({pause_duration})")
 
-            # Update statistics (always count as 1 operation)
-            self._update_stats(1, 1, 0)
-
-            # Pass through input data unchanged
-            return {'main': input_data if input_data is not None else pd.DataFrame()}
-
-        except ConfigurationError:
-            # Re-raise configuration errors as-is
-            raise
-        except Exception as e:
-            logger.error(f"[{self.id}] Processing failed: {e}")
-            raise ComponentExecutionError(self.id, f"Sleep operation failed: {e}", e) from e
-
-    def _get_pause_duration(self) -> float:
-        """
-        Get pause duration with safe conversion and context variable resolution.
-
-        Returns:
-            Pause duration in seconds as float
-        """
-        # Get raw value with default
-        duration_value = self.config.get('pause_duration', 0)
-
-        # If it's already a number, use it directly
-        if isinstance(duration_value, (int, float)):
-            return float(duration_value)
-
-        # If it's a string, it might be a context variable or numeric string
-        if isinstance(duration_value, str):
-            # Resolve context variables if available
-            resolved_value = duration_value
-            if self.context_manager:
-                resolved_value = self.context_manager.resolve_string(duration_value)
-
-            # Try to convert to float
-            try:
-                return float(resolved_value)
-            except (ValueError, TypeError):
-                logger.warning(f"[{self.id}] Could not convert pause_duration '{resolved_value}' to number, using 0")
-                return 0.0
-
-        # For any other type, default to 0
-        logger.warning(f"[{self.id}] Invalid pause_duration type '{type(duration_value)}', using 0")
-        return 0.0
+        return {
+            "main": input_data if input_data is not None else pd.DataFrame(),
+            "reject": None,
+        }

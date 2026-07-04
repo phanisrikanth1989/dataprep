@@ -9,7 +9,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -352,7 +353,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -712,7 +714,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -963,7 +966,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -1189,7 +1193,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -1462,7 +1467,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -1583,7 +1589,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -1724,7 +1731,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -1903,7 +1911,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -3763,7 +3772,8 @@
         {
           "name": "iterate",
           "type": "iterate",
-          "label": "Iterate"
+          "label": "Iterate",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -4533,7 +4543,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -5062,7 +5073,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -5706,7 +5718,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -6201,7 +6214,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -7152,7 +7166,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -7508,7 +7523,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -7643,12 +7659,14 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Unique"
+          "label": "Unique",
+          "maxConnections": 1
         },
         {
           "name": "duplicate",
           "type": "row",
-          "label": "Duplicate"
+          "label": "Duplicate",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -7751,7 +7769,8 @@
         {
           "name": "iterate",
           "type": "iterate",
-          "label": "Iterate"
+          "label": "Iterate",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -7824,7 +7843,8 @@
         {
           "name": "iterate",
           "type": "iterate",
-          "label": "Iterate"
+          "label": "Iterate",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -8163,7 +8183,8 @@
         {
           "name": "iterate",
           "type": "iterate",
-          "label": "Iterate"
+          "label": "Iterate",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -8917,12 +8938,14 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": -1
         },
         {
           "name": "reject",
           "type": "row",
-          "label": "Reject"
+          "label": "Reject",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -9001,12 +9024,14 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         },
         {
           "name": "reject",
           "type": "row",
-          "label": "Reject"
+          "label": "Reject",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -9110,6 +9135,246 @@
       }
     ]
   },
+  "tPagination": {
+    "label": "Pagination",
+    "icon": "layers",
+    "category": "Transform",
+    "connectors": {
+      "inputs": [
+        {
+          "name": "main",
+          "type": "row",
+          "label": "Main",
+          "required": true,
+          "maxConnections": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "main",
+          "type": "row",
+          "label": "Summary (per page)",
+          "maxConnections": 1
+        },
+        {
+          "name": "detail",
+          "type": "row",
+          "label": "Detail (per row)",
+          "maxConnections": 1
+        }
+      ],
+      "triggers": {
+        "outgoing": [
+          "OnComponentOk",
+          "OnComponentError",
+          "OnSubjobOk",
+          "OnSubjobError",
+          "RunIf"
+        ],
+        "incoming": [
+          "OnComponentOk",
+          "OnComponentError",
+          "OnSubjobOk",
+          "OnSubjobError",
+          "RunIf"
+        ]
+      }
+    },
+    "groups": [
+      {
+        "id": "basic",
+        "label": "Basic Settings"
+      },
+      {
+        "id": "advanced",
+        "label": "Advanced Settings"
+      }
+    ],
+    "properties": [
+      {
+        "key": "page_size",
+        "label": "Page Size (rows per page)",
+        "type": "number",
+        "default": 10000,
+        "group": "basic",
+        "min": 1,
+        "required": true,
+        "tooltip": "Rows per page within an account. A new page starts every N rows (e.g. 100, 1000, 100000)."
+      },
+      {
+        "key": "account_column",
+        "label": "Account Column",
+        "type": "text",
+        "default": "SUBACC",
+        "group": "basic",
+        "required": true,
+        "tooltip": "Grouping/account key. Pages reset per account and the running balance resets on account change. Row order is set by Sort Columns, not this column."
+      },
+      {
+        "key": "sort_columns",
+        "label": "Sort Columns",
+        "type": "table",
+        "default": [],
+        "group": "basic",
+        "columns": [
+          {
+            "key": "column",
+            "label": "Column",
+            "type": "text"
+          }
+        ],
+        "tooltip": "Ascending sort keys, compared as plain strings (no numeric cast, so \"10\" sorts before \"2\"). Applied in order before paging. Defaults to the Account Column when empty."
+      },
+      {
+        "key": "dc_flag_column",
+        "label": "Debit/Credit Flag Column",
+        "type": "text",
+        "default": "IDRORCR",
+        "group": "basic",
+        "required": true,
+        "tooltip": "Column holding the debit/credit indicator. Drives the debit/credit split during aggregation only -- it is NOT a sort key."
+      },
+      {
+        "key": "amount_column",
+        "label": "Amount Column",
+        "type": "text",
+        "default": "IAMOUNT",
+        "group": "basic",
+        "required": true,
+        "tooltip": "Source amount, split into the debit/credit columns based on the flag."
+      },
+      {
+        "key": "page_column",
+        "label": "Page Number Column",
+        "type": "text",
+        "default": "STMTPG",
+        "group": "basic",
+        "required": true,
+        "tooltip": "Output column that receives the assigned page number (created if absent)."
+      },
+      {
+        "key": "opening_balance_column",
+        "label": "Opening Balance Column",
+        "type": "text",
+        "default": "OPBAL",
+        "group": "basic",
+        "required": true,
+        "tooltip": "Opening balance column. Aggregated as MIN per page, then carried forward across pages."
+      },
+      {
+        "key": "closing_balance_column",
+        "label": "Closing Balance Column",
+        "type": "text",
+        "default": "CLBAL",
+        "group": "basic",
+        "required": true,
+        "tooltip": "Output column for the per-page closing balance (opening - debit + credit)."
+      },
+      {
+        "key": "debit_column",
+        "label": "Debit Column (derived)",
+        "type": "text",
+        "default": "AMT_D",
+        "group": "advanced",
+        "tooltip": "Name of the derived summed-debit column added to the summary output."
+      },
+      {
+        "key": "credit_column",
+        "label": "Credit Column (derived)",
+        "type": "text",
+        "default": "AMT_C",
+        "group": "advanced",
+        "tooltip": "Name of the derived summed-credit column added to the summary output."
+      },
+      {
+        "key": "debit_flag_value",
+        "label": "Debit Flag Value",
+        "type": "text",
+        "default": "D",
+        "group": "advanced",
+        "tooltip": "Flag value (in the Debit/Credit column) that marks a debit row."
+      },
+      {
+        "key": "credit_flag_value",
+        "label": "Credit Flag Value",
+        "type": "text",
+        "default": "C",
+        "group": "advanced",
+        "tooltip": "Flag value (in the Debit/Credit column) that marks a credit row."
+      },
+      {
+        "key": "null_token",
+        "label": "Null Token",
+        "type": "text",
+        "default": "NULL",
+        "group": "advanced",
+        "tooltip": "Amount value treated as empty/zero (e.g. the literal NULL)."
+      },
+      {
+        "key": "absolute_balance",
+        "label": "Absolute Balance",
+        "type": "checkbox",
+        "default": false,
+        "group": "advanced",
+        "tooltip": "Emit the opening/closing balances as absolute values on the summary flow. Sign columns are derived from the signed balance before this conversion."
+      },
+      {
+        "key": "opening_sign_column",
+        "label": "Opening Sign Column",
+        "type": "text",
+        "default": "",
+        "group": "advanced",
+        "tooltip": "Column to receive the opening balance's debit/credit sign (negative -> Debit Flag Value, else Credit Flag Value). Leave blank to disable."
+      },
+      {
+        "key": "closing_sign_column",
+        "label": "Closing Sign Column",
+        "type": "text",
+        "default": "",
+        "group": "advanced",
+        "tooltip": "Column to receive the closing balance's debit/credit sign (negative -> Debit Flag Value, else Credit Flag Value). Leave blank to disable."
+      },
+      {
+        "key": "opening_multipage_column",
+        "label": "Opening Multi-page Flag Column",
+        "type": "text",
+        "default": "",
+        "group": "advanced",
+        "tooltip": "Column for the opening 'balance is final' flag. Single-page accounts and the FIRST page of a multi-page account get the Single-page Value; later pages get the Multi-page Value. Leave blank to disable."
+      },
+      {
+        "key": "closing_multipage_column",
+        "label": "Closing Multi-page Flag Column",
+        "type": "text",
+        "default": "",
+        "group": "advanced",
+        "tooltip": "Column for the closing 'balance is final' flag. Single-page accounts and the LAST page of a multi-page account get the Single-page Value; earlier pages get the Multi-page Value. Leave blank to disable."
+      },
+      {
+        "key": "multipage_value",
+        "label": "Multi-page Value",
+        "type": "text",
+        "default": "M",
+        "group": "advanced",
+        "tooltip": "Flag value written when a page is NOT final for the multi-page columns (e.g. M)."
+      },
+      {
+        "key": "multipage_single_value",
+        "label": "Single-page / Final Value",
+        "type": "text",
+        "default": "",
+        "group": "advanced",
+        "tooltip": "Flag value written when a page IS final for the multi-page columns (e.g. F)."
+      },
+      {
+        "key": "label",
+        "label": "Label",
+        "type": "text",
+        "default": "",
+        "group": "basic"
+      }
+    ]
+  },
   "tFilterColumns": {
     "label": "Filter Columns",
     "icon": "columns",
@@ -9128,7 +9393,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -9193,12 +9459,14 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         },
         {
           "name": "reject",
           "type": "row",
-          "label": "Reject"
+          "label": "Reject",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -9312,7 +9580,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -9459,7 +9728,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -9576,7 +9846,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -9642,7 +9913,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -9719,7 +9991,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -9970,7 +10243,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -10133,7 +10407,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -10266,7 +10541,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -10350,7 +10626,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -10581,7 +10858,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -10813,12 +11091,14 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         },
         {
           "name": "reject",
           "type": "row",
-          "label": "Reject"
+          "label": "Reject",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -10955,12 +11235,14 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         },
         {
           "name": "reject",
           "type": "row",
-          "label": "Reject"
+          "label": "Reject",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -11126,12 +11408,14 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         },
         {
           "name": "reject",
           "type": "row",
-          "label": "Reject"
+          "label": "Reject",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -11244,12 +11528,14 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         },
         {
           "name": "reject",
           "type": "row",
-          "label": "Reject"
+          "label": "Reject",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -11475,12 +11761,14 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         },
         {
           "name": "reject",
           "type": "row",
-          "label": "Reject"
+          "label": "Reject",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -11568,7 +11856,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -11640,7 +11929,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -11724,7 +12014,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -11803,7 +12094,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -11973,12 +12265,14 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         },
         {
           "name": "reject",
           "type": "row",
-          "label": "Reject"
+          "label": "Reject",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -12068,7 +12362,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -12182,7 +12477,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -12255,12 +12551,14 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         },
         {
           "name": "reject",
           "type": "row",
-          "label": "Reject"
+          "label": "Reject",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -12333,7 +12631,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -12406,12 +12705,14 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         },
         {
           "name": "reject",
           "type": "row",
-          "label": "Reject"
+          "label": "Reject",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -12484,7 +12785,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {
@@ -12557,7 +12859,8 @@
         {
           "name": "main",
           "type": "row",
-          "label": "Main"
+          "label": "Main",
+          "maxConnections": 1
         }
       ],
       "triggers": {

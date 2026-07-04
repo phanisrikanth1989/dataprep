@@ -110,7 +110,8 @@ class TalendToV1Converter:
             components_map[comp["id"]] = comp
 
         # Step 5: Parse flows from connections
-        flows = self._parse_flows(job.connections)
+        flows, flow_needs_review = self._parse_flows(job.connections)
+        needs_review.extend(flow_needs_review)
 
         # Step 6: Update component inputs/outputs from flows
         for flow in flows:
@@ -219,9 +220,18 @@ class TalendToV1Converter:
     @staticmethod
     def _parse_flows(
         connections: List[TalendConnection],
-    ) -> List[Dict[str, Any]]:
-        """Parse data-flow connections into v1 flow dicts."""
+    ) -> tuple:
+        """Parse data-flow connections into v1 flow dicts.
+
+        Returns
+        -------
+        tuple
+            ``(flows, needs_review_entries)`` where flows is a list of flow
+            dicts and needs_review_entries is a list of engine_gap entries
+            emitted when ENABLE_PARALLEL=true on an ITERATE connection.
+        """
         flows: List[Dict[str, Any]] = []
+        needs_review_entries: List[Dict[str, Any]] = []
 
         for conn in connections:
             if conn.connector_type not in _FLOW_CONNECTOR_TYPES:
@@ -229,14 +239,38 @@ class TalendToV1Converter:
             if not conn.source or not conn.target:
                 continue
 
-            flows.append({
+            flow: Dict[str, Any] = {
                 "name": conn.name or conn.source,
                 "from": conn.source,
                 "to": conn.target,
                 "type": conn.connector_type.lower(),
-            })
+            }
 
-        return flows
+            if conn.connector_type == "ITERATE":
+                enable_parallel_raw = conn.params.get("ENABLE_PARALLEL", "false")
+                enable_parallel = str(enable_parallel_raw).strip().lower() == "true"
+                number_parallel_raw = conn.params.get("NUMBER_PARALLEL", "0") or "0"
+                try:
+                    number_parallel = int(number_parallel_raw)
+                except (TypeError, ValueError):
+                    number_parallel = 0
+                flow["enable_parallel"] = enable_parallel
+                flow["number_parallel"] = number_parallel
+                if enable_parallel:
+                    needs_review_entries.append({
+                        "severity": "engine_gap",
+                        "component_id": conn.source,
+                        "message": (
+                            "Parallel iteration is configured "
+                            "(NUMBER_PARALLEL={}) but Phase 10 engine "
+                            "runs sequentially -- results correct but slower. Defer "
+                            "to Phase 12+ for parallel.".format(number_parallel)
+                        ),
+                    })
+
+            flows.append(flow)
+
+        return flows, needs_review_entries
 
     # ------------------------------------------------------------------
     # Step 6: Update component inputs/outputs
@@ -272,9 +306,17 @@ class TalendToV1Converter:
         """Set each target component's schema.input from its upstream
         component's schema.output, using the flow connection graph.
 
-        For components with multiple incoming flows, the input schema is
-        set from the first FLOW-type connection (primary data path).
-        Source components (no incoming flows) are left unchanged.
+        Phase 7.1 fixes (ENG-CR-04, ENG-WR-09):
+        - ENG-CR-04: per-flow inputs map written for multi-input components.
+          Each flow's upstream schema is recorded under
+          to_schema["inputs"][flow_name] so tMap and future multi-input
+          components can read distinct schemas per connector.
+          Legacy to_schema["input"] is still updated for back-compat
+          (last-write-wins is OK because single-input targets only see
+          one flow, and multi-input targets MUST read from inputs[flow_name]).
+        - ENG-WR-09: outputs_map keys and connector_key are both normalized
+          to uppercase before lookup so e.g. {"filter": [...]} matches
+          connector type "FILTER".
         """
         for flow in flows:
             from_id = flow["from"]
@@ -293,7 +335,30 @@ class TalendToV1Converter:
             if not isinstance(from_schema, dict) or not isinstance(to_schema, dict):
                 continue
 
-            upstream_output = from_schema.get("output")
+            # Prefer per-connector schema 
+
+            # Two lookup keys are supported for maximum compatibility with various Talend components
+            #1. flow name (e.g. "row1") if present in outputs_map
+            #2. connector type (e.g. "FILTER") if present in outputs_map
+            #Both keys are normalized to uppercase for case-insensitive matching (ENG-WR-09 fix).
+            #
+            # This allows components to specify distinct output schemas for different flows (e.g. main vs reject)
+            #   and also allows matching based on connector type when flow names are not used or not unique.
+            #
+            # If neither key is found in outputs_map, falls back to generic "output" schema if present.
+            upstream_output = None
+            outputs_map = from_schema.get("outputs")
+            if isinstance(outputs_map, dict):
+                norm_map = {str(k).upper(): v for k, v in outputs_map.items()}
+                flow_name_key = str(flow.get("name") or "").upper()
+                if flow_name_key:
+                    upstream_output = norm_map.get(flow_name_key)
+                if upstream_output is None:
+                    connector_key = (flow.get("type") or "").upper()
+                    upstream_output = norm_map.get(connector_key)
+
+            if upstream_output is None:
+                upstream_output = from_schema.get("output")
             if upstream_output is None:
                 continue
 
@@ -302,14 +367,22 @@ class TalendToV1Converter:
             if "input" not in to_schema:
                 continue
 
-            # Only overwrite if the target has incoming data (non-source)
-            # Sources have input=[] by design and no incoming flows,
-            # so they won't appear as a flow target anyway.
+            # ENG-CR-04 fix: per-flow inputs map for multi-input components (tMap, etc.)
+            # Record each flow's schema under its own key so consumers can retrieve
+            # distinct schemas per connector (avoids last-write-wins overwrite).
+            inputs_map = to_schema.setdefault("inputs", {})
+            flow_name = flow.get("name") or from_id
+            inputs_map[flow_name] = list(upstream_output)
+
+            # Preserve legacy single 'input' for back-compat single-input components.
+            # Last-write-wins is OK because:
+            # (a) single-input targets only see one flow,
+            # (b) multi-input targets MUST read from inputs[flow_name] going forward.
             to_schema["input"] = list(upstream_output)
 
             logger.debug(
-                "Schema propagation: %s.output -> %s.input (%d columns)",
-                from_id, to_id, len(upstream_output),
+                "Schema propagation: %s.output -> %s.input[%s] (%d columns)",
+                from_id, to_id, flow_name, len(upstream_output),
             )
 
     # ------------------------------------------------------------------
@@ -326,18 +399,18 @@ class TalendToV1Converter:
         visited: Set[str] = set()
         subjob_counter = 1
 
-        # Build adjacency lists (undirected)
+        # Build bidirectional adjacency lists so DFS visits all connected nodes
+        # without an O(N*E) reverse-edge scan per node (WR-04 fix).
         connections: Dict[str, List[str]] = {}
         for flow in flows:
             from_comp = flow["from"]
             to_comp = flow["to"]
+            connections.setdefault(from_comp, []).append(to_comp)
+            connections.setdefault(to_comp, []).append(from_comp)  # reverse edge
 
-            if from_comp not in connections:
-                connections[from_comp] = []
-            connections[from_comp].append(to_comp)
-
-            if to_comp not in connections:
-                connections[to_comp] = []
+        # Ensure every component has an entry even if it has no flows
+        for comp_id in components_map:
+            connections.setdefault(comp_id, [])
 
         # Find connected components via DFS
         for comp_id in components_map:
@@ -355,16 +428,10 @@ class TalendToV1Converter:
                 visited.add(current)
                 subjob_components.append(current)
 
-                # Forward edges
-                if current in connections:
-                    for neighbor in connections[current]:
-                        if neighbor not in visited:
-                            stack.append(neighbor)
-
-                # Reverse edges
-                for from_comp, to_comps in connections.items():
-                    if current in to_comps and from_comp not in visited:
-                        stack.append(from_comp)
+                # All neighbors (forward + reverse already included in adjacency list)
+                for neighbor in connections.get(current, []):
+                    if neighbor not in visited:
+                        stack.append(neighbor)
 
             if subjob_components:
                 subjob_id = f"subjob_{subjob_counter}"

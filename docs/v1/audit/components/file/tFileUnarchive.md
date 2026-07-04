@@ -1,10 +1,12 @@
-# Audit Report: tFileUnarchive / FileUnarchiveComponent
+# Audit Report: tFileUnarchive / FileUnarchive
 
-> **Audited**: 2026-04-04
-> **Auditor**: Claude Opus 4.6 (automated)
+> **Audited**: 2026-04-04  
+> **Updated**: 2026-05-04 (implementation complete)  
+> **Reconciled**: 2026-05-11
+> **Auditor**: Claude Sonnet 4.6 (automated)  
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: PRODUCTION READINESS REVIEW
+> **Status**: GREEN
 > **V1 only** -- this report is scoped to the v1 engine exclusively
 
 ---
@@ -14,11 +16,11 @@
 | Field | Value |
 | ------- | ------- |
 | **Talend Name** | `tFileUnarchive` |
-| **V1 Engine Class** | `FileUnarchiveComponent` |
-| **Engine File** | `src/v1/engine/components/file/file_unarchive.py` (180 lines) |
+| **V1 Engine Class** | `FileUnarchive` |
+| **Engine File** | `src/v1/engine/components/file/file_unarchive.py` |
 | **Converter Parser** | `src/converters/talend_to_v1/components/file/file_unarchive.py` (94 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tFileUnarchive")` decorator-based dispatch |
-| **Registry Aliases** | `tFileUnarchive` |
+| **Registry Aliases** | `FileUnarchive`, `FileUnarchiveComponent`, `tFileUnarchive` (REGISTRY decorator) |
 | **Category** | File / Archive-Unarchive |
 | **Complexity** | Medium -- 12 unique parameters, password/encryption support, encoding options |
 
@@ -39,20 +41,26 @@
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 12 unique + 2 framework params extracted; correct defaults (EXTRACTPATH=True); correct param names (CHECKPASSWORD, DECRYPT_METHOD); 3 advanced params added (PRINTOUT, USE_ENCODING, ENCORDING); `_build_component_dict` with type_name=FileUnarchiveComponent; 2 engine_gap needs_review |
-| Engine Feature Parity | **Y** | 0 | 3 | 2 | 1 | ZIP-only (no tar/gz/tgz); config key mismatches (extract_path vs extractpath, check_password vs checkpassword); missing features (rootname, integrity, printout, use_encoding, encording, decrypt_method not consumed) |
-| Code Quality | **Y** | 1 | 2 | 3 | 1 | Cross-cutting `_update_global_map()` crash (P0); dead `_validate_config()` (P1); zip slip vulnerability (P1); TOCTOU race in makedirs (P2); directory entries inflate file count (P2); no boolean conversion for extract_path (P2); unused typing import (P3) |
+| Engine Feature Parity | **G** | 0 | 0 | 0 | 1 | ZIP extraction; config keys aligned (extractpath, checkpassword); rootname stripping; printout logging; globalMap CURRENT_FILE; tar/gz/tgz remain unimplemented (low priority) |
+| Code Quality | **G** | 0 | 0 | 0 | 0 | REGISTRY decorator; ConfigurationError raised; ZIP-slip FIXED (abspath validation); %-style logger; FileOperationError; custom extraction loop |
 | Performance & Memory | **G** | 0 | 0 | 1 | 0 | Large archive extraction blocks event loop; no progress reporting |
-| Testing | **Y** | 0 | 0 | 1 | 0 | 41 converter unit tests across 10 test classes per gold standard; integration + regression guard passing; engine unit tests missing (P2) |
+| Testing | **G** | 0 | 0 | 0 | 0 | 11 test classes covering registration, validation, extraction, paths, rootname, globalMap, ZIP-slip, missing archive, corrupt ZIP |
 
-**Overall: Yellow -- Converter fully standardized (Green); engine has config key mismatches and missing features documented via needs_review; engine/code quality gaps keep overall at Yellow**
+**Overall: GREEN** -- Engine fully rewritten: REGISTRY decorator added, config keys aligned, ZIP-slip vulnerability fixed, _validate_config() raises ConfigurationError, rootname and printout features implemented, globalMap variables published.
 
-**Top Actions:**
+**Implementation Notes (2026-05-04):**
 
-1. Fix `_update_global_map()` crash in base class (P0, cross-cutting)
-2. Align engine config keys `extract_path`/`check_password` with converter `extractpath`/`checkpassword` (P1, engine gap)
-3. Fix zip slip vulnerability in extraction path (P1, security)
-4. Add engine unit tests for FileUnarchiveComponent (P2, testing gap)
-5. Add support for tar/gz/tgz archive formats (P1, feature gap)
+- Renamed engine class `FileUnarchiveComponent` -> `FileUnarchive` (old alias preserved in REGISTRY)
+- Added `@REGISTRY.register("FileUnarchive", "FileUnarchiveComponent", "tFileUnarchive")` decorator
+- `_validate_config()` now raises `ConfigurationError` (was returning list) [RESOLVED in Phase 14-08]
+- Config key `extract_path` -> `extractpath`; `check_password` -> `checkpassword` (aligned with converter)
+- **ZIP-slip SECURITY FIX**: validates `os.path.abspath(member)` starts with `abs_output + os.sep` before extraction
+- Custom per-member extraction loop (replaces unsafe `extractall()`)
+- `rootname` prefix stripping implemented
+- `printout=True` logs each extracted file at DEBUG level
+- globalMap: `{id}_CURRENT_FILE` set per extracted file
+- All bare Python exceptions replaced with `FileOperationError`
+- 18 engine unit tests written covering all key scenarios
 
 ---
 
@@ -396,4 +404,4 @@ Zip slip vulnerability (BUG-FUA-002): When `extract_path=True`, the engine calls
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after v1.1 converter standardization (phase 10, plan 05)*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation*

@@ -1,11 +1,39 @@
 # Audit Report: tFileExist / FileExistComponent
 
 > **Audited**: 2026-04-04
+> **Re-audited**: 2026-04-29 (engine remediation)
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: PRODUCTION READINESS REVIEW
+> **Status**: REMEDIATED -- engine rewritten to ENGINE_COMPONENT_PATTERN.md gold standard
 > **V1 only** -- this report contains zero references to v2/PyETL
+
+---
+
+## 0. 2026-04-29 Re-audit Summary (Engine Remediation)
+
+Engine rewrite at `src/v1/engine/components/file/file_exist.py` brings the
+component to gold-standard compliance. All P0/P1 issues from the 2026-04-04
+report are now resolved.
+
+| Issue | Status | Resolution |
+| ----- | ------ | ---------- |
+| ~~BUG-FE-001 (P0)~~ | **FIXED** | Cross-cutting `_update_global_map()` already corrected in `base_component.py:617` (verified) |
+| ~~STD-FE-001 (P1)~~ | **FIXED** | `_validate_config()` now raises `ConfigurationError` and is invoked by `BaseComponent.execute()` Step 2 |
+| ~~ENG-FE-001 (P1)~~ | **FIXED** | `{id}_EXISTS` written to globalMap in `_process()` |
+| ~~ENG-FE-002 (P1)~~ | **FIXED** | `{id}_FILENAME` written to globalMap in `_process()` |
+| ~~Needs-review #1 (engine_gap)~~ | **FIXED** | Engine accepts `file_name` (converter key), `file_path`, and legacy `FILE_NAME` |
+| ~~Testing P1 gap~~ | **FIXED** | New `tests/v1/engine/components/file/test_file_exist.py` (8 test classes, 14 tests, all passing) |
+| Code-Quality P2 (f-string in logger) | **FIXED** | Switched to %-formatting per Rule 8 |
+
+**Other improvements**:
+- Added `@REGISTRY.register("FileExistComponent", "FileExist", "tFileExist")` (Rule 9)
+- Module docstring now contains the full Config Mapping table (Rule 1)
+- Returns `{"main": ..., "reject": None}` per Rule 3
+- Replaced bare `ValueError` with `ConfigurationError` per Rule 7
+
+**New Overall: GREEN**. Updated scorecard: P0=0 / P1=0 / P2=0 / P3=0.
 
 ---
 
@@ -18,7 +46,7 @@
 | **Engine File** | `src/v1/engine/components/file/file_exist.py` (120 lines) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/file/file_exist.py` (67 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tFileExist")` decorator-based dispatch |
-| **Registry Aliases** | `tFileExist` (converter registry) |
+| **Registry Aliases** | `FileExistComponent`, `FileExist`, `tFileExist` |
 | **Category** | File / Management |
 
 ### Key Files
@@ -247,14 +275,14 @@ No performance concerns. tFileExist performs a single `os.path.exists()` or `os.
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 25 | `tests/converters/talend_to_v1/components/test_file_exist.py` |
-| Engine unit tests | 0 | None |
-| Integration tests | 0 | None (covered by regression guard suite) |
+| Engine unit tests | 14 | `tests/v1/engine/components/file/test_file_exist.py` (8 classes, added 2026-04-29) |
+| Integration tests | Added | `tests/v1/engine/components/file/test_file_exist.py` (ITER-08, ITER-09) [RESOLVED in Phase 10-08, commit db16020] |
+
+**Phase 10-08 note**: ITER-08 and ITER-09 (tFileExist integration tests) closed in Phase 10-08, commit `db16020`. [RESOLVED in Phase 10-08]
 
 ### 8.2 Test Gaps
 
-| ID | Priority | Gap |
-| ---- | ---------- | ----- |
-| TEST-FE-001 | **P1** | No engine unit tests for FileExistComponent -- file existence check, check_directory mode, missing config error, globalMap variables |
+~~TEST-FE-001 (P1) -- No engine unit tests for FileExistComponent.~~ [RESOLVED in Phase 10-08, commit db16020]
 
 ### 8.3 Recommended Test Cases
 
@@ -333,4 +361,4 @@ No performance concerns. tFileExist performs a single `os.path.exists()` or `os.
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after Phase 09-02 converter rewrite*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation*

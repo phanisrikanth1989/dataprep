@@ -398,29 +398,10 @@ class TestSchema:
 class TestNeedsReview:
     """Verify needs_review entries for engine gaps."""
 
-    def test_needs_review_count(self):
-        """Single consolidated needs_review entry per D-23."""
-        node = _make_node()
-        result = RunJobConverter().convert(node, [], {})
-        assert len(result.needs_review) == 1
-
-    def test_needs_review_is_engine_gap(self):
-        """needs_review entry has severity 'engine_gap'."""
-        node = _make_node()
-        result = RunJobConverter().convert(node, [], {})
-        assert result.needs_review[0]["severity"] == "engine_gap"
-
-    def test_needs_review_message(self):
-        """needs_review message references tRunJob."""
-        node = _make_node()
-        result = RunJobConverter().convert(node, [], {})
-        assert "No concrete engine implementation for tRunJob" in result.needs_review[0]["issue"]
-
-    def test_needs_review_has_component_id(self):
-        """needs_review entry has the correct component_id."""
-        node = _make_node(component_id="test_comp")
-        result = RunJobConverter().convert(node, [], {})
-        assert result.needs_review[0]["component"] == "test_comp"
+    def test_no_engine_gap_now_that_engine_exists(self):
+        """No engine_gap needs_review entry -- tRunJob engine is now implemented."""
+        result = RunJobConverter().convert(_make_node({}), [], {})
+        assert all(nr.get("severity") != "engine_gap" for nr in result.needs_review)
 
     def test_no_framework_param_needs_review(self):
         """Framework params (tstatcatcher_stats, label) must NOT have needs_review."""

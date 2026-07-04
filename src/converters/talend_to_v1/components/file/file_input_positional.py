@@ -36,6 +36,7 @@ from typing import Any, Dict, List
 
 from ..base import ComponentConverter, ComponentResult, TalendConnection, TalendNode
 from ..registry import REGISTRY
+from ...expression_converter import ExpressionConverter
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +135,9 @@ class FileInputPositionalConverter(ComponentConverter):
 
         # ---- 1. Core parameters ----
         config: Dict[str, Any] = {}
-        config["filepath"] = self._get_str(node, "FILENAME", "")
+        config["filepath"] = ExpressionConverter.mark_java_expression(
+            self._get_str(node, "FILENAME", "")
+        )
         config["row_separator"] = self._get_str(node, "ROWSEPARATOR", "\\n")
         config["pattern"] = self._get_str(node, "PATTERN", "5,4,5")
         config["pattern_units"] = self._get_str(node, "PATTERN_UNITS", "SYMBOLS")
@@ -142,8 +145,8 @@ class FileInputPositionalConverter(ComponentConverter):
         config["remove_empty_row"] = self._get_bool(node, "REMOVE_EMPTY_ROW", True)
         config["trim_all"] = self._get_bool(node, "TRIMALL", True)
         config["encoding"] = self._get_str(node, "ENCODING", "ISO-8859-15")
-        config["header_rows"] = self._get_int(node, "HEADER", 0)
-        config["footer_rows"] = self._get_int(node, "FOOTER", 0)
+        config["header_rows"] = self._get_int_or_context(node, "HEADER", 0)
+        config["footer_rows"] = self._get_int_or_context(node, "FOOTER", 0)
         config["limit"] = self._get_str(node, "LIMIT", "")
         config["die_on_error"] = self._get_bool(node, "DIE_ON_ERROR", False)
 

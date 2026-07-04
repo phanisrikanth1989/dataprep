@@ -1,0 +1,133 @@
+{
+  "job_name": "Job_trigger_runif",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {}
+  },
+  "components": [
+    {
+      "id": "tFixedFlowInput_1",
+      "type": "FixedFlowInputComponent",
+      "original_type": "tFixedFlowInput",
+      "config": {
+        "nb_rows": 1,
+        "use_singlemode": true,
+        "use_intable": false,
+        "use_inlinecontent": false,
+        "values_config": [
+          {"schema_column": "flag", "value": "1"},
+          {"schema_column": "label", "value": "src"}
+        ],
+        "die_on_error": false
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {"name": "flag", "type": "int", "nullable": false, "key": false},
+          {"name": "label", "type": "str", "nullable": false, "key": false}
+        ]
+      },
+      "inputs": [],
+      "outputs": ["row_flag"],
+      "subjob_id": "subjob_source",
+      "is_subjob_start": true
+    },
+    {
+      "id": "tSetGlobalVar_1",
+      "type": "SetGlobalVar",
+      "original_type": "tSetGlobalVar",
+      "config": {
+        "variables": [
+          {"key": "should_run", "value": "1"}
+        ],
+        "die_on_error": false
+      },
+      "schema": {
+        "input": [
+          {"name": "flag", "type": "int", "nullable": false, "key": false},
+          {"name": "label", "type": "str", "nullable": false, "key": false}
+        ],
+        "output": [
+          {"name": "flag", "type": "int", "nullable": false, "key": false},
+          {"name": "label", "type": "str", "nullable": false, "key": false}
+        ]
+      },
+      "inputs": ["row_flag"],
+      "outputs": [],
+      "subjob_id": "subjob_source",
+      "is_subjob_start": false
+    },
+    {
+      "id": "tFixedFlowInput_2",
+      "type": "FixedFlowInputComponent",
+      "original_type": "tFixedFlowInput",
+      "config": {
+        "nb_rows": 2,
+        "use_singlemode": true,
+        "use_intable": false,
+        "use_inlinecontent": false,
+        "values_config": [
+          {"schema_column": "id", "value": "1"},
+          {"schema_column": "name", "value": "alpha"}
+        ],
+        "die_on_error": false
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {"name": "id", "type": "int", "nullable": false, "key": false},
+          {"name": "name", "type": "str", "nullable": false, "key": false}
+        ]
+      },
+      "inputs": [],
+      "outputs": ["row_out"],
+      "subjob_id": "subjob_target",
+      "is_subjob_start": true
+    },
+    {
+      "id": "tFileOutputDelimited_1",
+      "type": "FileOutputDelimited",
+      "original_type": "tFileOutputDelimited",
+      "config": {
+        "filepath": "TBD_via_mutations",
+        "fieldseparator": ";",
+        "row_separator": "\\n",
+        "encoding": "UTF-8",
+        "include_header": true,
+        "append": false,
+        "create_directory": true,
+        "split": false,
+        "file_exist_exception": false
+      },
+      "schema": {
+        "input": [
+          {"name": "id", "type": "int", "nullable": false, "key": false},
+          {"name": "name", "type": "str", "nullable": false, "key": false}
+        ],
+        "output": []
+      },
+      "inputs": ["row_out"],
+      "outputs": [],
+      "subjob_id": "subjob_target",
+      "is_subjob_start": false
+    }
+  ],
+  "flows": [
+    {"name": "row_flag", "from": "tFixedFlowInput_1", "to": "tSetGlobalVar_1", "type": "flow"},
+    {"name": "row_out", "from": "tFixedFlowInput_2", "to": "tFileOutputDelimited_1", "type": "flow"}
+  ],
+  "triggers": [
+    {
+      "type": "RunIf",
+      "from": "tSetGlobalVar_1",
+      "to": "tFixedFlowInput_2",
+      "condition": "((Integer)globalMap.get(\"should_run\")) == 1"
+    }
+  ],
+  "subjobs": {
+    "subjob_source": ["tFixedFlowInput_1", "tSetGlobalVar_1"],
+    "subjob_target": ["tFixedFlowInput_2", "tFileOutputDelimited_1"]
+  },
+  "java_config": {"enabled": false, "routines": [], "libraries": []}
+}

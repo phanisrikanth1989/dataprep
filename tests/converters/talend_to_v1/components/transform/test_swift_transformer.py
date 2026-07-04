@@ -76,19 +76,10 @@ class TestSwiftTransformerConverterBasic:
         assert comp["type"] == "SwiftTransformer"
         assert comp["original_type"] == "tSwiftDataTransformer"
         assert comp["position"] == {"x": 400, "y": 200}
-        assert comp["config"]["connection_format"] == "row"
+        # connection_format removed as hidden param in a943b5f
         assert comp["config"]["die_on_error"] is True
         assert comp["inputs"] == []
         assert comp["outputs"] == []
-
-    def test_explicit_connection_format(self):
-        node = _make_node(
-            params={"CONNECTION_FORMAT": '"row"'},
-            schema=_sample_schema(),
-        )
-        result = SwiftTransformerConverter().convert(node, [], {})
-
-        assert result.component["config"]["connection_format"] == "row"
 
     def test_config_file_param_forwarded(self):
         node = _make_node(

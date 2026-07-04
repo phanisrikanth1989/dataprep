@@ -351,3 +351,122 @@ class TestComponentStructure:
         node = _make_node()
         result = ReplaceConverter().convert(node, [], {})
         assert result.component["type"] == "tReplace"
+
+
+# ------------------------------------------------------------------
+# Plan 14-11: TABLE-parser branch coverage (lines 71, 83, 129, 138, 148-149)
+# ------------------------------------------------------------------
+
+
+class TestSubstitutionsParserBranches:
+    """Cover lines 71 (incomplete trailing group break) and 83 (entry not dict)."""
+
+    def test_incomplete_trailing_group_skipped(self):
+        """Trailing group with < 7 entries is dropped (line 71)."""
+        from src.converters.talend_to_v1.components.transform.replace import (
+            _parse_substitutions,
+        )
+        # 1 full row (7 entries) + 3 trailing entries -> trailing trimmed
+        full = _make_subst_data([
+            ("col_a", "x", "y", "true", "false", "false", ""),
+        ])
+        trailing = [
+            {"elementRef": "INPUT_COLUMN", "value": "col_b"},
+            {"elementRef": "SEARCH_PATTERN", "value": "z"},
+            {"elementRef": "REPLACE_STRING", "value": "w"},
+        ]
+        result = _parse_substitutions(full + trailing)
+        assert len(result) == 1
+        assert result[0]["input_column"] == "col_a"
+
+    def test_non_dict_entry_in_group_skipped(self):
+        """A non-dict entry inside an otherwise-valid group is silently skipped (line 83)."""
+        from src.converters.talend_to_v1.components.transform.replace import (
+            _parse_substitutions,
+        )
+        # Build a full 7-entry group where one entry is a string (not dict)
+        raw = [
+            {"elementRef": "INPUT_COLUMN", "value": "col_a"},
+            "not_a_dict",  # <-- skipped
+            {"elementRef": "REPLACE_STRING", "value": "y"},
+            {"elementRef": "WHOLE_WORD", "value": "true"},
+            {"elementRef": "CASE_SENSITIVE", "value": "false"},
+            {"elementRef": "USE_GLOB", "value": "false"},
+            {"elementRef": "COMMENT", "value": ""},
+        ]
+        result = _parse_substitutions(raw)
+        # Row still emitted with defaults for the missing SEARCH_PATTERN
+        assert len(result) == 1
+        assert result[0]["input_column"] == "col_a"
+        assert result[0]["search_pattern"] == "default"
+        assert result[0]["replace_string"] == "y"
+
+
+class TestAdvancedSubstParserBranches:
+    """Cover lines 129 (incomplete trailing group break), 138 (entry not dict),
+    and 148-149 (UnicodeDecodeError/ValueError fallthrough on SEARCH_COLUMN
+    decode)."""
+
+    def test_incomplete_trailing_group_skipped(self):
+        """Trailing group with < 4 entries is dropped (line 129)."""
+        from src.converters.talend_to_v1.components.transform.replace import (
+            _parse_advanced_subst,
+        )
+        full = _make_adv_subst_data([
+            ("col_a", "search_a", "repl_a", "comment_a"),
+        ])
+        trailing = [
+            {"elementRef": "INPUT_COLUMN", "value": "col_b"},
+            {"elementRef": "SEARCH_COLUMN", "value": "search_b"},
+        ]
+        result = _parse_advanced_subst(full + trailing)
+        assert len(result) == 1
+        assert result[0]["input_column"] == "col_a"
+
+    def test_non_dict_entry_in_group_skipped(self):
+        """A non-dict entry inside an otherwise-valid group is skipped (line 138)."""
+        from src.converters.talend_to_v1.components.transform.replace import (
+            _parse_advanced_subst,
+        )
+        raw = [
+            {"elementRef": "INPUT_COLUMN", "value": "col_a"},
+            42,  # <-- skipped
+            {"elementRef": "REPLACE_COLUMN", "value": "repl_a"},
+            {"elementRef": "COMMENT", "value": ""},
+        ]
+        result = _parse_advanced_subst(raw)
+        assert len(result) == 1
+        assert result[0]["input_column"] == "col_a"
+        # SEARCH_COLUMN was the 42, so it stays at default ''
+        assert result[0]["search_column"] == ""
+        assert result[0]["replace_column"] == "repl_a"
+
+    def test_search_column_unicode_escape_decoded(self):
+        """A standard backslash sequence decodes via unicode_escape (success path)."""
+        from src.converters.talend_to_v1.components.transform.replace import (
+            _parse_advanced_subst,
+        )
+        raw = _make_adv_subst_data([
+            ("col_a", "\\\\w+", "repl_a", ""),  # XML-double-escaped becomes \\w+
+        ])
+        result = _parse_advanced_subst(raw)
+        assert len(result) == 1
+        # \\w+ in raw -> \w+ after unicode_escape
+        assert result[0]["search_column"] == "\\w+"
+
+    def test_search_column_invalid_escape_falls_back(self):
+        """An invalid escape sequence raises UnicodeDecodeError -> kept verbatim
+        (lines 148-149)."""
+        from src.converters.talend_to_v1.components.transform.replace import (
+            _parse_advanced_subst,
+        )
+        # Build a SEARCH_COLUMN value that cannot be unicode-escape-decoded.
+        # A trailing backslash (\\ followed by NOTHING) raises:
+        #   ValueError: \ at end of string
+        raw = _make_adv_subst_data([
+            ("col_a", "\\", "repl_a", ""),  # trailing backslash
+        ])
+        result = _parse_advanced_subst(raw)
+        assert len(result) == 1
+        # On exception, the value is stored as-is (post-strip-quote, pre-decode)
+        assert result[0]["search_column"] == "\\"

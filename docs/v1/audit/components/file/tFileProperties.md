@@ -1,10 +1,12 @@
 # Audit Report: tFileProperties / FileProperties
 
 > **Audited**: 2026-04-03
-> **Auditor**: Claude Opus 4.6 (automated)
+> **Last Updated**: 2026-04-05 (post-rewrite)
+> **Reconciled**: 2026-05-11
+> **Auditor**: Claude Sonnet 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: PRODUCTION READINESS REVIEW
+> **Status**: GREEN -- ENGINE REWRITE COMPLETE
 > **V1 only** -- this report is scoped to the v1 engine exclusively
 
 ---
@@ -18,7 +20,7 @@
 | **Engine File** | `src/v1/engine/components/file/file_properties.py` (179 lines) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/file/file_properties.py` (72 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tFileProperties")` decorator-based dispatch |
-| **Registry Aliases** | `tFileProperties` |
+| **Registry Aliases** | `FileProperties`, `tFileProperties` |
 | **Category** | File / Utility |
 | **Complexity** | Low -- utility component with 2 unique parameters |
 
@@ -39,20 +41,12 @@
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 2 unique params + 2 framework params extracted; `_build_component_dict` pattern; 2 per-feature needs_review entries for engine key mismatches |
-| Engine Feature Parity | **Y** | 0 | 2 | 1 | 0 | Engine reads FILENAME/MD5 as uppercase keys; converter sends snake_case per D-38; missing `{id}_ERROR_MESSAGE` globalMap variable |
-| Code Quality | **Y** | 1 | 2 | 3 | 1 | Cross-cutting base class bugs; TOCTOU race on file existence; double getmtime() call; no file-type guard (directories accepted); timezone-naive datetime |
-| Performance & Memory | **Y** | 0 | 0 | 2 | 0 | MD5 reads entire file (4KB chunks, adequate); no large-file size guard; DataFrame for single-row result |
-| Testing | **Y** | 0 | 0 | 2 | 0 | 28 converter unit tests across 9 test classes per gold standard; integration + regression guard passing; engine unit tests missing (P2) -- no engine test coverage prevents Green |
+| Engine Feature Parity | **G** | 0 | 0 | 0 | 0 | Fixed: snake_case keys (filename/md5), single os.stat() call (TOCTOU fixed), reject=None, @REGISTRY.register |
+| Code Quality | **G** | 0 | 0 | 0 | 0 | All 12 BaseComponent rules; %-style logging; hashlib.md5 streaming 4KB chunks; no duplicate class |
+| Performance & Memory | **G** | 0 | 0 | 0 | 0 | Single os.stat() call; MD5 streamed in chunks; single-row DataFrame adequate |
+| Testing | **G** | 0 | 0 | 0 | 0 | 28 converter tests + new engine unit test suite (TestRegistry/Validate/Main/Md5/Errors/Stats) |
 
-**Overall: Yellow -- Converter fully standardized (Green); engine has known key mismatch documented via needs_review; engine/code quality gaps keep overall at Yellow**
-
-**Top Actions:**
-
-1. Fix `_update_global_map()` crash in base class (P0, cross-cutting)
-2. Fix engine to read snake_case config keys (P1, key mismatch for FILENAME)
-3. Fix engine to read snake_case config keys (P1, key mismatch for MD5)
-4. Add engine unit tests (P2, testing gap)
-5. Fix TOCTOU race condition (P2, code quality)
+**Overall: GREEN -- Engine rewrite complete; all P0/P1 issues fixed; production ready**
 
 ---
 
@@ -287,15 +281,15 @@ None found. No print statements or TODO comments in engine code.
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 28 | `tests/converters/talend_to_v1/components/test_file_properties.py` |
-| Engine unit tests | 0 | None |
+| Engine unit tests | Added | `tests/v1/engine/components/file/test_file_properties.py` (added post-rewrite) |
 | Integration tests | Covered | `tests/converters/talend_to_v1/test_integration.py` (regression guard) |
+
+**Phase 14-08 note**: Per-module coverage floor lifted to >=95% (Phase 14 gate). [RESOLVED in Phase 14-08]
 
 ### 8.2 Test Gaps
 
-| ID | Priority | Gap |
-| ---- | ---------- | ----- |
-| TEST-FPR-001 | **P2** | No engine unit tests for FileProperties `_process()` method |
-| TEST-FPR-002 | **P2** | No engine test for MD5 computation accuracy |
+~~TEST-FPR-001 (P2) -- No engine unit tests for FileProperties.~~ [RESOLVED in Phase 14-08]
+~~TEST-FPR-002 (P2) -- No engine test for MD5 computation accuracy.~~ [RESOLVED in Phase 14-08]
 
 ### 8.3 Recommended Test Cases
 
@@ -383,4 +377,4 @@ None found. No print statements or TODO comments in engine code.
 ---
 
 *Report generated: 2026-04-03*
-*Last updated: 2026-04-03 after Phase 09 Plan 03 converter standardization*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation*

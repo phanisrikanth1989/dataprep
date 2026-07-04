@@ -1,100 +1,111 @@
-"""
-tFileTouch component - Creates an empty file at the specified location
+"""tFileTouch component - Creates an empty file or updates its timestamp.
 
 Talend equivalent: tFileTouch
+
+Config mapping (Talend XML param -> v1 engine config key):
+    FILENAME   -> filename       (str, required)
+    CREATEDIR  -> createdir      (bool, default False) -- preferred per _java.xml
+                  also accepts legacy ``create_directory``
+
+Engine-only:
+    die_on_error (bool, default True) -- inherited from BaseComponent.
+                  When False, errors are logged and reported in the result
+                  dict but the component does not raise.
+
+GlobalMap variables:
+    {id}_NB_LINE / NB_LINE_OK / NB_LINE_REJECT  via _update_stats()
+    {id}_ERROR_MESSAGE  (string) -- set when the operation fails
 """
 import os
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, Optional
 import logging
 
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
+from ...exceptions import ConfigurationError, FileOperationError
 
 logger = logging.getLogger(__name__)
 
+
+@REGISTRY.register("FileTouch", "tFileTouch")
 class FileTouch(BaseComponent):
-    """
-    Creates an empty file at the specified location or updates its timestamp.
+    """Creates or refreshes the modification time of a file (Unix ``touch``)."""
 
-    Configuration:
-        filename (str): Path to the file to create or touch. Required.
-        create_directory (bool): Whether to create parent directories if they don't exist. Default: False
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
 
-    Inputs:
-        None: This component does not process input data
+    def _get_filename(self) -> str:
+        return self.config.get("filename") or self.config.get("FILENAME") or ""
 
-    Outputs:
-        main: Result dictionary with status and message
+    def _get_createdir(self) -> bool:
+        # CREATEDIR is the _java.xml param name; accept legacy
+        # ``create_directory`` for backward compatibility.
+        if "createdir" in self.config:
+            return bool(self.config["createdir"])
+        return bool(self.config.get("create_directory", False))
 
-    Statistics:
-        NB_LINE: Number of touch operations attempted (always 1)
-        NB_LINE_OK: Number of successful file touches
-        NB_LINE_REJECT: Number of failed file touches
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
 
-    Example configuration:
-    {
-        "filename": "/path/to/file.txt",
-        "create_directory": True
-    }
-    """
+    def _validate_config(self) -> None:
+        filename = self._get_filename()
+        if not isinstance(filename, str) or not filename.strip():
+            raise ConfigurationError(
+                f"[{self.id}] Missing required config key 'filename'"
+            )
+        for key in ("createdir", "create_directory"):
+            if key in self.config and not isinstance(self.config[key], bool):
+                raise ConfigurationError(
+                    f"[{self.id}] Config '{key}' must be a boolean"
+                )
 
-    def _process(self, input_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """
-        Perform the file touch operation based on the configuration.
+    def _process(self, input_data: Optional[Any] = None) -> Dict[str, Any]:
+        filename = self._get_filename()
+        createdir = self._get_createdir()
 
-        Args:
-            input_data: Not used for this component
-
-        Returns:
-            Dictionary containing:
-                - 'main': Result dictionary with status and message
-
-        Raises:
-            ValueError: If required configuration is missing
-            FileNotFoundError: If directory doesn't exist and create_directory is False
-        """
-        # Get configuration with defaults
-        filename = self.config.get('filename')
-        create_directory = self.config.get('create_directory', False)
-
-        logger.info(f"[{self.id}] Touch operation started: {filename}")
-
-        rows_processed = 1
-        result = {'status': 'error', 'message': ''}
+        logger.info("[%s] Touch operation started: %s", self.id, filename)
 
         try:
-            if not filename:
-                error_msg = "Missing required config: 'filename'"
-                logger.error(f"[{self.id}] {error_msg}")
-                raise ValueError(f"[{self.id}] {error_msg}")
-
-            # Get directory path
             directory = os.path.dirname(filename)
-
-            # Check and create directory if needed
             if directory and not os.path.exists(directory):
-                if create_directory:
-                    logger.debug(f"[{self.id}] Creating directory: {directory}")
-                    os.makedirs(directory)
+                if createdir:
+                    logger.debug("[%s] Creating directory: %s", self.id, directory)
+                    os.makedirs(directory, exist_ok=True)
                 else:
-                    error_msg = f"Directory does not exist: {directory}"
-                    logger.error(f"[{self.id}] {error_msg}")
-                    raise FileNotFoundError(f"[{self.id}] {error_msg}")
+                    raise FileOperationError(
+                        f"[{self.id}] Parent directory does not exist: {directory} "
+                        "(set createdir=true to auto-create)"
+                    )
 
-            # Create the file or update its timestamp
-            logger.debug(f"[{self.id}] Touching file: {filename}")
-            with open(filename, 'a'):
+            with open(filename, "a", encoding="utf-8"):
                 os.utime(filename, None)
 
-            # Update statistics and create result
-            self._update_stats(rows_processed, 1, 0)
-            result = {'status': 'success', 'message': f"File touched: {filename}"}
+            self._update_stats(rows_read=1, rows_ok=1, rows_reject=0)
+            logger.info("[%s] Touch operation complete: %s", self.id, filename)
+            return {
+                "main": {"status": "success", "filename": filename},
+                "reject": None,
+            }
 
-            logger.info(f"[{self.id}] Touch operation complete: "
-                        f"processed={rows_processed}, success=1, failed=0")
+        except FileOperationError:
+            self._update_stats(rows_read=1, rows_ok=0, rows_reject=1)
+            if self.global_map is not None:
+                self.global_map.put(f"{self.id}_ERROR_MESSAGE", "directory missing")
+            raise
 
-        except Exception as e:
-            logger.error(f"[{self.id}] Touch operation failed: {e}")
-            self._update_stats(rows_processed, 0, 1)
-            result = {'status': 'error', 'message': str(e)}
-
-        return {'main': result}
+        except OSError as exc:
+            self._update_stats(rows_read=1, rows_ok=0, rows_reject=1)
+            error_msg = str(exc)
+            if self.global_map is not None:
+                self.global_map.put(f"{self.id}_ERROR_MESSAGE", error_msg)
+            logger.error("[%s] Touch operation failed: %s", self.id, error_msg)
+            if self.die_on_error:
+                raise FileOperationError(
+                    f"[{self.id}] Failed to touch file '{filename}': {error_msg}"
+                ) from exc
+            return {
+                "main": {"status": "error", "filename": filename, "message": error_msg},
+                "reject": None,
+            }

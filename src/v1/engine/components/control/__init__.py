@@ -1,8 +1,10 @@
-from .warn import Warn
 from .die import Die
-from .sleep import SleepComponent
+from .postjob import Postjob
+from .prejob import Prejob
+from . import run_job  # noqa: F401
+from .run_job import RunJob
 from .send_mail import SendMailComponent
+from .sleep import Sleep
+from .warn import Warn
 
-__all__ = ['Warn', 'Die']
-__all__.append('SleepComponent')
-__all__.append('SendMailComponent')
+__all__ = ['Die', 'Postjob', 'Prejob', 'RunJob', 'SendMailComponent', 'Sleep', 'Warn']

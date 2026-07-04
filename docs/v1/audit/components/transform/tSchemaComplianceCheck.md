@@ -1,6 +1,7 @@
 # Audit Report: tSchemaComplianceCheck / SchemaComplianceCheck
 
 > **Audited**: 2026-04-04
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -45,16 +46,15 @@ How production-ready is this component at a glance?
 | Engine Feature Parity | **R** | 2 | 5 | 3 | 1 | Engine reads ONLY schema; ignores all 12 config params. Type validation broken (4 of 12 types). No date validation. No Custom Defined mode. |
 | Code Quality | **G** | 0 | 0 | 0 | 0 | Converter follows gold standard pattern. Uses _build_component_dict, proper TABLE parsers, correct needs_review structure. |
 | Performance & Memory | **N/A** | 0 | 0 | 0 | 0 | Converter is stateless XML-to-JSON transform. Engine performance issues documented under Engine. |
-| Testing | **Y** | 0 | 0 | 1 | 0 | 46 converter tests across 8 test classes. No engine unit tests. |
+| Testing | **G** | 0 | 0 | 0 | 0 | 46 converter tests + 48 engine tests; Phase 14 95% floor met. |
 
-**Overall: Y -- Converter and code quality are production-ready (Green). Testing is Yellow (no engine tests). Engine remains Red (reads only schema, ignores all config).**
+**Overall: Y -- Converter and code quality are production-ready (Green). Engine has 48 tests (Testing Green). Engine feature parity remains Red (reads only schema, ignores all config).**
 
 **Top Actions**:
 
-1. Add engine unit tests for SchemaComplianceCheck
-2. Engine: implement config param reading (12 params currently ignored)
-3. Engine: expand type mapping beyond 4 types
-4. Engine: add date validation support
+1. Engine: implement config param reading (12 params currently ignored)
+2. Engine: expand type mapping beyond 4 types
+3. Engine: add date validation support
 
 ---
 
@@ -349,14 +349,16 @@ What's verified?
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 46 | `tests/converters/talend_to_v1/components/test_schema_compliance_check.py` |
-| Engine unit tests | 0 | None |
+| Engine unit tests | 48 | `tests/v1/engine/components/transform/test_schema_compliance_check.py` |
 | Integration tests | Included | `tests/converters/talend_to_v1/test_integration.py` |
+
+**Phase 14 floor**: `schema_compliance_check.py` meets >= 95% line coverage floor per Phase 14-05 gate.
 
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
 | ---- | ---------- | ----- |
-| TEST-SCC-001 | **P2** | No engine unit tests for SchemaComplianceCheck -- type validation, nullability, length, reject flow |
+| ~~TEST-SCC-001~~ | ~~**P2**~~ | ~~No engine unit tests for SchemaComplianceCheck~~ [RESOLVED -- 48 engine tests added; Phase 14 floor met] |
 
 ### 8.3 Recommended Test Cases
 
@@ -382,9 +384,9 @@ All issues grouped by priority for sprint planning.
 | ---------- | ------- | ----- |
 | P0 | 2 | **ENG-SCC-001**, **ENG-SCC-002** |
 | P1 | 5 | **ENG-SCC-003**, **ENG-SCC-004**, **ENG-SCC-005**, **ENG-SCC-006**, **ENG-SCC-007** |
-| P2 | 4 | **ENG-SCC-008**, **ENG-SCC-009**, **ENG-SCC-010**, **TEST-SCC-001** |
+| P2 | 3 | **ENG-SCC-008**, **ENG-SCC-009**, **ENG-SCC-010** |
 | P3 | 1 | **ENG-SCC-011** |
-| **Total** | **12** | |
+| **Total** | **11** | (TEST-SCC-001 resolved) |
 
 ### By Category
 
@@ -396,7 +398,7 @@ All issues grouped by priority for sprint planning.
 | Naming (NAME) | 0 | -- |
 | Standards (STD) | 0 | -- |
 | Performance (PERF) | 0 | -- |
-| Testing (TEST) | 1 | TEST-SCC-001 |
+| Testing (TEST) | 0 | -- |
 
 ### Cross-Cutting Issues
 
@@ -424,7 +426,6 @@ What should be fixed, in what order?
 3. **ENG-SCC-005 (P1)**: Implement SUB_STRING truncation
 4. **ENG-SCC-006 (P1)**: Read ALL_EMPTY_ARE_NULL from config instead of hardcoding
 5. **ENG-SCC-007 (P1)**: Implement IGNORE_TIMEZONE for date validation
-6. **TEST-SCC-001 (P2)**: Add engine unit tests
 
 ### Long-term (Optimization)
 
@@ -453,4 +454,4 @@ What should be fixed, in what order?
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after gold-standard rewrite (converter + tests + audit)*
+*Last updated: 2026-05-11 -- reconciled (Phase 15.1-08); 48 engine tests noted, TEST-SCC-001 struck*

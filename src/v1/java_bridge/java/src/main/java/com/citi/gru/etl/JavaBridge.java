@@ -1,13 +1,10 @@
 package com.citi.gru.etl;
 
+import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.*;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;
 import org.apache.arrow.vector.ipc.ArrowStreamWriter;
-import org.apache.arrow.vector.types.pojo.Schema;
-import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.FieldType;
-import org.apache.arrow.vector.types.pojo.ArrowType;
 import groovy.lang.Binding;
 import groovy.lang.GroovyShell;
 import groovy.lang.Script;
@@ -15,53 +12,78 @@ import py4j.GatewayServer;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
+import java.io.File;
 import java.util.*;
-import java.util.Date;
-import java.util.concurrent.*;
-import java.util.stream.IntStream;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
- * Main Java bridge for executing Java/Groovy expressions on Arrow data
+ * Java bridge server for executing Java/Groovy expressions on Arrow data.
+ *
+ * <p>
+ * Communicates with the Python engine via Py4J. Receives Arrow-serialized
+ * DataFrames, executes Groovy scripts per-row or in batch, and returns
+ * Arrow-serialized results. Context and globalMap are synchronised
+ * bi-directionally with the Python side at every call boundary.
+ *
+ * <p>
+ * Key design choices (Phase 2 rewrite):
+ * <ul>
+ * <li>All Arrow vector operations delegate to {@link ArrowSerializer}</li>
+ * <li>Compiled tMap scripts cache the Script <b>class</b>, not the instance,
+ * so each execution creates a fresh instance with its own Binding
+ * (fixes BRDG-06 -- no synchronized(script) bottleneck)</li>
+ * <li>All logging via java.util.logging with {@code [JavaBridge]} prefix (D-14,
+ * D-15)</li>
+ * <li>Zero println statements -- all output via java.util.logging</li>
+ * </ul>
  */
 public class JavaBridge {
 
-    private RootAllocator allocator;
-    private Map<String, Object> context;
-    private Map<String, Object> globalMap;
+    private static final Logger logger = Logger.getLogger(JavaBridge.class.getName());
+
+    // 4 GB limit on Arrow off-heap memory -- provides clear OOM messages instead
+    // of unbounded growth, and protects the host system if resources leak.
+    private static final long MAX_ALLOCATOR_BYTES = 4L * 1024 * 1024 * 1024;
+    private final BufferAllocator allocator = new RootAllocator(MAX_ALLOCATOR_BYTES);
+    private Map<String, Object> context = new HashMap<>();
+    private Map<String, Object> globalMap = new HashMap<>();
     private GroovyShell groovyShell;
-    private Map<String, Class<?>> loadedRoutines;
-
-    // Cache for compiled tMap scripts (key = component ID like "tMap_1")
-    private Map<String, CompiledTMapScript> compiledScripts;
-
-    public JavaBridge() {
-        this.allocator = new RootAllocator(Long.MAX_VALUE);
-        this.context = new HashMap<>();
-        this.globalMap = new HashMap<>();
-        this.loadedRoutines = new HashMap<>();
-        this.compiledScripts = new ConcurrentHashMap<>();
-
-        // Initialize Groovy shell
-        Binding binding = new Binding();
-        this.groovyShell = new GroovyShell(binding);
-    }
+    private final Map<String, Class<?>> loadedRoutines = new HashMap<>();
 
     /**
-     * Inner class to hold compiled tMap script metadata
+     * Cache of compiled tMap Script *classes* keyed by component ID.
+     *
+     * <p>
+     * BRDG-06 fix: we cache the Class, not the Script instance. Each
+     * execution instantiates a new Script from the cached class, giving it
+     * its own Binding. This eliminates the need for {@code synchronized(script)}
+     * and allows truly parallel chunk execution.
      */
-    private static class CompiledTMapScript {
-        Script script;
-        Map<String, List<String>> outputSchemas;
-        Map<String, String> outputTypes;
-        String mainTableName;
-        List<String> lookupNames;
+    private final ConcurrentHashMap<String, CachedTMapMeta> compiledScriptClasses = new ConcurrentHashMap<>();
 
-        CompiledTMapScript(Script script, Map<String, List<String>> outputSchemas,
-                           Map<String, String> outputTypes, String mainTableName,
-                           List<String> lookupNames) {
-            this.script = script;
+    // ------------------------------------------------------------------
+    // Inner class for compiled tMap metadata
+    // ------------------------------------------------------------------
+
+    /**
+     * Holds a compiled Script class together with the output schema metadata
+     * needed to convert script results back to Arrow.
+     */
+    private static class CachedTMapMeta {
+        final Class<? extends Script> scriptClass;
+        final Map<String, List<String>> outputSchemas;
+        final Map<String, String> outputTypes;
+        final String mainTableName;
+        final List<String> lookupNames;
+
+        CachedTMapMeta(Class<? extends Script> scriptClass,
+                Map<String, List<String>> outputSchemas,
+                Map<String, String> outputTypes,
+                String mainTableName,
+                List<String> lookupNames) {
+            this.scriptClass = scriptClass;
             this.outputSchemas = outputSchemas;
             this.outputTypes = outputTypes;
             this.mainTableName = mainTableName;
@@ -69,211 +91,401 @@ public class JavaBridge {
         }
     }
 
+    // ------------------------------------------------------------------
+    // Constructor
+    // ------------------------------------------------------------------
+
+    public JavaBridge() {
+        Binding binding = new Binding();
+        this.groovyShell = new GroovyShell(binding);
+        logger.info("[JavaBridge] Bridge instance created");
+    }
+
+    // ------------------------------------------------------------------
+    // Logging configuration
+    // ------------------------------------------------------------------
+
     /**
-     * Execute tJavaRow-style code block
+     * Set the JUL log level from a Python-side level name.
+     *
+     * @param levelName one of "FINE", "INFO", "WARNING", "SEVERE"
      */
-    public byte[] executeJavaRow(byte[] arrowData, String javaCode,
-                                 Map<String, String> outputSchema,
-                                 Map<String, Object> contextVars,
-                                 Map<String, Object> globalMapVars) throws Exception {
-
-        // Update context and globalMap
-        this.context.putAll(contextVars);
-        this.globalMap.putAll(globalMapVars);
-
-        // Read input Arrow data
-        ByteArrayInputStream inputStream = new ByteArrayInputStream(arrowData);
-        ArrowStreamReader reader = new ArrowStreamReader(inputStream, allocator);
-        VectorSchemaRoot inputRoot = reader.getVectorSchemaRoot();
-        reader.loadNextBatch();
-
-        int rowCount = inputRoot.getRowCount();
-
-        // Prepare output vectors based on schema
-        // Use arrays to store results (thread-safe access by index)
-        Map<String, Object[]> outputArrays = new HashMap<>();
-        for (String colName : outputSchema.keySet()) {
-            outputArrays.put(colName, new Object[rowCount]);
+    public void setLogLevel(String levelName) {
+        Level level;
+        switch (levelName.toUpperCase()) {
+            case "FINE":
+            case "DEBUG":
+                level = Level.FINE;
+                break;
+            case "INFO":
+                level = Level.INFO;
+                break;
+            case "WARNING":
+            case "WARN":
+                level = Level.WARNING;
+                break;
+            case "SEVERE":
+            case "ERROR":
+                level = Level.SEVERE;
+                break;
+            default:
+                level = Level.INFO;
+                break;
         }
+        Logger.getLogger("com.citi.gru.etl").setLevel(level);
+        logger.info("[JavaBridge] Log level set to " + level.getName());
+    }
 
-        // ==========================================
-        // OPTIMIZATION: Compile Groovy script ONCE
-        // ==========================================
-        System.out.println("Compiling Groovy script...");
-        long compileStart = System.currentTimeMillis();
-        GroovyShell shell = new GroovyShell();
-        Script compiledScript = shell.parse(javaCode);
-        long compileTime = System.currentTimeMillis() - compileStart;
-        System.out.println("Script compiled in " + compileTime + " ms");
+    // ------------------------------------------------------------------
+    // Context / GlobalMap accessors
+    // ------------------------------------------------------------------
 
-        // Execute code for each row IN PARALLEL
-        System.out.println("Processing " + rowCount + " rows in parallel...");
-        long execStart = System.currentTimeMillis();
+    public Map<String, Object> getContext() {
+        return this.context;
+    }
 
-        IntStream.range(0, rowCount).parallel().forEach(i -> {
-            try {
-                RowWrapper input_row = new RowWrapper(inputRoot, i, "input_row");
-                RowWrapper output_row = new RowWrapper(outputSchema);
-
-                // System.out.println("input_row: " + input_row.toString());
-                // System.out.println("output_row: " + output_row.toString());
-
-                // Prepare Groovy binding for this row
-                Binding binding = new Binding();
-                binding.setVariable("input_row", input_row);
-                binding.setVariable("output_row", output_row);
-                binding.setVariable("context", context);
-                binding.setVariable("globalMap", globalMap);
-
-                // Add loaded routines to binding in TWO ways:
-                // 1. Direct access: ValidationUtils.method()
-                for (Map.Entry<String, Class<?>> entry : loadedRoutines.entrySet()) {
-                    binding.setVariable(entry.getKey(), entry.getValue());
-                }
-                // 2. Namespace access: routines.ValidationUtils.method()
-                Map<String, Class<?>> routinesNamespace = new HashMap<>(loadedRoutines);
-                binding.setVariable("routines", routinesNamespace);
-
-                // Execute COMPILED script with this row's binding
-                synchronized (compiledScript) {
-                    compiledScript.setBinding(binding);
-                    compiledScript.run();
-                }
-
-                // Collect output_row values into arrays (thread-safe by index)
-                for (String colName : outputSchema.keySet()) {
-                    outputArrays.get(colName)[i] = output_row.get(colName);
-                }
-            } catch (Exception e) {
-                throw new RuntimeException("Error processing row " + i, e);
-            }
-        });
-
-        long execTime = System.currentTimeMillis() - execStart;
-        System.out.println("Processed " + rowCount + " rows in " + execTime + " ms (" + (rowCount * 1000 / execTime) + " rows/sec)");
-
-        // Convert arrays to Lists for createOutputRootFromData
-        Map<String, List<Object>> outputData = new HashMap<>();
-        for (Map.Entry<String, Object[]> entry : outputArrays.entrySet()) {
-            outputData.put(entry.getKey(), Arrays.asList(entry.getValue()));
-        }
-
-        // Create output Arrow table
-        VectorSchemaRoot outputRoot = createOutputRootFromData(outputSchema, outputData, rowCount);
-
-        // Write to Arrow bytes
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        ArrowStreamWriter writer = new ArrowStreamWriter(outputRoot, null, outputStream);
-        writer.writeBatch();
-        writer.close();
-
-        // Cleanup
-        inputRoot.close();
-        reader.close();
-        outputRoot.close();
-
-        return outputStream.toByteArray();
+    public Map<String, Object> getGlobalMap() {
+        return this.globalMap;
     }
 
     /**
-     * Execute one-time expression
+     * Set a context variable. Value type is Object (not String) so Py4J's
+     * native typed protocol can pass Integer/Boolean/Decimal/Date through
+     * unchanged. The Python-side wrapper (bridge.py set_context) stops
+     * coercing to str(value) in Task 0.4 of the tMap rewrite.
      */
-    public Object executeOneTimeExpression(String expression, Map<String, Object> contextVars) {
+    public void setContext(String key, Object value) {
+        this.context.put(key, value);
+    }
+
+    /**
+     * Set a globalMap variable. Value type is Object (not String) so Py4J's
+     * native typed protocol can pass Integer/Boolean/Decimal/Date through
+     * unchanged. The Python-side wrapper (bridge.py set_global_map) stops
+     * coercing to str(value) in Task 0.4 of the tMap rewrite.
+     */
+    public void setGlobalMap(String key, Object value) {
+        this.globalMap.put(key, value);
+    }
+
+    // ------------------------------------------------------------------
+    // Row-level execution (tJavaRow)
+    // ------------------------------------------------------------------
+
+    /**
+     * Execute tJavaRow-style Groovy code on every row of the input Arrow data.
+     *
+     * @param arrowData     input DataFrame serialised as Arrow IPC bytes
+     * @param javaCode      Groovy source code to execute per row
+     * @param outputSchema  output column types: {colName: pythonTypeString}
+     * @param contextVars   context variables to merge
+     * @param globalMapVars globalMap variables to merge
+     * @return Arrow IPC bytes containing the output DataFrame
+     */
+    public byte[] executeJavaRow(byte[] arrowData, String javaCode,
+            Map<String, String> outputSchema,
+            Map<String, Object> contextVars,
+            Map<String, Object> globalMapVars) throws Exception {
+
         this.context.putAll(contextVars);
+        this.globalMap.putAll(globalMapVars);
+
+        ByteArrayInputStream inputStream = new ByteArrayInputStream(arrowData);
+        try (ArrowStreamReader reader = new ArrowStreamReader(inputStream, allocator)) {
+            VectorSchemaRoot inputRoot = reader.getVectorSchemaRoot();
+            boolean loaded = reader.loadNextBatch();
+            if (!loaded) {
+                logger.warning("[JavaBridge] No batch loaded from Arrow stream -- input may be empty or corrupt");
+            }
+
+            int rowCount = inputRoot.getRowCount();
+
+            // Output arrays -- one per output column
+            Map<String, Object[]> outputArrays = new HashMap<>();
+            for (String colName : outputSchema.keySet()) {
+                outputArrays.put(colName, new Object[rowCount]);
+            }
+
+            // Compile script once
+            logger.fine("[JavaBridge] Compiling Groovy script for executeJavaRow");
+            long compileStart = System.currentTimeMillis();
+            Script compiledScript = groovyShell.parse(javaCode);
+            // Cache the class so we can create independent instances per row
+            Class<? extends Script> scriptClass = compiledScript.getClass();
+            long compileTime = System.currentTimeMillis() - compileStart;
+            logger.fine("[JavaBridge] Script compiled in " + compileTime + " ms");
+
+            logger.info("[JavaBridge] executeJavaRow: processing " + rowCount + " rows");
+            long execStart = System.currentTimeMillis();
+
+            for (int i = 0; i < rowCount; i++) {
+                try {
+                    // Create a fresh Script instance per row (no synchronization needed)
+                    Script rowScript = scriptClass.getDeclaredConstructor().newInstance();
+
+                    // Build input row map from Arrow vectors
+                    Map<String, Object> inputRowMap = new HashMap<>();
+                    for (FieldVector vec : inputRoot.getFieldVectors()) {
+                        String fieldName = vec.getName();
+                        inputRowMap.put(fieldName, extractTypedValue(vec, i));
+                    }
+
+                    RowWrapper input_row = new RowWrapper();
+                    input_row.setInputRow(inputRowMap);
+
+                    RowWrapper output_row = new RowWrapper();
+
+                    Binding binding = new Binding();
+                    binding.setVariable("input_row", input_row);
+                    binding.setVariable("output_row", output_row);
+                    binding.setVariable("context", context);
+                    binding.setVariable("globalMap", globalMap);
+
+                    // Add loaded routines
+                    addRoutinesToBinding(binding);
+
+                    rowScript.setBinding(binding);
+                    rowScript.run();
+
+                    // Collect output values from the output row map (not the input side)
+                    Map<String, Object> outputValues = output_row.getOutputRow();
+                    for (String colName : outputSchema.keySet()) {
+                        outputArrays.get(colName)[i] = outputValues.get(colName);
+                    }
+                } catch (Exception e) {
+                    logger.severe("[JavaBridge] Error processing row " + i + ": " + e.getMessage());
+                    throw new RuntimeException("Error processing row " + i, e);
+                }
+            }
+
+            long execTime = System.currentTimeMillis() - execStart;
+            logger.info("[JavaBridge] executeJavaRow: processed " + rowCount + " rows in " + execTime + " ms");
+
+            // Create output Arrow data via ArrowSerializer
+            try (VectorSchemaRoot outputRoot = ArrowSerializer.createOutputRootFromData(allocator, outputArrays,
+                    outputSchema)) {
+                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+                ArrowStreamWriter writer = new ArrowStreamWriter(outputRoot, null, outputStream);
+                writer.start();
+                writer.writeBatch();
+                writer.close();
+                return outputStream.toByteArray();
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Flex-level execution (tJavaFlex)
+    // ------------------------------------------------------------------
+
+    /**
+     * Execute a tJavaFlex-style Groovy script ONCE over all input rows.
+     *
+     * <p>
+     * Unlike {@link #executeJavaRow}, the whole script runs a single time:
+     * the row loop lives INSIDE the Groovy body. START locals declared above
+     * the loop (e.g. {@code int totalCount = 0}) therefore persist across
+     * every row and into the END block -- Talend's tJavaFlex one-scope
+     * semantics. Modelled on {@link #executeTMapCompiled} (parse once / one
+     * Binding / run once), NOT on the per-row fresh-Script pattern of
+     * {@link #executeJavaRow}. The script is parsed fresh on every call and
+     * does NOT use the componentId-keyed tMap cache.
+     *
+     * <p>
+     * Cardinality is 1:1 -- one output {@link RowWrapper} per input row. The
+     * script reads {@code input.get(i)} and writes {@code output.get(i)} (both
+     * are bound as {@code List<RowWrapper>}). After the run, each output
+     * wrapper's {@link RowWrapper#getOutputRow()} is read column-by-column
+     * into Arrow output.
+     *
+     * @param arrowData    input DataFrame serialised as Arrow IPC bytes
+     * @param script       Groovy source (START + row loop + END as one unit)
+     * @param outputSchema output column types: {colName: pythonTypeString}
+     * @param inputSchema  input column types (informational; the actual input
+     *                     values come from {@code arrowData} vectors)
+     * @param contextVars   context variables to merge (Python engine values)
+     * @param globalMapVars globalMap variables to merge (Python engine values)
+     * @return Arrow IPC bytes containing the output DataFrame
+     */
+    public byte[] executeJavaFlex(byte[] arrowData, String script,
+            Map<String, String> outputSchema,
+            Map<String, String> inputSchema,
+            Map<String, Object> contextVars,
+            Map<String, Object> globalMapVars) throws Exception {
+
+        // Forward Python->Java state BEFORE building the Binding so the bound
+        // context/globalMap carry upstream values (tSetGlobalVar, context
+        // params, tFileRowCount, etc.). Same exposure as executeJavaRow /
+        // executeTMapCompiled.
+        this.context.putAll(contextVars);
+        this.globalMap.putAll(globalMapVars);
+
+        ByteArrayInputStream inputStream = new ByteArrayInputStream(arrowData);
+        try (ArrowStreamReader reader = new ArrowStreamReader(inputStream, allocator)) {
+            VectorSchemaRoot inputRoot = reader.getVectorSchemaRoot();
+            boolean loaded = reader.loadNextBatch();
+            if (!loaded) {
+                logger.warning("[JavaBridge] No batch loaded from Arrow stream -- input may be empty or corrupt");
+            }
+
+            int rowCount = inputRoot.getRowCount();
+            logger.info("[JavaBridge] executeJavaFlex: " + rowCount + " rows, "
+                    + outputSchema.size() + " output columns");
+            logger.fine("[JavaBridge] executeJavaFlex script:\n" + script);
+
+            // Build input row wrappers (1 per row) reading from Arrow vectors.
+            // tableName is null -- tJavaFlex columns are plain (no table prefix).
+            List<RowWrapper> input = new ArrayList<>(rowCount);
+            for (int i = 0; i < rowCount; i++) {
+                input.add(buildArrowRowWrapper(inputRoot, i, null));
+            }
+
+            // Pre-size N empty output wrappers (1:1 cardinality). The script
+            // populates each via output.get(i).col = value.
+            List<RowWrapper> output = new ArrayList<>(rowCount);
+            for (int i = 0; i < rowCount; i++) {
+                output.add(new RowWrapper());
+            }
+
+            // ONE Binding shared by the whole script (parse once / run once).
+            // Exposes input/output as List<RowWrapper> plus the shared
+            // globalMap/context (same exposure as executeTMapCompiled).
+            Binding binding = new Binding();
+            binding.setVariable("input", input);
+            binding.setVariable("output", output);
+            binding.setVariable("context", context);
+            binding.setVariable("globalMap", globalMap);
+            addRoutinesToBinding(binding);
+
+            GroovyShell shell = new GroovyShell(binding);
+            Script compiledScript = shell.parse(script);
+            compiledScript.setBinding(binding);
+
+            long execStart = System.currentTimeMillis();
+            compiledScript.run();
+            long execTime = System.currentTimeMillis() - execStart;
+            logger.info("[JavaBridge] executeJavaFlex: executed in " + execTime + " ms");
+
+            // Serialize: read each output wrapper's outputRow into per-column
+            // Object[] arrays keyed by outputSchema (column-oriented for
+            // ArrowSerializer). LinkedHashMap preserves declared column order.
+            Map<String, Object[]> columnData = new LinkedHashMap<>();
+            for (String colName : outputSchema.keySet()) {
+                columnData.put(colName, new Object[rowCount]);
+            }
+            for (int i = 0; i < rowCount; i++) {
+                Map<String, Object> outValues = output.get(i).getOutputRow();
+                for (String colName : outputSchema.keySet()) {
+                    columnData.get(colName)[i] = outValues.get(colName);
+                }
+            }
+
+            try (VectorSchemaRoot outputRoot = ArrowSerializer.createOutputRootFromData(
+                    allocator, columnData, outputSchema)) {
+                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+                ArrowStreamWriter writer = new ArrowStreamWriter(outputRoot, null, outputStream);
+                writer.start();
+                writer.writeBatch();
+                writer.close();
+                return outputStream.toByteArray();
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // One-time expression execution
+    // ------------------------------------------------------------------
+
+    /**
+     * Evaluate a single Groovy expression with context/globalMap binding.
+     *
+     * @param expression    Groovy expression source
+     * @param contextVars   context variables to merge
+     * @param globalMapVars globalMap variables to merge (Python engine values)
+     * @return the expression result
+     */
+    public Object executeOneTimeExpression(String expression, Map<String, Object> contextVars,
+            Map<String, Object> globalMapVars) {
+        this.context.putAll(contextVars);
+        this.globalMap.putAll(globalMapVars);
 
         Binding binding = new Binding();
         binding.setVariable("context", context);
         binding.setVariable("globalMap", globalMap);
+        addRoutinesToBinding(binding);
 
-        // Add loaded routines in TWO ways:
-        // 1. Direct access: ValidationUtils.method()
-        for (Map.Entry<String, Class<?>> entry : loadedRoutines.entrySet()) {
-            binding.setVariable(entry.getKey(), entry.getValue());
-        }
-        // 2. Namespace access: routines.ValidationUtils.method()
-        Map<String, Class<?>> routinesNamespace = new HashMap<>(loadedRoutines);
-        binding.setVariable("routines", routinesNamespace);
-
-        // Create new GroovyShell with binding
         GroovyShell shell = new GroovyShell(binding);
         return shell.evaluate(expression);
     }
 
     /**
-     * Execute multiple one-time expressions in batch
+     * Evaluate multiple Groovy expressions in batch with context and globalMap.
      *
-     * Efficient batch execution of multiple Java/Groovy expressions.
-     * Creates one GroovyShell and reuses it for all expressions.
+     * <p>
+     * Renamed from {@code executeBatchOneTimeExpressionsWithGlobalMap} --
+     * the dead-code variant without globalMap has been removed.
      *
-     * @param expressions Map of {key: expression_string} to evaluate
-     * @param contextVars Context variables available to expressions
-     * @return Map of {key: result_value} for each expression
-     *
-     * Example:
-     *   Input: {"footer": "1 + context.count", "limit": "context.rows * 2"}
-     *   Output: {"footer": 6, "limit": 200}
+     * @param expressions   map of {key: expressionString}
+     * @param contextVars   context variables to merge
+     * @param globalMapVars globalMap variables to merge
+     * @return map of {key: resultValue}; errors stored as "{{ERROR}}message"
      */
     public Map<String, Object> executeBatchOneTimeExpressions(
             Map<String, String> expressions,
-            Map<String, Object> contextVars) {
+            Map<String, Object> contextVars,
+            Map<String, Object> globalMapVars) {
 
-        // Update context
         this.context.putAll(contextVars);
+        this.globalMap.putAll(globalMapVars);
 
-        // Prepare shared binding (reused for all expressions)
         Binding binding = new Binding();
         binding.setVariable("context", context);
         binding.setVariable("globalMap", globalMap);
+        addRoutinesToBinding(binding);
 
-        // Add loaded routines in TWO ways:
-        // 1. Direct access: ValidationUtils.method()
-        for (Map.Entry<String, Class<?>> entry : loadedRoutines.entrySet()) {
-            binding.setVariable(entry.getKey(), entry.getValue());
-        }
-        // 2. Namespace access: routines.ValidationUtils.method()
-        Map<String, Class<?>> routinesNamespace = new HashMap<>(loadedRoutines);
-        binding.setVariable("routines", routinesNamespace);
-
-        // Create one GroovyShell to reuse
         GroovyShell shell = new GroovyShell(binding);
 
-        // Evaluate all expressions
         Map<String, Object> results = new HashMap<>();
         for (Map.Entry<String, String> entry : expressions.entrySet()) {
             String key = entry.getKey();
             String expression = entry.getValue();
-
             try {
                 Object result = shell.evaluate(expression);
                 results.put(key, result);
             } catch (Exception e) {
-                System.err.println("Error evaluating expression '" + key + "': " + expression);
-                System.err.println("Error: " + e.getMessage());
-                // Store the error as a string so Python can handle it
+                logger.severe("[JavaBridge] Error evaluating expression '" + key + "': " + expression
+                        + " -- " + e.getMessage());
                 results.put(key, "{{ERROR}}" + e.getMessage());
             }
         }
-
         return results;
     }
 
     /**
-     * Execute tMap preprocessing - batch evaluate expressions on all rows
+     * Backward-compatible alias so existing Python client code that calls
+     * {@code executeBatchOneTimeExpressionsWithGlobalMap} keeps working.
+     */
+    public Map<String, Object> executeBatchOneTimeExpressionsWithGlobalMap(
+            Map<String, String> expressions,
+            Map<String, Object> contextVars,
+            Map<String, Object> globalMapVars) {
+        return executeBatchOneTimeExpressions(expressions, contextVars, globalMapVars);
+    }
+
+    // ------------------------------------------------------------------
+    // tMap preprocessing
+    // ------------------------------------------------------------------
+
+    /**
+     * Batch-evaluate expressions on every row of the input Arrow data.
      *
-     * Used for evaluating filters and join key expressions during tMap preprocessing.
-     * Each expression is evaluated once per row, returning an array of results.
-     *
-     * @param arrowData Input DataFrame as Arrow bytes
-     * @param expressions Map of {expr_id: expression_string} to evaluate on each row
-     * @param mainTableName Name of the main table (for row variable binding)
-     * @param lookupNames List of lookup table names already joined
-     * @param contextVars Context variables
-     * @param globalMapVars Global map variables
-     * @return Map of {expr_id: Object[]} where Object[] contains result for each row
-     *
-     * Example:
-     *   Input: 3 rows, expressions: {"filter": "orders.status == 'COMPLETE'", "join_key": "customers.region_id"}
-     *   Output: {"filter": [true, false, true], "join_key": [5, 3, 5]}
+     * @param arrowData     input DataFrame as Arrow IPC bytes
+     * @param expressions   {exprId: expressionString}
+     * @param mainTableName main table name for Groovy binding
+     * @param lookupNames   lookup table names already joined
+     * @param contextVars   context variables
+     * @param globalMapVars globalMap variables
+     * @return {exprId: Object[resultPerRow]}
      */
     public Map<String, Object[]> executeTMapPreprocessing(
             byte[] arrowData,
@@ -283,138 +495,100 @@ public class JavaBridge {
             Map<String, Object> contextVars,
             Map<String, Object> globalMapVars) throws Exception {
 
-        // Update context and globalMap
         this.context.putAll(contextVars);
         this.globalMap.putAll(globalMapVars);
 
-        // Read input Arrow data
         ByteArrayInputStream inputStream = new ByteArrayInputStream(arrowData);
-        ArrowStreamReader reader = new ArrowStreamReader(inputStream, allocator);
-        VectorSchemaRoot inputRoot = reader.getVectorSchemaRoot();
-        reader.loadNextBatch();
-
-        int rowCount = inputRoot.getRowCount();
-
-        System.out.println("tMap Preprocessing: " + rowCount + " rows, " + expressions.size() + " expressions");
-
-        // ==========================================
-        // OPTIMIZATION: Compile all expressions ONCE
-        // ==========================================
-        System.out.println("Compiling " + expressions.size() + " expressions...");
-        long compileStart = System.currentTimeMillis();
-
-        Map<String, Script> compiledExpressions = new HashMap<>();
-        GroovyShell compileShell = new GroovyShell();
-
-        for (Map.Entry<String, String> entry : expressions.entrySet()) {
-            String exprId = entry.getKey();
-            String expression = entry.getValue();
-            try {
-                Script compiledScript = compileShell.parse(expression);
-                compiledExpressions.put(exprId, compiledScript);
-            } catch (Exception e) {
-                System.err.println("Error compiling expression '" + exprId + "': " + expression);
-                System.err.println("Error: " + e.getMessage());
-                // Skip expressions that don't compile
+        try (ArrowStreamReader reader = new ArrowStreamReader(inputStream, allocator)) {
+            VectorSchemaRoot inputRoot = reader.getVectorSchemaRoot();
+            boolean loaded = reader.loadNextBatch();
+            if (!loaded) {
+                logger.warning("[JavaBridge] No batch loaded from Arrow stream -- input may be empty or corrupt");
             }
-        }
 
-        long compileTime = System.currentTimeMillis() - compileStart;
-        System.out.println("Compiled " + compiledExpressions.size() + " expressions in " + compileTime + " ms");
+            int rowCount = inputRoot.getRowCount();
+            logger.info(
+                    "[JavaBridge] tMap preprocessing: " + rowCount + " rows, " + expressions.size() + " expressions");
 
-        // Prepare result arrays for each expression
-        Map<String, Object[]> results = new HashMap<>();
-        for (String exprId : expressions.keySet()) {
-            results.put(exprId, new Object[rowCount]);
-        }
+            // Compile all expressions once
+            logger.fine("[JavaBridge] Compiling " + expressions.size() + " expressions");
+            Map<String, Class<? extends Script>> compiledExprClasses = new HashMap<>();
+            GroovyShell compileShell = new GroovyShell();
 
-        // Execute compiled expressions in parallel
-        System.out.println("Processing " + rowCount + " rows in parallel...");
-        long execStart = System.currentTimeMillis();
+            for (Map.Entry<String, String> entry : expressions.entrySet()) {
+                String exprId = entry.getKey();
+                String expression = entry.getValue();
+                try {
+                    Script compiled = compileShell.parse(expression);
+                    compiledExprClasses.put(exprId, compiled.getClass());
+                } catch (Exception e) {
+                    logger.warning("[JavaBridge] Failed to compile expression '" + exprId
+                            + "' -- all rows will return null: " + e.getMessage());
+                }
+            }
 
-        IntStream.range(0, rowCount).parallel().forEach(i -> {
-            try {
-                // Create RowWrapper for main table
-                RowWrapper mainRow = new RowWrapper(inputRoot, i, mainTableName);
+            // Result arrays
+            Map<String, Object[]> results = new HashMap<>();
+            for (String exprId : expressions.keySet()) {
+                results.put(exprId, new Object[rowCount]);
+            }
 
-                // Prepare binding for this row
+            long execStart = System.currentTimeMillis();
+
+            for (int i = 0; i < rowCount; i++) {
+                // Build row wrappers that read from Arrow vectors
+                RowWrapper mainRow = buildArrowRowWrapper(inputRoot, i, mainTableName);
+
                 Binding binding = new Binding();
-                binding.setVariable(mainTableName, mainRow);  // e.g., "orders"
+                binding.setVariable(mainTableName, mainRow);
 
-                // Create RowWrappers for ALL joined lookup tables
                 for (String lookupName : lookupNames) {
-                    RowWrapper lookupRow = new RowWrapper(inputRoot, i, lookupName);
+                    RowWrapper lookupRow = buildArrowRowWrapper(inputRoot, i, lookupName);
                     binding.setVariable(lookupName, lookupRow);
                 }
 
                 binding.setVariable("context", context);
                 binding.setVariable("globalMap", globalMap);
+                addRoutinesToBinding(binding);
 
-                // Add loaded routines
-                for (Map.Entry<String, Class<?>> entry : loadedRoutines.entrySet()) {
-                    binding.setVariable(entry.getKey(), entry.getValue());
-                }
-                Map<String, Class<?>> routinesNamespace = new HashMap<>(loadedRoutines);
-                binding.setVariable("routines", routinesNamespace);
-
-                // Evaluate all COMPILED expressions for this row
-                for (Map.Entry<String, Script> entry : compiledExpressions.entrySet()) {
+                for (Map.Entry<String, Class<? extends Script>> entry : compiledExprClasses.entrySet()) {
                     String exprId = entry.getKey();
-                    Script compiledScript = entry.getValue();
-
                     try {
-                        // Execute compiled script with this row's binding
-                        synchronized (compiledScript) {
-                            compiledScript.setBinding(binding);
-                            Object result = compiledScript.run();
-                            results.get(exprId)[i] = result;
-                        }
+                        Script instance = entry.getValue().getDeclaredConstructor().newInstance();
+                        instance.setBinding(binding);
+                        Object result = instance.run();
+                        results.get(exprId)[i] = result;
                     } catch (Exception e) {
-                        System.err.println("Error evaluating expression '" + exprId + "' at row " + i);
-                        System.err.println("Error: " + e.getMessage());
-                        results.get(exprId)[i] = null;  // Store null on error
+                        logger.fine(
+                                "[JavaBridge] Error evaluating '" + exprId + "' at row " + i + ": " + e.getMessage());
+                        results.get(exprId)[i] = null;
                     }
                 }
-            } catch (Exception e) {
-                throw new RuntimeException("Error processing row " + i, e);
             }
-        });
 
-        long execTime = System.currentTimeMillis() - execStart;
-        System.out.println("Processed " + rowCount + " rows in " + execTime + " ms (" + (rowCount * 1000 / execTime) + " rows/sec)");
+            long execTime = System.currentTimeMillis() - execStart;
+            logger.info("[JavaBridge] tMap preprocessing complete: " + rowCount + " rows in " + execTime + " ms");
 
-        // Cleanup
-        inputRoot.close();
-        reader.close();
-
-        System.out.println("tMap Preprocessing complete: " + results.size() + " result arrays");
-
-        return results;
+            return results;
+        }
     }
 
+    // ------------------------------------------------------------------
+    // tMap compiled execution
+    // ------------------------------------------------------------------
+
     /**
-     * Execute tMap outputs with COMPILED script (OPTIMIZED)
+     * Compile and execute a tMap script in a single call (non-cached).
      *
-     * This is the optimized version that compiles the entire tMap logic once
-     * and executes in parallel, similar to tJavaRow. Achieves much higher throughput
-     * than executeTMapOutputs().
-     *
-     * @param javaScript Pre-generated Java/Groovy script containing all tMap logic
-     * @param arrowData Joined DataFrame as Arrow bytes
-     * @param outputSchemas Map of {output_name: [column_names...]}
-     * @param outputTypes Map of {output_name_columnName: type_string}
-     * @param mainTableName Main input table name (e.g., "orders")
-     * @param lookupNames List of lookup table names (e.g., ["customers", "products"])
-     * @param contextVars Context variables
-     * @param globalMapVars Global map variables
-     * @return Map of {output_name: arrow_bytes} for each output
-     *
-     * The script should use this pattern:
-     * - Setup output arrays and counters
-     * - Process rows in parallel
-     * - Evaluate variables in order (with dependencies)
-     * - Route to outputs based on filters
-     * - Return map with {output_name: {data: Object[][], count: int}}
+     * @param javaScript    Groovy source for the tMap logic
+     * @param arrowData     joined DataFrame as Arrow IPC bytes
+     * @param outputSchemas {outputName: [columnNames]}
+     * @param outputTypes   {outputName_columnName: pythonTypeString}
+     * @param mainTableName main input table name
+     * @param lookupNames   lookup table names
+     * @param contextVars   context variables
+     * @param globalMapVars globalMap variables
+     * @return {outputName: arrowBytes}
      */
     public Map<String, byte[]> executeTMapCompiled(
             String javaScript,
@@ -426,142 +600,55 @@ public class JavaBridge {
             Map<String, Object> contextVars,
             Map<String, Object> globalMapVars) throws Exception {
 
-        // Update context and globalMap
         this.context.putAll(contextVars);
         this.globalMap.putAll(globalMapVars);
 
-        // Read joined Arrow data
         ByteArrayInputStream inputStream = new ByteArrayInputStream(arrowData);
-        ArrowStreamReader reader = new ArrowStreamReader(inputStream, allocator);
-        VectorSchemaRoot inputRoot = reader.getVectorSchemaRoot();
-        reader.loadNextBatch();
+        try (ArrowStreamReader reader = new ArrowStreamReader(inputStream, allocator)) {
+            VectorSchemaRoot inputRoot = reader.getVectorSchemaRoot();
+            boolean loaded = reader.loadNextBatch();
+            if (!loaded) {
+                logger.warning("[JavaBridge] No batch loaded from Arrow stream -- input may be empty or corrupt");
+            }
 
-        int rowCount = inputRoot.getRowCount();
+            int rowCount = inputRoot.getRowCount();
+            logger.info("[JavaBridge] tMap compiled: " + rowCount + " rows, " + outputSchemas.size() + " outputs");
 
-        System.out.println("tMap Compiled: " + rowCount + " rows, " + outputSchemas.size() + " outputs");
+            // Compile script
+            Binding compileBinding = buildTMapBinding(inputRoot, rowCount, mainTableName,
+                    lookupNames, outputSchemas, outputTypes);
+            GroovyShell shell = new GroovyShell(compileBinding);
+            Script compiledScript = shell.parse(javaScript);
+            compiledScript.setBinding(compileBinding);
 
-        // ==========================================
-        // OPTIMIZATION: Compile script ONCE
-        // ==========================================
-        System.out.println("Compiling tMap script...");
-        long compileStart = System.currentTimeMillis();
+            long execStart = System.currentTimeMillis();
+            Object scriptResult = compiledScript.run();
+            long execTime = System.currentTimeMillis() - execStart;
+            logger.info("[JavaBridge] tMap compiled: executed in " + execTime + " ms");
 
-        // Create binding with framework variables
-        Binding compileBinding = new Binding();
-        compileBinding.setVariable("inputRoot", inputRoot);
-        compileBinding.setVariable("rowCount", rowCount);
-        compileBinding.setVariable("mainTableName", mainTableName);
-        compileBinding.setVariable("lookupNames", lookupNames);
-        compileBinding.setVariable("context", context);
-        compileBinding.setVariable("globalMap", globalMap);
-        compileBinding.setVariable("allocator", allocator);
+            @SuppressWarnings("unchecked")
+            Map<String, Map<String, Object>> outputResults = (Map<String, Map<String, Object>>) scriptResult;
 
-        // Add loaded routines
-        for (Map.Entry<String, Class<?>> entry : loadedRoutines.entrySet()) {
-            compileBinding.setVariable(entry.getKey(), entry.getValue());
+            return convertTMapOutputsToArrow(outputResults, outputSchemas, outputTypes);
         }
-        Map<String, Class<?>> routinesNamespace = new HashMap<>(loadedRoutines);
-        compileBinding.setVariable("routines", routinesNamespace);
-
-        // Add output schema information
-        compileBinding.setVariable("outputSchemas", outputSchemas);
-        compileBinding.setVariable("outputTypes", outputTypes);
-
-        GroovyShell shell = new GroovyShell(compileBinding);
-        Script compiledScript = shell.parse(javaScript);
-        compiledScript.setBinding(compileBinding);
-
-        long compileTime = System.currentTimeMillis() - compileStart;
-        System.out.println("Script compiled in " + compileTime + " ms");
-
-        // Execute compiled script
-        System.out.println("Executing compiled script...");
-        long execStart = System.currentTimeMillis();
-
-        Object scriptResult = compiledScript.run();
-
-        long execTime = System.currentTimeMillis() - execStart;
-        System.out.println("Executed in " + execTime + " ms (" + (rowCount * 1000 / execTime) + " rows/sec)");
-
-        // Script returns: Map<String, Map<String, Object>>
-        // {output_name: {data: Object[][], count: int}}
-        Map<String, Map<String, Object>> outputResults = (Map<String, Map<String, Object>>) scriptResult;
-
-        // Cleanup input
-        inputRoot.close();
-        reader.close();
-
-        // ==========================================
-        // Convert results to Arrow format
-        // ==========================================
-        Map<String, byte[]> outputArrowData = new HashMap<>();
-
-        for (Map.Entry<String, Map<String, Object>> entry : outputResults.entrySet()) {
-            String outputName = entry.getKey();
-            Map<String, Object> outputResult = entry.getValue();
-
-            // Skip __errors__ - it's metadata, not a DataFrame output
-            if ("__errors__".equals(outputName)) {
-                continue;
-            }
-
-            Object[][] data = (Object[][]) outputResult.get("data");
-            int count = ((Number) outputResult.get("count")).intValue();
-
-            List<String> columnNames = outputSchemas.get(outputName);
-
-            System.out.println("Output '" + outputName + "': " + count + " rows, " + columnNames.size() + " columns");
-
-            // Build schema
-            Map<String, String> schema = new HashMap<>();
-            for (String colName : columnNames) {
-                String typeKey = outputName + "_" + colName;
-                String colType = outputTypes.get(typeKey);
-                schema.put(colName, colType);
-            }
-
-            // Convert Object[][] to column-oriented data
-            Map<String, List<Object>> columnData = new HashMap<>();
-            for (int colIdx = 0; colIdx < columnNames.size(); colIdx++) {
-                String colName = columnNames.get(colIdx);
-                List<Object> colValues = new ArrayList<>();
-                for (int rowIdx = 0; rowIdx < count; rowIdx++) {
-                    colValues.add(data[rowIdx][colIdx]);
-                }
-                columnData.put(colName, colValues);
-            }
-
-            // Create Arrow table
-            VectorSchemaRoot outputRoot = createOutputRootFromData(schema, columnData, count);
-
-            // Write to Arrow bytes
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            ArrowStreamWriter writer = new ArrowStreamWriter(outputRoot, null, outputStream);
-            writer.writeBatch();
-            writer.close();
-
-            outputArrowData.put(outputName, outputStream.toByteArray());
-
-            // Cleanup
-            outputRoot.close();
-        }
-
-        return outputArrowData;
     }
 
     /**
-     * Compile tMap script ONCE and cache it (STEP 1 of 2)
+     * Compile a tMap script and cache the Script CLASS for repeated execution.
+     * (Step 1 of the compile-once execute-many pattern.)
      *
-     * Compiles the tMap script and stores it with the component ID as key.
-     * This allows executing the script multiple times on different chunks without recompiling.
+     * <p>
+     * BRDG-06 fix: caches {@code script.getClass()} rather than the Script
+     * instance. Each {@link #executeCompiledTMap} call creates a new instance
+     * from the cached class with its own Binding -- no synchronized block needed.
      *
-     * @param componentId Unique component ID (e.g., "tMap_1", "tMap_2")
-     * @param javaScript Pre-generated Java/Groovy script containing all tMap logic
-     * @param outputSchemas Map of {output_name: [column_names...]}
-     * @param outputTypes Map of {output_name_columnName: type_string}
-     * @param mainTableName Main input table name (e.g., "orders")
-     * @param lookupNames List of lookup table names (e.g., ["customers", "products"])
-     * @return componentId (for confirmation)
+     * @param componentId   unique component ID (e.g. "tMap_1")
+     * @param javaScript    Groovy source for the tMap logic
+     * @param outputSchemas {outputName: [columnNames]}
+     * @param outputTypes   {outputName_columnName: pythonTypeString}
+     * @param mainTableName main input table name
+     * @param lookupNames   lookup table names
+     * @return componentId (confirmation)
      */
     public String compileTMapScript(
             String componentId,
@@ -571,56 +658,40 @@ public class JavaBridge {
             String mainTableName,
             List<String> lookupNames) throws Exception {
 
-        System.out.println("=== Compiling tMap script for component: " + componentId + " ===");
+        logger.info("[JavaBridge] Compiling tMap script for component: " + componentId);
         long compileStart = System.currentTimeMillis();
 
-        // Create binding template (will be cloned for each execution)
         Binding compileBinding = new Binding();
-
-        // Add loaded routines
-        for (Map.Entry<String, Class<?>> entry : loadedRoutines.entrySet()) {
-            compileBinding.setVariable(entry.getKey(), entry.getValue());
-        }
-        Map<String, Class<?>> routinesNamespace = new HashMap<>(loadedRoutines);
-        compileBinding.setVariable("routines", routinesNamespace);
-
-        // Add output schema information
+        addRoutinesToBinding(compileBinding);
         compileBinding.setVariable("outputSchemas", outputSchemas);
         compileBinding.setVariable("outputTypes", outputTypes);
 
-        // Compile the script
         GroovyShell shell = new GroovyShell(compileBinding);
         Script compiledScript = shell.parse(javaScript);
 
         long compileTime = System.currentTimeMillis() - compileStart;
-        System.out.println("Script compiled in " + compileTime + " ms");
+        logger.info("[JavaBridge] Script compiled in " + compileTime + " ms");
 
-        // Cache the compiled script with metadata
-        CompiledTMapScript cachedScript = new CompiledTMapScript(
-                compiledScript,
-                outputSchemas,
-                outputTypes,
-                mainTableName,
-                lookupNames
-        );
-        compiledScripts.put(componentId, cachedScript);
+        // Cache the Script CLASS, not the instance (BRDG-06 fix)
+        Class<? extends Script> scriptClass = (Class<? extends Script>) compiledScript.getClass();
 
-        System.out.println("Cached compiled script for: " + componentId);
+        CachedTMapMeta meta = new CachedTMapMeta(
+                scriptClass, outputSchemas, outputTypes, mainTableName, lookupNames);
+        compiledScriptClasses.put(componentId, meta);
 
+        logger.info("[JavaBridge] Cached compiled script class for: " + componentId);
         return componentId;
     }
 
     /**
-     * Execute pre-compiled tMap script on a chunk of data (STEP 2 of 2)
+     * Execute a previously compiled tMap script on a chunk of data.
+     * (Step 2 of the compile-once execute-many pattern.)
      *
-     * Executes a previously compiled tMap script on the given chunk of data.
-     * This avoids recompiling the script for each chunk, providing massive performance gains.
-     *
-     * @param componentId Component ID used during compilation
-     * @param arrowData Joined DataFrame chunk as Arrow bytes
-     * @param contextVars Context variables
-     * @param globalMapVars Global map variables
-     * @return Map of {output_name: arrow_bytes} for each output
+     * @param componentId   component ID used during compilation
+     * @param arrowData     joined DataFrame chunk as Arrow IPC bytes
+     * @param contextVars   context variables
+     * @param globalMapVars globalMap variables
+     * @return {outputName: arrowBytes}
      */
     public Map<String, byte[]> executeCompiledTMap(
             String componentId,
@@ -628,395 +699,403 @@ public class JavaBridge {
             Map<String, Object> contextVars,
             Map<String, Object> globalMapVars) throws Exception {
 
-        // Get cached compiled script
-        CompiledTMapScript cachedScript = compiledScripts.get(componentId);
-        if (cachedScript == null) {
-            throw new IllegalArgumentException("No compiled script found for component: " + componentId + 
-                ". Call compileTMapScript() first!");
+        CachedTMapMeta meta = compiledScriptClasses.get(componentId);
+        if (meta == null) {
+            throw new IllegalArgumentException(
+                    "[JavaBridge] No compiled script found for component: " + componentId
+                            + ". Call compileTMapScript() first!");
         }
 
-        // Update context and globalMap
         this.context.putAll(contextVars);
         this.globalMap.putAll(globalMapVars);
 
-        // Read joined Arrow data
         ByteArrayInputStream inputStream = new ByteArrayInputStream(arrowData);
-        ArrowStreamReader reader = new ArrowStreamReader(inputStream, allocator);
-        VectorSchemaRoot inputRoot = reader.getVectorSchemaRoot();
-        reader.loadNextBatch();
-
-        int rowCount = inputRoot.getRowCount();
-
-        System.out.println("Executing compiled " + componentId + ": " + rowCount + " rows, " + 
-            cachedScript.outputSchemas.size() + " outputs");
-
-        // Prepare binding with this chunk's data
-        Binding execBinding = new Binding();
-        execBinding.setVariable("inputRoot", inputRoot);
-        execBinding.setVariable("rowCount", rowCount);
-        execBinding.setVariable("mainTableName", cachedScript.mainTableName);
-        execBinding.setVariable("lookupNames", cachedScript.lookupNames);
-        execBinding.setVariable("context", context);
-        execBinding.setVariable("globalMap", globalMap);
-        execBinding.setVariable("allocator", allocator);
-
-        // Add loaded routines
-        for (Map.Entry<String, Class<?>> entry : loadedRoutines.entrySet()) {
-            execBinding.setVariable(entry.getKey(), entry.getValue());
-        }
-        Map<String, Class<?>> routinesNamespace = new HashMap<>(loadedRoutines);
-        execBinding.setVariable("routines", routinesNamespace);
-
-        // Add output schema information
-        execBinding.setVariable("outputSchemas", cachedScript.outputSchemas);
-        execBinding.setVariable("outputTypes", cachedScript.outputTypes);
-
-        // Execute compiled script with this chunk's binding
-        long execStart = System.currentTimeMillis();
-        Script script = cachedScript.script;
-
-        synchronized (script) {
-            script.setBinding(execBinding);
-            Object scriptResult = script.run();
-
-            long execTime = System.currentTimeMillis() - execStart;
-            System.out.println("Executed in " + execTime + " ms (" + (rowCount * 1000 / execTime) + " rows/sec)");
-
-            // Script returns: Map<String, Map<String, Object>>
-            // {output_name: {data: Object[][], count: int}}
-            Map<String, Map<String, Object>> outputResults = (Map<String, Map<String, Object>>) scriptResult;
-
-            // Cleanup input
-            inputRoot.close();
-            reader.close();
-
-            // Convert results to Arrow format
-            Map<String, byte[]> outputArrowData = new HashMap<>();
-
-            for (Map.Entry<String, Map<String, Object>> entry : outputResults.entrySet()) {
-                String outputName = entry.getKey();
-                Map<String, Object> outputResult = entry.getValue();
-
-                // Skip __errors__ - it's metadata, not a DataFrame output
-                if ("__errors__".equals(outputName)) {
-                    continue;
-                }
-
-                Object[][] data = (Object[][]) outputResult.get("data");
-                int count = ((Number) outputResult.get("count")).intValue();
-
-                List<String> columnNames = cachedScript.outputSchemas.get(outputName);
-
-                System.out.println("Output '" + outputName + "': " + count + " rows, " + columnNames.size() + " columns");
-
-                // Build schema
-                Map<String, String> schema = new HashMap<>();
-                for (String colName : columnNames) {
-                    String typeKey = outputName + "_" + colName;
-                    String colType = cachedScript.outputTypes.get(typeKey);
-                    schema.put(colName, colType);
-                }
-
-                // Convert Object[][] to column-oriented data
-                Map<String, List<Object>> columnData = new HashMap<>();
-                for (int colIdx = 0; colIdx < columnNames.size(); colIdx++) {
-                    String colName = columnNames.get(colIdx);
-                    List<Object> colValues = new ArrayList<>();
-                    for (int rowIdx = 0; rowIdx < count; rowIdx++) {
-                        colValues.add(data[rowIdx][colIdx]);
-                    }
-                    columnData.put(colName, colValues);
-                }
-
-                // Create Arrow table
-                VectorSchemaRoot outputRoot = createOutputRootFromData(schema, columnData, count);
-
-                // Write to Arrow bytes
-                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-                ArrowStreamWriter writer = new ArrowStreamWriter(outputRoot, null, outputStream);
-                writer.writeBatch();
-                writer.close();
-
-                outputArrowData.put(outputName, outputStream.toByteArray());
-
-                // Cleanup
-                outputRoot.close();
+        try (ArrowStreamReader reader = new ArrowStreamReader(inputStream, allocator)) {
+            VectorSchemaRoot inputRoot = reader.getVectorSchemaRoot();
+            boolean loaded = reader.loadNextBatch();
+            if (!loaded) {
+                logger.warning("[JavaBridge] No batch loaded from Arrow stream -- input may be empty or corrupt");
             }
 
-            return outputArrowData;
+            int rowCount = inputRoot.getRowCount();
+            logger.info("[JavaBridge] Executing compiled " + componentId + ": " + rowCount + " rows");
+
+            // Create a FRESH Script instance from the cached class (BRDG-06 -- no
+            // synchronization)
+            Script scriptInstance = meta.scriptClass.getDeclaredConstructor().newInstance();
+
+            Binding execBinding = buildTMapBinding(inputRoot, rowCount, meta.mainTableName,
+                    meta.lookupNames, meta.outputSchemas, meta.outputTypes);
+            scriptInstance.setBinding(execBinding);
+
+            long execStart = System.currentTimeMillis();
+            Object scriptResult = scriptInstance.run();
+            long execTime = System.currentTimeMillis() - execStart;
+            logger.info("[JavaBridge] Executed " + componentId + " in " + execTime + " ms");
+
+            @SuppressWarnings("unchecked")
+            Map<String, Map<String, Object>> outputResults = (Map<String, Map<String, Object>>) scriptResult;
+
+            return convertTMapOutputsToArrow(outputResults, meta.outputSchemas, meta.outputTypes);
         }
     }
 
     /**
-     * Load a custom routine class
+     * Execute pre-compiled tMap script on chunked data.
+     * Same as {@link #executeCompiledTMap} -- kept for backward compatibility
+     * with Python client code that calls this method name.
+     */
+    public Map<String, byte[]> executeCompiledTMapChunked(
+            String componentId,
+            byte[] arrowData,
+            Map<String, Object> contextVars,
+            Map<String, Object> globalMapVars) throws Exception {
+        return executeCompiledTMap(componentId, arrowData, contextVars, globalMapVars);
+    }
+
+    // ------------------------------------------------------------------
+    // Routine / library management
+    // ------------------------------------------------------------------
+
+    /**
+     * Load a custom routine class by fully-qualified name.
+     *
+     * @param className fully-qualified class name (e.g. "com.example.MyRoutine")
      */
     public void loadRoutine(String className) throws Exception {
         Class<?> routineClass = Class.forName(className);
         String simpleName = routineClass.getSimpleName();
         loadedRoutines.put(simpleName, routineClass);
-        System.out.println("Loaded routine: " + simpleName);
+        logger.info("[JavaBridge] Loaded routine: " + simpleName + " (" + className + ")");
     }
 
     /**
-     * Validate that required libraries are available on classpath
+     * Validate that required libraries are available.
      *
-     * @param libraryNames List of JAR filenames to validate
-     * @return List of missing libraries (empty if all are available)
+     * <p>
+     * BRDG-04 fix: instead of string-contains on classpath, checks actual
+     * file existence for each library path AND attempts {@code Class.forName()}
+     * for known entry-point classes.
+     *
+     * @param libraryPaths list of JAR file paths or filenames to validate
+     * @return list of missing/invalid libraries (empty if all are available)
      */
-    public List<String> validateLibraries(List<String> libraryNames) {
+    public List<String> validateLibraries(List<String> libraryPaths) {
         List<String> missing = new ArrayList<>();
-
-        if (libraryNames == null || libraryNames.isEmpty()) {
+        if (libraryPaths == null || libraryPaths.isEmpty()) {
             return missing;
         }
 
-        // Get the classpath
-        String classpath = System.getProperty("java.class.path");
+        logger.info("[JavaBridge] Validating " + libraryPaths.size() + " libraries");
 
-        System.out.println("Validating libraries against classpath...");
+        for (String libraryPath : libraryPaths) {
+            boolean found = false;
 
-        for (String libraryName : libraryNames) {
-            // Check if the library JAR is in the classpath
-            if (!classpath.contains(libraryName)) {
-                System.out.println("Missing: " + libraryName);
-                missing.add(libraryName);
-            } else {
-                System.out.println("Found: " + libraryName);
+            // Strategy 1: Check if it's an absolute/relative path to a JAR file
+            File file = new File(libraryPath);
+            if (file.exists() && file.isFile()) {
+                found = true;
+                logger.fine("[JavaBridge] Library file found: " + libraryPath);
+            }
+
+            // Strategy 2: Try to load as a class name (for class-based validation)
+            if (!found) {
+                try {
+                    Class.forName(libraryPath, false, this.getClass().getClassLoader());
+                    found = true;
+                    logger.fine("[JavaBridge] Library class loaded: " + libraryPath);
+                } catch (ClassNotFoundException e) {
+                    // Not a class -- check classpath entries
+                }
+            }
+
+            // Strategy 3: Check classpath entries for JAR filename match
+            if (!found) {
+                String classpath = System.getProperty("java.class.path", "");
+                String[] entries = classpath.split(File.pathSeparator);
+                for (String entry : entries) {
+                    File cpFile = new File(entry);
+                    if (cpFile.getName().equals(libraryPath) || entry.endsWith(libraryPath)) {
+                        if (cpFile.exists()) {
+                            found = true;
+                            logger.fine("[JavaBridge] Library found on classpath: " + libraryPath);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!found) {
+                logger.warning("[JavaBridge] Missing library: " + libraryPath);
+                missing.add(libraryPath);
             }
         }
 
         return missing;
     }
 
-    public Map<String, Object> getContext() {
-        return this.context;
-    }
-
-    public Map<String, Object> getGlobalMap() {
-        return this.globalMap;
-    }
-
-    // Helper methods for creating Arrow output
-    private VectorSchemaRoot createOutputRootFromData(Map<String, String> schema,
-                                                      Map<String, List<Object>> data,
-                                                      int rowCount) throws Exception {
-        List<Field> fields = new ArrayList<>();
-        List<FieldVector> vectors = new ArrayList<>();
-
-        // Create vector for each column
-        for (Map.Entry<String, String> entry : schema.entrySet()) {
-            String colName = entry.getKey();
-            String colType = entry.getValue();
-            List<Object> colData = data.get(colName);
-
-            // Infer type from schema string or first non-null value
-            Class<?> javaType = inferJavaTypeFromSchema(colType, colData);
-
-            FieldVector vector = createVectorForType(colName, javaType, rowCount, colData);
-
-            // Populate vector
-            for (int i = 0; i < rowCount; i++) {
-                Object value = (colData != null && i < colData.size()) ? colData.get(i) : null;
-                setVectorValue(vector, i, value);
-            }
-            vector.setValueCount(rowCount);
-
-            fields.add(vector.getField());
-            vectors.add(vector);
-        }
-
-        VectorSchemaRoot root = new VectorSchemaRoot(fields, vectors);
-        root.setRowCount(rowCount);
-
-        return root;
-    }
-
-    private FieldVector createVectorForType(String name, Class<?> type, int rowCount, List<Object> colData) {
-        FieldVector vector;
-
-        if (type == String.class) {
-            vector = new VarCharVector(name, allocator);
-        } else if (type == Integer.class || type == int.class) {
-            vector = new IntVector(name, allocator);
-        } else if (type == Long.class || type == long.class) {
-            vector = new BigIntVector(name, allocator);
-        } else if (type == Double.class || type == double.class) {
-            vector = new Float8Vector(name, allocator);
-        } else if (type == Float.class || type == float.class) {
-            vector = new Float4Vector(name, allocator);
-        } else if (type == Boolean.class || type == boolean.class) {
-            vector = new BitVector(name, allocator);
-        } else if (type == Date.class) {
-            vector = new DateMilliVector(name, allocator);
-        } else if (type == BigDecimal.class) {
-            // Infer precision and scale from first non-null value
-            int[] precisionScale = inferDecimalPrecisionScale(colData);
-            int precision = precisionScale[0];
-            int scale = precisionScale[1];
-            vector = new DecimalVector(name, allocator, precision, scale);
-        } else {
-            // Default to String for unknown types
-            vector = new VarCharVector(name, allocator);
-        }
-
-        vector.allocateNew();
-        return vector;
-    }
-
-    private int[] inferDecimalPrecisionScale(List<Object> colData) {
-        // Find first non-null BigDecimal value and use its precision/scale
-        // This assumes all values in the column have the same scale (typical for financial data)
-        if (colData != null) {
-            for (Object value : colData) {
-                if (value instanceof BigDecimal) {
-                    BigDecimal bd = (BigDecimal) value;
-                    int precision = bd.precision();
-                    int scale = bd.scale();
-
-                    // Ensure minimum precision to avoid overflow
-                    precision = Math.max(precision, 38);
-
-                    return new int[]{precision, scale};
-                }
-            }
-        }
-
-        // Fallback if no BigDecimal values found (all nulls)
-        return new int[]{38, 2};
-    }
-
-    private void setVectorValue(FieldVector vector, int index, Object value) {
-        if (value == null) {
-            vector.setNull(index);
-            return;
-        }
-
-        if (vector instanceof VarCharVector) {
-            ((VarCharVector) vector).setSafe(index, value.toString().getBytes());
-        } else if (vector instanceof IntVector) {
-            ((IntVector) vector).setSafe(index, ((Number) value).intValue());
-        } else if (vector instanceof BigIntVector) {
-            ((BigIntVector) vector).setSafe(index, ((Number) value).longValue());
-        } else if (vector instanceof Float8Vector) {
-            ((Float8Vector) vector).setSafe(index, ((Number) value).doubleValue());
-        } else if (vector instanceof Float4Vector) {
-            ((Float4Vector) vector).setSafe(index, ((Number) value).floatValue());
-        } else if (vector instanceof BitVector) {
-            ((BitVector) vector).setSafe(index, (Boolean) value ? 1 : 0);
-        } else if (vector instanceof DateMilliVector) {
-            long millis = (value instanceof Date) ? ((Date) value).getTime() : 0;
-            ((DateMilliVector) vector).setSafe(index, millis);
-        } else if (vector instanceof DecimalVector) {
-            BigDecimal decimal = (value instanceof BigDecimal) ? (BigDecimal) value : new BigDecimal(value.toString());
-            ((DecimalVector) vector).setSafe(index, decimal);
-        }
-    }
-
-    private Class<?> inferJavaTypeFromSchema(String schemaType, List<Object> data) {
-        // Try to infer from schema string
-        if (schemaType != null) {
-            switch (schemaType.toLowerCase()) {
-                case "string":
-                    return String.class;
-                case "integer":
-                case "int":
-                    return Integer.class;
-                case "long":
-                    return Long.class;
-                case "double":
-                    return Double.class;
-                case "float":
-                    return Float.class;
-                case "boolean":
-                    return Boolean.class;
-                case "date":
-                    return Date.class;
-                case "bigdecimal":
-                case "id_bigdecimal":
-                case "decimal":
-                    return BigDecimal.class;
-            }
-        }
-
-        // Fallback: infer from first non-null data value
-        if (data != null) {
-            for (Object value : data) {
-                if (value != null) {
-                    return value.getClass();
-                }
-            }
-        }
-
-        return String.class; // Default
-    }
+    // ------------------------------------------------------------------
+    // Private helpers
+    // ------------------------------------------------------------------
 
     /**
-     * Execute batch one-time expressions with both context and globalMap
-     * This version accepts globalMap as a parameter to ensure iteration variables are available
+     * Add loaded routine classes to a Groovy binding in two ways:
+     * 1. Direct: {@code ValidationUtils.method()}
+     * 2. Namespace: {@code routines.ValidationUtils.method()}
      */
-    public Map<String, Object> executeBatchOneTimeExpressionsWithGlobalMap(
-            Map<String, String> expressions,
-            Map<String, Object> contextVars,
-            Map<String, Object> globalMapVars) {
-
-        // Update context
-        this.context.putAll(contextVars);
-
-        // Update globalMap with provided values (important for iteration variables)
-        this.globalMap.putAll(globalMapVars);
-
-        // Prepare shared binding (reused for all expressions)
-        Binding binding = new Binding();
-        binding.setVariable("context", context);
-        binding.setVariable("globalMap", globalMap);
-
-        // Add loaded routines in TWO ways:
-        // 1. Direct access: ValidationUtils.method()
+    private void addRoutinesToBinding(Binding binding) {
         for (Map.Entry<String, Class<?>> entry : loadedRoutines.entrySet()) {
             binding.setVariable(entry.getKey(), entry.getValue());
         }
-        // 2. Namespace access: routines.ValidationUtils.method()
         Map<String, Class<?>> routinesNamespace = new HashMap<>(loadedRoutines);
         binding.setVariable("routines", routinesNamespace);
-
-        // Create one GroovyShell to reuse
-        GroovyShell shell = new GroovyShell(binding);
-
-        // Evaluate all expressions
-        Map<String, Object> results = new HashMap<>();
-        for (Map.Entry<String, String> entry : expressions.entrySet()) {
-            String key = entry.getKey();
-            String expression = entry.getValue();
-
-            try {
-                Object result = shell.evaluate(expression);
-                results.put(key, result);
-            } catch (Exception e) {
-                System.err.println("Error evaluating expression '" + key + "': " + expression);
-                System.err.println("Error: " + e.getMessage());
-                // Store the error as a string so Python can handle it
-                results.put(key, "{{ERROR}}" + e.getMessage());
-            }
-        }
-
-        return results;
     }
 
     /**
-     * Main method to start Py4J gateway
+     * Build a Groovy Binding pre-populated with tMap execution variables.
+     */
+    private Binding buildTMapBinding(VectorSchemaRoot inputRoot, int rowCount,
+            String mainTableName, List<String> lookupNames,
+            Map<String, List<String>> outputSchemas,
+            Map<String, String> outputTypes) {
+        Binding binding = new Binding();
+        binding.setVariable("inputRoot", inputRoot);
+        binding.setVariable("rowCount", rowCount);
+        binding.setVariable("mainTableName", mainTableName);
+        binding.setVariable("lookupNames", lookupNames);
+        binding.setVariable("context", context);
+        binding.setVariable("globalMap", globalMap);
+        binding.setVariable("allocator", allocator);
+        binding.setVariable("outputSchemas", outputSchemas);
+        binding.setVariable("outputTypes", outputTypes);
+
+        // Expose buildArrowRowWrapper as a Groovy-callable closure so compiled
+        // tMap scripts can create RowWrappers without direct Arrow vector access.
+        // Usage in script: RowWrapper row1 = buildRowWrapper(inputRoot, i, "row1")
+        binding.setVariable("buildRowWrapper",
+                new groovy.lang.Closure<RowWrapper>(this) {
+                    @Override
+                    public RowWrapper call(Object... args) {
+                        VectorSchemaRoot root = (VectorSchemaRoot) args[0];
+                        int rowIdx = ((Number) args[1]).intValue();
+                        String tblName = (String) args[2];
+                        return buildArrowRowWrapper(root, rowIdx, tblName);
+                    }
+                });
+
+        addRoutinesToBinding(binding);
+        return binding;
+    }
+
+    /**
+     * Extract a properly-typed Java value from an Arrow vector at the given row.
+     * Converts Arrow implementation types to standard Java types for Groovy
+     * compatibility.
+     * VarChar returns String (not Text), numeric types return primitives.
+     *
+     * Reference: Pre-Phase-2 RowWrapper.getFromArrow() at commit f15cc36.
+     */
+    private static Object extractTypedValue(FieldVector vec, int rowIndex) {
+        if (vec.isNull(rowIndex)) {
+            return null;
+        }
+        if (vec instanceof VarCharVector) {
+            return ((VarCharVector) vec).getObject(rowIndex).toString();
+        } else if (vec instanceof BigIntVector) {
+            return ((BigIntVector) vec).get(rowIndex);
+        } else if (vec instanceof IntVector) {
+            return ((IntVector) vec).get(rowIndex);
+        } else if (vec instanceof Float8Vector) {
+            return ((Float8Vector) vec).get(rowIndex);
+        } else if (vec instanceof Float4Vector) {
+            return ((Float4Vector) vec).get(rowIndex);
+        } else if (vec instanceof SmallIntVector) {
+            return ((SmallIntVector) vec).get(rowIndex);
+        } else if (vec instanceof TinyIntVector) {
+            return ((TinyIntVector) vec).get(rowIndex);
+        } else if (vec instanceof BitVector) {
+            return ((BitVector) vec).get(rowIndex) == 1;
+        } else if (vec instanceof TimeStampNanoVector) {
+            long nanos = ((TimeStampNanoVector) vec).get(rowIndex);
+            return new java.util.Date(nanos / 1_000_000);
+        } else if (vec instanceof DecimalVector) {
+            return ((DecimalVector) vec).getObject(rowIndex);
+        } else if (vec instanceof Decimal256Vector) {
+            return ((Decimal256Vector) vec).getObject(rowIndex);
+        } else {
+            Object raw = vec.getObject(rowIndex);
+            return raw != null ? raw.toString() : null;
+        }
+    }
+
+    /**
+     * Build a RowWrapper that reads column values from Arrow vectors at a given row
+     * index.
+     * Column lookup supports both "tableName.colName" and plain "colName"
+     * conventions.
+     * Uses {@link #extractTypedValue(FieldVector, int)} for proper Java type
+     * conversion.
+     */
+    private RowWrapper buildArrowRowWrapper(VectorSchemaRoot root, int rowIndex, String tableName) {
+        RowWrapper wrapper = new RowWrapper();
+        Map<String, Object> rowMap = new HashMap<>();
+
+        for (FieldVector vec : root.getFieldVectors()) {
+            String fieldName = vec.getName();
+            Object value = extractTypedValue(vec, rowIndex);
+
+            // Store under plain name
+            rowMap.put(fieldName, value);
+
+            // Also store under unprefixed name if field has tableName prefix
+            if (tableName != null && fieldName.startsWith(tableName + ".")) {
+                String shortName = fieldName.substring(tableName.length() + 1);
+                rowMap.put(shortName, value);
+            }
+        }
+
+        wrapper.setInputRow(rowMap);
+        return wrapper;
+    }
+
+    /**
+     * Convert tMap script output results to Arrow IPC byte arrays.
+     */
+    private Map<String, byte[]> convertTMapOutputsToArrow(
+            Map<String, Map<String, Object>> outputResults,
+            Map<String, List<String>> outputSchemas,
+            Map<String, String> outputTypes) throws Exception {
+
+        Map<String, byte[]> outputArrowData = new HashMap<>();
+
+        for (Map.Entry<String, Map<String, Object>> entry : outputResults.entrySet()) {
+            String outputName = entry.getKey();
+            Map<String, Object> outputResult = entry.getValue();
+
+            // Emit __errors__ as a structured Arrow batch with fixed schema
+            // (rowIndex int, errorMessage str, errorStackTrace str). The
+            // compiled Groovy script emits this entry as
+            //   { count: int,
+            //     indices: ArrayList<Integer>,
+            //     messages: Map<Integer, String> }
+            // and does NOT currently emit stackTraces, so the stack-trace
+            // column is filled with empty strings (defensive, never null).
+            // See Phase 05.5 Plan 02 R8 / SPEC R8.
+            if ("__errors__".equals(outputName)) {
+                int errCount = ((Number) outputResult.get("count")).intValue();
+                @SuppressWarnings("unchecked")
+                List<Integer> errIndices = (List<Integer>) outputResult
+                        .getOrDefault("indices", new ArrayList<Integer>());
+                @SuppressWarnings("unchecked")
+                Map<Integer, String> errMessages = (Map<Integer, String>) outputResult
+                        .getOrDefault("messages", new HashMap<Integer, String>());
+                @SuppressWarnings("unchecked")
+                Map<Integer, String> errStacks = (Map<Integer, String>) outputResult
+                        .getOrDefault("stackTraces", new HashMap<Integer, String>());
+
+                // Fixed schema in declared insertion order. LinkedHashMap
+                // preserves column order through ArrowSerializer (same
+                // pattern as the happy-path branch below).
+                Map<String, String> errSchema = new LinkedHashMap<>();
+                errSchema.put("rowIndex", "int");
+                errSchema.put("errorMessage", "str");
+                errSchema.put("errorStackTrace", "str");
+
+                Object[] rowIdxArr = new Object[errCount];
+                Object[] errMsgArr = new Object[errCount];
+                Object[] errStackArr = new Object[errCount];
+                for (int i = 0; i < errCount; i++) {
+                    Integer idx = errIndices.get(i);
+                    rowIdxArr[i] = idx;
+                    String msg = errMessages.get(idx);
+                    errMsgArr[i] = msg != null ? msg : "";
+                    String stack = errStacks.get(idx);
+                    errStackArr[i] = stack != null ? stack : "";
+                }
+
+                Map<String, Object[]> errColumnData = new LinkedHashMap<>();
+                errColumnData.put("rowIndex", rowIdxArr);
+                errColumnData.put("errorMessage", errMsgArr);
+                errColumnData.put("errorStackTrace", errStackArr);
+
+                logger.fine("[JavaBridge] Output '__errors__': " + errCount
+                        + " failed rows");
+
+                try (VectorSchemaRoot errRoot = ArrowSerializer
+                        .createOutputRootFromData(allocator, errColumnData, errSchema)) {
+                    ByteArrayOutputStream errOutputStream = new ByteArrayOutputStream();
+                    ArrowStreamWriter errWriter = new ArrowStreamWriter(
+                            errRoot, null, errOutputStream);
+                    errWriter.start();
+                    errWriter.writeBatch();
+                    errWriter.close();
+                    outputArrowData.put("__errors__", errOutputStream.toByteArray());
+                }
+                continue;
+            }
+
+            Object[][] data = (Object[][]) outputResult.get("data");
+            int count = ((Number) outputResult.get("count")).intValue();
+            List<String> columnNames = outputSchemas.get(outputName);
+
+            logger.fine("[JavaBridge] Output '" + outputName + "': " + count + " rows, "
+                    + columnNames.size() + " columns");
+
+            // Build schema map for this output.
+            // Use LinkedHashMap so downstream Arrow serialization preserves
+            // the declared column order from outputSchemas (HashMap would
+            // randomize column order in the resulting DataFrame).
+            Map<String, String> schema = new LinkedHashMap<>();
+            for (String colName : columnNames) {
+                String typeKey = outputName + "_" + colName;
+                String colType = outputTypes.get(typeKey);
+                schema.put(colName, colType);
+            }
+
+            // Convert Object[][] to column-oriented Object[] (LinkedHashMap
+            // for the same column-order reason as above).
+            Map<String, Object[]> columnData = new LinkedHashMap<>();
+            for (int colIdx = 0; colIdx < columnNames.size(); colIdx++) {
+                String colName = columnNames.get(colIdx);
+                Object[] colValues = new Object[count];
+                for (int rowIdx = 0; rowIdx < count; rowIdx++) {
+                    colValues[rowIdx] = data[rowIdx][colIdx];
+                }
+                columnData.put(colName, colValues);
+            }
+
+            // Create Arrow output via ArrowSerializer
+            try (VectorSchemaRoot outputRoot = ArrowSerializer.createOutputRootFromData(allocator, columnData,
+                    schema)) {
+                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+                ArrowStreamWriter writer = new ArrowStreamWriter(outputRoot, null, outputStream);
+                writer.start();
+                writer.writeBatch();
+                writer.close();
+                outputArrowData.put(outputName, outputStream.toByteArray());
+            }
+        }
+
+        return outputArrowData;
+    }
+
+    // ------------------------------------------------------------------
+    // Entry point
+    // ------------------------------------------------------------------
+
+    /**
+     * Start the Py4J Gateway server.
+     *
+     * @param args JVM system property {@code py4j.port} controls the listen port
+     *             (default 25333)
      */
     public static void main(String[] args) {
-        // Print JVM arguments for debugging
-        System.out.println("JVM Arguments:");
-        java.lang.management.ManagementFactory.getRuntimeMXBean().getInputArguments().forEach(System.out::println);
-
-        // Read port from system property (default: 25333)
         int port = Integer.parseInt(System.getProperty("py4j.port", "25333"));
-        System.out.println("Starting gateway on port: " + port);
 
         JavaBridge bridge = new JavaBridge();
         GatewayServer server = new GatewayServer(bridge, port);
         server.start();
-        System.out.println("com.citi.gru.etl.JavaBridge Gateway Server Started on port " + port);
+
+        logger.info("[JavaBridge] [OK] Gateway server started on port " + port);
     }
 }

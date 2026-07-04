@@ -9,7 +9,7 @@ Config mapping (15 params total):
   JSONFIELD            -> jsonfield (str, PREV_COLUMN_LIST, default "")
   LOOP_QUERY           -> loop_query (str, default "/bills/bill/line")
   JSON_LOOP_QUERY      -> json_loop_query (str, default "$.bills.bill.line[*]")
-  MAPPING              -> mapping (list, TABLE stride-3 QUERY+NODECHECK+ISARRAY, XPath mode)
+  MAPPING              -> mapping (list, TABLE stride-4 SCHEMA_COLUMN+QUERY+NODECHECK+ISARRAY, XPath mode)
   MAPPING_4_JSONPATH   -> mapping_4_jsonpath (list, TABLE stride-2, JSONPath mode)
   DIE_ON_ERROR         -> die_on_error (bool, default False)
   ENCODING             -> encoding (str, default "UTF-8")
@@ -26,9 +26,9 @@ from ..registry import REGISTRY
 logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------
-# TABLE constants for MAPPING (XPath mode) -- stride-3
+# TABLE constants for MAPPING (XPath mode) -- stride-4
 # ------------------------------------------------------------------
-_XPATH_MAPPING_FIELDS = ("QUERY", "NODECHECK", "ISARRAY")
+_XPATH_MAPPING_FIELDS = ("SCHEMA_COLUMN", "QUERY", "NODECHECK", "ISARRAY")
 _XPATH_MAPPING_GROUP_SIZE = len(_XPATH_MAPPING_FIELDS)
 
 # ------------------------------------------------------------------
@@ -46,12 +46,14 @@ _JSONPATH_MAPPING_GROUP_SIZE = len(_JSONPATH_MAPPING_FIELDS)
 def _parse_mapping_xpath(raw: Any) -> List[Dict[str, Any]]:
     """Parse MAPPING TABLE (XPath mode) into list of dicts.
 
-    Each group of 3 consecutive elementRef entries maps to one row:
-      QUERY      -> query (str, XPath expression)
-      NODECHECK  -> nodecheck (bool, default False)
-      ISARRAY    -> isarray (bool, default False)
+    Each group of 4 consecutive elementRef entries maps to one row:
+      SCHEMA_COLUMN -> schema_column (str, column name)
+      QUERY         -> query (str, XPath expression; empty = passthrough)
+      NODECHECK     -> nodecheck (bool, default False)
+      ISARRAY       -> isarray (bool, default False)
 
-    Incomplete trailing groups (< 3 entries) are skipped.
+    Incomplete trailing groups (< 4 entries) are skipped.
+    Empty QUERY is valid -- it means copy from the input row (passthrough).
     """
     if not raw or not isinstance(raw, list):
         return []
@@ -60,19 +62,21 @@ def _parse_mapping_xpath(raw: Any) -> List[Dict[str, Any]]:
         group = raw[i: i + _XPATH_MAPPING_GROUP_SIZE]
         if len(group) < _XPATH_MAPPING_GROUP_SIZE:
             break
-        row: Dict[str, Any] = {"query": "", "nodecheck": False, "isarray": False}
+        row: Dict[str, Any] = {"schema_column": "", "query": "", "nodecheck": False, "isarray": False}
         for entry in group:
             if not isinstance(entry, dict):
                 continue
             ref = entry.get("elementRef", "")
             val = entry.get("value", "")
-            if ref == "QUERY":
+            if ref == "SCHEMA_COLUMN":
+                row["schema_column"] = val.strip('"')
+            elif ref == "QUERY":
                 row["query"] = val.strip('"')
             elif ref == "NODECHECK":
                 row["nodecheck"] = val.lower() in ("true", "1")
             elif ref == "ISARRAY":
                 row["isarray"] = val.lower() in ("true", "1")
-        if row.get("query"):
+        if row["schema_column"]:
             result.append(row)
     return result
 
@@ -156,15 +160,12 @@ class ExtractJSONFieldsConverter(ComponentConverter):
         schema = {"input": schema_cols, "output": schema_cols}
 
         # ---- 6. Engine gap needs_review entries ----
-        # Engine reads: loop_query, mapping (list of dicts), die_on_error
+        # Engine reads: read_by, jsonfield, json_loop_query, use_loop_as_root,
+        #   mapping, mapping_4_jsonpath, die_on_error
         # Engine does NOT read the following config keys:
         _engine_gap_keys = [
-            ("read_by", "Engine does not read 'read_by' -- always uses JSONPath internally"),
             ("json_path_version", "Engine does not read 'json_path_version' config key"),
-            ("jsonfield", "Engine does not read 'jsonfield' -- uses first column by default"),
-            ("json_loop_query", "Engine does not read 'json_loop_query' -- only uses loop_query"),
             ("encoding", "Engine does not read 'encoding' config key"),
-            ("use_loop_as_root", "Engine does not read 'use_loop_as_root' config key"),
         ]
         for key, detail in _engine_gap_keys:
             needs_review.append({

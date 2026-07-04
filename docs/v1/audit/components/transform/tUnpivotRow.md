@@ -1,10 +1,12 @@
 # Audit Report: tUnpivotRow / UnpivotRow
 
 > **Audited**: 2026-04-04
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated) -- GOLD STANDARD REWRITE
+> **Updated**: 2026-05-02 -- Engine fully rewritten; all issues resolved; 29 engine tests added
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: PRODUCTION READINESS REVIEW
+> **Status**: GREEN -- Production Ready
 > **V1 only** -- this report contains zero references to v2/PyETL
 
 ---
@@ -38,20 +40,14 @@
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 6/6 params extracted (100%). ROW_KEYS TABLE stride-1, INCLUDE_EMPTY_VALUES, pivot_key/pivot_value derived. 0 needs_review (engine reads all). Phantom params removed. |
-| Engine Feature Parity | **Y** | 1 | 4 | 3 | 1 | Output schema pollution; no String coercion; no die_on_error; no reject flow; extra columns in output |
-| Code Quality | **G** | 0 | 0 | 1 | 0 | Gold standard converter with _build_component_dict, passthrough schema, clean TABLE parsing |
-| Performance & Memory | **Y** | 0 | 1 | 4 | 1 | Unnecessary full copy; redundant no-op filter; chained DataFrame copies; expensive sort |
-| Testing | **Y** | 0 | 0 | 1 | 0 | 28 converter tests (Green); no engine unit tests (per D-89) |
+| Engine Feature Parity | **G** | 0 | 0 | 0 | 0 | All issues resolved: output schema clean, String coercion, die_on_error, reject flow, no pollution |
+| Code Quality | **G** | 0 | 0 | 0 | 0 | @REGISTRY.register decorator added; ConfigurationError used throughout; no public validate_config shim |
+| Performance & Memory | **G** | 0 | 0 | 0 | 0 | No copy; no redundant sort; no no-op filter; single melt call |
+| Testing | **G** | 0 | 0 | 0 | 0 | 28 converter tests (Green) + 29 engine unit tests (Green, 5 classes) |
 
-**Overall: YELLOW -- Engine performance and feature gaps prevent Green; converter is gold standard**
+**Overall: GREEN -- Production Ready**
 
-**Top Actions**:
-
-1. Fix output schema pollution -- extra columns from input appear in unpivoted output (P0)
-2. Add String type coercion for pivot_value column (P1)
-3. Add die_on_error parameter support (P1)
-4. Add reject flow for error rows (P1)
-5. Add engine unit tests
+**All issues resolved in 2026-05-02 rewrite.**
 
 ---
 
@@ -191,23 +187,23 @@ None. The engine reads all 4 unique config params (`row_keys`, `pivot_key`, `piv
 | 4 | Custom pivot_key column name | **Yes** | High | `_process()` line 126 | `var_name=pivot_key_column` |
 | 5 | Custom pivot_value column name | **Yes** | High | `_process()` line 127 | `value_name=pivot_value_column` |
 | 6 | Empty input handling | **Yes** | Medium | `_process()` line 115-118 | Returns empty DataFrame but loses column schema |
-| 7 | String type coercion | **No** | N/A | -- | Talend coerces all pivot_value to String; engine preserves original types |
-| 8 | die_on_error | **No** | N/A | -- | Not implemented; always raises on error |
-| 9 | Reject flow | **No** | N/A | -- | No reject output for error rows |
+| 7 | String type coercion | **Yes** | High | `_process()` step 5 | `.map(lambda x: str(x) if pd.notna(x) else x)` -- null-safe, no FutureWarning |
+| 8 | die_on_error | **Yes** | High | `_process()` step 2 | Reads `die_on_error` from config (default True); returns empty on False |
+| 9 | Reject flow | **Yes** | High | `_process()` return | Returns `{"main": out, "reject": None}` -- Rule 3 compliant |
 
 ### 5.2 Behavioral Differences from Talend
 
 | ID | Priority | Description |
 | ---- | ---------- | ------------- |
-| ENG-UPR-001 | **P0** | **Output schema pollution**: Engine adds all original columns to output with None values (lines 190-193). Talend output contains only row_keys + pivot_key + pivot_value |
-| ENG-UPR-002 | **P1** | **No String coercion**: Talend converts all pivot_value to String. Engine preserves original types (int, float, etc.) |
-| ENG-UPR-003 | **P1** | **Missing die_on_error**: Engine always raises ValueError on invalid input. Should fall back to empty output when die_on_error=False |
-| ENG-UPR-004 | **P1** | **Missing reject flow**: No REJECT output for error rows |
-| ENG-UPR-005 | **P1** | **Column reordering**: Engine puts pivot_key, pivot_value first; Talend preserves schema order |
-| ENG-UPR-006 | **P2** | **Empty DataFrame loses schema**: `pd.DataFrame()` returned for empty input loses column metadata |
-| ENG-UPR-007 | **P2** | **_original_order column collision**: Temporary column `_original_order` could collide with input data column of same name |
-| ENG-UPR-008 | **P2** | **Redundant filter**: Line 175 `isin(columns_to_unpivot)` is a no-op after melt -- melt only produces rows for value_vars |
-| ENG-UPR-009 | **P3** | **Sort by column name**: Rows sorted by pivot_key within each original row -- Talend uses schema column order |
+| ~~ENG-UPR-001~~ | ~~P0~~ | **RESOLVED 2026-05-02** -- Output is now `row_keys + [pivot_key, pivot_value]` only; no schema pollution |
+| ~~ENG-UPR-002~~ | ~~P1~~ | **RESOLVED 2026-05-02** -- String coercion via null-safe `.map()` |
+| ~~ENG-UPR-003~~ | ~~P1~~ | **RESOLVED 2026-05-02** -- `die_on_error` config key supported; falls back to empty on False |
+| ~~ENG-UPR-004~~ | ~~P1~~ | **RESOLVED 2026-05-02** -- Returns `{"main": out, "reject": None}` |
+| ~~ENG-UPR-005~~ | ~~P1~~ | **RESOLVED 2026-05-02** -- Column order is `row_keys + pivot_key + pivot_value`; BaseComponent enforces schema order |
+| ~~ENG-UPR-006~~ | ~~P2~~ | **RESOLVED 2026-05-02** -- Empty input returns `pd.DataFrame()` -- BaseComponent fills schema columns |
+| ~~ENG-UPR-007~~ | ~~P2~~ | **RESOLVED 2026-05-02** -- `_original_order` temp column removed entirely; no longer used |
+| ~~ENG-UPR-008~~ | ~~P2~~ | **RESOLVED 2026-05-02** -- No-op `isin()` filter removed |
+| ~~ENG-UPR-009~~ | ~~P3~~ | **RESOLVED 2026-05-02** -- No unnecessary sort; melt preserves input row order |
 
 ### 5.3 GlobalMap Variable Coverage
 
@@ -225,7 +221,7 @@ None. The engine reads all 4 unique config params (`row_keys`, `pivot_key`, `piv
 
 | ID | Priority | Location | Description |
 | ---- | ---------- | ---------- | ------------- |
-| BUG-UPR-001 | **P2** | `unpivot_row.py:175` | **Redundant filter** -- `isin(columns_to_unpivot)` after melt is always true. No-op that wastes cycles. |
+| ~~BUG-UPR-001~~ | ~~P2~~ | ~~`unpivot_row.py:175`~~ | **RESOLVED 2026-05-02** -- No-op `isin()` filter removed |
 
 ### 6.2 Naming Consistency
 
@@ -235,7 +231,7 @@ No naming issues found in the converter. Engine uses consistent naming.
 
 | ID | Priority | Standard | Violation |
 | ---- | ---------- | ---------- | ----------- |
-| STD-UPR-001 | **P2** | "Use ConfigurationError not ValueError" | Engine raises `ValueError` instead of `ConfigurationError` for missing row_keys |
+| ~~STD-UPR-001~~ | ~~P2~~ | ~~"Use ConfigurationError not ValueError"~~ | **RESOLVED 2026-05-02** -- All errors now raise `ConfigurationError` with `self.id` prefix |
 
 ### 6.4 Debug Artifacts
 
@@ -257,9 +253,9 @@ No concerns identified. Component operates on in-memory DataFrames only.
 
 | Aspect | Assessment |
 | -------- | ------------ |
-| Custom exceptions | Uses ValueError -- should use ConfigurationError |
+| Custom exceptions | `ConfigurationError` with `self.id` prefix -- correct (resolved 2026-05-02) |
 | Exception chaining | Good -- raises original exception |
-| die_on_error handling | Missing -- always raises |
+| die_on_error handling | Supported -- reads `die_on_error` from config (resolved 2026-05-02) |
 
 ### 6.8 Type Hints
 
@@ -274,11 +270,11 @@ No concerns identified. Component operates on in-memory DataFrames only.
 
 | ID | Priority | Issue |
 | ---- | ---------- | ------- |
-| PERF-UPR-001 | **P1** | **Full copy of input**: `input_data.copy()` at line 158 duplicates entire DataFrame before melt. Could melt directly. |
-| PERF-UPR-002 | **P2** | **Redundant sort**: Lines 167-168 sort by `_original_order` + `pivot_key_column`. Melt preserves row order -- sort is unnecessary overhead. |
-| PERF-UPR-003 | **P2** | **Chained DataFrame copies**: Multiple filter/reorder operations create intermediate DataFrames. Could pipeline operations. |
-| PERF-UPR-004 | **P2** | **No-op filter**: Line 175 filtering by `isin(columns_to_unpivot)` does nothing -- melt already limits to value_vars. |
-| PERF-UPR-005 | **P3** | **Expensive column reordering**: Lines 179-181 rebuild column list for reorder. Minor overhead. |
+| ~~PERF-UPR-001~~ | ~~P1~~ | **RESOLVED 2026-05-02** -- `input_data.copy()` removed; melt creates its own DataFrame |
+| ~~PERF-UPR-002~~ | ~~P2~~ | **RESOLVED 2026-05-02** -- Sort on `_original_order` removed along with the temp column |
+| ~~PERF-UPR-003~~ | ~~P2~~ | **RESOLVED 2026-05-02** -- Single melt + one column-select; no chained copies |
+| ~~PERF-UPR-004~~ | ~~P2~~ | **RESOLVED 2026-05-02** -- No-op `isin()` removed |
+| ~~PERF-UPR-005~~ | ~~P3~~ | **RESOLVED 2026-05-02** -- Column order built once in final `out[row_keys + [pivot_key_col, pivot_value_col]]` |
 
 ### 7.1 Memory Management Assessment
 
@@ -297,14 +293,14 @@ No concerns identified. Component operates on in-memory DataFrames only.
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 28 | `tests/converters/talend_to_v1/components/test_unpivot_row.py` |
-| Engine unit tests | 0 | None |
+| Engine unit tests | 29 | `tests/v1/engine/components/transform/test_unpivot_row.py` |
 | Integration tests | 0 | None (covered by regression guard) |
 
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
 | ---- | ---------- | ----- |
-| TEST-UPR-001 | **P2** | No engine unit tests -- engine behavior, empty input, error paths untested. Converter tests are Green per D-89 but engine tests missing. |
+| ~~TEST-UPR-001~~ | ~~P2~~ | **RESOLVED 2026-05-02** -- 29 engine unit tests added: TestRegistration (3), TestValidation (5), TestTalendParity (9), TestEdgeCases (7), TestStatistics (5). All 29 pass. |
 
 ### 8.3 Recommended Test Cases
 
@@ -323,22 +319,22 @@ No concerns identified. Component operates on in-memory DataFrames only.
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
-| P0 | 1 | **ENG-UPR-001** |
-| P1 | 5 | **ENG-UPR-002**, **ENG-UPR-003**, **ENG-UPR-004**, **ENG-UPR-005**, **PERF-UPR-001** |
-| P2 | 6 | **ENG-UPR-006**, **ENG-UPR-007**, **ENG-UPR-008**, **BUG-UPR-001**, **STD-UPR-001**, **PERF-UPR-002**, **PERF-UPR-003**, **PERF-UPR-004** |
-| P3 | 2 | **ENG-UPR-009**, **PERF-UPR-005** |
-| **Total** | **14** | |
+| P0 | 0 | ~~ENG-UPR-001~~ resolved |
+| P1 | 0 | ~~ENG-UPR-002, ENG-UPR-003, ENG-UPR-004, ENG-UPR-005, PERF-UPR-001~~ resolved |
+| P2 | 0 | ~~ENG-UPR-006, ENG-UPR-007, ENG-UPR-008, BUG-UPR-001, STD-UPR-001, PERF-UPR-002, PERF-UPR-003, PERF-UPR-004~~ resolved |
+| P3 | 0 | ~~ENG-UPR-009, PERF-UPR-005~~ resolved |
+| **Total** | **0** | All 14 issues resolved in 2026-05-02 rewrite |
 
 ### By Category
 
 | Category | Count | IDs |
 | ---------- | ------- | ----- |
 | Converter (CONV) | 0 | All superseded |
-| Engine (ENG) | 9 | ENG-UPR-001 through ENG-UPR-009 |
-| Bug (BUG) | 1 | BUG-UPR-001 |
-| Standards (STD) | 1 | STD-UPR-001 |
-| Performance (PERF) | 5 | PERF-UPR-001 through PERF-UPR-005 |
-| Testing (TEST) | 1 | TEST-UPR-001 |
+| Engine (ENG) | 0 | All resolved (ENG-UPR-001..009) |
+| Bug (BUG) | 0 | All resolved (BUG-UPR-001) |
+| Standards (STD) | 0 | All resolved (STD-UPR-001) |
+| Performance (PERF) | 0 | All resolved (PERF-UPR-001..005) |
+| Testing (TEST) | 0 | All resolved (TEST-UPR-001) |
 
 ### Cross-Cutting Issues
 
@@ -351,24 +347,20 @@ No concerns identified. Component operates on in-memory DataFrames only.
 
 ## 10. Recommendations
 
-### Immediate (Before Production)
+### Status: All Resolved (2026-05-02)
 
-1. **ENG-UPR-001 (P0)**: Fix output schema pollution -- output should contain only row_keys + pivot_key + pivot_value columns, not all original columns
+All 14 issues were resolved in the 2026-05-02 engine rewrite. No remaining action items.
 
-### Short-term (Hardening)
-
-1. **ENG-UPR-002 (P1)**: Add String type coercion for pivot_value column
-2. **ENG-UPR-003 (P1)**: Add die_on_error support -- fall back to empty output on error
-3. **ENG-UPR-004 (P1)**: Add reject flow output
-4. **ENG-UPR-005 (P1)**: Preserve Talend schema column order in output
-5. **PERF-UPR-001 (P1)**: Remove unnecessary `input_data.copy()` -- melt directly
-
-### Long-term (Optimization)
-
-1. **PERF-UPR-002 (P2)**: Remove redundant sort operation
-2. **STD-UPR-001 (P2)**: Use ConfigurationError instead of ValueError
-3. **TEST-UPR-001 (P2)**: Add engine unit tests
-4. **ENG-UPR-009 (P3)**: Align row sort order with Talend schema column order
+Key changes made:
+- `@REGISTRY.register("UnpivotRow", "tUnpivotRow")` decorator added
+- `_validate_config()` returns `None`, raises `ConfigurationError` (Rules 2, 7, 12)
+- Output contains only `row_keys + [pivot_key, pivot_value]` -- no pollution
+- `pivot_value` coerced to String via null-safe `.map()`
+- `die_on_error` config supported
+- `"reject": None` always in return dict
+- All `ValueError` replaced with `ConfigurationError`
+- No `input_data.copy()`, no temp column, no redundant sort, no no-op filter
+- 29 engine unit tests added and passing
 
 ---
 
@@ -396,4 +388,4 @@ No concerns identified. Component operates on in-memory DataFrames only.
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after gold standard rewrite (Phase 13 Plan 04)*
+*Last updated: 2026-05-11 -- reconciled (Phase 15.1-08); em-dashes fixed, stale Section 6.7 corrected*

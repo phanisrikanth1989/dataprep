@@ -185,7 +185,7 @@
                 {
                   "lookup_column": "country_code",
                   "expression": "{{java}}row1.country_code",
-                  "type": "id_String",
+                  "type": "str",
                   "nullable": true,
                   "operator": "="
                 }
@@ -210,7 +210,7 @@
               {
                 "name": "full_name",
                 "expression": "{{java}}row1.first_name + \" \" + row1.last_name",
-                "type": "id_String",
+                "type": "str",
                 "nullable": true,
                 "operator": "",
                 "length": -1,
@@ -220,7 +220,7 @@
               {
                 "name": "department",
                 "expression": "{{java}}row1.department",
-                "type": "id_String",
+                "type": "str",
                 "nullable": true,
                 "operator": "",
                 "length": -1,
@@ -230,7 +230,7 @@
               {
                 "name": "salary",
                 "expression": "{{java}}row1.salary",
-                "type": "id_Integer",
+                "type": "int",
                 "nullable": true,
                 "operator": "",
                 "length": -1,
@@ -240,7 +240,7 @@
               {
                 "name": "country",
                 "expression": "{{java}}row2.country_name",
-                "type": "id_String",
+                "type": "str",
                 "nullable": true,
                 "operator": "",
                 "length": -1,
@@ -250,7 +250,7 @@
               {
                 "name": "region",
                 "expression": "{{java}}row2.region",
-                "type": "id_String",
+                "type": "str",
                 "nullable": true,
                 "operator": "",
                 "length": -1,
@@ -260,7 +260,7 @@
               {
                 "name": "salary_grade",
                 "expression": "{{java}}row1.salary >= 75000 ? \"Senior\" : \"Junior\"",
-                "type": "id_String",
+                "type": "str",
                 "nullable": true,
                 "operator": "",
                 "length": -1,
@@ -282,7 +282,7 @@
               {
                 "name": "id",
                 "expression": "{{java}}row1.id",
-                "type": "id_Integer",
+                "type": "int",
                 "nullable": true,
                 "operator": "",
                 "length": -1,
@@ -292,7 +292,7 @@
               {
                 "name": "first_name",
                 "expression": "{{java}}row1.first_name",
-                "type": "id_String",
+                "type": "str",
                 "nullable": true,
                 "operator": "",
                 "length": -1,
@@ -302,7 +302,7 @@
               {
                 "name": "last_name",
                 "expression": "{{java}}row1.last_name",
-                "type": "id_String",
+                "type": "str",
                 "nullable": true,
                 "operator": "",
                 "length": -1,
@@ -312,7 +312,7 @@
               {
                 "name": "country_code",
                 "expression": "{{java}}row1.country_code",
-                "type": "id_String",
+                "type": "str",
                 "nullable": true,
                 "operator": "",
                 "length": -1,
@@ -328,6 +328,7 @@
         "die_on_error": true,
         "rows_buffer_size": "2000000",
         "change_hash_and_equals_for_bigdecimal": true,
+        "enable_auto_convert_type": false,
         "tstatcatcher_stats": false,
         "label": ""
       },

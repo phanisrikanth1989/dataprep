@@ -33,9 +33,6 @@ from ..registry import REGISTRY
 
 logger = logging.getLogger(__name__)
 
-_ENCRYPTED_PREFIX = "enc:system.encryption.key.v1:"
-
-
 @REGISTRY.register("tMSSqlInput")
 class MSSqlInputConverter(ComponentConverter):
     """Convert Talend tMSSqlInput to v1 engine config."""
@@ -59,7 +56,7 @@ class MSSqlInputConverter(ComponentConverter):
         config["schema_db"] = self._get_str(node, "DB_SCHEMA", "")  # XML: DB_SCHEMA -> config: schema_db per D-30
         config["dbname"] = self._get_str(node, "DBNAME", "")
         config["user"] = self._get_str(node, "USER", "")
-        config["password"] = self._extract_password(node)
+        config["password"] = self._extract_password(self._get_str(node, "PASS", ""), log_id=node.component_id)
         config["query"] = self._get_str(node, "QUERY", "select id, name from employee")
 
         # ---- 2. Datasource alias parameters ----
@@ -103,26 +100,6 @@ class MSSqlInputConverter(ComponentConverter):
             warnings=warnings,
             needs_review=needs_review,
         )
-
-    # ------------------------------------------------------------------
-    # Password helper
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _extract_password(node: TalendNode) -> str:
-        """Extract password, stripping the encrypted prefix if present."""
-        raw = node.params.get("PASS")
-        if raw is None:
-            return ""
-        if isinstance(raw, str) and raw.startswith(_ENCRYPTED_PREFIX):
-            return raw[len(_ENCRYPTED_PREFIX):]
-        # Fall back to normal string extraction (strip quotes)
-        if isinstance(raw, str):
-            if raw.startswith('"') and raw.endswith('"') and len(raw) >= 2:
-                return raw[1:-1]
-            return raw
-        return str(raw)
-
     # ------------------------------------------------------------------
     # TRIM_COLUMN TABLE parser
     # ------------------------------------------------------------------

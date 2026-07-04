@@ -75,17 +75,13 @@ class TestRegistration:
 class TestDefaults:
     """Verify all parameters have correct defaults when no params provided."""
 
-    def test_link_style_default(self):
-        result = _convert()
-        assert result.component["config"]["link_style"] == "AUTO"
+    # link_style removed in a943b5f (hidden Talend param)
 
     def test_die_on_error_default_true(self):
         result = _convert()
         assert result.component["config"]["die_on_error"] is True
 
-    def test_lkup_parallelize_default_false(self):
-        result = _convert()
-        assert result.component["config"]["lkup_parallelize"] is False
+    # lkup_parallelize removed in a943b5f (hidden Talend param)
 
     def test_enable_auto_convert_type_default_false(self):
         result = _convert()
@@ -100,15 +96,7 @@ class TestDefaults:
         result = _convert()
         assert result.component["config"]["change_hash_and_equals_for_bigdecimal"] is True
 
-    def test_levenshtein_default(self):
-        """NEW: Fuzzy matching threshold, default '0'."""
-        result = _convert()
-        assert result.component["config"]["levenshtein"] == "0"
-
-    def test_jaccard_default(self):
-        """NEW: Fuzzy matching threshold, default '0'."""
-        result = _convert()
-        assert result.component["config"]["jaccard"] == "0"
+    # levenshtein, jaccard removed in a943b5f (hidden Talend params)
 
     def test_tstatcatcher_stats_default_false(self):
         result = _convert()
@@ -126,29 +114,19 @@ class TestDefaults:
 class TestParameterExtraction:
     """Verify each parameter is correctly extracted from XML params."""
 
-    def test_link_style_custom(self):
-        result = _convert(params={"LINK_STYLE": '"ROW"'})
-        assert result.component["config"]["link_style"] == "ROW"
+    # link_style extraction test removed in a943b5f (hidden Talend param)
 
     def test_rows_buffer_size_custom(self):
         result = _convert(params={"ROWS_BUFFER_SIZE": '"5000000"'})
         assert result.component["config"]["rows_buffer_size"] == "5000000"
 
-    def test_levenshtein_custom(self):
-        result = _convert(params={"LEVENSHTEIN": '"3"'})
-        assert result.component["config"]["levenshtein"] == "3"
-
-    def test_jaccard_custom(self):
-        result = _convert(params={"JACCARD": '"0.8"'})
-        assert result.component["config"]["jaccard"] == "0.8"
+    # levenshtein, jaccard extraction tests removed in a943b5f (hidden Talend params)
 
     def test_die_on_error_false(self):
         result = _convert(params={"DIE_ON_ERROR": "false"})
         assert result.component["config"]["die_on_error"] is False
 
-    def test_lkup_parallelize_true(self):
-        result = _convert(params={"LKUP_PARALLELIZE": "true"})
-        assert result.component["config"]["lkup_parallelize"] is True
+    # lkup_parallelize extraction test removed in a943b5f (hidden Talend param)
 
     def test_enable_auto_convert_type_true(self):
         result = _convert(params={"ENABLE_AUTO_CONVERT_TYPE": "true"})
@@ -368,17 +346,18 @@ class TestCompleteness:
     """Verify all expected config keys are present."""
 
     def test_all_config_keys_present(self):
+        """Keys removed in a943b5f: link_style, lkup_parallelize,
+        levenshtein, jaccard
+        """
         result = _convert()
         cfg = result.component["config"]
         expected_keys = {
             # Flat params
-            "link_style", "die_on_error", "lkup_parallelize",
-            "enable_auto_convert_type", "rows_buffer_size",
+            "die_on_error", "rows_buffer_size",
             "change_hash_and_equals_for_bigdecimal",
-            "levenshtein", "jaccard",
+            "enable_auto_convert_type",
             # Nested structures
             "inputs", "outputs", "variables",
-            "var_table_name", "var_table_size_state",
             # Framework
             "tstatcatcher_stats", "label",
         }
@@ -474,7 +453,7 @@ class TestMapperDataParsing:
         assert lk["join_keys"][0] == {
             "lookup_column": "id",
             "expression": "{{java}}row1.id",
-            "type": "id_Integer",
+            "type": "int",
             "nullable": True,
             "operator": "",
         }
@@ -558,13 +537,13 @@ class TestMapperDataParsing:
         assert variables[0] == {
             "name": "v_name",
             "expression": "{{java}}row1.first + row1.last",
-            "type": "id_String",
+            "type": "str",
             "nullable": True,
         }
         assert variables[1] == {
             "name": "v_total",
             "expression": "{{java}}row1.qty * row1.price",
-            "type": "id_Double",
+            "type": "float",
             "nullable": True,
         }
 
@@ -612,7 +591,7 @@ class TestMapperDataParsing:
         assert out["columns"][0] == {
             "name": "id",
             "expression": "{{java}}row1.id",
-            "type": "id_Integer",
+            "type": "int",
             "nullable": False,
             "operator": "",
             "length": -1,

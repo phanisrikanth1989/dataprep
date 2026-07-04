@@ -1,390 +1,332 @@
+"""Engine component for Join (tJoin).
+
+Joins main input with lookup input using key columns.
+Matching rows go to main output; non-matching rows go to reject output.
+
+Config keys consumed (4 total):
+  use_inner_join   (bool, default False)    -- True for inner join, False for left outer
+  join_key         (list[dict])             -- [{input_column, lookup_column}, ...]
+  use_lookup_cols  (bool, default False)    -- include lookup columns in output
+  lookup_cols      (list[dict])             -- [{output_column, lookup_column}, ...]
 """
-Join - Join two data flows (main and lookup) based on key columns.
-
-Talend equivalent: tJoin
-
-This component joins two input data flows (main and lookup) based on specified key columns,
-supporting both inner and left outer joins. Closely follows Talend tJoin XML configuration
-and behavior patterns. Provides flexible input mapping, case sensitivity options, and
-comprehensive reject output handling for data quality monitoring.
-"""
-
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import pandas as pd
 
 from ...base_component import BaseComponent
-from ...exceptions import ComponentExecutionError, ConfigurationError
+from ...component_registry import REGISTRY
+from ...exceptions import (
+    ComponentExecutionError,
+    ConfigurationError,
+)
 
 logger = logging.getLogger(__name__)
 
+# Sentinel value used to prevent null keys from matching during merge.
+# Null keys must never match (SQL/Talend semantics). We replace NaN with
+# this sentinel before merge, then reclassify any matched row whose key
+# columns contain the sentinel as unmatched.
+_NULL_SENTINEL = "__DATAPREP_NULL_SENTINEL__"
 
+
+@REGISTRY.register("Join", "tJoin")
 class Join(BaseComponent):
-    """
-    Joins main and lookup data flows using specified key columns.
+    """tJoin engine implementation.
 
-    This component provides comprehensive join capabilities equivalent to Talend's tJoin
-    component. It performs either inner or left outer joins between two DataFrames based
-    on configurable key column mappings. The component supports flexible input mapping,
-    case-insensitive matching, and provides both joined results and reject outputs for
-    comprehensive data flow control.
+    Joins two input DataFrames (main and lookup) on configurable key columns.
+    Supports inner and left outer join modes with first-match deduplication
+    on the lookup side. Null keys never match (SQL/Talend semantics).
 
-    The component closely follows Talend XML configuration patterns and handles various
-    edge cases including empty inputs, missing keys, and join failures with appropriate
-    error handling and statistics tracking.
-
-    Configuration:
-        USE_INNER_JOIN (bool): True for inner join, False for left outer join. Default: False
-        JOIN_KEY (List[Dict]): List of dictionaries with 'main' and 'lookup' keys defining join columns. Required.
-        CASE_SENSITIVE (bool): Whether join comparison is case sensitive. Default: True
-        DIE_ON_ERROR (bool): Whether to raise error on join failure vs. graceful degradation. Default: False
-        OUTPUT_COLUMNS (List[str]): Specific columns to include in output. Default: None (All columns)
-
-    Inputs:
-        main: Main input DataFrame (primary data stream)
-        lookup: Lookup input DataFrame (reference data stream)
-
-    Outputs:
-        main: Joined DataFrame containing successful matches
-        reject: DataFrame containing main rows with no matches in lookup
-
-    Statistics:
-        NB_LINE: Total main input rows processed
-        NB_LINE_OK: Successfully joined rows (main output rows)
-        NB_LINE_REJECT: Main rows with no lookup matches (reject output rows)
-
-    Example:
-        # Inner join configuration
-        config = {
-            "USE_INNER_JOIN": True,
-            "JOIN_KEY": [
-                {"main": "customer_id", "lookup": "cust_id"},
-                {"main": "product_code", "lookup": "prod_code"}
-            ],
-            "CASE_SENSITIVE": False,
-            "DIE_ON_ERROR": False
-        }
-
-        # Left outer join with output column filtering
-        config = {
-            "USE_INNER_JOIN": False,
-            "JOIN_KEY": [{"main": "id", "lookup": "ref_id"}],
-            "OUTPUT_COLUMNS": ["id", "name", "lookup_value", "lookup_status"],
-            "CASE_SENSITIVE": True
-        }
-
-    Notes:
-        - Configuration parameter names follow Talend XML conventions (UPPER_CASE)
-        - Supports flexible input mapping when input names differ from 'main'/'lookup'
-        - Case-insensitive joins convert string values to lowercase for comparison
-        - Reject output always contains main rows with no lookup matches (even for inner joins)
-        - Join validation uses a 'm:1' (many-to-one) relationship validation
-        - Output column filtering only includes columns that exist in the joined result
-        - Graceful degradation returns empty main and full main as reject on errors
-        - Component handles empty inputs and missing join keys gracefully
-        - Duplicate column handling uses suffixes ('', '_lookup') in pandas merge
+    Config keys:
+        use_inner_join: True for inner join, False for left outer (default False).
+        join_key: List of key mappings [{input_column, lookup_column}, ...].
+        use_lookup_cols: Whether to include lookup columns in output (default False).
+        lookup_cols: Lookup columns to include [{output_column, lookup_column}, ...].
     """
 
-    # Class constants for default values
-    DEFAULT_USE_INNER_JOIN = True        # Talend tJoin uses inner join by default
-    DEFAULT_CASE_SENSITIVE = True
-    DEFAULT_DIE_ON_ERROR = False
-    JOIN_TYPES = ['inner', 'left']
-    MERGE_SUFFIXES = ('', '_lookup')
+    # ------------------------------------------------------------------
+    # Configuration Validation
+    # ------------------------------------------------------------------
 
-    def _validate_config(self) -> List[str]:
-        """
-        Validate component configuration.
-
-        Returns:
-            List of error messages (empty if valid)
-        """
-        errors = []
-
-        # Required fields
-        if 'JOIN_KEY' not in self.config:
-            errors.append("Missing required config: 'JOIN_KEY'")
-        else:
-            join_keys = self.config['JOIN_KEY']
-            if not isinstance(join_keys, list):
-                errors.append("Config 'JOIN_KEY' must be a list")
-            elif len(join_keys) == 0:
-                errors.append("Config 'JOIN_KEY' cannot be empty")
-            else:
-                for i, key_mapping in enumerate(join_keys):
-                    if not isinstance(key_mapping, dict):
-                        errors.append(f"Config 'JOIN_KEY[{i}]' must be a dictionary")
-                        continue
-
-                    if 'main' not in key_mapping:
-                        errors.append(f"Config 'JOIN_KEY[{i}]' missing required field 'main'")
-                    elif not isinstance(key_mapping['main'], str):
-                        errors.append(f"Config 'JOIN_KEY[{i}].main' must be a string")
-
-                    if 'lookup' not in key_mapping:
-                        errors.append(f"Config 'JOIN_KEY[{i}]' missing required field 'lookup'")
-                    elif not isinstance(key_mapping['lookup'], str):
-                        errors.append(f"Config 'JOIN_KEY[{i}].lookup' must be a string")
-
-        # Optional field validation
-        if 'USE_INNER_JOIN' in self.config:
-            if not isinstance(self.config['USE_INNER_JOIN'], bool):
-                errors.append("Config 'USE_INNER_JOIN' must be boolean")
-
-        if 'CASE_SENSITIVE' in self.config:
-            if not isinstance(self.config['CASE_SENSITIVE'], bool):
-                errors.append("Config 'CASE_SENSITIVE' must be boolean")
-
-        if 'DIE_ON_ERROR' in self.config:
-            if not isinstance(self.config['DIE_ON_ERROR'], bool):
-                errors.append("Config 'DIE_ON_ERROR' must be boolean")
-
-        if 'OUTPUT_COLUMNS' in self.config:
-            output_columns = self.config['OUTPUT_COLUMNS']
-            if output_columns is not None and not isinstance(output_columns, list):
-                errors.append("Config 'OUTPUT_COLUMNS' must be a list or None")
-            elif isinstance(output_columns, list):
-                for i, col in enumerate(output_columns):
-                    if not isinstance(col, str):
-                        errors.append(f"Config 'OUTPUT_COLUMNS[{i}]' must be a string")
-
-        return errors
-
-    def _process(self, input_data: Optional[Dict[str, pd.DataFrame]] = None) -> Dict[str, Any]:
-        """
-        Join main and lookup data flows based on configuration.
-
-        Performs join operation between main and lookup DataFrames using specified
-        key columns. Handles flexible input mapping, case sensitivity, and provides
-        comprehensive error handling with optional graceful degradation.
-
-        Args:
-            input_data: Dictionary containing 'main' and 'lookup' DataFrames,
-                or dictionary with dynamically named inputs that get mapped
-
-        Returns:
-            Dictionary containing:
-                - 'main': Joined DataFrame with successful matches
-                - 'reject': DataFrame with main rows that had no lookup matches
+    def _validate_config(self) -> None:
+        """Validate component configuration.
 
         Raises:
-            ComponentExecutionError: If join operation fails and DIE_ON_ERROR is True
-            ConfigurationError: If configuration is invalid
+            ConfigurationError: If join_key is missing, empty, or malformed.
         """
-        # Map actual incoming input names to 'main' and 'lookup' based on self.inputs order
-        if input_data and ('main' not in input_data or 'lookup' not in input_data):
-            logger.debug(f"[{self.id}] Input mapping required: {list(input_data.keys())}")
-            mapped_inputs = {}
-            if hasattr(self, 'inputs') and isinstance(self.inputs, list):
-                if len(self.inputs) >= 2:
-                    # Map first to 'main', second to 'lookup'
-                    if self.inputs[0] in input_data:
-                        mapped_inputs['main'] = input_data[self.inputs[0]]
-                        logger.debug(f"[{self.id}] Mapped '{self.inputs[0]}' to 'main'")
-                    if self.inputs[1] in input_data:
-                        mapped_inputs['lookup'] = input_data[self.inputs[1]]
-                        logger.debug(f"[{self.id}] Mapped '{self.inputs[1]}' to 'lookup'")
-                elif len(self.inputs) == 1:
-                    if self.inputs[0] in input_data:
-                        mapped_inputs['main'] = input_data[self.inputs[0]]
-                        logger.debug(f"[{self.id}] Mapped '{self.inputs[0]}' to 'main'")
-            # Add any other keys that may exist
-            for k, v in input_data.items():
-                if k not in mapped_inputs:
-                    mapped_inputs[k] = v
-            input_data = mapped_inputs
-
-        # Validate input
-        if not input_data or 'main' not in input_data or 'lookup' not in input_data:
-            error_msg = "Both 'main' and 'lookup' inputs are required."
-            logger.error(f"[{self.id}] Input validation failed: {error_msg}")
-            self._update_stats(0, 0, 0)
-            return {'main': pd.DataFrame(), 'reject': pd.DataFrame()}
-
-        main_df = input_data['main']
-        lookup_df = input_data['lookup']
-
-        if main_df is None or lookup_df is None or main_df.empty:
-            logger.warning(f"[{self.id}] Empty or None input data received")
-            self._update_stats(0, 0, 0)
-            return {'main': pd.DataFrame(), 'reject': pd.DataFrame()}
-
-        # Get configuration with defaults
-        use_inner_join = self.config.get('USE_INNER_JOIN', self.DEFAULT_USE_INNER_JOIN)
-        join_keys = self.config.get('JOIN_KEY', [])
-        case_sensitive = self.config.get('CASE_SENSITIVE', self.DEFAULT_CASE_SENSITIVE)
-        die_on_error = self.config.get('DIE_ON_ERROR', self.DEFAULT_DIE_ON_ERROR)
-        output_columns = self.config.get('OUTPUT_COLUMNS')
-
-        main_rows = len(main_df)
-        lookup_rows = len(lookup_df)
-        logger.info(f"[{self.id}] Processing started: main={main_rows} rows, lookup={lookup_rows} rows")
-        logger.debug(f"[{self.id}] Configuration: USE_INNER_JOIN={use_inner_join}, "
-                      f"CASE_SENSITIVE={case_sensitive}, join_keys={len(join_keys)} mappings")
-
-        # Extract join key columns
-        main_keys = [k['main'] for k in join_keys]
-        lookup_keys = [k['lookup'] for k in join_keys]
-        logger.debug(f"[{self.id}] Join keys: main={main_keys}, lookup={lookup_keys}")
-
-        try:
-            # Handle case insensitive joins by converting to lowercase
-            if not case_sensitive:
-                logger.debug(f"[{self.id}] Applying case-insensitive conversion")
-                # Create copies to avoid modifying original data
-                main_df = main_df.copy()
-                lookup_df = lookup_df.copy()
-
-                for col in main_keys:
-                    if col in main_df.columns:
-                        main_df[col] = main_df[col].astype(str).str.lower()
-                        logger.debug(f"[{self.id}] Converted main column '{col}' to lowercase")
-
-                for col in lookup_keys:
-                    if col in lookup_df.columns:
-                        lookup_df[col] = lookup_df[col].astype(str).str.lower()
-                        logger.debug(f"[{self.id}] Converted lookup column '{col}' to lowercase")
-
-            # TALEND SPECIFIC: Remove duplicates from Lookup to ensure 1:1 matching
-            # This is the key difference - Talend's tJoin takes only first match per key
-            lookup_df_unique = lookup_df.drop_duplicates(subset=lookup_keys, keep='first')
-            logger.debug(f"[{self.id}] Lookup rows before deduplication: {len(lookup_df)}, after: {len(lookup_df_unique)}")
-
-            # Perform the join
-            how = 'inner' if use_inner_join else 'left'
-            logger.info(f"[{self.id}] Performing {how} join operation")
-
-            joined = pd.merge(
-                main_df,
-                lookup_df_unique,  # Use deduplicated Lookup
-                left_on=main_keys,
-                right_on=lookup_keys,
-                how=how,
-                suffixes=self.MERGE_SUFFIXES,
-                copy=False,
-                sort=False
+        join_key = self.config.get("join_key")
+        if not join_key:
+            raise ConfigurationError(
+                f"[{self.id}] Missing or empty required config key 'join_key'"
             )
-
-            # Always compute rejects as main rows with no match in Lookup
-            logger.debug(f"[{self.id}] Computing reject rows")
-            # FIXED: Use original main_df for reject computation, not merged data
-            # Find main rows that have no match in Lookup
-            main_with_lookup_indicator = pd.merge(
-                main_df,
-                lookup_df_unique,  # Use same deduplicated Lookup for consistency
-                left_on=main_keys,
-                right_on=lookup_keys,
-                how='left',
-                indicator=True
+        if not isinstance(join_key, list):
+            raise ConfigurationError(
+                f"[{self.id}] Config 'join_key' must be a list, got {type(join_key).__name__}"
             )
+        for i, mapping in enumerate(join_key):
+            if not isinstance(mapping, dict):
+                raise ConfigurationError(
+                    f"[{self.id}] join_key[{i}] must be a dict, got {type(mapping).__name__}"
+                )
+            if "input_column" not in mapping or not isinstance(mapping["input_column"], str):
+                raise ConfigurationError(
+                    f"[{self.id}] join_key[{i}] missing or invalid 'input_column' (must be str)"
+                )
+            if "lookup_column" not in mapping or not isinstance(mapping["lookup_column"], str):
+                raise ConfigurationError(
+                    f"[{self.id}] join_key[{i}] missing or invalid 'lookup_column' (must be str)"
+                )
 
-            # Reject = original main rows that had no Lookup match
-            reject_indices = main_with_lookup_indicator['_merge'] == 'left_only'
-            reject = main_df[reject_indices].copy()  # Use original main_df, not merged data
-            main_out = joined
+    # ------------------------------------------------------------------
+    # Input Resolution
+    # ------------------------------------------------------------------
 
-            # SCHEMA FILTERING: Apply output schema filtering based on component's schema definition
-            if hasattr(self, 'schema') and 'output' in self.schema and self.schema['output']:
-                output_schema_columns = [col['name'] for col in self.schema['output']]
-                logger.debug(f"[{self.id}] Filtering output columns based on schema: {output_schema_columns}")
-                # Only keep columns that exist in both the DataFrame and the schema
-                available_columns = [col for col in output_schema_columns if col in main_out.columns]
-                if available_columns != output_schema_columns:
-                    missing_columns = set(output_schema_columns) - set(available_columns)
-                    logger.warning(f"[{self.id}] Missing schema columns in joined result: {missing_columns}")
-                main_out = main_out[available_columns]
-                logger.debug(f"[{self.id}] Output columns after schema filtering: {list(main_out.columns)}")
+    def _resolve_inputs(
+        self, input_data: Any
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Resolve main and lookup DataFrames from input_data.
 
-            # REJECT SCHEMA FILTERING: Apply reject schema filtering for reject output
-            if hasattr(self, 'schema') and 'reject' in self.schema and self.schema['reject']:
-                reject_schema_columns = [col['name'] for col in self.schema['reject']]
-                logger.debug(f"[{self.id}] Filtering reject columns based on schema: {reject_schema_columns}")
-                logger.debug(f"[{self.id}] Reject columns before filtering: {list(reject.columns)}")
-                logger.debug(f"[{self.id}] Reject data shape before filtering: {reject.shape}")
+        The OutputRouter delivers a dict keyed by flow name. If the dict
+        already has 'main' and 'lookup' keys, use them directly. Otherwise
+        map via ``self.inputs`` (first = main, second = lookup).
 
-                # Only keep columns that exist in the reject DataFrame
-                base_reject_columns = [col for col in reject_schema_columns if col in reject.columns]
-                if base_reject_columns:
-                    reject = reject[base_reject_columns]
-                    logger.debug(f"[{self.id}] Reject columns after base filtering: {list(reject.columns)}")
-
-                # Add missing error columns if they're defined in the reject schema
-                error_columns = [col for col in reject_schema_columns if col not in reject.columns]
-                logger.debug(f"[{self.id}] Missing error columns to add: {error_columns}")
-                for error_col in error_columns:
-                    if error_col in ['errorCode', 'errorMessage']:
-                        # Add default error information for join rejects
-                        if error_col == 'errorCode':
-                            reject[error_col] = 'JOIN_REJECT'
-                        elif error_col == 'errorMessage':
-                            reject[error_col] = 'Row rejected by Join component - no lookup match'
-                    else:
-                        # Add other missing columns with None/empty values
-                        reject[error_col] = None
-                    logger.debug(f"[{self.id}] Added column '{error_col}' to reject output")
-
-                # Reorder columns to match schema order
-                reject = reject.reindex(columns=reject_schema_columns, fill_value=None)
-                logger.debug(f"[{self.id}] Reject columns after schema filtering: {list(reject.columns)}")
-                logger.debug(f"[{self.id}] Final reject data shape: {reject.shape}")
-            else:
-                logger.debug(f"[{self.id}] No reject schema defined or schema not available")
-
-            # Filter output columns to match Talend output if OUTPUT_COLUMNS is set
-            if output_columns:
-                logger.debug(f"[{self.id}] Filtering output columns: {output_columns}")
-                # Only keep columns that exist in the DataFrame
-                available_columns = [col for col in output_columns if col in main_out.columns]
-                if available_columns != output_columns:
-                    missing_columns = set(output_columns) - set(available_columns)
-                    logger.warning(f"[{self.id}] Missing output columns: {missing_columns}")
-                main_out = main_out[available_columns]
-
-            # Update statistics and log results
-            main_out_rows = len(main_out)
-            reject_rows = len(reject)
-
-            logger.info(f"[{self.id}] Join operation complete: "
-                         f"input={main_rows} rows, joined={main_out_rows} rows, rejected={reject_rows} rows")
-
-            self._update_stats(main_rows, main_out_rows, reject_rows)
-
-            logger.info(f"[{self.id}] Processing complete")
-            return {'main': main_out, 'reject': reject}
-
-        except Exception as e:
-            error_msg = f"Join failed: {str(e)}"
-            logger.error(f"[{self.id}] {error_msg}")
-
-            if die_on_error:
-                raise ComponentExecutionError(self.id, error_msg, e) from e
-            else:
-                logger.warning(f"[{self.id}] Graceful degradation: returning empty main and full main as reject")
-                self._update_stats(main_rows, 0, main_rows)
-                return {'main': pd.DataFrame(), 'reject': main_df}
-
-    def validate_config(self) -> bool:
-        """
-        Validate component configuration.
+        Args:
+            input_data: Dict from OutputRouter (flow_name -> DataFrame).
 
         Returns:
-            bool: True if configuration is valid, False otherwise
+            Tuple of (main_df, lookup_df).
 
-        Note:
-            This method maintains backward compatibility. The preferred method
-            is _validate_config() which returns detailed error messages.
+        Raises:
+            ConfigurationError: If exactly two non-None inputs are not available.
         """
-        join_keys = self.config.get('JOIN_KEY', [])
+        if not isinstance(input_data, dict):
+            raise ConfigurationError(
+                f"[{self.id}] Expected dict input_data, got {type(input_data).__name__}"
+            )
 
-        if not join_keys or not isinstance(join_keys, list):
-            logger.error(f"[{self.id}] Configuration error: JOIN_KEY is required and must be a list.")
-            return False
+        # Try direct 'main'/'lookup' keys first
+        if "main" in input_data and "lookup" in input_data:
+            main_df = input_data["main"]
+            lookup_df = input_data["lookup"]
+        elif hasattr(self, "inputs") and isinstance(self.inputs, list) and len(self.inputs) >= 2:
+            main_df = input_data.get(self.inputs[0])
+            lookup_df = input_data.get(self.inputs[1])
+        else:
+            # Last resort: take first two values in insertion order
+            values = [v for v in input_data.values() if v is not None]
+            if len(values) >= 2:
+                main_df = values[0]
+                lookup_df = values[1]
+            else:
+                raise ConfigurationError(
+                    f"[{self.id}] Requires exactly 2 inputs (main + lookup), "
+                    f"got keys: {list(input_data.keys())}"
+                )
 
-        for k in join_keys:
-            if 'main' not in k or 'lookup' not in k:
-                logger.error(f"[{self.id}] Configuration error: Each JOIN_KEY entry must have 'main' and 'lookup'.")
-                return False
+        if main_df is None or lookup_df is None:
+            raise ConfigurationError(
+                f"[{self.id}] Both main and lookup inputs must be non-None"
+            )
+        if not isinstance(main_df, pd.DataFrame) or not isinstance(lookup_df, pd.DataFrame):
+            raise ConfigurationError(
+                f"[{self.id}] Both inputs must be DataFrames"
+            )
 
-        logger.debug(f"[{self.id}] Configuration validation passed")
-        return True
+        return main_df, lookup_df
+
+    # ------------------------------------------------------------------
+    # Core Processing
+    # ------------------------------------------------------------------
+
+    def _process(self, input_data: Any = None) -> dict:
+        """Join main and lookup DataFrames.
+
+        Args:
+            input_data: Dict of flow_name -> DataFrame from OutputRouter.
+
+        Returns:
+            Dict with 'main' (joined rows) and 'reject' (unmatched main rows
+            or None if empty).
+        """
+        main_df, lookup_df = self._resolve_inputs(input_data)
+        main_row_count = len(main_df)
+
+        # -- Read config --
+        use_inner_join = self.config.get("use_inner_join", False)
+        join_key = self.config["join_key"]
+        use_lookup_cols = self.config.get("use_lookup_cols", False)
+        lookup_cols = self.config.get("lookup_cols", [])
+        case_sensitive = self.config.get("case_sensitive", True)
+
+        main_key_cols = [k["input_column"] for k in join_key]
+        lookup_key_cols = [k["lookup_column"] for k in join_key]
+
+        logger.info(
+            f"[{self.id}] Join started: main={main_row_count} rows, "
+            f"lookup={len(lookup_df)} rows, mode={'inner' if use_inner_join else 'left outer'}"
+        )
+
+        try:
+            # -- First-match dedup on lookup (Pitfall 7) --
+            lookup_deduped = lookup_df.drop_duplicates(subset=lookup_key_cols, keep="first")
+
+            # -- Prepare merge copies with sentinel for null keys (D-03, JOIN-08) --
+            merge_main = main_df.copy()
+            merge_lookup = lookup_deduped.copy()
+
+            # Case-insensitive handling (future-proof, only if explicitly False)
+            if not case_sensitive:
+                for col in main_key_cols:
+                    if col in merge_main.columns:
+                        merge_main[col] = merge_main[col].astype(str).str.lower()
+                for col in lookup_key_cols:
+                    if col in merge_lookup.columns:
+                        merge_lookup[col] = merge_lookup[col].astype(str).str.lower()
+
+            # Replace NaN in key columns with sentinel so they don't match
+            for col in main_key_cols:
+                if col in merge_main.columns:
+                    merge_main[col] = merge_main[col].fillna(_NULL_SENTINEL)
+            for col in lookup_key_cols:
+                if col in merge_lookup.columns:
+                    merge_lookup[col] = merge_lookup[col].fillna(_NULL_SENTINEL)
+
+            # -- Single-pass merge with indicator --
+            merged = pd.merge(
+                merge_main,
+                merge_lookup,
+                left_on=main_key_cols,
+                right_on=lookup_key_cols,
+                how="left",
+                indicator=True,
+                suffixes=("", "_lookup"),
+            )
+
+            # -- Classify rows --
+            matched = merged["_merge"] == "both"
+            unmatched = merged["_merge"] == "left_only"
+
+            # Sentinel filtering: null keys must not match even if both sides have sentinel
+            for col in main_key_cols:
+                if col in merged.columns:
+                    sentinel_mask = merged[col] == _NULL_SENTINEL
+                    # Move sentinel-matched rows from matched to unmatched
+                    matched = matched & ~sentinel_mask
+                    unmatched = unmatched | sentinel_mask
+
+            # -- Build main output --
+            if use_inner_join:
+                main_out = merged[matched].copy()
+            else:
+                main_out = merged.copy()
+
+            # -- Build reject output (unmatched main rows only) --
+            reject_rows = merged[unmatched].copy()
+
+            # -- Determine columns to keep --
+            original_main_cols = list(main_df.columns)
+
+            # INCLUDE_LOOKUP toggle (D-05, JOIN-04)
+            if use_lookup_cols and lookup_cols:
+                # Keep main columns + specified lookup output columns.
+                #
+                # NOTE (Plan 14-06): the previous source_col discovery logic
+                # had two defensive branches -- one for "lk_col + '_lookup'"
+                # (post-suffix collision) and one "elif out_col in main_out"
+                # passthrough -- that were unreachable in practice because
+                # pd.merge resolves collisions deterministically and the keep
+                # filter strips non-listed columns. Simplified to the two
+                # observable cases: source = lk_col when present, else skip.
+                keep_cols = list(original_main_cols)
+                for lc in lookup_cols:
+                    out_col = lc.get("output_column", "")
+                    lk_col = lc.get("lookup_column", "")
+                    if lk_col not in main_out.columns:
+                        # Lookup column not in merged frame -- nothing to add.
+                        continue
+                    source_col = lk_col
+
+                    if source_col not in keep_cols:
+                        if out_col and out_col != source_col:
+                            main_out = main_out.rename(columns={source_col: out_col})
+                            if source_col in reject_rows.columns:
+                                reject_rows = reject_rows.rename(columns={source_col: out_col})
+                            keep_cols.append(out_col)
+                        else:
+                            keep_cols.append(source_col)
+
+                # Filter to only keep_cols that exist
+                main_out = main_out[[c for c in keep_cols if c in main_out.columns]]
+            else:
+                # No lookup columns: keep only original main columns
+                main_out = main_out[[c for c in original_main_cols if c in main_out.columns]]
+
+            # Reject always contains only original main columns
+            reject_rows = reject_rows[[c for c in original_main_cols if c in reject_rows.columns]]
+
+            # NOTE (D-C5, Plan 14-06): defensive drops for "_merge", lookup-key
+            # column, and "_lookup"-suffixed lookup-key column previously lived
+            # here. They are unreachable: both code paths above (keep_cols
+            # filter at use_lookup_cols=True, and original_main_cols filter at
+            # use_lookup_cols=False) strip those columns before this point. The
+            # dead defensive guards have been deleted; if a future refactor
+            # changes the column-keep logic, the responsible PR must restore
+            # these guards or move equivalent cleanup upstream.
+
+            # -- Restore NaN from sentinel in output --
+            main_out = main_out.replace(_NULL_SENTINEL, pd.NA)
+            reject_rows = reject_rows.replace(_NULL_SENTINEL, pd.NA)
+
+            # -- Reject schema (D-08, JOIN-03) --
+            reject_schema = getattr(self, "reject_schema", [])
+            if reject_schema and not reject_rows.empty:
+                schema_cols = [col["name"] for col in reject_schema]
+                # Add errorCode and errorMessage
+                if "errorCode" in schema_cols:
+                    reject_rows["errorCode"] = "JOIN_REJECT"
+                if "errorMessage" in schema_cols:
+                    reject_rows["errorMessage"] = "No matching lookup row"
+                # Reindex to match schema column order
+                reject_rows = reject_rows.reindex(columns=schema_cols)
+
+            # -- ERROR_MESSAGE globalMap (D-06, JOIN-05) --
+            if self.global_map and not reject_rows.empty:
+                self.global_map.put(
+                    f"{self.id}_ERROR_MESSAGE",
+                    f"Join produced {len(reject_rows)} rejected rows"
+                )
+
+            # -- Stats --
+            reject_count = len(reject_rows)
+            main_out_count = len(main_out)
+            self._update_stats(main_row_count, main_out_count, reject_count)
+
+            logger.info(
+                f"[{self.id}] Join complete: input={main_row_count}, "
+                f"output={main_out_count}, reject={reject_count}"
+            )
+
+            return {
+                "main": main_out,
+                "reject": reject_rows if not reject_rows.empty else None,
+            }
+
+        except Exception as exc:
+            error_msg = f"Join failed: {exc}"
+            logger.error(f"[{self.id}] {error_msg}")
+
+            # Set ERROR_MESSAGE in globalMap
+            if self.global_map:
+                self.global_map.put(f"{self.id}_ERROR_MESSAGE", str(exc))
+
+            die_on_error = self.config.get("die_on_error", True)
+            if die_on_error:
+                raise ComponentExecutionError(self.id, error_msg, exc) from exc
+
+            # Graceful degradation: empty main, full main as reject
+            logger.warning(
+                f"[{self.id}] Graceful degradation: empty main, full main as reject"
+            )
+            self._update_stats(main_row_count, 0, main_row_count)
+            return {"main": pd.DataFrame(), "reject": main_df}

@@ -1,301 +1,310 @@
-"""
-tPivotToColumnsDelimited - Pivot rows into columns and write to a delimited file.
+"""tPivotToColumnsDelimited engine component.
 
-Talend equivalent: tPivotToColumnsDelimited
+Groups input rows by 'groupbys' columns, pivots 'pivot_column' distinct values
+into new column headers, aggregates 'aggregation_column' using the selected
+function, and writes the result to a delimited file. The pivoted DataFrame is
+also returned as the 'main' output for downstream components.
 
-This component performs pivot operations on input data, transforming rows into columns
-based on a pivot column and aggregation column. The result can be written to a delimited
-file while also returning the pivoted DataFrame.
+Supported aggregation functions: sum, count, min, max, first, last
+
+Config keys (matching converter D-38 output):
+  pivot_column          (str, required)  -- column whose distinct values become headers
+  aggregation_column    (str, required)  -- column to aggregate
+  aggregation_function  (str, default "sum")  -- sum/count/min/max/first/last
+  groupbys              (list[str], required)  -- group-by columns (non-empty list)
+  filename              (str, required)  -- output file path
+  create                (bool, default True)  -- create file and parent dirs if True
+  rowseparator          (str, default "\\n")  -- row delimiter (escape sequences decoded)
+  fieldseparator        (str, default ";")   -- field delimiter (escape sequences decoded)
+  encoding              (str, default "ISO-8859-15")  -- file encoding
+  advanced_separator    (bool, default False)  -- locale formatting (not implemented)
+  thousands_separator   (str, default ",")  -- thousands grouping (not implemented)
+  decimal_separator     (str, default ".")  -- decimal point (not implemented)
+  csv_option            (bool, default False)  -- RFC4180 quoting (not implemented)
+  escape_char           (str, default '"')  -- escape character (not implemented)
+  text_enclosure        (str, default '"')  -- quote character (not implemented)
+  delete_emptyfile      (bool, default False)  -- skip file creation when output is empty
+  tstatcatcher_stats    (bool, default False)  -- framework only
+  label                 (str, default "")  -- framework only
+
+Output GlobalMap variables:
+  {id}_NB_LINE      -- input row count
+  {id}_NB_LINE_OK   -- output row count (set by BaseComponent)
+  {id}_NB_LINE_OUT  -- output row count (Talend file-output convention)
 """
 import logging
+from pathlib import Path
+from typing import Any, Optional
+
 import pandas as pd
-from typing import Dict, Any, Optional, List
-from ...base_component import BaseComponent
+
+from ...base_component import BaseComponent, ExecutionMode
+from ...component_registry import REGISTRY
+from ...exceptions import ConfigurationError, FileOperationError
 
 logger = logging.getLogger(__name__)
 
+# ---- Valid aggregation functions ----
+_VALID_AGG_FUNCTIONS = {"sum", "count", "min", "max", "first", "last"}
 
+# ---- Safe separator escape-sequence map (avoids unicode_escape dangers) ----
+_UNESCAPE_MAP = {
+    "\\r\\n": "\r\n",
+    "\\n": "\n",
+    "\\r": "\r",
+    "\\t": "\t",
+}
+
+
+def _unescape_separator(sep: str) -> str:
+    """Convert escaped separator string to actual character(s).
+
+    Uses an explicit map rather than .encode().decode('unicode_escape') to avoid
+    corrupting Windows paths and non-ASCII content.
+
+    Args:
+        sep: Separator string, possibly containing Talend escape sequences.
+
+    Returns:
+        Unescaped separator string.
+    """
+    # Try exact match first (handles "\\r\\n" as a unit before "\\r")
+    if sep in _UNESCAPE_MAP:
+        return _UNESCAPE_MAP[sep]
+    result = sep
+    for escaped, char in _UNESCAPE_MAP.items():
+        result = result.replace(escaped, char)
+    return result
+
+
+
+@REGISTRY.register("PivotToColumnsDelimited", "tPivotToColumnsDelimited")
 class PivotToColumnsDelimited(BaseComponent):
-    """
-    Pivot rows into columns based on a pivot column and aggregation column.
-    Equivalent to Talend's tPivotToColumnsDelimited component.
+    """tPivotToColumnsDelimited engine implementation.
 
-    Configuration:
-        pivot_column (str): Column to pivot on (becomes new column headers). Required.
-        aggregation_column (str): Column to aggregate values from. Required.
-        aggregation_function (str): Aggregation function to apply. Default: 'sum'
-        group_by_columns (List[str]): Columns to group by (preserved as index). Required.
-        filename (str): Output file path. Default: 'output.csv'
-        field_separator (str): Field delimiter for output file. Default: ','
-        row_separator (str): Row separator for output file. Default: '\n'
-        encoding (str): File encoding for output. Default: 'UTF-8'
-        create (bool): Whether to create the output file. Default: True
-        schema (Dict[str, str]): Optional column type casting schema
-
-    Inputs:
-        main: Input DataFrame containing data to pivot
-
-    Outputs:
-        main: Pivoted DataFrame with rows transformed to columns
-        output_file: Path to the created output file (if create=True)
-
-    Statistics:
-        NB_LINE: Total rows processed (input rows)
-        NB_LINE_OK: Output rows produced after pivoting
-        NB_LINE_REJECT: Always 0 (no rows are rejected)
-
-    Example:
-        config = {
-            "pivot_column": "category",
-            "aggregation_column": "amount",
-            "aggregation_function": "sum",
-            "group_by_columns": ["region", "date"],
-            "filename": "pivot_output.csv",
-            "field_separator": "|",
-            "create": True
-        }
-
-    Notes:
-        - Pivot operation uses pandas pivot_table functionality
-        - NaN values are replaced with empty strings in output
-        - Numeric columns are cast to integers when applicable
-        - Schema-based type casting is applied if schema is provided
-        - Output file is written only if create=True
-        - Field and row separators support quote removal and escape sequences
+    Groups input rows by 'groupbys', pivots 'pivot_column' distinct values into
+    new column headers, aggregates 'aggregation_column' using the selected
+    function, and writes the result to a delimited file. The pivoted DataFrame is
+    also returned as 'main' for downstream components.
     """
 
-    # Class constants
-    DEFAULT_AGGREGATION_FUNCTION = 'sum'
-    DEFAULT_FIELD_SEPARATOR = ','
-    DEFAULT_ROW_SEPARATOR = '\n'
-    DEFAULT_ENCODING = 'UTF-8'
-    DEFAULT_FILENAME = 'output.csv'
-    DEFAULT_CREATE = True
+    # ------------------------------------------------------------------
+    # Mode override -- pivot always needs the full dataset
+    # ------------------------------------------------------------------
 
-    def _validate_config(self) -> List[str]:
+    def _select_mode(self, input_data: Optional[pd.DataFrame]) -> ExecutionMode:
+        """Always use BATCH mode.
+
+        Pivot operations require the full dataset to compute correct aggregations.
+        Streaming / chunk-based execution would produce wrong per-chunk results.
         """
-        Validate component configuration.
+        return ExecutionMode.BATCH
 
-        Returns:
-            List of error messages (empty if valid)
-        """
-        errors = []
+    # ------------------------------------------------------------------
+    # Configuration Validation (Rule 2: raise; Rule 12: structure only)
+    # ------------------------------------------------------------------
 
-        # Validate required fields
-        if 'pivot_column' not in self.config or not self.config['pivot_column']:
-            errors.append("Missing required config: 'pivot_column'")
-
-        if 'aggregation_column' not in self.config or not self.config['aggregation_column']:
-            errors.append("Missing required config: 'aggregation_column'")
-
-        if 'group_by_columns' not in self.config:
-            errors.append("Missing required config: 'group_by_columns'")
-        elif not isinstance(self.config['group_by_columns'], list):
-            errors.append("Config 'group_by_columns' must be a list")
-        elif len(self.config['group_by_columns']) == 0:
-            errors.append("Config 'group_by_columns' cannot be empty")
-
-        if 'filename' not in self.config or not self.config['filename']:
-            errors.append("Missing required config: 'filename'")
-
-        # Validate field_separator
-        if 'field_separator' in self.config:
-            field_separator = self.config['field_separator']
-            # Remove quotes for validation if present
-            if field_separator.startswith('"') and field_separator.endswith('"'):
-                field_separator = field_separator[1:-1]
-
-            if not isinstance(field_separator, str) or len(field_separator) != 1:
-                errors.append("Config 'field_separator' must be a single-character string")
-
-        # Validate optional fields if present
-        if 'aggregation_function' in self.config:
-            if not isinstance(self.config['aggregation_function'], str):
-                errors.append("Config 'aggregation_function' must be a string")
-
-        if 'encoding' in self.config:
-            if not isinstance(self.config['encoding'], str):
-                errors.append("Config 'encoding' must be a string")
-
-        if 'create' in self.config:
-            if not isinstance(self.config['create'], bool):
-                errors.append("Config 'create' must be boolean")
-
-        if 'schema' in self.config:
-            if not isinstance(self.config['schema'], dict):
-                errors.append("Config 'schema' must be a dictionary")
-
-        return errors
-
-    def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
-        """
-        Process input data to pivot rows into columns and write to a delimited file.
-
-        Args:
-            input_data: Input DataFrame containing rows to pivot (may be None or empty)
-
-        Returns:
-            Dictionary containing:
-                - 'main': Pivoted DataFrame with rows transformed to columns
-                - 'output_file': Path to the created output file
+    def _validate_config(self) -> None:
+        """Validate structural config key presence and types.
 
         Raises:
-            ValueError: If required configuration is missing or pivot operation fails
-        """
-        # Handle empty input
-        if input_data is None or input_data.empty:
-            logger.warning(f"[{self.id}] Empty input received")
-            self._update_stats(0, 0, 0)
-            return {'main': pd.DataFrame()}
-
-        rows_in = len(input_data)
-        logger.info(f"[{self.id}] Processing started: {rows_in} rows")
-
-        # Get configuration with defaults
-        pivot_column = self.config.get('pivot_column', '')
-        aggregation_column = self.config.get('aggregation_column', '')
-        aggregation_function = self.config.get('aggregation_function', self.DEFAULT_AGGREGATION_FUNCTION)
-        group_by_columns = self.config.get('group_by_columns', [])
-        output_file = self.config.get('filename', self.DEFAULT_FILENAME)
-        row_separator = self.config.get('row_separator', self.DEFAULT_ROW_SEPARATOR)
-        field_separator = self.config.get('field_separator', self.DEFAULT_FIELD_SEPARATOR)
-        encoding = self.config.get('encoding', self.DEFAULT_ENCODING)
-        create_file = self.config.get('create', self.DEFAULT_CREATE)
-
-        logger.debug(f"[{self.id}] Configuration: pivot_column='{pivot_column}', "
-                     f"aggregation_column='{aggregation_column}', aggregation_function='{aggregation_function}', "
-                     f"group_by_columns={group_by_columns}, output_file='{output_file}', create_file={create_file}")
-
-        # Interpret escape sequences in row_separator
-        row_separator = row_separator.encode().decode('unicode_escape')
-        logger.debug(f"[{self.id}] Row separator after escape processing: {repr(row_separator)}")
-
-        # Remove enclosing double quotes from field_separator and row_separator if present
-        if field_separator.startswith('"') and field_separator.endswith('"'):
-            field_separator = field_separator[1:-1]
-            logger.debug(f"[{self.id}] Removed quotes from field separator: {field_separator}")
-
-        if row_separator.startswith('"') and row_separator.endswith('"'):
-            row_separator = row_separator[1:-1]
-            logger.debug(f"[{self.id}] Removed quotes from row separator: {repr(row_separator)}")
-
-        # Log the field_separator for debugging
-        logger.info(f"[{self.id}] Field separator used: '{field_separator}'")
-
-        # Validate configuration
-        if not pivot_column or not aggregation_column or not group_by_columns:
-            error_msg = "Missing required configuration: pivot_column, aggregation_column, or group_by_columns"
-            logger.error(f"[{self.id}] {error_msg}")
-            raise ValueError(error_msg)
-
-        if not isinstance(field_separator, str) or len(field_separator) != 1:
-            error_msg = "Invalid field_separator: must be a single-character string"
-            logger.error(f"[{self.id}] {error_msg}")
-            raise ValueError(error_msg)
-
-        # Perform pivot operation
-        try:
-            logger.debug(f"[{self.id}] Performing pivot operation")
-            logger.debug(f"[{self.id}] Input data shape: {input_data.shape}")
-
-            pivoted_data = input_data.pivot_table(
-                index=group_by_columns,
-                columns=pivot_column,
-                values=aggregation_column,
-                aggfunc=aggregation_function
-            ).reset_index()
-
-            logger.debug(f"[{self.id}] After pivot operation: {pivoted_data.shape}")
-            logger.debug(f"[{self.id}] Pivoted columns: {list(pivoted_data.columns)}")
-
-            # Ensure data type consistency
-            logger.debug(f"[{self.id}] Processing data type consistency")
-            for col in pivoted_data.columns:
-                if pivoted_data[col].dtype == 'float64':
-                    pivoted_data[col] = pivoted_data[col].apply(lambda x: int(x) if pd.notnull(x) and x.is_integer() else x)
-
-            # Replace NaN with empty strings
-            logger.debug(f"[{self.id}] Replacing NaN values with empty strings")
-            pivoted_data = pivoted_data.fillna('')
-
-            # Ensure numeric columns are cast to integers where applicable
-            logger.debug(f"[{self.id}] Casting numeric columns to integers where applicable")
-            for col in pivoted_data.columns:
-                if pd.api.types.is_numeric_dtype(pivoted_data[col]):
-                    pivoted_data[col] = pivoted_data[col].apply(
-                        lambda x: int(x) if x != '' and float(x) == int(float(x)) else x
-                    )
-
-            # Explicitly cast columns to their original types if schema is provided
-            schema = self.config.get('schema', {})
-            if schema:
-                logger.debug(f"[{self.id}] Applying schema-based type casting: {schema}")
-                for col, col_type in schema.items():
-                    if col in pivoted_data.columns:
-                        if col_type == 'int':
-                            pivoted_data[col] = pivoted_data[col].apply(
-                                lambda x: int(x) if x != '' else None
-                            )
-                        elif col_type == 'float':
-                            pivoted_data[col] = pivoted_data[col].apply(
-                                lambda x: float(x) if x != '' else None
-                            )
-                        logger.debug(f"[{self.id}] Applied {col_type} casting to column '{col}'")
-
-        except Exception as e:
-            error_msg = f"Pivot operation failed: {e}"
-            logger.error(f"[{self.id}] {error_msg}")
-            raise ValueError(error_msg)
-
-        # Write to file if required
-        if create_file:
-            try:
-                logger.info(f"[{self.id}] Writing output file: '{output_file}'")
-                logger.debug(f"[{self.id}] File settings: separator='{field_separator}', "
-                             f"line_terminator='{repr(row_separator)}', encoding='{encoding}'")
-
-                pivoted_data.to_csv(
-                    output_file,
-                    sep=field_separator,
-                    line_terminator=row_separator,
-                    encoding=encoding,
-                    index=False
-                )
-                logger.info(f"[{self.id}] Successfully wrote {len(pivoted_data)} rows to '{output_file}'")
-
-            except Exception as e:
-                error_msg = f"Failed to write output file: {e}"
-                logger.error(f"[{self.id}] {error_msg}")
-                raise ValueError(error_msg)
-        else:
-            logger.debug(f"[{self.id}] File creation disabled (create=False)")
-
-        # Calculate statistics
-        rows_out = len(pivoted_data)
-        self._update_stats(rows_in, rows_out, 0)
-
-        logger.info(f"[{self.id}] Processing complete: "
-                    f"in={rows_in}, out={rows_out}, aggregation='{aggregation_function}'")
-
-        return {'main': pivoted_data, 'output_file': output_file}
-
-    def validate_config(self) -> bool:
-        """
-        Validate component configuration.
-
-        Returns:
-            bool: True if configuration is valid, False otherwise
+            ConfigurationError: On missing or structurally invalid config.
 
         Note:
-            This method maintains backward compatibility. The preferred method
-            is _validate_config() which returns detailed error messages.
+            Content-sensitive checks (non-empty strings, single-char delimiters,
+            valid aggregation function enum) are intentionally deferred to
+            _process() after context variable resolution per Rule 12.
         """
-        errors = self._validate_config()
+        if "pivot_column" not in self.config:
+            raise ConfigurationError(
+                f"[{self.id}] Missing required config key 'pivot_column'"
+            )
+        if "aggregation_column" not in self.config:
+            raise ConfigurationError(
+                f"[{self.id}] Missing required config key 'aggregation_column'"
+            )
+        groupbys = self.config.get("groupbys")
+        if groupbys is None:
+            raise ConfigurationError(
+                f"[{self.id}] Missing required config key 'groupbys'"
+            )
+        if not isinstance(groupbys, list):
+            raise ConfigurationError(
+                f"[{self.id}] Config 'groupbys' must be a list, "
+                f"got {type(groupbys).__name__}"
+            )
+        if "filename" not in self.config:
+            raise ConfigurationError(
+                f"[{self.id}] Missing required config key 'filename'"
+            )
 
-        if errors:
-            for error in errors:
-                logger.error(f"[{self.id}] Configuration error: {error}")
-            return False
+    # ------------------------------------------------------------------
+    # Core Processing
+    # ------------------------------------------------------------------
 
-        logger.debug(f"[{self.id}] Configuration validation passed")
-        return True
+    def _process(self, input_data: Optional[pd.DataFrame] = None) -> dict:
+        """Pivot input data and write to a delimited file.
+
+        Args:
+            input_data: Input DataFrame from upstream component, or None.
+
+        Returns:
+            dict with 'main' (pivoted DataFrame) and 'reject' (None).
+
+        Raises:
+            ConfigurationError: On invalid or empty resolved config values.
+            FileOperationError: On file write failure.
+        """
+        # ---- Handle empty / None input ----
+        if input_data is None or input_data.empty:
+            logger.debug(f"[{self.id}] Empty input -- returning empty DataFrame")
+            self._update_stats(0, 0, 0)
+            if self.global_map:
+                self.global_map.put_component_stat(self.id, "NB_LINE_OUT", 0)
+            return {"main": pd.DataFrame(), "reject": None}
+
+        rows_in = len(input_data)
+
+        # ---- Read config ----
+        pivot_column = self.config.get("pivot_column", "")
+        aggregation_column = self.config.get("aggregation_column", "")
+        aggregation_function = self.config.get("aggregation_function", "sum")
+        groupbys = self.config.get("groupbys", [])
+        filename = self.config.get("filename", "")
+        create = self.config.get("create", True)
+        fieldseparator = self.config.get("fieldseparator", ";")
+        rowseparator = self.config.get("rowseparator", "\\n")
+        encoding = self.config.get("encoding", "ISO-8859-15")
+        delete_emptyfile = self.config.get("delete_emptyfile", False)
+
+        # ---- Content validation (deferred from _validate_config per Rule 12) ----
+        if not pivot_column:
+            raise ConfigurationError(f"[{self.id}] Config 'pivot_column' is empty")
+        if not aggregation_column:
+            raise ConfigurationError(f"[{self.id}] Config 'aggregation_column' is empty")
+        if not groupbys:
+            raise ConfigurationError(f"[{self.id}] Config 'groupbys' must be a non-empty list")
+        if not filename:
+            raise ConfigurationError(f"[{self.id}] Config 'filename' is empty")
+
+        # ---- Normalize separators: unescape escape sequences ----
+        field_sep = _unescape_separator(fieldseparator)
+        row_sep = _unescape_separator(rowseparator)
+
+        # ---- Validate field separator length (deferred: context vars arrive here) ----
+        if len(field_sep) != 1:
+            raise ConfigurationError(
+                f"[{self.id}] Config 'fieldseparator' must resolve to a single character, "
+                f"got {len(field_sep)} chars: {field_sep!r}"
+            )
+
+        # ---- Validate aggregation function enum ----
+        if aggregation_function not in _VALID_AGG_FUNCTIONS:
+            raise ConfigurationError(
+                f"[{self.id}] Config 'aggregation_function' must be one of "
+                f"{sorted(_VALID_AGG_FUNCTIONS)}, got {aggregation_function!r}"
+            )
+
+        # ---- Capture first-appearance order of pivot column values ----
+        # pd.pivot_table() sorts column headers alphabetically; Talend preserves
+        # the order of first occurrence in the input data.  Capture that order
+        # before pivoting so we can restore it afterwards.
+        seen: dict = {}
+        for v in input_data[pivot_column]:
+            if v not in seen:
+                seen[v] = None
+        pivot_value_order = list(seen.keys())
+
+        # ---- Perform pivot ----
+        logger.info(
+            f"[{self.id}] Pivoting {rows_in} rows: "
+            f"pivot={pivot_column!r}, agg={aggregation_column!r}/{aggregation_function}, "
+            f"groupby={groupbys}"
+        )
+        try:
+            pivoted = input_data.pivot_table(
+                index=groupbys,
+                columns=pivot_column,
+                values=aggregation_column,
+                aggfunc=aggregation_function,
+                sort=False,
+            ).reset_index()
+        except Exception as exc:
+            raise ConfigurationError(
+                f"[{self.id}] Pivot operation failed: {exc}"
+            ) from exc
+
+        # ---- Flatten MultiIndex columns (pivot_table may produce one) ----
+        if isinstance(pivoted.columns, pd.MultiIndex):
+            pivoted.columns = [
+                str(c[-1]) if c[0] == aggregation_column else str(c[0])
+                for c in pivoted.columns
+            ]
+        pivoted.columns.name = None
+
+        # ---- Restore first-appearance column order (Talend compatibility) ----
+        # pivot_table() sorts columns alphabetically; reorder to match the
+        # order pivot values were first seen in the input data.
+        gb_cols_ordered = [c for c in groupbys if c in pivoted.columns]
+        val_cols_ordered = [
+            str(v) for v in pivot_value_order if str(v) in pivoted.columns
+        ]
+        # Any pivot values not in pivot_value_order (shouldn't happen, safety net)
+        extra_cols = [
+            c for c in pivoted.columns
+            if c not in gb_cols_ordered and c not in val_cols_ordered
+        ]
+        pivoted = pivoted[gb_cols_ordered + val_cols_ordered + extra_cols]
+
+        # ---- Replace NaN with empty string for sparse pivot cells ----
+        # Operate only on the value columns (not group-by columns) to avoid
+        # corrupting string group-by values.
+        gb_cols = set(groupbys) & set(pivoted.columns)
+        value_cols = [c for c in pivoted.columns if c not in gb_cols]
+        for col in value_cols:
+            series = pivoted[col]
+            if pd.api.types.is_float_dtype(series):
+                # Use int representation for whole-number cells (Talend convention)
+                non_null = series.dropna()
+                if len(non_null) > 0 and (non_null % 1 == 0).all():
+                    pivoted[col] = series.apply(
+                        lambda x: int(x) if pd.notna(x) else ""
+                    )
+                else:
+                    pivoted[col] = series.fillna("")
+            else:
+                pivoted[col] = series.fillna("")
+
+        rows_out = len(pivoted)
+
+        # ---- Write to file ----
+        if create:
+            out_path = Path(filename)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+
+            if delete_emptyfile and rows_out == 0:
+                logger.info(
+                    f"[{self.id}] delete_emptyfile=True with no output rows -- skipping write"
+                )
+            else:
+                logger.info(f"[{self.id}] Writing {rows_out} rows to '{filename}'")
+                try:
+                    pivoted.to_csv(
+                        filename,
+                        sep=field_sep,
+                        lineterminator=row_sep,
+                        encoding=encoding,
+                        index=False,
+                    )
+                except Exception as exc:
+                    raise FileOperationError(
+                        f"[{self.id}] Failed to write '{filename}': {exc}"
+                    ) from exc
+
+        # ---- Stats ----
+        self._update_stats(rows_in, rows_out, 0)
+        if self.global_map:
+            self.global_map.put_component_stat(self.id, "NB_LINE_OUT", rows_out)
+
+        logger.info(f"[{self.id}] Complete: in={rows_in}, out={rows_out}")
+        return {"main": pivoted, "reject": None}

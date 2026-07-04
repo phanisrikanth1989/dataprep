@@ -458,3 +458,110 @@ class TestCompleteness:
         """convert() returns a ComponentResult."""
         result = _convert(_make_node())
         assert isinstance(result, ComponentResult)
+
+
+# ------------------------------------------------------------------
+# Plan 14-11: password and TRIM_COLUMN parser branch coverage
+# ------------------------------------------------------------------
+
+
+class TestExtractPasswordEdges:
+    """Cover line 124 (return str(raw) for non-string non-None PASS)."""
+
+    def test_password_int_value_str_coerced(self):
+        """PASS as int -> str(raw) (line 124)."""
+        node = _make_node(params={"PASS": 12345})
+        result = _convert(node)
+        assert result.component["config"]["password"] == "12345"
+
+    def test_password_list_value_str_coerced(self):
+        """PASS as list -> str(raw) (line 124)."""
+        node = _make_node(params={"PASS": ["a", "b"]})
+        result = _convert(node)
+        # str(['a', 'b']) -> "['a', 'b']"
+        assert result.component["config"]["password"] == "['a', 'b']"
+
+    def test_password_none_returns_empty(self):
+        """PASS as None -> '' (line 116)."""
+        node = _make_node(params={"PASS": None})
+        result = _convert(node)
+        assert result.component["config"]["password"] == ""
+
+    def test_password_with_encrypted_prefix(self):
+        """Encrypted PASS -> prefix stripped (line 117-118)."""
+        node = _make_node(params={
+            "PASS": "enc:system.encryption.key.v1:secret_payload",
+        })
+        result = _convert(node)
+        assert result.component["config"]["password"] == "secret_payload"
+
+    def test_password_quoted_string_unquoted(self):
+        """PASS as a quoted string -> quotes stripped (lines 121-122)."""
+        node = _make_node(params={"PASS": '"plaintext"'})
+        result = _convert(node)
+        assert result.component["config"]["password"] == "plaintext"
+
+    def test_password_unquoted_string_returned_as_is(self):
+        """PASS as an unquoted string -> returned as-is (line 123)."""
+        node = _make_node(params={"PASS": "plain_no_quotes"})
+        result = _convert(node)
+        assert result.component["config"]["password"] == "plain_no_quotes"
+
+
+class TestParseTrimColumnEdges:
+    """Cover lines 139-149: TRIM_COLUMN list-with-dicts parser body."""
+
+    def test_trim_column_with_dict_entries_parsed(self):
+        """TRIM_COLUMN list of dicts -> list of {ref_lower: stripped_value}
+        (lines 139-149)."""
+        node = _make_node(params={
+            "TRIM_COLUMN": [
+                {"elementRef": "SCHEMA_COLUMN", "value": '"id"'},
+                {"elementRef": "TRIM", "value": "true"},
+            ],
+        })
+        result = _convert(node)
+        trim_col = result.component["config"]["trim_column"]
+        assert isinstance(trim_col, list)
+        assert len(trim_col) == 2
+        # ref is lowercased; value is quote-stripped if it was a quoted string
+        assert trim_col[0] == {"schema_column": "id"}
+        assert trim_col[1] == {"trim": "true"}
+
+    def test_trim_column_with_non_string_value_passed_through(self):
+        """TRIM_COLUMN dict entry whose value is non-str is stored as-is (line 146)."""
+        node = _make_node(params={
+            "TRIM_COLUMN": [
+                {"elementRef": "TRIM", "value": True},  # bool, not str
+            ],
+        })
+        result = _convert(node)
+        trim_col = result.component["config"]["trim_column"]
+        assert len(trim_col) == 1
+        assert trim_col[0] == {"trim": True}
+
+    def test_trim_column_with_empty_ref_skipped(self):
+        """TRIM_COLUMN entry with empty elementRef -> empty row -> not appended
+        (line 145 conditional)."""
+        node = _make_node(params={
+            "TRIM_COLUMN": [
+                {"elementRef": "", "value": "x"},  # empty ref
+            ],
+        })
+        result = _convert(node)
+        trim_col = result.component["config"]["trim_column"]
+        # Empty ref -> row is {} -> not appended
+        assert trim_col == []
+
+    def test_trim_column_with_non_dict_entry_skipped(self):
+        """A non-dict entry in TRIM_COLUMN raw is silently skipped (line 141)."""
+        node = _make_node(params={
+            "TRIM_COLUMN": [
+                "not_a_dict",  # skipped (line 141 isinstance check)
+                {"elementRef": "TRIM", "value": "false"},
+            ],
+        })
+        result = _convert(node)
+        trim_col = result.component["config"]["trim_column"]
+        assert len(trim_col) == 1
+        assert trim_col[0] == {"trim": "false"}

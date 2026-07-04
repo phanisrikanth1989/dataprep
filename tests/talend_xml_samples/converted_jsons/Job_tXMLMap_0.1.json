@@ -121,35 +121,35 @@
               {
                 "name": "emp_id",
                 "expression": "",
-                "type": "id_String",
+                "type": "str",
                 "xpath": "row1/emp_id",
                 "children": []
               },
               {
                 "name": "name",
                 "expression": "",
-                "type": "id_String",
+                "type": "str",
                 "xpath": "row1/name",
                 "children": []
               },
               {
                 "name": "department",
                 "expression": "",
-                "type": "id_String",
+                "type": "str",
                 "xpath": "row1/department",
                 "children": []
               },
               {
                 "name": "salary",
                 "expression": "",
-                "type": "id_Integer",
+                "type": "int",
                 "xpath": "row1/salary",
                 "children": []
               },
               {
                 "name": "currency",
                 "expression": "",
-                "type": "id_String",
+                "type": "str",
                 "xpath": "row1/currency",
                 "children": []
               }
@@ -165,21 +165,21 @@
               {
                 "name": "dept_code",
                 "expression": "row1.department",
-                "type": "id_String",
+                "type": "str",
                 "xpath": "row2/dept_code",
                 "children": []
               },
               {
                 "name": "dept_name",
                 "expression": "",
-                "type": "id_String",
+                "type": "str",
                 "xpath": "row2/dept_name",
                 "children": []
               },
               {
                 "name": "budget",
                 "expression": "",
-                "type": "id_Integer",
+                "type": "int",
                 "xpath": "row2/budget",
                 "children": []
               }
@@ -196,42 +196,42 @@
               {
                 "name": "emp_id",
                 "expression": "row1.emp_id",
-                "type": "id_String",
+                "type": "str",
                 "xpath": "out1/emp_id",
                 "children": []
               },
               {
                 "name": "name",
                 "expression": "row1.name",
-                "type": "id_String",
+                "type": "str",
                 "xpath": "out1/name",
                 "children": []
               },
               {
                 "name": "dept_code",
                 "expression": "row2.dept_code",
-                "type": "id_String",
+                "type": "str",
                 "xpath": "out1/dept_code",
                 "children": []
               },
               {
                 "name": "department",
                 "expression": "row1.department",
-                "type": "id_String",
+                "type": "str",
                 "xpath": "out1/department",
                 "children": []
               },
               {
                 "name": "budget",
                 "expression": "row2.budget",
-                "type": "id_Integer",
+                "type": "int",
                 "xpath": "out1/budget",
                 "children": []
               },
               {
                 "name": "salary",
                 "expression": "row1.salary",
-                "type": "id_Integer",
+                "type": "int",
                 "xpath": "out1/salary",
                 "children": []
               }
@@ -284,7 +284,7 @@
         "output_schema": [
           {
             "name": "emp_id",
-            "type": "id_String",
+            "type": "str",
             "nullable": false,
             "key": false,
             "length": -1,
@@ -292,7 +292,7 @@
           },
           {
             "name": "name",
-            "type": "id_String",
+            "type": "str",
             "nullable": false,
             "key": false,
             "length": -1,
@@ -300,7 +300,7 @@
           },
           {
             "name": "dept_code",
-            "type": "id_String",
+            "type": "str",
             "nullable": false,
             "key": false,
             "length": -1,
@@ -308,7 +308,7 @@
           },
           {
             "name": "department",
-            "type": "id_String",
+            "type": "str",
             "nullable": false,
             "key": false,
             "length": -1,
@@ -316,7 +316,7 @@
           },
           {
             "name": "budget",
-            "type": "id_Integer",
+            "type": "int",
             "nullable": false,
             "key": false,
             "length": -1,
@@ -324,7 +324,7 @@
           },
           {
             "name": "salary",
-            "type": "id_Integer",
+            "type": "int",
             "nullable": false,
             "key": false,
             "length": -1,
@@ -369,7 +369,7 @@
         "output": [
           {
             "name": "emp_id",
-            "type": "id_String",
+            "type": "str",
             "nullable": false,
             "key": false,
             "length": -1,
@@ -377,7 +377,7 @@
           },
           {
             "name": "name",
-            "type": "id_String",
+            "type": "str",
             "nullable": false,
             "key": false,
             "length": -1,
@@ -385,7 +385,7 @@
           },
           {
             "name": "dept_code",
-            "type": "id_String",
+            "type": "str",
             "nullable": false,
             "key": false,
             "length": -1,
@@ -393,7 +393,7 @@
           },
           {
             "name": "department",
-            "type": "id_String",
+            "type": "str",
             "nullable": false,
             "key": false,
             "length": -1,
@@ -401,7 +401,7 @@
           },
           {
             "name": "budget",
-            "type": "id_Integer",
+            "type": "int",
             "nullable": false,
             "key": false,
             "length": -1,
@@ -409,7 +409,7 @@
           },
           {
             "name": "salary",
-            "type": "id_Integer",
+            "type": "int",
             "nullable": false,
             "key": false,
             "length": -1,
@@ -538,7 +538,7 @@
         "input": [
           {
             "name": "emp_id",
-            "type": "id_String",
+            "type": "str",
             "nullable": false,
             "key": false,
             "length": -1,
@@ -546,7 +546,7 @@
           },
           {
             "name": "name",
-            "type": "id_String",
+            "type": "str",
             "nullable": false,
             "key": false,
             "length": -1,
@@ -554,7 +554,7 @@
           },
           {
             "name": "dept_code",
-            "type": "id_String",
+            "type": "str",
             "nullable": false,
             "key": false,
             "length": -1,
@@ -562,7 +562,7 @@
           },
           {
             "name": "department",
-            "type": "id_String",
+            "type": "str",
             "nullable": false,
             "key": false,
             "length": -1,
@@ -570,7 +570,7 @@
           },
           {
             "name": "budget",
-            "type": "id_Integer",
+            "type": "int",
             "nullable": false,
             "key": false,
             "length": -1,
@@ -578,7 +578,7 @@
           },
           {
             "name": "salary",
-            "type": "id_Integer",
+            "type": "int",
             "nullable": false,
             "key": false,
             "length": -1,

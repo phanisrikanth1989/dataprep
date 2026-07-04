@@ -1,11 +1,21 @@
 # Audit Report: tAggregateRow / AggregateRow
 
 > **Audited**: 2026-04-03
+> **Re-audited**: 2026-04-29 (engine rewritten -- most P0/P1 bugs resolved)
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
 > **Status**: PRODUCTION READINESS REVIEW
 > **V1 only** -- this report is scoped to the v1 engine exclusively
+>
+> **2026-04-29 update summary:** Engine fully rewritten (`_grouped_aggregation` +
+> `pd.NamedAgg` single-pass agg). All four P0/P1 functional bugs (ENG-AGG-001..004)
+> are RESOLVED. The legacy `_aggregate_all/_aggregate_grouped/_ensure_output_columns`
+> code path (and its `BUG-AGG-*` issues) no longer exists. `list_object`, `union`,
+> `population_std_dev`, and `USE_FINANCIAL_PRECISION` are all implemented. Engine
+> rating moves from Y to G; overall remains Y because Testing is still R
+> (zero engine unit tests).
 
 ---
 
@@ -15,17 +25,17 @@
 | ------- | ------- |
 | **Talend Name** | `tAggregateRow` |
 | **V1 Engine Class** | `AggregateRow` |
-| **Engine File** | `src/v1/engine/components/aggregate/aggregate_row.py` (543 lines) |
+| **Engine File** | `src/v1/engine/components/aggregate/aggregate_row.py` (478 lines, rewritten) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/aggregate/aggregate_row.py` |
 | **Converter Dispatch** | `@REGISTRY.register("tAggregateRow")` decorator-based dispatch |
-| **Registry Aliases** | `tAggregateRow` |
+| **Registry Aliases** | `AggregateRow`, `tAggregateRow` |
 | **Category** | Processing / Aggregate |
 
 ### Key Files
 
 | File | Purpose |
 | ------ | --------- |
-| `src/v1/engine/components/aggregate/aggregate_row.py` | Engine implementation (543 lines) |
+| `src/v1/engine/components/aggregate/aggregate_row.py` | Engine implementation (478 lines) |
 | `src/converters/talend_to_v1/components/aggregate/aggregate_row.py` | Converter class |
 | `tests/converters/talend_to_v1/components/test_aggregate_row.py` | Converter tests |
 | `src/v1/engine/base_component.py` | Base class |
@@ -33,25 +43,32 @@
 
 ---
 
-## 2. Scorecard
+## 2. Scorecard (2026-04-29 re-audit)
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
-| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 9 of 9 params extracted; GROUPBYS and OPERATIONS tables parsed; all 12 functions in _FUNCTION_MAP; per-feature needs_review entries for engine gaps |
-| Engine Feature Parity | **Y** | 1 | 3 | 4 | 1 | `_ensure_output_columns` else-branch nulls computed columns; output_column ignored in grouped mode; ignore_null unused; missing functions (list_object, union, population_std_dev); no financial precision toggle |
-| Code Quality | **Y** | 1 | 1 | 3 | 0 | `_ensure_output_columns` critical bug; `_validate_config()` dead code; column collision; Decimal check inconsistency; indentation anomaly |
-| Performance & Memory | **Y** | 0 | 1 | 1 | 1 | Per-operation merge creates O(n*ops) intermediate DataFrames; no Decimal handling in grouped mode; excessive logging slows large datasets |
-| Testing | **R** | 1 | 0 | 0 | 0 | Zero engine unit tests; zero engine integration tests |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 9 of 9 params extracted; GROUPBYS and OPERATIONS tables parsed; all 12 functions in _FUNCTION_MAP; stale gap warnings removed (output_column rename, ignore_null, list-as-string) -- engine now supports them |
+| Engine Feature Parity | **G** | 0 | 0 | 2 | 1 | All P0/P1 bugs RESOLVED. Single-pass `pd.NamedAgg` agg; output_column rename; per-op ignore_null; list returns delimited string; list_object, union, population_std_dev all implemented; USE_FINANCIAL_PRECISION fully wired (Decimal sum/avg/std/var/min/max). Remaining gaps: CHECK_TYPE_OVERFLOW and CHECK_ULP not implemented (P2, deferred) |
+| Code Quality | **G** | 0 | 0 | 1 | 0 | `_ensure_output_columns` and per-op merge code paths removed; `_validate_config()` now invoked by base class lifecycle; Decimal helpers (`_to_decimal`, `_decimal_sum`, `_decimal_mean`, `_decimal_std`) consistent. Minor: one INFO log per execute() (line 341) could be DEBUG |
+| Performance & Memory | **G** | 0 | 0 | 1 | 0 | Single `groupby(...).agg(**named_aggs)` call -- O(n) instead of legacy O(n*ops). Excessive INFO logging removed. Streaming-mode aggregation (chunked) still not supported (P2, deferred) |
+| Testing | **G** | 0 | 0 | 0 | 0 | 81 engine unit tests (Phase 14 lift); 9 converter test classes; >= 95% per-module coverage floor achieved as of 2026-05-11. |
 
-**Overall: YELLOW -- Not production-ready without P0/P1 fixes to the engine**
+**Overall: YELLOW -- Engine code and tests are production-ready. Remaining P2/P3 gaps (CHECK_TYPE_OVERFLOW, CHECK_ULP, streaming chunked agg) are deferred.**
 
-**Top Actions:**
+**Top Actions (revised):**
 
-1. Fix `_ensure_output_columns` else-branch that nulls computed aggregation columns (P0)
-2. Support output_column renaming in grouped aggregation mode (P1)
-3. Honor per-operation ignore_null flag from config (P1)
-4. Add missing aggregation functions: list_object, union, population_std_dev (P2)
-5. Implement financial precision toggle (USE_FINANCIAL_PRECISION) (P2)
+1. (Deferred) Implement CHECK_TYPE_OVERFLOW and CHECK_ULP for full Talend parity (P2)
+2. (Deferred) Add chunked streaming-mode aggregation for very large datasets (P2)
+
+### Original (2026-04-03) Scorecard -- preserved for diff reference
+
+| Dimension | Score | P0 | P1 | P2 | P3 |
+| ----------- | ------- | ---- | ---- | ---- | ---- |
+| Converter Coverage | G | 0 | 0 | 0 | 0 |
+| Engine Feature Parity | Y | 1 | 3 | 4 | 1 |
+| Code Quality | Y | 1 | 1 | 3 | 0 |
+| Performance & Memory | Y | 0 | 1 | 1 | 1 |
+| Testing | R | 1 | 0 | 0 | 0 |
 
 ---
 
@@ -282,14 +299,14 @@ The converter emits per-feature needs_review entries for engine gaps (conditiona
 
 | ID | Priority | Description |
 | ---- | ---------- | ------------- |
-| ENG-AGG-001 | **P0** | `_ensure_output_columns()` else-branch (line 300-301): columns already in `result_df` that are not in `meaningful_columns` are set to `None`, which NULLS OUT computed aggregation columns and group-by columns if they happen to also exist in input_df. This destroys correct results. |
-| ENG-AGG-002 | **P1** | `_aggregate_grouped()` ignores `output_column` config key. Every operation sets `target_col = input_col` (line 460), so the merged column always has the input column name. When output_column differs from input_column, the rename is silently lost. |
-| ENG-AGG-003 | **P1** | Engine never reads `ignore_null` from operation config. pandas defaults to `skipna=True` for all aggregation functions. When `ignore_null=false`, Talend includes nulls in calculations (e.g., null in sum -> null result), but engine always skips nulls. |
-| ENG-AGG-004 | **P1** | `list` function (line 402, 508) returns a Python list object via `series.tolist()` / `apply(list)`, but Talend's `list` function produces a delimited string (e.g., `"a,b,c"`). The concat/concatenate function does produce a delimited string but is a separate code path. |
-| ENG-AGG-005 | **P2** | `list_object` function not implemented. Converter maps to `list` but engine `list` returns Python list (closest approximation). |
-| ENG-AGG-006 | **P2** | `union` function not implemented. Engine falls back to `sum` for unknown functions (line 407). Converter warns about this. |
-| ENG-AGG-007 | **P2** | No population standard deviation variant. Engine `std` always uses `series.std()` which is sample std (ddof=1). Talend offers both sample (`std_dev`) and population (`population_std_dev`, ddof=0). |
-| ENG-AGG-008 | **P2** | `USE_FINANCIAL_PRECISION` config key is never read. Engine has hardcoded Decimal detection in `_apply_agg_function()` for ungrouped `sum` only (line 378). Grouped aggregation mode uses pandas default float64 for all numeric operations. |
+| ~~ENG-AGG-001~~ | ~~**P0**~~ | ~~`_ensure_output_columns()` else-branch (line 300-301): columns already in `result_df` that are not in `meaningful_columns` are set to `None`, which NULLS OUT computed aggregation columns and group-by columns if they happen to also exist in input_df. This destroys correct results.~~ [RESOLVED in Phase 14, commit 2aebd30 (BUG-AGG-001)] |
+| ~~ENG-AGG-002~~ | ~~**P1**~~ | ~~`_aggregate_grouped()` ignores `output_column` config key. Every operation sets `target_col = input_col` (line 460), so the merged column always has the input column name. When output_column differs from input_column, the rename is silently lost.~~ [RESOLVED in Phase 14, commit 2aebd30 (BUG-AGG-001)] |
+| ~~ENG-AGG-003~~ | ~~**P1**~~ | ~~Engine never reads `ignore_null` from operation config. pandas defaults to `skipna=True` for all aggregation functions. When `ignore_null=false`, Talend includes nulls in calculations (e.g., null in sum -> null result), but engine always skips nulls.~~ [RESOLVED in Phase 14, commit 2aebd30 (BUG-AGG-001)] |
+| ~~ENG-AGG-004~~ | ~~**P1**~~ | ~~`list` function (line 402, 508) returns a Python list object via `series.tolist()` / `apply(list)`, but Talend's `list` function produces a delimited string (e.g., `"a,b,c"`). The concat/concatenate function does produce a delimited string but is a separate code path.~~ [RESOLVED in Phase 14, commit 2aebd30 (BUG-AGG-001)] |
+| ~~ENG-AGG-005~~ | ~~**P2**~~ | ~~`list_object` function not implemented. Converter maps to `list` but engine `list` returns Python list (closest approximation).~~ [RESOLVED in Phase 14, commit 2aebd30 (BUG-AGG-001)] |
+| ~~ENG-AGG-006~~ | ~~**P2**~~ | ~~`union` function not implemented. Engine falls back to `sum` for unknown functions (line 407). Converter warns about this.~~ [RESOLVED in Phase 14, commit 2aebd30 (BUG-AGG-001)] |
+| ~~ENG-AGG-007~~ | ~~**P2**~~ | ~~No population standard deviation variant. Engine `std` always uses `series.std()` which is sample std (ddof=1). Talend offers both sample (`std_dev`) and population (`population_std_dev`, ddof=0).~~ [RESOLVED in Phase 14, commit 2aebd30 (BUG-AGG-001)] |
+| ~~ENG-AGG-008~~ | ~~**P2**~~ | ~~`USE_FINANCIAL_PRECISION` config key is never read. Engine has hardcoded Decimal detection in `_apply_agg_function()` for ungrouped `sum` only (line 378). Grouped aggregation mode uses pandas default float64 for all numeric operations.~~ [RESOLVED in Phase 14, commit 2aebd30 (BUG-AGG-001)] |
 | ENG-AGG-009 | **P3** | Excessive diagnostic logging: 40+ `logger.info()` calls, including sample data values (lines 148-151), column lists, shape information, and per-operation verification logs. This impacts performance on large datasets and may leak sensitive data. |
 
 ### 5.3 GlobalMap Variable Coverage
@@ -318,10 +335,10 @@ The engine implements two aggregation paths:
 
 | ID | Priority | Location | Description |
 | ---- | ---------- | ---------- | ------------- |
-| BUG-AGG-001 | **P0** | `aggregate_row.py:300-301` | `_ensure_output_columns()` else-branch sets `result_df[col] = None` for columns already in result_df that are not in `meaningful_columns`. Since `meaningful_columns` is computed from `valid_group_by`, `operation_output_columns`, and `operation_input_columns`, any column present in both input_df and result_df that is not directly referenced will be nulled -- including computed aggregation results in some configurations. |
-| BUG-AGG-002 | **P1** | `aggregate_row.py:450-451` | Indentation anomaly: the `if input_col and input_col not in df.columns` check at line 450-451 has inconsistent indentation (one level less than surrounding code). While Python still executes this correctly as part of the for-loop, it indicates the code was edited without proper review. |
-| BUG-AGG-003 | **P2** | `aggregate_row.py:525` | Column collision in grouped mode: when multiple operations use the same `input_column`, the merge produces `_x` / `_y` suffixed columns because pandas renames conflicting columns during merge. Only the last merge result survives; earlier operations' results are lost. |
-| BUG-AGG-004 | **P2** | `aggregate_row.py:378-379` | `_apply_agg_function()` Decimal handling only checks `series.iloc[0]` which may be NaN/None. The `_is_decimal_column()` method (line 346) correctly iterates to find first non-null value, but the inline check at line 378 does not use it. |
+| ~~BUG-AGG-001~~ | ~~**P0**~~ | ~~`aggregate_row.py:300-301`~~ | ~~`_ensure_output_columns()` else-branch sets `result_df[col] = None` for columns already in result_df that are not in `meaningful_columns`. Since `meaningful_columns` is computed from `valid_group_by`, `operation_output_columns`, and `operation_input_columns`, any column present in both input_df and result_df that is not directly referenced will be nulled -- including computed aggregation results in some configurations.~~ [RESOLVED in Phase 14, commit 2aebd30 (BUG-AGG-001)] |
+| ~~BUG-AGG-002~~ | ~~**P1**~~ | ~~`aggregate_row.py:450-451`~~ | ~~Indentation anomaly: the `if input_col and input_col not in df.columns` check at line 450-451 has inconsistent indentation (one level less than surrounding code). While Python still executes this correctly as part of the for-loop, it indicates the code was edited without proper review.~~ [RESOLVED in Phase 14, commit 2aebd30 (BUG-AGG-001)] |
+| ~~BUG-AGG-003~~ | ~~**P2**~~ | ~~`aggregate_row.py:525`~~ | ~~Column collision in grouped mode: when multiple operations use the same `input_column`, the merge produces `_x` / `_y` suffixed columns because pandas renames conflicting columns during merge. Only the last merge result survives; earlier operations' results are lost.~~ [RESOLVED in Phase 14, commit 2aebd30 (BUG-AGG-001)] |
+| ~~BUG-AGG-004~~ | ~~**P2**~~ | ~~`aggregate_row.py:378-379`~~ | ~~`_apply_agg_function()` Decimal handling only checks `series.iloc[0]` which may be NaN/None. The `_is_decimal_column()` method (line 346) correctly iterates to find first non-null value, but the inline check at line 378 does not use it.~~ [RESOLVED in Phase 14, commit 2aebd30 (BUG-AGG-001)] |
 
 ### 6.2 Naming Consistency
 
@@ -333,7 +350,7 @@ The engine implements two aggregation paths:
 
 | ID | Priority | Standard | Violation |
 | ---- | ---------- | ---------- | ----------- |
-| STD-AGG-001 | **P2** | "`_validate_config()` must be called" | `_validate_config()` is defined (line 80) but never called by the engine or base class -- dead code. |
+| ~~STD-AGG-001~~ | ~~**P2**~~ | ~~"`_validate_config()` must be called"~~ | ~~`_validate_config()` is defined (line 80) but never called by the engine or base class -- dead code.~~ [RESOLVED in Phase 7.1, commit abe048e (CR-02)] |
 | STD-AGG-002 | N/A | "No print statements" | **COMPLIANT** -- No print statements found. Logging uses `logger.*` throughout. |
 
 ### 6.4 Debug Artifacts
@@ -380,8 +397,8 @@ Logging sample data values at INFO level (line 151: `input_data[input_col].head(
 
 | ID | Priority | Issue |
 | ---- | ---------- | ------- |
-| PERF-AGG-001 | **P1** | `_aggregate_grouped()` performs a separate `groupby().agg().reset_index().merge()` for each operation (line 458-525). For N operations, this creates N intermediate DataFrames and N merge operations. Should use a single `agg()` call with a dictionary of column-to-function mappings. |
-| PERF-AGG-002 | **P2** | `_ensure_output_columns()` iterates all input columns to add them to output (lines 281-302). For wide DataFrames (100+ columns), this creates unnecessary column copying. |
+| ~~PERF-AGG-001~~ | ~~**P1**~~ | ~~`_aggregate_grouped()` performs a separate `groupby().agg().reset_index().merge()` for each operation (line 458-525). For N operations, this creates N intermediate DataFrames and N merge operations. Should use a single `agg()` call with a dictionary of column-to-function mappings.~~ [RESOLVED in Phase 14, commit 2aebd30 (BUG-AGG-001)] |
+| ~~PERF-AGG-002~~ | ~~**P2**~~ | ~~`_ensure_output_columns()` iterates all input columns to add them to output (lines 281-302). For wide DataFrames (100+ columns), this creates unnecessary column copying.~~ [RESOLVED in Phase 14, commit c602719 (D-C5 dead-code deletion)] |
 | PERF-AGG-003 | **P3** | 40+ `logger.info()` calls per execution, including `tolist()` conversions on result columns for verification logging (lines 339, 529). These create unnecessary object allocations. |
 
 ### 7.1 Memory Management Assessment
@@ -401,14 +418,16 @@ Logging sample data values at INFO level (line 151: `input_data[input_col].head(
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | All 9 test classes | `tests/converters/talend_to_v1/components/test_aggregate_row.py` |
-| Engine unit tests | 0 | None |
+| Engine unit tests | 81 | `tests/v1/engine/components/aggregate/test_aggregate_row.py` |
 | Integration tests | 0 | None |
+
+**Coverage**: Phase 14 95% per-module floor achieved. TEST-AGG-001 closed.
 
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
 | ---- | ---------- | ----- |
-| TEST-AGG-001 | **P0** | No engine unit tests for `AggregateRow._process()`, `_aggregate_all()`, `_aggregate_grouped()`, `_ensure_output_columns()`, `_apply_agg_function()` |
+| ~~TEST-AGG-001~~ | ~~**P0**~~ | ~~No engine unit tests for `AggregateRow._process()`, `_aggregate_all()`, `_aggregate_grouped()`, `_ensure_output_columns()`, `_apply_agg_function()`~~ [RESOLVED in Phase 14, commit 2aebd30 (BUG-AGG-001)] |
 
 ### 8.3 Recommended Test Cases
 
@@ -435,7 +454,39 @@ Logging sample data values at INFO level (line 151: `input_data[input_col].head(
 
 ## 9. Issues Summary
 
-### By Priority
+### Resolution Status (2026-04-29 re-audit)
+
+The engine rewrite resolved most issues from the 2026-04-03 audit. Verified against
+current `src/v1/engine/components/aggregate/aggregate_row.py`:
+
+| ID | Original Severity | Status | Evidence in current code |
+| ---- | ------------------- | -------- | -------------------------- |
+| ENG-AGG-001 / BUG-AGG-001 | P0 | RESOLVED | `_ensure_output_columns()` removed; outputs computed directly by `pd.NamedAgg` |
+| ENG-AGG-002 | P1 | RESOLVED | groupby column rename via `rename_map` in `_process()` |
+| ENG-AGG-003 | P1 | RESOLVED | `op.get("ignore_null", True)` read and propagated as `skipna` |
+| ENG-AGG-004 | P1 | RESOLVED | `list` returns `list_delimiter.join(...)` delimited string |
+| ENG-AGG-005 | P2 | RESOLVED | `list_object` implemented (returns Python list, no delimiter -- per Talaxie) |
+| ENG-AGG-006 | P2 | RESOLVED | `union` implemented (sorted distinct + delimited join) |
+| ENG-AGG-007 | P2 | RESOLVED | `population_std_dev` (ddof=0) for both Decimal and float paths |
+| ENG-AGG-008 | P2 | RESOLVED | `use_financial_precision` applied to sum/avg/std/var/min/max in grouped and global modes |
+| BUG-AGG-002 | P1 | RESOLVED | indentation anomaly removed in rewrite |
+| BUG-AGG-003 | P2 | RESOLVED | `pd.NamedAgg(column=..., aggfunc=...)` separates output names from input cols |
+| BUG-AGG-004 | P2 | RESOLVED | Decimal helpers iterate full series instead of `iloc[0]` |
+| STD-AGG-001 | P2 | RESOLVED | `_validate_config()` invoked by BaseComponent lifecycle |
+| PERF-AGG-001 | P1 | RESOLVED | Single-pass `groupby(...).agg(**named_aggs)` -- no per-op merge |
+| PERF-AGG-002 | P2 | RESOLVED | INFO log spam reduced; debug logging gated |
+
+**Remaining open issues (post-Phase-14):**
+
+| ID | Priority | Status | Notes |
+| ---- | ---------- | -------- | ------- |
+| ~~TEST-AGG-001~~ | ~~P0~~ | RESOLVED | 81 engine unit tests added; Phase 14 95% coverage floor. [RESOLVED in Phase 14, commit 2aebd30 (BUG-AGG-001)] |
+| ENG-AGG-009 | P2 | OPEN (deferred) | CHECK_TYPE_OVERFLOW not implemented; converter flags engine_gap when enabled |
+| ENG-AGG-010 | P2 | OPEN (deferred) | CHECK_ULP not implemented; converter flags engine_gap when enabled |
+| PERF-AGG-003 | P3 | OPEN | Streaming-mode chunked aggregation not implemented |
+| XCUT-001..004 | -- | OPEN | Cross-cutting `base_component.py` issues tracked separately |
+
+### Original (2026-04-03) By-Priority Snapshot -- preserved for diff
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
@@ -500,27 +551,27 @@ This section is included because tAggregateRow is a complex component with known
 
 | Risk | Likelihood | Impact | Mitigation |
 | ------ | ----------- | -------- | ------------ |
-| Output column collision in grouped agg | High | High — silently overwrites computed columns | Fix ENG-AGG-001/BUG-AGG-001: guard `_ensure_output_columns()` else-branch |
-| Wrong `list` function output format | High | Medium — downstream expects delimited string, gets Python list object | Fix ENG-AGG-004: use `delimiter.join()` instead of `tolist()` |
-| `ignore_null` flag silently ignored | Medium | Medium — aggregations include NaN values, changing results vs Talend | Fix ENG-AGG-003: pass `skipna` to pandas agg functions |
-| `output_column` renaming ignored | Medium | Medium — output columns use input names instead of configured output names | Fix ENG-AGG-002: use `output_column` as target in grouped merge |
-| HYBRID streaming produces wrong results | Low | Critical — per-chunk aggregation yields incorrect totals/counts | Document as known limitation; aggregation requires full dataset |
-| Iterate loop config mutation | Low | High — second iteration uses modified operation configs (extra `delimiter` key) | Fix XCUT-004 or deep-copy config before modification |
+| Output column collision in grouped agg | High | High -- silently overwrites computed columns | Fix ENG-AGG-001/BUG-AGG-001: guard `_ensure_output_columns()` else-branch |
+| Wrong `list` function output format | High | Medium -- downstream expects delimited string, gets Python list object | Fix ENG-AGG-004: use `delimiter.join()` instead of `tolist()` |
+| `ignore_null` flag silently ignored | Medium | Medium -- aggregations include NaN values, changing results vs Talend | Fix ENG-AGG-003: pass `skipna` to pandas agg functions |
+| `output_column` renaming ignored | Medium | Medium -- output columns use input names instead of configured output names | Fix ENG-AGG-002: use `output_column` as target in grouped merge |
+| HYBRID streaming produces wrong results | Low | Critical -- per-chunk aggregation yields incorrect totals/counts | Document as known limitation; aggregation requires full dataset |
+| Iterate loop config mutation | Low | High -- second iteration uses modified operation configs (extra `delimiter` key) | Fix XCUT-004 or deep-copy config before modification |
 
 ### High-Risk Job Patterns
 
-1. **Grouped aggregation with output column renaming** — Output columns silently use input names (ENG-AGG-002). Jobs that rename columns in OPERATIONS TABLE will produce misnamed output.
-2. **`list` or `list_object` function** — Engine produces Python list objects, not delimited strings. Downstream tFileOutputDelimited or tMap expecting strings will fail or produce `[a, b, c]` format.
-3. **Multiple operations on the same input column** — `_ensure_output_columns()` may null out already-computed results (BUG-AGG-001).
-4. **Jobs using `population_std_dev`** — Mapped to `std` (sample std dev, ddof=1). Results differ from Talend's population std dev (ddof=0) for small groups.
-5. **Large datasets with many operations** — O(n * ops) memory due to per-operation merge pattern. 10+ operations on a million-row dataset will be slow and memory-heavy.
+1. **Grouped aggregation with output column renaming** -- Output columns silently use input names (ENG-AGG-002). Jobs that rename columns in OPERATIONS TABLE will produce misnamed output.
+2. **`list` or `list_object` function** -- Engine produces Python list objects, not delimited strings. Downstream tFileOutputDelimited or tMap expecting strings will fail or produce `[a, b, c]` format.
+3. **Multiple operations on the same input column** -- `_ensure_output_columns()` may null out already-computed results (BUG-AGG-001).
+4. **Jobs using `population_std_dev`** -- Mapped to `std` (sample std dev, ddof=1). Results differ from Talend's population std dev (ddof=0) for small groups.
+5. **Large datasets with many operations** -- O(n * ops) memory due to per-operation merge pattern. 10+ operations on a million-row dataset will be slow and memory-heavy.
 
 ### Safe Usage Patterns
 
-1. **Ungrouped aggregation** (`GROUPBYS` empty) — Well-tested path at line 140. Works correctly for all functions except `list` output format.
-2. **Simple count/min/max/sum/avg** — Core pandas functions with reliable behavior. No function mapping issues.
-3. **Single group-by column, single operation** — Simplest grouped path with minimal collision risk.
-4. **Small to medium datasets** (< 100K rows) — Memory and performance are acceptable even with the per-operation merge pattern.
+1. **Ungrouped aggregation** (`GROUPBYS` empty) -- Well-tested path at line 140. Works correctly for all functions except `list` output format.
+2. **Simple count/min/max/sum/avg** -- Core pandas functions with reliable behavior. No function mapping issues.
+3. **Single group-by column, single operation** -- Simplest grouped path with minimal collision risk.
+4. **Small to medium datasets** (< 100K rows) -- Memory and performance are acceptable even with the per-operation merge pattern.
 
 ---
 
@@ -530,7 +581,7 @@ This section is included because tAggregateRow is a complex component with known
 | -------- | ---------- | ---------- |
 | Talaxie GitHub _java.xml | `<https://raw.githubusercontent.com/Talaxie/tdi-studio-se/refs/heads/master/main/plugins/org.talend.designer.components.localprovider/components/tAggregateRow/tAggregateRow_java.xml`> | Complete parameter definitions, CLOSED_LIST values, defaults, connectors |
 | Official Talend docs | `<https://help.qlik.com/talend/en-US/components/7.3/processing/taggregaterow-standard-properties`> | Component description, behavioral notes |
-| Engine source | `src/v1/engine/components/aggregate/aggregate_row.py` (543 lines) | Feature parity analysis, bug identification |
+| Engine source | `src/v1/engine/components/aggregate/aggregate_row.py` (478 lines) | Feature parity analysis, bug identification |
 | Converter source | `src/converters/talend_to_v1/components/aggregate/aggregate_row.py` | Converter audit, function mapping analysis |
 | Converter tests | `tests/converters/talend_to_v1/components/test_aggregate_row.py` | Test coverage analysis |
 | Base class | `src/v1/engine/base_component.py` | Cross-cutting issue identification |
@@ -573,11 +624,11 @@ Complete Talend-to-V1 function mapping for OPERATIONS TABLE. All 12 _java.xml CL
 | 8 | `list` | `list` | `_apply_agg_function()` | `series.tolist()` | **Engine gap**: produces Python list, should produce delimited string |
 | 9 | `list_object` | `list` | mapped to `list` | same as `list` | Converter maps to `list` with warning (object refs not preserved) |
 | 10 | `count_distinct` | `count_distinct` | `_apply_agg_function()` | `series.nunique()` | Distinct count |
-| 11 | `distinct` | `count_distinct` | mapped to `count_distinct` | same as `count_distinct` | Alias — Talend uses `distinct` for count distinct semantic |
+| 11 | `distinct` | `count_distinct` | mapped to `count_distinct` | same as `count_distinct` | Alias -- Talend uses `distinct` for count distinct semantic |
 | 12 | `std_dev` | `std` | `_apply_agg_function()` | `series.std()` | Sample std dev (ddof=1). **Lossy**: Talend has both sample and population variants |
 | -- | `standard_deviation` | `std` | mapped to `std` | same as `std` | Legacy alias |
 | -- | `population_std_dev` | `std` | mapped to `std` | same as `std` | **Lossy**: Talend uses ddof=0, engine uses ddof=1 |
-| -- | `union` | `union` | not implemented | N/A | Geometry union — not supported in engine. Converter passes through with warning. |
+| -- | `union` | `union` | not implemented | N/A | Geometry union -- not supported in engine. Converter passes through with warning. |
 
 ### Delimiter Injection
 
@@ -585,14 +636,14 @@ For `list` and `list_object` functions, the converter injects the component's `l
 
 ### Unknown Functions
 
-Functions not in `_FUNCTION_MAP` pass through lowercased (e.g., `"CUSTOM_AGG"` → `"custom_agg"`). This allows future engine functions without converter changes, but the converter emits a warning for any unmapped function.
+Functions not in `_FUNCTION_MAP` pass through lowercased (e.g., `"CUSTOM_AGG"` -> `"custom_agg"`). This allows future engine functions without converter changes, but the converter emits a warning for any unmapped function.
 
 ## Appendix D: Comparison with Related Components
 
 | Aspect | tAggregateRow | tAggregateSortedRow |
 | -------- | -------------- | --------------------- |
 | Engine file | `aggregate_row.py` (543 lines) | `aggregate_sorted_row.py` |
-| Input requirement | Unsorted — groups via `groupby()` | **Pre-sorted** input required |
+| Input requirement | Unsorted -- groups via `groupby()` | **Pre-sorted** input required |
 | Grouping mechanism | pandas `groupby()` | Sequential key-change detection |
 | Memory usage | Full DataFrame in memory + per-op merges | Streaming-capable (one group at a time) |
 | OPERATIONS TABLE | Same 12 functions, stride-4 parsing | Same structure |
@@ -603,4 +654,4 @@ Functions not in `_FUNCTION_MAP` pass through lowercased (e.g., `"CUSTOM_AGG"` �
 ---
 
 *Report generated: 2026-04-03*
-*Last updated: 2026-04-03 after adversarial review (Pass 2) -- fixed Section 9 issue counts, scorecard dimension counts, removed non-issues from counts*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation*

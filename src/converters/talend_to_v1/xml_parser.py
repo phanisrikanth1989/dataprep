@@ -247,18 +247,26 @@ class XmlParser:
 
             connector_type = conn_elem.get("connectorName", "")
             label = conn_elem.get("label", "")
+            try:
+                output_id = int(conn_elem.get("outputId", "0") or "0")
+            except (TypeError, ValueError):
+                output_id = 0
 
-            # Extract UNIQUE_NAME and CONDITION from elementParameters
+            # Extract UNIQUE_NAME and CONDITION from elementParameters;
+            # capture all other name/value pairs into params dict.
             name = label
             condition = None
+            params: Dict[str, str] = {}
             for ep in conn_elem.findall("elementParameter"):
                 ep_name = ep.get("name", "")
+                ep_value = ep.get("value", "")
                 if ep_name == "UNIQUE_NAME":
-                    name = self._strip_quotes(ep.get("value", label))
+                    name = self._strip_quotes(ep_value or label)
                 elif ep_name == "CONDITION":
-                    raw = ep.get("value", "")
-                    if raw:
-                        condition = raw
+                    if ep_value:
+                        condition = ep_value
+                else:
+                    params[ep_name] = self._strip_quotes(ep_value)
 
             connections.append(
                 TalendConnection(
@@ -267,6 +275,8 @@ class XmlParser:
                     target=target,
                     connector_type=connector_type,
                     condition=condition,
+                    params=params,
+                    output_id=output_id,
                 )
             )
 

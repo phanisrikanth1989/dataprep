@@ -157,11 +157,12 @@ class TestFlowParsing:
             _make_connection("row1", "A", "B", "FLOW"),
             _make_connection("row2", "B", "C", "REJECT"),
         ]
-        flows = TalendToV1Converter._parse_flows(connections)
+        flows, needs_review = TalendToV1Converter._parse_flows(connections)
 
         assert len(flows) == 2
         assert flows[0] == {"name": "row1", "from": "A", "to": "B", "type": "flow"}
         assert flows[1] == {"name": "row2", "from": "B", "to": "C", "type": "reject"}
+        assert needs_review == []
 
     def test_trigger_connections_excluded_from_flows(self):
         """Trigger connections (SUBJOB_OK, etc.) are NOT included in flows."""
@@ -170,10 +171,11 @@ class TestFlowParsing:
             _make_connection("trigger1", "A", "C", "SUBJOB_OK"),
             _make_connection("trigger2", "A", "D", "COMPONENT_OK"),
         ]
-        flows = TalendToV1Converter._parse_flows(connections)
+        flows, needs_review = TalendToV1Converter._parse_flows(connections)
 
         assert len(flows) == 1
         assert flows[0]["name"] == "row1"
+        assert needs_review == []
 
     def test_all_flow_connector_types(self):
         """All recognized flow connector types produce flows."""
@@ -182,10 +184,11 @@ class TestFlowParsing:
             _make_connection(f"row_{ct.lower()}", "A", "B", ct)
             for ct in flow_types
         ]
-        flows = TalendToV1Converter._parse_flows(connections)
+        flows, needs_review = TalendToV1Converter._parse_flows(connections)
         assert len(flows) == len(flow_types)
         for i, ct in enumerate(flow_types):
             assert flows[i]["type"] == ct.lower()
+        assert needs_review == []
 
     def test_empty_source_or_target_skipped(self):
         """Connections with empty source or target are skipped."""
@@ -193,8 +196,9 @@ class TestFlowParsing:
             _make_connection("row1", "", "B", "FLOW"),
             _make_connection("row2", "A", "", "FLOW"),
         ]
-        flows = TalendToV1Converter._parse_flows(connections)
+        flows, needs_review = TalendToV1Converter._parse_flows(connections)
         assert len(flows) == 0
+        assert needs_review == []
 
 
 # ---------------------------------------------------------------------------
@@ -681,5 +685,345 @@ class TestFullPipeline:
             assert config["context"]["Default"]["host"]["value"] == "localhost"
             assert config["context"]["Default"]["host"]["type"] == "str"
 
+        finally:
+            os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# 9. Schema propagation -- ENG-CR-04 PRODUCER and ENG-WR-09
+# ---------------------------------------------------------------------------
+
+class TestSchemaPropagation:
+    """ENG-CR-04 PRODUCER: _propagate_input_schemas writes per-flow inputs map.
+    ENG-WR-09: outputs lookup is case-tolerant (normalized to uppercase).
+    """
+
+    def test_multi_input_per_flow_schema(self):
+        """2-input flow graph: each flow's schema appears under to_schema['inputs'].
+
+        ENG-CR-04 PRODUCER: _propagate_input_schemas used to overwrite
+        to_schema['input'] for the last flow, losing earlier schema.
+        Fix: write to_schema['inputs'][flow_name] = schema for each flow,
+        preserving ALL per-flow schemas. Legacy to_schema['input'] still
+        set (last-write-wins is OK for single-input back-compat).
+        """
+        src1_schema_cols = [{"name": "col_a", "type": "int"}, {"name": "col_b", "type": "str"}]
+        src2_schema_cols = [{"name": "col_x", "type": "float"}, {"name": "col_y", "type": "str"}]
+
+        src1 = {
+            "id": "SRC1",
+            "schema": {
+                "output": src1_schema_cols,
+                "outputs": {"FLOW": src1_schema_cols},
+            },
+        }
+        src2 = {
+            "id": "SRC2",
+            "schema": {
+                "output": src2_schema_cols,
+                "outputs": {"FLOW": src2_schema_cols},
+            },
+        }
+        # tMap-style multi-input target with empty input as marker
+        target = {
+            "id": "TARGET",
+            "schema": {
+                "input": [],
+            },
+        }
+
+        components_map = {"SRC1": src1, "SRC2": src2, "TARGET": target}
+        flows = [
+            {"name": "main_flow", "from": "SRC1", "to": "TARGET", "type": "flow"},
+            {"name": "lookup_flow", "from": "SRC2", "to": "TARGET", "type": "flow"},
+        ]
+
+        TalendToV1Converter._propagate_input_schemas(components_map, flows)
+
+        target_schema = components_map["TARGET"]["schema"]
+
+        # Each flow has its own schema in the inputs map (ENG-CR-04 fix)
+        assert "inputs" in target_schema, "Expected 'inputs' map in target schema"
+        assert "main_flow" in target_schema["inputs"], "Expected 'main_flow' in inputs"
+        assert "lookup_flow" in target_schema["inputs"], "Expected 'lookup_flow' in inputs"
+
+        assert target_schema["inputs"]["main_flow"] == src1_schema_cols, (
+            f"main_flow schema wrong: {target_schema['inputs']['main_flow']}"
+        )
+        assert target_schema["inputs"]["lookup_flow"] == src2_schema_cols, (
+            f"lookup_flow schema wrong: {target_schema['inputs']['lookup_flow']}"
+        )
+
+        # Legacy single 'input' still set for back-compat (last-write-wins is documented)
+        assert "input" in target_schema, "Legacy 'input' key should still be set"
+
+    def test_case_tolerant_outputs_lookup(self):
+        """Lowercase outputs keys match uppercase flow type via normalized lookup.
+
+        ENG-WR-09: outputs_map may have lowercase keys (e.g. {"filter": [...]}) while
+        the flow type after .upper() is "FILTER". Without normalization, the lookup fails
+        and the upstream output is not found. Fix: normalize both outputs_map keys and
+        the connector_key to uppercase before lookup.
+        """
+        filter_cols = [{"name": "id", "type": "int"}]
+        src = {
+            "id": "SRC",
+            "schema": {
+                # lowercase keys in outputs (as if manually written or lower-cased elsewhere)
+                "outputs": {"filter": filter_cols},
+                "output": filter_cols,
+            },
+        }
+        target = {
+            "id": "TARGET",
+            "schema": {"input": []},
+        }
+        components_map = {"SRC": src, "TARGET": target}
+        # flow type is lowercase "filter" (as _parse_flows produces)
+        flows = [{"name": "filter_row", "from": "SRC", "to": "TARGET", "type": "filter"}]
+
+        TalendToV1Converter._propagate_input_schemas(components_map, flows)
+
+        target_schema = components_map["TARGET"]["schema"]
+        # Should find the schema via case-tolerant lookup
+        assert "inputs" in target_schema, "inputs map should be populated even with lowercase outputs key"
+        assert "filter_row" in target_schema["inputs"], "filter_row flow should be in inputs"
+        assert target_schema["inputs"]["filter_row"] == filter_cols
+
+
+# ---------------------------------------------------------------------------
+# 10. Converter filter_rows needs_review -- ENG-WR-08
+# ---------------------------------------------------------------------------
+
+class TestNeedsReview:
+    """ENG-WR-08: converter filter_rows must not claim 'engine uses eval()'."""
+
+    def _make_filter_node(self, params=None):
+        from src.converters.talend_to_v1.components.base import TalendNode
+        return TalendNode(
+            component_id="fr_test",
+            component_type="tFilterRow",
+            params=params or {"USE_ADVANCED": "true", "ADVANCED_COND": '"row1.age > 5"'},
+            schema={},
+            position={"x": 0, "y": 0},
+            raw_xml=None,
+        )
+
+    def test_no_eval_claim(self):
+        """needs_review must NOT contain 'eval()' claims about the engine.
+
+        ENG-WR-08: the old converter asserted "engine uses eval() for advanced conditions".
+        This is FALSE -- the engine uses the Java bridge (execute_tmap_preprocessing).
+        Fix: remove the false claim from needs_review entries.
+        """
+        from src.converters.talend_to_v1.components.transform.filter_rows import (
+            FilterRowsConverter,
+        )
+        node = self._make_filter_node()
+        result = FilterRowsConverter().convert(node, [], {})
+
+        eval_claims = [
+            entry for entry in result.needs_review
+            if "eval()" in str(entry.get("issue", ""))
+        ]
+        assert len(eval_claims) == 0, (
+            f"Found false eval() claims in needs_review: {eval_claims}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# 11. Plan 14-11: ITERATE NUMBER_PARALLEL parse-error path (lines 255-256)
+# ---------------------------------------------------------------------------
+
+
+class TestIterateNumberParallelEdges:
+    """Cover NUMBER_PARALLEL int(...) ValueError path in _parse_flows."""
+
+    def test_iterate_number_parallel_unparseable_falls_back_to_zero(self):
+        """ITERATE flow with non-numeric NUMBER_PARALLEL falls back to 0."""
+        conn = TalendConnection(
+            name="iter_1",
+            source="A",
+            target="B",
+            connector_type="ITERATE",
+            params={
+                "ENABLE_PARALLEL": "true",
+                "NUMBER_PARALLEL": "not-a-number",
+            },
+        )
+        flows, needs_review = TalendToV1Converter._parse_flows([conn])
+
+        assert len(flows) == 1
+        flow = flows[0]
+        assert flow["enable_parallel"] is True
+        assert flow["number_parallel"] == 0
+        # parallel review entry emitted because enable_parallel=True
+        assert len(needs_review) == 1
+        assert needs_review[0]["severity"] == "engine_gap"
+        assert "Parallel iteration" in needs_review[0]["message"]
+
+    def test_iterate_number_parallel_none_falls_back_to_zero(self):
+        """ITERATE flow with NUMBER_PARALLEL=None (raw) falls back to 0 (or-default '0')."""
+        conn = TalendConnection(
+            name="iter_2",
+            source="A",
+            target="B",
+            connector_type="ITERATE",
+            params={
+                "ENABLE_PARALLEL": "false",
+                # NUMBER_PARALLEL absent -> defaults to "0"
+            },
+        )
+        flows, needs_review = TalendToV1Converter._parse_flows([conn])
+
+        assert len(flows) == 1
+        assert flows[0]["enable_parallel"] is False
+        assert flows[0]["number_parallel"] == 0
+        # No parallel review when enable_parallel=False
+        assert needs_review == []
+
+    def test_iterate_number_parallel_object_int_cast_fails(self):
+        """ITERATE NUMBER_PARALLEL set to an object that cannot int(...) cleanly -> 0."""
+        conn = TalendConnection(
+            name="iter_3",
+            source="A",
+            target="B",
+            connector_type="ITERATE",
+            params={
+                "ENABLE_PARALLEL": "true",
+                # An object that's truthy (so the `or "0"` short-circuit doesn't help)
+                # but raises TypeError when passed to int(...)
+                "NUMBER_PARALLEL": {"k": 1},
+            },
+        )
+        flows, needs_review = TalendToV1Converter._parse_flows([conn])
+
+        assert len(flows) == 1
+        assert flows[0]["enable_parallel"] is True
+        # int({"k":1}) raises TypeError -> caught -> falls back to 0
+        assert flows[0]["number_parallel"] == 0
+        assert len(needs_review) == 1
+
+
+# ---------------------------------------------------------------------------
+# 12. Plan 14-11: schema propagation guards (lines 329, 336)
+# ---------------------------------------------------------------------------
+
+
+class TestSchemaPropagationGuards:
+    """Cover the two early-return guards in _propagate_input_schemas."""
+
+    def test_missing_from_comp_skips_flow(self):
+        """A flow whose 'from' is not in components_map is silently skipped."""
+        # to_comp present, from_comp missing
+        target = {"id": "TARGET", "schema": {"input": [], "output": []}}
+        components_map = {"TARGET": target}
+        flows = [
+            {"name": "ghost_flow", "from": "GHOST", "to": "TARGET", "type": "flow"},
+        ]
+
+        # Should NOT raise; should leave target schema untouched.
+        TalendToV1Converter._propagate_input_schemas(components_map, flows)
+        assert "inputs" not in target["schema"]
+        assert target["schema"]["input"] == []
+
+    def test_missing_to_comp_skips_flow(self):
+        """A flow whose 'to' is not in components_map is silently skipped."""
+        src = {"id": "SRC", "schema": {"output": [{"name": "x", "type": "str"}]}}
+        components_map = {"SRC": src}
+        flows = [
+            {"name": "ghost_flow", "from": "SRC", "to": "GHOST", "type": "flow"},
+        ]
+
+        # Should NOT raise; nothing to propagate to.
+        TalendToV1Converter._propagate_input_schemas(components_map, flows)
+        # Source unchanged
+        assert src["schema"]["output"] == [{"name": "x", "type": "str"}]
+
+    def test_non_dict_from_schema_skips_flow(self):
+        """A flow whose 'from' component schema is not a dict (e.g., None or list) is skipped."""
+        src = {"id": "SRC", "schema": None}  # not a dict
+        target = {"id": "TARGET", "schema": {"input": []}}
+        components_map = {"SRC": src, "TARGET": target}
+        flows = [
+            {"name": "f1", "from": "SRC", "to": "TARGET", "type": "flow"},
+        ]
+
+        TalendToV1Converter._propagate_input_schemas(components_map, flows)
+        # No propagation happened -- target.input untouched
+        assert target["schema"]["input"] == []
+        assert "inputs" not in target["schema"]
+
+    def test_non_dict_to_schema_skips_flow(self):
+        """A flow whose 'to' component schema is not a dict is skipped."""
+        src = {"id": "SRC", "schema": {"output": [{"name": "x", "type": "str"}]}}
+        target = {"id": "TARGET", "schema": []}  # not a dict (e.g., legacy list form)
+        components_map = {"SRC": src, "TARGET": target}
+        flows = [
+            {"name": "f1", "from": "SRC", "to": "TARGET", "type": "flow"},
+        ]
+
+        # Should not raise.
+        TalendToV1Converter._propagate_input_schemas(components_map, flows)
+        # Target schema is the same object (a list); propagation never wrote into it
+        assert target["schema"] == []
+
+
+# ---------------------------------------------------------------------------
+# 13. Plan 14-11: subjob DFS visited-guard (line 415)
+# ---------------------------------------------------------------------------
+
+
+class TestSubjobDFSVisitedGuard:
+    """The DFS in _detect_subjobs uses bidirectional adjacency: a node may be
+    pushed onto the stack multiple times, so the `if current in visited:
+    continue` guard is reached during a triangle (A-B-C-A) traversal.
+    """
+
+    def test_triangle_visits_all_once(self):
+        """A triangle graph A-B, B-C, C-A produces exactly one subjob with 3
+        members and exercises the visited-guard inside the DFS while-loop."""
+        components_map = {
+            "A": {"id": "A"},
+            "B": {"id": "B"},
+            "C": {"id": "C"},
+        }
+        flows = [
+            {"name": "f1", "from": "A", "to": "B", "type": "flow"},
+            {"name": "f2", "from": "B", "to": "C", "type": "flow"},
+            {"name": "f3", "from": "C", "to": "A", "type": "flow"},
+        ]
+
+        subjobs = TalendToV1Converter._detect_subjobs(components_map, flows)
+
+        assert len(subjobs) == 1
+        members = list(subjobs.values())[0]
+        assert set(members) == {"A", "B", "C"}
+        assert len(members) == 3, "no node should appear twice"
+
+
+# ---------------------------------------------------------------------------
+# 14. Plan 14-11: convert_job CLI-style write to nested output dir
+# ---------------------------------------------------------------------------
+
+
+class TestConvertJobNestedOutputDir:
+    """convert_job creates parent dirs for output_path (Path.mkdir(parents=True))."""
+
+    def test_convert_job_creates_nested_output_dir(self, tmp_path):
+        xml = _job_xml(
+            '<node componentName="tLogRow" posX="100" posY="200">'
+            '  <elementParameter name="UNIQUE_NAME" value="tLogRow_1" field="TEXT"/>'
+            "</node>"
+        )
+        path = _write_item(xml)
+        out_path = tmp_path / "nested" / "deeper" / "out.json"
+        assert not out_path.parent.exists()
+        try:
+            convert_job(path, output_path=str(out_path))
+            assert out_path.exists()
+            with open(out_path) as f:
+                loaded = json.load(f)
+            assert "components" in loaded
         finally:
             os.unlink(path)

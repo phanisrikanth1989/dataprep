@@ -146,10 +146,10 @@ class TestDefaults:
         assert result.component["config"]["dbname"] == ""
 
     def test_table_schema_default(self):
-        """TABLESCHEMA defaults to empty string. Config key is table_schema."""
+        """TABLESCHEMA defaults to empty string. Config key is schema_db (CR-01)."""
         node = _make_node()
         result = OracleOutputConverter().convert(node, [], {})
-        assert result.component["config"]["table_schema"] == ""
+        assert result.component["config"]["schema_db"] == ""
 
     def test_user_default(self):
         """USER defaults to empty string."""
@@ -280,10 +280,10 @@ class TestParameterExtraction:
         assert result.component["config"]["port"] == "1522"
 
     def test_table_schema_extracted(self):
-        """TABLESCHEMA extracted to table_schema config key."""
+        """TABLESCHEMA extracted to canonical schema_db config key (CR-01)."""
         node = _make_node(params={"TABLESCHEMA": '"HR"'})
         result = OracleOutputConverter().convert(node, [], {})
-        assert result.component["config"]["table_schema"] == "HR"
+        assert result.component["config"]["schema_db"] == "HR"
 
     def test_password_extracted_from_pass(self):
         """PASS (not PASSWORD) is the correct XML extraction name."""
@@ -467,34 +467,64 @@ class TestSchema:
 # ------------------------------------------------------------------
 
 class TestNeedsReview:
-    """Verify needs_review entries for engine gaps."""
+    """D-E1: Wallet/OCI emit a thick-mode needs_review; SID/SERVICE_NAME/RAC
+    emit zero needs_review entries (Phase 11 ships those connection types)."""
 
-    def test_needs_review_count(self):
-        """Single consolidated needs_review per D-27 (no engine)."""
-        node = _make_node()
+    def test_no_needs_review_for_sid(self):
+        """ORACLE_SID emits zero needs_review entries (engine ships it)."""
+        node = _make_node(params={"CONNECTION_TYPE": '"ORACLE_SID"'})
+        result = OracleOutputConverter().convert(node, [], {})
+        assert len(result.needs_review) == 0
+
+    def test_no_needs_review_for_service_name(self):
+        """ORACLE_SERVICE_NAME emits zero needs_review entries."""
+        node = _make_node(params={"CONNECTION_TYPE": '"ORACLE_SERVICE_NAME"'})
+        result = OracleOutputConverter().convert(node, [], {})
+        assert len(result.needs_review) == 0
+
+    def test_no_needs_review_for_rac(self):
+        """ORACLE_RAC emits zero needs_review entries."""
+        node = _make_node(params={"CONNECTION_TYPE": '"ORACLE_RAC"'})
+        result = OracleOutputConverter().convert(node, [], {})
+        assert len(result.needs_review) == 0
+
+    def test_needs_review_for_wallet(self):
+        """ORACLE_WALLET emits a thick-mode needs_review entry (D-E1)."""
+        node = _make_node(
+            params={"CONNECTION_TYPE": '"ORACLE_WALLET"'},
+            component_id="tOracleOutput_5",
+        )
         result = OracleOutputConverter().convert(node, [], {})
         assert len(result.needs_review) == 1
+        entry = result.needs_review[0]
+        assert entry["severity"] == "needs_review"
+        assert entry["component"] == "tOracleOutput_5"
+        assert "thick_mode" in entry["issue"]
+        assert "Instant Client" in entry["issue"]
+        assert "ORACLE_WALLET" in entry["issue"]
 
-    def test_needs_review_is_engine_gap(self):
-        """needs_review entry has severity engine_gap."""
-        node = _make_node()
+    def test_needs_review_for_oci(self):
+        """ORACLE_OCI emits a thick-mode needs_review entry (D-E1)."""
+        node = _make_node(params={"CONNECTION_TYPE": '"ORACLE_OCI"'})
         result = OracleOutputConverter().convert(node, [], {})
-        assert result.needs_review[0]["severity"] == "engine_gap"
+        assert len(result.needs_review) == 1
+        entry = result.needs_review[0]
+        assert entry["severity"] == "needs_review"
+        assert "thick_mode" in entry["issue"]
+        assert "Instant Client" in entry["issue"]
+        assert "ORACLE_OCI" in entry["issue"]
 
-    def test_needs_review_has_component_id(self):
-        """needs_review entry references the correct component_id."""
-        node = _make_node(component_id="tOracleOutput_5")
+    def test_needs_review_message_no_secrets(self):
+        """T-11-05 mitigation: needs_review message contains no auth detail."""
+        node = _make_node(params={
+            "CONNECTION_TYPE": '"ORACLE_WALLET"',
+            "USER": '"scott"',
+            "PASS": '"tiger"',
+        })
         result = OracleOutputConverter().convert(node, [], {})
-        assert result.needs_review[0]["component"] == "tOracleOutput_5"
-
-    def test_no_framework_param_needs_review(self):
-        """Framework params (tstatcatcher_stats, label) must NOT have needs_review."""
-        node = _make_node()
-        result = OracleOutputConverter().convert(node, [], {})
-        issues = [e["issue"] for e in result.needs_review]
-        for issue in issues:
-            assert "tstatcatcher_stats" not in issue
-            assert "label" not in issue.lower().split()
+        issue = result.needs_review[0]["issue"]
+        assert "scott" not in issue
+        assert "tiger" not in issue
 
 
 # ------------------------------------------------------------------
@@ -517,7 +547,7 @@ class TestCompleteness:
             "host",
             "port",
             "dbname",
-            "table_schema",
+            "schema_db",
             "user",
             "password",
             "table",
@@ -580,8 +610,14 @@ class TestPhantomParams:
         # password should be empty (default) because we only extract from PASS
         assert result.component["config"]["password"] == ""
 
-    def test_schema_db_not_in_config(self):
-        """SCHEMA_DB is for other Oracle components, not tOracleOutput (uses TABLESCHEMA)."""
+    def test_schema_db_xml_param_not_used(self):
+        """SCHEMA_DB XML param is NOT used for tOracleOutput; only TABLESCHEMA is.
+
+        Post CR-01: the v1 engine config key is the canonical ``schema_db``,
+        but the *Talend XML param* name remains TABLESCHEMA. A SCHEMA_DB XML
+        param must be ignored (no fallback path), so config['schema_db']
+        defaults to empty string when only SCHEMA_DB is supplied.
+        """
         node = _make_node(params={"SCHEMA_DB": '"HR"'})
         result = OracleOutputConverter().convert(node, [], {})
-        assert "schema_db" not in result.component["config"]
+        assert result.component["config"]["schema_db"] == ""

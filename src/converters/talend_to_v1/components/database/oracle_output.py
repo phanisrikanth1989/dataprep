@@ -11,7 +11,7 @@ Config mapping (26 params total):
   HOST                                 -> host (str, default "")
   PORT                                 -> port (str, default "1521")
   DBNAME                               -> dbname (str, default "")
-  TABLESCHEMA                          -> table_schema (str, default "")
+  TABLESCHEMA                          -> schema_db (str, default "")
   USER                                 -> user (str, default "")
   PASS                                 -> password (str, default "")
   TABLE                                -> table (str, default "")
@@ -31,7 +31,9 @@ Config mapping (26 params total):
   TSTATCATCHER_STATS                   -> tstatcatcher_stats (bool, default False)
   LABEL                                -> label (str, default "")
 
-NOTE: tOracleOutput uses TABLESCHEMA (not SCHEMA_DB like other Oracle components).
+NOTE: tOracleOutput's Talend XML param name is TABLESCHEMA (other Oracle
+      components use SCHEMA_DB). Both map to the same v1 engine config key
+      ``schema_db`` so the engine reads one canonical key (CR-01 alignment).
 NOTE: _java.xml param name is PASS (not PASSWORD). Config key is password.
 NOTE: USE_BATCH_SIZE, USE_TIMESTAMP_FOR_DATE_TYPE, TRIM_CHAR default to True.
 """
@@ -67,13 +69,16 @@ class OracleOutputConverter(ComponentConverter):
         config["port"] = self._get_str(node, "PORT", "1521")
         config["dbname"] = self._get_str(node, "DBNAME", "")
 
-        # NOTE: tOracleOutput uses TABLESCHEMA (not SCHEMA_DB)
-        config["table_schema"] = self._get_str(node, "TABLESCHEMA", "")
+        # NOTE: tOracleOutput's XML param is TABLESCHEMA (not SCHEMA_DB) but
+        # the v1 engine config key is the canonical ``schema_db`` shared with
+        # all other Oracle components -- the engine's _qualified_table reads
+        # config['schema_db'] (with 'dbschema' fallback). See CR-01.
+        config["schema_db"] = self._get_str(node, "TABLESCHEMA", "")
 
         config["user"] = self._get_str(node, "USER", "")
 
         # NOTE: _java.xml param name is PASS (not PASSWORD)
-        config["password"] = self._get_str(node, "PASS", "")
+        config["password"] = self._extract_password(self._get_str(node, "PASS", ""), log_id=node.component_id)
 
         # ---- 2. Table and action parameters ----
         config["table"] = self._get_str(node, "TABLE", "")
@@ -101,15 +106,20 @@ class OracleOutputConverter(ComponentConverter):
         config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
         config["label"] = self._get_str(node, "LABEL", "")
 
-        # ---- 5. Engine gap needs_review (consolidated per D-27) ----
-        needs_review.append({
-            "issue": (
-                "No concrete engine implementation for tOracleOutput. "
-                "All config keys are extracted for future engine support."
-            ),
-            "component": node.component_id,
-            "severity": "engine_gap",
-        })
+        # ---- 5. Connection-type review entries (D-E1, Phase 11) ----
+        # Engine ships ORACLE_SID / ORACLE_SERVICE_NAME / ORACLE_RAC in Phase 11;
+        # ORACLE_OCI / ORACLE_WALLET require thick mode + Instant Client (deferred).
+        if config["connection_type"] in ("ORACLE_WALLET", "ORACLE_OCI"):
+            needs_review.append({
+                "issue": (
+                    f"Connection type {config['connection_type']} requires "
+                    f"oracle_config.thick_mode=true in job config, plus Oracle "
+                    f"Instant Client on the host. Phase 11 raises ConfigurationError "
+                    f"until thick_mode is set."
+                ),
+                "component": node.component_id,
+                "severity": "needs_review",
+            })
 
         # ---- 6. Build standard component dict (sink: data flows IN) ----
         component = self._build_component_dict(

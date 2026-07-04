@@ -1,6 +1,7 @@
 # Audit Report: tFilterRow / FilterRows
 
 > **Audited**: 2026-04-04
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -119,7 +120,7 @@ The following parameters were found in the old converter but are NOT in the _jav
 1. **LOGICAL_OP is CLOSED_LIST**: Values are `"AND"` or `"OR"` (string, not XML-escaped logical operators).
 2. **CONDITIONS stride-4**: Each condition row in the TABLE has exactly 4 elementRef entries: INPUT_COLUMN, FUNCTION, OPERATOR, RVALUE. There is NO PREFILTER column.
 3. **FUNCTION pre-transforms**: EMPTY means no function; LENGTH, ABS_VALUE, TRIM, etc. are applied before the comparison.
-4. **Advanced mode**: When USE_ADVANCED=true, the CONDITIONS table is ignored and ADVANCED_COND Java expression is used instead.
+4. **Advanced mode**: In the current engine JSON contract, `USE_ADVANCED=true` enables `ADVANCED_COND`; if `CONDITIONS` are also still present in the JSON, both the advanced expression and the structured conditions are applied.
 5. **tFilterRows variant**: Same parameters but routes rejections to separate outputs per condition.
 
 ---

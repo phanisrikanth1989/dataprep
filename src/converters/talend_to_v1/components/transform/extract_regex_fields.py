@@ -42,7 +42,9 @@ class ExtractRegexFieldsConverter(ComponentConverter):
         # ---- 1. Core parameters ----
         config: Dict[str, Any] = {}
         config["field"] = self._get_str(node, "FIELD", "")
-        config["regex"] = self._get_str(node, "REGEX", "")
+        # REGEX is a MEMO field (Java string literal): \\d -> \d, \\s -> \s, etc.
+        # Unescape Java double-backslashes so the JSON stores a valid Python regex.
+        config["regex"] = self._get_str(node, "REGEX", "").replace("\\\\", "\\")
         config["die_on_error"] = self._get_bool(node, "DIE_ON_ERROR", True)
         config["check_fields_num"] = self._get_bool(node, "CHECK_FIELDS_NUM", False)
 

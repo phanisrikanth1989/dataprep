@@ -1,10 +1,11 @@
 # Audit Report: tFileInputFullRow / FileInputFullRowComponent
 
-> **Audited**: 2026-04-03
-> **Auditor**: Claude Opus 4.6 (automated)
+> **Audited**: 2026-04-03 | **Updated**: 2026-04-04 (refactor complete)
+> **Reconciled**: 2026-05-11
+> **Auditor**: Claude Sonnet 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: PRODUCTION READINESS REVIEW
+> **Status**: GREEN -- ALL ISSUES RESOLVED
 > **V1 only** -- this report is scoped to the v1 engine exclusively
 
 ---
@@ -15,10 +16,10 @@
 | ------- | ------- |
 | **Talend Name** | `tFileInputFullRow` |
 | **V1 Engine Class** | `FileInputFullRowComponent` |
-| **Engine File** | `src/v1/engine/components/file/file_input_fullrow.py` (213 lines) |
-| **Converter Parser** | `src/converters/talend_to_v1/components/file/file_input_fullrow.py` (93 lines) |
-| **Converter Dispatch** | `@REGISTRY.register("tFileInputFullRow")` decorator-based dispatch |
-| **Registry Aliases** | `tFileInputFullRow` |
+| **Engine File** | `src/v1/engine/components/file/file_input_fullrow.py` (~205 lines, fully rewritten) |
+| **Converter Parser** | `src/converters/talend_to_v1/components/file/file_input_fullrow.py` (~85 lines) |
+| **Converter Dispatch** | `@REGISTRY.register("FileInputFullRowComponent", "tFileInputFullRow")` |
+| **Registry Aliases** | `FileInputFullRowComponent`, `tFileInputFullRow` |
 | **Category** | File / Input |
 | **Complexity** | Low-Medium -- single-column line reader with configurable header/footer/random extraction |
 
@@ -26,9 +27,10 @@
 
 | File | Purpose |
 | ------ | --------- |
-| `src/v1/engine/components/file/file_input_fullrow.py` | Engine implementation (213 lines) |
-| `src/converters/talend_to_v1/components/file/file_input_fullrow.py` | Converter class (93 lines) |
+| `src/v1/engine/components/file/file_input_fullrow.py` | Engine implementation (fully rewritten) |
+| `src/converters/talend_to_v1/components/file/file_input_fullrow.py` | Converter class |
 | `tests/converters/talend_to_v1/components/test_file_input_fullrow.py` | Converter tests (48 tests) |
+| `tests/v1/engine/components/file/test_file_input_fullrow.py` | Engine tests (42 tests) |
 | `src/v1/engine/base_component.py` | Base class |
 | `src/v1/engine/global_map.py` | GlobalMap storage |
 
@@ -38,21 +40,21 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
-| Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 8 unique params + 2 framework params extracted; `_build_component_dict` pattern; 4 per-feature needs_review entries for engine gaps; phantom DIE_ON_ERROR removed |
-| Engine Feature Parity | **Y** | 0 | 4 | 1 | 0 | Engine reads 6 of 10 params (filename, row_separator, remove_empty_row, encoding, limit, die_on_error); ignores header_rows, footer_rows, random, nb_random; encoding default mismatch (UTF-8 vs ISO-8859-15) |
-| Code Quality | **Y** | 1 | 2 | 3 | 1 | unicode_escape crash risk; _validate_config() dead code; strip() filters whitespace-only lines; base class cross-cutting bugs |
-| Performance & Memory | **Y** | 0 | 1 | 1 | 1 | Entire file loaded into memory; intermediate list for filtering; suboptimal DataFrame construction |
-| Testing | **Y** | 0 | 0 | 2 | 0 | 48 converter unit tests across 10 test classes per gold standard; integration + regression guard passing; engine unit tests missing (P2) -- no engine test coverage prevents Green |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 9 unique params + 2 framework params extracted; engine_gap `needs_review` entries removed (features now implemented in engine) |
+| Engine Feature Parity | **G** | 0 | 0 | 0 | 0 | All params implemented: filename, row_separator, header_rows, footer_rows, limit, remove_empty_row, encoding, random, nb_random; encoding default ISO-8859-15 |
+| Code Quality | **G** | 0 | 0 | 0 | 0 | All bugs fixed: `_ESCAPE_MAP` replaces `unicode_escape`; `!= ""` replaces `strip()`; limit=0 treated as unlimited; column name from schema; standards-compliant `_validate_config()` |
+| Performance & Memory | **G** | 0 | 0 | 0 | 0 | Whole-file read appropriate for component semantics; `pd.DataFrame({col: lines})` is optimal for single-column output |
+| Testing | **G** | 0 | 0 | 0 | 0 | 48 converter tests + 42 engine tests; all PASS; full coverage of registration, validation, reading, header/footer, empty-row, limit, random, stats, edge cases |
 
-**Overall: Yellow -- Converter fully standardized (Green); engine has 4 known gaps documented via needs_review; engine/code quality/performance gaps keep overall at Yellow**
+**Overall: GREEN -- All issues resolved. Component is production-ready.**
 
-**Top Actions:**
+**Fixes Applied:**
 
-1. Fix `_update_global_map()` crash in base class (P0, cross-cutting)
-2. Add header row skipping to engine (P1, engine gap)
-3. Add footer row skipping to engine (P1, engine gap)
-4. Add random line extraction to engine (P1, engine gap)
-5. Fix engine encoding default from UTF-8 to ISO-8859-15 (P2, engine mismatch)
+1. Engine fully rewritten: all 12 MANUAL_COMPONENT_AUTHORING rules compliant
+2. All P0/P1/P2/P3 engine bugs fixed
+3. All engine feature gaps (header_rows, footer_rows, random, nb_random) implemented
+4. Converter engine_gap `needs_review` entries removed
+5. 42 engine unit tests added -- all passing
 
 ---
 
@@ -150,12 +152,7 @@ DIE_ON_ERROR is NOT listed in the tFileInputFullRow _java.xml definition. Howeve
 
 ### 4.4 Engine Gap needs_review Entries
 
-| # | Config Key | Severity | Issue |
-| --- | ----------- | ---------- | ------- |
-| 1 | header_rows | engine_gap | Engine does not support skipping header rows |
-| 2 | footer_rows | engine_gap | Engine does not support skipping footer rows |
-| 3 | random | engine_gap | Engine does not support random line extraction |
-| 4 | nb_random | engine_gap | Engine does not support random line count |
+None -- engine now implements all parameters. The 4 engine_gap entries (header_rows, footer_rows, random, nb_random) were removed from the converter after the engine rewrite.
 
 ### 4.5 Converter Issues
 
@@ -167,41 +164,40 @@ None. All parameters correctly extracted with proper defaults per _java.xml sour
 
 ### 5.1 What the Engine Does
 
-The engine reads a file line-by-line using configurable encoding and row separator, optionally removes empty rows and applies a row limit. Each line becomes a single row in a DataFrame with column name "line". The engine supports `die_on_error` to control error behavior.
+The engine reads a file line-by-line using configurable encoding and row separator, skips header/footer rows, optionally removes strictly-empty rows (Talend parity: whitespace-only lines are NOT removed), applies row limit or random sampling, and outputs a single-column DataFrame. Column name defaults to `"line"` but respects `output_schema[0]["name"]` when set.
 
-**Engine reads these config keys:**
+**Engine reads these config keys (all params):**
 
 - `filename` -- path to file (required)
-- `row_separator` -- split delimiter (default `\n`)
-- `remove_empty_row` -- filter empty lines (default `False` -- differs from Talend's `True`)
-- `encoding` -- file encoding (default `UTF-8` -- differs from Talend's `ISO-8859-15`)
-- `limit` -- max rows (string, uses `.isdigit()`)
-- `die_on_error` -- error behavior (default `True`)
-
-**Engine ignores these config keys:**
-
-- `header_rows` -- no header row skipping logic
-- `footer_rows` -- no footer row skipping logic
-- `random` -- no random extraction mode
-- `nb_random` -- no random count handling
+- `row_separator` -- split delimiter (default `"\\n"`, escape sequences decoded via `_ESCAPE_MAP`)
+- `header_rows` -- rows to skip at file start (default `0`)
+- `footer_rows` -- rows to skip at file end (default `0`)
+- `remove_empty_row` -- filter strictly-empty lines (default `True`, Talend parity)
+- `encoding` -- file encoding (default `"ISO-8859-15"`, Talend parity)
+- `limit` -- max rows string; `""` and `"0"` both mean unlimited (Talend parity)
+- `random` -- enable random sampling (default `False`)
+- `nb_random` -- number of random lines (default `10`)
 
 ### 5.2 Engine Default Mismatches
 
-| Config Key | Talend Default | Engine Default | Impact |
-| ----------- | --------------- | ---------------- | -------- |
-| remove_empty_row | `True` | `False` | Empty rows preserved when converter default is used but engine overrides |
-| encoding | `ISO-8859-15` | `UTF-8` | Encoding mismatch may cause garbled text for non-ASCII content |
+None -- all defaults now match Talend `_java.xml` source of truth.
 
 ### 5.3 Engine Processing Flow
 
-1. Extract config with defaults
-2. Strip quotes from `row_separator`, decode escape sequences (`unicode_escape`)
-3. Normalize `\r\n` to `\n` in file content
-4. Split on `row_separator`
-5. Remove empty rows if configured (uses `line.strip()` -- filters whitespace-only lines too)
-6. Apply limit if numeric
-7. Build DataFrame with `{'line': line}` dicts
-8. Update statistics
+1. Extract all config values with correct Talend-parity defaults
+2. Guard: raise `ConfigurationError` if `filename` is empty after resolution
+3. Decode `row_separator` escape sequences via `_ESCAPE_MAP` (`\\n`->`\n`, `\\r`->`\r`, `\\t`->`\t`)
+4. Parse `limit`: `""` and `"0"` -> unlimited; non-numeric -> `ConfigurationError`
+5. Open file with `newline=""` to preserve raw content
+6. Normalize `\r\n`->`\n` and `\r`->`\n` only when separator is `\n`
+7. Split content on `row_separator`; record `total_read`
+8. Slice `lines[header_rows:]` for header skipping
+9. Slice `lines[:-footer_rows]` for footer skipping
+10. Filter `ln != ""` if `remove_empty_row` (strictly empty only -- Talend parity)
+11. Apply `random.sample(lines, nb_random)` or `lines[:limit]`
+12. Determine column name from `output_schema[0]["name"]` or default `"line"`
+13. Build `pd.DataFrame({col_name: lines})`
+14. Call `_update_stats(total_read, rows_ok, 0)`
 
 ---
 
@@ -209,13 +205,12 @@ The engine reads a file line-by-line using configurable encoding and row separat
 
 | ID | Priority | Status | Description |
 | ---- | ---------- | -------- | ------------- |
-| ENG-FIFR-001 | **P1** | **OPEN** | No header row skipping -- HEADER value is passed through converter but engine ignores it entirely |
-| ENG-FIFR-002 | **P1** | **OPEN** | No footer row skipping -- FOOTER value is passed through converter but engine ignores it entirely |
-| ENG-FIFR-003 | **P1** | **OPEN** | No random line extraction -- RANDOM and NB_RANDOM ignored by engine |
-| ENG-FIFR-004 | **P1** | **OPEN** | No REJECT flow -- error rows are silently dropped or crash the job |
-| ENG-FIFR-005 | **P2** | **OPEN** | Encoding default mismatch -- engine uses UTF-8 but Talend defaults to ISO-8859-15 |
-| ENG-FIFR-006 | **P2** | **OPEN** | `remove_empty_row` default mismatch -- engine defaults False, Talend defaults True |
-| ENG-FIFR-007 | **P2** | **OPEN** | Hardcoded output column name 'line' -- ignores schema-defined column name |
+| ENG-FIFR-001 | P1 | **FIXED** | Header row skipping -- implemented via `lines[header_rows:]` |
+| ENG-FIFR-002 | P1 | **FIXED** | Footer row skipping -- implemented via `lines[:-footer_rows]` |
+| ENG-FIFR-003 | P1 | **FIXED** | Random line extraction -- implemented via `random.sample(lines, nb_random)` |
+| ENG-FIFR-004 | P1 | **N/A** | REJECT flow -- confirmed NOT a Talend feature for this component (no REJECT connector in `_java.xml`) |
+| ENG-FIFR-005 | P2 | **FIXED** | Encoding default corrected to `"ISO-8859-15"` |
+| ENG-FIFR-006 | P2 | **FIXED** | `remove_empty_row` default corrected to `True` |
 
 ---
 
@@ -223,13 +218,13 @@ The engine reads a file line-by-line using configurable encoding and row separat
 
 | ID | Priority | Status | Description |
 | ---- | ---------- | -------- | ------------- |
-| BUG-FIFR-001 | **P0** | **OPEN** | `_update_global_map()` crash -- base class references undefined variable. Cross-cutting: affects ALL components. |
-| BUG-FIFR-002 | **P1** | **OPEN** | `unicode_escape` decoding of `row_separator` -- can crash on invalid escape sequences (e.g., `\x` without hex digits) |
-| BUG-FIFR-003 | **P1** | **OPEN** | `strip()` in empty row removal filters whitespace-only lines, not just truly empty lines -- behavioral difference from Talend |
-| BUG-FIFR-004 | **P2** | **OPEN** | `_validate_config()` is dead code -- called only from public `validate_config()` wrapper which is never called by base class `execute()` |
-| BUG-FIFR-005 | **P2** | **OPEN** | Dual validation methods -- both `_validate_config()` and `validate_config()` exist with overlapping logic |
-| BUG-FIFR-006 | **P2** | **OPEN** | `limit=0` reads zero rows -- Talend treats 0 as unlimited; engine treats "0" as `.isdigit()` == True -> limit 0 rows |
-| BUG-FIFR-007 | **P3** | **OPEN** | `\r\n` normalization is always applied even when row_separator is not `\n` -- may alter content unexpectedly |
+| BUG-FIFR-001 | P0 | **FIXED** | `_update_global_map()` crash -- fixed in base class Phase 1 |
+| BUG-FIFR-002 | P1 | **FIXED** | `unicode_escape` crash risk -- replaced with safe `_ESCAPE_MAP` dict substitution |
+| BUG-FIFR-003 | P1 | **FIXED** | `strip()` filtering whitespace-only lines -- replaced with `ln != ""` (Talend parity) |
+| BUG-FIFR-004 | P2 | **FIXED** | Dead `validate_config()` wrapper -- removed entirely |
+| BUG-FIFR-005 | P2 | **FIXED** | Dual validation methods -- only `_validate_config()` remains, standards-compliant |
+| BUG-FIFR-006 | P2 | **FIXED** | `limit=0` read zero rows -- `"0"` and `""` now both treated as unlimited |
+| BUG-FIFR-007 | P3 | **FIXED** | Hardcoded `"line"` column name -- now reads from `output_schema[0]["name"]` |
 
 ---
 
@@ -268,36 +263,28 @@ The engine reads a file line-by-line using configurable encoding and row separat
 
 ### 9.3 Engine Tests
 
-- Engine unit tests: **NONE** (P2 -- prevents Testing from reaching Green)
-- Engine integration tests: **NONE**
+| Category | Count | Status |
+| ---------- | ------- | -------- |
+| TestRegistration | 4 | PASS |
+| TestValidation | 6 | PASS |
+| TestCoreReading | 8 | PASS |
+| TestHeaderFooter | 5 | PASS |
+| TestEmptyRowRemoval | 4 | PASS |
+| TestLimit | 4 | PASS |
+| TestRandom | 4 | PASS |
+| TestStats | 2 | PASS |
+| TestEdgeCases | 5 | PASS |
+| **Total** | **42** | **ALL PASS** |
 
 ### 9.4 Testing Issues
 
-| ID | Priority | Status | Description |
-| ---- | ---------- | -------- | ------------- |
-| TEST-FIFR-001 | **P2** | **OPEN** | Zero engine unit tests -- no `_process()` verification, no edge case coverage |
-| TEST-FIFR-002 | **P2** | **OPEN** | Zero engine integration tests -- no end-to-end file reading verification |
+None -- all testing issues resolved.
 
 ---
 
 ## 10. Recommendations
 
-### Immediate (P0)
-
-1. Fix `_update_global_map()` base class crash (cross-cutting)
-
-### Short-term (P1)
-
-1. Implement header row skipping in engine
-2. Implement footer row skipping in engine
-3. Add random line extraction to engine
-4. Fix `unicode_escape` crash risk for invalid escape sequences
-5. Fix `strip()` behavior to match Talend's empty-row definition
-
-### Medium-term (P2)
-
-1. Fix encoding default mismatch (UTF-8 -> ISO-8859-15)
-2. Fix remove_empty_row default mismatch (False -> True)
+No outstanding actions -- all P0/P1/P2/P3 issues resolved. Component is production-ready.
 3. Fix limit=0 semantic to match Talend (0 = unlimited)
 4. Respect schema-defined column name instead of hardcoded 'line'
 5. Wire `_validate_config()` into base class lifecycle or remove dead code

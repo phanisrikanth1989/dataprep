@@ -15,7 +15,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <arrow.version>15.0.2</arrow.version>
         <groovy.version>3.0.21</groovy.version>
-        <py4j.version>0.10.9.7</py4j.version>
+        <py4j.version>0.10.9.9</py4j.version>
     </properties>
 
     <dependencies>
@@ -45,10 +45,84 @@
             <artifactId>py4j</artifactId>
             <version>${py4j.version}</version>
         </dependency>
+
+        <!-- JUnit 5 — first test framework in this codebase; added for 07.1-08 routine tests -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.10.2</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+          NOTE: The Talend routines.system.* dependency (org.example.recon_etl.code:routines:8.0.1)
+          has been REMOVED. It was only available from a Windows-absolute local Maven repo path
+          (file:///C:/Softwares/...) which is inaccessible on Mac/Linux.
+
+          The four routines.system.* helper classes (RandomUtils, FastDateParser, LocaleProvider,
+          TalendTimestampWithTZ) are now vendored as source files under:
+            lib/talend-routines-system/routines/system/
+
+          See the build-helper-maven-plugin configuration below which adds that directory as an
+          additional source root. The vendored sources compile into the shade JAR alongside
+          the existing routines.* classes.
+
+          License: Apache 2.0. See lib/LICENSE-talend-routines-system.txt.
+          Sign-off: .planning/phases/07.1-manager-audit-and-basecomponent-fixes/07.1-02-LICENSE-SIGNOFF.md
+        -->
     </dependencies>
 
+    <!--
+      NOTE: The <repositories> block pointing to the Windows-absolute local Maven repo has been
+      REMOVED. That path (file:///C:/Softwares/TOS_DI-20211109_1610-V8.0.1/.../repository) is
+      only accessible on the original developer's Windows machine. All dependencies now come from
+      Maven Central or vendored sources compiled in-tree.
+
+      Fix for CR-04: Windows-absolute file:/// URL replaced with portable vendored source strategy.
+      Strategy ordering per 07.1-REVIEWS.md HIGH: Talaxie source fetch PRIMARY on Mac/Linux;
+      Windows local Maven repo FALLBACK only when explicitly accessible (always false on Mac/Linux).
+    -->
+
     <build>
+        <finalName>java-bridge</finalName>
         <plugins>
+
+            <!--
+              Vendored Talend Open Studio 8.0.1 routines.system.* source files.
+              License: Apache 2.0. See lib/LICENSE-talend-routines-system.txt.
+              Sign-off: .planning/phases/07.1-manager-audit-and-basecomponent-fixes/07.1-02-LICENSE-SIGNOFF.md
+              These classes are NOT in Maven Central; vendoring sources is the portable option.
+              To update: re-fetch or re-implement from Talaxie tdi-studio-se main branch.
+              Strategy ordering per 07.1-REVIEWS.md HIGH: Talaxie source fetch is PRIMARY on Mac/Linux;
+              Windows local Maven repo is FALLBACK only when explicitly accessible.
+            -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>add-talend-routines-system-source</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                        </goals>
+                        <configuration>
+                            <sources>
+                                <source>${project.basedir}/lib/talend-routines-system</source>
+                            </sources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Surefire 3.x required for JUnit 5 (Jupiter) test discovery -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+            </plugin>
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -57,6 +131,37 @@
                     <source>11</source>
                     <target>11</target>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.1</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <outputFile>${project.build.directory}/java-bridge-with-dependencies.jar</outputFile>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>com.citi.gru.etl.JavaBridge</mainClass>
+                                </transformer>
+                            </transformers>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

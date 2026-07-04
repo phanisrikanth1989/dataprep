@@ -1,0 +1,78 @@
+{
+  "job_name": "set_global_var_row_ref",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {}
+  },
+  "components": [
+    {
+      "id": "tFixedFlowInput_1",
+      "type": "FixedFlowInputComponent",
+      "original_type": "tFixedFlowInput",
+      "config": {
+        "nb_rows": 3,
+        "use_singlemode": true,
+        "use_intable": false,
+        "use_inlinecontent": false,
+        "values_config": [
+          {"schema_column": "seq_id", "value": "42"},
+          {"schema_column": "label",  "value": "hello"}
+        ],
+        "die_on_error": true
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {"name": "seq_id", "type": "int",  "nullable": false, "key": false},
+          {"name": "label",  "type": "str",  "nullable": false, "key": false}
+        ]
+      },
+      "inputs": [],
+      "outputs": ["row1"],
+      "subjob_id": "subjob_1",
+      "is_subjob_start": true
+    },
+    {
+      "id": "tSetGlobalVar_1",
+      "type": "SetGlobalVar",
+      "original_type": "tSetGlobalVar",
+      "config": {
+        "variables": [
+          {"key": "captured_id",    "value": "row1.seq_id"},
+          {"key": "captured_label", "value": "row1.label"},
+          {"key": "literal_flag",   "value": "DONE"}
+        ],
+        "die_on_error": true
+      },
+      "schema": {
+        "input": [
+          {"name": "seq_id", "type": "int", "nullable": false, "key": false},
+          {"name": "label",  "type": "str", "nullable": false, "key": false}
+        ],
+        "output": [
+          {"name": "seq_id", "type": "int", "nullable": false, "key": false},
+          {"name": "label",  "type": "str", "nullable": false, "key": false}
+        ],
+        "inputs": {
+          "row1": [
+            {"name": "seq_id", "type": "int", "nullable": false, "key": false},
+            {"name": "label",  "type": "str", "nullable": false, "key": false}
+          ]
+        }
+      },
+      "inputs": ["row1"],
+      "outputs": [],
+      "subjob_id": "subjob_1",
+      "is_subjob_start": false
+    }
+  ],
+  "flows": [
+    {"name": "row1", "from": "tFixedFlowInput_1", "to": "tSetGlobalVar_1", "type": "flow"}
+  ],
+  "triggers": [],
+  "subjobs": {
+    "subjob_1": ["tFixedFlowInput_1", "tSetGlobalVar_1"]
+  },
+  "java_config": {"enabled": false, "routines": [], "libraries": []}
+}

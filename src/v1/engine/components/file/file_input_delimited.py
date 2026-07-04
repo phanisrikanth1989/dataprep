@@ -1,574 +1,1091 @@
+"""Engine component for FileInputDelimited (tFileInputDelimited).
+
+Reads a character-delimited flat file and outputs rows as a DataFrame.
+Supports field/row separators, CSV RFC4180 mode, header/footer skipping,
+per-column trim, field count validation, date validation, and REJECT flow.
+
+Config keys consumed (25 total):
+  filepath           (str, required)          -- absolute file path
+  fieldseparator     (str, default ";")       -- field delimiter character
+  row_separator      (str, default "\\n")     -- row delimiter
+  encoding           (str, default "ISO-8859-15") -- file encoding
+  header_rows        (int, default 0)         -- header rows to skip
+  footer_rows        (int, default 0)         -- footer rows to skip
+  limit              (str, default "")        -- max rows to read (empty=no limit)
+  remove_empty_row   (bool, default True)     -- remove empty rows
+  csv_option         (bool, default False)    -- enable RFC4180 CSV mode
+  csv_row_separator  (str, default "\\n")     -- row separator for CSV mode
+  escape_char        (str, default '"')       -- escape char (CSV mode)
+  text_enclosure     (str, default '"')       -- quote char (CSV mode)
+  trim_all           (bool, default False)    -- trim all string columns
+  trim_select        (list, default [])       -- per-column trim settings
+  check_fields_num   (bool, default False)    -- validate row field count
+  check_date         (bool, default False)    -- validate date patterns
+  die_on_error       (bool, default False)    -- halt on error
+  uncompress         (bool, default False)    -- deferred: compressed reading
+  split_record       (bool, default False)    -- deferred: multi-line fields
+  random             (bool, default False)    -- deferred: random sampling
+  nb_random          (int, default 10)        -- deferred: random sample size
+  advanced_separator (bool, default False)    -- deferred: numeric separators
+  enable_decode      (bool, default False)    -- deferred: hex/octal decode
+  decode_cols        (list, default [])       -- deferred: columns to decode
+  tstatcatcher_stats (bool, default False)    -- framework: stat collection
 """
-FileInputDelimited - Read delimited files (CSV, TSV, etc.)
-
-Talend equivalent: tFileInputDelimited
-
-This component reads data from delimited text files with configurable parsing options.
-Supports various delimiters, encodings, and schema enforcement. Handles large files
-through streaming mode and provides sophisticated type conversion capabilities.
-Special handling for single-string file reading when both delimiter and row_separator
-are empty.
-"""
-
 import csv
 import logging
 import os
-from decimal import Decimal
-from typing import Any, Dict, Iterator, List, Optional
+import re
+from collections import deque
+from datetime import datetime
+from io import StringIO
+from pathlib import Path
+from typing import Any, Optional
 
 import pandas as pd
 
-from ...base_component import BaseComponent, ExecutionMode
-from ...exceptions import ConfigurationError, FileOperationError
+from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
+from ...exceptions import ConfigurationError, DataValidationError, FileOperationError
 
 logger = logging.getLogger(__name__)
 
+# ---- Module-level constants ----
 
+# Machine-readable reject error codes.
+# Downstream consumers can depend on these exact strings.
+_ERROR_FIELD_COUNT = "FIELD_COUNT"
+_ERROR_TYPE_CONVERSION = "TYPE_CONVERSION"
+_ERROR_DATE_FORMAT = "DATE_FORMAT"
+
+# Rows per validation chunk to limit peak memory during row-level validation.
+_VALIDATION_CHUNK_SIZE = 50000
+
+# Non-printable byte scrubber.
+# Delimited files may contain raw bytes (e.g. 0x00-0x1F, 0x7F-0x9F) or
+# unmappable codepoints that decode to U+FFFD when the file's declared
+# encoding (default ISO-8859-15) cannot represent the byte. Such characters
+# survive into string columns and later cause ``Wrapping \ufffd failed`` /
+# ``Wrapping <bad-row> failed`` errors when the row is marshalled across
+# the Py4J bridge to the Java engine (e.g. by tMap's globalMap / context
+# payload).
+#
+# We replace each offending codepoint with a single space -- this preserves
+# row count and column count, never alters delimiter positions, and is the
+# same scrub pattern used by ``file_input_positional.py``.
+#_NON_PRINTABLE_RE = re.compile(r'[^\x20-\x7E\t\n\r]')
+_NON_PRINTABLE_RE = re.compile(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F�]')
+
+# Row separators that Python/pandas handle natively via universal newline.
+# Anything else requires raw-read + manual split to match Talend behaviour.
+_STANDARD_ROW_SEPARATORS = {"\n", "\r\n", "\r"}
+
+# Decode error policy for all file reads.
+# Talend reads through java.io.InputStreamReader, which defaults to
+# CodingErrorAction.REPLACE: bytes that are malformed or unmappable in the
+# declared charset become U+FFFD instead of raising. Python's open()/read_csv
+# default to "strict" and raise UnicodeDecodeError, so a job that ran cleanly
+# in Talend (e.g. a file with extended bytes declared as US-ASCII) would hard
+# crash here. Using "replace" matches Talend byte-for-byte: one replacement
+# char per bad byte, so field/delimiter positions are preserved (unlike
+# "ignore", which drops bytes and shifts columns). The resulting U+FFFD is
+# then scrubbed to a space by _NON_PRINTABLE_RE before the row crosses the
+# Py4J bridge.
+_DECODE_ERRORS = "replace"
+
+# Deferred feature flags and their descriptions (D-21).
+_DEFERRED_FEATURES = {
+    "uncompress": "Compressed file reading",
+    "split_record": "Multi-line field support",
+    "random": "Random line sampling",
+    "advanced_separator": "Advanced numeric separators",
+    "enable_decode": "Hex/octal number decoding",
+}
+
+
+@REGISTRY.register("FileInputDelimited", "tFileInputDelimited")
 class FileInputDelimited(BaseComponent):
-    """
-    Read data from delimited text files with configurable parsing and type conversion.
+    """tFileInputDelimited engine implementation.
 
-    This component reads various delimited formats (CSV, TSV, pipe-separated, etc.)
-    with support for custom delimiters, encodings, schema enforcement, and automatic type
-    conversion.
-    Provides streaming mode for large files and sophisticated handling of edge cases.
+    Reads a character-delimited flat file and outputs rows as a DataFrame.
+    Supports semicolon (default), comma, tab, and custom delimiters.
+    Provides REJECT flow for rows failing validation (field count, type
+    conversion, date format).
 
-    Configuration:
-        filepath (str): Input file path. Required. Supports context variables.
-        delimiter (str): Field delimiter character. Default: ','
-        encoding (str): File encoding. Default: 'UTF-8'
-        header_rows (int): Number of header rows to skip. Default: 0
-        footer_rows (int): Number of footer rows to skip. Default: 0
-        limit (str): Maximum rows to read. Empty or no limit. Default: ''
-        remove_empty_rows (bool): Remove completely empty rows. Default: False
-        text_enclosure (str): Quote character for text fields. Default: '"'
-        escape_char (str): Escape character. Default:'\\'
-        trim_all (bool): Trim whitespace from all string fields. Default: False
-        die_on_error (bool): Fail on errors vs. continue. Default: True
-        row_separator (str): Row separator (special case handling). Default: None
-
-    Inputs:
-        None (file input component)
-
-    Outputs:
-        main: DataFrame containing parsed file data
-
-    Statistics:
-        NB_LINE: Total rows read
-        NB_LINE_OK: Successfully processed rows
-        NB_LINE_REJECT: Failed rows (0 for this component)
-
-    Example:
-        config = {
-            "filepath": "/data/input.csv",
-            "delimiter": ",",
-            "encoding": "UTF-8",
-            "header_rows": "1",
-            "limit": "1000"
-        }
-
-    Notes:
-        - Empty delimiter and row_separator reads file as single string
-        - Automatically switches to streaming mode for large files (>3GB)
-        - Schema enforcement with sophisticated type conversion
-        - BigDecimal support for financial data
-        - Java expression support for dynamic configuration
+    Config keys:
+        filepath: Input file path (required).
+        fieldseparator: Field delimiter (default ";").
+        encoding: File encoding (default "ISO-8859-15").
+        csv_option: Enable RFC4180 CSV mode (default False).
+        check_fields_num: Validate row field count (default False).
+        check_date: Validate date patterns (default False).
+        trim_select: Per-column trim overrides (default []).
+        trim_all: Trim all string columns (default False).
     """
 
-    # Class constants for default values
-    DEFAULT_DELIMITER = ','
-    DEFAULT_ENCODING = 'UTF-8'
-    DEFAULT_HEADER_ROWS = 0
-    DEFAULT_FOOTER_ROWS = 0
-    DEFAULT_TEXT_ENCLOSURE = '"'
-    DEFAULT_ESCAPE_CHAR = '\\'
+    # ------------------------------------------------------------------
+    # Configuration Validation
+    # ------------------------------------------------------------------
 
-    def _validate_config(self) -> List[str]:
-        """
-        Validate component configuration.
-
-        Returns:
-            List of error messages (empty if valid)
-        """
-        errors = []
-
-        # Required fields
-        if 'filepath' not in self.config or not self.config['filepath']:
-            errors.append("Missing required config: 'filepath'")
-
-        # Optional field validation
-        if 'delimiter' in self.config:
-            delimiter = self.config['delimiter']
-            if not isinstance(delimiter, str):
-                errors.append("Config 'delimiter' must be a string")
-
-        if 'encoding' in self.config:
-            encoding = self.config['encoding']
-            if not isinstance(encoding, str):
-                errors.append("Config 'encoding' must be a string")
-
-        if 'header_rows' in self.config:
-            try:
-                header_rows = int(self.config['header_rows'])
-                if header_rows < 0:
-                    errors.append("Config 'header_rows' must be non-negative")
-            except (ValueError, TypeError):
-                errors.append("Config 'header_rows' must be a valid integer")
-
-        if 'footer_rows' in self.config:
-            try:
-                footer_rows = int(self.config['footer_rows'])
-                if footer_rows < 0:
-                    errors.append("Config 'footer_rows' must be non-negative")
-            except (ValueError, TypeError):
-                errors.append("Config 'footer_rows' must be a valid integer")
-
-        if 'limit' in self.config and self.config['limit']:
-            try:
-                limit = int(self.config['limit'])
-                if limit <= 0:
-                    errors.append("Config 'limit' must be positive")
-            except (ValueError, TypeError):
-                errors.append("Config 'limit' must be a valid integer")
-
-        if 'remove_empty_rows' in self.config:
-            if not isinstance(self.config['remove_empty_rows'], bool):
-                errors.append("Config 'remove_empty_rows' must be boolean")
-
-        if 'trim_all' in self.config:
-            if not isinstance(self.config['trim_all'], bool):
-                errors.append("Config 'trim_all' must be boolean")
-
-        if 'die_on_error' in self.config:
-            if not isinstance(self.config['die_on_error'], bool):
-                errors.append("Config 'die_on_error' must be boolean")
-
-        return errors
-
-    def _build_dtype_dict(self) -> Optional[Dict[str, str]]:
-        """
-        Build dtype dictionary from output schema for pd.read_csv().
-
-        Maps Talend types to pandas dtype strings for efficient type enforcement
-        during file reading. Supports nullable integers and proper object types.
-
-        Returns:
-            Dict mapping column names to pandas dtypes, or None if no schema
-        """
-        if not self.output_schema:
-            return None
-
-        # Type mapping from Talend to pandas dtype strings
-        type_mapping = {
-            'id_String': 'object',
-            'id_Integer': 'Int64',   # Nullable integer
-            'id_Long': 'Int64',
-            'id_Float': 'float64',
-            'id_Double': 'float64',
-            'id_Boolean': 'bool',   # Read as object, convert later
-            'id_Date': 'object',    # Read as object, convert later
-            'id_BigDecimal': 'object',
-            # Simple type names
-            'str': 'object',
-            'int': 'Int64',
-            'long': 'Int64',
-            'float': 'float64',
-            'double': 'float64',
-            'bool': 'bool',
-            'date': 'object',
-            'Decimal': 'object'
-        }
-
-        dtype_dict = {}
-        for col_def in self.output_schema:
-            col_name = col_def['name']
-            col_type = col_def.get('type', 'id_String')
-            pandas_type = type_mapping.get(col_type, 'object')
-            dtype_dict[col_name] = pandas_type
-
-        logger.debug(f"[{self.id}] Built dtype mapping: {len(dtype_dict)} columns")
-        return dtype_dict
-
-    def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
-        """
-        Read delimited file and return as DataFrame.
-
-        Handles various file formats and special cases including single-string
-        reading,
-        streaming mode for large files, and comprehensive type conversion.
-
-        Args:
-            input_data: Not used for file input components
-
-        Returns:
-            Dictionary containing:
-                'main': DataFrame with parsed file data
-                'is_streaming': True if using streaming mode (optional)
+    def _validate_config(self) -> None:
+        """Validate component configuration.
 
         Raises:
-            ConfigurationError: If required configuration is missing or invalid
-            FileOperationError: If file read operation fails
+            ConfigurationError: If filepath is missing.
         """
-        # Get configuration with proper type conversion
-        filepath = self.config.get('filepath', '')
-        delimiter = self.config.get('delimiter', self.DEFAULT_DELIMITER)
-        row_separator = self.config.get('row_separator', None)
-        encoding = self.config.get('encoding', self.DEFAULT_ENCODING)
-        die_on_error = self.config.get('die_on_error', True)
+        if not self.config.get("filepath"):
+            raise ConfigurationError(
+                f"[{self.id}] Missing required config key 'filepath'"
+            )
 
-        # Convert numeric parameters to int to avoid string/int comparison errors
-        try:
-            header_rows = int(self.config.get('header_rows', self.DEFAULT_HEADER_ROWS))
-        except (ValueError, TypeError):
-            header_rows = self.DEFAULT_HEADER_ROWS
-            logger.warning(f"[{self.id}] Invalid header_rows, using default: {header_rows}")
+    # ------------------------------------------------------------------
+    # Core Processing
+    # ------------------------------------------------------------------
 
-        try:
-            footer_rows = int(self.config.get('footer_rows', self.DEFAULT_FOOTER_ROWS))
-        except (ValueError, TypeError):
-            footer_rows = self.DEFAULT_FOOTER_ROWS
-            logger.warning(f"[{self.id}] Invalid footer_rows, using default: {footer_rows}")
+    def _process(self, input_data: Optional[pd.DataFrame] = None) -> dict:
+        """Read delimited file and return as DataFrame with optional REJECT flow.
 
-        limit = self.config.get('limit', '')
-        remove_empty_rows = self.config.get('remove_empty_rows', False)
-        text_enclosure = self.config.get('text_enclosure', self.DEFAULT_TEXT_ENCLOSURE)
+        Args:
+            input_data: Not used (source component).
 
-        escape_char = self.config.get('escape_char', self.DEFAULT_ESCAPE_CHAR)
-        trim_all = self.config.get('trim_all', False)
+        Returns:
+            dict with 'main' (DataFrame) and 'reject' (DataFrame or None).
 
-        if not filepath:
-            error_msg = "'filepath' is required"
-            logger.error(f"[{self.id}] Configuration error: {error_msg}")
-            if die_on_error:
-                raise ConfigurationError(f"[{self.id}] {error_msg}")
-            else:
-                self._update_stats(0, 0, 0)
-                return {'main': pd.DataFrame()}
-
-        logger.info(f"[{self.id}] Reading started: Input file '{filepath}'")
-        logger.debug(f"[{self.id}] Configuration: delimiter='{delimiter}', encoding={encoding}, "
-                     f"header_rows={header_rows}, footer_rows={footer_rows}")
-
-        # Check if file exists
-        if not os.path.exists(filepath):
-            error_msg = f"Input file not found: '{filepath}'"
-            logger.error(f"[{self.id}] File access error: {error_msg}")
-            if die_on_error:
-                raise FileOperationError(f"[{self.id}] {error_msg}")
-            else:
-                logger.warning(f"[{self.id}] Continuing with empty DataFrame due to missing file")
-                self._update_stats(0, 0, 0)
-                return {'main': pd.DataFrame()}
-
-        # Special case: If both delimiter and row_separator are empty, read file as
-        # single string
-        # This handles XML or other single-document files that need to be read as one
-        if delimiter in [None, '', '  '] and row_separator in [None, '', '  ', '\r\n']:
-            logger.info(f"[{self.id}] Special mode: reading as single string (empty delimiter/separator)")
-            return self._read_as_single_string(filepath, encoding, die_on_error)
-
-        # Determine execution mode based on file size
-        try:
-            file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
-            logger.debug(f"[{self.id}] File size: {file_size_mb:.2f} MB")
-
-            # Convert limit to int or None
-            nrows = self._parse_limit(limit)
-
-            # Handle multi-character delimiter (regex) and tab shortcut
-            use_regex = False
-            if delimiter == "\\t" or delimiter == "\t":
-                delimiter = "\t"
-                logger.debug(f"[{self.id}] Using tab delimiter")
-            elif len(delimiter) > 1:
-                delimiter = rf"{delimiter}"
-                use_regex = True
-                logger.debug(f"[{self.id}] Using regex delimiter: '{delimiter}'")
-
-            # Determine execution mode
-            if (self.execution_mode == ExecutionMode.HYBRID and file_size_mb > self.MEMORY_THRESHOLD_MB):
-                logger.info(f"[{self.id}] Large file detected: switching to streaming")
-                return self._read_streaming(filepath, delimiter, encoding, header_rows, footer_rows, nrows, text_enclosure, escape_char, remove_empty_rows, trim_all, use_regex)
-            else:
-                logger.debug(f"[{self.id}] Using batch mode for file reading")
-                return self._read_batch(filepath, delimiter, encoding, header_rows, footer_rows, nrows, text_enclosure, escape_char, remove_empty_rows, trim_all, use_regex)
-
-        except Exception as e:
-            error_msg = f"Error reading file '{filepath}': {str(e)}"
-            logger.error(f"[{self.id}] File operation failed: {error_msg}")
-            if die_on_error:
-                raise FileOperationError(f"[{self.id}] {error_msg}") from e
-            else:
-                self._update_stats(0, 0, 0)
-                return {'main': pd.DataFrame()}
-
-    def _read_as_single_string(self, filepath: str, encoding: str, die_on_error: bool) -> Dict[str, Any]:
+        Raises:
+            FileOperationError: If file not found or read fails.
         """
-        Read entire file as single string (special case for XML/document files).
+        # ---- 1. Read config values (D-04, D-05) ----
+        filepath = self.config.get("filepath", "")
+        field_separator = self.config.get("fieldseparator", ";")
+        row_separator = self.config.get("row_separator", "\\n")
+        encoding = self.config.get("encoding", "ISO-8859-15")
+        header_rows = int(self.config.get("header_rows", 0))
+        footer_rows = int(self.config.get("footer_rows", 0))
+        limit = self.config.get("limit", "")
+        remove_empty_row = self.config.get("remove_empty_row", True)
+        csv_option = self.config.get("csv_option", False)
+        csv_row_separator = self.config.get("csv_row_separator", "\\n")
+        escape_char = self.config.get("escape_char", '"')
+        text_enclosure = self.config.get("text_enclosure", '"')
+        trim_all = self.config.get("trim_all", False)
+        trim_select = self.config.get("trim_select", [])
+        check_fields_num = self.config.get("check_fields_num", False)
+        check_date = self.config.get("check_date", False)
+        die_on_error = self.config.get("die_on_error", False)
 
-        Used when both delimiter and row_separator are empty, indicating the file
-        should be treated as a single document rather than structured data.
-        """
-        try:
-            with open(filepath, 'r', encoding=encoding) as f:
-                file_content = f.read()
+        # ---- 2. Warn on deferred features (D-21) ----
+        for flag, description in _DEFERRED_FEATURES.items():
+            if self.config.get(flag, False):
+                logger.warning(
+                    f"[{self.id}] {description} ('{flag}') is not yet "
+                    f"implemented. Config flag will be ignored."
+                )
 
-            # Use first column name from output_schema or default to 'doc'
-            if self.output_schema and len(self.output_schema) > 0:
-                column_name = self.output_schema[0]['name']
-            else:
-                column_name = 'doc'
+        # ---- 3. Resolve filepath ----
+        resolved_path = Path(filepath)
+        if not resolved_path.exists():
+            raise FileOperationError(
+                f"[{self.id}] File not found: '{filepath}'"
+            )
 
-            df = pd.DataFrame({column_name: file_content})
-            self._update_stats(1, 1, 0)
+        # ---- 4. Set pre-execution globalMap variables (D-15) ----
+        if self.global_map:
+            self.global_map.put(f"{self.id}_FILENAME", str(resolved_path))
+            self.global_map.put(f"{self.id}_ENCODING", encoding)
 
-            logger.info(f"[{self.id}] Read complete: file as single string, column: '{column_name}'")
-            logger.debug(f"[{self.id}] Result shape: {df.shape}, content length: {len(file_content)} chars")
+        # ---- 5. Unescape separators ----
+        field_separator = self._unescape_separator(field_separator)
+        row_separator = self._unescape_separator(row_separator)
+        csv_row_separator = self._unescape_separator(csv_row_separator)
 
-            return {'main': df}
+        # Talend behavior: csv_option=True with multi-char delimiter -> use first char only.
+        # Python's csv.reader requires a single-char delimiter; Talend silently truncates.
+        # Standard (non-CSV) mode: pandas supports multi-char via Python engine -- no truncation.
+        if csv_option and len(field_separator) > 1:
+            logger.warning(
+                f"[{self.id}] Multi-character fieldseparator '{field_separator}' with csv_option=True: "
+                f"using first character '{field_separator[0]}' (Talend behavior)"
+            )
+            field_separator = field_separator[0]
 
-        except Exception as e:
-            error_msg = f"Error reading file '{filepath}' as single string: {str(e)}"
-            logger.error(f"[{self.id}] Single string read failed: {error_msg}")
-            if die_on_error:
-                raise FileOperationError(f"[{self.id}] {error_msg}") from e
-            else:
-                self._update_stats(0, 0, 0)
-                return {'main': pd.DataFrame()}
+        # ---- 6. Read file ----
+        schema_cols = (
+            [col["name"] for col in self.output_schema]
+            if self.output_schema
+            else None
+        )
+        expected_col_count = len(self.output_schema) if self.output_schema else None
 
-    def _parse_limit(self, limit: Any) -> Optional[int]:
-        """Parse limit parameter to integer or None."""
-        if not limit or str(limit).strip() == '':
-            return None
-        try:
-            parsed_limit = int(limit)
-            logger.debug(f"[{self.id}] Row limit set: {parsed_limit}")
-            return parsed_limit
-        except (ValueError, TypeError):
-            logger.warning(f"[{self.id}] Invalid limit value '{limit}', ignoring")
-            return None
-
-    def _read_batch(self, filepath: str, delimiter: str, encoding: str,
-                    header_rows: int, footer_rows: int, nrows: Optional[int],
-                    text_enclosure: str, escape_char: str, remove_empty_rows: bool,
-                    trim_all: bool, use_regex: bool = False) -> Dict[str, Any]:
-        """Read entire file at once using pandas.read_csv()."""
-        logger.debug(f"[{self.id}] Batch read: delimiter='{delimiter}', header_rows={header_rows}, "
-                     f"footer_rows={footer_rows}, nrows={nrows}")
-
-        # ...existing code...
-        if self.output_schema:
-            skiprows = list(range(header_rows)) if header_rows > 0 else None
-            header = None
-            column_names = [col['name'] for col in self.output_schema]
-            names = column_names
-            logger.debug(f"[{self.id}] Using schema column names: {len(column_names)}")
+        if csv_option:
+            df = self._read_csv_mode(
+                filepath=str(resolved_path),
+                field_separator=field_separator,
+                row_separator=csv_row_separator,
+                encoding=encoding,
+                header_rows=header_rows,
+                footer_rows=footer_rows,
+                text_enclosure=text_enclosure,
+                escape_char=escape_char,
+                schema_cols=schema_cols,
+            )
         else:
-            skiprows = None
-            header = None if header_rows == 0 else list(range(header_rows))
-            names = None
-            logger.debug(f"[{self.id}] Using file headers")
+            # Parse limit early so it can be pushed down into pandas (Talend parity:
+            # LIMIT halts reading; we must not even tokenize lines past it).
+            nrows_limit = None
+            if limit and str(limit).strip():
+                try:
+                    parsed_limit = int(limit)
+                    if parsed_limit > 0:
+                        nrows_limit = parsed_limit
+                except (ValueError, TypeError):
+                    pass
+            df = self._read_standard_mode(
+                filepath=str(resolved_path),
+                field_separator=field_separator,
+                row_separator=row_separator,
+                encoding=encoding,
+                header_rows=header_rows,
+                footer_rows=footer_rows,
+                schema_cols=schema_cols,
+                nrows=nrows_limit,
+            )
 
-        dtype_dict = self._build_dtype_dict()
-        columns_to_keep = list(dtype_dict.keys()) if dtype_dict else None
-        engine = 'python' if (footer_rows > 0 or use_regex or skiprows is not None) else 'c'
+        logger.info(
+            f"[{self.id}] Read {len(df)} raw rows from '{resolved_path.name}'"
+        )
 
-        logger.debug(f"[{self.id}] Using pandas engine: '{engine}'")
+        # ----- 6b. Sanitize non-printable / unmappable bytes -----
+        # See ``_NON_PRINTABLE_RE`` docstring above. Without this scrub a
+        # single bad byte (e.g. 0x00 or U+FFFD from ISO-8859-15 fallback)
+        # propagates downstream and crashes the Py4J wrap step inside
+        # tMap with ``Wrapping <row> failed`` -- killing a job that has
+        # already invested minutes of runtime.
+        string_cols = df.select_dtypes(include=["object"]).columns
+        for col in string_cols:
+            df[col] = df[col].apply(
+                lambda x: _NON_PRINTABLE_RE.sub(" ", x) if isinstance(x, str) else x
+            )
 
-        quote_params = self._configure_csv_params(text_enclosure, escape_char)
-
-        try:
-            read_params = {
-                'filepath_or_buffer': filepath,
-                'sep': delimiter,
-                'encoding': encoding,
-                'header': header,
-                'names': names,
-                'skiprows': skiprows,
-                'nrows': nrows,
-                'skipfooter': footer_rows,
-                'engine': engine,
-                'keep_default_na': False,
-                **quote_params
-            }
-
-            if use_regex:
-                read_params['regex'] = True
-
-            if columns_to_keep:
-                read_params['usecols'] = columns_to_keep
-            if dtype_dict:
-                read_params['dtype'] = dtype_dict
-
-            logger.debug(f"[{self.id}] Reading file with pandas: engine='{engine}', " f"usecols={len(columns_to_keep) if columns_to_keep else 'all'}")
-
-            df = pd.read_csv(**read_params)
-
-            # ...existing code...
-            df = self._post_process_dataframe(df, trim_all, remove_empty_rows)
-
-            if self.output_schema:
-                expected_cols = len(self.output_schema)
-                actual_cols = len(df.columns)
-                if expected_cols != actual_cols:
-                    logger.warning(f"[{self.id}] Schema mismatch: expected {expected_cols} columns, " f"got {actual_cols}. Data may be misaligned.")
-
-                df = self.validate_schema(df, self.output_schema)
-
-            rows_read = len(df)
-            self._update_stats(rows_read, rows_read, 0)
-
-            logger.info(f"[{self.id}] Read complete: {rows_read} rows from '{filepath}'")
-
-            if logger.isEnabledFor(logging.DEBUG):
-                dtypes_info = {col: str(dtype) for col, dtype in df.dtypes.items()}
-                logger.debug(f"[{self.id}] Final column dtypes: {dtypes_info}")
-
-            return {'main': df}
-
-        except Exception as e:
-            error_msg = f"Batch read failed for '{filepath}': {str(e)}"
-            logger.error(f"[{self.id}] {error_msg}")
-            raise FileOperationError(f"[{self.id}] {error_msg}") from e
-
-    def _read_streaming(self, filepath: str, delimiter: str, encoding: str,
-                        header_rows: int, footer_rows: int, nrows: Optional[int],
-                        text_enclosure: str, escape_char: str, remove_empty_rows: bool,
-                        trim_all: bool, use_regex: bool = False) -> Dict[str, Any]:
-        """Read file in chunks for memory-efficient processing of large files."""
-        logger.info(f"[{self.id}] Streaming read: chunks of {self.chunk_size} rows")
-
-        dtype_dict = self._build_dtype_dict()
-
-        def chunk_generator() -> Iterator[pd.DataFrame]:
-            """Generator function that yields processed DataFrame chunks."""
-
-            if self.output_schema:
-                skiprows = list(range(header_rows)) if header_rows > 0 else None
-                header = None
-                column_names = [col['name'] for col in self.output_schema]
-                names = column_names
-                logger.debug(f"[{self.id}] Streaming with schema: {len(column_names)} columns")
-            else:
-                skiprows = None
-                header = None if header_rows == 0 else list(range(header_rows))
-                names = None
-                logger.debug(f"[{self.id}] Streaming with file headers")
-
-            engine = 'python' if (footer_rows > 0 or use_regex or skiprows is not None) else 'c'
-            quote_params = self._configure_csv_params(text_enclosure, escape_char)
-
+        # ---- 7. Apply limit ----
+        if limit and str(limit).strip():
             try:
-                read_params = {
-                    'filepath_or_buffer': filepath,
-                    'sep': delimiter,
-                    'encoding': encoding,
-                    'header': header,
-                    'names': names,
-                    'skiprows': skiprows,
-                    'nrows': nrows,
-                    'skipfooter': footer_rows,
-                    'engine': engine,
-                    'chunksize': self.chunk_size,
-                    'iterator': True,
-                    **quote_params
-                }
+                limit_val = int(limit)
+                if limit_val > 0:
+                    df = df.head(limit_val)
+            except (ValueError, TypeError):
+                logger.warning(
+                    f"[{self.id}] Invalid limit value '{limit}', ignoring"
+                )
 
-                if use_regex:
-                    read_params['regex'] = True
+        # ---- 8. Remove empty rows ----
+        if remove_empty_row:
+            df = df.dropna(how="all")
+            # WR-03 fix: vectorized all-empty-string check (avoids O(rows*cols)
+            # Python-level per-row loop). Replace blank/whitespace-only strings
+            # with NA, then keep rows where at least one value is non-NA.
+            str_df = df.astype(str).replace(r"^\s*$", pd.NA, regex=True)
+            df = df[str_df.notna().any(axis=1)].reset_index(drop=True)
 
-                if dtype_dict:
-                    read_params['dtype'] = dtype_dict
+        # ---- 9. Apply TRIMSELECT / trim_all (D-11) ----
+        df = self._apply_trim(df, trim_all, trim_select)
 
-                chunk_reader = pd.read_csv(**read_params)
+        # ---- 10. Validation and type conversion ----
+        needs_row_validation = check_fields_num or check_date
+        main_df, reject_df = self._validate_and_convert(
+            df=df,
+            check_fields_num=check_fields_num,
+            check_date=check_date,
+            expected_col_count=expected_col_count,
+            needs_row_validation=needs_row_validation,
+        )
 
-                total_rows = 0
-                chunk_num = 0
+        # ---- 11. die_on_error boundary re-wrap (CR-03) ----
+        # Per-row coercion errors are now caught internally and accumulated into
+        # reject_df. When die_on_error=True, convert them to a typed
+        # DataValidationError so the engine's exception contract is preserved.
+        if die_on_error and reject_df is not None and len(reject_df) > 0:
+            first_err = reject_df.iloc[0].get("errorMessage", "unknown") if hasattr(reject_df.iloc[0], "get") else str(reject_df.iloc[0])
+            raise DataValidationError(
+                f"[{self.id}] Schema/coercion failed for {len(reject_df)} row(s); "
+                f"first error: {first_err}"
+            )
 
-                for chunk in chunk_reader:
-                    chunk_num += 1
+        # ---- 12. Return result ----
+        # NOTE: BaseComponent._apply_output_schema_validation runs AFTER _process
+        # returns and handles schema validation per the 7.1-01 contract.
+        # Do NOT call self.validate_schema() here (Components MUST NOT call it
+        # manually -- BaseComponent owns that step, see 7.1-CONTEXT.md D-01).
+        return {"main": main_df, "reject": reject_df}
 
-                    if self.output_schema and names:
-                        if len(names) == len(chunk.columns):
-                            chunk.columns = names
-                        else:
-                            logger.warning(f"[{self.id}] Chunk {chunk_num}: column count mismatch")
+    # ------------------------------------------------------------------
+    # File Reading Methods
+    # ------------------------------------------------------------------
 
-                    chunk = self._post_process_dataframe(chunk, trim_all, remove_empty_rows)
+    def _read_standard_mode(
+        self,
+        filepath: str,
+        field_separator: str,
+        row_separator: str,
+        encoding: str,
+        header_rows: int,
+        footer_rows: int,
+        schema_cols: Optional[list[str]],
+        nrows: Optional[int] = None,
+    ) -> pd.DataFrame:
+        """Read file using pandas (csv_option=False, no quoting).
 
-                    if self.output_schema:
-                        chunk = self.validate_schema(chunk, self.output_schema)
+        Args:
+            filepath: Resolved file path.
+            field_separator: Field delimiter.
+            row_separator: Row delimiter (unescaped).
+            encoding: File encoding.
+            header_rows: Number of header rows to skip.
+            footer_rows: Number of footer rows to skip.
+            schema_cols: Column names from schema, or None.
 
-                    chunk_rows = len(chunk)
-                    total_rows += chunk_rows
-                    self._update_stats(chunk_rows, chunk_rows, 0)
-
-                    logger.debug(f"[{self.id}] Chunk {chunk_num}: {chunk_rows} rows processed")
-                    yield chunk
-
-                logger.info(f"[{self.id}] Streaming complete: {total_rows} total rows from '{filepath}'")
-
+        Returns:
+            DataFrame with all columns as string dtype.
+        """
+        # ---- Non-standard row separator: raw read + manual split ----
+        if row_separator not in _STANDARD_ROW_SEPARATORS:
+            try:
+                with open(filepath, "r", encoding=encoding, errors=_DECODE_ERRORS) as f:
+                    content = f.read()
             except Exception as e:
-                error_msg = f"Streaming read failed for '{filepath}': {str(e)}"
-                logger.error(f"[{self.id}] {error_msg}")
-                raise FileOperationError(f"[{self.id}] {error_msg}") from e
+                raise FileOperationError(
+                    f"[{self.id}] Failed to read file '{filepath}': {e}"
+                ) from e
 
-        return {
-            'main': chunk_generator(),
-            'is_streaming': True
+            lines = content.split(row_separator)
+            # Trailing split artifact
+            if lines and lines[-1] == "":
+                lines.pop()
+            if header_rows > 0:
+                lines = lines[header_rows:]
+            if footer_rows > 0 and lines:
+                lines = lines[:-footer_rows] if footer_rows < len(lines) else []
+
+            if not lines:
+                return pd.DataFrame(
+                    columns=schema_cols or []
+                ).astype(str)
+
+            reassembled = "\n".join(lines)
+            effective_sep = field_separator
+            if len(field_separator) > 1:
+                effective_sep = re.escape(field_separator)
+            read_params_custom: dict[str, Any] = {
+                "filepath_or_buffer": StringIO(reassembled),
+                "sep": effective_sep,
+                "header": None,
+                "quoting": csv.QUOTE_NONE,
+                "dtype": str,
+                "keep_default_na": False,
+            }
+            if len(field_separator) > 1:
+                read_params_custom["engine"] = "python"
+            if schema_cols:
+                #Do NOT pass names/usecols: read raw then align to schema.
+                pass
+            try:
+                raw_df = pd.read_csv(**read_params_custom)
+            except pd.errors.EmptyDataError:
+                return pd.DataFrame(columns=schema_cols or []).astype(str)
+            except Exception as e:
+                raise FileOperationError(
+                    f"[{self.id}] Failed to parse file '{filepath}': {e}"
+                ) from e
+            return self._align_columns_to_schema(raw_df, schema_cols)
+
+        # ---- Standard row separator: pandas handles natively ----
+        effective_sep = field_separator
+        use_python_engine = footer_rows > 0 or len(field_separator) > 1
+        if len(field_separator) > 1:
+            effective_sep = re.escape(field_separator)
+            
+        read_params: dict[str, Any] = {
+            "filepath_or_buffer": filepath,
+            "sep": effective_sep,
+            "header": None,
+            "skiprows": header_rows if header_rows > 0 else None,
+            "skipfooter": footer_rows if footer_rows > 0 else 0,
+            "encoding": encoding,
+            "encoding_errors": _DECODE_ERRORS,
+            "quoting": csv.QUOTE_NONE,
+            "dtype": str,
+            "keep_default_na": False,
         }
 
-    def _configure_csv_params(self, text_enclosure: str, escape_char: str) -> Dict[str, Any]:
-        """Configure pandas CSV parsing parameters for quoting and escaping."""
-        if not text_enclosure or len(text_enclosure) != 1:
-            logger.warning(f"[{self.id}] Invalid text_enclosure '{text_enclosure}': disabling quoting")
-            return {'quoting': csv.QUOTE_NONE}
+        # Talend parity: LIMIT halts reading -- never tokenize past it.
+        # nrows is incompatible with skipfooter (pandas requires reading the
+        # whole file to know where the footer starts).
+        if nrows is not None and nrows > 0 and footer_rows == 0:
+            read_params["nrows"] = nrows
 
-        if escape_char and escape_char == text_enclosure:
-            quote_params = {
-                'quotechar': text_enclosure,
-                'doublequote': True
-            }
-            logger.debug(f"[{self.id}] CSV config: double-quote mode with '{text_enclosure}'")
+        if use_python_engine:
+            read_params["engine"] = "python"
+
+        try:
+            df = pd.read_csv(**read_params)
+        except pd.errors.EmptyDataError:
+            # Empty file or no columns
+            return pd.DataFrame(columns=schema_cols or []).astype(str)
+        except Exception as e:
+            raise FileOperationError(
+                f"[{self.id}] Failed to read file '{filepath}': {e}"
+            ) from e
+        
+        return self._align_columns_to_schema(df, schema_cols)
+
+    def _align_columns_to_schema(
+        self, df: pd.DataFrame, schema_cols: Optional[list[str]]    
+        ) -> pd.DataFrame:
+        """Align DataFrame columns to schema: truncate extra columns, set names.
+
+        Talend parity: silently truncate extra columns so DataFrame width matches schema.
+        If file has MORE columns than schema, excess columns are dropped. 
+        If file has FEWER columns than schema, missing columns are added with empty string values.
+
+
+        Args:
+            df: Input DataFrame with default integer column names.
+            schema_cols: List of column names from schema, or None.
+
+        Returns:
+            DataFrame with columns aligned to schema.
+        """
+        if not schema_cols:
+            return df
+        
+        file_col_count = len(df.columns)
+        schema_col_count = len(schema_cols)
+
+        if file_col_count > schema_col_count:
+            # Take first N columns positionally to match schema, silently dropping extras (Talend parity).
+            df = df.iloc[:, :schema_col_count]
+            df.columns = schema_cols
         else:
-            quote_params = {
-                'quotechar': text_enclosure,
-                'escapechar': escape_char if escape_char else None
+            # File has fewer columns than schema: add missing columns with empty string values.
+            df.columns = schema_cols[:file_col_count]
+            for col_name in schema_cols[file_col_count:]:
+                df[col_name] = ""
+  
+        return df
+
+    def _read_csv_mode(
+        self,
+        filepath: str,
+        field_separator: str,
+        row_separator: str,
+        encoding: str,
+        header_rows: int,
+        footer_rows: int,
+        text_enclosure: str,
+        escape_char: str,
+        schema_cols: Optional[list[str]],
+    ) -> pd.DataFrame:
+        """Read file using Python csv.reader for RFC4180 compliance (csv_option=True).
+
+        Uses deque-based sliding window for footer skipping to avoid loading
+        the entire file into memory before discarding footer rows.
+
+        Args:
+            filepath: Resolved file path.
+            field_separator: Field delimiter.
+            row_separator: Row delimiter (unescaped).
+            encoding: File encoding.
+            header_rows: Number of header rows to skip.
+            footer_rows: Number of footer rows to skip.
+            text_enclosure: Quote character.
+            escape_char: Escape character.
+            schema_cols: Column names from schema, or None.
+
+        Returns:
+            DataFrame with all columns as string dtype.
+        """
+        # ---- Non-standard row separator: raw read + manual split ----
+        if row_separator not in _STANDARD_ROW_SEPARATORS:
+            try:
+                with open(filepath, "r", encoding=encoding, errors=_DECODE_ERRORS) as f:
+                    content = f.read()
+            except FileNotFoundError as e:
+                raise FileOperationError(
+                    f"[{self.id}] File not found: '{filepath}'"
+                ) from e
+            except Exception as e:
+                raise FileOperationError(
+                    f"[{self.id}] Failed to read file '{filepath}': {e}"
+                ) from e
+
+            lines = content.split(row_separator)
+            # Trailing split artifact
+            if lines and lines[-1] == "":
+                lines.pop()
+            if header_rows > 0:
+                lines = lines[header_rows:]
+            if footer_rows > 0 and lines:
+                lines = lines[:-footer_rows] if footer_rows < len(lines) else []
+
+            if not lines:
+                return pd.DataFrame(columns=schema_cols or []).astype(str)
+
+            # Configure csv.reader for RFC4180
+            reader_kwargs: dict[str, Any] = {
+                "delimiter": field_separator,
+                "quotechar": text_enclosure,
             }
-            logger.debug(f"[{self.id}] CSV config: escape mode, quote='{text_enclosure}', " f"escape='{escape_char}'")
+            if escape_char == text_enclosure:
+                reader_kwargs["doublequote"] = True
+            else:
+                reader_kwargs["escapechar"] = escape_char
+                reader_kwargs["doublequote"] = False
 
-        return quote_params
+            rows = list(csv.reader(lines, **reader_kwargs))
 
-    def _post_process_dataframe(self, df: pd.DataFrame, trim_all: bool,
-                                remove_empty_rows: bool) -> pd.DataFrame:
-        """Apply post-processing operations to DataFrame."""
-        if trim_all:
-            string_columns = df.select_dtypes(include=['object']).columns
-            if len(string_columns) > 0:
-                for col in string_columns:
-                    df[col] = df[col].str.strip()
-                logger.debug(f"[{self.id}] Trimmed {len(string_columns)} string columns")
+            if not rows:
+                return pd.DataFrame(columns=schema_cols or []).astype(str)
 
-        if remove_empty_rows:
-            rows_before = len(df)
-            df = df.dropna(how='all')
-            rows_removed = rows_before - len(df)
-            if rows_removed > 0:
-                logger.debug(f"[{self.id}] Removed {rows_removed} empty rows")
+            df = pd.DataFrame(rows, dtype=str)
+            if schema_cols and len(df.columns) == len(schema_cols):
+                df.columns = schema_cols
+            elif schema_cols:
+                logger.warning(
+                    f"[{self.id}] Schema expects {len(schema_cols)} columns "
+                    f"but file has {len(df.columns)} columns per row"
+                )
+            return df
 
-        string_columns = df.select_dtypes(include=['object']).columns
-        if len(string_columns) > 0:
-            for col in string_columns:
-                df[col] = df[col].fillna("")
+        # ---- Standard row separator: native line handling ----
+        try:
+            with open(filepath, "r", encoding=encoding, newline="", errors=_DECODE_ERRORS) as f:
+                # Configure csv.reader for RFC4180
+                reader_kwargs: dict[str, Any] = {
+                    "delimiter": field_separator,
+                    "quotechar": text_enclosure,
+                }
+                if escape_char == text_enclosure:
+                    reader_kwargs["doublequote"] = True
+                else:
+                    reader_kwargs["escapechar"] = escape_char
+                    reader_kwargs["doublequote"] = False
 
-        if self.output_schema:
-            for col_def in self.output_schema:
-                col_name = col_def['name']
-                col_type = col_def.get('type', 'id_String')
-                if col_type in ('id_BigDecimal', 'Decimal') and col_name in df.columns:
-                    df[col_name] = df[col_name].apply(
-                        lambda x: Decimal(str(x)) if pd.notna(x) and str(x).strip() else None
-                    )
-                    logger.debug(f"[{self.id}] Converted column '{col_name}' to Decimal type")
+                reader = csv.reader(f, **reader_kwargs)
+
+                # Skip header rows
+                for _ in range(header_rows):
+                    try:
+                        next(reader)
+                    except StopIteration:
+                        break
+
+                # Read rows with deque-based footer skipping
+                if footer_rows > 0:
+                    rows: list[list[str]] = []
+                    buffer: deque[list[str]] = deque(maxlen=footer_rows)
+                    for row in reader:
+                        if len(buffer) == footer_rows:
+                            rows.append(buffer[0])
+                        buffer.append(row)
+                    # Rows remaining in buffer are footer rows -- discarded
+                else:
+                    rows = list(reader)
+
+        except FileNotFoundError as e:
+            raise FileOperationError(
+                f"[{self.id}] File not found: '{filepath}'"
+            ) from e
+        except Exception as e:
+            raise FileOperationError(
+                f"[{self.id}] Failed to read file '{filepath}': {e}"
+            ) from e
+
+        if not rows:
+            columns = schema_cols or []
+            return pd.DataFrame(columns=columns).astype(str)
+
+        df = pd.DataFrame(rows, dtype=str)
+        if schema_cols and len(df.columns) == len(schema_cols):
+            df.columns = schema_cols
+        elif schema_cols:
+            logger.warning(
+                f"[{self.id}] Schema expects {len(schema_cols)} columns "
+                f"but file has {len(df.columns)} columns per row"
+            )
 
         return df
+
+    # ------------------------------------------------------------------
+    # Trim
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _apply_trim(
+        df: pd.DataFrame,
+        trim_all: bool,
+        trim_select: list[dict],
+    ) -> pd.DataFrame:
+        """Apply per-column or global trim to string columns.
+
+        Talend semantics:
+          - trim_all=True  → every string column is trimmed.  TRIMSELECT entries
+            with trim=false are the UI default state ("no explicit override") and
+            do NOT prevent trimming.
+          - trim_all=False → only columns that have an explicit trim=true entry
+            in trim_select are trimmed.
+
+        Args:
+            df: Input DataFrame (all string columns at this point).
+            trim_all: Trim all string columns.
+            trim_select: List of {column, trim} dicts.
+
+        Returns:
+            DataFrame with trimmed columns.
+        """
+        if df.empty:
+            return df
+
+        if trim_all:
+            obj_cols = df.select_dtypes(include=["object"]).columns
+            for col in obj_cols:
+                df[col] = df[col].astype(str).str.strip()
+        elif trim_select:
+            for entry in trim_select:
+                col_name = entry.get("column", "")
+                should_trim = entry.get("trim", False)
+                if should_trim and col_name in df.columns:
+                    df[col_name] = df[col_name].astype(str).str.strip()
+
+        return df
+
+    # ------------------------------------------------------------------
+    # Validation and Type Conversion
+    # ------------------------------------------------------------------
+
+    def _validate_and_convert(
+        self,
+        df: pd.DataFrame,
+        check_fields_num: bool,
+        check_date: bool,
+        expected_col_count: Optional[int],
+        needs_row_validation: bool,
+    ) -> tuple[pd.DataFrame, Optional[pd.DataFrame]]:
+        """Validate rows and convert types. Route failures to reject.
+
+        Fast path: When no row-level validation flags are set, uses vectorized
+        type conversion directly (no per-row iteration).
+
+        Chunked path: When validation is needed, processes in chunks of
+        _VALIDATION_CHUNK_SIZE rows to limit peak memory.
+
+        Args:
+            df: Input DataFrame (string dtype).
+            check_fields_num: Validate field count per row.
+            check_date: Validate date patterns.
+            expected_col_count: Expected number of columns from schema.
+            needs_row_validation: Whether row-by-row validation is needed.
+
+        Returns:
+            Tuple of (main_df, reject_df or None).
+        """
+        if df.empty:
+            return df, None
+
+        if not self.output_schema:
+            # No schema -- return as-is, no validation possible.
+            # WR-06: emit a one-time warning so users know type coercion is skipped.
+            if not getattr(self, "_warned_no_schema", False):
+                logger.warning(
+                    f"[{self.id}] No output_schema configured; emitting all-string columns. "
+                    f"Downstream type-aware operations may misbehave."
+                )
+                self._warned_no_schema = True
+            return df, None
+
+        if not needs_row_validation:
+            # Fast path: vectorized type conversion, no per-row iteration
+            return self._fast_path_convert(df)
+
+        # Chunked validation path
+        return self._chunked_validate(
+            df=df,
+            check_fields_num=check_fields_num,
+            check_date=check_date,
+            expected_col_count=expected_col_count,
+        )
+
+    def _fast_path_convert(
+        self, df: pd.DataFrame
+    ) -> tuple[pd.DataFrame, Optional[pd.DataFrame]]:
+        """Vectorized type conversion without per-row validation.
+
+        Attempts column-wide conversion. If a column fails, falls back to
+        per-row conversion for that column only, routing failures to reject.
+
+        WR-04 fix: collects all bad row indices first across all columns,
+        drops once at the end, and resets index on both result and reject
+        DataFrames. The original df is used for reject row capture
+        (pre-conversion values, per Phase 4 D-06).
+
+        Args:
+            df: Input DataFrame (string dtype).
+
+        Returns:
+            Tuple of (main_df, reject_df or None).
+        """
+        if not self.output_schema:
+            return df, None
+
+        # Build a dict of {col_name: converted_series} for successful columns,
+        # so we can apply them all at once after identifying bad rows. This
+        # avoids .at-assignment into Arrow-backed string columns (pandas 3.0).
+        converted_cols: dict[str, pd.Series] = {}
+        bad_indices: set[int] = set()
+        reject_rows: list[dict] = []
+
+        for col_def in self.output_schema:
+            col_name = col_def.get("name", "")
+            col_type = col_def.get("type", "str")
+
+            if col_name not in df.columns or col_type == "str":
+                continue
+
+            try:
+                converted_cols[col_name] = self._vectorized_convert(
+                    df[col_name], col_type, col_def
+                )
+            except (ValueError, TypeError):
+                # Fall back to per-row conversion for this column.
+                # Convert values individually; track failures as bad indices.
+                good_converted: dict[int, Any] = {}
+                for idx in df.index:
+                    if idx in bad_indices:
+                        # Row already rejected by an earlier column -- skip
+                        continue
+                    val = df.at[idx, col_name]
+                    try:
+                        good_converted[idx] = self._convert_value(str(val), col_def)
+                    except (ValueError, TypeError) as e:
+                        bad_indices.add(idx)
+                        # Capture row values from ORIGINAL df (pre-conversion)
+                        # so reject rows have raw strings, not partial conversions.
+                        row_dict = df.loc[idx].to_dict()
+                        row_dict["errorCode"] = _ERROR_TYPE_CONVERSION
+                        row_dict["errorMessage"] = (
+                            f"Column '{col_name}': {e}"
+                        )
+                        reject_rows.append(row_dict)
+
+                # Build the converted series from per-row successes
+                # (bad rows get their original string value; they'll be dropped)
+                if good_converted:
+                    values = []
+                    for idx in df.index:
+                        if idx in good_converted:
+                            values.append(good_converted[idx])
+                        elif idx in bad_indices:
+                            values.append(None)
+                        else:
+                            values.append(df.at[idx, col_name])
+                    converted_cols[col_name] = pd.Series(
+                        values, index=df.index, name=col_name
+                    )
+
+        # Build result from original df + converted columns
+        result = df.copy()
+        for col_name, col_series in converted_cols.items():
+            result[col_name] = col_series
+
+        # Drop bad rows once + reset index (WR-04 fix)
+        if bad_indices:
+            result = result.drop(index=list(bad_indices)).reset_index(drop=True)
+
+        reject_df = pd.DataFrame(reject_rows) if reject_rows else None
+        if reject_df is not None:
+            reject_df = reject_df.reset_index(drop=True)
+
+        return result, reject_df
+
+    @staticmethod
+    def _vectorized_convert(
+        series: pd.Series,
+        col_type: str,
+        col_def: Optional[dict] = None,
+    ) -> pd.Series:
+        """Convert a pandas Series to the target type vectorized.
+
+        Args:
+            series: Input Series (string values).
+            col_type: Target type string.
+            col_def: Schema column definition (used for ``date_pattern`` so
+                datetime conversion can pass ``format=`` to ``pd.to_datetime``
+                and avoid the per-row ``dateutil`` fallback warning).
+
+        Returns:
+            Converted Series.
+
+        Raises:
+            ValueError: If conversion fails for any value.
+        """
+        if col_type in ("int", "long"):
+            return pd.to_numeric(series, errors="raise")
+        elif col_type in ("float", "double"):
+            return pd.to_numeric(series, errors="raise").astype(float)
+        elif col_type in ("bool",):
+            mapping = {
+                "true": True, "false": False, "True": True, "False": False,
+                "1": True, "0": False, "yes": True, "no": False,
+                "Yes": True, "No": False, "YES": True, "NO": False,
+            }
+            mapped = series.map(mapping)
+            if mapped.isna().any():
+                # Unmapped values found -- force fallback to per-row conversion.
+                # Raise ValueError (not DataValidationError) so the per-row
+                # fallback's except (ValueError, TypeError) can catch it (CR-03).
+                raise ValueError("Unmapped bool values found")
+            return mapped
+        elif col_type == "datetime":
+            # Honour the schema's date_pattern (Python strptime form, set by
+            # the converter from Talend's Java date pattern) so pandas can
+            # use the C-level vectorized path. Without format=, pandas falls
+            # back to dateutil per-row and emits the
+            # "Could not infer format" UserWarning.
+            date_pattern = (col_def or {}).get("date_pattern") or ""
+            if date_pattern:
+                return pd.to_datetime(series, format=date_pattern, errors="raise")
+            return pd.to_datetime(series, errors="raise")
+        return series
+
+    def _chunked_validate(
+        self,
+        df: pd.DataFrame,
+        check_fields_num: bool,
+        check_date: bool,
+        expected_col_count: Optional[int],
+    ) -> tuple[pd.DataFrame, Optional[pd.DataFrame]]:
+        """Process DataFrame in chunks, validating each row.
+
+        Args:
+            df: Input DataFrame (string dtype).
+            check_fields_num: Validate field count.
+            check_date: Validate date patterns.
+            expected_col_count: Expected column count.
+
+        Returns:
+            Tuple of (main_df, reject_df or None).
+        """
+        good_chunks: list[pd.DataFrame] = []
+        reject_chunks: list[pd.DataFrame] = []
+        schema_cols = [col["name"] for col in self.output_schema]
+
+        for start in range(0, len(df), _VALIDATION_CHUNK_SIZE):
+            end = min(start + _VALIDATION_CHUNK_SIZE, len(df))
+            chunk = df.iloc[start:end]
+
+            chunk_good: list[dict] = []
+            chunk_reject: list[dict] = []
+
+            for row_idx, row in enumerate(chunk.itertuples(index=False)):
+                line_num = start + row_idx + 1
+                row_values = list(row)
+                row_dict = {}
+                for i, col_name in enumerate(chunk.columns):
+                    if i < len(row_values):
+                        row_dict[col_name] = row_values[i]
+
+                rejected = False
+
+                # a. CHECK_FIELDS_NUM (FILD-06)
+                # pandas pads short rows with "" (keep_default_na=False),
+                # so len(row_values) always equals column count.
+                # Detect short rows by stripping trailing empty strings.
+                if check_fields_num and expected_col_count is not None:
+                    stripped = row_values.copy()
+                    while stripped and str(stripped[-1]).strip() == "":
+                        stripped.pop()
+                    actual_field_count = len(stripped)
+                    if actual_field_count != expected_col_count:
+                        reject_row = {
+                            c: str(row_dict.get(c, "")) for c in schema_cols
+                            if c in row_dict
+                        }
+                        reject_row["errorCode"] = _ERROR_FIELD_COUNT
+                        reject_row["errorMessage"] = (
+                            f"Field count mismatch: expected "
+                            f"{expected_col_count}, got {actual_field_count} "
+                            f"- Line: {line_num}"
+                        )
+                        chunk_reject.append(reject_row)
+                        rejected = True
+
+                if rejected:
+                    continue
+
+                # b. CHECK_DATE first (FILD-07) + c. Type conversion (FILD-03)
+                converted_row: dict[str, Any] = {}
+                for col_def in self.output_schema:
+                    col_name = col_def.get("name", "")
+                    if col_name not in row_dict:
+                        continue
+
+                    raw_val = str(row_dict[col_name])
+
+                    # Date validation BEFORE type conversion so datetime
+                    # columns that fail pattern get DATE_FORMAT, not
+                    # TYPE_CONVERSION.
+                    if (
+                        check_date
+                        and col_def.get("date_pattern")
+                        and col_def.get("type") == "datetime"
+                        and raw_val.strip()
+                    ):
+                        if not self._validate_date(
+                            raw_val, col_def["date_pattern"]
+                        ):
+                            reject_row = {
+                                c: str(row_dict.get(c, ""))
+                                for c in schema_cols
+                                if c in row_dict
+                            }
+                            reject_row["errorCode"] = _ERROR_DATE_FORMAT
+                            reject_row["errorMessage"] = (
+                                f"Date '{raw_val}' does not match pattern "
+                                f"'{col_def['date_pattern']}' for column "
+                                f"'{col_name}' - Line: {line_num}"
+                            )
+                            chunk_reject.append(reject_row)
+                            rejected = True
+                            break
+
+                    # Type conversion
+                    try:
+                        converted_row[col_name] = self._convert_value(
+                            raw_val, col_def
+                        )
+                    except (ValueError, TypeError):
+                        reject_row = {
+                            c: str(row_dict.get(c, "")) for c in schema_cols
+                            if c in row_dict
+                        }
+                        reject_row["errorCode"] = _ERROR_TYPE_CONVERSION
+                        reject_row["errorMessage"] = (
+                            f"Cannot convert '{raw_val}' to "
+                            f"{col_def.get('type', 'str')} for column "
+                            f"'{col_name}' - Line: {line_num}"
+                        )
+                        chunk_reject.append(reject_row)
+                        rejected = True
+                        break
+
+                if not rejected:
+                    chunk_good.append(converted_row)
+
+            # Convert chunk lists to DataFrames immediately
+            if chunk_good:
+                good_chunks.append(pd.DataFrame(chunk_good))
+            if chunk_reject:
+                reject_chunks.append(pd.DataFrame(chunk_reject))
+
+        # Concatenate all chunks
+        if good_chunks:
+            main_df = pd.concat(good_chunks, ignore_index=True)
+        else:
+            main_df = pd.DataFrame(columns=schema_cols)
+
+        if reject_chunks:
+            reject_df = pd.concat(reject_chunks, ignore_index=True)
+        else:
+            reject_df = None
+
+        return main_df, reject_df
+
+    # ------------------------------------------------------------------
+    # Static Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _unescape_separator(sep: str) -> str:
+        """Convert escaped separator strings to actual characters.
+
+        Args:
+            sep: Separator string, possibly with escape sequences.
+
+        Returns:
+            Unescaped separator string.
+        """
+        mapping = {
+            "\\n": "\n",
+            "\\r\\n": "\r\n",
+            "\\r": "\r",
+            "\\t": "\t",
+        }
+        return mapping.get(sep, sep)
+
+    @staticmethod
+    def _convert_value(value: str, col_schema: dict) -> Any:
+        """Convert a string value to the target type per schema.
+
+        Args:
+            value: Raw string value from file.
+            col_schema: Schema dict with 'type' key.
+
+        Returns:
+            Converted value.
+
+        Raises:
+            ValueError: If conversion fails.
+        """
+        col_type = col_schema.get("type", "str")
+        stripped = value.strip()
+
+        if col_type == "str":
+            return value
+
+        # Handle empty values for non-string types
+        if stripped == "":
+            if col_schema.get("nullable", True):
+                return None
+            # Raise ValueError (not DataValidationError) so the per-row
+            # fallback's except (ValueError, TypeError) catches it (CR-03).
+            raise ValueError(f"Empty value for non-nullable column")
+
+        if col_type in ("int", "long"):
+            return int(float(stripped))
+        elif col_type in ("float", "double"):
+            return float(stripped)
+        elif col_type == "bool":
+            lower = stripped.lower()
+            if lower in ("true", "1", "yes"):
+                return True
+            elif lower in ("false", "0", "no"):
+                return False
+            # Raise ValueError (not DataValidationError) so the per-row
+            # fallback's except (ValueError, TypeError) catches it (CR-03).
+            raise ValueError(f"Cannot convert '{value}' to bool")
+        elif col_type == "datetime":
+            pattern = col_schema.get("date_pattern", "")
+            if pattern:
+                return datetime.strptime(stripped, pattern)
+            return pd.to_datetime(stripped)
+        elif col_type == "Decimal":
+            from decimal import Decimal
+            return Decimal(stripped)
+        elif col_type == "object":
+            return value
+
+        return value
+
+    @staticmethod
+    def _validate_date(value: str, pattern: str) -> bool:
+        """Check whether a date string matches the given pattern.
+
+        Args:
+            value: Date string to validate.
+            pattern: strptime-compatible date pattern.
+
+        Returns:
+            True if valid, False otherwise.
+        """
+        try:
+            datetime.strptime(value.strip(), pattern)
+            return True
+        except (ValueError, TypeError):
+            return False

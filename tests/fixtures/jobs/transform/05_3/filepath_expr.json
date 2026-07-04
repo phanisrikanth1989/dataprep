@@ -1,0 +1,362 @@
+{
+  "job_name": "Job_05_3_filepath_expr",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {
+      "inputFile": {
+        "value": "data/input_employees.csv",
+        "type": "str"
+      },
+      "outputFile": {
+        "value": "data/output_employees_transformed.csv",
+        "type": "str"
+      },
+      "OUT_DIR": {
+        "value": "/tmp/repro/",
+        "type": "str"
+      },
+      "OUT_NAME": {
+        "value": "output_via_expr",
+        "type": "str"
+      },
+      "OUT_EXT": {
+        "value": ".csv",
+        "type": "str"
+      }
+    }
+  },
+  "components": [
+    {
+      "id": "tFileInputDelimited_1",
+      "type": "FileInputDelimited",
+      "original_type": "tFileInputDelimited",
+      "position": {
+        "x": 128,
+        "y": 160
+      },
+      "config": {
+        "filepath": "TBD_via_mutations",
+        "csv_option": true,
+        "row_separator": "\\n",
+        "csv_row_separator": "\\n",
+        "fieldseparator": ";",
+        "escape_char": "\"",
+        "text_enclosure": "\"",
+        "header_rows": 1,
+        "footer_rows": 0,
+        "limit": "",
+        "remove_empty_row": true,
+        "uncompress": false,
+        "die_on_error": false,
+        "advanced_separator": false,
+        "thousands_separator": ",",
+        "decimal_separator": ".",
+        "random": false,
+        "nb_random": 10,
+        "trim_all": false,
+        "check_fields_num": false,
+        "check_date": false,
+        "encoding": "ISO-8859-15",
+        "split_record": false,
+        "enable_decode": false,
+        "trim_select": [
+          {
+            "column": "id",
+            "trim": false
+          },
+          {
+            "column": "first_name",
+            "trim": false
+          },
+          {
+            "column": "last_name",
+            "trim": false
+          },
+          {
+            "column": "email",
+            "trim": false
+          },
+          {
+            "column": "department",
+            "trim": false
+          },
+          {
+            "column": "salary",
+            "trim": false
+          }
+        ],
+        "decode_cols": [
+          {
+            "column": "id",
+            "decode": false
+          },
+          {
+            "column": "first_name",
+            "decode": false
+          },
+          {
+            "column": "last_name",
+            "decode": false
+          },
+          {
+            "column": "email",
+            "decode": false
+          },
+          {
+            "column": "department",
+            "decode": false
+          },
+          {
+            "column": "salary",
+            "decode": false
+          }
+        ],
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {
+            "name": "id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "first_name",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "last_name",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "email",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "salary",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          }
+        ]
+      },
+      "inputs": [],
+      "outputs": [
+        "row1"
+      ]
+    },
+    {
+      "id": "tFileOutputDelimited_1",
+      "type": "FileOutputDelimited",
+      "original_type": "tFileOutputDelimited",
+      "position": {
+        "x": 384,
+        "y": 160
+      },
+      "config": {
+        "usestream": false,
+        "streamname": "outputStream",
+        "filepath": "{{java}}context.OUT_DIR + context.OUT_NAME + context.OUT_EXT",
+        "row_separator": "\\n",
+        "fieldseparator": "|",
+        "append": false,
+        "include_header": true,
+        "compress": false,
+        "advanced_separator": false,
+        "thousands_separator": ",",
+        "decimal_separator": ".",
+        "csv_option": false,
+        "escape_char": "\"",
+        "text_enclosure": "\"",
+        "os_line_separator": true,
+        "csvrowseparator": "\\n",
+        "create_directory": true,
+        "split": false,
+        "split_every": "1000",
+        "flushonrow": false,
+        "flush_row_count": "1",
+        "row_mode": false,
+        "encoding": "UTF-8",
+        "delete_empty_file": false,
+        "file_exist_exception": true,
+        "tstatcatcher_stats": false,
+        "label": "Write_Output_CSV"
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "id",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          },
+          {
+            "name": "first_name",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "last_name",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "email",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 100
+          },
+          {
+            "name": "department",
+            "type": "str",
+            "nullable": false,
+            "key": false,
+            "length": 50
+          },
+          {
+            "name": "salary",
+            "type": "int",
+            "nullable": false,
+            "key": false
+          }
+        ],
+        "output": [],
+        "inputs": {
+          "row1": [
+            {
+              "name": "id",
+              "type": "int",
+              "nullable": false,
+              "key": false
+            },
+            {
+              "name": "first_name",
+              "type": "str",
+              "nullable": false,
+              "key": false,
+              "length": 50
+            },
+            {
+              "name": "last_name",
+              "type": "str",
+              "nullable": false,
+              "key": false,
+              "length": 50
+            },
+            {
+              "name": "email",
+              "type": "str",
+              "nullable": false,
+              "key": false,
+              "length": 100
+            },
+            {
+              "name": "department",
+              "type": "str",
+              "nullable": false,
+              "key": false,
+              "length": 50
+            },
+            {
+              "name": "salary",
+              "type": "int",
+              "nullable": false,
+              "key": false
+            }
+          ]
+        }
+      },
+      "inputs": [
+        "row1"
+      ],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {
+      "name": "row1",
+      "from": "tFileInputDelimited_1",
+      "to": "tFileOutputDelimited_1",
+      "type": "flow"
+    }
+  ],
+  "triggers": [],
+  "subjobs": {
+    "subjob_1": [
+      "tFileInputDelimited_1",
+      "tFileOutputDelimited_1"
+    ]
+  },
+  "java_config": {
+    "enabled": true,
+    "routines": [
+      "routines.DataOperation",
+      "routines.Mathematical",
+      "routines.Numeric",
+      "routines.Relational",
+      "routines.StringHandling",
+      "routines.TalendDataGenerator",
+      "routines.TalendDate",
+      "routines.TalendStringUtil",
+      "routines.TalendString"
+    ],
+    "libraries": []
+  },
+  "_validation": {
+    "valid": true,
+    "summary": "Validation passed with no issues",
+    "issues": []
+  },
+  "_needs_review": [
+    {
+      "issue": "Engine does not read 'split_record' config key -- engine has no explicit multi-line field toggle",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'random' config key -- engine does not support random line extraction",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'enable_decode' config key -- engine does not support hex/octal number parsing",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'advanced_separator' config key -- engine has partial support -- applies to all string columns, not just numeric",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'uncompress' config key -- engine does not support compressed file reading",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    }
+  ]
+}

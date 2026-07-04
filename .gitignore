@@ -5,3 +5,28 @@ __pycache__/
 *.pyd
 *.class
 *.lst
+.claude/
+.gemini/
+
+# Pipeline-test fixture jobs (Phase 14): override the *.json rule above.
+# Without this negation, fixtures committed to tests/fixtures/jobs/ are
+# silently ignored by `git add` and the run_job_fixture loader has nothing
+# to read. Plans 14-08..14-11 all rely on these JSON fixtures being tracked.
+!tests/fixtures/jobs/**/*.json
+# Plan 14-09 deep-gap fixture data (sample_*.json for file_input_json tests).
+!tests/fixtures/data/**/*.json
+# Plan 14-12 closeout: committed per-phase coverage.json artifact (locked Q4).
+# The project-wide *.json rule otherwise silently ignores this acceptance artifact.
+!.planning/phases/**/*coverage.json
+
+# Maven build artifacts
+src/v1/java_bridge/java/target/
+src/v1/java_bridge/java/dependency-reduced-pom.xml
+
+# Coverage artifacts (Phase 14 gate command outputs)
+.coverage
+.coverage.*
+htmlcov/
+/coverage.json
+/cov_*.json.superpowers/
+.superpowers/

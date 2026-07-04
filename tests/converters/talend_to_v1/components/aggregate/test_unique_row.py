@@ -131,7 +131,8 @@ class TestParameterExtraction:
         node = _make_node(params={"ONLY_ONCE_EACH_DUPLICATED_KEY": "true"})
         result = UniqueRowConverter().convert(node, [], {})
         assert result.component["config"]["only_once_each_duplicated_key"] is True
-        assert result.component["config"]["keep"] == "last"
+        # Talend always keeps the first occurrence; only_once affects the DUPLICATE output
+        assert result.component["config"]["keep"] == "first"
 
     def test_only_once_each_duplicated_key_false(self):
         node = _make_node(params={"ONLY_ONCE_EACH_DUPLICATED_KEY": "false"})

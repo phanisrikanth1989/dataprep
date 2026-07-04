@@ -1,0 +1,76 @@
+{
+  "job_name": "Job_csv_split_output",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {}
+  },
+  "components": [
+    {
+      "id": "tFixedFlowInput_1",
+      "type": "FixedFlowInputComponent",
+      "original_type": "tFixedFlowInput",
+      "config": {
+        "nb_rows": 5,
+        "use_singlemode": false,
+        "use_intable": true,
+        "use_inlinecontent": false,
+        "intable": [
+          {"element_ref": "id", "value": "1"},
+          {"element_ref": "name", "value": "Alice"},
+          {"element_ref": "id", "value": "2"},
+          {"element_ref": "name", "value": "Bob"},
+          {"element_ref": "id", "value": "3"},
+          {"element_ref": "name", "value": "Carol"},
+          {"element_ref": "id", "value": "4"},
+          {"element_ref": "name", "value": "Dave"},
+          {"element_ref": "id", "value": "5"},
+          {"element_ref": "name", "value": "Eve"}
+        ]
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {"name": "id", "type": "str", "nullable": false, "key": false},
+          {"name": "name", "type": "str", "nullable": false, "key": false}
+        ]
+      },
+      "inputs": [],
+      "outputs": ["row1"]
+    },
+    {
+      "id": "tFileOutputDelimited_1",
+      "type": "FileOutputDelimited",
+      "original_type": "tFileOutputDelimited",
+      "config": {
+        "filepath": "TBD_via_mutations",
+        "fieldseparator": ";",
+        "row_separator": "\\n",
+        "encoding": "UTF-8",
+        "include_header": true,
+        "append": false,
+        "create_directory": true,
+        "split": true,
+        "split_every": 2,
+        "file_exist_exception": false
+      },
+      "schema": {
+        "input": [
+          {"name": "id", "type": "str", "nullable": false, "key": false},
+          {"name": "name", "type": "str", "nullable": false, "key": false}
+        ],
+        "output": []
+      },
+      "inputs": ["row1"],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {"name": "row1", "from": "tFixedFlowInput_1", "to": "tFileOutputDelimited_1", "type": "flow"}
+  ],
+  "triggers": [],
+  "subjobs": {
+    "subjob_1": ["tFixedFlowInput_1", "tFileOutputDelimited_1"]
+  },
+  "java_config": {"enabled": false, "routines": [], "libraries": []}
+}

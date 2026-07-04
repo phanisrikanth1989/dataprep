@@ -1,213 +1,206 @@
-"""
-FileInputFullRow - Read each row of a file as a single string
+"""Engine component for FileInputFullRowComponent (tFileInputFullRow).
 
-Talend equivalent: tFileInputFullRow
+Reads each row of a file as a single string value. Every line becomes one
+output record; the column name is taken from the schema definition (default
+"line" matching Talend's schema default).
 
-This component reads each row of a file as a single string, with configurable
-row separators and filtering options. Each row becomes a single column value
-in the output DataFrame.
+Config keys consumed (9 unique + 2 framework):
+  filename           (str, required)               -- path to the input file
+  row_separator      (str, default "\\n")          -- row boundary character(s)
+  header_rows        (int, default 0)              -- header lines to skip
+  footer_rows        (int, default 0)              -- footer lines to skip
+  limit              (str, default "")             -- max rows; "" or "0" = unlimited
+  remove_empty_row   (bool, default True)          -- drop strictly-empty ("") lines
+  encoding           (str, default "ISO-8859-15")  -- file encoding (Talend default)
+  random             (bool, default False)         -- random line extraction mode
+  nb_random          (int, default 10)             -- number of random lines
+  tstatcatcher_stats (bool, default False)         -- framework flag, no runtime effect
+  label              (str, default "")             -- designer label, no runtime effect
+
+Talend parity notes:
+  - remove_empty_row tests line == "" strictly; whitespace-only lines are kept.
+  - limit "0" is treated as unlimited (same as "").
+  - random mode uses random.sample() without replacement.
+  - Output column name comes from output_schema[0]["name"] when defined; falls
+    back to "line" (matches Talend schema default column name).
+  - DIE_ON_ERROR is NOT a Talend parameter for this component (_java.xml
+    confirms its absence); the engine always propagates errors via
+    FileOperationError / ConfigurationError.
 """
 import logging
-import os
-from typing import Any, Dict, List, Optional
+import random as _random_mod
+from typing import Optional
 
 import pandas as pd
 
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
+from ...exceptions import ConfigurationError, FileOperationError
 
 logger = logging.getLogger(__name__)
 
+# Normalise two-char JSON escape sequences to real characters.
+# The converter emits e.g. "\\n" (backslash + n); engine must decode that.
+_ESCAPE_MAP = {"\\n": "\n", "\\r": "\r", "\\t": "\t"}
 
+
+@REGISTRY.register("FileInputFullRowComponent", "tFileInputFullRow")
 class FileInputFullRowComponent(BaseComponent):
-    """
-    Read each row of a file as a single string.
+    """tFileInputFullRow engine implementation.
 
-    Configuration:
-        filename (str): Path to input file. Required.
-        row_separator (str): Row separator character/string. Default: '\n'
-        remove_empty_row (bool): Remove empty rows from output. Default: False
-        encoding (str): File encoding. Default: 'UTF-8'
-        limit (str): Maximum number of rows to read. Default: None (no limit)
-        die_on_error (bool): Fail on error vs continue. Default: True
+    Reads a text file and emits one row per line into a single-column
+    DataFrame. Supports header/footer skipping, empty-row removal, row
+    limiting, and random line extraction.
 
-    Inputs:
-        None (file input component)
-
-    Outputs:
-        main: DataFrame with single column 'line' containing each file row
-
-    Statistics:
-        NB_LINE: Total rows read from file
-        NB_LINE_OK: Successfully processed rows
-        NB_LINE_REJECT: Rejected rows (always 0 for this component)
-
-    Example configuration:
-        {
-            "filename": "/data/raw_data.txt",
-            "row_separator": "\n",
-            "remove_empty_row": true,
-            "encoding": "UTF-8",
-            "limit": "1000"
-        }
-
-    Notes:
-        - Each file row becomes a single string value in the 'line' column
-        - Row separator can be multi-character (e.g., "\r\n", "||")
-        - Quote stripping is applied to row_separator configuration
-        - Empty rows are preserved unless remove_empty_row is enabled
-        - File not found errors respect die_on_error setting
+    Config keys:
+        filename: Absolute path to the input file (required).
+        row_separator: Line boundary. Supports ``\\n``, ``\\r``, ``\\t``
+            escape sequences (default ``"\\n"``).
+        header_rows: Number of lines to skip at the start (default 0).
+        footer_rows: Number of lines to skip at the end (default 0).
+        limit: Maximum rows to return; ``""`` or ``"0"`` = unlimited (default ``""``).
+        remove_empty_row: Drop strictly-empty lines when True (default True).
+        encoding: File encoding, e.g. ``"ISO-8859-15"`` (default ``"ISO-8859-15"``).
+        random: When True, return a random sample instead of sequential lines
+            (default False).
+        nb_random: Sample size when ``random`` is True (default 10).
     """
 
-    def _validate_config(self) -> List[str]:
-        """Validate component configuration."""
-        errors = []
+    # ------------------------------------------------------------------
+    # Configuration Validation
+    # ------------------------------------------------------------------
 
-        # Required fields
-        if 'filename' not in self.config:
-            errors.append("Missing required config: 'filename'")
-        elif not self.config['filename']:
-            errors.append("Config 'filename' cannot be empty")
+    def _validate_config(self) -> None:
+        """Validate structural config before expression resolution.
 
-        # Optional field validation
-        if 'encoding' in self.config:
-            encoding = self.config['encoding']
-            if not isinstance(encoding, str):
-                errors.append("Config 'encoding' must be a string")
+        Only checks key presence — content checks (file existence, limit
+        numeric value) are deferred to ``_process()`` per Rule 12.
 
-        if 'limit' in self.config:
-            limit = self.config['limit']
-            if limit is not None and limit != '':
-                if not str(limit).isdigit():
-                    errors.append("Config 'limit' must be a numeric string or empty")
-
-        return errors
-
-    def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
+        Raises:
+            ConfigurationError: If ``filename`` is absent or empty.
         """
-        Read each row of the file as a single string.
+        if not self.config.get("filename"):
+            raise ConfigurationError(
+                f"[{self.id}] Missing required config key 'filename'"
+            )
+
+    # ------------------------------------------------------------------
+    # Core Processing
+    # ------------------------------------------------------------------
+
+    def _process(self, input_data: Optional[pd.DataFrame] = None) -> dict:
+        """Read each line of the file as a single string.
 
         Args:
-            input_data: Not used (file input component)
+            input_data: Ignored. This is a source component with no
+                data-flow input.
 
         Returns:
-            Dictionary with 'main' DataFrame containing file rows as strings
-        """
-        # Validate configuration
-        config_errors = self._validate_config()
-        if config_errors:
-            error_msg = "; ".join(config_errors)
-            logger.error(f"[{self.id}] Configuration validation failed: {error_msg}")
-            if self.config.get('die_on_error', True):
-                raise ValueError(f"[{self.id}] {error_msg}")
-            else:
-                self._update_stats(0, 0, 0)
-                return {'main': pd.DataFrame()}
+            dict with ``main`` key containing a single-column DataFrame.
 
+        Raises:
+            ConfigurationError: If ``filename`` resolves to an empty string.
+            FileOperationError: If the file cannot be opened or read.
+        """
+        filename: str = self.config.get("filename", "")
+        row_separator: str = self.config.get("row_separator", "\\n")
+        header_rows: int = int(self.config.get("header_rows", 0) or 0)
+        footer_rows: int = int(self.config.get("footer_rows", 0) or 0)
+        limit_raw: str = str(self.config.get("limit", "") or "")
+        remove_empty_row: bool = bool(self.config.get("remove_empty_row", True))
+        encoding: str = self.config.get("encoding", "ISO-8859-15") or "ISO-8859-15"
+        use_random: bool = bool(self.config.get("random", False))
+        nb_random: int = int(self.config.get("nb_random", 10) or 10)
+
+        # Post-resolution guard (Rule 12: defer content checks to _process)
+        if not filename:
+            raise ConfigurationError(
+                f"[{self.id}] 'filename' resolved to an empty string"
+            )
+
+        # Decode literal escape sequences (e.g. "\\n" -> "\n")
+        for escaped, real in _ESCAPE_MAP.items():
+            row_separator = row_separator.replace(escaped, real)
+
+        # Parse limit: "" and "0" both mean unlimited (Talend parity)
+        limit: Optional[int] = None
+        if limit_raw and limit_raw != "0":
+            try:
+                limit = int(limit_raw)
+            except ValueError:
+                raise ConfigurationError(
+                    f"[{self.id}] 'limit' must be a numeric string, got {limit_raw!r}"
+                )
+
+        logger.info(
+            f"[{self.id}] Reading file={filename!r} encoding={encoding!r} "
+            f"sep={row_separator!r} header={header_rows} footer={footer_rows} "
+            f"limit={limit} remove_empty={remove_empty_row} "
+            f"random={use_random} nb_random={nb_random}"
+        )
+
+        # ---- Read file ----
         try:
-            # Extract configuration with defaults
-            filename = self.config.get('filename')
-            row_separator = self.config.get('row_separator', '\n')
+            with open(filename, "r", encoding=encoding, newline="") as fh:
+                content = fh.read()
+        except FileNotFoundError as exc:
+            raise FileOperationError(
+                f"[{self.id}] File not found: {filename!r}"
+            ) from exc
+        except (OSError, UnicodeDecodeError) as exc:
+            raise FileOperationError(
+                f"[{self.id}] Failed to read {filename!r}: {exc}"
+            ) from exc
 
-            # Remove quotes from row_separator if present (preserving original behavior)
-            if row_separator.startswith('"') and row_separator.endswith('"'):
-                row_separator = row_separator[1:-1]
+        # ---- Split into lines ----
+        # When row_separator is "\n" normalise \r\n first so Windows files
+        # work correctly.  For custom separators, split verbatim.
+        if row_separator == "\n":
+            content = content.replace("\r\n", "\n").replace("\r", "\n")
+        lines = content.split(row_separator)
 
-            # Decode escape sequences in row_separator (e.g., "\\n" -> "\n", "\\r" -> "\r")
-            row_separator = row_separator.encode().decode('unicode_escape')
+        total_read = len(lines)
+        logger.debug(f"[{self.id}] Raw line count after split: {total_read}")
 
-            remove_empty_row = self.config.get('remove_empty_row', False)
-            encoding = self.config.get('encoding', 'UTF-8')
-            limit = self.config.get('limit', None)
-            die_on_error = self.config.get('die_on_error', True)
+        # ---- Header / footer skipping ----
+        if header_rows > 0:
+            lines = lines[header_rows:]
+        if footer_rows > 0 and len(lines) >= footer_rows:
+            lines = lines[:-footer_rows]
+        elif footer_rows > 0:
+            lines = []
 
-            logger.info(f"[{self.id}] Reading file: {filename}")
-            logger.debug(f"[{self.id}] Config - row_separator: '{row_separator}', "
-                         f"remove_empty_row: {remove_empty_row}, encoding: {encoding}, limit: {limit}")
+        # ---- Remove strictly-empty lines (Talend: line == "", not strip()) ----
+        if remove_empty_row:
+            before = len(lines)
+            lines = [ln for ln in lines if ln != ""]
+            logger.debug(
+                f"[{self.id}] Removed {before - len(lines)} empty lines"
+            )
 
-            # Validate file existence
-            if not os.path.exists(filename):
-                error_msg = f"File not found: {filename}"
-                logger.error(f"[{self.id}] {error_msg}")
-                if die_on_error:
-                    raise FileNotFoundError(f"[{self.id}] {error_msg}")
-                else:
-                    logger.warning(f"[{self.id}] {error_msg}, returning empty result")
-                    self._update_stats(0, 0, 0)
-                    return {'main': pd.DataFrame()}
+        # ---- Limit or random sampling ----
+        if use_random:
+            sample_size = min(nb_random, len(lines))
+            lines = _random_mod.sample(lines, sample_size)
+            logger.debug(
+                f"[{self.id}] Random sample: {sample_size} lines selected"
+            )
+        elif limit is not None:
+            lines = lines[:limit]
+            logger.debug(f"[{self.id}] Limit applied: kept {len(lines)} lines")
 
-            # Read the file
-            with open(filename, 'r', encoding=encoding) as file:
-                file_content = file.read()
+        # ---- Determine output column name from schema (Talend default: "line") ----
+        col_name = "line"
+        output_schema = getattr(self, "output_schema", None)
+        if output_schema:
+            col_name = output_schema[0].get("name", "line")
 
-            # Normalize line endings to handle mixed \r\n and \n
-            # This prevents \r characters from appearing as literal backslashes in output
-            # Always normalize \r\n to \n first, then handle the specified row_separator
-            file_content = file_content.replace('\r\n', '\n')
+        # ---- Build output DataFrame ----
+        df = pd.DataFrame({col_name: lines})
 
-            # If row_separator is \n, we're done with normalization
-            # If it's something else, split on the specified separator
-            lines = file_content.split(row_separator)
+        rows_ok = len(df)
+        self._update_stats(total_read, rows_ok, 0)
 
-            logger.debug(f"[{self.id}] Read {len(lines)} raw lines from file")
+        logger.info(f"[{self.id}] Complete: {rows_ok} rows from {filename!r}")
 
-            # Remove empty rows if configured (preserving original logic)
-            if remove_empty_row:
-                original_count = len(lines)
-                lines = [line for line in lines if line.strip()]
-                logger.debug(f"[{self.id}] Removed {original_count - len(lines)} empty rows")
-
-            # Apply limit if specified (preserving original logic)
-            if limit and limit.isdigit():
-                limit_val = int(limit)
-                if len(lines) > limit_val:
-                    lines = lines[:limit_val]
-                    logger.debug(f"[{self.id}] Applied limit: kept first {limit_val} rows")
-
-            # Prepare output data (preserving original structure)
-            output_data = [{'line': line} for line in lines]
-            df = pd.DataFrame(output_data)
-
-            # Update statistics
-            rows_processed = len(output_data)
-            self._update_stats(rows_processed, rows_processed, 0)
-
-            logger.info(f"[{self.id}] Processing complete: {rows_processed} rows from {filename}")
-            logger.debug(f"[{self.id}] Output DataFrame shape: {df.shape}, columns: {list(df.columns)}")
-
-            return {'main': df}
-
-        except FileNotFoundError:
-            # Re-raise FileNotFoundError as it's already handled above
-            raise
-        except Exception as e:
-            error_msg = f"Failed to process file: {str(e)}"
-            logger.error(f"[{self.id}] {error_msg}")
-
-            if self.config.get('die_on_error', True):
-                raise RuntimeError(f"[{self.id}] {error_msg}") from e
-            else:
-                logger.warning(f"[{self.id}] {error_msg}, returning empty result")
-                self._update_stats(0, 0, 0)
-                return {'main': pd.DataFrame()}
-
-    def validate_config(self) -> bool:
-        """
-        Validates the component configuration.
-
-        Returns:
-            True if the configuration is valid, False otherwise.
-
-        Note:
-            This method is preserved for backward compatibility but delegates
-            to the standardized _validate_config() method.
-        """
-        try:
-            errors = self._validate_config()
-            if errors:
-                error_msg = "; ".join(errors)
-                logger.error(f"[{self.id}] Configuration validation failed: {error_msg}")
-                return False
-            return True
-        except Exception as e:
-            logger.error(f"[{self.id}] Configuration validation error: {e}")
-            return False
+        return {"main": df}

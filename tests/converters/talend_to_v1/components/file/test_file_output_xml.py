@@ -1,5 +1,9 @@
-"""Tests for AdvancedFileOutputXmlConverter (tAdvancedFileOutputXML -> tAdvancedFileOutputXML)."""
+"""Tests for AdvancedFileOutputXmlConverter (tAdvancedFileOutputXML) and
+FileOutputXMLConverter (tFileOutputXML). Phase 12-06 adds TestFileOutputXMLSimple.
+"""
 import xml.etree.ElementTree as ET
+
+import pytest
 
 from src.converters.talend_to_v1.components.base import (
     ComponentResult,
@@ -9,6 +13,7 @@ from src.converters.talend_to_v1.components.base import (
 )
 from src.converters.talend_to_v1.components.file.file_output_xml import (
     AdvancedFileOutputXmlConverter,
+    FileOutputXMLConverter,
 )
 from src.converters.talend_to_v1.components.registry import REGISTRY
 
@@ -500,3 +505,368 @@ class TestComponentStructure:
         node = _make_node()
         result = AdvancedFileOutputXmlConverter().convert(node, [], {})
         assert "schema" in result.component
+
+
+# ==================================================================
+# TestFileOutputXMLSimple -- Phase 12-06
+# Tests for the new FileOutputXMLConverter (simple/flat tFileOutputXML)
+# ==================================================================
+
+
+def _make_simple_node(params=None, schema=None, component_id="fo_xml_1"):
+    """Create a TalendNode for simple tFileOutputXML testing."""
+    return TalendNode(
+        component_id=component_id,
+        component_type="tFileOutputXML",
+        params=params or {},
+        schema=schema or {},
+        position={"x": 200, "y": 100},
+        raw_xml=ET.Element("node"),
+    )
+
+
+def _make_simple_schema():
+    """Return a sample FLOW schema for simple tFileOutputXML testing."""
+    return {
+        "FLOW": [
+            SchemaColumn(name="id", type="id_String", nullable=False, key=True, length=10),
+            SchemaColumn(name="name", type="id_String", nullable=True, length=50),
+        ]
+    }
+
+
+def _make_mapping_data(rows):
+    """Generate MAPPING TABLE data (stride-2: SCHEMA_COLUMN_NAME, AS_ATTRIBUTE).
+
+    Args:
+        rows: List of (column_name, as_attribute_str) tuples.
+    """
+    result = []
+    for col_name, as_attr in rows:
+        result.append({"elementRef": "SCHEMA_COLUMN_NAME", "value": col_name})
+        result.append({"elementRef": "AS_ATTRIBUTE", "value": as_attr})
+    return result
+
+
+def _make_root_tags_data(names):
+    """Generate ROOT_TAGS TABLE data (stride-1: VALUE)."""
+    return [{"elementRef": "VALUE", "value": f'"{name}"'} for name in names]
+
+
+def _make_groupby_data(rows):
+    """Generate GROUP_BY TABLE data (stride-2: COLUMN, LABEL)."""
+    result = []
+    for col, label in rows:
+        result.append({"elementRef": "COLUMN", "value": col})
+        result.append({"elementRef": "LABEL", "value": label})
+    return result
+
+
+@pytest.mark.unit
+class TestFileOutputXMLSimple:
+    """Tests for the new FileOutputXMLConverter (Phase 12-06).
+
+    Per D-D1: each parameter gets at least one positive test.
+    Existing AdvancedFileOutputXmlConverter tests above are untouched.
+    """
+
+    def test_registered(self):
+        """Test 1: REGISTRY.get('tFileOutputXML') resolves to FileOutputXMLConverter."""
+        assert REGISTRY.get("tFileOutputXML") is FileOutputXMLConverter
+
+    def test_filename_extracted(self):
+        """Test 2: FILENAME param maps to config['filename']."""
+        node = _make_simple_node(params={"FILENAME": '"out.xml"'})
+        result = FileOutputXMLConverter().convert(node, [], {})
+        assert result.component["config"]["filename"] == "out.xml"
+
+    def test_row_tag_default(self):
+        """Test 3a: ROW_TAG defaults to 'row'."""
+        node = _make_simple_node()
+        result = FileOutputXMLConverter().convert(node, [], {})
+        assert result.component["config"]["row_tag"] == "row"
+
+    def test_row_tag_override(self):
+        """Test 3b: ROW_TAG explicit override honored."""
+        node = _make_simple_node(params={"ROW_TAG": '"record"'})
+        result = FileOutputXMLConverter().convert(node, [], {})
+        assert result.component["config"]["row_tag"] == "record"
+
+    def test_encoding_default_iso(self):
+        """Test 4: ENCODING defaults to ISO-8859-15 (NOT UTF-8)."""
+        node = _make_simple_node()
+        result = FileOutputXMLConverter().convert(node, [], {})
+        assert result.component["config"]["encoding"] == "ISO-8859-15"
+
+    def test_split_every_default(self):
+        """Test 5a: SPLIT_EVERY defaults to '1000' (string)."""
+        node = _make_simple_node()
+        result = FileOutputXMLConverter().convert(node, [], {})
+        assert result.component["config"]["split_every"] == "1000"
+
+    def test_split_default_false(self):
+        """Test 5b: SPLIT defaults to False."""
+        node = _make_simple_node()
+        result = FileOutputXMLConverter().convert(node, [], {})
+        assert result.component["config"]["split"] is False
+
+    def test_create_default_true(self):
+        """Test 6: CREATE defaults to True (Talend default = overwrite)."""
+        node = _make_simple_node()
+        result = FileOutputXMLConverter().convert(node, [], {})
+        assert result.component["config"]["create"] is True
+
+    def test_mapping_parsed_as_attribute_true(self):
+        """Test 7a: MAPPING TABLE parses to list[{column, as_attribute}]; AS_ATTRIBUTE='true' -> True."""
+        mapping_data = _make_mapping_data([("id", "true"), ("name", "false")])
+        node = _make_simple_node(params={"MAPPING": mapping_data})
+        result = FileOutputXMLConverter().convert(node, [], {})
+        mapping = result.component["config"]["mapping"]
+        assert len(mapping) == 2
+        assert mapping[0]["column"] == "id"
+        assert mapping[0]["as_attribute"] is True
+        assert mapping[1]["column"] == "name"
+        assert mapping[1]["as_attribute"] is False
+
+    def test_root_tags_parsed(self):
+        """Test 8: ROOT_TAGS TABLE parses to list of {name: str} dicts."""
+        root_data = _make_root_tags_data(["wrapper"])
+        node = _make_simple_node(params={"ROOT_TAGS": root_data})
+        result = FileOutputXMLConverter().convert(node, [], {})
+        root_tags = result.component["config"]["root_tags"]
+        assert len(root_tags) == 1
+        assert root_tags[0]["name"] == "wrapper"
+
+    def test_groupby_parsed(self):
+        """Test 9: GROUP_BY TABLE parses to list[{column, label}]."""
+        groupby_data = _make_groupby_data([("country", "Country")])
+        node = _make_simple_node(params={"GROUP_BY": groupby_data})
+        result = FileOutputXMLConverter().convert(node, [], {})
+        group_by = result.component["config"]["group_by"]
+        assert len(group_by) == 1
+        assert group_by[0]["column"] == "country"
+        assert group_by[0]["label"] == "Country"
+
+    def test_input_is_document_extracted(self):
+        """Test 10a: INPUT_IS_DOCUMENT=true extracted correctly."""
+        node = _make_simple_node(params={"INPUT_IS_DOCUMENT": "true"})
+        result = FileOutputXMLConverter().convert(node, [], {})
+        assert result.component["config"]["input_is_document"] is True
+
+    def test_document_col_extracted(self):
+        """Test 10b: DOCUMENT_COL extracted."""
+        node = _make_simple_node(params={"DOCUMENT_COL": '"doc"'})
+        result = FileOutputXMLConverter().convert(node, [], {})
+        assert result.component["config"]["document_col"] == "doc"
+
+    def test_flushonrow_extracted(self):
+        """Test 11a: FLUSHONROW=true extracted correctly."""
+        node = _make_simple_node(params={"FLUSHONROW": "true"})
+        result = FileOutputXMLConverter().convert(node, [], {})
+        assert result.component["config"]["flushonrow"] is True
+
+    def test_flushonrow_num_extracted(self):
+        """Test 11b: FLUSHONROW_NUM extracted as string."""
+        node = _make_simple_node(params={"FLUSHONROW_NUM": "5"})
+        result = FileOutputXMLConverter().convert(node, [], {})
+        assert result.component["config"]["flushonrow_num"] == "5"
+
+    def test_tstatcatcher_stats_extracted(self):
+        """Test 12: TSTATCATCHER_STATS extracted as bool framework param."""
+        node = _make_simple_node(params={"TSTATCATCHER_STATS": "true"})
+        result = FileOutputXMLConverter().convert(node, [], {})
+        assert result.component["config"]["tstatcatcher_stats"] is True
+
+    def test_label_extracted(self):
+        """Test 13: LABEL extracted as str framework param."""
+        node = _make_simple_node(params={"LABEL": '"my_label"'})
+        result = FileOutputXMLConverter().convert(node, [], {})
+        assert result.component["config"]["label"] == "my_label"
+
+    def test_schema_input_populated_output_empty(self):
+        """Test 14: Schema input populated; output empty (sink semantics S-5)."""
+        node = _make_simple_node(schema=_make_simple_schema())
+        result = FileOutputXMLConverter().convert(node, [], {})
+        schema = result.component["schema"]
+        assert len(schema["input"]) == 2
+        assert schema["output"] == []
+
+    def test_warnings_and_needs_review_empty(self):
+        """Test 15: warnings and needs_review are empty for simple FileOutputXMLConverter."""
+        node = _make_simple_node(params={"FILENAME": '"out.xml"'})
+        result = FileOutputXMLConverter().convert(node, [], {})
+        assert result.warnings == []
+        assert result.needs_review == []
+
+    def test_type_name_is_file_output_xml(self):
+        """Component type should map to engine class 'FileOutputXML'."""
+        node = _make_simple_node()
+        result = FileOutputXMLConverter().convert(node, [], {})
+        assert result.component["type"] == "FileOutputXML"
+
+    def test_all_core_config_keys_present(self):
+        """All 18 javajet + 2 framework config keys must be present."""
+        node = _make_simple_node(schema=_make_simple_schema())
+        result = FileOutputXMLConverter().convert(node, [], {})
+        expected_keys = {
+            "filename", "input_is_document", "document_col", "row_tag",
+            "root_tags", "mapping", "use_dynamic_grouping", "group_by",
+            "flushonrow", "flushonrow_num", "encoding", "split", "split_every",
+            "create", "trim", "advanced_separator", "thousands_separator",
+            "decimal_separator", "delete_empty_file",
+            "tstatcatcher_stats", "label",
+        }
+        actual_keys = set(result.component["config"].keys())
+        missing = expected_keys - actual_keys
+        assert not missing, f"Missing config keys: {missing}"
+
+    def test_delete_empty_file_default_false(self):
+        """DELETE_EMPTYFILE defaults to False."""
+        node = _make_simple_node()
+        result = FileOutputXMLConverter().convert(node, [], {})
+        assert result.component["config"]["delete_empty_file"] is False
+
+    def test_trim_default_false(self):
+        """TRIM defaults to False."""
+        node = _make_simple_node()
+        result = FileOutputXMLConverter().convert(node, [], {})
+        assert result.component["config"]["trim"] is False
+
+    def test_advanced_separator_default_false(self):
+        """ADVANCED_SEPARATOR defaults to False."""
+        node = _make_simple_node()
+        result = FileOutputXMLConverter().convert(node, [], {})
+        assert result.component["config"]["advanced_separator"] is False
+
+    def test_thousands_separator_default(self):
+        """THOUSANDS_SEPARATOR defaults to ','."""
+        node = _make_simple_node()
+        result = FileOutputXMLConverter().convert(node, [], {})
+        assert result.component["config"]["thousands_separator"] == ","
+
+    def test_decimal_separator_default(self):
+        """DECIMAL_SEPARATOR defaults to '.'."""
+        node = _make_simple_node()
+        result = FileOutputXMLConverter().convert(node, [], {})
+        assert result.component["config"]["decimal_separator"] == "."
+
+
+# ==================================================================
+# TestAdvancedFileOutputXmlConverterConditionalNeedsReview -- Phase 12-07
+# D-E1 lock-in: the 6 deferred sub-features each emit needs_review when active.
+# ==================================================================
+
+
+def _make_advanced_node(params=None, component_id="xml_adv_1"):
+    """Create a TalendNode for AdvancedFileOutputXmlConverter D-E1 testing.
+
+    Accepts params dict with uppercase keys that map to node.params directly
+    (matching the _get_bool / _get_str converter helper expectations).
+    """
+    return TalendNode(
+        component_id=component_id,
+        component_type="tAdvancedFileOutputXML",
+        params=params or {},
+        schema={},
+        position={"x": 320, "y": 160},
+        raw_xml=__import__("xml.etree.ElementTree", fromlist=["Element"]).Element("node"),
+    )
+
+
+@pytest.mark.unit
+class TestAdvancedFileOutputXmlConverterConditionalNeedsReview:
+    """D-E1 lock-in (Phase 12-07): the 6 deferred sub-features each emit needs_review.
+
+    Each test verifies that the conditional needs_review block fires (or does NOT fire)
+    based on the relevant config flags. The baseline engine_gap entry is always present,
+    so counts are baseline + conditional_count.
+    """
+
+    def test_dtd_validation_emitted_when_both_flags_true(self):
+        """Test 1: file_valid=True AND dtd_valid=True -> dtd_validation needs_review."""
+        node = _make_advanced_node(params={"FILE_VALID": "true", "DTD_VALID": "true"})
+        result = AdvancedFileOutputXmlConverter().convert(node, [], {})
+        entries = [e for e in result.needs_review if e.get("feature") == "dtd_validation"]
+        assert len(entries) == 1
+
+    def test_dtd_validation_not_emitted_when_file_valid_false(self):
+        """Test 2: file_valid=False -> NO dtd_validation entry (both flags must be true)."""
+        node = _make_advanced_node(params={"FILE_VALID": "false", "DTD_VALID": "true"})
+        result = AdvancedFileOutputXmlConverter().convert(node, [], {})
+        entries = [e for e in result.needs_review if e.get("feature") == "dtd_validation"]
+        assert len(entries) == 0
+
+    def test_xsl_validation_emitted_when_both_flags_true(self):
+        """Test 3: file_valid=True AND xsl_valid=True -> xsl_validation needs_review."""
+        node = _make_advanced_node(params={"FILE_VALID": "true", "XSL_VALID": "true"})
+        result = AdvancedFileOutputXmlConverter().convert(node, [], {})
+        entries = [e for e in result.needs_review if e.get("feature") == "xsl_validation"]
+        assert len(entries) == 1
+
+    def test_xsl_validation_not_emitted_when_file_valid_false(self):
+        """Test 4: file_valid=False -> NO xsl_validation entry."""
+        node = _make_advanced_node(params={"FILE_VALID": "false", "XSL_VALID": "true"})
+        result = AdvancedFileOutputXmlConverter().convert(node, [], {})
+        entries = [e for e in result.needs_review if e.get("feature") == "xsl_validation"]
+        assert len(entries) == 0
+
+    def test_output_as_xsd_emitted_when_true(self):
+        """Test 5: output_as_xsd=True -> output_as_xsd needs_review."""
+        node = _make_advanced_node(params={"OUTPUT_AS_XSD": "true"})
+        result = AdvancedFileOutputXmlConverter().convert(node, [], {})
+        entries = [e for e in result.needs_review if e.get("feature") == "output_as_xsd"]
+        assert len(entries) == 1
+
+    def test_add_document_as_node_emitted_when_true(self):
+        """Test 6: add_document_as_node=True -> add_document_as_node needs_review."""
+        node = _make_advanced_node(params={"ADD_DOCUMENT_AS_NODE": "true"})
+        result = AdvancedFileOutputXmlConverter().convert(node, [], {})
+        entries = [e for e in result.needs_review if e.get("feature") == "add_document_as_node"]
+        assert len(entries) == 1
+
+    def test_add_unmapped_attribute_emitted_when_true(self):
+        """Test 7: add_unmapped_attribute=True -> add_unmapped_attribute needs_review."""
+        node = _make_advanced_node(params={"ADD_UNMAPPED_ATTRIBUTE": "true"})
+        result = AdvancedFileOutputXmlConverter().convert(node, [], {})
+        entries = [e for e in result.needs_review if e.get("feature") == "add_unmapped_attribute"]
+        assert len(entries) == 1
+
+    def test_merge_emitted_when_true(self):
+        """Test 8: merge=True -> merge needs_review."""
+        node = _make_advanced_node(params={"MERGE": "true"})
+        result = AdvancedFileOutputXmlConverter().convert(node, [], {})
+        entries = [e for e in result.needs_review if e.get("feature") == "merge"]
+        assert len(entries) == 1
+
+    def test_no_conditional_entries_when_no_flags_set(self):
+        """Test 9 (partial): no conditional D-E1 entries when all flags are at defaults."""
+        node = _make_advanced_node()
+        result = AdvancedFileOutputXmlConverter().convert(node, [], {})
+        conditional_entries = [e for e in result.needs_review if e.get("feature")]
+        assert len(conditional_entries) == 0
+
+    def test_all_six_entries_when_all_flags_set(self):
+        """Test 10: all 6 flags set -> exactly 6 conditional needs_review entries."""
+        node = _make_advanced_node(params={
+            "FILE_VALID": "true",
+            "DTD_VALID": "true",
+            "XSL_VALID": "true",
+            "OUTPUT_AS_XSD": "true",
+            "ADD_DOCUMENT_AS_NODE": "true",
+            "ADD_UNMAPPED_ATTRIBUTE": "true",
+            "MERGE": "true",
+        })
+        result = AdvancedFileOutputXmlConverter().convert(node, [], {})
+        conditional_entries = [e for e in result.needs_review if e.get("feature")]
+        assert len(conditional_entries) == 6
+
+    def test_each_entry_has_phase_key(self):
+        """Test 11: every D-E1 needs_review entry has 'phase' == '12'."""
+        node = _make_advanced_node(params={
+            "FILE_VALID": "true",
+            "DTD_VALID": "true",
+        })
+        result = AdvancedFileOutputXmlConverter().convert(node, [], {})
+        for entry in result.needs_review:
+            if entry.get("feature"):
+                assert entry.get("phase") == "12"

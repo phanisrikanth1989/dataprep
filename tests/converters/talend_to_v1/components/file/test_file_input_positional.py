@@ -90,6 +90,11 @@ class TestDefaults:
         result = FileInputPositionalConverter().convert(node, [], {})
         assert result.component["config"]["filepath"] == ""
 
+    def test_filepath_java_expression_marked(self):
+        node = _make_node(params={"FILENAME": '"context.dir + \'/data.pos\'"'})
+        result = FileInputPositionalConverter().convert(node, [], {})
+        assert result.component["config"]["filepath"].startswith("{{java}}")
+
     def test_row_separator_default(self):
         """ROWSEPARATOR defaults to '\\n'."""
         node = _make_node()

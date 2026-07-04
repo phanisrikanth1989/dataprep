@@ -1,10 +1,11 @@
 # Audit Report: tSetGlobalVar / SetGlobalVar
 
 > **Audited**: 2026-04-04
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: PRODUCTION READINESS REVIEW
+> **Status**: GREEN -- all issues resolved 2026-05-01
 > **V1 only** -- this report is scoped to the v1 engine exclusively
 
 ---
@@ -18,7 +19,7 @@
 | **Engine File** | `src/v1/engine/components/file/set_global_var.py` (153 lines) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/file/set_global_var.py` (110 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tSetGlobalVar")` decorator-based dispatch |
-| **Registry Aliases** | `tSetGlobalVar` |
+| **Registry Aliases** | `SetGlobalVar`, `tSetGlobalVar` |
 | **Category** | Custom Code / Global Variable |
 | **Complexity** | Low -- utility component with 1 TABLE parameter (VARIABLES), no data flow schema |
 
@@ -38,21 +39,15 @@
 
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
-| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 1 TABLE param (VARIABLES with KEY/VALUE stride-2) + 2 framework params extracted; `_build_component_dict` pattern; 1 needs_review for engine key/shape mismatch |
-| Engine Feature Parity | **Y** | 0 | 2 | 1 | 1 | Engine reads VARIABLES (uppercase) with {name, value} dicts; converter outputs variables (lowercase) with {key, value}; Java "new " eval works but no other expressions; no die_on_error |
-| Code Quality | **Y** | 1 | 1 | 2 | 1 | Cross-cutting `_update_global_map()` crash (P0); `_validate_config()` dead code (P1); f-string in logger (P2); unused pandas import (P2); type annotation gap (P3) |
-| Performance & Memory | **G** | 0 | 0 | 0 | 1 | Lightweight utility; no data processing. Unused pandas import adds overhead |
-| Testing | **Y** | 0 | 0 | 1 | 0 | 23 converter tests across 9 test classes per gold standard; integration + regression guard passing; engine unit tests missing (P2) |
+| Converter Coverage | **G** | 0 | 0 | 0 | 0 | 1 TABLE param (VARIABLES with KEY/VALUE stride-2) + 2 framework params extracted; `_build_component_dict` pattern |
+| Engine Feature Parity | **G** | 0 | 0 | 0 | 0 | Reads `variables` (lowercase) with {key,value} shape; fallback accepts VARIABLES/name/VALUE; die_on_error supported; pass-through correct; NB_LINE always 0 |
+| Code Quality | **G** | 0 | 0 | 0 | 0 | `_validate_config()` raises ConfigurationError (OK); % logger formatting (OK); pandas import removed (OK); @REGISTRY.register() decorator (OK) |
+| Performance & Memory | **G** | 0 | 0 | 0 | 0 | Lightweight utility; no data processing; unused pandas import removed |
+| Testing | **G** | 0 | 0 | 0 | 0 | 23 converter tests across 9 test classes; 26 engine tests across 8 test classes |
 
-**Overall: Yellow -- Converter fully standardized (Green); engine has config key and dict shape mismatch documented via needs_review; engine/code quality gaps keep overall at Yellow**
+**Overall: Green -- Engine fully aligned with converter output; all issues resolved (2026-05-01)**
 
-**Top Actions:**
-
-1. Fix `_update_global_map()` crash in base class (P0, cross-cutting)
-2. Align engine config key `VARIABLES` with converter `variables` and dict shape {name, value} vs {key, value} (P1, engine gap)
-3. Add die_on_error support to engine (P1, engine gap)
-4. Add engine unit tests for SetGlobalVar (P2, testing gap)
-5. Replace f-string in logger calls with % formatting (P2, code quality)
+**Top Actions:** None -- all issues resolved.
 
 ---
 
@@ -155,21 +150,15 @@ None. Converter is fully standardized to gold standard pattern.
 
 | # | Talend Feature | Implemented? | Fidelity | Engine Location | Notes |
 | ---- | ---------------- | ------------- | ---------- | ----------------- | ------- |
-| 1 | Set globalMap variables | **Yes** | Medium | `_process()` line 89-148 | Sets variables via `self.global_map.put(name, value)`. Config key mismatch: reads `VARIABLES` (uppercase). |
-| 2 | Java "new " evaluation | **Partial** | Medium | `_process()` line 115-131 | Only `new ` prefix expressions evaluated via Java bridge. Other Java expressions stored as raw strings. |
-| 3 | Context variable resolution | **No** | N/A | N/A | Engine's `resolve_dict()` cannot reach values inside the VARIABLES list. Context references stored as raw strings. |
-| 4 | Pass-through data flow | **Yes** | High | `_process()` line 148 | Returns `{"main": data}` unchanged. |
-| 5 | NB_LINE tracking | **Partial** | Low | `_process()` line 144 | Always reports 0 via `_update_stats(0, 0, 0)`. Does not count variables set or rows passed through. |
-| 6 | die_on_error support | **No** | N/A | N/A | No error handling per variable. If one variable fails, exception propagates. |
+| 1 | Set globalMap variables | **Yes** | High | `_process()` | Reads `variables` (lowercase) with `{key, value}`; falls back to `VARIABLES`/`name`/`VALUE` for backward compat. |
+| 2 | Java / context expression resolution | **Yes** | High | BaseComponent step 3 | `_resolve_expressions()` resolves `{{java}}` markers and `${context.X}` before `_process()` is called. No bespoke heuristics needed. |
+| 3 | Pass-through data flow | **Yes** | High | `_process()` | Returns `{"main": input_data}` unchanged. |
+| 4 | NB_LINE tracking | **Yes** | High | `_process()` | Always 0 via `_update_stats(0,0,0)` -- matches Talend (utility component, not a row processor). |
+| 5 | die_on_error support | **Yes** | High | `_process()` | Per-variable skip or raise depending on `die_on_error` flag. |
 
 ### 5.2 Behavioral Differences from Talend
 
-| ID | Priority | Description |
-| ---- | ---------- | ------------- |
-| ENG-SGV-001 | **P1** | Engine reads `VARIABLES` (uppercase) with `{name, value}` dict shape. Converter outputs `variables` (lowercase) with `{key, value}` shape. Variables will not be found at runtime without engine alignment. |
-| ENG-SGV-002 | **P1** | No die_on_error support. In Talend, individual variable evaluation failures can be caught. Engine lets exceptions propagate, potentially crashing the job. |
-| ENG-SGV-003 | **P2** | `resolve_dict()` cannot reach values inside the VARIABLES list. Context variable references (e.g., `context.myVar`) in variable values are stored as raw strings instead of being resolved. |
-| ENG-SGV-004 | **P3** | NB_LINE tracking always 0. Does not count the number of variables successfully set. |
+All ENG-SGV issues resolved (2026-05-01). See engine fix note below.
 
 ### 5.3 GlobalMap Variable Coverage
 
@@ -192,16 +181,11 @@ None. Converter is fully standardized to gold standard pattern.
 
 ### 6.2 Naming Consistency
 
-| ID | Priority | Issue |
-| ---- | ---------- | ------- |
-| NAME-SGV-001 | **P1** | Engine reads `VARIABLES` (uppercase) but converter outputs `variables` (lowercase). Config key casing inconsistency. |
+All NAME-SGV issues resolved (2026-05-01). Engine now reads `variables` (lowercase) with fallback.
 
 ### 6.3 Standards Compliance
 
-| ID | Priority | Standard | Violation |
-| ---- | ---------- | ---------- | ----------- |
-| STD-SGV-001 | **P2** | "Use % formatting in logger calls" | Engine uses f-strings in `logger.info()` and `logger.debug()` calls (lines 102, 127, 131, 135, 139, 146). |
-| STD-SGV-002 | **P2** | "Call `_validate_config()` before execution" | `_validate_config()` is defined (lines 59-87) but never called -- dead code. |
+All STD-SGV issues resolved (2026-05-01). All logger calls use `%` formatting; `_validate_config()` now raises `ConfigurationError` and is called by BaseComponent lifecycle.
 
 ### 6.4 Debug Artifacts
 
@@ -238,9 +222,7 @@ No concerns specific to this component. The Java bridge evaluation for "new " pr
 
 ## 7. Performance & Memory
 
-| ID | Priority | Issue |
-| ---- | ---------- | ------- |
-| PERF-SGV-001 | **P3** | Unused `pandas` import adds unnecessary module load overhead. Component does not use pandas. |
+All PERF-SGV issues resolved (2026-05-01). Unused `pandas` import removed.
 
 ### 7.1 Memory Management Assessment
 
@@ -258,76 +240,52 @@ No concerns specific to this component. The Java bridge evaluation for "new " pr
 
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
-| Converter unit tests | 23 | `tests/converters/talend_to_v1/components/test_set_global_var.py` |
-| Engine unit tests | 0 | None |
+| Converter unit tests | 23 | `tests/converters/talend_to_v1/components/file/test_set_global_var.py` |
+| Engine unit tests | 26 | `tests/v1/engine/components/file/test_set_global_var.py` |
 | Integration tests | Pass | `tests/converters/talend_to_v1/test_integration.py` (regression guard) |
 
-### 8.2 Test Gaps
+### 8.2 Engine Test Classes (26 tests)
 
-| ID | Priority | Gap |
-| ---- | ---------- | ----- |
-| TEST-SGV-001 | **P2** | No engine unit tests for SetGlobalVar. Engine behavior (Java evaluation, pass-through, globalMap setting) not directly tested. |
+| Class | Tests | Coverage |
+| ------- | ------- | --------- |
+| TestRegistration | 2 | Both aliases resolve to SetGlobalVar |
+| TestValidateConfig | 5 | Missing key, wrong type, empty list, valid list, uppercase key |
+| TestProcessSetsVariables | 4 | Single var, multiple vars, None value, empty list |
+| TestLegacyKeyFallback | 3 | VARIABLES key, name field, VALUE field |
+| TestPassThrough | 3 | DataFrame unchanged, None input, no mutation |
+| TestStatistics | 4 | NB_LINE/OK/REJECT always 0, DataFrame input still 0 |
+| TestDieOnError | 4 | Non-dict row raise/skip, missing name raise/skip |
+| TestNoGlobalMap | 1 | Runs without global_map (no crash) |
 
-### 8.3 Recommended Test Cases
+### 8.3 Test Gaps
 
-1. Engine: Set single variable and verify globalMap contains it.
-2. Engine: Set multiple variables and verify all present in globalMap.
-3. Engine: Pass-through data flow with input DataFrame.
-4. Engine: Java "new " expression evaluation (requires Java bridge mock).
-5. Engine: Error handling when variable setting fails.
+None -- all recommended cases covered.
 
 ---
 
 ## 9. Issues Summary
 
-### By Priority
+### By Priority (post engine fix 2026-05-01)
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
-| P0 | 1 | **BUG-SGV-001** |
-| P1 | 2 | **ENG-SGV-001**, **ENG-SGV-002** |
-| P2 | 4 | **ENG-SGV-003**, **STD-SGV-001**, **STD-SGV-002**, **TEST-SGV-001** |
-| P3 | 2 | **ENG-SGV-004**, **PERF-SGV-001** |
-| **Total** | **9** | |
-
-### By Category
-
-| Category | Count | IDs |
-| ---------- | ------- | ----- |
-| Engine (ENG) | 4 | ENG-SGV-001, ENG-SGV-002, ENG-SGV-003, ENG-SGV-004 |
-| Bug (BUG) | 1 | BUG-SGV-001 |
-| Naming (NAME) | 1 | NAME-SGV-001 |
-| Standards (STD) | 2 | STD-SGV-001, STD-SGV-002 |
-| Performance (PERF) | 1 | PERF-SGV-001 |
-| Testing (TEST) | 1 | TEST-SGV-001 |
+| P0 | 0 | -- |
+| P1 | 0 | -- |
+| P2 | 0 | -- |
+| P3 | 0 | -- |
+| **Total** | **0** | All resolved |
 
 ### Cross-Cutting Issues
 
-| Canonical ID | Location | Impact on This Component |
-| ------------- | ---------- | -------------------------- |
-| XCUT-001 | `base_component.py:304` | `_update_global_map()` crash when globalMap set (BUG-SGV-001) |
+| Canonical ID | Location | Status |
+| ------------- | ---------- | -------- |
+| XCUT-001 | `base_component.py` | Resolved in BaseComponent refactor -- no longer affects this component |
 
 ---
 
 ## 10. Recommendations
 
-### Immediate (Before Production)
-
-1. **BUG-SGV-001 (P0)**: Fix `_update_global_map()` crash in `base_component.py` (cross-cutting -- fixes all components).
-
-### Short-term (Hardening)
-
-1. **ENG-SGV-001 (P1)**: Align engine to read `variables` (lowercase) with `{key, value}` dict shape, or adapt engine to accept both formats.
-2. **ENG-SGV-002 (P1)**: Add per-variable error handling with die_on_error support.
-3. **ENG-SGV-003 (P2)**: Enhance `resolve_dict()` to descend into list values for context variable resolution.
-4. **STD-SGV-001 (P2)**: Replace f-strings with % formatting in logger calls.
-5. **STD-SGV-002 (P2)**: Call `_validate_config()` from `execute()` or remove dead code.
-6. **TEST-SGV-001 (P2)**: Add engine unit tests for SetGlobalVar.
-
-### Long-term (Optimization)
-
-1. **ENG-SGV-004 (P3)**: Track number of variables set in NB_LINE globalMap variable.
-2. **PERF-SGV-001 (P3)**: Remove unused `pandas` import from engine file.
+All recommendations resolved by engine fix (2026-05-01). No outstanding actions.
 
 ---
 
@@ -350,4 +308,4 @@ No concerns specific to this component. The Java bridge evaluation for "new " pr
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after gold standard converter rewrite (10-04)*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation*

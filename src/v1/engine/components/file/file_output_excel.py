@@ -10,11 +10,13 @@ import os
 import logging
 
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
 from ...exceptions import FileOperationError, ComponentExecutionError, ConfigurationError
 
 logger = logging.getLogger(__name__)
 
 
+@REGISTRY.register("FileOutputExcel", "tFileOutputExcel")
 class FileOutputExcel(BaseComponent):
     """
     Writes DataFrame data to an Excel file with support for multiple sheets and formatting options.
@@ -60,38 +62,23 @@ class FileOutputExcel(BaseComponent):
     DEFAULT_SHEET_NAME = 'Sheet1'
     DEFAULT_ENCODING = 'UTF-8'
 
-    def _validate_config(self) -> List[str]:
+    def _validate_config(self) -> None:
+        """Validate component configuration.
+
+        Raises:
+            ConfigurationError: If required config is missing or has wrong shape.
         """
-        Validate component configuration.
-
-        Returns:
-            List of error messages (empty if valid)
-        """
-        errors = []
-
-        # Required fields
-        if 'filename' not in self.config:
-            errors.append("Missing required config: 'filename'")
-        elif not isinstance(self.config['filename'], str) or not self.config['filename'].strip():
-            errors.append("Config 'filename' must be a non-empty string")
-
-        # Optional field validation
-        if 'sheetname' in self.config:
-            sheetname = self.config['sheetname']
-            if not isinstance(sheetname, str):
-                errors.append("Config 'sheetname' must be a string")
-
-        if 'includeheader' in self.config:
-            include_header = self.config['includeheader']
-            if not isinstance(include_header, bool):
-                errors.append("Config 'includeheader' must be a boolean")
-
-        if 'append_file' in self.config:
-            append_file = self.config['append_file']
-            if not isinstance(append_file, bool):
-                errors.append("Config 'append_file' must be a boolean")
-
-        return errors
+        if not self.config.get('filename'):
+            raise ConfigurationError(f"[{self.id}] Missing required config 'filename'")
+        if not isinstance(self.config['filename'], str):
+            raise ConfigurationError(f"[{self.id}] Config 'filename' must be a non-empty string")
+        if 'sheetname' in self.config and not isinstance(self.config['sheetname'], str):
+            raise ConfigurationError(f"[{self.id}] Config 'sheetname' must be a string")
+        for field_name in ('includeheader', 'append_file', 'append_sheet', 'create'):
+            if field_name in self.config and not isinstance(self.config[field_name], bool):
+                raise ConfigurationError(
+                    f"[{self.id}] Config '{field_name}' must be a boolean"
+                )
 
     def _process(self, input_data: Union[Dict[str, Any], pd.DataFrame, None] = None) -> Dict[str, Any]:
         """
@@ -217,38 +204,50 @@ class FileOutputExcel(BaseComponent):
             rows = []
             column_names = []
 
-            if hasattr(main_data, 'iterrows'):  # It's a pandas DataFrame
+            if isinstance(main_data, pd.DataFrame):  # It's a pandas DataFrame
                 rows_in = len(main_data)
                 logger.info(f"[{self.id}] Converting DataFrame with {rows_in} rows to records")
 
-                # PRIORITY 1: Use output schema column order if defined
-                if self.output_schema:
-                    column_names = [col_def['name'] for col_def in self.output_schema]
+                # Apply date_pattern formatting on a working copy
+                df_out = main_data.copy()
+                df_out = self._apply_date_patterns(df_out)
+
+                # PRIORITY 1: Use input schema column order if defined (output_schema is empty for sink components)
+                _input_schema = getattr(self, "input_schema", None) or []
+                if _input_schema:
+                    column_names = [col_def['name'] for col_def in _input_schema]
+                    logger.debug(f"[{self.id}] Using input schema column order: {column_names}")
+                elif getattr(self, "output_schema", None):
+                    column_names = [col_def['name'] for col_def in self.output_schema]  # type: ignore[attr-defined]
                     logger.debug(f"[{self.id}] Using output schema column order: {column_names}")
                 else:
-                    # PRIORITY 2: Fall back to DataFrame column order
-                    column_names = list(main_data.columns)
+                    # PRIORITY 3: Fall back to DataFrame column order
+                    column_names = list(df_out.columns)
                     logger.debug(f"[{self.id}] Using DataFrame column order: {column_names}")
 
                 # Convert to records while preserving column order
-                for _, pandas_row in main_data.iterrows():
+                for _, pandas_row in df_out.iterrows():
                     # Create ordered dictionary using the defined column order
                     row_dict = {}
                     for col in column_names:
                         # Handle case where schema column might not exist in DataFrame
-                        if col in main_data.columns:
+                        if col in df_out.columns:
                             row_dict[col] = pandas_row[col]
                         else:
-                            row_dict[col] = ''  # Default empty value for missing columns
-                            logger.warning(f"[{self.id}] Column '{col}' from schema not found in DataFrame, using empty value")
+                            row_dict[col] = None  # Default None for missing schema columns
+                            logger.warning(f"[{self.id}] Column '{col}' from schema not found in DataFrame, defaulting to None")
                     rows.append(row_dict)
 
             elif isinstance(main_data, list):
                 rows = main_data
                 rows_in = len(rows)
                 # Use schema if available, otherwise use first row keys
-                if self.output_schema:
-                    column_names = [col_def['name'] for col_def in self.output_schema]
+                _input_schema = getattr(self, "input_schema", None) or []
+                if _input_schema:
+                    column_names = [col_def['name'] for col_def in _input_schema]
+                    logger.debug(f"[{self.id}] Using input schema column order for list data: {column_names}")
+                elif getattr(self, "output_schema", None):
+                    column_names = [col_def['name'] for col_def in self.output_schema]  # type: ignore[attr-defined]
                     logger.debug(f"[{self.id}] Using output schema column order for list data: {column_names}")
                 else:
                     column_names = list(rows[0].keys()) if rows else []
@@ -259,90 +258,142 @@ class FileOutputExcel(BaseComponent):
                 column_names = []
                 rows_in = 0
 
-            # Filter out empty rows (rows where all values are empty/null)
+            # Filter out empty rows (rows where all values are null/empty)
             def is_non_empty_row(row):
-                return any(
-                    value is not None and
-                    str(value).strip() != '' and
-                    str(value).strip().lower() != 'nan'
-                    for value in row.values()
-                )
+                """Return True if row has at least one non-null, non-empty value."""
+                for value in row.values():
+                    try:
+                        if pd.isna(value):
+                            continue
+                    except (TypeError, ValueError):
+                        pass  # pd.isna can fail on non-scalar types; treat as non-empty
+                    if isinstance(value, str) and not value.strip():
+                        continue
+                    return True
+                return False
 
             non_empty_rows = [row for row in rows if is_non_empty_row(row)]
             rows_rejected = len(rows) - len(non_empty_rows)
 
-            logger.info(f"[{self.id}] Processing {len(non_empty_rows)} non-empty rows out of {rows_in} total rows")
+            logger.info("[%s] Processing %d non-empty rows out of %d total rows",
+                        self.id, len(non_empty_rows), rows_in)
 
-            # Write header if requested and we have data
-            # Only write header if:
-            # 1. Header is requested (include_header is True)
-            # 2. We have column names
-            # 3. Either we're not appending, or the sheet is empty/has no existing matching header
-            should_write_header = False
-            if include_header and column_names:
-                if not append_file:
-                    # Always write header for new files
-                    should_write_header = True
-                    logger.debug(f"[{self.id}] Writing header for new file")
-                else:
-                    # For append mode, check if we need to write header
-                    if sheet.max_row == 0:
-                        # Sheet is completely empty
-                        should_write_header = True
-                        logger.debug(f"[{self.id}] Writing header for empty sheet in append mode")
-                    elif sheet.max_row >= 1:
-                        # Sheet has content, check if first row is a matching header
-                        try:
-                            first_row_values = [cell.value for cell in sheet[1]]
-                            # Remove any None values and convert to strings for comparison
-                            first_row_cleaned = [str(val).strip() if val is not None else '' for val in first_row_values]
-                            column_names_cleaned = [str(col).strip() for col in column_names]
+            # Find the actual last row that contains data (openpyxl can report max_row=1 for
+            # a freshly-created empty sheet — a "ghost" row — which would otherwise shift all
+            # content down by one row and cause duplicate headers on subsequent appends).
+            def _last_data_row(ws):
+                """Return the index of the last row with at least one non-None cell, or 0."""
+                top = ws.max_row or 0
+                for row_idx in range(top, 0, -1):
+                    if any(cell.value is not None for cell in ws[row_idx]):
+                        return row_idx
+                return 0
 
-                            if first_row_cleaned == column_names_cleaned:
-                                # Headers match, don't write header
-                                should_write_header = False
-                                logger.debug(f"[{self.id}] Skipping header write - sheet already has matching headers")
-                            else:
-                                # Headers don't match or first row is data
-                                # Check if this looks like a header row or data row
-                                if all(val == '' for val in first_row_cleaned):
-                                    # First row is empty, write header
-                                    should_write_header = True
-                                    logger.debug(f"[{self.id}] First row is empty, writing header")
-                                else:
-                                    # First row has data but doesn't match expected headers
-                                    # This could be data from a previous run without headers
-                                    should_write_header = False
-                                    logger.debug(f"[{self.id}] First row appears to be data, not writing header. "
-                                        f"Existing: {first_row_cleaned[:3]}..., Expected headers: {column_names_cleaned[:3]}...")
-                        except Exception as e:
-                            # If we can't read the first row, assume we need to write header
-                            logger.warning(f"[{self.id}] Could not read first row: {e}. Writing header to be safe.")
-                            should_write_header = True
+            last_data_row = _last_data_row(sheet)
+
+            # Write header only when the sheet is truly empty (no prior data).
+            should_write_header = include_header and bool(column_names) and (last_data_row == 0)
+            if should_write_header:
+                logger.debug("[%s] Writing header row (sheet is empty)", self.id)
+            else:
+                logger.debug("[%s] Skipping header write (last_data_row=%d, include_header=%s)",
+                             self.id, last_data_row, include_header)
+
+            # Determine write start position from FIRST_CELL_X/Y config (0-based → 1-based)
+            try:
+                start_col = int(self.config.get('first_cell_x') or '0') + 1
+            except (ValueError, TypeError):
+                start_col = 1
+            try:
+                start_row = int(self.config.get('first_cell_y') or '0') + 1
+            except (ValueError, TypeError):
+                start_row = 1
+
+            # For append_file or append_sheet mode, start writing after last existing data row
+            append_sheet = self.config.get('append_sheet', False)
+            if (append_file or append_sheet) and last_data_row > 0:
+                start_row = max(start_row, last_data_row + 1)
+
+            current_row = start_row
+
+            # Build per-column number formats for Decimal/float precision (applied to cells)
+            col_formats = self._build_col_formats()
+
+            def _clean_val(value):
+                """Convert NaN/NaT to None so openpyxl writes blank cells (not 'nan' strings).
+
+                Also converts ``decimal.Decimal`` (Arrow BigDecimal with scale-18) to
+                native Python ``float`` so Excel stores a proper number rather than a
+                string with 18 trailing zeros.
+                """
+                if value is None:
+                    return None
+                import decimal as _decimal
+                if isinstance(value, _decimal.Decimal):
+                    return float(value)
+                try:
+                    if pd.isna(value):
+                        return None
+                except (TypeError, ValueError):
+                    pass
+                return value
 
             if should_write_header:
-                sheet.append(column_names)
-                logger.debug(f"[{self.id}] Added header row with columns: {column_names}")
+                for col_idx, col_name in enumerate(column_names):
+                    sheet.cell(row=current_row, column=start_col + col_idx).value = col_name  # type: ignore[union-attr]
+                current_row += 1
+                logger.debug(f"[{self.id}] Added header row at row {current_row - 1}, col {start_col}")
 
-            # Write data rows
+            # Write data rows using sheet.cell() for FIRST_CELL_X/Y positioning support
             rows_written = 0
             for row in non_empty_rows:
-                # Convert row values to list, preserving order of columns
                 if column_names:
-                    # Use column order from header
-                    row_values = [row.get(col, '') for col in column_names]
+                    row_values = [_clean_val(row.get(col)) for col in column_names]
                 else:
-                    # Use original order
-                    row_values = list(row.values())
-
-                sheet.append(row_values)
+                    row_values = [_clean_val(v) for v in row.values()]
+                for col_idx, value in enumerate(row_values):
+                    cell = sheet.cell(row=current_row, column=start_col + col_idx)
+                    cell.value = value  # type: ignore[union-attr]
+                    # Apply number format for Decimal/float precision columns
+                    col_name = column_names[col_idx] if col_idx < len(column_names) else None
+                    if col_name and col_name in col_formats:
+                        cell.number_format = col_formats[col_name]
+                current_row += 1
                 rows_written += 1
 
             rows_out = rows_written
 
+            # Auto-size columns if IS_ALL_AUTO_SZIE or per-column AUTO_SZIE_SETTING
+            if self.config.get('is_all_auto_szie', False) and column_names:
+                from openpyxl.utils import get_column_letter
+                for col_idx_0, col_name in enumerate(column_names):
+                    col_letter = get_column_letter(start_col + col_idx_0)
+                    max_len = len(str(col_name)) if include_header else 0
+                    for row in non_empty_rows:
+                        max_len = max(max_len, len(str(row.get(col_name) or '')))
+                    sheet.column_dimensions[col_letter].width = max_len + 2
+                logger.debug(f"[{self.id}] Auto-sized {len(column_names)} columns")
+            elif self.config.get('auto_szie_setting') and column_names:
+                from openpyxl.utils import get_column_letter
+                for col_setting in self.config['auto_szie_setting']:
+                    col_name = str(col_setting)
+                    if col_name in column_names:
+                        col_letter = get_column_letter(start_col + column_names.index(col_name))
+                        max_len = max(
+                            (len(str(row.get(col_name) or '')) for row in non_empty_rows),
+                            default=0,
+                        )
+                        sheet.column_dimensions[col_letter].width = max_len + 2
+
+            # Formula recalculation (RECALCULATE_FORMULA)
+            if self.config.get('recalculate_formula', False):
+                workbook.calculation.calcMode = 'auto'
+                logger.debug(f"[{self.id}] Formula recalculation mode set to auto")
+
             # Save workbook
             try:
                 workbook.save(filename)
+                workbook.close()
                 logger.info(f"[{self.id}] Excel file written successfully: {filename}")
             except Exception as e:
                 error_msg = f"Failed to save Excel file: {filename}"
@@ -352,6 +403,14 @@ class FileOutputExcel(BaseComponent):
                 else:
                     self._update_stats(rows_in, 0, rows_rejected)
                     return {'main': None, 'stats': self.stats}
+
+            # Delete empty file if no data rows written (DELETE_EMPTYFILE)
+            if self.config.get('delete_empty_file', False) and rows_out == 0:
+                try:
+                    os.remove(filename)
+                    logger.info(f"[{self.id}] Deleted empty output file: {filename}")
+                except OSError as e:
+                    logger.warning(f"[{self.id}] Could not delete empty file {filename}: {e}")
 
             # Update statistics
             self._update_stats(rows_in, rows_out, rows_rejected)
@@ -366,17 +425,81 @@ class FileOutputExcel(BaseComponent):
             logger.error(f"[{self.id}] Processing failed: {e}")
             raise ComponentExecutionError(self.id, f"Excel output processing failed: {e}", e) from e
 
-    # Legacy method for backward compatibility
-    def validate_config(self) -> bool:
-        """
-        Legacy configuration validation method.
+    # ------------------------------------------------------------------
+    # Date Pattern and Decimal Precision Formatting
+    # ------------------------------------------------------------------
+
+    def _apply_date_patterns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Format datetime columns according to per-column ``date_pattern``.
+
+        Walks ``self.input_schema`` and, for each column declared as a
+        datetime with a ``date_pattern``, converts the column to a string
+        formatted with that pattern. NaT values become empty strings.
+
+        Args:
+            df: Working copy DataFrame to format in place.
 
         Returns:
-            True if configuration is valid, False otherwise
+            The same DataFrame with datetime columns replaced by formatted strings.
         """
-        errors = self._validate_config()
-        if errors:
-            for error in errors:
-                logger.error(f"[{self.id}] Configuration error: {error}")
-            return False
-        return True
+        schema = getattr(self, "input_schema", None) or []
+        if not schema:
+            return df
+
+        for col in schema:
+            if not isinstance(col, dict):
+                continue
+            name = col.get("name")
+            if not name or name not in df.columns:
+                continue
+            col_type = (col.get("type") or "").lower()
+            pattern = col.get("date_pattern") or ""
+            if not pattern or col_type not in ("date", "datetime"):
+                continue
+            series = df[name]
+            if not pd.api.types.is_datetime64_any_dtype(series):
+                try:
+                    # Pass the schema's date_pattern as ``format=`` so pandas
+                    # uses the vectorised C parser instead of dateutil
+                    # (which emits a "Could not infer format" UserWarning).
+                    series = pd.to_datetime(series, format=pattern, errors="coerce")
+                except Exception:
+                    logger.warning(
+                        f"[{self.id}] Column '{name}' could not be coerced "
+                        f"to datetime; skipping date_pattern formatting."
+                    )
+                    continue
+            formatted = series.dt.strftime(pattern)
+            df[name] = formatted.where(series.notna(), "")
+        return df
+
+    def _build_col_formats(self) -> dict:
+        """Build a mapping of column name -> openpyxl number format string.
+
+        For Decimal/float columns with a ``precision`` defined in the schema,
+        returns an Excel number format like ``"0.0000000000"`` (precision zeros
+        after the decimal point) so the cell displays exactly that many decimal
+        places.  
+
+        Returns:
+            Dict mapping column name to number format string.
+        """
+        schema = getattr(self, "input_schema", None) or []
+        col_formats = {}
+        for col in schema:
+            if not isinstance(col, dict):
+                continue
+            name = col.get("name")
+            if not name:
+                continue
+            col_type = (col.get("type") or "").lower()
+            if col_type not in ("decimal", "bigdecimal", "numeric", "number", "float"):
+                continue
+            precision = col.get("precision")
+            if precision is None:
+                continue
+            p = int(precision)
+            if p < 0:
+                continue
+            col_formats[name] = ("0." + "0" * p) if p > 0 else "0"
+        return col_formats

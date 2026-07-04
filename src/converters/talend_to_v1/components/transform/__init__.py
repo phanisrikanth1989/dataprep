@@ -12,6 +12,7 @@ from . import filter_columns  # noqa: F401
 from . import filter_rows  # noqa: F401
 from . import hash_output  # noqa: F401
 from . import java_component  # noqa: F401
+from . import java_flex  # noqa: F401
 from . import java_row_component  # noqa: F401
 from . import join  # noqa: F401
 from . import log_row  # noqa: F401

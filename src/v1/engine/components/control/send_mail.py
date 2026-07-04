@@ -15,11 +15,18 @@ from email.mime.text import MIMEText
 from typing import Any, Dict, List, Optional
 
 from ...base_component import BaseComponent
-from ...exceptions import ComponentExecutionError, ConfigurationError, FileOperationError
+from ...component_registry import REGISTRY
+from ...exceptions import (
+    ComponentExecutionError,
+    ConfigurationError,
+    ETLError,
+    FileOperationError,
+)
 
 logger = logging.getLogger(__name__)
 
 
+@REGISTRY.register("SendMailComponent", "tSendMail")
 class SendMailComponent(BaseComponent):
     """
     Sends email messages via SMTP with support for authentication and attachments.
@@ -85,6 +92,16 @@ class SendMailComponent(BaseComponent):
 
         Returns:
             List of error messages (empty if valid)
+
+        Note:
+            The smtp_port range/integer check is intentionally deferred to
+            _process() after context variable resolution. The converter at
+            ``src/converters/talend_to_v1/components/control/send_mail.py:171``
+            extracts SMTP_PORT via ``_get_str(node, "SMTP_PORT", "25")``, so
+            ``self.config['smtp_port']`` may be an unresolved
+            ``${context.SMTP_PORT}`` string when this method runs (Step 2 of
+            BaseComponent lifecycle, before Step 3 resolution). Validating
+            here would incorrectly reject valid context-var configs.
         """
         errors = []
 
@@ -99,11 +116,8 @@ class SendMailComponent(BaseComponent):
         if not isinstance(to_emails, list) or len(to_emails) == 0:
             errors.append("Config 'to' must be a non-empty list of email addresses")
 
-        # Validate port if provided
-        smtp_port = self.config.get('smtp_port')
-        if smtp_port is not None:
-            if not isinstance(smtp_port, int) or smtp_port < 1 or smtp_port > 65535:
-                errors.append("Config 'smtp_port' must be an integer between 1 and 65535")
+        # Note: smtp_port content check moved to _process (Phase 07.2 Group B
+        # DEFER verdict). See docstring above.
 
         # Validate optional lists
         for field in ['cc', 'bcc', 'attachments']:
@@ -137,10 +151,30 @@ class SendMailComponent(BaseComponent):
             logger.error(f"[{self.id}] Configuration validation failed: {error_msg}")
             raise ConfigurationError(f"Invalid configuration: {error_msg}")
 
+        # Resolve and validate smtp_port (Phase 07.2 Group B DEFER fix).
+        # Performed OUTSIDE the broad try/except below so that
+        # ConfigurationError surfaces directly to the engine -- mirroring the
+        # _validate_config error path at line 145 above.
+        # Accepts int or string-of-int (post-resolution it could still be a
+        # string from a context variable).
+        smtp_port_raw = self.config.get('smtp_port')
+        if smtp_port_raw is None:
+            smtp_port = self.DEFAULT_SMTP_PORT
+        else:
+            try:
+                smtp_port = int(smtp_port_raw)
+            except (ValueError, TypeError) as exc:
+                raise ConfigurationError(
+                    f"[{self.id}] Config 'smtp_port' must be an integer between 1 and 65535"
+                ) from exc
+            if smtp_port < 1 or smtp_port > 65535:
+                raise ConfigurationError(
+                    f"[{self.id}] Config 'smtp_port' must be an integer between 1 and 65535"
+                )
+
         try:
             # Extract configuration with defaults
             smtp_host = self.config.get('smtp_host')
-            smtp_port = self.config.get('smtp_port', self.DEFAULT_SMTP_PORT)
             from_email = self.config.get('from_email')
             to_emails = self.config.get('to', [])
             cc_emails = self.config.get('cc', [])
@@ -216,6 +250,18 @@ class SendMailComponent(BaseComponent):
             server.quit()
 
             logger.info(f"[{self.id}] Email sent successfully to {len(all_recipients)} recipients")
+
+        except ETLError:
+            # BUG-MAIL-001: Attachment-loop ETLError raises (e.g.
+            # FileOperationError from missing or unreadable attachment) used to
+            # be caught by ``except (..., OSError)`` (FileNotFoundError is an
+            # OSError subclass) or by the catch-all ``except Exception`` and
+            # silently rewrapped to ComponentExecutionError, contradicting the
+            # _process docstring contract ("Raises: FileOperationError: If
+            # attachment files cannot be read"). Re-raise any ETLError-derived
+            # exception untouched so attachment errors surface with their
+            # documented type.
+            raise
 
         except (smtplib.SMTPException, ConnectionError, OSError) as e:
             error_msg = f"Failed to send email: {str(e)}"

@@ -31,6 +31,7 @@ from typing import Any, Dict, List
 
 from ..base import ComponentConverter, ComponentResult, TalendConnection, TalendNode
 from ..registry import REGISTRY
+from ...expression_converter import ExpressionConverter
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +102,9 @@ class FileInputJSONConverter(ComponentConverter):
 
         # ---- 1. Core parameters ----
         config: Dict[str, Any] = {}
-        config["filename"] = self._get_str(node, "FILENAME", "")
+        config["filename"] = ExpressionConverter.mark_java_expression(
+            self._get_str(node, "FILENAME", "")
+        )
         config["encoding"] = self._get_str(node, "ENCODING", "UTF-8")
 
         # ---- 2. CLOSED_LIST parameters ----

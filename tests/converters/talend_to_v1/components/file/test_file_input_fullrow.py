@@ -63,6 +63,11 @@ class TestDefaults:
         result = FileInputFullRowConverter().convert(node, [], {})
         assert result.component["config"]["filename"] == ""
 
+    def test_filename_java_expression_marked(self):
+        node = _make_node(params={"FILENAME": '"context.dir + \'/fullrow.txt\'"'})
+        result = FileInputFullRowConverter().convert(node, [], {})
+        assert result.component["config"]["filename"].startswith("{{java}}")
+
     def test_row_separator_default(self):
         """ROWSEPARATOR defaults to '\\n'."""
         node = _make_node()
@@ -242,40 +247,6 @@ class TestSchema:
 
 class TestNeedsReview:
     """Verify needs_review entries for engine gaps (per D-36: per-feature)."""
-
-    def test_needs_review_count(self):
-        """Exactly 4 needs_review entries (header_rows, footer_rows, random, nb_random)."""
-        node = _make_node()
-        result = FileInputFullRowConverter().convert(node, [], {})
-        assert len(result.needs_review) == 4
-
-    def test_needs_review_header_rows(self):
-        """One needs_review entry mentions 'header_rows'."""
-        node = _make_node()
-        result = FileInputFullRowConverter().convert(node, [], {})
-        issues = [e["issue"] for e in result.needs_review]
-        assert any("header_rows" in i for i in issues)
-
-    def test_needs_review_footer_rows(self):
-        """One needs_review entry mentions 'footer_rows'."""
-        node = _make_node()
-        result = FileInputFullRowConverter().convert(node, [], {})
-        issues = [e["issue"] for e in result.needs_review]
-        assert any("footer_rows" in i for i in issues)
-
-    def test_needs_review_random(self):
-        """One needs_review entry mentions 'random'."""
-        node = _make_node()
-        result = FileInputFullRowConverter().convert(node, [], {})
-        issues = [e["issue"] for e in result.needs_review]
-        assert any("random" in i for i in issues)
-
-    def test_needs_review_nb_random(self):
-        """One needs_review entry mentions 'nb_random'."""
-        node = _make_node()
-        result = FileInputFullRowConverter().convert(node, [], {})
-        issues = [e["issue"] for e in result.needs_review]
-        assert any("nb_random" in i for i in issues)
 
     def test_all_needs_review_are_engine_gap(self):
         """All needs_review entries have severity 'engine_gap'."""

@@ -422,6 +422,83 @@ class TestPreparedStatementTable:
         result = OracleRowConverter().convert(node, [], {})
         assert result.component["config"]["set_preparedstatement_parameters"] == []
 
+    # WR-03: malformed group with missing required key is skipped + warned
+    def test_malformed_group_missing_key_dropped_with_warning(self):
+        """A 3-entry group with a typo'd elementRef is not a valid row.
+
+        The engine-side ``_coerce_prepared_param`` would silently fall back
+        to ``parameter_type="Object"`` / ``parameter_value=None`` if we
+        accepted the partial row -- masking corruption. WR-03 fix: drop
+        the row and surface a warning.
+        """
+        table_data = [
+            # Row 1: valid
+            {"elementRef": "PARAMETER_INDEX", "value": '"1"'},
+            {"elementRef": "PARAMETER_TYPE", "value": '"String"'},
+            {"elementRef": "PARAMETER_VALUE", "value": '"good"'},
+            # Row 2: typo on PARAMETER_TYPE -> only INDEX + VALUE land
+            {"elementRef": "PARAMETER_INDEX", "value": '"2"'},
+            {"elementRef": "PARAMETER_TIPE", "value": '"String"'},  # typo
+            {"elementRef": "PARAMETER_VALUE", "value": '"bad"'},
+        ]
+        node = _make_node(
+            params={"SET_PREPAREDSTATEMENT_PARAMETERS": table_data}
+        )
+        result = OracleRowConverter().convert(node, [], {})
+        params = result.component["config"]["set_preparedstatement_parameters"]
+        assert len(params) == 1
+        assert params[0]["parameter_index"] == "1"
+        # Warning surfaced via ComponentResult.warnings sink
+        assert any(
+            "Incomplete SET_PREPAREDSTATEMENT_PARAMETERS" in w
+            for w in result.warnings
+        )
+
+    # WR-04: parameter_index validated as positive integer
+    def test_non_numeric_parameter_index_dropped_with_warning(self):
+        """Non-numeric parameter_index would crash the engine at int()."""
+        table_data = _make_prepared_params([
+            ("abc", "String", '"hello"'),  # non-numeric
+            ("1", "String", '"world"'),
+        ])
+        node = _make_node(
+            params={"SET_PREPAREDSTATEMENT_PARAMETERS": table_data}
+        )
+        result = OracleRowConverter().convert(node, [], {})
+        params = result.component["config"]["set_preparedstatement_parameters"]
+        assert len(params) == 1
+        assert params[0]["parameter_index"] == "1"
+        assert any(
+            "Invalid parameter_index" in w for w in result.warnings
+        )
+
+    def test_zero_parameter_index_dropped_with_warning(self):
+        """parameter_index must be 1-indexed (>= 1)."""
+        table_data = _make_prepared_params([
+            ("0", "String", '"hello"'),
+            ("1", "String", '"world"'),
+        ])
+        node = _make_node(
+            params={"SET_PREPAREDSTATEMENT_PARAMETERS": table_data}
+        )
+        result = OracleRowConverter().convert(node, [], {})
+        params = result.component["config"]["set_preparedstatement_parameters"]
+        assert len(params) == 1
+        assert params[0]["parameter_index"] == "1"
+
+    def test_negative_parameter_index_dropped_with_warning(self):
+        """parameter_index must be positive."""
+        table_data = _make_prepared_params([
+            ("-3", "String", '"hello"'),
+            ("1", "String", '"world"'),
+        ])
+        node = _make_node(
+            params={"SET_PREPAREDSTATEMENT_PARAMETERS": table_data}
+        )
+        result = OracleRowConverter().convert(node, [], {})
+        params = result.component["config"]["set_preparedstatement_parameters"]
+        assert len(params) == 1
+
 
 # ------------------------------------------------------------------
 # TestFrameworkParams
@@ -481,37 +558,62 @@ class TestSchema:
 # ------------------------------------------------------------------
 
 class TestNeedsReview:
-    """Verify needs_review entries for engine gaps."""
+    """D-E1: Wallet/OCI emit a thick-mode needs_review; SID/SERVICE_NAME/RAC
+    emit zero needs_review entries (Phase 11 ships those connection types)."""
 
-    def test_needs_review_count(self):
-        """Single consolidated needs_review per D-27."""
-        node = _make_node()
+    def test_no_needs_review_for_sid(self):
+        """ORACLE_SID emits zero needs_review entries (engine ships it)."""
+        node = _make_node(params={"CONNECTION_TYPE": '"ORACLE_SID"'})
+        result = OracleRowConverter().convert(node, [], {})
+        assert len(result.needs_review) == 0
+
+    def test_no_needs_review_for_service_name(self):
+        """ORACLE_SERVICE_NAME emits zero needs_review entries."""
+        node = _make_node(params={"CONNECTION_TYPE": '"ORACLE_SERVICE_NAME"'})
+        result = OracleRowConverter().convert(node, [], {})
+        assert len(result.needs_review) == 0
+
+    def test_no_needs_review_for_rac(self):
+        """ORACLE_RAC emits zero needs_review entries."""
+        node = _make_node(params={"CONNECTION_TYPE": '"ORACLE_RAC"'})
+        result = OracleRowConverter().convert(node, [], {})
+        assert len(result.needs_review) == 0
+
+    def test_needs_review_for_wallet(self):
+        """ORACLE_WALLET emits a thick-mode needs_review entry (D-E1)."""
+        node = _make_node(params={"CONNECTION_TYPE": '"ORACLE_WALLET"'},
+                          component_id="orc_wallet")
         result = OracleRowConverter().convert(node, [], {})
         assert len(result.needs_review) == 1
+        entry = result.needs_review[0]
+        assert entry["severity"] == "needs_review"
+        assert entry["component"] == "orc_wallet"
+        assert "thick_mode" in entry["issue"]
+        assert "Instant Client" in entry["issue"]
+        assert "ORACLE_WALLET" in entry["issue"]
 
-    def test_needs_review_is_engine_gap(self):
-        node = _make_node()
+    def test_needs_review_for_oci(self):
+        """ORACLE_OCI emits a thick-mode needs_review entry (D-E1)."""
+        node = _make_node(params={"CONNECTION_TYPE": '"ORACLE_OCI"'})
         result = OracleRowConverter().convert(node, [], {})
-        assert result.needs_review[0]["severity"] == "engine_gap"
+        assert len(result.needs_review) == 1
+        entry = result.needs_review[0]
+        assert entry["severity"] == "needs_review"
+        assert "thick_mode" in entry["issue"]
+        assert "Instant Client" in entry["issue"]
+        assert "ORACLE_OCI" in entry["issue"]
 
-    def test_needs_review_message(self):
-        node = _make_node()
+    def test_needs_review_message_no_secrets(self):
+        """T-11-05 mitigation: needs_review message contains no auth detail."""
+        node = _make_node(params={
+            "CONNECTION_TYPE": '"ORACLE_WALLET"',
+            "USER": '"scott"',
+            "PASS": '"tiger"',
+        })
         result = OracleRowConverter().convert(node, [], {})
-        assert "No concrete engine implementation for tOracleRow" in result.needs_review[0]["issue"]
-
-    def test_needs_review_has_component_id(self):
-        node = _make_node(component_id="test_comp")
-        result = OracleRowConverter().convert(node, [], {})
-        assert result.needs_review[0]["component"] == "test_comp"
-
-    def test_no_framework_param_needs_review(self):
-        """Framework params (tstatcatcher_stats, label) must NOT have needs_review."""
-        node = _make_node()
-        result = OracleRowConverter().convert(node, [], {})
-        issues = [e["issue"] for e in result.needs_review]
-        for issue in issues:
-            assert "tstatcatcher_stats" not in issue
-            assert "label" not in issue.lower().split()
+        issue = result.needs_review[0]["issue"]
+        assert "scott" not in issue
+        assert "tiger" not in issue
 
 
 # ------------------------------------------------------------------

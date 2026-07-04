@@ -1,0 +1,441 @@
+{
+  "job_name": "Job_tOracleOutput_0.1",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {}
+  },
+  "components": [
+    {
+      "id": "tDBConnection_1",
+      "type": "tOracleConnection",
+      "original_type": "tOracleConnection",
+      "position": {
+        "x": 224,
+        "y": 128
+      },
+      "config": {
+        "connection_type": "ORACLE_SERVICE_NAME",
+        "db_version": "ORACLE_18",
+        "rac_url": "localhost",
+        "use_tns_file": false,
+        "tns_file": "",
+        "host": "localhost",
+        "port": "1521",
+        "dbname": "FREEPDB1",
+        "local_service_name": "FREEPDB1",
+        "schema_db": "SYSTEM",
+        "user": "system",
+        "password": "enc:system.encryption.key.v1:L+eNK/jP6deOIM5vNI9eE75vLo/Nxe+66NgXdrY1SLuP+/zIfxWKUN6Whw==",
+        "jdbc_url": "jdbc:oracle:thin:USER/MDP@server",
+        "encoding": "ISO-8859-15",
+        "properties": "",
+        "use_shared_connection": false,
+        "shared_connection_name": "",
+        "specify_datasource_alias": false,
+        "datasource_alias": "",
+        "use_ssl": false,
+        "ssl_trustserver_truststore": "",
+        "need_client_auth": false,
+        "ssl_keystore": "",
+        "disable_cbc_protection": true,
+        "auto_commit": false,
+        "support_nls": false,
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [],
+        "output": []
+      },
+      "inputs": [],
+      "outputs": []
+    },
+    {
+      "id": "tFileInputDelimited_1",
+      "type": "FileInputDelimited",
+      "original_type": "tFileInputDelimited",
+      "position": {
+        "x": 384,
+        "y": 128
+      },
+      "config": {
+        "filepath": "C:/Users/phani/Documents/talend_samples/database_components/tDBInput/output.dat",
+        "csv_option": false,
+        "row_separator": "\\n",
+        "csv_row_separator": "\\n",
+        "fieldseparator": ";",
+        "escape_char": "\"",
+        "text_enclosure": "\"",
+        "header_rows": 1,
+        "footer_rows": 0,
+        "limit": "",
+        "remove_empty_row": true,
+        "uncompress": false,
+        "die_on_error": true,
+        "advanced_separator": false,
+        "thousands_separator": ",",
+        "decimal_separator": ".",
+        "random": false,
+        "nb_random": 10,
+        "trim_all": false,
+        "check_fields_num": false,
+        "check_date": false,
+        "encoding": "ISO-8859-15",
+        "split_record": false,
+        "enable_decode": false,
+        "trim_select": [
+          {
+            "column": "ID",
+            "trim": false
+          },
+          {
+            "column": "NAME",
+            "trim": false
+          },
+          {
+            "column": "DOB",
+            "trim": false
+          }
+        ],
+        "decode_cols": [
+          {
+            "column": "ID",
+            "decode": false
+          },
+          {
+            "column": "NAME",
+            "decode": false
+          },
+          {
+            "column": "DOB",
+            "decode": false
+          }
+        ],
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {
+            "name": "ID",
+            "type": "Decimal",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "NAME",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "DOB",
+            "type": "datetime",
+            "nullable": true,
+            "key": false,
+            "date_pattern": "%y%m%d"
+          }
+        ]
+      },
+      "inputs": [],
+      "outputs": [
+        "row1"
+      ]
+    },
+    {
+      "id": "tMap_1",
+      "type": "Map",
+      "original_type": "tMap",
+      "position": {
+        "x": 576,
+        "y": 128
+      },
+      "config": {
+        "inputs": {
+          "main": {
+            "name": "row1",
+            "filter": "",
+            "activate_filter": false,
+            "matching_mode": "UNIQUE_MATCH",
+            "lookup_mode": "LOAD_ONCE",
+            "size_state": "INTERMEDIATE",
+            "persistent": false,
+            "activate_condensed_tool": false,
+            "activate_global_map": false
+          },
+          "lookups": []
+        },
+        "variables": [],
+        "outputs": [
+          {
+            "name": "out",
+            "is_reject": false,
+            "inner_join_reject": false,
+            "filter": "",
+            "activate_filter": false,
+            "columns": [
+              {
+                "name": "ID",
+                "expression": "{{java}}row1.ID",
+                "type": "Decimal",
+                "nullable": true,
+                "operator": "",
+                "length": -1,
+                "precision": -1,
+                "pattern": ""
+              },
+              {
+                "name": "NAME",
+                "expression": "{{java}}row1.NAME",
+                "type": "str",
+                "nullable": true,
+                "operator": "",
+                "length": -1,
+                "precision": -1,
+                "pattern": ""
+              },
+              {
+                "name": "DOB",
+                "expression": "{{java}}row1.DOB",
+                "type": "datetime",
+                "nullable": true,
+                "operator": "",
+                "length": -1,
+                "precision": -1,
+                "pattern": ""
+              }
+            ],
+            "size_state": "INTERMEDIATE",
+            "catch_output_reject": false,
+            "activate_global_map": false
+          }
+        ],
+        "die_on_error": true,
+        "rows_buffer_size": "2000000",
+        "change_hash_and_equals_for_bigdecimal": true,
+        "enable_auto_convert_type": false,
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {},
+      "inputs": [
+        "row1"
+      ],
+      "outputs": [
+        "out"
+      ]
+    },
+    {
+      "id": "tDBOutput_1",
+      "type": "tOracleOutput",
+      "original_type": "tOracleOutput",
+      "position": {
+        "x": 704,
+        "y": 128
+      },
+      "config": {
+        "use_existing_connection": true,
+        "connection": "tDBConnection_1",
+        "connection_type": "ORACLE_SID",
+        "db_version": "ORACLE_18",
+        "host": "",
+        "port": "1521",
+        "dbname": "",
+        "table_schema": "",
+        "user": "",
+        "password": "enc:system.encryption.key.v1:0CyH5hP2Lq/FpBx1/FgAqwy8y/kX1zF7Y/a9x5XB",
+        "table": "EMPLOYEE",
+        "table_action": "NONE",
+        "data_action": "INSERT",
+        "commit_every": 10000,
+        "use_batch_size": true,
+        "batch_size": 10000,
+        "use_field_options": false,
+        "use_hint_options": false,
+        "die_on_error": true,
+        "enable_debug_mode": false,
+        "convert_column_table_to_uppercase": false,
+        "use_timestamp_for_date_type": true,
+        "trim_char": true,
+        "support_nls": false,
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "ID",
+            "type": "Decimal",
+            "nullable": false,
+            "key": false,
+            "length": 20,
+            "precision": 0
+          },
+          {
+            "name": "NAME",
+            "type": "str",
+            "nullable": true,
+            "key": false,
+            "length": 255,
+            "precision": 0
+          },
+          {
+            "name": "DOB",
+            "type": "datetime",
+            "nullable": true,
+            "key": false,
+            "length": 0,
+            "precision": 0,
+            "date_pattern": "%d-%m-%Y"
+          }
+        ],
+        "output": []
+      },
+      "inputs": [
+        "out"
+      ],
+      "outputs": []
+    },
+    {
+      "id": "tDBCommit_1",
+      "type": "tOracleCommit",
+      "original_type": "tOracleCommit",
+      "position": {
+        "x": 704,
+        "y": 288
+      },
+      "config": {
+        "connection": "tDBConnection_1",
+        "close": true,
+        "tstatcatcher_stats": false,
+        "label": ""
+      },
+      "schema": {
+        "input": [],
+        "output": []
+      },
+      "inputs": [],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {
+      "name": "row1",
+      "from": "tFileInputDelimited_1",
+      "to": "tMap_1",
+      "type": "flow"
+    },
+    {
+      "name": "out",
+      "from": "tMap_1",
+      "to": "tDBOutput_1",
+      "type": "flow"
+    }
+  ],
+  "triggers": [
+    {
+      "type": "OnSubjobOk",
+      "from": "tDBConnection_1",
+      "to": "tFileInputDelimited_1"
+    },
+    {
+      "type": "OnComponentOk",
+      "from": "tDBOutput_1",
+      "to": "tDBCommit_1"
+    }
+  ],
+  "subjobs": {
+    "subjob_1": [
+      "tDBConnection_1"
+    ],
+    "subjob_2": [
+      "tFileInputDelimited_1",
+      "tMap_1",
+      "tDBOutput_1"
+    ],
+    "subjob_3": [
+      "tDBCommit_1"
+    ]
+  },
+  "java_config": {
+    "enabled": true,
+    "routines": [
+      "routines.DataOperation",
+      "routines.Mathematical",
+      "routines.Numeric",
+      "routines.Relational",
+      "routines.StringHandling",
+      "routines.TalendDataGenerator",
+      "routines.TalendDate",
+      "routines.TalendStringUtil",
+      "routines.TalendString"
+    ],
+    "libraries": []
+  },
+  "_validation": {
+    "valid": true,
+    "summary": "Validation: 1 warning(s)",
+    "issues": [
+      {
+        "severity": "warning",
+        "component_id": "tMap_1",
+        "field": "schema",
+        "message": "Component 'tMap_1' has missing schema"
+      }
+    ]
+  },
+  "_needs_review": [
+    {
+      "issue": "No concrete engine implementation for tOracleConnection. All config keys are extracted for future engine support.",
+      "component": "tDBConnection_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'split_record' config key -- engine has no explicit multi-line field toggle",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'random' config key -- engine does not support random line extraction",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'enable_decode' config key -- engine does not support hex/octal number parsing",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'advanced_separator' config key -- engine has partial support -- applies to all string columns, not just numeric",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'uncompress' config key -- engine does not support compressed file reading",
+      "component": "tFileInputDelimited_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'rows_buffer_size' config key -- Engine does not read 'rows_buffer_size' -- no disk buffering support",
+      "component": "tMap_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "Engine does not read 'change_hash_and_equals_for_bigdecimal' config key -- Engine does not handle BigDecimal hash/equals behavior",
+      "component": "tMap_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "No concrete engine implementation for tOracleOutput. All config keys are extracted for future engine support.",
+      "component": "tDBOutput_1",
+      "severity": "engine_gap"
+    },
+    {
+      "issue": "No concrete engine implementation for tOracleCommit. All config keys are extracted for future engine support.",
+      "component": "tDBCommit_1",
+      "severity": "engine_gap"
+    }
+  ]
+}

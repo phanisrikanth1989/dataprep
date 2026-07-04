@@ -32,6 +32,7 @@ from xml.etree.ElementTree import Element
 
 from ..base import ComponentConverter, ComponentResult, TalendConnection, TalendNode
 from ..registry import REGISTRY
+from ...type_mapping import convert_type
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ def _parse_nested_children(element: Element) -> List[Dict[str, Any]]:
     for child in element.findall("./children"):
         child_data: Dict[str, Any] = {
             "name": child.get("name", ""),
-            "type": child.get("type", "id_String"),
+            "type": convert_type(child.get("type", "id_String")),
             "xpath": child.get("xpath", ""),
             "nodeType": child.get("nodeType", ""),
             "loop": child.get("loop", "").lower() == "true",
@@ -74,7 +75,7 @@ def _parse_input_trees(node_data: Element) -> List[Dict[str, Any]]:
             node_info: Dict[str, Any] = {
                 "name": tree_node.get("name", ""),
                 "expression": tree_node.get("expression", ""),
-                "type": tree_node.get("type", "id_Document"),
+                "type": convert_type(tree_node.get("type", "id_Document")),
                 "xpath": tree_node.get("xpath", ""),
                 "children": _parse_nested_children(tree_node),
             }
@@ -100,7 +101,7 @@ def _parse_output_trees(node_data: Element) -> List[Dict[str, Any]]:
             node_info: Dict[str, Any] = {
                 "name": tree_node.get("name", ""),
                 "expression": tree_node.get("expression", ""),
-                "type": tree_node.get("type", "id_String"),
+                "type": convert_type(tree_node.get("type", "id_String")),
                 "xpath": tree_node.get("xpath", ""),
                 "children": _parse_nested_children(tree_node),
             }
@@ -220,6 +221,53 @@ def _build_expressions(
     return expressions
 
 
+def _extract_loop_nodes(
+    raw_xml: Optional[Element],
+    input_tree_node_map: Dict[str, Tuple[str, str, Dict[str, Any]]],
+) -> List[str]:
+    """Extract all loop element names from ``inputLoopNodesTables`` in outputTrees.
+
+    Reads the space-separated EMF paths in the ``inputloopnodes`` attribute of
+    every ``<inputLoopNodesTables>`` child of ``<outputTrees>`` and resolves each
+    path to an element name via ``input_tree_node_map``.
+
+    Returns an ordered list of loop element names (duplicates removed).  Returns
+    an empty list when the attribute is absent or no paths resolve.
+    """
+    if raw_xml is None:
+        return []
+
+    loop_nodes: List[str] = []
+    for ilt in raw_xml.findall("./outputTrees/inputLoopNodesTables"):
+        raw = ilt.get("inputloopnodes", "").strip()
+        if not raw:
+            continue
+        for emf_path in raw.split():
+            # EMF path: //@node.N/@nodeData/@inputTrees.M/@nodes.P/@children.Q/...
+            # Capture the inputTrees index plus nodes/children parts.
+            path_parts = re.findall(r"(@inputTrees\.\d+|@nodes\.\d+|@children\.\d+)", emf_path)
+            if not path_parts:
+                continue
+            tree_prefix = "inputTrees.0"
+            node_parts: List[str] = []
+            for part in path_parts:
+                if part.startswith("@inputTrees."):
+                    tree_prefix = part.removeprefix("@")  # "@inputTrees.0" -> "inputTrees.0"
+                else:
+                    node_parts.append(part)
+            full_path = tree_prefix
+            for part in node_parts:
+                full_path += f"/{part}"
+            node_info = input_tree_node_map.get(full_path)
+            if node_info:
+                name = node_info[0]
+                if name and name not in loop_nodes:
+                    loop_nodes.append(name)
+                    logger.debug("Extracted loop node '%s' from EMF path %s", name, emf_path)
+
+    return loop_nodes
+
+
 def _detect_looping_element(
     raw_xml: Optional[Element],
     input_tree_node_map: Dict[str, Tuple[str, str, Dict[str, Any]]],
@@ -275,8 +323,15 @@ def _rewrite_expressions_for_loop(
 ) -> Dict[str, str]:
     """Rewrite XPath expressions relative to the looping element.
 
-    Fields inside the loop become relative paths; fields outside the loop
-    use ``ancestor::`` axis notation.
+    Fields inside the loop become relative paths (e.g. ``./city``).
+    Fields outside the loop use ``../`` relative traversal whenever the
+    loop element's full path can be inferred from the inside-loop expressions.
+    This avoids ``ancestor::`` notation which breaks when the XML document root
+    is the loop-query matched element (e.g. tFileInputXML serialises only the
+    matched ``<employee>`` subtree, making ``ancestor::company`` invalid).
+
+    Fallback: if no inside-loop expression exists the loop element path cannot
+    be inferred and ``ancestor::`` notation is used as before.
 
     Per D-76: uses str.removeprefix() instead of lstrip() for safe prefix removal.
     """
@@ -286,19 +341,32 @@ def _rewrite_expressions_for_loop(
     loop_name = looping_element.strip()
     logger.debug("Rewriting XPaths relative to looping element '%s'", loop_name)
 
+    def _norm_parts(xpath: str) -> List[str]:
+        s = xpath.strip().removeprefix("./").removeprefix("/")
+        return [p.strip("/") for p in s.split("/") if p.strip("/")]
+
+    # Infer the full path to the loop element from any inside-loop expression.
+    # E.g. xpath "./company/employee/addresses/address/type" with loop_name
+    # "address" -> loop_full_parts = ["company", "employee", "addresses", "address"].
+    loop_full_parts: List[str] = []
+    for xpath in expressions.values():
+        if not xpath:
+            continue
+        parts = _norm_parts(xpath)
+        for i, p in enumerate(parts):
+            if p.lower() == loop_name.lower():
+                loop_full_parts = parts[: i + 1]
+                break
+        if loop_full_parts:
+            break
+
     rewritten: Dict[str, str] = {}
     for out_col, xpath in expressions.items():
         if not xpath:
             rewritten[out_col] = xpath
             continue
 
-        # Normalize the xpath: strip leading ./ using removeprefix (D-76 safe)
-        field_abs_path = xpath.strip().removeprefix("./").removeprefix("/")
-        field_abs_path = "/".join(
-            p.strip("/") for p in field_abs_path.split("/") if p.strip("/")
-        )
-        field_parts = field_abs_path.split("/")
-
+        field_parts = _norm_parts(xpath)
         in_loop = any(p.lower() == loop_name.lower() for p in field_parts)
 
         if in_loop:
@@ -313,15 +381,127 @@ def _rewrite_expressions_for_loop(
                 else:
                     new_xpath = f"./{loop_name}"
             else:
-                new_xpath = f"./{field_abs_path}"
+                new_xpath = "./" + "/".join(field_parts)
             logger.debug("Field %s inside loop: %s", out_col, new_xpath)
+        elif loop_full_parts:
+            # Compute the relative path: find the common prefix between the
+            # loop element's path and the field path, then navigate up with ../
+            # and down to the target.  This works regardless of the document root.
+            common_len = 0
+            for lp, fp in zip(loop_full_parts, field_parts):
+                if lp.lower() == fp.lower():
+                    common_len += 1
+                else:
+                    break
+            levels_up = len(loop_full_parts) - common_len
+            down_parts = field_parts[common_len:]
+            rel_parts = [".."] * levels_up + down_parts
+            new_xpath = "./" + "/".join(rel_parts) if rel_parts else "."
+            logger.debug("Field %s outside loop (relative): %s", out_col, new_xpath)
         else:
-            new_xpath = f"./ancestor::{field_abs_path}"
-            logger.debug("Field %s outside loop: %s", out_col, new_xpath)
+            # Fallback: no inside-loop expression to infer the loop path from.
+            new_xpath = "./ancestor::" + "/".join(field_parts)
+            logger.debug("Field %s outside loop (ancestor fallback): %s", out_col, new_xpath)
 
         rewritten[out_col] = new_xpath
 
     return rewritten
+
+
+def _build_expression_contexts_multi(
+    expressions_raw: Dict[str, str],
+    loop_nodes: List[str],
+) -> "tuple[Dict[str, str], Dict[str, str]]":
+    """Rewrite XPath expressions for multiple loop axes and build a context map.
+
+    For each output column, finds the **deepest** loop node that appears in the
+    field's path and rewrites the XPath relative to that owning element.
+    Columns that appear outside all loop nodes are rewritten relative to the
+    primary loop (first in ``loop_nodes``) using ``../`` traversal.
+
+    Args:
+        expressions_raw: Column -> absolute XPath from ``_build_expressions``.
+        loop_nodes: Ordered list of loop element names (primary first).
+
+    Returns:
+        ``(rewritten_expressions, expression_contexts)`` where
+        ``expression_contexts`` maps each column to its owning loop node name.
+    """
+    if not loop_nodes:
+        return expressions_raw, {}
+
+    def _norm_parts(xpath: str) -> List[str]:
+        s = xpath.strip().removeprefix("./").removeprefix("/")
+        return [p.strip("/") for p in s.split("/") if p.strip("/")]
+
+    # Infer the full path (element names from root) for each loop node by
+    # scanning all expressions for one that contains that loop node name.
+    loop_node_full_paths: Dict[str, List[str]] = {}
+    for loop_name in loop_nodes:
+        for xpath in expressions_raw.values():
+            if not xpath:
+                continue
+            parts = _norm_parts(xpath)
+            for i, p in enumerate(parts):
+                if p.lower() == loop_name.lower():
+                    loop_node_full_paths[loop_name] = parts[: i + 1]
+                    break
+            if loop_name in loop_node_full_paths:
+                break
+
+    primary_loop = loop_nodes[0]
+    primary_full_path = loop_node_full_paths.get(primary_loop, [])
+
+    rewritten: Dict[str, str] = {}
+    contexts: Dict[str, str] = {}
+
+    for col, xpath in expressions_raw.items():
+        if not xpath:
+            rewritten[col] = xpath
+            contexts[col] = primary_loop
+            continue
+
+        field_parts = _norm_parts(xpath)
+
+        # Find the deepest (highest index in field_parts) loop node in the path.
+        owning_loop: Optional[str] = None
+        owning_idx = -1
+        for loop_name in loop_nodes:
+            for i, p in enumerate(field_parts):
+                if p.lower() == loop_name.lower() and i > owning_idx:
+                    owning_idx = i
+                    owning_loop = loop_name
+
+        if owning_loop is not None:
+            # Field is inside this loop axis: rewrite relative to the loop element.
+            rel_parts = field_parts[owning_idx + 1:]
+            new_xpath = ("./" + "/".join(rel_parts)) if rel_parts else "."
+            contexts[col] = owning_loop
+        else:
+            # Field is outside all loops: use primary loop as context with ../
+            # traversal (same algorithm as _rewrite_expressions_for_loop).
+            if primary_full_path:
+                common_len = 0
+                for lp, fp in zip(primary_full_path, field_parts):
+                    if lp.lower() == fp.lower():
+                        common_len += 1
+                    else:
+                        break
+                levels_up = len(primary_full_path) - common_len
+                down_parts = field_parts[common_len:]
+                rel_parts_out = [".."] * levels_up + down_parts
+                new_xpath = "./" + "/".join(rel_parts_out) if rel_parts_out else "."
+            else:
+                new_xpath = "./" + "/".join(field_parts) if field_parts else "."
+            contexts[col] = primary_loop
+
+        rewritten[col] = new_xpath
+        logger.debug(
+            "Multi-loop rewrite: col=%s loop=%s xpath: %s -> %s",
+            col, contexts[col], xpath, new_xpath,
+        )
+
+    return rewritten, contexts
 
 
 def _parse_output_schema_from_xml(
@@ -336,7 +516,7 @@ def _parse_output_schema_from_xml(
         for column in metadata_node.findall("./column"):
             output_schema.append({
                 "name": column.get("name", ""),
-                "type": column.get("type", "id_String"),
+                "type": convert_type(column.get("type", "id_String")),
                 "nullable": column.get("nullable", "true").lower() == "true",
                 "key": column.get("key", "false").lower() == "true",
                 "length": int(column.get("length", -1)),
@@ -440,15 +620,30 @@ class XMLMapConverter(ComponentConverter):
         )
 
         # ------------------------------------------------------------------
-        # Detect looping element
+        # Detect looping element(s)
         # ------------------------------------------------------------------
-        looping_element = _detect_looping_element(raw_xml, input_tree_node_map)
+        # Prefer the explicit inputLoopNodesTables list (captures all loop axes
+        # for multi-loop jobs); fall back to single-element detection otherwise.
+        loop_nodes = _extract_loop_nodes(node_data, input_tree_node_map)
+        if loop_nodes:
+            looping_element = loop_nodes[0]
+        else:
+            looping_element = _detect_looping_element(raw_xml, input_tree_node_map)
+            if looping_element:
+                loop_nodes = [looping_element]
 
         # ------------------------------------------------------------------
-        # XPath rewriting based on looping element
+        # XPath rewriting based on looping element(s)
         # ------------------------------------------------------------------
-        expressions = _rewrite_expressions_for_loop(expressions, looping_element)
+        expression_contexts: Dict[str, str] = {}
+        if len(loop_nodes) > 1:
+            expressions, expression_contexts = _build_expression_contexts_multi(
+                expressions, loop_nodes
+            )
+        else:
+            expressions = _rewrite_expressions_for_loop(expressions, looping_element)
         logger.debug("Final expressions: %s", expressions)
+        logger.debug("Loop nodes: %s", loop_nodes)
 
         # ------------------------------------------------------------------
         # Build config (snake_case keys per D-38)
@@ -466,6 +661,9 @@ class XMLMapConverter(ComponentConverter):
             "output_schema": output_schema,
             "expressions": expressions,
             "looping_element": looping_element,
+            # Multi-loop support: ordered list of loop axes + per-column context map
+            "loop_nodes": loop_nodes,
+            "expression_contexts": expression_contexts,
             # Expression filter from first output tree
             "expression_filter": expression_filter,
             "activate_expression_filter": activate_expression_filter,
@@ -487,8 +685,6 @@ class XMLMapConverter(ComponentConverter):
             ("input_trees", "input tree metadata stored but not used by engine"),
             ("output_trees", "output tree metadata stored but not used by engine"),
             ("connections", "connection metadata stored but not used by engine"),
-            ("expression_filter", "expression filter is not evaluated by engine"),
-            ("activate_expression_filter", "expression filter activation flag not checked"),
             ("var_tables", "variable tables not supported by engine"),
         ]
         for key, detail in _engine_gap_keys:
@@ -506,6 +702,43 @@ class XMLMapConverter(ComponentConverter):
         for key, detail in _output_shape_entries:
             needs_review.append({
                 "issue": f"Output shape affected: '{key}' -- {detail}",
+                "component": node.component_id,
+                "severity": "output_shape_change",
+            })
+
+        # ---- D-E1 conditional needs_review (Phase 12 lock-in) ----
+        # These are emitted ONLY when the specific sub-feature flag is active in
+        # this Talend node. The engine logs a warning at runtime and ignores the
+        # sub-feature (warn-and-ignore contract). See 12-01-AUDIT.md D-E1 table.
+
+        has_lookup = any(
+            tree.get("lookup", False) for tree in input_trees
+        )
+        if has_lookup:
+            needs_review.append({
+                "feature": "lookup_join",
+                "reason": (
+                    "tXMLMap lookup/join (LOOKUP input trees) is not implemented by the "
+                    "Phase 12 engine. The engine logs a warning and ignores the lookup. "
+                    "Tracked for Phase 12.1."
+                ),
+                "phase": "12",
+                "component": node.component_id,
+                "severity": "output_shape_change",
+            })
+
+        has_all_in_one = any(
+            tree.get("allInOne", False) for tree in output_trees
+        )
+        if has_all_in_one:
+            needs_review.append({
+                "feature": "all_in_one_document_output",
+                "reason": (
+                    "tXMLMap Document (allInOne) output mode is not implemented by the "
+                    "Phase 12 engine. The engine logs a warning and falls back to per-row "
+                    "emission. Tracked for Phase 12.1."
+                ),
+                "phase": "12",
                 "component": node.component_id,
                 "severity": "output_shape_change",
             })

@@ -16,6 +16,7 @@ from typing import Any, Dict, List
 
 from ..base import ComponentConverter, ComponentResult, TalendConnection, TalendNode
 from ..registry import REGISTRY
+from ...expression_converter import ExpressionConverter
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ class FileRowCountConverter(ComponentConverter):
 
         # ---- 1. Core parameters ----
         config: Dict[str, Any] = {}
-        config["filename"] = self._get_str(node, "FILENAME", "")
+        config["filename"] = ExpressionConverter.mark_java_expression(self._get_str(node, "FILENAME", ""))
         config["row_separator"] = self._get_str(node, "ROWSEPARATOR", "\\n")
         config["ignore_empty_row"] = self._get_bool(node, "IGNORE_EMPTY_ROW", False)
         config["encoding"] = self._get_str(node, "ENCODING", "ISO-8859-15")

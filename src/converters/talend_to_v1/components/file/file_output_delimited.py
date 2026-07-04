@@ -38,6 +38,7 @@ from typing import Any, Dict, List
 
 from ..base import ComponentConverter, ComponentResult, TalendConnection, TalendNode
 from ..registry import REGISTRY
+from ...expression_converter import ExpressionConverter
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +59,16 @@ class FileOutputDelimitedConverter(ComponentConverter):
         # ---- 1. Core parameters ----
         config: Dict[str, Any] = {}
         config["usestream"] = self._get_bool(node, "USESTREAM", False)
-        config["streamname"] = self._get_str(node, "STREAMNAME", "outputStream")
-        config["filepath"] = self._get_str(node, "FILENAME", "")
+        # D-06: Mark streamname and filepath with {{java}} if they contain Java
+        # expressions (concat with +, ternaries, method calls, routine calls).
+        # ContextManager handles plain context.var refs; only operator-bearing
+        # expressions need the bridge round-trip.
+        config["streamname"] = ExpressionConverter.mark_java_expression(
+            self._get_str(node, "STREAMNAME", "outputStream")
+        )
+        config["filepath"] = ExpressionConverter.mark_java_expression(
+            self._get_str(node, "FILENAME", "")
+        )
         config["row_separator"] = self._get_str(node, "ROWSEPARATOR", "\\n")
         config["fieldseparator"] = self._get_str(node, "FIELDSEPARATOR", ";")
         config["append"] = self._get_bool(node, "APPEND", False)
@@ -92,24 +101,10 @@ class FileOutputDelimitedConverter(ComponentConverter):
         schema = {"input": self._parse_schema(node), "output": []}
 
         # ---- 7. Engine gap needs_review entries ----
-        # Engine uses delimiter default ',' but _java.xml FIELDSEPARATOR default is ';'
-        needs_review.append({
-            "issue": "Engine default delimiter=',' but _java.xml FIELDSEPARATOR default is ';' -- converter outputs 'fieldseparator'",
-            "component": node.component_id,
-            "severity": "engine_gap",
-        })
-        # Engine uses encoding default 'UTF-8' but _java.xml ENCODING default is 'ISO-8859-15'
-        needs_review.append({
-            "issue": "Engine default encoding='UTF-8' but _java.xml ENCODING default is 'ISO-8859-15'",
-            "component": node.component_id,
-            "severity": "engine_gap",
-        })
-        # Engine uses include_header default True but _java.xml INCLUDEHEADER default is False
-        needs_review.append({
-            "issue": "Engine default include_header=True but _java.xml INCLUDEHEADER default is False",
-            "component": node.component_id,
-            "severity": "engine_gap",
-        })
+        # All previously-flagged engine gaps have been resolved -- engine now reads
+        # 'fieldseparator' (default ';'), 'encoding' (default 'ISO-8859-15'), and
+        # 'include_header' (default False), all matching _java.xml defaults.
+        # Verified in src/v1/engine/components/file/file_output_delimited.py.
 
         # ---- 8. Build component wrapper ----
         component = self._build_component_dict(

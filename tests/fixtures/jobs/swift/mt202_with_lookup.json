@@ -1,0 +1,109 @@
+{
+  "job_name": "Job_swift_mt202_with_lookup",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {
+      "LAYOUT_FILE": "TBD_via_mutations",
+      "TRANSFORM_CONFIG": "TBD_via_mutations",
+      "LOOKUP_DIR": "TBD_via_mutations"
+    }
+  },
+  "components": [
+    {
+      "id": "tFileInputRaw_1",
+      "type": "FileInputRaw",
+      "original_type": "tFileInputRaw",
+      "config": {
+        "filename": "TBD_via_mutations",
+        "as_string": true,
+        "encoding": "UTF-8",
+        "die_on_error": true
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {"name": "content", "type": "str", "nullable": false, "key": false}
+        ]
+      },
+      "inputs": [],
+      "outputs": ["raw_swift"]
+    },
+    {
+      "id": "tSwiftBlockFormatter_1",
+      "type": "SwiftBlockFormatter",
+      "original_type": "tSwiftBlockFormatter",
+      "config": {
+        "layout_file": "${context.LAYOUT_FILE}",
+        "content_column": "content",
+        "pipe_fields": [
+          "messagetype",
+          "block1bic",
+          "block2bic",
+          {"name": "block4_20", "source": "block4_20", "default": ""},
+          {"name": "block4_21", "source": "block4_21", "default": ""},
+          {"name": "block4_32A", "source": "block4_32A", "default": ""},
+          {"name": "block4_52A", "source": "block4_52A", "default": ""},
+          {"name": "block4_58A", "source": "block4_58A", "default": ""}
+        ],
+        "processing": {"strip_whitespace": true},
+        "die_on_error": true
+      },
+      "schema": {
+        "input": [
+          {"name": "content", "type": "str", "nullable": false, "key": false}
+        ],
+        "output": []
+      },
+      "inputs": ["raw_swift"],
+      "outputs": ["swift_pipe"]
+    },
+    {
+      "id": "tSwiftTransformer_1",
+      "type": "SwiftTransformer",
+      "original_type": "tSwiftDataTransformer",
+      "config": {
+        "config_file": "${context.TRANSFORM_CONFIG}",
+        "die_on_error": true
+      },
+      "schema": {
+        "input": [],
+        "output": []
+      },
+      "inputs": ["swift_pipe"],
+      "outputs": ["business_rows"]
+    },
+    {
+      "id": "tFileOutputDelimited_1",
+      "type": "FileOutputDelimited",
+      "original_type": "tFileOutputDelimited",
+      "config": {
+        "filepath": "TBD_via_mutations",
+        "fieldseparator": "|",
+        "row_separator": "\n",
+        "encoding": "UTF-8",
+        "include_header": true,
+        "append": false,
+        "create_directory": true,
+        "split": false,
+        "file_exist_exception": false
+      },
+      "schema": {
+        "input": [],
+        "output": []
+      },
+      "inputs": ["business_rows"],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {"name": "raw_swift", "from": "tFileInputRaw_1", "to": "tSwiftBlockFormatter_1", "type": "flow"},
+    {"name": "swift_pipe", "from": "tSwiftBlockFormatter_1", "to": "tSwiftTransformer_1", "type": "flow"},
+    {"name": "business_rows", "from": "tSwiftTransformer_1", "to": "tFileOutputDelimited_1", "type": "flow"}
+  ],
+  "triggers": [],
+  "subjobs": {
+    "subjob_1": ["tFileInputRaw_1", "tSwiftBlockFormatter_1", "tSwiftTransformer_1", "tFileOutputDelimited_1"]
+  },
+  "java_config": {"enabled": false, "routines": [], "libraries": []}
+}

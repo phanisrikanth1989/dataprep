@@ -40,6 +40,8 @@ class TalendConnection:
     target: str
     connector_type: str
     condition: Optional[str] = None
+    params: Dict[str, str] = field(default_factory=dict)
+    output_id : int = 0
 
 
 @dataclass
@@ -118,6 +120,48 @@ class ComponentConverter(ABC):
             stripped = value.strip().strip('"')
             if stripped.lstrip("-").isdigit():
                 return int(stripped)
+        return default
+
+    @staticmethod
+    def _get_int_or_context(node: TalendNode, name: str, default: int = 0):
+        """Extract integer parameter, preserving context variable references.
+
+        When the XML value is a plain integer (or quoted integer), returns it
+        as ``int``.  When the value is a ``context.VARNAME`` reference or any
+        other non-numeric string, returns the raw string so that the engine's
+        ``ContextManager`` can resolve it at runtime.
+
+        Parameters
+        ----------
+        node:
+            Parsed Talend component node.
+        name:
+            XML ``elementParameter`` name (e.g. ``"HEADER"``).
+        default:
+            Fallback integer when the parameter is absent entirely.
+
+        Returns
+        -------
+        int | str
+            Native ``int`` for literal numeric values; raw ``str`` for
+            context variable references and other non-numeric expressions.
+        """
+        value = node.params.get(name)
+        if value is None:
+            return default
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            stripped = value.strip().strip('"').strip()
+            if not stripped:
+                # Empty string is treated as missing, so return the default.
+                # Engine doesn't choke on int() with empty string, but we want to preserve the original intent.
+                return default
+            if stripped.lstrip("-").isdigit():
+                return int(stripped)
+            # Preserve context references and other expressions as-is so the
+            # engine's ContextManager can resolve them at runtime.
+            return stripped
         return default
 
     # ------------------------------------------------------------------

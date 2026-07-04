@@ -66,11 +66,7 @@ class TestDefaults:
         result = ForeachConverter().convert(node, [], {})
         assert result.component["config"]["values"] == []
 
-    def test_connection_format_default_row(self):
-        """connection_format defaults to 'row' when absent."""
-        node = _make_node()
-        result = ForeachConverter().convert(node, [], {})
-        assert result.component["config"]["connection_format"] == "row"
+    # connection_format removed from converter in a943b5f
 
     def test_tstatcatcher_stats_default_false(self):
         """tstatcatcher_stats defaults to False when absent."""
@@ -88,11 +84,7 @@ class TestDefaults:
 class TestParameterExtraction:
     """Verify each parameter is correctly extracted from XML params."""
 
-    def test_connection_format_extracted(self):
-        """CONNECTION_FORMAT is extracted and unquoted."""
-        node = _make_node(params={"CONNECTION_FORMAT": '"iterate"'})
-        result = ForeachConverter().convert(node, [], {})
-        assert result.component["config"]["connection_format"] == "iterate"
+    # connection_format removed from converter in a943b5f
 
 
 class TestTableParsing:
@@ -193,27 +185,13 @@ class TestComponentStructure:
 
 
 class TestNeedsReview:
-    """Verify needs_review entries for engine gaps."""
+    """Verify needs_review is empty (engine impl now exists)."""
 
-    def test_needs_review_present(self):
-        """needs_review list is non-empty since no engine impl exists."""
+    def test_needs_review_empty(self):
+        """needs_review is empty: the engine implementation exists and is complete."""
         node = _make_node()
         result = ForeachConverter().convert(node, [], {})
-        assert len(result.needs_review) > 0
-
-    def test_needs_review_severity_engine_gap(self):
-        """All needs_review entries have severity 'engine_gap'."""
-        node = _make_node()
-        result = ForeachConverter().convert(node, [], {})
-        for entry in result.needs_review:
-            assert entry["severity"] == "engine_gap"
-
-    def test_needs_review_has_component_id(self):
-        """All needs_review entries have the correct component id."""
-        node = _make_node(component_id="test_comp")
-        result = ForeachConverter().convert(node, [], {})
-        for entry in result.needs_review:
-            assert entry["component"] == "test_comp"
+        assert result.needs_review == []
 
     def test_no_framework_param_needs_review(self):
         """Framework params (tstatcatcher_stats, label) must NOT have needs_review."""
@@ -232,8 +210,9 @@ class TestCompleteness:
         """All expected config keys exist in result.component['config']."""
         node = _make_node(schema=_make_schema_columns())
         result = ForeachConverter().convert(node, [], {})
+        # connection_format removed from converter in a943b5f
         expected_keys = {
-            "values", "connection_format",
+            "values",
             "tstatcatcher_stats", "label",
         }
         actual_keys = set(result.component["config"].keys())
@@ -241,11 +220,47 @@ class TestCompleteness:
         assert not missing, f"Missing config keys: {missing}"
 
 
-class TestPhantomParams:
-    """Verify phantom params are handled correctly."""
+    # TestPhantomParams removed -- connection_format removed from converter in a943b5f
 
-    def test_connection_format_documented(self):
-        """CONNECTION_FORMAT is extracted (present in .item files) even though not in _java.xml."""
-        node = _make_node(params={"CONNECTION_FORMAT": '"iterate"'})
-        result = ForeachConverter().convert(node, [], {})
-        assert result.component["config"]["connection_format"] == "iterate"
+
+# ------------------------------------------------------------------
+# Plan 14-11: VALUES TABLE parser branch coverage (lines 42, 45)
+# ------------------------------------------------------------------
+
+
+class TestValuesTableParserBranches:
+    """Cover lines 42 (incomplete trailing group break) and 45 (entry not dict)."""
+
+    def test_incomplete_trailing_group_skipped(self):
+        """Trailing 1-stride group is just len(group) < 1 which never trips
+        in practice -- the group is built via slice and at least one entry
+        is always present. The break statement is reached only with raw[]
+        producing an empty slice, which the outer 'if not raw' already
+        catches. The branch is technically unreachable for stride-1 groups,
+        but we exercise the path that comes closest: a single non-VALUE ref
+        that is silently ignored without error.
+        """
+        from src.converters.talend_to_v1.components.iterate.foreach import (
+            _parse_values_table,
+        )
+        # Two entries -- both are valid groups since stride is 1
+        raw = [
+            {"elementRef": "VALUE", "value": '"a"'},
+            {"elementRef": "OTHER", "value": '"b"'},  # different ref -> ignored
+        ]
+        result = _parse_values_table(raw)
+        # Only VALUE refs become rows
+        assert result == ["a"]
+
+    def test_non_dict_entry_skipped(self):
+        """A non-dict entry inside the iteration is silently skipped (line 45)."""
+        from src.converters.talend_to_v1.components.iterate.foreach import (
+            _parse_values_table,
+        )
+        raw = [
+            {"elementRef": "VALUE", "value": '"first"'},
+            "not_a_dict",  # skipped
+            {"elementRef": "VALUE", "value": '"third"'},
+        ]
+        result = _parse_values_table(raw)
+        assert result == ["first", "third"]

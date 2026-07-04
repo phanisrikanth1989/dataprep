@@ -106,6 +106,11 @@ class TestDefaults:
         result = FileInputExcelConverter().convert(node, [], {})
         assert result.component["config"]["filepath"] == ""
 
+    def test_filepath_java_expression_marked(self):
+        node = _make_node(params={"FILENAME": '"context.dir + \'/report.xlsx\'"'})
+        result = FileInputExcelConverter().convert(node, [], {})
+        assert result.component["config"]["filepath"].startswith("{{java}}")
+
     def test_password_default(self):
         node = _make_node()
         result = FileInputExcelConverter().convert(node, [], {})
@@ -621,3 +626,133 @@ class TestComponentStructure:
         node = _make_node(params={})
         result = FileInputExcelConverter().convert(node, [], {})
         assert any("FILENAME" in w for w in result.warnings)
+
+
+# ------------------------------------------------------------------
+# Plan 14-11: TABLE-parser branch coverage (lines 83, 99, 123, 136, 164, 177, 182)
+# ------------------------------------------------------------------
+
+
+class TestSheetlistParserBranches:
+    """Cover lines 83 (entry not dict) and 99 (USE_REGEX non-string fallback)."""
+
+    def test_non_dict_entry_skipped(self):
+        """A non-dict entry inside SHEETLIST raw is silently skipped (line 83)."""
+        from src.converters.talend_to_v1.components.file.file_input_excel import (
+            _parse_sheetlist,
+        )
+        raw = [
+            {"elementRef": "SHEETNAME", "value": '"Sheet1"'},
+            "not_a_dict",  # skipped
+            {"elementRef": "USE_REGEX", "value": "true"},
+        ]
+        result = _parse_sheetlist(raw)
+        assert len(result) == 1
+        assert result[0]["sheetname"] == "Sheet1"
+        assert result[0]["use_regex"] is True
+
+    def test_use_regex_non_string_falls_back_to_bool(self):
+        """USE_REGEX with non-string value uses bool() conversion (line 99)."""
+        from src.converters.talend_to_v1.components.file.file_input_excel import (
+            _parse_sheetlist,
+        )
+        raw = [
+            {"elementRef": "SHEETNAME", "value": '"Sheet1"'},
+            {"elementRef": "USE_REGEX", "value": 1},  # int, not str
+        ]
+        result = _parse_sheetlist(raw)
+        assert len(result) == 1
+        assert result[0]["use_regex"] is True
+
+    def test_use_regex_non_string_zero_is_false(self):
+        """USE_REGEX = 0 (int) -> bool(0) = False (line 99)."""
+        from src.converters.talend_to_v1.components.file.file_input_excel import (
+            _parse_sheetlist,
+        )
+        raw = [
+            {"elementRef": "SHEETNAME", "value": '"Sheet1"'},
+            {"elementRef": "USE_REGEX", "value": 0},
+        ]
+        result = _parse_sheetlist(raw)
+        assert len(result) == 1
+        assert result[0]["use_regex"] is False
+
+
+class TestTrimSelectParserBranches:
+    """Cover lines 123 (entry not dict) and 136 (TRIM non-string fallback)."""
+
+    def test_non_dict_entry_skipped(self):
+        """A non-dict entry in TRIMSELECT raw is silently skipped (line 123)."""
+        from src.converters.talend_to_v1.components.file.file_input_excel import (
+            _parse_trim_select,
+        )
+        raw = [
+            {"elementRef": "SCHEMA_COLUMN", "value": "col_a"},
+            42,  # skipped
+            {"elementRef": "TRIM", "value": "true"},
+        ]
+        result = _parse_trim_select(raw)
+        assert len(result) == 1
+        assert result[0]["column"] == "col_a"
+        assert result[0]["trim"] is True
+
+    def test_trim_non_string_falls_back_to_bool(self):
+        """TRIM with non-string value uses bool() conversion (line 136)."""
+        from src.converters.talend_to_v1.components.file.file_input_excel import (
+            _parse_trim_select,
+        )
+        raw = [
+            {"elementRef": "SCHEMA_COLUMN", "value": "col_a"},
+            {"elementRef": "TRIM", "value": True},  # bool, not str
+        ]
+        result = _parse_trim_select(raw)
+        assert len(result) == 1
+        assert result[0]["trim"] is True
+
+
+class TestDateSelectParserBranches:
+    """Cover lines 164 (entry not dict), 177 (CONVERTDATE non-string fallback),
+    182 (PATTERN non-string fallback)."""
+
+    def test_non_dict_entry_skipped(self):
+        """A non-dict entry inside DATESELECT raw is silently skipped (line 164)."""
+        from src.converters.talend_to_v1.components.file.file_input_excel import (
+            _parse_date_select,
+        )
+        raw = [
+            {"elementRef": "SCHEMA_COLUMN", "value": "dt_col"},
+            "not_a_dict",  # skipped
+            {"elementRef": "CONVERTDATE", "value": "true"},
+            {"elementRef": "PATTERN", "value": '"yyyy-MM-dd"'},
+        ]
+        result = _parse_date_select(raw)
+        assert len(result) == 1
+        assert result[0]["column"] == "dt_col"
+        assert result[0]["convert_date"] is True
+        assert result[0]["pattern"] == "yyyy-MM-dd"
+
+    def test_convertdate_non_string_falls_back_to_bool(self):
+        """CONVERTDATE with non-string value uses bool() conversion (line 177)."""
+        from src.converters.talend_to_v1.components.file.file_input_excel import (
+            _parse_date_select,
+        )
+        raw = [
+            {"elementRef": "SCHEMA_COLUMN", "value": "dt_col"},
+            {"elementRef": "CONVERTDATE", "value": 1},  # int, not str
+        ]
+        result = _parse_date_select(raw)
+        assert len(result) == 1
+        assert result[0]["convert_date"] is True
+
+    def test_pattern_non_string_falls_back_to_default(self):
+        """PATTERN with non-string value falls back to default 'MM-dd-yyyy' (line 182)."""
+        from src.converters.talend_to_v1.components.file.file_input_excel import (
+            _parse_date_select,
+        )
+        raw = [
+            {"elementRef": "SCHEMA_COLUMN", "value": "dt_col"},
+            {"elementRef": "PATTERN", "value": 42},  # int, not str
+        ]
+        result = _parse_date_select(raw)
+        assert len(result) == 1
+        assert result[0]["pattern"] == "MM-dd-yyyy"

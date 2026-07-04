@@ -80,6 +80,11 @@ class TestDefaults:
         result = FileInputPropertiesConverter().convert(node, [], {})
         assert result.component["config"]["filename"] == ""
 
+    def test_filename_java_expression_marked(self):
+        node = _make_node(params={"FILENAME": '"context.dir + \'/settings.properties\'"'})
+        result = FileInputPropertiesConverter().convert(node, [], {})
+        assert result.component["config"]["filename"].startswith("{{java}}")
+
     def test_encoding_default(self):
         """Encoding default is ISO-8859-15 per _java.xml, NOT UTF-8."""
         node = _make_node()

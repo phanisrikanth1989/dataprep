@@ -100,10 +100,14 @@ class TestParameterExtraction:
         assert result.component["config"]["field"] == "source_col"
 
     def test_regex_custom(self):
-        """REGEX='"^(\\w+)$"' -> '^(\\w+)$'."""
+        """REGEX='"^(\\\\w+)$"' (Java double-backslash) -> '^(\\w+)$' (Python single-backslash).
+
+        The converter unescapes Java double-backslashes via .replace("\\\\", "\\")
+        so the stored regex is valid Python regex (per D-C3).
+        """
         node = _make_node(params={"REGEX": '"^(\\\\w+)$"'})
         result = ExtractRegexFieldsConverter().convert(node, [], {})
-        assert result.component["config"]["regex"] == "^(\\\\w+)$"
+        assert result.component["config"]["regex"] == "^(\\w+)$"
 
     def test_die_on_error_false(self):
         """DIE_ON_ERROR='false' -> False."""

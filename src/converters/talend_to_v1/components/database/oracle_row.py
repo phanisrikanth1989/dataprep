@@ -52,7 +52,14 @@ _PREPARED_GROUP_SIZE = len(_PREPARED_FIELDS)
 # ------------------------------------------------------------------
 # TABLE parser functions
 # ------------------------------------------------------------------
-def _parse_prepared_params(raw: Any) -> List[Dict[str, str]]:
+_REQUIRED_PREPARED_KEYS = frozenset(
+    {"parameter_index", "parameter_type", "parameter_value"}
+)
+
+
+def _parse_prepared_params(
+    raw: Any, warnings: List[str] = None,
+) -> List[Dict[str, str]]:
     """Parse SET_PREPAREDSTATEMENT_PARAMETERS TABLE into list of dicts.
 
     Each group of 3 consecutive elementRef entries maps to one row:
@@ -60,7 +67,27 @@ def _parse_prepared_params(raw: Any) -> List[Dict[str, str]]:
       PARAMETER_TYPE   -> parameter_type (str)
       PARAMETER_VALUE  -> parameter_value (str, strip quotes)
 
-    Incomplete trailing groups (< 3 entries) are skipped.
+    Incomplete trailing groups (< 3 entries) are skipped. Per WR-03,
+    malformed groups (e.g. typo'd elementRef so one of the three keys is
+    missing) are also skipped with a logged warning -- accepting them
+    would silently bind the wrong value or NULL via the engine-side
+    defaults in _coerce_prepared_param.
+
+    Per WR-04, ``parameter_index`` is validated as a positive integer
+    (1-indexed positional bind). Non-numeric or non-positive values are
+    surfaced via the optional ``warnings`` sink so the post-conversion
+    validator and/or operator can see them; the row is dropped. Without
+    this check, a non-numeric index would crash the engine at
+    ``int("abc")`` far from the source of the bad data.
+
+    Args:
+        raw: The Talend XML elementValueList for SET_PREPAREDSTATEMENT_PARAMETERS.
+        warnings: Optional list to which human-readable warnings are appended.
+            Pass ``ComponentResult.warnings`` so the post-conversion validator
+            surfaces them.
+
+    Returns:
+        List of validated parameter dicts, in input order.
     """
     if not raw or not isinstance(raw, list):
         return []
@@ -81,8 +108,37 @@ def _parse_prepared_params(raw: Any) -> List[Dict[str, str]]:
                 row["parameter_type"] = val.strip('"')
             elif ref == "PARAMETER_VALUE":
                 row["parameter_value"] = val.strip('"')
-        if row:
-            result.append(row)
+        if not _REQUIRED_PREPARED_KEYS.issubset(row.keys()):
+            if row:
+                # WR-03: malformed group -- log and skip rather than emitting
+                # a partial row that the engine will silently fill with defaults.
+                missing = sorted(_REQUIRED_PREPARED_KEYS - set(row.keys()))
+                msg = (
+                    f"Incomplete SET_PREPAREDSTATEMENT_PARAMETERS group at "
+                    f"offset {i} (missing keys: {missing}); skipping. row={row!r}"
+                )
+                logger.warning(msg)
+                if warnings is not None:
+                    warnings.append(msg)
+            continue
+        # WR-04: parameter_index must be a positive integer (1-indexed).
+        idx_str = row["parameter_index"]
+        try:
+            idx_int = int(idx_str)
+            if idx_int < 1:
+                raise ValueError(f"parameter_index must be >= 1, got {idx_int}")
+        except (TypeError, ValueError) as exc:
+            msg = (
+                f"Invalid parameter_index {idx_str!r} in "
+                f"SET_PREPAREDSTATEMENT_PARAMETERS at offset {i}: {exc}. "
+                f"Must be a positive integer (1-indexed positional bind). "
+                f"Skipping row {row!r}"
+            )
+            logger.warning(msg)
+            if warnings is not None:
+                warnings.append(msg)
+            continue
+        result.append(row)
     return result
 
 
@@ -112,7 +168,7 @@ class OracleRowConverter(ComponentConverter):
         config["local_service_name"] = self._get_str(node, "LOCAL_SERVICE_NAME", "")
         config["schema_db"] = self._get_str(node, "SCHEMA_DB", "")
         config["user"] = self._get_str(node, "USER", "")
-        config["password"] = self._get_str(node, "PASS", "")  # _java.xml: PASS (not PASSWORD)
+        config["password"] = self._extract_password(self._get_str(node, "PASS", ""), log_id=node.component_id)
 
         # ---- 2. Query parameters ----
         config["table"] = self._get_str(node, "TABLE", "")
@@ -132,7 +188,8 @@ class OracleRowConverter(ComponentConverter):
         config["record_set_column"] = self._get_str(node, "RECORD_SET_COLUMN", "")
         config["use_preparedstatement"] = self._get_bool(node, "USE_PREPAREDSTATEMENT", False)
         config["set_preparedstatement_parameters"] = _parse_prepared_params(
-            node.params.get("SET_PREPAREDSTATEMENT_PARAMETERS", [])
+            node.params.get("SET_PREPAREDSTATEMENT_PARAMETERS", []),
+            warnings=warnings,  # WR-03/WR-04: surface malformed-row warnings
         )
         config["encoding"] = self._get_str(node, "ENCODING", "ISO-8859-15")
         config["commit_every"] = self._get_int(node, "COMMIT_EVERY", 10000)
@@ -142,15 +199,20 @@ class OracleRowConverter(ComponentConverter):
         config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
         config["label"] = self._get_str(node, "LABEL", "")
 
-        # ---- 7. Engine gap needs_review entries ----
-        needs_review.append({
-            "issue": (
-                "No concrete engine implementation for tOracleRow. "
-                "All config keys are extracted for future engine support."
-            ),
-            "component": node.component_id,
-            "severity": "engine_gap",
-        })
+        # ---- 7. Connection-type review entries (D-E1, Phase 11) ----
+        # Engine ships ORACLE_SID / ORACLE_SERVICE_NAME / ORACLE_RAC in Phase 11;
+        # ORACLE_OCI / ORACLE_WALLET require thick mode + Instant Client (deferred).
+        if config["connection_type"] in ("ORACLE_WALLET", "ORACLE_OCI"):
+            needs_review.append({
+                "issue": (
+                    f"Connection type {config['connection_type']} requires "
+                    f"oracle_config.thick_mode=true in job config, plus Oracle "
+                    f"Instant Client on the host. Phase 11 raises ConfigurationError "
+                    f"until thick_mode is set."
+                ),
+                "component": node.component_id,
+                "severity": "needs_review",
+            })
 
         # ---- 8. Build standard component dict (bidirectional: reads and writes data) ----
         component = self._build_component_dict(

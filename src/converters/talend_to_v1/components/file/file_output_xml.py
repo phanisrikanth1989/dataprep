@@ -1,8 +1,46 @@
-"""Converter for Talend tAdvancedFileOutputXML component.
+"""Converters for Talend tFileOutputXML and tAdvancedFileOutputXML components.
 
-Writes data as XML output with configurable element structure defined by
-ROOT, GROUP, and LOOP TABLE parameters. Supports DOM4J and Null generation
-modes, file validation (DTD/XSL), split output, and advanced separators.
+IN-02 fix: module docstring extended to cover both converter classes present
+in this file (Phase 12-06 added FileOutputXMLConverter for the simple variant).
+
+---- FileOutputXMLConverter (tFileOutputXML -- simple/flat variant) ----
+
+Writes each DataFrame row as a single XML element (ROW_TAG). Optional ROOT_TAGS
+outer wrapper, per-column MAPPING (sub-element vs attribute), streaming-write via
+etree.xmlfile, and split-file support. Engine class: FileOutputXML.
+
+Config mapping (18 unique + 2 framework = 20 params total):
+  FILENAME               -> filename               (str, default "")
+  INPUT_IS_DOCUMENT      -> input_is_document      (bool, default False)
+  DOCUMENT_COL           -> document_col           (str, default "")
+  ROW_TAG                -> row_tag                (str, default "row")
+  ROOT_TAGS              -> root_tags              (list/TABLE: stride-1 VALUE->name)
+  MAPPING                -> mapping               (list/TABLE: stride-2 SCHEMA_COLUMN_NAME/AS_ATTRIBUTE)
+  USE_DYNAMIC_GROUPING   -> use_dynamic_grouping   (bool, default False) [DEFERRED]
+  GROUP_BY               -> group_by              (list/TABLE: stride-2 COLUMN/LABEL) [DEFERRED]
+  FLUSHONROW             -> flushonrow             (bool, default False)
+  FLUSHONROW_NUM         -> flushonrow_num         (str, default "1")
+  ENCODING               -> encoding              (str, default "ISO-8859-15")
+  SPLIT                  -> split                  (bool, default False)
+  SPLIT_EVERY            -> split_every            (str, default "1000")
+  CREATE                 -> create                 (bool, default True)
+  TRIM                   -> trim                   (bool, default False)
+  ADVANCED_SEPARATOR     -> advanced_separator     (bool, default False) [DEFERRED]
+  THOUSANDS_SEPARATOR    -> thousands_separator    (str, default ",") [DEFERRED]
+  DECIMAL_SEPARATOR      -> decimal_separator      (str, default ".") [DEFERRED]
+  DELETE_EMPTYFILE       -> delete_empty_file      (bool, default False)
+  --- framework ---
+  TSTATCATCHER_STATS     -> tstatcatcher_stats     (bool, default False)
+  LABEL                  -> label                  (str, default "")
+
+TABLE helpers: _parse_mapping_table, _parse_groupby_table, _parse_root_tags_table
+
+---- AdvancedFileOutputXmlConverter (tAdvancedFileOutputXML -- structured variant) ----
+
+Writes data as XML output with configurable element structure defined by ROOT,
+GROUP, and LOOP TABLE parameters. Supports DOM4J and Null generation modes,
+file validation (DTD/XSL), split output, and advanced separators.
+No v1 engine implementation exists -- emits engine_gap needs_review entry.
 
 Config mapping (33 unique + 2 framework = 35 params total):
   FILENAME               -> filename               (str, default "")
@@ -40,6 +78,8 @@ Config mapping (33 unique + 2 framework = 35 params total):
   TSTATCATCHER_STATS     -> tstatcatcher_stats     (bool, default False)
   LABEL                  -> label                  (str, default "")
 """
+from __future__ import annotations
+
 import logging
 from typing import Any, Dict, List
 
@@ -99,6 +139,189 @@ def _parse_xml_table(raw: Any) -> List[Dict[str, Any]]:
         if row:
             result.append(row)
     return result
+
+
+# ------------------------------------------------------------------
+# tFileOutputXML simple-variant TABLE helpers
+# ------------------------------------------------------------------
+
+def _parse_mapping_table(raw: Any) -> List[Dict[str, Any]]:
+    """Parse MAPPING TABLE for tFileOutputXML simple variant.
+
+    Each stride-2 group maps to one row:
+      SCHEMA_COLUMN_NAME -> column     (str)
+      AS_ATTRIBUTE       -> as_attribute (bool)
+
+    Incomplete trailing groups (< 2 entries) are skipped.
+
+    Args:
+        raw: Raw TABLE data (list of elementRef/value dicts) from the XML parser.
+
+    Returns:
+        List of {column: str, as_attribute: bool} dicts.
+    """
+    if not raw or not isinstance(raw, list):
+        return []
+    result: List[Dict[str, Any]] = []
+    _MAPPING_STRIDE = 2
+    for i in range(0, len(raw), _MAPPING_STRIDE):
+        group = raw[i: i + _MAPPING_STRIDE]
+        if len(group) < _MAPPING_STRIDE:
+            break
+        row: Dict[str, Any] = {}
+        for entry in group:
+            if not isinstance(entry, dict):
+                continue
+            ref = entry.get("elementRef", "")
+            val = entry.get("value", "")
+            if isinstance(val, str):
+                val = val.strip('"')
+            if ref == "SCHEMA_COLUMN_NAME":
+                row["column"] = val
+            elif ref == "AS_ATTRIBUTE":
+                # Coerce string 'true'/'false' to bool
+                row["as_attribute"] = str(val).strip().lower() in ("true", "1", "yes")
+        if row:
+            result.append(row)
+    return result
+
+
+def _parse_groupby_table(raw: Any) -> List[Dict[str, Any]]:
+    """Parse GROUP_BY TABLE for tFileOutputXML simple variant.
+
+    Each stride-2 group maps to one row:
+      COLUMN -> column (str)
+      LABEL  -> label  (str)
+
+    Incomplete trailing groups (< 2 entries) are skipped.
+
+    Args:
+        raw: Raw TABLE data from the XML parser.
+
+    Returns:
+        List of {column: str, label: str} dicts.
+    """
+    if not raw or not isinstance(raw, list):
+        return []
+    result: List[Dict[str, Any]] = []
+    _GROUPBY_STRIDE = 2
+    for i in range(0, len(raw), _GROUPBY_STRIDE):
+        group = raw[i: i + _GROUPBY_STRIDE]
+        if len(group) < _GROUPBY_STRIDE:
+            break
+        row: Dict[str, Any] = {}
+        for entry in group:
+            if not isinstance(entry, dict):
+                continue
+            ref = entry.get("elementRef", "")
+            val = entry.get("value", "")
+            if isinstance(val, str):
+                val = val.strip('"')
+            if ref == "COLUMN":
+                row["column"] = val
+            elif ref == "LABEL":
+                row["label"] = val
+        if row:
+            result.append(row)
+    return result
+
+
+def _parse_root_tags_table(raw: Any) -> List[Dict[str, Any]]:
+    """Parse ROOT_TAGS TABLE for tFileOutputXML simple variant.
+
+    Each stride-1 group maps to one row:
+      VALUE -> name (str)
+
+    Args:
+        raw: Raw TABLE data from the XML parser.
+
+    Returns:
+        List of {name: str} dicts.
+    """
+    if not raw or not isinstance(raw, list):
+        return []
+    result: List[Dict[str, Any]] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        val = entry.get("value", "")
+        if isinstance(val, str):
+            val = val.strip('"')
+        if val:
+            result.append({"name": val})
+    return result
+
+
+@REGISTRY.register("tFileOutputXML")
+class FileOutputXMLConverter(ComponentConverter):
+    """Convert Talend tFileOutputXML (simple/flat) to v1 engine config.
+
+    Extracts all 18 javajet params plus 2 framework params. The engine
+    class is FileOutputXML (PascalCase, registered under both names).
+    Sink semantics: schema input populated, output empty (S-5).
+    """
+
+    def convert(
+        self,
+        node: TalendNode,
+        connections: List[TalendConnection],
+        context: Dict[str, Any],
+    ) -> ComponentResult:
+        """Convert a tFileOutputXML TalendNode to a v1 engine component dict.
+
+        Args:
+            node: Parsed Talend node with component params and schema.
+            connections: Incoming/outgoing connections (used for flow detection).
+            context: Job-level context variables (unused for this component).
+
+        Returns:
+            ComponentResult with component dict, empty warnings, empty needs_review.
+        """
+        warnings: List[str] = []
+        needs_review: List[Dict[str, Any]] = []
+
+        # ---- 1. Core parameters ----
+        config: Dict[str, Any] = {}
+        config["filename"] = self._get_str(node, "FILENAME", "")
+        config["input_is_document"] = self._get_bool(node, "INPUT_IS_DOCUMENT", False)
+        config["document_col"] = self._get_str(node, "DOCUMENT_COL", "")
+        config["row_tag"] = self._get_str(node, "ROW_TAG", "row")
+        config["root_tags"] = _parse_root_tags_table(node.params.get("ROOT_TAGS", []))
+        config["mapping"] = _parse_mapping_table(node.params.get("MAPPING", []))
+        config["use_dynamic_grouping"] = self._get_bool(node, "USE_DYNAMIC_GROUPING", False)
+        config["group_by"] = _parse_groupby_table(node.params.get("GROUP_BY", []))
+        config["flushonrow"] = self._get_bool(node, "FLUSHONROW", False)
+        config["flushonrow_num"] = self._get_str(node, "FLUSHONROW_NUM", "1")
+        config["encoding"] = self._get_str(node, "ENCODING", "ISO-8859-15")  # NOT UTF-8
+        config["split"] = self._get_bool(node, "SPLIT", False)
+        config["split_every"] = self._get_str(node, "SPLIT_EVERY", "1000")
+        config["create"] = self._get_bool(node, "CREATE", True)
+        config["trim"] = self._get_bool(node, "TRIM", False)
+        config["advanced_separator"] = self._get_bool(node, "ADVANCED_SEPARATOR", False)
+        config["thousands_separator"] = self._get_str(node, "THOUSANDS_SEPARATOR", ",")
+        config["decimal_separator"] = self._get_str(node, "DECIMAL_SEPARATOR", ".")
+        config["delete_empty_file"] = self._get_bool(node, "DELETE_EMPTYFILE", False)
+
+        # ---- 2. Framework parameters (ALWAYS LAST per PATTERNS.md S-10) ----
+        config["tstatcatcher_stats"] = self._get_bool(node, "TSTATCATCHER_STATS", False)
+        config["label"] = self._get_str(node, "LABEL", "")
+
+        # ---- 3. Schema (sink: input populated, output empty per S-5) ----
+        schema = {"input": self._parse_schema(node), "output": []}
+
+        # ---- 4. Build component dict ----
+        component = self._build_component_dict(
+            node=node,
+            type_name="FileOutputXML",   # engine class name (PascalCase)
+            config=config,
+            schema=schema,
+        )
+
+        return ComponentResult(
+            component=component,
+            warnings=warnings,
+            needs_review=needs_review,
+        )
 
 
 @REGISTRY.register("tAdvancedFileOutputXML")
@@ -176,6 +399,59 @@ class AdvancedFileOutputXmlConverter(ComponentConverter):
             "component": node.component_id,
             "severity": "engine_gap",
         })
+
+        # ---- D-E1 conditional needs_review (Phase 12-07 lock-in) ----
+        # The 6 deferred sub-features each emit one needs_review entry when the
+        # corresponding flag is active in the source .item. Converter does NOT
+        # block conversion -- engine warns at runtime and ignores the flag.
+
+        def _add_review(feature, reason):
+            needs_review.append({
+                "feature": feature,
+                "reason": reason,
+                "phase": "12",
+            })
+
+        if config.get("file_valid") and config.get("dtd_valid"):
+            _add_review(
+                "dtd_validation",
+                "tAdvancedFileOutputXML DTD validation (file_valid=true, dtd_valid=true) is "
+                "not implemented by the Phase 12 engine. Engine emits a runtime warning and "
+                "skips the validation step.",
+            )
+        if config.get("file_valid") and config.get("xsl_valid"):
+            _add_review(
+                "xsl_validation",
+                "tAdvancedFileOutputXML XSL validation (file_valid=true, xsl_valid=true) is "
+                "not implemented by the Phase 12 engine. Engine emits a runtime warning and "
+                "skips the validation step.",
+            )
+        if config.get("output_as_xsd"):
+            _add_review(
+                "output_as_xsd",
+                "tAdvancedFileOutputXML XSD generation (output_as_xsd=true) is not implemented "
+                "by the Phase 12 engine. Engine emits a runtime warning and ignores the flag.",
+            )
+        if config.get("add_document_as_node"):
+            _add_review(
+                "add_document_as_node",
+                "tAdvancedFileOutputXML Document column passthrough (add_document_as_node=true) "
+                "is not implemented by the Phase 12 engine. Engine emits a runtime warning and "
+                "ignores the flag.",
+            )
+        if config.get("add_unmapped_attribute"):
+            _add_review(
+                "add_unmapped_attribute",
+                "tAdvancedFileOutputXML unmapped-attribute passthrough (add_unmapped_attribute="
+                "true) is not implemented by the Phase 12 engine. Engine emits a runtime "
+                "warning and ignores the flag.",
+            )
+        if config.get("merge"):
+            _add_review(
+                "merge",
+                "tAdvancedFileOutputXML merge mode (merge=true) is not implemented by the "
+                "Phase 12 engine. Engine emits a runtime warning and falls back to overwrite.",
+            )
 
         # ---- 12. Build component wrapper ----
         component = self._build_component_dict(

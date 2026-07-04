@@ -214,20 +214,32 @@ class TestSchema:
 
 
 class TestNeedsReview:
-    """Verify needs_review entries for engine gaps."""
+    """Verify needs_review entries for engine gaps.
 
-    def test_needs_review_has_entries(self):
+    ENG-WR-08 (Phase 7.1): false engine gap claims removed.
+    - "engine uses eval()" was FALSE -- engine uses java_bridge.execute_tmap_preprocessing
+    - "no FUNCTION support" was FALSE -- engine has _FUNCTION_MAP (LOWER/UPPER/TRIM etc.)
+    needs_review is now empty for filter_rows since no legitimate gaps remain.
+    """
+
+    def test_needs_review_no_false_eval_claim(self):
+        """ENG-WR-08: no eval() claim in needs_review."""
         node = _make_node()
         result = FilterRowsConverter().convert(node, [], {})
-        assert len(result.needs_review) >= 1
+        for entry in result.needs_review:
+            assert "eval()" not in str(entry.get("issue", "")), (
+                f"False eval() claim found: {entry}"
+            )
 
     def test_needs_review_engine_gap_severity(self):
+        """If any needs_review entries remain, they must have engine_gap severity."""
         node = _make_node()
         result = FilterRowsConverter().convert(node, [], {})
         for entry in result.needs_review:
             assert entry["severity"] == "engine_gap"
 
-    def test_needs_review_has_component_id(self):
+    def test_needs_review_has_component_id_if_populated(self):
+        """If any needs_review entries are present, they must have the component_id."""
         node = _make_node(component_id="test_comp")
         result = FilterRowsConverter().convert(node, [], {})
         for entry in result.needs_review:

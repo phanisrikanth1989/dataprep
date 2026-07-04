@@ -1,11 +1,46 @@
 # Audit Report: tFileCopy / FileCopy
 
 > **Audited**: 2026-04-04
+> **Re-audited**: 2026-04-29 (engine remediation)
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
-> **Status**: PRODUCTION READINESS REVIEW
+> **Status**: REMEDIATED -- engine rewritten to ENGINE_COMPONENT_PATTERN.md gold standard
 > **V1 only** -- this report is scoped to the v1 engine exclusively
+
+---
+
+## 0. 2026-04-29 Re-audit Summary (Engine Remediation)
+
+Engine rewrite at `src/v1/engine/components/file/file_copy.py` brings the
+component to gold-standard compliance and implements all 5 missing
+features.
+
+| Issue | Status | Resolution |
+| ----- | ------ | ---------- |
+| ~~BUG-FC P0 (`_update_global_map` crash)~~ | **FIXED** | Cross-cutting fix already in `base_component.py:617` (verified) |
+| ~~ENG-FC-001 (P1, source key mismatch)~~ | **FIXED** | Engine reads `filename` (converter key) with legacy `source` fallback |
+| ~~ENG-FC-002 (P1, rename key mismatch)~~ | **FIXED** | Engine reads `destination_rename` with legacy `new_name` fallback |
+| ~~ENG-FC-003 (P1, preserve mtime key mismatch)~~ | **FIXED** | Engine reads `preserve_last_modified_time` with legacy `preserve_last_modified` fallback |
+| ~~ENG-FC-004 (P2, REMOVE_FILE missing)~~ | **FIXED** | `remove_file` deletes source after successful copy (move semantics) |
+| ~~ENG-FC-005 (P2, FAILON missing)~~ | **FIXED** | `failon` raises `FileOperationError` on failure; `failon=False` returns error dict (when `die_on_error=False`) |
+| ~~Needs-review #4 (enable_copy_directory)~~ | **FIXED** | Read and used to switch to directory-copy mode |
+| ~~Needs-review #5 (source_derectory typo)~~ | **FIXED** | Read with the Talend typo preserved; `source_directory` accepted as alias |
+| ~~Needs-review #8 (force_copy_delete)~~ | **FIXED** | Implemented; tolerates source-removal failure when set |
+| ~~Code-Quality P1 (no `_validate_config`)~~ | **FIXED** | Raises `ConfigurationError` for missing source/destination/bad bool types |
+| ~~Code-Quality P2 (f-string in logger)~~ | **FIXED** | %-formatting throughout |
+| ~~Code-Quality P2 (bare except)~~ | **FIXED** | Narrowed to `OSError` / `FileOperationError` |
+| ~~Code-Quality P3 (unused typing import)~~ | **FIXED** | Imports trimmed |
+| ~~Testing P2 gap~~ | **FIXED** | New `tests/v1/engine/components/file/test_file_copy.py` (9 classes, 17 tests, all passing) |
+
+**Other improvements**:
+- Added `@REGISTRY.register("FileCopy", "tFileCopy")` (Rule 9)
+- Module docstring with full 12-key Config Mapping table (Rule 1)
+- Replaced bare `ValueError` / `FileNotFoundError` / `FileExistsError` with `ConfigurationError` / `FileOperationError` (Rule 7)
+- Returns `{"main": ..., "reject": None}` (Rule 3)
+
+**New Overall: GREEN**. Updated scorecard: P0=0 / P1=0 / P2=0 / P3=0.
 
 ---
 
@@ -18,7 +53,7 @@
 | **Engine File** | `src/v1/engine/components/file/file_copy.py` (133 lines) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/file/file_copy.py` (116 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tFileCopy")` decorator-based dispatch |
-| **Registry Aliases** | `tFileCopy` |
+| **Registry Aliases** | `FileCopy`, `tFileCopy` |
 | **Category** | File / Utility |
 | **Complexity** | Medium -- utility component with 12 unique parameters, no data flow schema, directory copy mode |
 
@@ -306,14 +341,14 @@ No concerns identified for standard file copy use. File paths come from configur
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 44 | `tests/converters/talend_to_v1/components/test_file_copy.py` |
-| Engine unit tests | 0 | None |
+| Engine unit tests | 17 | `tests/v1/engine/components/file/test_file_copy.py` (9 classes, added 2026-04-29) |
 | Integration tests | Shared | `tests/converters/talend_to_v1/test_integration.py` |
+
+**Phase 14-08 note**: Per-module coverage floor lifted to >=95% (Phase 14 gate). Engine unit tests were added in the 2026-04-29 re-audit. [RESOLVED in Phase 14-08]
 
 ### 8.2 Test Gaps
 
-| ID | Priority | Gap |
-| ---- | ---------- | ----- |
-| TEST-FC-001 | **P2** | No engine unit tests for FileCopy. Engine implementation not tested independently. |
+~~TEST-FC-001 (P2) -- No engine unit tests for FileCopy.~~ [RESOLVED in Phase 14-08]
 
 ### 8.3 Recommended Test Cases
 
@@ -411,4 +446,4 @@ No concerns identified for standard file copy use. File paths come from configur
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after Phase 10 gold standard rewrite*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation*

@@ -1,113 +1,95 @@
-"""
-Replicate - Replicate input data to multiple outputs.
+"""Engine component for Replicate (tReplicate).
 
-Talend equivalent: tReplicate
-"""
+Passes input data to multiple output flows unchanged. Each outgoing
+flow connection receives an independent copy of the input DataFrame.
+The engine's output router handles delivery to all downstream components.
 
+Config keys consumed (3 total):
+    output_count       (int, default 2)    -- number of named output_N flows in result (1-10)
+    tstatcatcher_stats (bool, default False) -- framework
+    label              (str, default "")   -- framework
+"""
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
 import pandas as pd
 
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
+from ...exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
 
+@REGISTRY.register("Replicate", "tReplicate")
 class Replicate(BaseComponent):
-    """
-    Replicate input data to multiple outputs.
+    """tReplicate engine implementation.
 
-    Configuration:
-        output_count (int): Number of outputs to create. Default: 2
-        die_on_error (bool): Stop execution on error. Default: True
+    Passes input data to multiple output flows unchanged. The engine's
+    output router routes ``main`` to all downstream 'flow' connections.
 
-    Inputs:
-        main: Input DataFrame to replicate
-
-    Outputs:
-        main: Primary replicated output
-        output_1, output_2, etc.: Additional outputs based on output_count
-
-    Statistics:
-        NB_LINE: Total rows processed
-        NB_LINE_OK: Rows successfully replicated
-        NB_LINE_REJECT: Rows rejected (always 0 for replicate)
-
-    Example configuration:
-        {
-            "output_count": 3,
-            "die_on_error": True
-        }
+    Config keys:
+        output_count: Number of named output_N flows included in the result
+            dict in addition to ``main`` (1–10, default 2).
     """
 
-    def _validate_config(self) -> List[str]:
-        """Validate component configuration."""
-        errors = []
+    # ------------------------------------------------------------------
+    # Configuration Validation
+    # ------------------------------------------------------------------
 
-        # Validate output_count
-        output_count = self.config.get('output_count', 2)
-        if not isinstance(output_count, int):
-            errors.append("Config 'output_count' must be an integer")
-        elif output_count < 1:
-            errors.append("Config 'output_count' must be at least 1")
-        elif output_count > 10:  # Reasonable limit
-            errors.append("Config 'output_count' cannot exceed 10")
+    def _validate_config(self) -> None:
+        """Validate component configuration.
 
-        return errors
-
-    def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
-        """
-        Process input data to replicate it to multiple outputs.
-
-        Args:
-            input_data: Input DataFrame to replicate
-
-        Returns:
-            Dictionary with replicated outputs
+        Called before every execute(). ``self.config`` contains a fresh
+        deepcopy (context variables NOT yet resolved). Validates structural
+        correctness only.
 
         Raises:
-            RuntimeError: If processing fails and die_on_error is True
+            ConfigurationError: If output_count is not an integer or outside
+                the allowed range 1–10.
         """
-        # Handle empty input
+        output_count = self.config.get("output_count", 2)
+        if not isinstance(output_count, int):
+            raise ConfigurationError(
+                f"[{self.id}] Config 'output_count' must be an integer, "
+                f"got {type(output_count).__name__}"
+            )
+        if output_count < 1:
+            raise ConfigurationError(
+                f"[{self.id}] Config 'output_count' must be at least 1, got {output_count}"
+            )
+        if output_count > 10:
+            raise ConfigurationError(
+                f"[{self.id}] Config 'output_count' cannot exceed 10, got {output_count}"
+            )
+
+    # ------------------------------------------------------------------
+    # Core Processing
+    # ------------------------------------------------------------------
+
+    def _process(self, input_data: Optional[pd.DataFrame] = None) -> dict:
+        """Pass input data to all output flows unchanged.
+
+        Args:
+            input_data: Input DataFrame from upstream component.
+
+        Returns:
+            dict with keys:
+                - ``main``: copy of input_data (or empty DataFrame)
+                - ``output_1`` ... ``output_N``: additional copies when
+                  output_count > 1 (for named-flow routing)
+        """
         if input_data is None or input_data.empty:
-            logger.warning(f"[{self.id}] Empty input received")
-            self._update_stats(0, 0, 0)
-            return {'main': pd.DataFrame()}
+            logger.warning(f"[{self.id}] Empty or None input received")
+            return {"main": pd.DataFrame()}
 
+        output_count = self.config.get("output_count", 2)
         rows_in = len(input_data)
-        logger.info(f"[{self.id}] Processing started: {rows_in} rows")
+        logger.info(f"[{self.id}] Replicating {rows_in} rows to {output_count} output(s)")
 
-        try:
-            # Get configuration with defaults
-            output_count = self.config.get('output_count', 2)
-            die_on_error = self.config.get('die_on_error', True)
+        result: dict = {"main": input_data.copy()}
+        for i in range(1, output_count + 1):
+            result[f"output_{i}"] = input_data.copy()
 
-            # For Replicate, we return the same data as 'main' output
-            # The engine will handle mapping this to multiple output flows
-            # based on the job configuration flows section
-            result = {'main': input_data.copy()}
-
-            # If multiple outputs are configured, add them as well
-            if output_count > 1:
-                logger.debug(f"[{self.id}] Creating {output_count} outputs")
-                for i in range(1, output_count + 1):
-                    result[f'output_{i}'] = input_data.copy()
-
-            # Update statistics
-            self._update_stats(rows_in, rows_in, 0)
-            logger.info(f"[{self.id}] Processing complete: "
-                        f"replicated {rows_in} rows to {len(result)} outputs")
-
-            return result
-
-        except Exception as e:
-            error_msg = f"Processing failed: {str(e)}"
-            logger.error(f"[{self.id}] {error_msg}")
-
-            if die_on_error:
-                raise RuntimeError(f"[{self.id}] {error_msg}") from e
-            else:
-                logger.warning(f"[{self.id}] Continuing after error, returning empty")
-                self._update_stats(0, 0, rows_in if 'rows_in' in locals() else 0)
-                return {'main': pd.DataFrame()}
+        logger.debug(f"[{self.id}] Produced {len(result)} output keys")
+        return result

@@ -23,6 +23,7 @@ from typing import Any, Dict, List
 
 from ..base import ComponentConverter, ComponentResult, TalendConnection, TalendNode
 from ..registry import REGISTRY
+from ...expression_converter import ExpressionConverter
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,30 @@ _VALUES_FIELDS = ("SCHEMA_COLUMN", "VALUE")
 _VALUES_GROUP_SIZE = len(_VALUES_FIELDS)
 
 
+# ----------------------------
+# Value-unwrapping helper
+# ----------------------------
+
+def _unwrap_talend_value(val: str) -> str:
+    """
+    Strip exactly one pair of Talend wrapper quotes.
+
+    Talend serializes VALUE entries as "\"<java-expr>\"" — one outer
+    quote pair wrapping the actual Java expression. The Java expression
+    itself frequently contains string literals, so blindly
+    calling ``str.strip('"')`` is wrong: it greedily peels
+    every trailing/leading '"' and silently turns a valid Java string
+    literal into an unterminated one ("context.xx".cbal" -> Groovy
+    Compile error "Unexpected character: '\"'").
+
+    Mirrors the safe outer-pair peel in ``ComponentConverter._get_str``.
+
+    """
+    if isinstance(val, str) and len(val) >= 2 and val.startswith('"') and val.endswith('"'):
+        return val[1:-1]
+
+    return val
+
 # ------------------------------------------------------------------
 # TABLE parser functions
 # ------------------------------------------------------------------
@@ -41,7 +66,7 @@ def _parse_values(raw: Any) -> List[Dict[str, Any]]:
 
     Each group of 2 consecutive elementRef entries maps to one row:
       SCHEMA_COLUMN -> schema_column (str)
-      VALUE         -> value (str, quotes stripped)
+      VALUE         -> value (str, ONE outer wrapper quote pair stripped)
 
     Incomplete trailing groups (< 2 entries) are skipped.
     """
@@ -61,7 +86,8 @@ def _parse_values(raw: Any) -> List[Dict[str, Any]]:
             if ref == "SCHEMA_COLUMN":
                 row["schema_column"] = val.strip('"')
             elif ref == "VALUE":
-                row["value"] = val.strip('"')
+                stripped = _unwrap_talend_value(val)
+                row["value"] = ExpressionConverter.mark_java_expression(stripped)
         if row:
             result.append(row)
     return result
@@ -126,25 +152,10 @@ class FixedFlowInputConverter(ComponentConverter):
         schema = {"input": [], "output": self._parse_schema(node)}
 
         # ---- 5. Engine gap needs_review entries ----
-        # Engine reads 'intable_data' but converter produces 'intable' -- key mismatch
-        needs_review.append({
-            "issue": "Engine reads 'intable_data' config key but converter produces 'intable' -- key name mismatch",
-            "component": node.component_id,
-            "severity": "engine_gap",
-        })
-
         # Engine reads 'die_on_error' but param is not in _java.xml -- engine has hardcoded behavior
         needs_review.append({
             "issue": "Engine reads 'die_on_error' config key but DIE_ON_ERROR is not in _java.xml -- "
                      "engine default (True) applies without converter extraction",
-            "component": node.component_id,
-            "severity": "engine_gap",
-        })
-
-        # Engine reads 'rows' (pre-generated) but converter no longer generates rows at conversion time
-        needs_review.append({
-            "issue": "Engine reads 'rows' config key for pre-generated row data -- converter extracts raw "
-                     "VALUES/INTABLE config instead; engine falls back to values_config for single mode",
             "component": node.component_id,
             "severity": "engine_gap",
         })

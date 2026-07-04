@@ -1,6 +1,8 @@
 # Audit Report: tFileInputPositional / FileInputPositional
 
 > **Audited**: 2026-04-03
+> **Updated**: 2026-06-14 (Phase 7.2-02: REGISTRY registration, defaults, _validate_config raises, BUG-FIP-002/004 fixed, 35 engine unit tests)
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -39,12 +41,12 @@
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | All 20 unique params + 2 framework params extracted; FORMATS and TRIMSELECT TABLE parsers; `_build_component_dict` pattern; filepath key matches engine; 7 per-feature needs_review entries for engine gaps; USE_BYTE phantom param excluded |
-| Engine Feature Parity | **Y** | 0 | 5 | 3 | 2 | Engine reads 13 of 20 unique params; ignores process_long_row, uncompress, advanced_separator, check_date, trim_select, formats, encoding mismatch (UTF-8 vs ISO-8859-15); no REJECT flow |
-| Code Quality | **Y** | 1 | 3 | 3 | 1 | Cross-cutting base class bugs; dead `_validate_config()`; `id_Boolean` mapped to `object`; advanced separator applied to ALL object columns; encoding default mismatch |
+| Engine Feature Parity | **Y** | 0 | 5 | 1 | 2 | Engine reads 13 of 20 unique params; ignores process_long_row, uncompress, FORMATS, TRIMSELECT; no REJECT flow. **Fixed (Phase 7.2-01 Group A + 7.2-02)**: REGISTRY.register, encoding default ISO-8859-15, advanced_separator numeric-only, remove_empty_row empty-string coverage |
+| Code Quality | **Y** | 1 | 2 | 1 | 1 | Cross-cutting base class crash (P0, open); check_date coerce vs pattern (P1 open). **Fixed (Phase 7.2-01 Group A + 7.2-02)**: BUG-FIP-002, BUG-FIP-004, NAME-FIP-001, NAME-FIP-002, _validate_config now raises |
 | Performance & Memory | **G** | 0 | 0 | 1 | 1 | Batch-only (no streaming); BigDecimal uses slow `apply()`; post-processing iterates string columns twice |
-| Testing | **Y** | 0 | 0 | 2 | 0 | 68 converter unit tests across 11 test classes per gold standard; integration + regression guard passing; engine unit tests missing (P2) -- no engine test coverage prevents Green |
+| Testing | **G** | 0 | 0 | 0 | 0 | 68 converter unit tests across 11 test classes; 35 engine unit tests across 13 test classes added in Phase 7.2-02; integration + regression guard passing; Phase 14 >= 95% floor met |
 
-**Overall: Yellow -- Converter fully standardized (Green); engine has known gaps documented via needs_review; engine/code quality gaps keep overall at Yellow**
+**Overall: Yellow -- Converter fully standardized (Green); engine has known gaps documented via needs_review; Testing now Green (35 engine unit tests); remaining Yellow items are unimplemented features (REJECT flow, UNCOMPRESS, FORMATS, TRIMSELECT)**
 
 **Top Actions:**
 
@@ -52,7 +54,7 @@
 2. Implement per-column trim support in engine to match TRIMSELECT TABLE (P1)
 3. Add compressed file reading support (P1, engine gap)
 4. Add REJECT flow support for malformed rows (P1, engine gap)
-5. Fix engine encoding default from UTF-8 to ISO-8859-15 (P2, engine mismatch)
+5. Fix check_date to use schema date patterns instead of coercion (P1, BUG-FIP-003)
 
 ---
 
@@ -258,8 +260,8 @@ None. All parameters correctly extracted with proper defaults and types.
 | ENG-FIP-003 | **P1** | FORMATS TABLE per-column customization not implemented -- only pattern-based widths supported |
 | ENG-FIP-004 | **P1** | Per-column trim (TRIMSELECT TABLE) not implemented -- only global trim_all supported |
 | ENG-FIP-005 | **P1** | Process long row not implemented -- rows exceeding pattern width are truncated by pd.read_fwf |
-| ENG-FIP-006 | **P2** | Encoding default is UTF-8 in engine but ISO-8859-15 in Talend -- files with Latin-9 characters may be misread |
-| ENG-FIP-007 | **P2** | Advanced separator applies to ALL object columns, not just numeric columns with type hints |
+| ENG-FIP-006 | **P2 -- FIXED** | ~~Encoding default is UTF-8 in engine but ISO-8859-15 in Talend~~ **Fixed in Phase 7.2-02: DEFAULT_ENCODING changed to 'ISO-8859-15'** |
+| ENG-FIP-007 | **P2 -- FIXED** | ~~Advanced separator applies to ALL object columns, not just numeric columns with type hints~~ **Fixed in Phase 7.2-02: advanced_separator now restricted to columns whose schema type is in _NUMERIC_TYPES** |
 | ENG-FIP-008 | **P2** | Check date uses `pd.to_datetime(errors='coerce')` instead of validating against schema date patterns |
 | ENG-FIP-009 | **P3** | Pattern units BYTES mode not implemented -- only SYMBOLS (character) mode works |
 | ENG-FIP-010 | **P3** | `{id}_ERROR_MESSAGE` globalMap variable not set on errors |
@@ -290,8 +292,8 @@ None. All parameters correctly extracted with proper defaults and types.
 
 | ID | Priority | Issue |
 | ---- | ---------- | ------- |
-| NAME-FIP-001 | **P2** | Engine class constants use `DEFAULT_REMOVE_EMPTY_ROWS` (plural) but config key is `remove_empty_row` (singular) |
-| NAME-FIP-002 | **P2** | Engine default `DEFAULT_ENCODING = 'UTF-8'` does not match Talend default `ISO-8859-15` |
+| NAME-FIP-001 | **P2 -- FIXED** | ~~Engine class constants use `DEFAULT_REMOVE_EMPTY_ROWS` (plural) but config key is `remove_empty_row` (singular)~~ **Fixed in Phase 7.2-02: renamed to DEFAULT_REMOVE_EMPTY_ROW (singular)** |
+| NAME-FIP-002 | **P2 -- FIXED** | ~~Engine default `DEFAULT_ENCODING = 'UTF-8'` does not match Talend default `ISO-8859-15`~~ **Fixed in Phase 7.2-02: DEFAULT_ENCODING = 'ISO-8859-15'** |
 
 ### 6.3 Standards Compliance
 
@@ -332,7 +334,7 @@ None found.
 | Aspect | Assessment |
 | -------- | ------------ |
 | Method signatures | `_process()` has proper type hints for params and return |
-| Parameter types | `_validate_config()` returns `List[str]` -- correct |
+| Parameter types | `_validate_config()` raises `ConfigurationError` -- correct per MANUAL_COMPONENT_AUTHORING.md Rule 2 (Fixed in Phase 7.2-02; was returning `List[str]`) |
 
 ---
 
@@ -360,23 +362,26 @@ None found.
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 68 | `tests/converters/talend_to_v1/components/test_file_input_positional.py` |
-| Engine unit tests | 0 | None |
+| Engine unit tests | 35 | `tests/v1/engine/components/file/test_file_input_positional.py` (13 test classes; added Phase 7.2-02) |
 | Integration tests | Covered | `tests/converters/talend_to_v1/test_integration.py` + `test_converter_output_structure.py` |
 
-### 8.2 Test Gaps
+### 8.2 Engine Test Classes (Phase 7.2-02)
 
-| ID | Priority | Gap |
-| ---- | ---------- | ----- |
-| TEST-FIP-001 | **P2** | No engine unit tests -- FileInputPositional._process() untested directly |
-| TEST-FIP-002 | **P2** | No tests for advanced_separator string corruption edge case |
-
-### 8.3 Recommended Test Cases
-
-1. Engine test: basic file read with pattern "5,4,5" and verify column values
-2. Engine test: header/footer skip with known row counts
-3. Engine test: die_on_error=False with missing file returns empty DataFrame
-4. Engine test: trim_all strips whitespace from string fields
-5. Engine test: advanced_separator replaces separators in numeric columns
+| # | Class | Tests | Covers |
+| --- | ------- | ------- | -------- |
+| 1 | `TestPatternContextVar` | 4 | `${context.X}` accepted at validate time, resolved at process time |
+| 2 | `TestHeaderRowsContextVar` | 3 | `header_rows` context-var pass-through and resolution |
+| 3 | `TestFooterRowsContextVar` | 3 | `footer_rows` context-var pass-through and resolution |
+| 4 | `TestLimitContextVar` | 3 | `limit` context-var pass-through, invalid value raises |
+| 5 | `TestRegistration` | 2 | REGISTRY.get("FileInputPositional") and REGISTRY.get("tFileInputPositional") |
+| 6 | `TestCorrectedDefaults` | 4 | DEFAULT_ENCODING='ISO-8859-15', TRIM_ALL=True, REMOVE_EMPTY_ROW=True, DIE_ON_ERROR=False |
+| 7 | `TestValidateConfigRaises` | 3 | _validate_config raises ConfigurationError (not returns List) |
+| 8 | `TestBasicRead` | 4 | File read, column count/names, header skip, missing file + die_on_error=False |
+| 9 | `TestTrimAll` | 2 | trim_all=True strips whitespace; trim_all=False preserves |
+| 10 | `TestRemoveEmptyRow` | 3 | remove_empty_row drops NaN rows and empty-string rows after trim (BUG-FIP-004) |
+| 11 | `TestAdvancedSeparator` | 3 | separator NOT applied to id_String; applied to id_BigDecimal (BUG-FIP-002); no-schema no-op |
+| 12 | `TestDieOnError` | -- | (covered in TestBasicRead test 3) |
+| 13 | `TestStatistics` | 1 | comp.stats["NB_LINE"] / NB_LINE_OK / NB_LINE_REJECT after _process() |
 
 ---
 
@@ -387,10 +392,11 @@ None found.
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
 | P0 | 1 | **BUG-FIP-001** |
-| P1 | 8 | **ENG-FIP-001**, **ENG-FIP-002**, **ENG-FIP-003**, **ENG-FIP-004**, **ENG-FIP-005**, **BUG-FIP-002**, **BUG-FIP-003**, **BUG-FIP-004** |
-| P2 | 8 | **ENG-FIP-006**, **ENG-FIP-007**, **ENG-FIP-008**, **NAME-FIP-001**, **NAME-FIP-002**, **PERF-FIP-001**, **TEST-FIP-001**, **TEST-FIP-002** |
+| P1 | 6 | **ENG-FIP-001**, **ENG-FIP-002**, **ENG-FIP-003**, **ENG-FIP-004**, **ENG-FIP-005**, **BUG-FIP-003** |
+| P2 | 2 | **ENG-FIP-008**, **PERF-FIP-001** |
 | P3 | 4 | **ENG-FIP-009**, **ENG-FIP-010**, **STD-FIP-002**, **PERF-FIP-002** |
-| **Total** | **21** | |
+| **Total** | **13** | |
+| **Fixed (Phase 7.2-02)** | **8** | ~~BUG-FIP-002~~, ~~BUG-FIP-004~~, ~~ENG-FIP-006~~, ~~ENG-FIP-007~~, ~~NAME-FIP-001~~, ~~NAME-FIP-002~~, ~~TEST-FIP-001~~, ~~TEST-FIP-002~~ |
 
 ### By Category
 
@@ -508,4 +514,4 @@ This section is included because tFileInputPositional handles fixed-width file p
 ---
 
 *Report generated: 2026-04-03*
-*Last updated: 2026-04-03 after v1.1 converter standardization (Phase 09-10)*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation -- Phase 7.2-01 Group A verdict confirmed (REGISTRY registration); Phase 14 >= 95% floor met*

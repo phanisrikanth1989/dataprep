@@ -1,812 +1,497 @@
-# RecDataPrep - Talend ETL Architecture Analysis
+# DataPrep Architecture
+*Last updated: 2026-05-11*
 
-## Executive Summary
+## Overview
 
-You're building a **Python-based ETL engine inspired by Talend's architecture**. This is a sophisticated distributed data transformation platform with:
+DataPrep is a Python-based ETL execution engine that replaces Talend Open Studio for
+1200+ production jobs. The system is split into two clearly separated layers:
 
-- **Component-based architecture** (like Talend components)
-- **Trigger-based workflow control** (OnSubjobOk, OnComponentOk, OnSubjobError)
-- **Hybrid execution** (Python + Java via Py4J bridge)
-- **Advanced data transformations** (tMap with lookups, joins, and expressions)
-- **Multi-execution modes** (Batch, Streaming, Hybrid)
+1. **Converter** -- transforms Talend `.item` XML job definitions into JSON configurations.
+2. **Engine** -- executes those JSON configurations, producing the same output rows that
+   Talend would produce for the same inputs.
 
----
+Each layer is internally organized around the same philosophy: an abstract base class
+defines the contract, a decorator-based registry maps Talend component names to
+concrete implementations, and each component type lives in its own module grouped
+by category (file, transform, database, control, aggregate, context, iterate).
 
-## 1. Architecture Overview
+**Core Value:** Any Talend job using the target components must produce identical
+results when run through the Python engine -- feature parity with Talend is
+non-negotiable.
 
-### 1.1 High-Level Design
+The converter side is clean and standardized. The engine side is the active surface
+for ongoing reliability work; the architecture below reflects the current state of
+`src/` as of 2026-05-11.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    ETL ENGINE (Main Orchestrator)              │
-│  - Job configuration loading (JSON)                            │
-│  - Component lifecycle management                              │
-│  - Trigger-based execution flow                                │
-│  - Data flow routing between components                        │
-└─────────────────────────────────────────────────────────────────┘
-         │                    │                    │
-         ▼                    ▼                    ▼
-┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
-│ Global State Mgmt│  │ Context Manager  │  │ Trigger Manager  │
-│ (globalMap)      │  │ (context vars)   │  │ (workflow flow)  │
-└──────────────────┘  └──────────────────┘  └──────────────────┘
-         │                    │                    │
-         └────────────────────┼────────────────────┘
-                              ▼
-                    ┌──────────────────────┐
-                    │ Java Bridge Manager  │
-                    │ (Py4J + Apache Arrow)│
-                    └──────────────────────┘
-                              │
-                    ┌─────────┴─────────┐
-                    ▼                   ▼
-            ┌──────────────┐    ┌──────────────┐
-            │ Python Execs │    │ Java VM      │
-            │ - Pandas     │    │ - Expressions│
-            │ - Native Ops │    │ - Routines   │
-            └──────────────┘    └──────────────┘
-```
-
-### 1.2 Key Components
-
-**Core Engine Files:**
-
-- `engine.py` - Main orchestrator, job execution, component lifecycle
-- `base_component.py` - Abstract base for all ETL components
-- `components/transform/map.py` - tMap (most complex, ~1140 lines)
-
-**State & Context Management:**
-
-- `global_map.py` - Talend-like global state store
-- `context_manager.py` - Job context variables with type conversion
-- `trigger_manager.py` - Trigger execution and workflow control
-
-**Java Integration:**
-
-- `java_bridge_manager.py` - Lifecycle management for Java bridge
-- `java_bridge/bridge.py` - Py4J wrapper for Python-Java communication
-- Uses **Apache Arrow** for efficient DataFrame serialization
-
----
-
-## 2. Execution Flow
-
-### 2.1 Job Execution Lifecycle
+## System Diagram (ASCII)
 
 ```
-
-1. Initialize Engine
-   ├─ Load job configuration (JSON)
-   ├─ Initialize Java bridge (if enabled)
-   ├─ Initialize Python routines
-   ├─ Create global map & context manager
-   ├─ Initialize all components from config
-   └─ Register triggers
-
-1. Identify Execution Topology
-   ├─ Auto-detect subjobs (groups of connected components)
-   ├─ Identify initial components (no inputs)
-   └─ Register source components per subjob
-
-1. Main Execution Loop (with Triggers)
-   ├─ For each unexecuted component:
-   │  ├─ Check if inputs are ready
-   │  ├─ Check if component's subjob is active
-   │  └─ Execute component
-   │
-   ├─ After component succeeds/fails:
-   │  ├─ Update trigger manager status
-   │  ├─ Check for triggered components
-   │  ├─ Activate triggered subjobs if needed
-   │  └─ Add triggered components to queue
-   │
-   ├─ Handle iterate components:
-   │  ├─ Execute loop N times
-   │  ├─ Run subjob on each iteration
-   │  └─ Collect aggregated stats
-   │
-   └─ Repeat until all components executed
-
-1. Cleanup
-   ├─ Stop Java bridge
-   ├─ Return execution statistics
-   └─ Clean up resources
++---------------------+     +----------------------+     +------------------------+
+| Talend .item (XML)  | --> | XmlParser            | --> | TalendJob (dataclass)  |
++---------------------+     | xml_parser.py        |     +------------------------+
+                            +----------------------+                 |
+                                                                     v
+                                                       +-----------------------------+
+                                                       | TalendToV1Converter         |
+                                                       | converter.py (12-step pipe) |
+                                                       +-----------------------------+
+                                                                     |
+                                                                     v
+                                                       +-----------------------------+
+                                                       | ComponentConverter classes  |
+                                                       | (Strategy + REGISTRY)       |
+                                                       +-----------------------------+
+                                                                     |
+                                                                     v
+                                                       +-----------------------------+
+                                                       | V1 JSON config              |
+                                                       +-----------------------------+
+                                                                     |
++---------------------+     +----------------------+                 v
+| CLI / programmatic  | --> | ETLEngine            | --> +-----------------------------+
+| run_job(config)     |     | engine.py            |     | ExecutionPlan (subjobs +    |
++---------------------+     +----------------------+     | trigger edges)              |
+                                     |                   +-----------------------------+
+                                     v                                 |
+                            +----------------------+                   v
+                            | Executor             |    +-----------------------------+
+                            | executor.py          | -> | REGISTRY.get(comp_type)     |
+                            +----------------------+    | -> BaseComponent subclass   |
+                                     |                  +-----------------------------+
+                                     v                                 |
+                            +----------------------+                   v
+                            | OutputRouter         |    +-----------------------------+
+                            | output_router.py     | <- | _process() returns          |
+                            +----------------------+    | {main, reject, ...}         |
+                                     |                  +-----------------------------+
+                                     v
+                            +----------------------+
+                            | Output files / sinks |
+                            +----------------------+
 ```
 
-### 2.2 Component Execution
+Cross-cutting services (GlobalMap, ContextManager, TriggerManager, JavaBridgeManager,
+PythonRoutineManager, OracleConnectionManager) sit alongside the Executor and are
+injected into components at construction.
+
+## Layers
+
+### XML Parsing
+
+- **Purpose:** Parse Talend `.item` XML files into typed Python dataclasses.
+- **Location:** `src/converters/talend_to_v1/xml_parser.py`.
+- **Key types:** `XmlParser` class, `TalendJob` dataclass, plus `TalendNode`,
+  `TalendConnection`, `SchemaColumn` dataclasses in
+  `src/converters/talend_to_v1/components/base.py`.
+- **Consumed by:** `TalendToV1Converter.convert_file()`.
+
+### Component Converter
+
+- **Purpose:** Convert one parsed Talend node into a V1 JSON component dictionary.
+- **Location:** `src/converters/talend_to_v1/components/`.
+- **Organization:** ~80 converter classes, one per Talend component type, grouped
+  by category (file, transform, database, control, aggregate, context, iterate).
+- **Contract:** Each subclass inherits `ComponentConverter`
+  (`src/converters/talend_to_v1/components/base.py`) and implements
+  `convert(node, connections, context) -> ComponentResult`.
+- **Registration:** Decorator-based via
+  `@REGISTRY.register("tFileInputDelimited")` on each class
+  (`src/converters/talend_to_v1/components/registry.py`).
+
+### Converter Orchestrator
+
+- **Purpose:** Drive the 12-step conversion pipeline (parse, convert components,
+  parse flows, propagate schemas, parse triggers, detect subjobs, detect Java
+  requirement, validate, assemble JSON).
+- **Location:** `src/converters/talend_to_v1/converter.py`.
+- **Key types:** `TalendToV1Converter` class, top-level `convert_job()`
+  convenience function at line 485.
+- **Entry point:** `__main__` at line 516, runnable via
+  `python -m src.converters.talend_to_v1.converter <input.item> [output.json]`.
+
+### Engine Core
+
+- **Purpose:** Load a V1 JSON config, build an execution plan, run components in
+  order, and route outputs between flows.
+- **Location:** `src/v1/engine/engine.py`.
+- **Key types:**
+  - `ETLEngine` -- thin orchestrator. Delegates planning to `ExecutionPlan`,
+    execution to `Executor`, output routing to `OutputRouter`, and component
+    lookup to `REGISTRY`.
+  - `ExecutionPlan` (`src/v1/engine/execution_plan.py`) -- `SubjobPlan`,
+    `TriggerEdge`, `StreamingMetadata`.
+  - `Executor` (`src/v1/engine/executor.py`).
+  - `OutputRouter` (`src/v1/engine/output_router.py`).
+- **Entry point:** `__main__` at line 285, runnable via
+  `python src/v1/engine/engine.py <job_config.json> [--context_param KEY=VALUE]`.
+
+### Engine Component Layer
+
+- **Purpose:** Implement individual ETL operations (file I/O, transforms,
+  aggregations, joins, control flow).
+- **Location:** `src/v1/engine/components/` organized by category:
+  `aggregate/`, `context/`, `control/`, `database/`, `file/`, `iterate/`,
+  `transform/`.
+- **Contract:** Each subclass inherits `BaseComponent`
+  (`src/v1/engine/base_component.py`) or `BaseIterateComponent`
+  (`src/v1/engine/base_iterate_component.py`) and implements
+  `_validate_config()` and `_process()`.
+- **Registration:** `@REGISTRY.register("PascalName", "tTalendName")` on each class
+  (`src/v1/engine/component_registry.py`). See the load-bearing
+  Registry Discipline section below.
+
+### Infrastructure Layer
+
+Shared services injected into the engine and components:
+
+- `GlobalMap` (`src/v1/engine/global_map.py`) -- Talend-compatible key-value store
+  for stats (`NB_LINE`, `NB_LINE_OK`, `NB_LINE_REJECT`) and inter-component variables.
+- `ContextManager` (`src/v1/engine/context_manager.py`) -- resolves
+  `${context.var}` and bare `context.var` patterns in configuration.
+- `TriggerManager` (`src/v1/engine/trigger_manager.py`) -- evaluates trigger
+  edges (OnSubjobOk, OnComponentOk, RunIf, etc.).
+- `JavaBridgeManager` (`src/v1/engine/java_bridge_manager.py`) -- lifecycle
+  manager for the Java/Groovy subprocess.
+- `PythonRoutineManager` (`src/v1/engine/python_routine_manager.py`) -- loads and
+  executes user-supplied Python routines.
+- `OracleConnectionManager` (`src/v1/engine/oracle_connection_manager.py`) --
+  pooled Oracle connections for database components.
+- `exceptions.py` (`src/v1/engine/exceptions.py`) -- ETLError hierarchy.
+
+### Java Bridge Layer
+
+- **Purpose:** Execute legacy Talend Java/Groovy expressions and row-level
+  transformations.
+- **Python side:** `src/v1/java_bridge/bridge.py` (`JavaBridge` Py4J client,
+  Apache Arrow IPC for DataFrame transfer).
+- **Java side:** `src/v1/java_bridge/java/src/main/java/com/citi/gru/etl/JavaBridge.java`
+  and `RowWrapper.java`.
+- **Build artifact:** `src/v1/java_bridge/java/target/java-bridge-with-dependencies.jar`
+  (built via Maven; `pom.xml` declares Java 11 source/target).
+- **Engagement:** `JavaBridgeManager` starts the JVM subprocess on a
+  dynamically-allocated port (`socket.bind(('', 0))` in
+  `src/v1/engine/java_bridge_manager.py`) when `java_config.enabled = true` in the
+  job config; otherwise it stays cold and components fall back to pure Python.
+
+## Key Abstractions
+
+### `BaseComponent` (Template Method)
+
+`src/v1/engine/base_component.py` line 115 declares the abstract base for every
+data-processing component. The `execute()` method is final-by-convention
+(subclasses MUST NOT override it). Its lifecycle is:
+
+1. Fresh `config` from `_original_config` (deepcopy each call -- guarantees
+   iterate re-execution starts clean per ENG-09/ENG-21).
+2. `_validate_config()` -- abstract; raises `ConfigurationError`.
+3. `_resolve_expressions()` -- Java `{{java}}` markers first, then context
+   variables.
+4. Read `die_on_error` from resolved config.
+5. `_select_mode()` -- auto-select BATCH or STREAMING based on input size.
+6. `_execute_batch()` or `_execute_streaming()` -- calls `_process()`.
+7. `_enforce_schema_column_order()` then `_apply_output_schema_validation()`
+   -- column ordering, type coercion, length/precision, reject routing.
+8. `_update_stats_from_result()` + `_update_global_map()`.
+
+`_process(input_data) -> dict` is the single hook for subclass logic. It must
+return a dict with key `main` (output DataFrame) and may include `reject` plus
+arbitrary named flow keys for multi-output components.
+
+### `BaseIterateComponent` (Iterator)
+
+`src/v1/engine/base_iterate_component.py` line 59 extends `BaseComponent` for
+components that emit iterations (`tFileList`, `tFlowToIterate`, `tForeach`).
+Subclasses implement `prepare_iterations()` (returns an `Iterator[Any]`) and
+`set_iteration_globalmap(item)` to push per-iteration state into `GlobalMap`.
+
+### `ComponentConverter` (Strategy)
+
+`src/converters/talend_to_v1/components/base.py` declares the abstract base for
+each Talend-to-V1 converter. Each subclass implements
+`convert(node, connections, context) -> ComponentResult` and uses the
+`_get_str()`, `_get_bool()`, `_get_int()`, `_parse_schema()`,
+`_build_component_dict()`, `_convert_date_pattern()` helpers.
+
+### `REGISTRY` (Decorator-Based, Both Sides)
+
+Both layers use the same registration pattern:
+
+- Engine: `REGISTRY` instance of `ComponentRegistry`
+  (`src/v1/engine/component_registry.py` line 72). Decorator `@REGISTRY.register(...)`
+  is defined at line 29 and accepts one or more names (e.g.,
+  `@REGISTRY.register("FileInputDelimited", "tFileInputDelimited")`).
+- Converter: `REGISTRY` instance of `ConverterRegistry`
+  (`src/converters/talend_to_v1/components/registry.py`). Same decorator shape.
+
+Registration fires when the `components/__init__.py` of each layer imports its
+sub-packages, which triggers the decorators to populate the registry.
+
+## Registry Discipline
+
+This section documents a LOAD-BEARING invariant that Phase 14 surfaced repeatedly.
+It is the single most important rule for anyone adding or modifying engine
+components.
+
+### The Live Registry
+
+The engine `REGISTRY` lives in `src/v1/engine/component_registry.py` (decorator-
+based, mirroring the converter side). It is imported into
+`src/v1/engine/engine.py` at line 18:
 
 ```
-Component.execute(input_data)
-  │
-  ├─ Resolve Java expressions ({{java}} markers)
-  ├─ Resolve context variables (${context.var})
-  │
-  ├─ Determine execution mode (Batch/Streaming/Hybrid)
-  │
-  ├─ Execute component logic
-  │  └─ _process(input_data)
-  │
-  ├─ Update statistics
-  │  └─ Write to global map
-  │
-  └─ Return output(s)
-     ├─ main: Primary output
-     ├─ reject: Error/rejected rows
-     └─ [other named outputs]
+from .component_registry import REGISTRY
 ```
 
----
+Lookup happens at line 140 of `engine.py` via `REGISTRY.get(comp_type)`.
 
-## 3. Core Systems
+The previously-documented `ETLEngine.COMPONENT_REGISTRY` static-dict class
+attribute NO LONGER EXISTS. Earlier maps in `.planning/codebase/` still describe
+it as a static dict; that description is stale and was corrected in Phase 15.
+The current source-of-truth pattern is decorator-based registration that mirrors
+the converter side exactly.
 
-### 3.1 GlobalMap (Talend-Like State Store)
+### The Dual Invariant
 
-**Purpose:** Shared state across components and iterations
+Every `BaseComponent` subclass MUST satisfy BOTH of the following:
+
+1. **Be decorated** with `@REGISTRY.register("PascalCaseName", "tTalendName")` --
+   one decorator listing one or more aliases. PascalCase is the V1 internal name;
+   the `t`-prefixed alias mirrors the Talend component name so converter output
+   can lookup the engine class directly.
+2. **Implement `_validate_config()`** raising `ConfigurationError` on missing
+   required keys. The method is declared `@abstractmethod` on `BaseComponent`
+   (line 280 of `base_component.py`) -- Python ABC machinery refuses to
+   instantiate any subclass that fails to override it.
+
+### Failure Modes (Why This Section Matters)
+
+- **Missing decorator:** The engine logs `Unknown component type <name>` at
+  runtime and silently drops the component from job execution. There is no
+  startup-time membership check. A job with a typo-named component will run to
+  completion but produce wrong output, with no exception raised. This is the
+  most dangerous of the two failure modes because it is silent.
+- **Missing `_validate_config`:** The class is uninstantiable. Python raises
+  `TypeError: Can't instantiate abstract class ...` on `__init__`. This fails
+  loudly the first time the engine tries to construct the component, so it is
+  caught the moment the component is exercised by any test or live job.
+
+### Phase 14 Evidence
+
+Four bug pairs surfaced this exact failure shape during the Phase 14 coverage
+push. Each pair was a `BaseComponent` subclass missing BOTH the decorator AND
+`_validate_config()`. The class was importable but unusable; engine.py silently
+dropped it as "Unknown component type" at production runtime:
+
+| Bug ID            | Component                | Plan  | Notes                                                |
+| ----------------- | ------------------------ | ----- | ---------------------------------------------------- |
+| BUG-PDC-001/002   | `PythonDataFrameComponent` | 14-06 | Coverage push from 20% to 100% surfaced the gap.   |
+| BUG-SWIFT-001/002 | `SwiftTransformer`       | 14-07 | Pair of fixes; component went 7% to 98.0%.           |
+| BUG-SWIFT-003/004/005 | `SwiftBlockFormatter` | 14-07 | Same shape, surfaced when 7% to 97.2% lift.          |
+| BUG-FIJ-001/002   | `FileInputJSON`          | 14-09 | Root-cause fix; 9% to 100% coverage.                 |
+
+Three independent plans (14-06, 14-07, 14-09) hit the same failure shape before
+Plan 14-12 audited the pattern explicitly. Reference:
+`.planning/phases/14-coverage-push-to-95-per-module-floor/14-PHASE-SUMMARY.md`.
+
+### Why No Startup Audit Yet
+
+Phase 14 considered adding a startup-time audit that walks the
+`BaseComponent` subclass tree and asserts each subclass is registered. The
+proposal was deferred (see `15-CONTEXT.md` "Deferred Ideas"). For now the
+invariant is enforced by:
+
+1. Manual review during code authoring.
+2. `docs/CONTRIBUTING.md` Rule 5 (added by plan 15-04).
+3. Coverage push exercising every component, which makes "Unknown component
+   type" surface in test logs.
+
+A future plan may add the automated audit; until then this section is the
+canonical statement of the rule.
+
+## Data Flow
+
+### Conversion Pipeline (12 Steps)
+
+Driven by `TalendToV1Converter.convert_file()` in
+`src/converters/talend_to_v1/converter.py`:
+
+1. Parse XML (`XmlParser`).
+2. Convert context variables (type mapping already applied by parser).
+3-4. Convert components (with try/except wrapping each; failures yield an
+   `_unsupported` placeholder plus warnings).
+5. Parse flows from connections.
+6. Update component inputs/outputs from flows.
+6b. Propagate input schemas from upstream output schemas.
+7-8. Parse triggers (`trigger_mapper` filters skipped components).
+9. Detect subjobs.
+10. Detect Java requirement (sets `java_config.enabled`).
+11. Validate (`validator.py` -- reference integrity, tMap rules, expression
+    quality, conversion quality).
+12. Assemble final JSON dictionary.
+
+### Engine Execution Pipeline
+
+Driven by `ETLEngine.execute()` in `src/v1/engine/engine.py`, delegating to
+`Executor` (`src/v1/engine/executor.py`):
+
+1. Load JSON config; apply context overrides.
+2. Initialize `GlobalMap`, `ContextManager`, `TriggerManager`.
+3. Start `JavaBridgeManager` if `java_config.enabled` is true.
+4. Build `ExecutionPlan` -- subjobs, trigger edges, streaming metadata.
+5. Instantiate components via `REGISTRY.get(comp_type)`.
+6. For each subjob, run components in topological order through the
+   `Executor`.
+7. Each component runs the `BaseComponent.execute()` lifecycle (8 steps above).
+8. `OutputRouter` routes each named flow in the `_process()` return dict to the
+   downstream component's input.
+9. `TriggerManager` evaluates inter-subjob trigger edges (OnSubjobOk, RunIf).
+10. After all subjobs, shutdown Java bridge, return execution stats.
+
+## State Management
+
+- **`GlobalMap`** -- Talend-compatible key-value store. Components write
+  `NB_LINE`, `NB_LINE_OK`, `NB_LINE_REJECT`, and any user-defined variables.
+  Read access is uniform across components.
+- **`ContextManager`** -- resolves three patterns at execute time:
+  1. `${context.var}` (Talend explicit syntax).
+  2. Bare `context.var` (Talend implicit syntax).
+  3. Nested dicts and list-of-dicts (`resolve_dict()` was rewritten in ENG-03 to
+     fix a literal `[i]` substitution bug).
+- **`data_flows`** -- engine-internal `Dict[str, Any]` keyed by flow name.
+  Holds the DataFrames passed between components within a subjob.
+- **Java Bridge sync** -- when Java is enabled, the bridge mirrors `GlobalMap`
+  and `context` bidirectionally through `_sync_from_java()` so Groovy
+  expressions see and update the same state.
+
+## Error Handling Strategy
+
+The exception hierarchy lives in `src/v1/engine/exceptions.py`:
+
+```
+ETLError
+  +-- ConfigurationError
+  +-- DataValidationError
+  +-- ComponentExecutionError       (carries component_id and optional cause)
+  +-- FileOperationError
+  +-- JavaBridgeError
+  +-- ExpressionError
+  +-- TriggerEvaluationError
+  +-- SchemaError
+```
+
+Routing rules:
+
+- Components raise `ConfigurationError`, `FileOperationError`, etc. from inside
+  `_process()`. `BaseComponent.execute()` wraps any non-ETLError exception in
+  `ComponentExecutionError(component_id, cause=...)` before re-raising.
+- The `die_on_error` config flag (defaults to True; see line 192 of
+  `base_component.py`) controls whether errors are fatal or whether the
+  offending rows are routed to the reject flow with `errorCode` and
+  `errorMessage` columns populated.
+- Schema violations on the `main` output flow (G-05/D-11) are routed to reject
+  with `errorCode = SCHEMA_VIOLATION` when `die_on_error` is False.
+- The `Die` component (`src/v1/engine/components/control/die.py`) raises
+  `ComponentExecutionError` with an attached `exit_code` to force whole-job
+  termination regardless of `die_on_error` semantics elsewhere.
+- The converter wraps each component conversion in try/except and falls back to
+  an `_unsupported` placeholder with warnings, so a single converter bug never
+  fails the whole conversion.
+
+Post-conversion validation: `src/converters/talend_to_v1/validator.py` produces
+`ValidationReport(valid, issues, summary)` with `ValidationIssue.severity` in
+`{"error", "warning", "info"}`.
+
+## Cross-Cutting Concerns
+
+### Logging
+
+- Standard `logging` module; each module owns
+  `logger = logging.getLogger(__name__)`.
+- Engine components prefix messages with `[{self.id}]` for traceability.
+- ASCII-only log content per project convention (RHEL servers).
+- Levels: DEBUG for data details, INFO for lifecycle events, WARNING for
+  degraded operation, ERROR for failures.
+- The engine sets `logging.basicConfig(level=logging.INFO)` at module level in
+  `engine.py`.
+
+### Validation
+
+- **Converter side (4-layer post-conversion):** reference integrity, tMap rules,
+  expression quality, conversion quality markers -- all in `validator.py`.
+- **Engine side:** `BaseComponent.validate_schema()` runs in lifecycle step 7c
+  using a Talend-to-pandas type mapping with nullable-aware coercion.
+- **Component side:** `_validate_config()` (abstract) is the per-component
+  required-key gate; see Registry Discipline above.
+
+### Expression Resolution
+
+A three-phase resolution chain runs at engine execute time:
+
+1. `{{java}}` markers -- batched through `JavaBridgeManager` and evaluated by
+   the Groovy interpreter on the JVM side.
+2. `${context.var}` -- resolved by `ContextManager.resolve_dict()`.
+3. Bare `context.var` -- resolved via regex substitution.
+
+On the converter side, `ExpressionConverter.detect_java_expression()` in
+`src/converters/talend_to_v1/expression_converter.py` aggressively marks
+Java/Groovy patterns with the `{{java}}` prefix for deferred execution.
+`ExpressionConverter.convert()` performs simpler Java-to-Python rewrites
+(string methods, null checks, operators).
+
+### Runtime Shape
+
+This is a batch ETL system -- not a web service. There is no auth layer, no
+session management, and no request lifecycle. Database credentials are supplied
+via context variables in the job config rather than environment variables.
+
+## Entry Points
+
+### Converter CLI
+
+```
+python -m src.converters.talend_to_v1.converter <input.item> [output.json]
+```
+
+`__main__` block at `src/converters/talend_to_v1/converter.py` line 516.
+Top-level `convert_job(input_path, output_path)` at line 485 is the
+programmatic entry point.
+
+### Engine CLI
+
+```
+python src/v1/engine/engine.py <job_config.json> [--context_param KEY=VALUE]
+```
+
+`__main__` block at `src/v1/engine/engine.py` line 285. The top-level
+`run_job(job_config_path, context_overrides)` is the programmatic entry point.
+
+### Programmatic Use
 
 ```python
-globalMap = GlobalMap()
+from src.converters.talend_to_v1.converter import convert_job
+from src.v1.engine.engine import run_job
 
-# Store component statistics
-globalMap.put_component_stat("tMap_1", "NB_LINE", 1000)
-globalMap.put_component_stat("tMap_1", "NB_LINE_OK", 950)
-
-# Access in expressions (Java-side)
-((Integer)globalMap.get("tMap_1_NB_LINE"))  > 0
-
-# Access in Python
-value = globalMap.get_component_stat("tMap_1", "NB_LINE_OK")
+config = convert_job("job.item", "job.json")
+stats = run_job("job.json", context_overrides={"DB_HOST": "prod-db"})
 ```
 
-**Statistics Tracked Per Component:**
-
-- `NB_LINE` - Total rows processed
-- `NB_LINE_OK` - Successfully processed
-- `NB_LINE_REJECT` - Rejected/error rows
-- `NB_LINE_INSERT`, `NB_LINE_UPDATE`, `NB_LINE_DELETE` - For database operations
-
-### 3.2 Context Manager (Job Variables)
-
-**Purpose:** Manage typed context variables (like Talend's context)
-
-```json
-{
-  "context": {
-    "Default": {
-      "input_dir": { "value": "/data/input", "type": "id_String" },
-      "max_rows": { "value": "10000", "type": "id_Integer" },
-      "run_date": { "value": "2024-01-14", "type": "id_Date" }
-    }
-  }
-}
-```
-
-**Variable Resolution:**
-
-- `${context.input_dir}` → `/data/input`
-- `context.max_rows` → `10000` (auto-converted to int)
-- Supports concatenation: `${context.dir} + "/file.csv"`
-
-### 3.3 Trigger Manager (Workflow Control)
-
-**Trigger Types:**
-
-- `OnComponentOK` - Fire when specific component succeeds
-- `OnComponentError` - Fire when specific component fails
-- `OnSubjobOk` - Fire when entire subjob completes successfully
-- `OnSubjobError` - Fire when any component in subjob fails
-- `RunIf` - Fire based on condition evaluation
-
-**Example Trigger Sequence:**
-```
-
-1. Component A executes → Success
-2. Trigger: OnComponentOK (A → B)
-3. Subjob containing B is activated
-4. Component B executes
-5. Trigger: OnSubjobOk (B's subjob → C's subjob)
-6. C's subjob is activated
-```
-
----
-
-## 4. tMap Component (Star Feature)
-
-### 4.1 What is tMap?
-
-**tMap = Data Transformation + Lookup/Join Engine**
-
-It's your most powerful component - capable of:
-
-- **Data transformation** with complex expressions
-- **Multiple inputs** (1 main + N lookups)
-- **Multiple outputs** with filtering
-- **Joins** with different matching modes
-- **Variables** for intermediate calculations
-- **Parallel expression evaluation** (Java backend)
-
-### 4.2 tMap Execution Pipeline
-
-```
-Input Data (main + lookups)
-  │
-  ▼ PHASE 1: Filter Lookups
-  Apply any filter expressions to lookup tables
-  │
-  ▼ PHASE 2: Filter Main Input & Prepare Keys
-  Apply main input filter, evaluate join key expressions
-  │
-  ▼ PHASE 3: Lookup Joins
-  └─ Cartesian Join: Context-only expressions → cross join
-  └─ Normal Join: Row-based expressions → left outer/inner join
-  │
-  ▼ PHASE 4: Evaluate Variables & Route to Outputs
-  └─ Pre-evaluate all output columns via Java
-  └─ Route rows based on output filters
-  └─ Handle reject outputs (unmatched rows)
-  │
-  ▼ Output Data
-```
-
-### 4.3 Key tMap Features
-
-**Expression Evaluation Strategy (Optimized Hybrid):**
-```
-
-1. Identify SIMPLE expressions: table.column
-   └─ Extract directly from pandas (no Java)
-
-1. Batch COMPLEX expressions: table.col > 100 && context.flag
-   └─ Send to Java in ONE batch call (not per-row)
-
-1. Use PANDAS for fast joins
-   └─ Matching modes: FIRST_MATCH, LAST_MATCH, ALL_MATCHES
-
-1. Compile TMAP ONCE, execute in CHUNKS
-   └─ Generates optimized Java script
-   └─ Parallel execution per chunk
-   └─ ~189k rows/sec throughput
-```
-
-**Matching Modes (for lookups):**
-
-- `UNIQUE_MATCH` / `FIRST_MATCH` - Keep first occurrence
-- `LAST_MATCH` - Keep last occurrence  
-- `ALL_MATCHES` - Keep all matches (default)
-
-**Join Modes:**
-
-- `LEFT_OUTER_JOIN` - Keep unmatched main rows
-- `INNER_JOIN` - Only matched rows (unmatched → reject output)
-
-### 4.4 tMap Configuration Example
-
-```json
-{
-  "type": "Map",
-  "id": "tMap_1",
-  "config": {
-    "inputs": {
-      "main": {
-        "name": "orders",
-        "filter": "{{java}}orders.status == 'ACTIVE'",
-        "activate_filter": true
-      },
-      "lookups": [
-        {
-          "name": "customers",
-          "filter": "{{java}}customers.country IN ('US', 'CA')",
-          "join_keys": [
-            {
-              "expression": "orders.customer_id",
-              "lookup_column": "id"
-            }
-          ],
-          "matching_mode": "FIRST_MATCH",
-          "join_mode": "LEFT_OUTER_JOIN"
-        }
-      ]
-    },
-    "variables": [
-      {
-        "name": "total_amount",
-        "expression": "{{java}}orders.amount + (customers.discount != null ? customers.discount : 0)"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "output_matched",
-        "filter": "{{java}}customers.id != null",
-        "activate_filter": true,
-        "columns": [
-          { "name": "order_id", "expression": "orders.id" },
-          { "name": "customer_name", "expression": "customers.name" },
-          { "name": "total", "expression": "total_amount" }
-        ]
-      },
-      {
-        "name": "output_reject",
-        "reject": true,
-        "columns": [
-          { "name": "order_id", "expression": "orders.id" },
-          { "name": "reason", "expression": "'NO_CUSTOMER'" }
-        ]
-      }
-    ]
-  }
-}
-```
-
----
-
-## 5. Java Bridge (Py4J + Apache Arrow)
-
-### 5.1 Architecture
-
-```
-Python Process                    Java Process (JVM)
-─────────────────────────────────────────────────────
-    tMap Component
-         │
-    DataFrame (pandas)
-         │
-    Apache Arrow Serialization
-         │ (Binary encoded)
-         ├────────────────────────────→ Arrow Deserialization
-                                              │
-                                        Java Objects
-                                              │
-                                        Execute Expression
-                                              │
-                                        Java Result
-                                              │
-    Arrow Deserialization  ←────────────────┤
-         │
-    NumPy Arrays / DataFrames
-```
-
-### 5.2 Key Methods
-
-**One-Time Expression Evaluation:**
-```python
-java_bridge.execute_one_time_expression(
-    "context.year + 100"  # Evaluate once (not per-row)
-)
-```
-
-**Batch Expression Evaluation (tMap Preprocessing):**
-```python
-java_bridge.execute_tmap_preprocessing(
-    df=DataFrame,  # ~189k rows/sec
-    expressions={
-        "__filter__": "orders.status == 'COMPLETE'",
-        "__join_key__": "orders.customer_id"
-    },
-    main_table_name="orders"
-)
-# Returns: {"__filter__": [T,F,T,...], "__join_key__": [123,456,...]}
-```
-
-**Compiled tMap Execution (Most Optimized):**
-```python
-# STEP 1: Compile once
-java_bridge.compile_tmap_script(
-    component_id="tMap_1",
-    java_script=generated_script,
-    output_schemas={"output": ["col1", "col2"]},
-    ...
-)
-
-# STEP 2: Execute chunks many times
-results = java_bridge.execute_compiled_tmap_chunked(
-    component_id="tMap_1",
-    df=big_dataframe,  # Can be millions of rows
-    chunk_size=50000  # Chunk size
-)
-```
-
-### 5.3 Data Flow Safety
-
-**Why Apache Arrow?**
-
-- Preserves exact data types (pandas dtypes → Arrow → Java types)
-- Prevents automatic type inference corruption
-- Example: `["1", "2", "3"]` (strings) stays as strings, not auto-converted to int64
-
-```python
-# CRITICAL: Explicit Arrow schema prevents type corruption
-arrow_schema_fields = []
-for col_name in df.columns:
-    pandas_dtype = str(df[col_name].dtype)
-    if pandas_dtype == 'object':
-        arrow_type = pa.string()  # Keep as string
-    elif pandas_dtype.startswith('int'):
-        arrow_type = pa.int64()
-    # ... etc
-
-explicit_schema = pa.schema(arrow_schema_fields)
-arrow_table = pa.Table.from_pandas(df, schema=explicit_schema)
-```
-
----
-
-## 6. Execution Modes
-
-### 6.1 Batch Mode
-
-- Entire DataFrame loaded into memory
-- Execute component once on full dataset
-- **Use case:** Small to medium datasets
-
-### 6.2 Streaming Mode
-
-- DataFrame chunked into smaller pieces
-- Each chunk processed independently
-- Results concatenated
-- **Use case:** Large datasets (>3GB memory threshold)
-
-### 6.3 Hybrid Mode (Auto-Select)
-
-- Automatically switch based on input size
-- Memory usage > 3072 MB → Switch to Streaming
-- Default for optimal performance
-
----
-
-## 7. Job Configuration (JSON)
-
-### 7.1 High-Level Structure
-
-```json
-{
-  "job_name": "ETL_Sales_Pipeline",
-  "default_context": "Default",
-  
-  "context": {
-    "Default": {
-      "input_dir": { "value": "/data/input", "type": "id_String" },
-      "output_dir": { "value": "/data/output", "type": "id_String" }
-    }
-  },
-  
-  "java_config": {
-    "enabled": true,
-    "routines": ["routines.StringUtils"],
-    "libraries": ["commons-lang3-3.14.0.jar"]
-  },
-  
-  "python_config": {
-    "enabled": true,
-    "routines_dir": "src/python_routines"
-  },
-  
-  "components": [
-    { "id": "tFileInput_1", "type": "FileInput", ... },
-    { "id": "tMap_1", "type": "Map", "subjob_id": "subjob_1", ... },
-    { "id": "tFileOutput_1", "type": "FileOutput", "subjob_id": "subjob_1", ... }
-  ],
-  
-  "flows": [
-    { "from": "tFileInput_1", "to": "tMap_1", "type": "flow", "name": "flow1" },
-    { "from": "tMap_1", "to": "tFileOutput_1", "type": "flow", "name": "flow2" }
-  ],
-  
-  "triggers": [
-    {
-      "type": "OnSubjobOk",
-      "from_component": "tFileInput_1",
-      "to_component": "tCleanup_1",
-      "condition": null
-    }
-  ]
-}
-```
-
-### 7.2 Component Definition
-
-```json
-{
-  "id": "tMap_1",
-  "type": "Map",
-  "subjob_id": "subjob_1",
-  "is_subjob_start": false,
-  "inputs": ["flow1"],
-  "outputs": ["output", "reject"],
-  
-  "schema": {
-    "input": [
-      { "name": "order_id", "type": "id_Integer" },
-      { "name": "amount", "type": "id_Float" }
-    ],
-    "output": [
-      { "name": "order_id", "type": "id_Integer" },
-      { "name": "total", "type": "id_Float" }
-    ]
-  },
-  
-  "config": {
-    "inputs": { ... },
-    "variables": [ ... ],
-    "outputs": [ ... ]
-  }
-}
-```
-
----
-
-## 8. Subjobs & Iterate Components
-
-### 8.1 Subjobs
-
-- **Logical grouping** of related components
-- **Execute in sequence** or triggered by previous subjob
-- **Can share state** via globalMap
-
-```
-Subjob_1 (initial, no trigger)
-  ├─ Component A
-  ├─ Component B
-  └─ Component C
-
-[OnSubjobOk trigger]
-
-Subjob_2 (triggered after Subjob_1)
-  ├─ Component D
-  ├─ Component E
-  └─ Component F
-```
-
-### 8.2 Iterate Components
-
-- Loop N times
-- Each iteration executes downstream subjob
-- Example: `tFileInput` with `iterate` flow
-
-```
-tFileInput_1 (reads file, splits into N chunks)
-      │
-      └─[iterate]→ Subjob_2 (processes each chunk)
-                     ├─ tMap_1
-                     ├─ tFileOutput_1
-                     └─ [Loop back for next chunk]
-      
-Result: N iterations of Subjob_2
-```
-
----
-
-## 9. Current Codebase Status
-
-### 9.1 What's Implemented ✅
-
-- ✅ Core engine with component lifecycle
-- ✅ Trigger-based workflow execution
-- ✅ Global map state management
-- ✅ Context variable management with type conversion
-- ✅ Java bridge lifecycle management (Py4J)
-- ✅ Apache Arrow data serialization
-- ✅ tMap component with complex joins & transformations
-- ✅ Batch, Streaming, Hybrid execution modes
-- ✅ Multi-phase tMap processing (filter, join, output)
-- ✅ Compiled tMap execution for performance
-
-### 9.2 What's Not Implemented ❌
-
-- ❌ Other component types (tFileInput, tFileOutput, tDatabase, etc.)
-- ❌ Iterate component support (infrastructure exists, not components)
-- ❌ Error handling for missing columns
-- ❌ Component schema validation
-- ❌ Configuration UI/visual job builder
-- ❌ Job scheduling
-- ❌ Monitoring & metrics dashboard
-- ❌ Rollback/recovery mechanisms
-- ❌ Parallel component execution (currently sequential within subjob)
-
-### 9.3 Known Issues 🐛
-
-1. **GlobalMap.py has bugs:**
-   - References `self._map` instead of `self._storage`
-   - `get()` method missing `default` parameter
-
-1. **ContextManager.py has indentation issues:**
-   - `load_context()` and `load_from_file()` methods defined inside `__init__`
-
-1. **Python Routine Manager:**
-   - File exists but is empty - needs implementation
-
-1. **Type conversion:**
-   - Limited type support, missing BigDecimal, custom types
-
-1. **Error handling:**
-   - die_on_error config mostly stubbed, not fully tested
-   - Limited error context in exceptions
-
----
-
-## 10. Performance Characteristics
-
-### 10.1 tMap Throughput
-
-| Scenario | Rows/Sec | Notes |
-| ---------- | ---------- | ------- |
-| Simple column mapping | 500k+ | Direct pandas ops |
-| Filter + Single join | 200k | Batch expression eval + merge |
-| Multiple joins | 100k | Cartesian products scale poorly |
-| Complex expressions | 189k | Compiled Java script (optimal) |
-
-### 10.2 Memory Usage
-
-**3GB Threshold (Hybrid Mode):**
-
-- Below 3GB → Batch processing
-- Above 3GB → Streaming chunks (50k rows default)
-
-**Example:**
-```
-10M rows × 10 columns (numeric) ≈ 800MB
-→ Batch mode
-
-100M rows × 10 columns ≈ 8GB
-→ Streaming mode (chunk size = 50k)
-→ ~2000 chunks
-```
-
----
-
-## 11. Design Patterns Used
-
-### 11.1 Component Registry
-```python
-COMPONENT_REGISTRY = {
-    'Map': Map,
-    'tMap': Map,
-    # Add more components here
-}
-
-comp_class = COMPONENT_REGISTRY.get(comp_type)
-component = comp_class(comp_id, config)
-```
-
-### 11.2 Context Manager Pattern
-
-- Singleton-like behavior per job
-- Lazy initialization of Java bridge
-- Graceful fallback if Java unavailable
-
-### 11.3 Hybrid Execution Strategy
-
-- Auto-detect based on data size
-- Fallback options (e.g., Java disabled → Python-only)
-- Chunk processing for memory management
-
-### 11.4 Batch Expression Evaluation
-
-- Collect all expressions
-- Execute in ONE Java call (not N calls)
-- Return results as maps/arrays
-- Reduces Py4J overhead
-
----
-
-## 12. How to Extend
-
-### 12.1 Add New Component
-
-```python
-# 1. Create component file: src/v1/engine/components/io/file_input.py
-from base_component import BaseComponent
-
-class FileInput(BaseComponent):
-    def _process(self, input_data=None):
-        # Your implementation
-        return {'main': pandas_dataframe}
-
-# 2. Register in engine.py
-from .components.io.file_input import FileInput
-COMPONENT_REGISTRY['tFileInput'] = FileInput
-
-# 3. Use in JSON config
-{
-    "type": "tFileInput",
-    "config": {
-        "file_path": "/data/input.csv"
-    }
-}
-```
-
-### 12.2 Add New Expression Type
-
-```python
-# In tMap or component that evaluates expressions:
-
-# Current: {{java}} expressions handled via Java bridge
-if expr.startswith('{{java}}'):
-    result = java_bridge.execute(expr)
-
-# New: Add Python expressions
-elif expr.startswith('{{python}}'):
-    python_code = expr[10:]  # Remove marker
-    result = eval(python_code, {"vars": locals()})
-```
-
-### 12.3 Add Java Routines
-
-```python
-# 1. Create Java file: src/v1/java_bridge/java/src/main/java/com/citi/gru/etl/routines/StringUtils.java
-public class StringUtils {
-    public static String toUpperCase(String input) {
-        return input.toUpperCase();
-    }
-}
-
-# 2. Configure in JSON
-{
-    "java_config": {
-        "routines": ["routines.StringUtils"],
-        "libraries": ["commons-lang3-3.14.0.jar"]
-    }
-}
-
-# 3. Use in expressions
-"{{java}}routines.StringUtils.toUpperCase(orders.name)"
-```
-
----
-
-## 13. Deployment Considerations
-
-### 13.1 Requirements
-
-- Python 3.8+
-- Pandas >= 1.2.0
-- Py4J >= 0.10.0
-- Apache Arrow
-- Java 11+ (for Java bridge)
-
-### 13.2 Configuration
-
-- JSON job files should be versioned with the pipeline
-- Context values can be overridden at runtime via CLI
-- Java classpath must include all required libraries
-
-### 13.3 Scaling
-
-- **Single machine:** Process up to 100M rows in streaming mode
-- **Distributed:** No built-in clustering (would require RDD/Spark integration)
-- **Parallelization:** Opportunities in compiled tMap execution
-
----
-
-## 14. Recommendations
-
-### High Priority
-
-1. **Fix GlobalMap bugs** - Data corruption risk
-2. **Fix ContextManager indentation** - Won't work as-is
-3. **Implement Python Routine Manager** - Required for Python expressions
-4. **Add component types** - tFileInput, tFileOutput minimum
-
-### Medium Priority
-
-1. **Improve error handling** - Better error context and recovery
-2. **Add schema validation** - Prevent type mismatches
-3. **Unit tests** - Currently appears to have none
-4. **Documentation** - Add docstrings and examples
-
-### Future Enhancements
-
-1. **Parallel component execution** - Within subjobs where possible
-2. **Distributed execution** - Spark backend
-3. **Real-time monitoring** - Web dashboard
-4. **More component types** - Database, API, message queue connectors
-
----
-
-## 15. Key Takeaways
-
-1. **Well-architected** - Clear separation of concerns, component model scales
-2. **Performance-focused** - Compiled script execution, Arrow serialization
-3. **Production-ready basics** - Context, triggers, state management done right
-4. **Incomplete implementation** - Core engine exists, but components/utilities missing
-5. **Talend-compatible design** - Familiar mental model for Talend users
-6. **Python-Java hybrid strength** - Leverages both ecosystems effectively
-
+### Helper Scripts
+
+- `tests/converters/talend_to_v1/batch_convert.py` -- batch-converts many
+  Talend XML files for testing.
+- `scripts/add_connectors.py` -- adds connector metadata to
+  `src/router/ui_registry.json` for UI rendering.
+
+## See Also
+
+- `docs/COMPONENT_REFERENCE.md` -- per-component inventory and supported
+  options (plan 15-03).
+- `docs/CONTRIBUTING.md` -- authoring conventions, including Rule 5 on
+  registry discipline (plan 15-04).
+- `docs/DEPLOYMENT.md` -- runtime requirements, JVM provisioning, Maven build
+  for the Java bridge (plan 15-05).
+- `docs/v1/patterns/` -- design patterns used inside the engine (post-rename
+  location reached via wave-2 reorganization).
+- `.planning/phases/14-coverage-push-to-95-per-module-floor/14-PHASE-SUMMARY.md`
+  -- source of the Phase 14 Lessons Learned that motivated the Registry
+  Discipline section above.

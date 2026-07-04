@@ -18,6 +18,7 @@ from typing import Any, Dict, List
 
 from ..base import ComponentConverter, ComponentResult, TalendConnection, TalendNode
 from ..registry import REGISTRY
+from ...expression_converter import ExpressionConverter
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,9 @@ class FileInputRawConverter(ComponentConverter):
 
         # ---- 1. Core parameters ----
         config: Dict[str, Any] = {}
-        config["filename"] = self._get_str(node, "FILENAME", "")
+        config["filename"] = ExpressionConverter.mark_java_expression(
+            self._get_str(node, "FILENAME", "")
+        )
         config["as_string"] = self._get_bool(node, "AS_STRING", True)
         config["as_bytearray"] = self._get_bool(node, "AS_BYTEARRAY", False)
         config["as_inputstream"] = self._get_bool(node, "AS_INPUTSTREAM", False)

@@ -75,6 +75,7 @@ def map_triggers(
             "type": mapped_type,
             "from": conn.source,
             "to": conn.target,
+            "output_id": conn.output_id,
         }
 
         # Extract condition for RunIf triggers
@@ -94,5 +95,6 @@ def map_triggers(
                 )
 
         result.triggers.append(trigger)
+    result.triggers.sort(key=lambda t: (t["from"], t.get("output_id", 0)))
 
     return result

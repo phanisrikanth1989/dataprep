@@ -1,0 +1,5316 @@
+{
+  "job_name": "Job_pagination_realschema",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {}
+  },
+  "components": [
+    {
+      "id": "tFileInputDelimited_1",
+      "type": "FileInputDelimited",
+      "original_type": "tFileInputDelimited",
+      "config": {
+        "filepath": "REPLACE_WITH/input_statement.psv",
+        "fieldseparator": "|",
+        "row_separator": "\n",
+        "header_rows": 1,
+        "footer_rows": 0,
+        "encoding": "ISO-8859-15",
+        "csv_option": false,
+        "remove_empty_row": false,
+        "die_on_error": false,
+        "trim_all": false,
+        "trim_select": []
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {
+            "name": "TEMP1",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP2",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP3",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP9",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP10",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "SIDE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TERMID",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "DESTID",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OURREF",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "THEIRREF",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "SUBACC",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "STMTNO",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "STMTPG",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "VALUEDATE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBALSIGN",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBALTP",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBALDATE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBALCCY",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBAL",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBALSIGN",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBALTP",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBALDATE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBALCCY",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBAL",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "DRORCR",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "AMOUNT",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TRANCODE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ENTRYDATE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISFIELD7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISFIELD8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISFIELD9",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IREFERENCE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING27",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING28",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "INS",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IBRANCHCODE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING12",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING13",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING14",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING15",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING60",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING16",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING18",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING19",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING20",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING33",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE12",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE18",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE19",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE20",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT1",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT2",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT3",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT15",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT16",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT9",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT10",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY1",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY2",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG18",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG19",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG20",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG13",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG14",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG15",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG16",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG17",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "PRCCCY",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING10",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ORDINST",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "DCV",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "FIN",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG52",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING25",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING42",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING24",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING26",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING32",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING29",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING30",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING34",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING39",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING40",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING63",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING17",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING47",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING44",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING50",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING51",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING31",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING23",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING66",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING62",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG51",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG41",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG40",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING35",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG25",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG26",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE3",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG21",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG22",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG23",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG24",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG27",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG28",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG29",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG35",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG36",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG37",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG42",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT22",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY22",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY5_2",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING46",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING37",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING38",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING41",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING43",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING45",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING48",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING49",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING52",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING53",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING54",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING55",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING56",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING57",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING58",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING59",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING61",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING64",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING65",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING67",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING68",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING69",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING9",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY12",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT12",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "PP",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "SUBACC_WT_ZERO",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          }
+        ]
+      },
+      "inputs": [],
+      "outputs": [
+        "row1"
+      ]
+    },
+    {
+      "id": "tPagination_1",
+      "type": "Pagination",
+      "original_type": "tPagination",
+      "config": {
+        "component_type": "Pagination",
+        "page_size": 10000,
+        "sort_columns": ["SUBACC", "OPBALCCY", "CLBALDATE"],
+        "absolute_balance": true,
+        "opening_sign_column": "OPBALSIGN",
+        "closing_sign_column": "CLBALSIGN",
+        "opening_multipage_column": "OPBALTP",
+        "closing_multipage_column": "CLBALTP",
+        "multipage_value": "M",
+        "multipage_single_value": "F",
+        "account_column": "SUBACC",
+        "dc_flag_column": "DRORCR",
+        "amount_column": "AMOUNT",
+        "page_column": "STMTPG",
+        "opening_balance_column": "OPBAL",
+        "closing_balance_column": "CLBAL",
+        "debit_column": "AMT_D",
+        "credit_column": "AMT_C",
+        "debit_flag_value": "D",
+        "credit_flag_value": "C",
+        "null_token": "NULL"
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "TEMP1",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP2",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP3",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP9",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP10",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "SIDE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TERMID",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "DESTID",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OURREF",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "THEIRREF",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "SUBACC",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "STMTNO",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "STMTPG",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "VALUEDATE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBALSIGN",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBALTP",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBALDATE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBALCCY",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBAL",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBALSIGN",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBALTP",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBALDATE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBALCCY",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBAL",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "DRORCR",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "AMOUNT",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TRANCODE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ENTRYDATE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISFIELD7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISFIELD8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISFIELD9",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IREFERENCE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING27",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING28",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "INS",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IBRANCHCODE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING12",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING13",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING14",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING15",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING60",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING16",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING18",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING19",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING20",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING33",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE12",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE18",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE19",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE20",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT1",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT2",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT3",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT15",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT16",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT9",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT10",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY1",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY2",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG18",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG19",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG20",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG13",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG14",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG15",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG16",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG17",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "PRCCCY",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING10",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ORDINST",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "DCV",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "FIN",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG52",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING25",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING42",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING24",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING26",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING32",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING29",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING30",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING34",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING39",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING40",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING63",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING17",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING47",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING44",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING50",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING51",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING31",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING23",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING66",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING62",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG51",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG41",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG40",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING35",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG25",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG26",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE3",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG21",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG22",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG23",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG24",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG27",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG28",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG29",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG35",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG36",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG37",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG42",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT22",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY22",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY5_2",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING46",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING37",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING38",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING41",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING43",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING45",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING48",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING49",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING52",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING53",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING54",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING55",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING56",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING57",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING58",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING59",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING61",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING64",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING65",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING67",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING68",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING69",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING9",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY12",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT12",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "PP",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "SUBACC_WT_ZERO",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          }
+        ],
+        "output": [
+          {
+            "name": "TEMP1",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP2",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP3",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP9",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP10",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "SIDE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TERMID",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "DESTID",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OURREF",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "THEIRREF",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "SUBACC",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "STMTNO",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "STMTPG",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "VALUEDATE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBALSIGN",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBALTP",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBALDATE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBALCCY",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBAL",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBALSIGN",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBALTP",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBALDATE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBALCCY",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBAL",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "DRORCR",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "AMOUNT",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TRANCODE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ENTRYDATE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISFIELD7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISFIELD8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISFIELD9",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IREFERENCE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING27",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING28",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "INS",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IBRANCHCODE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING12",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING13",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING14",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING15",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING60",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING16",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING18",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING19",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING20",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING33",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE12",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE18",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE19",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE20",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT1",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT2",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT3",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT15",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT16",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT9",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT10",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY1",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY2",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG18",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG19",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG20",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG13",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG14",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG15",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG16",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG17",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "PRCCCY",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING10",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ORDINST",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "DCV",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "FIN",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG52",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING25",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING42",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING24",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING26",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING32",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING29",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING30",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING34",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING39",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING40",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING63",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING17",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING47",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING44",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING50",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING51",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING31",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING23",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING66",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING62",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG51",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG41",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG40",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING35",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG25",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG26",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE3",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG21",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG22",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG23",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG24",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG27",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG28",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG29",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG35",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG36",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG37",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG42",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT22",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY22",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY5_2",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING46",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING37",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING38",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING41",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING43",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING45",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING48",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING49",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING52",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING53",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING54",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING55",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING56",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING57",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING58",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING59",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING61",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING64",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING65",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING67",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING68",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING69",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING9",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY12",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT12",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "PP",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "SUBACC_WT_ZERO",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "AMT_D",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "AMT_C",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          }
+        ]
+      },
+      "inputs": [
+        "row1"
+      ],
+      "outputs": [
+        "out_main",
+        "detail"
+      ]
+    },
+    {
+      "id": "tFileOutputDelimited_summary",
+      "type": "FileOutputDelimited",
+      "original_type": "tFileOutputDelimited",
+      "config": {
+        "filepath": "REPLACE_WITH/summary_out.psv",
+        "fieldseparator": "|",
+        "row_separator": "\n",
+        "encoding": "ISO-8859-15",
+        "include_header": true,
+        "append": false,
+        "create_directory": true,
+        "split": false,
+        "file_exist_exception": false
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "TEMP1",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP2",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP3",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP9",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP10",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "SIDE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TERMID",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "DESTID",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OURREF",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "THEIRREF",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "SUBACC",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "STMTNO",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "STMTPG",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "VALUEDATE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBALSIGN",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBALTP",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBALDATE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBALCCY",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBAL",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBALSIGN",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBALTP",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBALDATE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBALCCY",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBAL",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "DRORCR",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "AMOUNT",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TRANCODE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ENTRYDATE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISFIELD7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISFIELD8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISFIELD9",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IREFERENCE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING27",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING28",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "INS",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IBRANCHCODE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING12",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING13",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING14",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING15",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING60",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING16",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING18",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING19",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING20",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING33",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE12",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE18",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE19",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE20",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT1",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT2",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT3",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT15",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT16",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT9",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT10",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY1",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY2",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG18",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG19",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG20",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG13",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG14",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG15",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG16",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG17",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "PRCCCY",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING10",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ORDINST",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "DCV",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "FIN",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG52",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING25",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING42",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING24",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING26",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING32",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING29",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING30",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING34",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING39",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING40",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING63",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING17",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING47",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING44",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING50",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING51",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING31",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING23",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING66",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING62",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG51",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG41",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG40",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING35",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG25",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG26",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE3",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG21",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG22",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG23",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG24",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG27",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG28",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG29",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG35",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG36",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG37",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG42",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT22",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY22",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY5_2",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING46",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING37",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING38",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING41",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING43",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING45",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING48",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING49",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING52",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING53",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING54",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING55",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING56",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING57",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING58",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING59",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING61",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING64",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING65",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING67",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING68",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING69",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING9",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY12",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT12",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "PP",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "SUBACC_WT_ZERO",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "AMT_D",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "AMT_C",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          }
+        ],
+        "output": []
+      },
+      "inputs": [
+        "out_main"
+      ],
+      "outputs": []
+    },
+    {
+      "id": "tFileOutputDelimited_detail",
+      "type": "FileOutputDelimited",
+      "original_type": "tFileOutputDelimited",
+      "config": {
+        "filepath": "REPLACE_WITH/detail_out.psv",
+        "fieldseparator": "|",
+        "row_separator": "\n",
+        "encoding": "ISO-8859-15",
+        "include_header": true,
+        "append": false,
+        "create_directory": true,
+        "split": false,
+        "file_exist_exception": false
+      },
+      "schema": {
+        "input": [
+          {
+            "name": "TEMP1",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP2",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP3",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP9",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TEMP10",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "SIDE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TERMID",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "DESTID",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OURREF",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "THEIRREF",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "SUBACC",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "STMTNO",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "STMTPG",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "VALUEDATE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBALSIGN",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBALTP",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBALDATE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBALCCY",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "OPBAL",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBALSIGN",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBALTP",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBALDATE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBALCCY",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "CLBAL",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "DRORCR",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "AMOUNT",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "TRANCODE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ENTRYDATE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISFIELD7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISFIELD8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISFIELD9",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IREFERENCE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING27",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING28",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "INS",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IBRANCHCODE",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING12",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING13",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING14",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING15",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING60",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING16",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING18",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING19",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING20",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING33",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE12",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE18",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE19",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE20",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT1",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT2",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT3",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT15",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT16",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT9",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT10",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY1",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY2",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG18",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG19",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG20",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG13",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG14",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG15",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG16",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG17",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "PRCCCY",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING10",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ORDINST",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "DCV",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "FIN",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG52",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING25",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING42",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING24",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING26",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING32",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING29",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING30",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING34",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING39",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING40",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING63",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING17",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING47",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING44",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING50",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING51",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING31",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING23",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING66",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING62",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG51",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG41",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG40",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING35",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG25",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG26",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE3",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE4",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IDATE6",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG21",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG22",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG23",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG24",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG27",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG28",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG29",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG35",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG36",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG37",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG42",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT22",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY22",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY5_2",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY7",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING46",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING37",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING38",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING41",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING43",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING45",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING48",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING49",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING5",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING52",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING53",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING54",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING55",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING56",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING57",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING58",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING59",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING61",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING64",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING65",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING67",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING68",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING69",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ISTRING9",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY11",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "ICURRENCY12",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT12",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IFLAG8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "PP",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "SUBACC_WT_ZERO",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          },
+          {
+            "name": "IAMOUNT8",
+            "type": "str",
+            "nullable": true,
+            "key": false
+          }
+        ],
+        "output": []
+      },
+      "inputs": [
+        "detail"
+      ],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {
+      "name": "row1",
+      "from": "tFileInputDelimited_1",
+      "to": "tPagination_1",
+      "type": "flow"
+    },
+    {
+      "name": "out_main",
+      "from": "tPagination_1",
+      "to": "tFileOutputDelimited_summary",
+      "type": "flow"
+    },
+    {
+      "name": "detail",
+      "from": "tPagination_1",
+      "to": "tFileOutputDelimited_detail",
+      "type": "flow"
+    }
+  ],
+  "triggers": [],
+  "subjobs": {
+    "subjob_1": [
+      "tFileInputDelimited_1",
+      "tPagination_1",
+      "tFileOutputDelimited_summary",
+      "tFileOutputDelimited_detail"
+    ]
+  },
+  "java_config": {
+    "enabled": false,
+    "routines": [],
+    "libraries": []
+  }
+}

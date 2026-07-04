@@ -1,20 +1,39 @@
-# V1 Engine Audit — Methodology & Scoring Framework
+# V1 Engine Audit -- Methodology & Scoring Framework
+
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation*
 
 ## Purpose
 
-This audit measures every v1 component against its Talend equivalent across multiple dimensions to produce an actionable report for developers migrating 1000+ Talend jobs to the v1 Python engine.
+This document describes the canonical methodology for auditing and fixing v1 engine components
+against their Talend equivalents. The primary goal is to maintain a per-component parity record
+between this engine's source and the Talaxie javajet reference, so that any future
+bug-fix phase can plan work from a current, accurate baseline.
+
+Phase 15.1 establishes this Talaxie-diff 8-step workflow as the canonical methodology going
+forward. Steps 1-3 of the workflow (audit -> Talaxie research -> feature parity comparison) are
+also the per-component reconciliation workflow used in Phase 15.1 specifically, producing an
+updated doc artifact rather than a source patch.
 
 ## Audience
 
-Developers experienced with Talend who have Python skills and are using AI assistance to implement fixes.
+Engine contributors, future bug-fix phase planners, and anyone evaluating a new component's
+parity surface against Talend. Assumes familiarity with the v1 engine component pattern
+(see `docs/v1/patterns/ENGINE_COMPONENT_PATTERN.md`) and the Talend Open Studio component
+model.
 
 ## Scope
 
-- All ~50 implemented v1 engine components
-- The `complex_converter` (Talend XML to v1 JSON)
-- Converter + engine coverage in a single per-component report
-- Database components (Oracle, MSSQL) are **excluded**
-- **V1 only** — reports must contain zero references to v2, V2, PyETL, v1-to-v2 converters, talend-to-v2 converters, or any v2 test files
+- All 66 shipped v1 engine components (those registered in
+  `src/v1/engine/component_registry.py`)
+- 1 net-new audit doc authored in Phase 15.1 (`tFileOutputXML`)
+- 3 cross-cutting docs: this file (`METHODOLOGY.md`), `SUMMARY_SCORECARD.md`,
+  `CROSS_CUTTING_ISSUES.md`
+- Converter (`src/converters/talend_to_v1/`) + engine coverage in a single per-component
+  report
+- 20 non-shipped components (Oracle/MSSQL connectors, control components, tForeach,
+  tFileOutputEBCDIC, tHashOutput) are **excluded** from reconciliation
+- **V1 only** -- reports must contain zero references to v2, V2, PyETL, v1-to-v2 converters,
+  talend-to-v2 converters, or any v2 test files
 
 ---
 
@@ -43,11 +62,17 @@ For each component, we document the **complete** feature set of the Talend equiv
 - Error handling behavior
 - Known Talend quirks and edge cases
 
-Source: Talend documentation, Talend Studio reference, online resources.
+**Canonical source:** Talaxie GitHub javajet templates at
+`github.com/Talaxie/tdi-studio-se/tree/master/main/plugins/
+org.talend.designer.components.localprovider/components/<ComponentName>/
+<ComponentName>_java.xml`. The javajet is the ground truth for what Talend generates and
+therefore what the engine must replicate. Per-component Talaxie paths are enumerated in the
+Phase 15.1 research document.
 
-### 2. Converter Coverage (XML → v1 JSON)
+### 2. Converter Coverage (XML -> v1 JSON)
 
-Does `complex_converter/component_parser.py` correctly extract all Talend XML data for this component?
+Does `src/converters/talend_to_v1/components/` correctly extract all Talend XML data for
+this component?
 
 | Check | Description |
 | ------- | ------------- |
@@ -59,7 +84,7 @@ Does `complex_converter/component_parser.py` correctly extract all Talend XML da
 | **Table parameters** | Nested `elementValue` groups parsed correctly (grouping, ordering) |
 | **Connection types** | All FLOW/REJECT/FILTER/ITERATE connectors mapped |
 | **Quote/entity handling** | `&quot;`, `&#xD;&#xA;`, hex values decoded properly |
-| **Missing parser method** | Does the dispatch in converter.py have a valid target? |
+| **Missing parser method** | Does the dispatch in the converter registry have a valid target? |
 
 ### 3. Engine Feature Parity
 
@@ -78,13 +103,17 @@ Does the Python component produce the same results as the Talend component?
 | **Iteration support** | Works correctly inside tFileList/tFlowToIterate loops |
 | **Context variable resolution** | `${context.var}` and `context.var` patterns resolved at execution time |
 
+Engine components are registered in `src/v1/engine/component_registry.py`. Only registered
+components are in scope for audit. New components must follow the REGISTRY-driven registration
+discipline documented in `docs/CONTRIBUTING.md`.
+
 ### 4. Code Quality
 
 | Check | Description |
 | ------- | ------------- |
 | **Bugs** | Confirmed runtime errors, logic errors, typos |
 | **Naming consistency** | Config keys, class names, parameter names follow conventions |
-| **STANDARDS.md compliance** | Follows `docs/v1/STANDARDS.md` |
+| **CONTRIBUTING.md compliance** | Follows `docs/CONTRIBUTING.md` and `docs/v1/patterns/ENGINE_COMPONENT_PATTERN.md` |
 | **Error handling** | Proper exception types, consistent die_on_error, no bare except |
 | **Dead code** | Unused methods, unreachable branches |
 | **Debug artifacts** | `print()` statements, hardcoded paths, TODO comments |
@@ -102,6 +131,10 @@ Does the Python component produce the same results as the Talend component?
 | **Type handling** | BigDecimal precision, nullable int, date parsing |
 | **DataFrame operations** | Uses vectorized pandas vs row-by-row iterrows() |
 
+The engine's base_component.py selects BATCH, STREAMING, or HYBRID mode automatically based
+on input size. Stateful components (sort, aggregate) must be validated to produce correct
+output in HYBRID mode where `_process()` is called per chunk.
+
 ### 6. Testing Coverage
 
 | Check | Description |
@@ -112,35 +145,84 @@ Does the Python component produce the same results as the Talend component?
 | **Error paths tested** | die_on_error=True/False, invalid config |
 | **Integration tested** | Component tested in a multi-step job |
 
+Phase 14 established a 95% per-module line-coverage floor for all shipped components. This is
+the Green threshold for the Testing dimension. Components at or above 95% per-module line
+coverage are rated Green; below 95% is Yellow; zero test coverage is Red. See
+`scripts/check_per_module_coverage.py` and `pyproject.toml` for the gate definition.
+
 ---
 
 ## Report Structure
 
 ### Per-Component Report (`docs/v1/audit/components/<ComponentName>.md`)
 
-Each report follows a fixed structure — see `tFileInputDelimited.md` as the gold standard template.
+Each per-component audit report follows a fixed 11-section schema. This schema is the
+canonical template; use `tFileInputDelimited.md` as the gold standard reference. The
+11-section structure below is the authoritative guide for authoring and reviewing audit docs.
+
+**Standard H2 sections in order:**
+
+1. `## 1. Component Identity` -- field/value table (Talend Name, V1 Engine Class, Engine File,
+   Converter Parser, Converter Dispatch, Registry Aliases, Category) plus `### Key Files`
+   sub-table
+2. `## 2. Scorecard` -- dimension/score/P0/P1/P2/P3/Details table (5 rows: Converter Coverage,
+   Engine Feature Parity, Code Quality, Performance & Memory, Testing)
+3. `## 3. Talend Feature Baseline` -- what the component does, Talaxie source URL, Basic
+   Settings table, Advanced Settings, Connection Types, GlobalMap Variables, Behavioral Notes
+4. `## 4. Converter Audit` -- per-parameter extraction status, needs_review enumeration,
+   converter bug list (N/A for engine-native components)
+5. `## 5. Engine Feature Parity` -- 5.1 feature implementation status table, 5.2 behavioral
+   differences, 5.3 GlobalMap variable coverage
+6. `## 6. Code Quality` -- 6.1 Bugs, 6.2 Naming Consistency, 6.3 Standards Compliance,
+   6.4 Debug Artifacts, 6.5 Security, 6.6 Logging Quality, 6.7 Error Handling Quality,
+   6.8 Type Hints
+7. `## 7. Performance & Memory` -- PERF-* issues, memory management assessment
+8. `## 8. Testing` -- test coverage assessment
+9. `## 9. Issues Summary` -- by Priority table, by Category table, Cross-Cutting Issues table
+10. `## 10. Recommendations` -- Immediate / Short-term / Long-term recommendations
+11. `## 11. Risk Assessment` (some docs only) -- risk matrix, high-risk patterns, safe usage
+    patterns
+- `## Appendix A: Source References` -- source URL/path table
+- `## Appendix B/C` -- variable per file (Cross-Cutting Issues, Engine Config Key Mapping, etc.)
+
+**Resolved issues** use the strike-through + tag convention: `~~P0: description~~ [RESOLVED in
+Phase N, commit <short_sha> (BUG-ID)]`. Net-new gaps discovered in 15.1 are tagged
+`[NEW IN 15.1]` and appended to the existing P0/P1/P2/P3 blocks.
 
 ### Cross-Cutting Issues (`docs/v1/audit/CROSS_CUTTING_ISSUES.md`)
 
-Issues that affect the entire engine, not a single component:
+Issues that affect the entire engine, not a single component. The regenerated (Phase 15.1)
+CROSS_CUTTING_ISSUES.md covers 7 H2 sections:
 
-- `_update_global_map()` crash (base_component.py:304 — undefined `value` variable)
-- `GlobalMap.get()` crash (global_map.py:28 — undefined `default` parameter)
-- `replace_in_config` literal `[i]` bug (base_component.py:174 — Java expressions in lists never resolved)
-- `validate_schema` inverted nullable logic (base_component.py:351 — nullable columns get fillna(0))
-- `_execute_streaming` drops reject DataFrames (base_component.py:267-278)
-- HYBRID streaming mode produces incorrectly sorted/ordered output for stateful components
-- `self.config` mutated by `execute()` — non-reentrant in iterate loops
-- Component status never reaches SUCCESS when globalMap is set
-- `_update_global_map()` crash in error handler masks original exceptions
-- Trigger evaluator: no `((Boolean)...)` regex, `!` replacement corrupts `!=`
-- Engine error handling flow, die_on_error consistency, exit code propagation
-- Missing component implementations (tFileList, tFlowToIterate, tRunJob, tPrejob, tPostjob)
-- Converter systemic issues (broken imports from aggregate, missing parser methods)
+1. `## 1. Critical Engine Bugs (P0)` -- base_component / global_map crashes (all closed Phase 1)
+2. `## 2. Engine Error Handling Flow` -- die_on_error matrix, exit code propagation, job status
+3. `## 3. Trigger System Issues` -- Boolean regex, `!` corruption, RunIf eval, trigger firing
+4. `## 4. Streaming Mode Issues` -- reject drop, HYBRID stateful, sort order, pivot, stats
+5. `## 5. Context & Variable Resolution Issues` -- inverted nullable, config mutation,
+   resolve_dict, context type loss
+6. `## 6. Missing Component Implementations` -- converter-to-engine mapping gaps and impact
+7. `## 7. Converter Systemic Issues` -- broken import chain, missing parser methods, type name
+   mismatches, null safety
+
+Issues closed by Phases 1-14 are struck through with `[RESOLVED in Phase N, commit <sha>]`
+tags. Live issues retain their full description.
 
 ### Summary Scorecard (`docs/v1/audit/SUMMARY_SCORECARD.md`)
 
-Traffic-light matrix: every component x every dimension = R/Y/G with issue counts.
+Traffic-light matrix and aggregate metrics across all audited components. The regenerated
+(Phase 15.1) SUMMARY_SCORECARD.md covers 9 H2 sections:
+
+1. `## Overview` -- scope, methodology note, `### Important Note on Issue Counts`
+2. `## Traffic Light Matrix` -- per-component R/A/G table (66 shipped + 1 net-new)
+3. `## Rating Distribution` -- `### Overall Component Ratings`, `### Per-Dimension Rating
+   Distribution`
+4. `## Priority Distribution` -- P0/P1/P2/P3 aggregate counts
+5. `## Most Critical Components (Ranked by P0 Count)` -- surviving open P0s after Phase 14
+6. `## Cross-Cutting Issues Summary` -- rolls up from CROSS_CUTTING_ISSUES.md
+7. `## Component Categories` -- 7 H3 subsections by category (File I/O, Transform, Aggregate,
+   Control, Database, Context, Iterate)
+8. `## Key Findings` -- numbered findings reconciled against post-Phase-14 reality
+9. `## Production Readiness Assessment` -- verdict and minimum fix list for production viability
 
 ---
 
@@ -153,25 +235,57 @@ Traffic-light matrix: every component x every dimension = R/Y/G with issue count
 | **G (Green)** | Works correctly, meets standards |
 | **N/A** | Not applicable to this component |
 
+**Green threshold for Testing dimension:** >= 95% per-module line coverage (Phase 14 floor).
+Components that passed the Phase 14 gate (`scripts/check_per_module_coverage.py coverage.json
+--floor 95`) are rated Green for Testing. Those that were exempt from Phase 14 (non-shipped
+components) retain their prior rating.
+
 ---
 
 ## Audit Process
 
-Each component goes through a **two-pass review process**:
-
 ### Pass 1: Initial Audit
 
-- Research Talend documentation online for the component
-- Read the v1 engine implementation (every line)
-- Read the converter code (dispatch + parser + parameter mapping)
-- Write the full audit report following the gold standard template
+The canonical audit-and-fix methodology is an **8-step component workflow**. Steps 1-3 are the
+per-component reconciliation workflow (producing a doc artifact); steps 4-8 apply when a fix
+phase is warranted.
+
+1. **Audit** -- read the existing per-component audit doc. Catalog all open P0/P1/P2/P3 issues.
+   Note which issues have been addressed by Phases 1-14 commits.
+2. **Talaxie research** -- read the Talaxie javajet template for the component
+   (`github.com/Talaxie/tdi-studio-se/.../<ComponentName>/<ComponentName>_java.xml`).
+   Confirm or update the "Talend Feature Baseline" section.
+3. **Feature parity comparison** -- diff current `src/v1/engine/components/<cat>/<component>.py`
+   and `src/converters/talend_to_v1/components/<cat>/<component>.py` against the Talaxie
+   reference. Identify gaps, regressions, or improvements since the audit was written.
+4. **Plan fix** -- design the fix approach: patch, rewrite, or defer. Scope per-component
+   or cross-cutting as appropriate.
+5. **Review plan** -- adversarial review (see Pass 2 below) before coding.
+6. **Code fix** -- implement the plan. Follow `docs/v1/patterns/ENGINE_COMPONENT_PATTERN.md`
+   and `docs/CONTRIBUTING.md`.
+7. **Verify** -- run the test suite (`pytest tests/ -m "not oracle"`). Confirm the Phase 14
+   95% per-module floor is not regressed.
+8. **Close audit issue** -- update the per-component audit doc: strike through the fixed issue
+   with `[RESOLVED in Phase N, commit <short_sha> (BUG-ID)]` and update the Section 2
+   Scorecard.
+
+**Phase 15.1 scope:** Steps 1-3 only. Phase 15.1 produces reconciled doc artifacts; no source
+patches. Source fixes were delivered in Phases 1-14.
 
 ### Pass 2: Adversarial Review
 
-- A separate reviewer reads the report AND the source code
-- Mindset: "Find at least 3-5 issues the report missed"
-- Focuses on edge cases, cross-class interactions, and behavioral subtleties
-- Findings are incorporated back into the report before commit
+Before any fix is coded (step 6), a separate review reads the audit report AND the source
+code with the mindset: "Find at least 3-5 issues the report missed."
+
+Focuses on:
+- Edge cases and cross-class interactions (e.g., HYBRID mode with stateful components)
+- Behavioral subtleties (e.g., Talend's exact NaN vs None handling)
+- Cross-cutting bug interactions (e.g., `_update_global_map()` crash masking other errors)
+
+**Verify-before-claim discipline (D-C3):** Every cited class, function, file path, line number,
+and Talaxie reference must be grep-confirmed against the live repo before the report or commit
+lands. Stale line numbers from earlier audits are acceptable in struck-through closed-issue
+blocks; they must not appear in live open-issue descriptions.
 
 ### Mandatory Edge-Case Checklist
 
@@ -179,29 +293,31 @@ Every audit MUST check these cross-cutting concerns:
 
 | Check | Why |
 | ------- | ----- |
-| NaN handling (`pd.isna()` vs `is None`) | pandas uses NaN, not None — `value is None` misses NaN |
+| NaN handling (`pd.isna()` vs `is None`) | pandas uses NaN, not None -- `value is None` misses NaN |
 | Empty strings in config keys | Can produce crashes (e.g., `str.split("")` raises ValueError) |
 | Empty DataFrame input (0 rows with columns vs None) | Returning `pd.DataFrame()` loses column schema |
-| HYBRID streaming mode via base class | Base class chunks and calls `_process()` per chunk — stateful components break |
-| `_update_global_map()` crash effect | Crashes ALL components when globalMap is set — results lost, status stuck at RUNNING |
-| Component status reaching SUCCESS | Line 220 unreachable when `_update_global_map()` crashes on line 218 |
-| Thread safety for parallel subjobs | ContextManager, GlobalMap, JavaBridge are shared — no locking |
-| Type demotion through iterrows/Series reconstruction | `Decimal` → `float64`, `datetime64` → `object` |
-| `validate_schema` nullable logic (inverted) | `nullable=True` triggers `fillna(0)` — should be the opposite |
-| `_validate_config()` called or dead code | Most components define it but never call it |
+| HYBRID streaming mode via base class | Base class chunks and calls `_process()` per chunk -- stateful components break |
+| `_update_global_map()` interaction | Was the base-class crash fixed? Confirm Phase 1 ENG-01 applies. |
+| Component status reaching SUCCESS | Verify status transitions in base_component.py execute() reach SUCCESS correctly |
+| Thread safety for parallel subjobs | ContextManager, GlobalMap, JavaBridge are shared -- no locking |
+| Type demotion through iterrows/Series reconstruction | `Decimal` -> `float64`, `datetime64` -> `object` |
+| `validate_schema` nullable logic | Confirm Phase 1 ENG-19 fix is in place (was inverted pre-Phase-1) |
+| `_validate_config()` called or dead code | Most components define it but the base class does not call it automatically |
 
 ---
 
 ## Known Cross-Cutting Bugs
 
-These bugs appear in EVERY component report (referenced by component-specific IDs):
+The full inventory of cross-cutting engine bugs -- covering base_component.py, GlobalMap,
+trigger evaluation, streaming mode, context resolution, missing components, and converter
+systemic issues -- is maintained in `docs/v1/audit/CROSS_CUTTING_ISSUES.md`.
 
-| Bug | Location | Impact |
-| ----- | ---------- | -------- |
-| `_update_global_map()` undefined `value` | `base_component.py:304` | Crashes all components when globalMap is set. Results lost. |
-| `GlobalMap.get()` undefined `default` | `global_map.py:28` | Crashes any direct `.get()` call. `get_component_stat()` line 58 also fails. |
-| `replace_in_config` literal `[i]` | `base_component.py:174` | Java expressions in list config values never resolved back. |
-| `validate_schema` inverted nullable | `base_component.py:351` | Nullable int columns get `fillna(0)` — nulls silently become 0. |
-| `_execute_streaming` drops rejects | `base_component.py:267-278` | Only `result['main']` collected in streaming — reject data lost. |
-| `self.config` mutation | `base_component.py:202` | `resolve_dict()` replaces config — non-reentrant in iterate loops. |
-| `__repr__` mismatched parenthesis | `base_component.py:382` | Cosmetic but indicates lack of review. |
+That document was regenerated in Phase 15.1 (Plan 15.1-10) to reflect post-Phase-14 reality:
+all Phase 1 critical bugs are struck through as resolved; surviving live issues are retained
+with their full descriptions. The 7 H2 sections in CROSS_CUTTING_ISSUES.md map directly to
+the audit dimensions above (Critical Bugs, Error Handling, Triggers, Streaming, Context,
+Missing Components, Converter Systemic).
+
+For per-component cross-cutting bug references, each audit doc's Section 9 (Issues Summary)
+contains a "Cross-Cutting Issues" sub-table that links to the relevant H3 in
+CROSS_CUTTING_ISSUES.md.

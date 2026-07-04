@@ -1,231 +1,337 @@
+"""Engine component for LogRow (tLogRow).
+
+Logs rows flowing through the pipeline to the console for debugging and
+monitoring. All output goes through ``logger.info()`` -- the Python equivalent
+of Talend's default Log4J routing. The component is a pure pass-through:
+every input row appears unchanged on the ``main`` output.
+
+Config keys consumed (16 total):
+  basic_mode             (bool, default True)  -- MODE radio; sep-delimited one line per row
+  table_print            (bool, default False) -- MODE radio; bordered ASCII table
+  vertical               (bool, default False) -- MODE radio; key-value pairs per row
+  print_unique           (bool, default True)  -- TITLE_PRINT radio; unique name as section
+                                                  title in vertical mode
+  print_label            (bool, default False) -- TITLE_PRINT radio; label as section title
+                                                  in vertical mode
+  print_unique_label     (bool, default False) -- TITLE_PRINT radio; unique+label as title
+  fieldseparator         (str,  default "|")   -- field delimiter for basic mode
+  print_header           (bool, default False) -- include column-names header line before
+                                                  data rows (basic mode)
+  print_unique_name      (bool, default False) -- prefix each row line with [component_id]
+  print_colnames         (bool, default False) -- prefix each value with "colname=" in
+                                                  basic mode (e.g. id=1|name=Alice)
+  use_fixed_length       (bool, default False) -- pad / truncate values to widths from
+                                                  the lengths list
+  lengths                (list, default [])    -- per-column widths; parallel to schema
+                                                  columns order
+  print_content_with_log4j (bool, default True) -- DEFERRED: route through Log4J vs
+                                                   System.out; we always use logger.info
+  max_rows               (int or str, default 100) -- max rows to display;
+                                                       accepts ${context.X} references
+  tstatcatcher_stats     (bool, default False) -- framework: tStatCatcher statistics
+  label                  (str,  default "")    -- framework: component label on canvas
 """
-LogRow - Logs rows to standard output in table format.
-
-Talend equivalent: tLogRow
-
-This component prints incoming data to standard output in various formats
-including table style, basic delimited, and vertical key-value display.
-Used for debugging and monitoring data flow in ETL jobs.
-"""
-
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import pandas as pd
 
 from ...base_component import BaseComponent
+from ...component_registry import REGISTRY
+from ...exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
+# ---- module-level constants ----
+_DEFAULT_SEPARATOR = "|"
+_DEFAULT_MAX_ROWS = 100
 
+
+@REGISTRY.register("LogRow", "tLogRow")
 class LogRow(BaseComponent):
-    """
-    Logs rows to standard output in table format, similar to Talend's tLogRow.
+    """tLogRow engine implementation -- pass-through row logger.
 
-    This component prints incoming data to the console for debugging and monitoring
-    purposes. Supports multiple output formats including table style with headers,
-    basic delimited output, and vertical key-value display.
+    Logs rows flowing through the pipeline to the console for debugging
+    and monitoring. Supports three mutually-exclusive display modes:
 
-    Configuration:
-        basic_mode (bool): Use basic delimited output instead of table style. Default: False
-        table_print (bool): Use table style output with proper formatting. Default: True
-        vertical (bool): Use vertical output (each row as key-value pairs). Default: False
-        field_separator (str): Field separator for delimited output. Default: '|'
-        print_header (bool): Print column headers. Default: True
-        max_rows (int): Maximum number of rows to print. Default: 100
-        print_column_names (bool): Print column names (alias for print_header). Default: True
+    * ``basic_mode`` (default True) -- separator-delimited one line per row
+    * ``table_print`` (default False) -- bordered ASCII table with headers
+    * ``vertical``   (default False) -- key-value pairs one per line per row
 
-    Inputs:
-        main: DataFrame to log to console
+    The component is a **pure pass-through**: ``main`` always equals the
+    full input DataFrame. ``reject`` is never populated. ``NB_LINE_OK``
+    equals the total number of input rows (not the displayed subset).
 
-    Outputs:
-        main: Pass-through of input DataFrame (unchanged)
-
-    Statistics:
-        NB_LINE: Total rows processed
-        NB_LINE_OK: Rows successfully logged
-        NB_LINE_REJECT: Always 0 (no rejection logic)
-
-    Example configuration:
-        {
-            "table_print": true,
-            "field_separator": "|",
-            "print_header": true,
-            "max_rows": 50
-        }
-
-    Notes:
-        - Always passes through input data unchanged
-        - Headers are printed by default for better readability
-        - Supports both Talend-style and simplified configuration parameters
-        - Output goes to standard output (console)
+    Config keys:
+        basic_mode: Sep-delimited one line per row (default True -- selected mode)
+        table_print: Bordered ASCII table (default False)
+        vertical: Key-value pairs per row (default False)
+        print_unique: Component unique name as section title in vertical mode (default True)
+        print_label: Label as section title in vertical mode (default False)
+        print_unique_label: Unique+label as title in vertical mode (default False)
+        fieldseparator: Delimiter for basic mode (default "|")
+        print_header: Print column names header line in basic mode (default False)
+        print_unique_name: Prefix each row line with [component_id] (default False)
+        print_colnames: Prefix each value with "colname=" in basic mode (default False)
+        use_fixed_length: Pad values to widths from lengths list (default False)
+        lengths: Per-column widths parallel to schema columns (default [])
+        print_content_with_log4j: DEFERRED -- Log4J vs System.out (default True)
+        max_rows: Max rows to display; accepts ${context.X} refs (default 100)
+        tstatcatcher_stats: framework (default False)
+        label: component label on canvas (default "")
     """
 
-    # Class constants for default values
-    DEFAULT_FIELD_SEPARATOR = '|'
-    DEFAULT_MAX_ROWS = 100
+    # ------------------------------------------------------------------
+    # Configuration Validation
+    # ------------------------------------------------------------------
 
-    def _validate_config(self) -> List[str]:
+    def _validate_config(self) -> None:
+        """Validate configuration.
+
+        No keys are required -- all have safe defaults. ``max_rows``
+        numeric validation is intentionally deferred to ``_process()`` so
+        that ``${context.MAX_ROWS}`` references are accepted here and
+        resolved before the numeric check runs (Rule 12).
         """
-        Validate component configuration.
+
+    # ------------------------------------------------------------------
+    # Core Processing
+    # ------------------------------------------------------------------
+
+    def _process(self, input_data: Optional[pd.DataFrame] = None) -> dict[str, Any]:
+        """Log rows and pass all input through unchanged.
+
+        Args:
+            input_data: Input DataFrame from upstream component.
 
         Returns:
-            List of error messages (empty if valid)
+            dict with ``main`` key containing the full unmodified input
+            DataFrame. ``reject`` is never populated.
         """
-        errors = []
-
-        # Validate max_rows if provided
-        max_rows_param = self.config.get('max_rows') or self.config.get('SCHEMA_OPT_NUM')
-        if max_rows_param is not None:
-            try:
-                max_rows_val = int(max_rows_param)
-                if max_rows_val < 0:
-                    errors.append("Config 'max_rows' must be non-negative")
-            except (ValueError, TypeError):
-                errors.append("Config 'max_rows' must be an integer")
-
-        return errors
-
-    def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
-        """Process input data and log to console."""
         if input_data is None or input_data.empty:
-            logger.warning(f"[{self.id}] Empty input received")
-            self._update_stats(0, 0, 0)
-            return {'main': input_data}
+            return {"main": input_data if input_data is not None else pd.DataFrame()}
 
-        rows_in = len(input_data)
-        logger.info(f"[{self.id}] Logging started: {rows_in} rows")
-
-        # Get configuration with support for both new and Talend-style parameter names
-        basic_mode = self._get_boolean_config(['basic_mode', 'BASIC_MODE'], False)
-        table_print = self._get_boolean_config(['table_print', 'TABLE_PRINT'], True)
-        vertical = self._get_boolean_config(['vertical', 'VERTICAL'], False)
-        print_header = self._get_boolean_config(['print_header', 'PRINT_HEADER', 'print_column_names', 'PRINT_COLUMN_NAMES'], True)
-
-        field_separator = self.config.get('field_separator') or self.config.get('FIELDSEPARATOR', self.DEFAULT_FIELD_SEPARATOR)
-        max_rows_param = self.config.get('max_rows') or self.config.get('SCHEMA_OPT_NUM', self.DEFAULT_MAX_ROWS)
-        max_rows = int(max_rows_param)
-
-        # Limit rows to print
-        df_to_print = input_data.head(max_rows)
-        rows_logged = len(df_to_print)
-
+        # ---- Deferred max_rows validation (after context resolution) ----
+        raw_max = self.config.get("max_rows", _DEFAULT_MAX_ROWS)
         try:
-            # Choose output format
-            if vertical:
-                self._print_vertical_format(df_to_print)
-            elif basic_mode:
-                self._print_basic_format(df_to_print, field_separator, print_header)
-            else:
-                # Default table format with beautiful borders
-                self._print_table_format(df_to_print, field_separator, print_header)
+            max_rows = int(raw_max)
+        except (ValueError, TypeError) as exc:
+            raise ConfigurationError(
+                f"[{self.id}] 'max_rows' must be an integer, got: {raw_max!r}"
+            ) from exc
+        if max_rows < 0:
+            raise ConfigurationError(
+                f"[{self.id}] 'max_rows' must be non-negative, got: {max_rows}"
+            )
 
-        except Exception as e:
-            logger.error(f"[{self.id}] Error during logging: {e}")
-            print(f"[{self.id}] Error logging data: {e}")
+        # ---- Deferred feature: print_content_with_log4j=False (System.out) ----
+        if not bool(self.config.get("print_content_with_log4j", True)):
+            logger.warning(
+                "[%s] print_content_with_log4j=False (System.out routing) is not "
+                "implemented; output routed through logger.info() (Log4J equivalent)",
+                self.id,
+            )
 
-        # Update statistics
-        self._update_stats(rows_in, rows_logged, 0)
-        logger.info(f"[{self.id}] Logging complete: {rows_logged} rows displayed")
+        # ---- Display mode (radio group: vertical > table_print > basic_mode) ----
+        vertical = bool(self.config.get("vertical", False))
+        table_print = bool(self.config.get("table_print", False))
+        # basic_mode is the fallback when neither vertical nor table_print is True
 
-        # Pass through input data unchanged
-        return {'main': input_data}
+        # ---- Shared display options ----
+        sep = str(self.config.get("fieldseparator", _DEFAULT_SEPARATOR))
+        print_header = bool(self.config.get("print_header", False))
+        print_unique_name = bool(self.config.get("print_unique_name", False))
+        print_colnames = bool(self.config.get("print_colnames", False))
+        use_fixed_length = bool(self.config.get("use_fixed_length", False))
+        lengths: list = self.config.get("lengths") or []
+        label = str(self.config.get("label", ""))
 
-    def _get_boolean_config(self, param_names: List[str], default: bool) -> bool:
-        """Resolve boolean configuration value with support for multiple parameter names."""
-        for param_name in param_names:
-            value = self.config.get(param_name)
-            if value is not None:
-                if isinstance(value, bool):
-                    return value
-                elif isinstance(value, str):
-                    return value.lower() in ('true', '1', 'yes', 'on')
-        return default
+        # ---- Vertical title group (TITLE_PRINT radio) ----
+        print_unique_label = bool(self.config.get("print_unique_label", False))
+        print_label_mode = bool(self.config.get("print_label", False))
+        # print_unique (default) is active when neither of the above is True
 
-    def _print_table_format(self, df: pd.DataFrame, separator: str, print_header: bool) -> None:
-        """Print DataFrame in formatted table with borders and proper alignment."""
+        df_to_log = input_data.head(max_rows)
+
+        if vertical:
+            self._log_vertical(
+                df_to_log,
+                print_label_mode=print_label_mode,
+                print_unique_label=print_unique_label,
+                label=label,
+                use_fixed_length=use_fixed_length,
+                lengths=lengths,
+            )
+        elif table_print:
+            self._log_table(
+                df_to_log,
+                print_unique_name=print_unique_name,
+                use_fixed_length=use_fixed_length,
+                lengths=lengths,
+            )
+        else:
+            # basic_mode (default when no other mode selected)
+            self._log_basic(
+                df_to_log,
+                sep=sep,
+                print_header=print_header,
+                print_colnames=print_colnames,
+                print_unique_name=print_unique_name,
+                use_fixed_length=use_fixed_length,
+                lengths=lengths,
+            )
+
+        logger.debug(
+            "[%s] logged %d/%d rows", self.id, len(df_to_log), len(input_data)
+        )
+
+        # Pass through ALL rows -- display limit does not affect the data flow
+        return {"main": input_data}
+
+    # ------------------------------------------------------------------
+    # Private display helpers -- all output via logger.info()
+    # ------------------------------------------------------------------
+
+    def _log_basic(
+        self,
+        df: pd.DataFrame,
+        sep: str,
+        print_header: bool,
+        print_colnames: bool,
+        print_unique_name: bool,
+        use_fixed_length: bool,
+        lengths: list,
+    ) -> None:
+        """Emit one ``logger.info()`` line per row in sep-delimited format.
+
+        Args:
+            df: Rows to display (already limited to max_rows).
+            sep: Field separator string.
+            print_header: If True emit column names as first line.
+            print_colnames: If True prefix each value with ``colname=``.
+            print_unique_name: If True prefix each line with ``[id] ``.
+            use_fixed_length: If True pad/truncate values by lengths.
+            lengths: Per-column widths parallel to df.columns.
+        """
+        cols = list(df.columns)
+        prefix = f"[{self.id}] " if print_unique_name else ""
+
+        if print_header:
+            logger.info("%s%s", prefix, sep.join(str(c) for c in cols))
+
+        for _, row in df.iterrows():
+            parts: list[str] = []
+            for i, col in enumerate(cols):
+                val = "" if pd.isna(row[col]) else str(row[col])
+                if use_fixed_length and i < len(lengths):
+                    width = int(lengths[i]) if isinstance(lengths[i], (int, float)) else 10
+                    val = val[:width].ljust(width)
+                parts.append(f"{col}={val}" if print_colnames else val)
+            logger.info("%s%s", prefix, sep.join(parts))
+
+    def _log_table(
+        self,
+        df: pd.DataFrame,
+        print_unique_name: bool,
+        use_fixed_length: bool,
+        lengths: list,
+    ) -> None:
+        """Emit an ASCII bordered table via ``logger.info()``.
+
+        Column widths are computed from the data slice (max_rows rows)
+        unless ``use_fixed_length`` is True, which uses the declared widths.
+
+        Args:
+            df: Rows to display (already limited to max_rows).
+            print_unique_name: If True emit ``[id]`` title line before table.
+            use_fixed_length: If True use declared widths from lengths.
+            lengths: Per-column widths parallel to df.columns.
+        """
         if df.empty:
             return
 
-        # Calculate column widths based on actual DataFrame columns
-        col_widths = {}
-        for col in df.columns:
-            # Width is max of column name length and max value length in that column
-            max_value_len = df[col].fillna('').astype(str).str.len().max() if not df.empty else 0
-            col_widths[col] = max(len(str(col)), max_value_len, 1)
+        cols = list(df.columns)
 
-        # Calculate total table width based on actual columns
-        total_content_width = sum(col_widths.values()) + len(df.columns) - 1  # because we have n-1 separators
+        # Column widths: fixed if declared, otherwise computed from the data slice
+        if use_fixed_length and lengths:
+            col_widths = {
+                col: (
+                    int(lengths[i])
+                    if i < len(lengths) and isinstance(lengths[i], (int, float))
+                    else max(len(str(col)), 1)
+                )
+                for i, col in enumerate(cols)
+            }
+        else:
+            col_widths = {
+                col: max(
+                    len(str(col)),
+                    int(df[col].fillna("").astype(str).str.len().max()),
+                    1,
+                )
+                for col in cols
+            }
 
-        # Component title
-        title = f"tLogRow_{self.id}" if not self.id.startswith('tLogRow') else self.id
-        title_width = len(title)
+        def _row_line(values: list[str]) -> str:
+            return (
+                "|"
+                + "|".join(
+                    str(v).ljust(col_widths[c]) for c, v in zip(cols, values)
+                )
+                + "|"
+            )
 
-        # Make sure table is wide enough for title
-        min_table_width = title_width + 4  # +4 for padding
-        table_width = max(total_content_width, min_table_width)
+        sep_line = "+" + "+".join("-" * col_widths[c] for c in cols) + "+"
 
-        # Top border with calculated width
-        top_border = '.' + '-' * (table_width + 2) + '.'
-        print(top_border)
+        if print_unique_name:
+            logger.info("[%s]", self.id)
+        logger.info(sep_line)
+        logger.info(_row_line([str(c) for c in cols]))
+        logger.info(sep_line)
+        for _, row in df.iterrows():
+            logger.info(_row_line(["" if pd.isna(v) else str(v) for v in row]))
+        logger.info(sep_line)
 
-        # Component title centered
-        title_padding = table_width - title_width
-        left_pad = title_padding // 2
-        right_pad = title_padding - left_pad
-        print(f"|{' ' * left_pad}{title}{' ' * right_pad} |")
+    def _log_vertical(
+        self,
+        df: pd.DataFrame,
+        print_label_mode: bool,
+        print_unique_label: bool,
+        label: str,
+        use_fixed_length: bool,
+        lengths: list,
+    ) -> None:
+        """Emit key-value pairs per row via ``logger.info()``.
 
-        # Header separator with = characters - based on actual DataFrame columns
-        header_sep_parts = []
-        for col in df.columns:
-            header_sep_parts.append('=' * col_widths[col])
-        header_separator = '|=' + '|'.join(header_sep_parts) + '=|'
-        print(header_separator)
+        Title line for each row section is controlled by TITLE_PRINT radio:
 
-        # Always print column headers for table format
-        header_parts = []
-        for col in df.columns:
-            header_parts.append(str(col).ljust(col_widths[col]))
-        print(f"|{'|'.join(header_parts)}|")
+        * ``print_unique_label=True`` -- ``[id] label`` (or ``[id]`` if no label)
+        * ``print_label_mode=True``   -- ``label`` (or ``[id]`` if label empty)
+        * default (print_unique)      -- ``[id]``
 
-        # Header bottom separator
-        print(header_separator)
+        Args:
+            df: Rows to display (already limited to max_rows).
+            print_label_mode: If True use label as section title.
+            print_unique_label: If True use unique+label as section title.
+            label: Component label from config (may be empty string).
+            use_fixed_length: If True pad/truncate values by lengths.
+            lengths: Per-column widths parallel to df.columns.
+        """
+        cols = list(df.columns)
 
-        # Data rows - process actual DataFrame columns
-        for idx, row in df.iterrows():
-            row_parts = []
-            for col in df.columns:
-                value = str(row[col]) if pd.notna(row[col]) and str(row[col]) != 'nan' else ''
-                row_parts.append(value.ljust(col_widths[col]))
-            print(f"|{'|'.join(row_parts)}|")
+        if print_unique_label:
+            title = f"[{self.id}] {label}".strip() if label else f"[{self.id}]"
+        elif print_label_mode:
+            title = label if label else f"[{self.id}]"
+        else:
+            # print_unique (default)
+            title = f"[{self.id}]"
 
-        # Bottom border
-        bottom_border = "'" + '-' * (table_width + 2) + "'"
-        print(bottom_border)
-
-    def _print_basic_format(self, df: pd.DataFrame, separator: str, print_header: bool) -> None:
-        """Print DataFrame in basic delimited format."""
-        if print_header and len(df.columns) > 0:
-            print(separator.join(str(col) for col in df.columns))
-
-        for idx, row in df.iterrows():
-            print(separator.join(str(row[col]) if pd.notna(row[col]) else '' for col in df.columns))
-
-    def _print_vertical_format(self, df: pd.DataFrame) -> None:
-        """Print DataFrame in vertical key-value format."""
-        for idx, row in df.iterrows():
-            print(f"\nRow {idx + 1}:")
-            for col in df.columns:
-                value = row[col] if pd.notna(row[col]) else ''
-                print(f"  {col}: {value}")
-            print("-" * 30)
-
-    # Legacy method name for compatibility
-    def validate_config(self) -> bool:
-        """Legacy validation method for compatibility."""
-        errors = self._validate_config()
-        if errors:
-            for error in errors:
-                logger.error(f"Component {self.id}: {error}")
-            return False
-        return True
+        for i, (_, row) in enumerate(df.iterrows(), start=1):
+            logger.info("--- %s row %d ---", title, i)
+            for j, col in enumerate(cols):
+                val = "" if pd.isna(row[col]) else str(row[col])
+                if use_fixed_length and j < len(lengths):
+                    width = int(lengths[j]) if isinstance(lengths[j], (int, float)) else 10
+                    val = val[:width].ljust(width)
+                logger.info("  %s: %s", col, val)

@@ -63,6 +63,11 @@ class TestDefaults:
         result = FileInputRawConverter().convert(node, [], {})
         assert result.component["config"]["filename"] == ""
 
+    def test_filename_java_expression_marked(self):
+        node = _make_node(params={"FILENAME": '"context.dir + \'/payload.raw\'"'})
+        result = FileInputRawConverter().convert(node, [], {})
+        assert result.component["config"]["filename"].startswith("{{java}}")
+
     def test_as_string_default(self):
         """AS_STRING defaults to True per _java.xml."""
         node = _make_node()

@@ -1,6 +1,7 @@
 # Audit Report: tFileInputExcel / FileInputExcel
 
 > **Audited**: 2026-04-03
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated) -- GOLD STANDARD TEMPLATE (REWRITE)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -292,8 +293,9 @@ None. All parameters correctly extracted with proper defaults.
 
 | ID | Priority | Location | Description |
 | ---- | ---------- | ---------- | ------------- |
-| BUG-FIE-001 | **P0** | `base_component.py:304` | CROSS-CUTTING: `_update_global_map()` crash when globalMap is set |
-| BUG-FIE-002 | **P0** | `base_component.py:174` | CROSS-CUTTING: `replace_in_config` literal `[i]` replacement breaks list indexing |
+| ~~BUG-FIE-001~~ | ~~**P0**~~ | ~~`base_component.py:304`~~ | ~~CROSS-CUTTING: `_update_global_map()` crash when globalMap is set~~ [RESOLVED in Phase 4-01 / Phase 7.1-01] |
+| ~~BUG-FIE-002~~ | ~~**P0**~~ | ~~`base_component.py:174`~~ | ~~CROSS-CUTTING: `replace_in_config` literal `[i]` replacement breaks list indexing~~ [RESOLVED in Phase 7.1-01] |
+| ~~BUG-EXC-001~~ | ~~**P1**~~ | ~~`file_output_excel.py:216,244`~~ | ~~`input_schema` accessed without defensive getattr -- AttributeError when input_schema is None or absent~~ [RESOLVED in Phase 13-02, commit fff1b85 (BUG-EXC-001)] |
 | BUG-FIE-003 | **P1** | `file_input_excel.py:429,513` | `all_sheets` default True contradicts _java.xml default False |
 | BUG-FIE-004 | **P1** | `file_input_excel.py:677,886` | `header` default 1 contradicts _java.xml default 0 |
 | BUG-FIE-005 | **P1** | `file_input_excel.py:232-298` | `_build_converters_dict()` duplicated converter factory logic (~65 lines) |
@@ -371,15 +373,17 @@ Password values may be logged at DEBUG level. See Section 11 for comprehensive s
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 83 | `tests/converters/talend_to_v1/components/test_file_input_excel.py` |
-| Engine unit tests | 0 | None |
+| Engine unit tests | Added | `tests/v1/engine/components/file/test_file_input_excel.py` (Phase 14-09, commit 8c2847d, COV-FIE-001: 97.4%) |
 | Integration tests | 399 (shared) | `tests/converters/talend_to_v1/test_integration.py` |
 | Output structure tests | Covered | `tests/converters/talend_to_v1/test_converter_output_structure.py` |
+
+**Phase 14 floor:** Module meets >= 95% per-module line coverage floor. [RESOLVED in Phase 14-09, commit 8c2847d (COV-FIE-001)]
 
 ### 8.2 Test Gaps
 
 | ID | Priority | Gap |
 | ---- | ---------- | ----- |
-| TEST-FIE-001 | **P1** | Zero engine unit tests -- FileInputExcel is the largest engine component (1022 lines) with no tests |
+| ~~TEST-FIE-001~~ | ~~**P1**~~ | ~~Zero engine unit tests -- FileInputExcel is the largest engine component (1022 lines) with no tests~~ [RESOLVED in Phase 14-09, commit 8c2847d (COV-FIE-001)] |
 
 ### 8.3 Recommended Test Cases
 
@@ -403,11 +407,11 @@ Password values may be logged at DEBUG level. See Section 11 for comprehensive s
 
 | Priority | Count | IDs |
 | ---------- | ------- | ----- |
-| P0 | 2 | BUG-FIE-001, BUG-FIE-002 |
-| P1 | 5 | BUG-FIE-003, BUG-FIE-004, BUG-FIE-005, ENG-FIE-003, ENG-FIE-004, ENG-FIE-005, ENG-FIE-006, PERF-FIE-001, TEST-FIE-001 |
-| P2 | 5 | NAME-FIE-001, NAME-FIE-002, STD-FIE-001, ENG-FIE-007, ENG-FIE-008, ENG-FIE-009, PERF-FIE-002 |
-| P3 | 3 | STD-FIE-002, STD-FIE-003, ENG-FIE-010, ENG-FIE-011, PERF-FIE-003 |
-| **Total** | **15** | |
+| P0 | 0 | ~~BUG-FIE-001, BUG-FIE-002~~ [RESOLVED Phase 4-01 + Phase 7.1-01]; ~~BUG-EXC-001~~ [RESOLVED Phase 13-02, commit fff1b85] |
+| P1 | 4 | BUG-FIE-003, BUG-FIE-004, BUG-FIE-005, ENG-FIE-003 |
+| P2 | 5 | NAME-FIE-001, NAME-FIE-002, STD-FIE-001, ENG-FIE-007, ENG-FIE-008 |
+| P3 | 3 | STD-FIE-002, STD-FIE-003, ENG-FIE-010, PERF-FIE-003 |
+| **Total open** | **12** | (3 issues resolved: BUG-FIE-001, BUG-FIE-002, BUG-EXC-001) + TEST-FIE-001 closed by Phase 14-09 |
 
 ### By Category
 
@@ -434,15 +438,16 @@ Password values may be logged at DEBUG level. See Section 11 for comprehensive s
 
 ### Immediate (Before Production)
 
-- Fix cross-cutting `_update_global_map()` crash (XCUT-001) -- affects all 54 components
-- Fix cross-cutting `replace_in_config` literal `[i]` (XCUT-002) -- affects config resolution
+~~- Fix cross-cutting `_update_global_map()` crash (XCUT-001) -- affects all 54 components~~ [RESOLVED Phase 4-01 / Phase 7.1-01]
+~~- Fix cross-cutting `replace_in_config` literal `[i]` (XCUT-002) -- affects config resolution~~ [RESOLVED Phase 7.1-01]
+~~- Fix `input_schema` getattr access (BUG-EXC-001)~~ [RESOLVED Phase 13-02, commit fff1b85]
 
 ### Short-term (Hardening)
 
 - Fix `all_sheets` default from True to False in engine (BUG-FIE-003)
 - Fix `header` default from 1 to 0 in engine (BUG-FIE-004)
 - Implement CURRENT_SHEET globalMap variable (ENG-FIE-005)
-- Add engine unit tests for FileInputExcel (TEST-FIE-001)
+~~- Add engine unit tests for FileInputExcel (TEST-FIE-001)~~ [RESOLVED Phase 14-09, commit 8c2847d]
 - Implement REJECT flow for error handling (ENG-FIE-001)
 
 ### Long-term (Optimization)
@@ -570,4 +575,4 @@ All matching sheets are concatenated into a single DataFrame output. There is no
 ---
 
 *Report generated: 2026-04-03*
-*Last updated: 2026-04-03 after Phase 9 gold-standard rewrite*
+*Last updated: 2026-05-11 after Phase 15.1 reconciliation -- BUG-EXC-001 (Phase 13-02, commit fff1b85) struck; TEST-FIE-001 closed (Phase 14-09, commit 8c2847d, COV-FIE-001 97.4%); Phase 7.2-01 Group A verdict confirmed*

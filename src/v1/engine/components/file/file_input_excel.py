@@ -15,11 +15,13 @@ import pandas as pd
 import xlrd  # For old Excel .xls files
 
 from ...base_component import BaseComponent, ExecutionMode
+from ...component_registry import REGISTRY
 from ...exceptions import ConfigurationError, FileOperationError, ComponentExecutionError
 
 logger = logging.getLogger(__name__)
 
 
+@REGISTRY.register("FileInputExcel", "tFileInputExcel")
 class FileInputExcel(BaseComponent):
     """
     Read Excel files with full Talend tFileInputExcel compatibility.
@@ -78,80 +80,112 @@ class FileInputExcel(BaseComponent):
         - Advanced separator handling for international formats
     """
 
-    def _validate_config(self) -> List[str]:
+    def _validate_config(self) -> None:
+        """Validate component configuration.
+
+        Note:
+            header / first_column numeric validation is intentionally
+            deferred to _process() after context variable resolution.
+            Validating here would crash with .isdigit() False on
+            legitimate ${context.HEADER_ROW} / ${context.FIRST_COL}
+            references. See file_output_delimited.py (CR-06) for the
+            same pattern.
+
+            footer and limit checks are retained here per Phase 7.2
+            CONTEXT.md decision A (out-of-scope for that phase).
+
+        Raises:
+            ConfigurationError: If required config is missing or has wrong shape.
         """
-        Validate component configuration.
+        # Required: filepath present and non-empty string
+        if not self.config.get('filepath'):
+            raise ConfigurationError(f"[{self.id}] Missing required config 'filepath'")
+        if not isinstance(self.config['filepath'], str):
+            raise ConfigurationError(f"[{self.id}] Config 'filepath' must be a string")
 
-        Returns:
-            List of error messages (empty if valid)
-        """
-        errors = []
+        # Optional shape checks
+        if 'password' in self.config and not isinstance(self.config['password'], str):
+            raise ConfigurationError(f"[{self.id}] Config 'password' must be a string")
 
-        # Required field validation
-        if 'filepath' not in self.config:
-            errors.append("Missing required config: 'filepath'")
-        elif not isinstance(self.config['filepath'], str):
-            errors.append("Config 'filepath' must be a string")
-        elif not self.config['filepath'].strip():
-            errors.append("Config 'filepath' cannot be empty")
+        for field_name in ('all_sheets', 'die_on_error', 'suppress_warn', 'advanced_separator',
+                           'trimall', 'convertdatetostring', 'stopread_on_emptyrow'):
+            if field_name in self.config and not isinstance(self.config[field_name], bool):
+                raise ConfigurationError(
+                    f"[{self.id}] Config '{field_name}' must be a boolean"
+                )
 
-        # Optional field validation
-        if 'password' in self.config:
-            password = self.config['password']
-            if not isinstance(password, str):
-                errors.append("Config 'password' must be a string")
-
-        # Boolean field validation
-        for field_name in ['all_sheets', 'die_on_error', 'suppress_warn', 'advanced_separator',
-                           'trimall', 'convertdatetostring', 'stopread_on_emptyrow']:
-            if field_name in self.config:
-                value = self.config[field_name]
-                if not isinstance(value, bool):
-                    errors.append(f"Config '{field_name}' must be a boolean")
-
-        # Numeric field validation
-        for field_name in ['header', 'first_column']:
-            if field_name in self.config:
-                value = self.config[field_name]
-                if isinstance(value, str):
-                    if not value.isdigit():
-                        errors.append(f"Config '{field_name}' must be a positive integer")
-                elif not isinstance(value, int) or value < 1:
-                    errors.append(f"Config '{field_name}' must be a positive integer")
-
-        # Special validation for footer (can be 0 or positive integer)
+        # footer -- retained per Phase 7.2 CONTEXT.md decision A
         if 'footer' in self.config:
             value = self.config['footer']
             if isinstance(value, str):
                 if not value.isdigit():
-                    errors.append("Config 'footer' must be a non-negative integer")
+                    raise ConfigurationError(
+                        f"[{self.id}] Config 'footer' must be a non-negative integer"
+                    )
             elif not isinstance(value, int) or value < 0:
-                errors.append("Config 'footer' must be a non-negative integer")
+                raise ConfigurationError(
+                    f"[{self.id}] Config 'footer' must be a non-negative integer"
+                )
 
-        # Special validation for limit (can be empty string or None to indicate no limit)
+        # limit -- retained per Phase 7.2 CONTEXT.md decision A
         if 'limit' in self.config:
             value = self.config['limit']
             if isinstance(value, str):
                 if value.strip() and not value.isdigit():
-                    errors.append("Config 'limit' must be a positive integer or empty string")
+                    raise ConfigurationError(
+                        f"[{self.id}] Config 'limit' must be a positive integer or empty string"
+                    )
             elif value is not None and (not isinstance(value, int) or value < 0):
-                errors.append("Config 'limit' must be a positive integer or None")
+                raise ConfigurationError(
+                    f"[{self.id}] Config 'limit' must be a positive integer or None"
+                )
 
-        # List field validation
-        for field_name in ['sheetlist', 'trim_select', 'date_select']:
-            if field_name in self.config:
-                value = self.config[field_name]
-                if not isinstance(value, list):
-                    errors.append(f"Config '{field_name}' must be a list")
+        for field_name in ('sheetlist', 'trim_select', 'date_select'):
+            if field_name in self.config and not isinstance(self.config[field_name], list):
+                raise ConfigurationError(
+                    f"[{self.id}] Config '{field_name}' must be a list"
+                )
 
-        # String field validation
-        for field_name in ['thousands_separator', 'decimal_separator']:
+        for field_name in ('thousands_separator', 'decimal_separator'):
             if field_name in self.config:
                 value = self.config[field_name]
                 if value is not None and not isinstance(value, str):
-                    errors.append(f"Config '{field_name}' must be a string or None")
+                    raise ConfigurationError(
+                        f"[{self.id}] Config '{field_name}' must be a string or None"
+                    )
 
-        return errors
+    def _validate_resolved_numeric_fields(self) -> None:
+        """Validate header / first_column AFTER context-var resolution.
+
+        Called from ``_process`` so that ${context.HEADER} style values
+        have been substituted before the .isdigit() / range check runs.
+        Mutates self.config to coerce string-number values to ints so
+        downstream read sites can treat them uniformly.
+
+        header: must be >= 0 (0 means no header row to skip, Talend default)
+        first_column: must be >= 1 (1-based; column A = 1, Talend default)
+
+        Raises:
+            ConfigurationError: If header or first_column resolves to an
+                out-of-range integer value.
+        """
+        for field_name in ('header', 'first_column'):
+            if field_name not in self.config:
+                continue
+            value = self.config[field_name]
+            if isinstance(value, str):
+                stripped = value.strip()
+                if not stripped.isdigit():
+                    raise ConfigurationError(
+                        f"[{self.id}] Config '{field_name}' must be a non-negative integer"
+                    )
+                value = int(stripped)
+            min_val = 0 if field_name == 'header' else 1
+            if not isinstance(value, int) or value < min_val:
+                raise ConfigurationError(
+                    f"[{self.id}] Config '{field_name}' must be >= {min_val}"
+                )
+            self.config[field_name] = value
 
     def _process(self, input_data: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
         """
@@ -171,12 +205,10 @@ class FileInputExcel(BaseComponent):
         logger.info(f"[{self.id}] Processing started: reading Excel file")
 
         try:
-            # Validate configuration
-            config_errors = self._validate_config()
-            if config_errors:
-                error_msg = f"Invalid configuration: {'; '.join(config_errors)}"
-                logger.error(f"[{self.id}] {error_msg}")
-                raise ConfigurationError(error_msg)
+            # Phase 7.2-01: validate header / first_column AFTER context-var
+            # resolution (deferred from _validate_config -- see note there).
+            # _validate_config() is called by BaseComponent.execute() Step 2.
+            self._validate_resolved_numeric_fields()
 
             # Get configuration with defaults
             filepath = self.config.get('filepath', '').strip()
@@ -426,7 +458,7 @@ class FileInputExcel(BaseComponent):
             available_sheets = workbook.sheet_names()
             workbook.release_resources()
 
-            all_sheets = self.config.get('all_sheets', True)
+            all_sheets = self.config.get('all_sheets', False)
             sheetlist = self.config.get('sheetlist', [])
 
             if all_sheets:
@@ -510,7 +542,7 @@ class FileInputExcel(BaseComponent):
         """
         Determine which sheets to read based on configuration
         """
-        all_sheets = self.config.get('all_sheets', True)
+        all_sheets = self.config.get('all_sheets', False)
         sheetlist = self.config.get('sheetlist', [])
 
         available_sheets = wb.sheetnames
@@ -626,18 +658,23 @@ class FileInputExcel(BaseComponent):
 
     def _apply_trimming(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Apply trimming based on trimall or trim_select configuration
+        Apply trimming based on trimall or trim_select configuration.
+
+        Talend semantics: trimall=True trims every string column regardless
+        of what trim_select contains.  trim_select entries with trim=False are
+        the UI default state and do NOT suppress trimall.
+        trim_select is only consulted when trimall=False.
         """
         trimall = self.config.get('trimall', False)
         trim_select = self.config.get('trim_select', [])
 
         if trimall:
-            # Trim all string columns
+            # Trim all string columns -- trim_select does not override this.
             string_columns = df.select_dtypes(include=['object']).columns
             for col in string_columns:
                 df[col] = df[col].astype(str).str.strip()
         elif trim_select:
-            # Trim specific columns
+            # Trim only explicitly opted-in columns.
             for trim_config in trim_select:
                 col_name = trim_config.get('column', '')
                 should_trim = trim_config.get('trim', False)
@@ -663,10 +700,18 @@ class FileInputExcel(BaseComponent):
                     try:
                         # Convert pandas date format pattern to Python strftime
                         python_pattern = pattern.replace('MM', '%m').replace('dd', '%d').replace('yyyy', '%Y')
-                        df[col_name] = pd.to_datetime(df[col_name], errors='coerce').dt.strftime(python_pattern)
+                        # Pass the same pattern as ``format=`` so pandas uses
+                        # the vectorised C parser instead of dateutil per-row
+                        # (which emits a "Could not infer format" UserWarning).
+                        df[col_name] = pd.to_datetime(
+                            df[col_name],format=python_pattern,errors='coerce'
+                            ).dt.strftime(python_pattern)
                     except Exception as e:
                         logger.warning(f"[{self.id}] Date conversion failed for column {col_name}: {e}")
 
+        # Always return the DataFrame; when date conversion is globally disabled
+        # (or no columns are selected) the frame passes through unchanged, matching
+        # Talend and the declared -> pd.DataFrame contract.
         return df
 
     def _read_sheet(self, wb: openpyxl.Workbook, sheet_name: str) -> pd.DataFrame:
@@ -674,7 +719,7 @@ class FileInputExcel(BaseComponent):
         Read data from a single Excel sheet using pandas read_excel for better performance
         """
         # Get configuration
-        header = self.config.get('header', 1)  # 1-based in Talend
+        header = self.config.get('header', 0)  # 0 means no header skip (Talend default)
         footer = self.config.get('footer', 0)
         limit = self.config.get('limit', '')
         first_column = self.config.get('first_column', 1)  # 1-based
@@ -788,6 +833,8 @@ class FileInputExcel(BaseComponent):
 
             for sheet_name in sheets_to_read:
                 logger.info(f"[{self.id}] Reading .xls sheet '{sheet_name}'")
+                if self.global_map:
+                    self.global_map.put(f"{self.id}_CURRENT_SHEET", sheet_name)
                 df = self._read_xls_sheet(filepath, sheet_name)
 
                 if not df.empty:
@@ -883,7 +930,7 @@ class FileInputExcel(BaseComponent):
         Read data from a single .xls sheet using pandas read_excel with xlrd engine
         """
         # Get configuration
-        header = self.config.get('header', 1)  # 1-based in Talend
+        header = self.config.get('header', 0)  # 0 means no header skip (Talend default)
         footer = self.config.get('footer', 0)
         limit = self.config.get('limit', '')
         first_column = self.config.get('first_column', 1)  # 1-based
@@ -973,6 +1020,8 @@ class FileInputExcel(BaseComponent):
 
         for sheet_name in sheets_to_read:
             logger.info(f"[{self.id}] Reading sheet '{sheet_name}'")
+            if self.global_map:
+                self.global_map.put(f"{self.id}_CURRENT_SHEET", sheet_name)
             df = self._read_sheet(wb, sheet_name)
 
             if not df.empty:

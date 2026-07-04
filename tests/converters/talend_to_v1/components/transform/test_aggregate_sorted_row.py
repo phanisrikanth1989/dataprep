@@ -150,7 +150,7 @@ class TestParameterExtraction:
         }
 
     def test_operations_function_mapping(self):
-        """distinct->count_distinct, list_object->list."""
+        """distinct->count_distinct, list_object preserved as list_object."""
         ops = _make_operations_table(
             ("unique_count", "customer_id", "distinct", False),
             ("all_items", "item", "list_object", False),
@@ -159,7 +159,7 @@ class TestParameterExtraction:
         result = AggregateSortedRowConverter().convert(node, [], {})
         operations = result.component["config"]["operations"]
         assert operations[0]["function"] == "count_distinct"
-        assert operations[1]["function"] == "list"
+        assert operations[1]["function"] == "list_object"
 
     def test_operations_ignore_null(self):
         """Optional IGNORE_NULL field handled correctly."""

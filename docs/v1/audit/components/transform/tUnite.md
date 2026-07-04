@@ -1,6 +1,7 @@
 # Audit Report: tUnite / Unite
 
-> **Audited**: 2026-04-04
+> **Audited**: 2026-04-04 | **Updated**: 2026-05-01
+> **Reconciled**: 2026-05-11
 > **Auditor**: Claude Opus 4.6 (automated)
 > **Engine Version**: v1
 > **Converter**: `talend_to_v1`
@@ -15,7 +16,7 @@
 | ------- | ------- |
 | **Talend Name** | `tUnite` |
 | **V1 Engine Class** | `Unite` |
-| **Engine File** | `src/v1/engine/components/transform/unite.py` (393 lines) |
+| **Engine File** | `src/v1/engine/components/transform/unite.py` (71 lines) |
 | **Converter Parser** | `src/converters/talend_to_v1/components/transform/unite.py` (60 lines) |
 | **Converter Dispatch** | `@REGISTRY.register("tUnite")` decorator-based dispatch |
 | **Registry Aliases** | `Unite`, `tUnite` |
@@ -25,9 +26,10 @@
 
 | File | Purpose |
 | ------ | --------- |
-| `src/v1/engine/components/transform/unite.py` | Engine implementation (393 lines) |
+| `src/v1/engine/components/transform/unite.py` | Engine implementation (71 lines) |
 | `src/converters/talend_to_v1/components/transform/unite.py` | Converter class (60 lines) |
 | `tests/converters/talend_to_v1/components/test_unite.py` | Converter tests (18 tests) |
+| `tests/v1/engine/components/transform/test_unite.py` | Engine tests (18 tests) |
 | `src/v1/engine/base_component.py` | Base class |
 | `src/v1/engine/global_map.py` | GlobalMap storage |
 
@@ -38,13 +40,15 @@
 | Dimension | Score | P0 | P1 | P2 | P3 | Details |
 | ----------- | ------- | ---- | ---- | ---- | ---- | --------- |
 | Converter Coverage | **G** | 0 | 0 | 0 | 0 | 0 unique + 2 framework params extracted (100%); _build_component_dict; passthrough schema; 0 needs_review (engine defaults compatible) |
-| Code Quality | **G** | 0 | 0 | 0 | 0 | Gold standard converter pattern; clean, minimal, well-documented module docstring with config mapping |
-| Testing | **Y** | 0 | 0 | 1 | 0 | 18 converter tests across 7 test classes; no engine unit tests (TEST-UNI-001) |
-| Overall | **Y** | 0 | 0 | 1 | 0 | Converter production-ready; engine unit tests needed for Green |
+| Engine Feature Parity | **G** | 0 | 0 | 0 | 0 | Pure UNION ALL; 0 unique config keys; no engine-specific extensions |
+| Code Quality | **G** | 0 | 0 | 0 | 0 | 71-line clean implementation; @REGISTRY.register; Rule 12 compliant _validate_config; no execute override |
+| Performance & Memory | **G** | 0 | 0 | 0 | 1 | PERF-UNI-001: pd.concat creates full copy (inherent to UNION ALL, not a defect) |
+| Testing | **G** | 0 | 0 | 0 | 0 | 18 converter tests; 18 engine unit tests across 8 test classes |
+| Overall | **G** | 0 | 0 | 0 | 1 | One P3 remains (pd.concat memory) -- not a production blocker |
 
-**Overall: YELLOW -- Converter is gold standard; engine unit tests needed for full Green**
+**Overall:** GREEN
 
-**Top Actions**: Add engine unit tests for Unite component (TEST-UNI-001)
+**Top Actions**: None. Component is production-ready.
 
 ---
 
@@ -262,25 +266,25 @@ No concerns identified. tUnite is a pure data merging component with no file I/O
 | Test Type | Count | Location |
 | ----------- | ------- | ---------- |
 | Converter unit tests | 18 | `tests/converters/talend_to_v1/components/test_unite.py` |
-| Engine unit tests | 0 | None |
+| Engine unit tests | 18 | `tests/v1/engine/components/transform/test_unite.py` |
 | Integration tests | 0 | None (component-specific) |
+
+**Engine test classes:** TestRegistration (2), TestUnionConcat (5), TestMismatchedSchemas (3), TestEdgeCases (8).
 
 ### 8.2 Test Gaps
 
-| ID | Priority | Gap |
-| ---- | ---------- | ----- |
-| TEST-UNI-001 | **P2** | No engine unit tests for Unite component |
+None. All required test scenarios covered.
 
-### 8.3 Recommended Test Cases
+### 8.3 Covered Test Cases
 
-- Engine: basic UNION of 2 DataFrames with identical schemas
-- Engine: UNION with 3+ inputs
-- Engine: empty DataFrame input (some inputs empty, some populated)
-- Engine: MERGE mode with common columns
-- Engine: MERGE mode with specified merge_columns
-- Engine: remove_duplicates=True
-- Engine: sort_output=True with valid sort_columns
-- Engine: streaming mode UNION
+- UNION of 2/3 DataFrames with identical schemas
+- Row count verification (2+3=5)
+- Column order preservation
+- Index reset (ignore_index=True)
+- Mismatched schemas produce NaN fills
+- Empty inputs (none/some/all empty)
+- Stats update (NB_LINE, NB_LINE_OK)
+- No execute() override (Rule 4)
 
 ---
 
@@ -292,19 +296,25 @@ No concerns identified. tUnite is a pure data merging component with no file I/O
 | ---------- | ------- | ----- |
 | P0 | 0 | -- |
 | P1 | 0 | -- |
-| P2 | 11 | ENG-UNI-001 through ENG-UNI-008, BUG-UNI-001, STD-UNI-001, PERF-UNI-001, TEST-UNI-001 |
-| P3 | 1 | PERF-UNI-002 |
-| **Total** | **12** | |
+| P2 | 0 | -- |
+| P3 | 1 | PERF-UNI-001 |
+| **Total** | **1** | |
 
 ### By Category
 
 | Category | Count | IDs |
 | ---------- | ------- | ----- |
-| Engine (ENG) | 8 | ENG-UNI-001 through ENG-UNI-008 |
-| Bug (BUG) | 1 | BUG-UNI-001 |
-| Standards (STD) | 1 | STD-UNI-001 |
-| Performance (PERF) | 2 | PERF-UNI-001, PERF-UNI-002 |
-| Testing (TEST) | 1 | TEST-UNI-001 |
+| Performance (PERF) | 1 | PERF-UNI-001 |
+
+### Resolved Issues (2026-05-01)
+
+| ID | Resolution |
+| ---- | ------------ |
+| ENG-UNI-001..ENG-UNI-008 (UNIT-01/02) | Engine rewritten -- MERGE/sort/dedup/streaming removed. UNION ALL only. [RESOLVED in Phase 7-02, commit 8531605 (UNIT-01/UNIT-02)] |
+| BUG-UNI-001 | `_validate_config()` now correct (returns None, no-op) |
+| STD-UNI-001 | Same as above |
+| PERF-UNI-002 | MERGE mode removed -- issue no longer applicable. [RESOLVED in Phase 7-02, commit 8531605] |
+| TEST-UNI-001 | 18 engine unit tests added |
 
 ### Cross-Cutting Issues
 
@@ -385,4 +395,4 @@ No P0 or P1 issues. Converter is production-ready.
 ---
 
 *Report generated: 2026-04-04*
-*Last updated: 2026-04-04 after Phase 11 gold standard rewrite*
+*Last updated: 2026-05-11 -- reconciled (Phase 15.1-08); UNIT-01/02 tagged Phase 7-02 commit 8531605*

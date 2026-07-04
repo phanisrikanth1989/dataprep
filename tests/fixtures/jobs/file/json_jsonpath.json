@@ -1,0 +1,75 @@
+{
+  "job_name": "Job_json_jsonpath",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {}
+  },
+  "components": [
+    {
+      "id": "tFileInputJSON_1",
+      "type": "FileInputJSON",
+      "original_type": "tFileInputJSON",
+      "config": {
+        "filename": "TBD_via_mutations",
+        "json_loop_query": "$.users[*]",
+        "mapping": [
+          {"column": "user_id", "jsonpath": "$.id"},
+          {"column": "user_name", "jsonpath": "$.name"},
+          {"column": "user_email", "jsonpath": "$.contact.email"}
+        ],
+        "encoding": "UTF-8",
+        "die_on_error": false,
+        "useurl": false,
+        "advanced_separator": false,
+        "check_date": false,
+        "read_by": "JSONPATH",
+        "use_loop_as_root": false
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {"name": "user_id", "type": "int", "nullable": false, "key": false},
+          {"name": "user_name", "type": "str", "nullable": false, "key": false},
+          {"name": "user_email", "type": "str", "nullable": true, "key": false}
+        ]
+      },
+      "inputs": [],
+      "outputs": ["row1"]
+    },
+    {
+      "id": "tFileOutputDelimited_1",
+      "type": "FileOutputDelimited",
+      "original_type": "tFileOutputDelimited",
+      "config": {
+        "filepath": "TBD_via_mutations",
+        "fieldseparator": ";",
+        "row_separator": "\\n",
+        "encoding": "UTF-8",
+        "include_header": true,
+        "append": false,
+        "create_directory": true,
+        "split": false,
+        "file_exist_exception": false
+      },
+      "schema": {
+        "input": [
+          {"name": "user_id", "type": "int", "nullable": false, "key": false},
+          {"name": "user_name", "type": "str", "nullable": false, "key": false},
+          {"name": "user_email", "type": "str", "nullable": true, "key": false}
+        ],
+        "output": []
+      },
+      "inputs": ["row1"],
+      "outputs": []
+    }
+  ],
+  "flows": [
+    {"name": "row1", "from": "tFileInputJSON_1", "to": "tFileOutputDelimited_1", "type": "flow"}
+  ],
+  "triggers": [],
+  "subjobs": {
+    "subjob_1": ["tFileInputJSON_1", "tFileOutputDelimited_1"]
+  },
+  "java_config": {"enabled": false, "routines": [], "libraries": []}
+}
