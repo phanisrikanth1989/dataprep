@@ -44,6 +44,13 @@ Write `agents/work/<job>/job_draft.json` in exactly this shape and nothing more:
 No `flows`, no `inputs`/`outputs`, no `subjob_id`. Keep the same `id` and `type` the flow-designer
 chose.
 
+Author each `schema` as the `{input, output}` two-key object that `job-envelope.md` defines, and fill
+only `schema.output` -- the ordered list of `{name, type}` columns this component EMITS (which you
+know from its config). Leave `schema.input` as `[]`: the assembler derives each component's input
+columns from its upstream producer's `output` when it wires the flows. A source `FileInputDelimited`
+emits data but consumes none, so its `output` is populated and its `input` stays empty; a terminal
+`FileOutputDelimited` consumes but emits nothing, so its `output` stays empty.
+
 ## Mandatory validation loop (do not skip)
 
 For EVERY component you configure:
@@ -84,8 +91,8 @@ prefer it.
 ## Knowledge and landmines
 
 Consult the `dataprep-recon` skill: `config-reference.md` for every curated key and its allowed
-values, and `landmines.md` for traps that pass validation but silently produce wrong output. Respect
-each landmine, notably:
+values, `job-envelope.md` for the `{input, output}` schema shape you author, and `landmines.md` for
+traps that pass validation but silently produce wrong output. Respect each landmine, notably:
 - Always set `die_on_error` explicitly -- never rely on the default (it differs between BaseComponent
   and several components' own reads).
 - Pin `execution_mode: "batch"` on EVERY whole-frame/stateful node -- `AggregateRow`, `SortRow`,
@@ -104,6 +111,11 @@ each landmine, notably:
   `matching_mode` UNIQUE_MATCH or FIRST_MATCH, or set `ALL_MATCHES` deliberately for a 1:N expansion
   -- and mind the 10M/100M cartesian guard. UNIQUE_MATCH silently keeps only the last duplicate.
 - Emit a tMap output column's date format under `pattern` (not `date_pattern`, which is unwired).
+- On a `SortRow` criterion for a NON-string column, set `sort_type` explicitly to `num` (numeric) or
+  `date` (date) -- the default `alpha` is lexicographic, so a numeric/date column left at `alpha`
+  mis-sorts ('10' before '9', dates out of chronological order) and the order-insensitive oracle will
+  NOT catch it (landmine `sortrow-alpha-default`). Use the `sort_type` the doc-interpreter carried on
+  each criterion; only a genuine string column stays `alpha`.
 - For schema validation use `ConvertType` casts and/or `SchemaComplianceCheck` (validate rows, route
   failures to a reject output). A reject is a data flow, not a trigger. Do not rely on
   `catch_output_reject` -- it captures expression errors only and cancels die-on-error propagation.

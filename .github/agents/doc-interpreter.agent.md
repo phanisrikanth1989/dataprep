@@ -70,7 +70,10 @@ Write `agents/work/<job>/requirement_spec.json`:
     literals.
   - `aggregate`: `group_by` (the group-key columns) and `functions`
     (`{input_column, function, output_column}`).
-  - `sort`: `criteria` -- ordered `{column, order}` (`asc`/`desc`).
+  - `sort`: `criteria` -- ordered `{column, order, sort_type}`: `order` is `asc`/`desc`; `sort_type`
+    is one of `alpha | num | date`, carried from the sort column's declared schema type (string ->
+    `alpha`, numeric -> `num`, date -> `date`). Carrying it stops the downstream SortRow from
+    defaulting to `alpha` (lexicographic) and mis-sorting a numeric/date column ('10' before '9').
   - `derive`: `output_column` plus a structural `how` (the shape of the derivation, no real values).
 - `derived_facts` -- carried through unchanged so the next stages inherit the structural facts.
 - `ambiguities` -- see below.

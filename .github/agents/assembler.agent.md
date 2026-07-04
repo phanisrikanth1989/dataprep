@@ -46,7 +46,12 @@ Write `agents/work/<job>/job.json` = the draft PLUS the envelope. Follow
 `dataprep-recon/job-envelope.md` exactly:
 - Every component gets a `subjob_id`.
 - Every component `schema` is `{"input": [...], "output": [...]}` (a two-key object, NOT a flat
-  list). Preserve the columns the configurator set.
+  list). Preserve each component's `output` columns exactly as the configurator set them, and BUILD
+  its `input` columns from the flow topology: for a component's inbound flow, copy the PRODUCING
+  component's `schema.output` into this component's `schema.input` (a join node's `input` is its
+  main/driver producer's output, not the lookup's). Do not leave `input` empty except for a source
+  component that has no inbound flow. The result matches the fully-populated per-component schemas in
+  `job-envelope.md`.
 - `flows` is a top-level list of edges: `{"name": <flow>, "type": "flow", "from": <id>, "to": <id>}`.
   Use `"type": "flow"` -- `"type": "main"` routes nothing.
 - Every component carries `inputs` and `outputs` lists that reference flow NAMES (not component ids).

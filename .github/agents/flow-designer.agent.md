@@ -68,6 +68,13 @@ so the simplest correct vectorized pipeline wins.
 - Row-oriented nodes -- `Map`/`tMap`, `PyMap`, `tPythonRow`, `tJavaRow` -- are O(rows). Reserve them
   for when you truly need Java-expression parity or a multi-lookup / expression-driven join. Do not
   reach for a row-oriented node when a vectorized one does the job.
+- INPUT REDUCTION (pushdown): when a row-oriented node (`tMap` / `PyMap` / `tPythonRow`) is
+  unavoidable, shrink its input BEFORE it -- push a row filter or column projection UPSTREAM of the
+  node (an upstream `FilterRows` / `FilterColumns` on the source, or fold a row predicate into the
+  join's own `main.activate_filter` + `filter`) so the O(rows) node processes fewer rows/columns.
+  CRITICAL qualifier: push a predicate upstream ONLY when it references PRE-JOIN / SOURCE columns. A
+  predicate on a lookup-derived (post-join) column MUST stay AFTER the join -- moving it upstream
+  filters before that column exists, which changes the result: a correctness bug, not an optimization.
 - Streaming is only for very large inputs, and it is a CORRECTNESS TRAP for stateful nodes.
   `hybrid` is the DEFAULT mode, and it auto-streams any single-DataFrame-input node once the input
   exceeds 5GB (deep memory): `base_component._execute_streaming` slices the frame into INDEPENDENT

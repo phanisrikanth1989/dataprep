@@ -129,8 +129,9 @@ exhausted. At the gate you STOP and present to the human, for APPROVAL:
 
   and present its JSON output VERBATIM at the gate, alongside `job.json` and `test_report.json`. That
   tool extracts every code-bearing cell -- `python_dataframe` / `tPython` / `tPythonRow` `python_code`,
-  `tJava` / `tJavaRow` / `tJavaFlex` code, and any free-form `{{java}}` tMap/filter expression -- and
-  stamps each with an `unsandboxed` flag. Call out every cell with `"unsandboxed": true` as the
+  `tJava` / `tJavaRow` / `tJavaFlex` code, `PyMap` join/variable/output expressions (sandboxed),
+  `SwiftTransformer` / `tSwiftDataTransformer` `python_expression` fields (UNSANDBOXED), and any
+  free-form `{{java}}` tMap/filter expression -- and stamps each with an `unsandboxed` flag. Call out every cell with `"unsandboxed": true` as the
   HIGHEST-priority review item: that is `python_dataframe` `python_code` (or a `SwiftTransformer`
   cell), which runs with FULL Python builtins (filesystem, network, and process access). The
   pre-execution review in the forward chain (step 5) already required the human to approve these
