@@ -51,7 +51,14 @@ truth; you do not re-explain it and you do not let a stage improvise around it.
 
 Delegate to each specialist with `#runSubagent`. Run the forward chain in this order:
 
-1. `#runSubagent doc-interpreter` -- reads extract_doc.json, writes requirement_spec.json.
+1. `#runSubagent doc-interpreter` -- reads extract_doc.json, writes requirement_spec.json. AFTER it
+   writes -- on the FIRST run AND on any looped re-run -- read that file's `ambiguities` list (each
+   entry is `{rule_id, issue, why}`: an enrichment decision the data-blind interpreter could not
+   resolve, e.g. a non-unique lookup key or an unstated `no_match`). This channel is LIVE, not a
+   dead-end: if `ambiguities` is non-empty, log it to the audit trail and CARRY every entry verbatim
+   to the human gate as an open question (Safety net 3). If any entry BLOCKS planning -- it changes
+   the output row count or the join semantics -- STOP now and take it to the human rather than letting
+   a downstream stage silently guess a default. An empty `ambiguities` needs no pause.
 2. `#runSubagent flow-designer`   -- reads requirement_spec.json, writes flow_plan.json.
 3. `#runSubagent configurator`    -- reads flow_plan.json, writes job_draft.json.
 4. `#runSubagent assembler`       -- reads job_draft.json, writes job.json.
@@ -146,6 +153,13 @@ exhausted. At the gate you STOP and present to the human, for APPROVAL:
   human MUST read each such cell before the job is trusted
   or re-run. Do not paraphrase, summarize, or truncate the cells -- the human reviews the exact code
   the tool emits.
+- every OPEN AMBIGUITY the doc-interpreter flagged: the `ambiguities` list from the latest
+  `agents/work/<job>/requirement_spec.json` (each `{rule_id, issue, why}`), presented as open
+  questions the human must resolve. A non-empty `ambiguities` means the spec left an enrichment
+  decision explicit-but-unresolved (a non-unique lookup key, an unstated `no_match`, an unclear
+  validation type/format); a GREEN harness does NOT close it, because the oracle only checks the one
+  golden path and the interpreter never picked a default. If the list is non-empty, say so plainly --
+  never bury or drop it. If it is empty, state that no ambiguities were flagged.
 
 You NEVER auto-approve, and you NEVER treat a green report as final on your own authority. A passing
 harness is necessary but not sufficient: only the human's explicit sign-off makes a job done. If the

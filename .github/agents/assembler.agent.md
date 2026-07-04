@@ -55,12 +55,16 @@ Write `agents/work/<job>/job.json` = the draft PLUS the envelope. Follow
 - `flows` is a top-level list of edges: `{"name": <flow>, "type": "flow", "from": <id>, "to": <id>}`.
   Use `"type": "flow"` -- `"type": "main"` routes nothing.
 - Every component carries `inputs` and `outputs` lists that reference flow NAMES (not component ids).
-- An unmatched-source-row output on a tMap/PyMap `INNER_JOIN` is marked `"inner_join_reject": true`
-  (NOT `is_reject`, which stays empty on a join miss). It routes source rows that found no lookup
-  match to a reject output -- a NON-default choice; a `LEFT_OUTER_JOIN` instead keeps those rows and
-  null-fills the lookup columns. Keep the two markers distinct: unmatched-source rows ->
-  `inner_join_reject`; a schema-validation / filter reject output -> the configurator's `is_reject`;
-  never interchange them.
+- A tMap/PyMap `INNER_JOIN` may carry a reject output for unmatched SOURCE rows, which the
+  CONFIGURATOR flags in the component `config` with `"inner_join_reject": true` (distinct from
+  `is_reject`, which stays empty on a join miss). You do NOT set, add, or change that flag -- it is
+  frozen `config` you keep byte-for-byte. Your job is to WIRE whatever reject output the config
+  already declares: add its edge to `flows` with `"type": "reject"`, name that flow in the producing
+  tMap/PyMap's `outputs` and in the consuming sink's `inputs`, exactly as for any other data flow. If
+  the config declares no `inner_join_reject` (or `is_reject`) output, there is no reject flow to wire
+  -- the default `LEFT_OUTER_JOIN` keeps unmatched rows with null-filled lookup columns. Never invent
+  a reject the config did not declare, and keep the two markers distinct when wiring: unmatched-source
+  rows -> `inner_join_reject`; a schema-validation / filter reject -> `is_reject`.
 - For a `Join`/`tJoin`, the driver-vs-lookup role is fixed by INPUT ORDER: the engine resolves the
   driver as `inputs[0]` (main) and the lookup as `inputs[1]` (`Join._resolve_inputs`; the engine sets
   `self.inputs` from this component's `inputs` list verbatim). Do NOT name the two inbound flows the

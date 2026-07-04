@@ -93,8 +93,12 @@ prefer it.
 Consult the `dataprep-recon` skill: `config-reference.md` for every curated key and its allowed
 values, `job-envelope.md` for the `{input, output}` schema shape you author, and `landmines.md` for
 traps that pass validation but silently produce wrong output. Respect each landmine, notably:
-- Always set `die_on_error` explicitly -- never rely on the default (it differs between BaseComponent
-  and several components' own reads).
+- Always set the die-on-error flag explicitly -- never rely on the default (it differs between
+  BaseComponent's `True` and several components' own `False` reads). Its KEY NAME is per-component:
+  many nodes read `die_on_error`, but some read a different key -- e.g. `ConvertType` reads
+  `dieonerror` (one word). Use the EXACT key that component reads: look it up in `config-reference.md`
+  (or the `die-on-error-dual-default` landmine); do NOT assume `die_on_error` everywhere, or the flag
+  you set is silently ignored and the node falls back to its own default.
 - Pin `execution_mode: "batch"` on EVERY whole-frame/stateful node -- `AggregateRow`, `SortRow`,
   `UniqueRow`, and `python_dataframe`/`tPythonDataFrame`. Under the default `hybrid` mode these
   single-input nodes AUTO-STREAM above 5GB, and `base_component._execute_streaming` runs `_process`
@@ -107,13 +111,24 @@ traps that pass validation but silently produce wrong output. Respect each landm
 - For a `tMap` / `PyMap` lookup the join is equality-only (the key `operator` is a no-op). Set
   `join_mode` to exactly `LEFT_OUTER_JOIN` (keep unmatched source rows, null-fill the lookup columns)
   or `INNER_JOIN` (drop unmatched source rows); any other string silently degrades to the default.
+- YOU own the reject markers on a `tMap`/`PyMap` output -- they are component `config`, so the
+  assembler only WIRES the resulting flow and never sets the field. When a job must route unmatched
+  SOURCE rows to a reject (an `INNER_JOIN` that CAPTURES the misses instead of dropping them silently),
+  set `inner_join_reject: true` on that reject output in `config.outputs[]` (a per-output bool the
+  engine reads via `output_cfg.get("inner_join_reject")`). This is NOT the enrichment default: the
+  default `LEFT_OUTER_JOIN` keeps every unmatched source row with null-filled lookup columns and needs
+  no reject output at all. Keep `inner_join_reject` (unmatched-source rows) distinct from `is_reject`
+  (a schema-validation / output-filter reject) -- both are config you author; never interchange them.
 - A job containing any `tMap`/`Map` component REQUIRES a top-level `java_config.enabled=true` block
   (with the standard routines) and `{{java}}`-marked tMap expressions; without it the component
   crashes at run time (`'NoneType' ... compile_tmap_script`, landmine `tmap-requires-java-config`).
 - For a non-unique lookup key, either dedup the lookup first (`UniqueRow` / `AggregateRow`) and use
   `matching_mode` UNIQUE_MATCH or FIRST_MATCH, or set `ALL_MATCHES` deliberately for a 1:N expansion.
-  The 10M/100M result-row cartesian guard covers only FILTER_AS_MATCH / cross (unkeyed) joins, NOT a
-  keyed `ALL_MATCHES` 1:N fan-out (uncapped) -- keep the lookup unique or expect the full fan-out.
+  The 10M-warn / 100M-fail result-row cartesian guard is COMPONENT-SPECIFIC: on `tMap` it fires only
+  on the unkeyed cross paths (`FILTER_AS_MATCH` / `CONSTANT_KEY`, in `map_joins._check_cross_size_guard`),
+  so a tMap KEYED `ALL_MATCHES` 1:N fan-out (the SIMPLE / COMPUTED merge path) is UNCAPPED; on `PyMap`
+  the SAME guard DOES cover a keyed `ALL_MATCHES` join (`py_map._check_size_guard`, only reached when
+  `matching_mode == ALL_MATCHES`). Either way, keep the lookup unique or expect the full fan-out.
   UNIQUE_MATCH silently keeps only the last duplicate.
 - Format a tMap output column's date INSIDE its `{{java}}` expression (e.g. `TalendDate.formatDate(...)`);
   a `pattern` or `date_pattern` key on a tMap column is parsed but dead (landmine
