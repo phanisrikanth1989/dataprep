@@ -127,6 +127,22 @@ def test_surfaces_swift_alias_and_nested_python_expressions():
                for c in surface_code_cells(job) if c["component"] == "sw")
 
 
+# ---- RowGenerator + RunIf eval cells (M1) ---------------------------------
+
+def test_surfaces_rowgenerator_array_expression():
+    job = {"components": [{"id": "rg", "type": "RowGenerator", "config": {
+        "values": [{"column": "c", "array": "random.randint(1,9)"}]}}]}
+    cells = surface_code_cells(job)
+    assert any(c["component"] == "rg" and "random.randint" in c["code"] for c in cells)
+
+
+def test_surfaces_runif_condition():
+    job = {"components": [], "triggers": [{"id": "t1", "type": "RunIf", "from": "a", "to": "b",
+        "condition": "globalMap.get('x') == 1"}]}
+    cells = surface_code_cells(job)
+    assert any(c.get("field") == "condition" and "globalMap" in c["code"] for c in cells)
+
+
 # ---- dedup + ordering -----------------------------------------------------
 
 def test_dedup_prefers_explicit_unsandboxed_flag():

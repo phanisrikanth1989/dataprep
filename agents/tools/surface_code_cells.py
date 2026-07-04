@@ -23,6 +23,13 @@ Component facts are code-verified against ``src/v1/engine/components/transform/`
 - ``SwiftTransformer`` / ``tSwiftDataTransformer`` eval() ``python_expression``
   config fields with ``__import__`` present in ``__builtins__`` -> full escape ->
   UNSANDBOXED. The key can nest, so it is surfaced via a recursive key walk.
+- ``RowGenerator`` / ``tRowGenerator`` eval()s each ``values[].array`` string
+  (an LLM-authored per-row expression) in a ``{"__builtins__": {}, "random": ...}``
+  namespace -- restricted but object-graph-escapable, so every ``array`` string is
+  surfaced (sandboxed=True relative to python_dataframe, same treatment as PyMap).
+- ``RunIf`` triggers live in the job's ``triggers[]`` (NOT ``components[]``); each
+  carries a ``condition`` expression that ``TriggerManager`` eval()s in a restricted
+  (object-graph-escapable) namespace, so every RunIf ``condition`` is surfaced too.
 - Any component may carry the deferred-Java marker ``{{java}}`` in a free-form
   string cell (e.g. a tMap output-column ``expression``); those are surfaced too.
 """
@@ -60,6 +67,12 @@ _PY_MAP_TYPES = frozenset({"PyMap"})
 # SwiftTransformer eval()s python_expression fields with __import__ present in
 # __builtins__ -> full escape -> UNSANDBOXED (pending an engine harden).
 _SWIFT_TYPES = frozenset({"SwiftTransformer", "tSwiftDataTransformer"})
+# RowGenerator eval()s each values[].array string in a restricted-but-escapable
+# {"__builtins__": {}, "random": ...} namespace -> surfaced (sandboxed=True,
+# same treatment as PyMap; the namespace is object-graph-escapable, not a jail).
+_ROW_GENERATOR_TYPES = frozenset({"RowGenerator", "tRowGenerator"})
+# RunIf trigger type match is case-insensitive (see _runif_cells).
+_RUN_IF_TYPE = "runif"
 
 
 def _is_code_str(value) -> bool:
@@ -155,6 +168,48 @@ def _pymap_cells(config: dict, out: list) -> None:
                         ))
 
 
+def _runif_cells(job_config: dict, out: list, seen: set) -> None:
+    """Surface every RunIf trigger's ``condition`` expression for human review.
+
+    RunIf conditions live in the job-level ``triggers[]`` (NOT ``components[]``)
+    and are ``eval()``'d by ``TriggerManager`` in a restricted-but-object-graph-
+    escapable namespace, so each non-blank ``condition`` is surfaced
+    (unsandboxed=False, same posture as PyMap / RowGenerator).
+
+    The displayed ``component`` is the trigger's source component (its ``from``),
+    falling back to the trigger id then ``trigger:<index>``. Dedup keys on the
+    trigger's own identity -- NOT on ``(component, field)`` -- so two RunIf
+    branches from the SAME source component both surface (the whole point of the
+    gate is that no code-bearing cell is dropped).
+    """
+    triggers = job_config.get("triggers")
+    if not isinstance(triggers, list):
+        return
+    for index, trigger in enumerate(triggers):
+        if not isinstance(trigger, dict):
+            continue
+        ttype = trigger.get("type")
+        if not isinstance(ttype, str) or ttype.strip().lower() != _RUN_IF_TYPE:
+            continue
+        condition = trigger.get("condition")
+        if not _is_code_str(condition):
+            continue
+        tid = trigger.get("id")
+        cid = (trigger.get("from") or trigger.get("from_component")
+               or tid or f"trigger:{index}")
+        key = ("__trigger__", tid if tid is not None else index)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({
+            "component": cid,
+            "type": ttype,
+            "field": "condition",
+            "code": condition,
+            "unsandboxed": False,
+        })
+
+
 def surface_code_cells(job_config: dict) -> list:
     """Return every code-bearing config cell of a job, verbatim, for human review.
 
@@ -172,9 +227,9 @@ def surface_code_cells(job_config: dict) -> list:
         over a generic ``{{java}}`` marker match on the same field -- and ordered
         with unsandboxed cells first, then by component id, then field.
     """
-    components = job_config.get("components") if isinstance(job_config, dict) else None
-    if not isinstance(components, list):
+    if not isinstance(job_config, dict):
         return []
+    components = job_config.get("components")
 
     cells: list = []
     seen: set = set()
@@ -194,7 +249,7 @@ def surface_code_cells(job_config: dict) -> list:
             "unsandboxed": unsandboxed,
         })
 
-    for comp in components:
+    for comp in components if isinstance(components, list) else []:
         if not isinstance(comp, dict):
             continue
         cid = comp.get("id")
@@ -223,12 +278,23 @@ def surface_code_cells(job_config: dict) -> list:
             _walk_named_key(config, "", _SWIFT_PY_EXPR_KEY, swift_cells)
             for field_path, code in swift_cells:
                 add(cid, ctype, field_path, code, True)
+        elif ctype in _ROW_GENERATOR_TYPES:
+            # Each values[].array is an LLM-authored per-row eval() expression
+            # in a restricted-but-escapable namespace -> surfaced (sandboxed).
+            values = config.get("values")
+            if isinstance(values, list):
+                for i, value in enumerate(values):
+                    if isinstance(value, dict):
+                        add(cid, ctype, f"values[{i}].array", value.get("array"), False)
 
         # 2. generic: any free-form {{java}} marker anywhere in the config tree
         markers: list = []
         _walk_markers(config, "", markers)
         for field_path, code in markers:
             add(cid, ctype, field_path, code, False)
+
+    # 3. RunIf trigger conditions live in job-level triggers[], not components[].
+    _runif_cells(job_config, cells, seen)
 
     cells.sort(key=lambda c: (not c["unsandboxed"], str(c["component"]), str(c["field"])))
     logger.debug("[surface_code_cells] surfaced %d code cell(s)", len(cells))
