@@ -61,13 +61,18 @@ Write `agents/work/<job>/job.json` = the draft PLUS the envelope. Follow
   null-fills the lookup columns. Keep the two markers distinct: unmatched-source rows ->
   `inner_join_reject`; a schema-validation / filter reject output -> the configurator's `is_reject`;
   never interchange them.
-- For a `Join`/`tJoin`, the driver-vs-lookup role is fixed by INPUT ORDER (the engine takes the
-  first input as `main`, the second as `lookup`). Wire the flow_plan's driver as the main input. For
-  a `tJoin` specifically, NAME the two input flows `"main"` and `"lookup"` -- the engine checks those
-  flow names FIRST, sidestepping positional ambiguity. Getting this backwards is severe: a
-  `LEFT_OUTER_JOIN` with the inputs swapped keeps all LOOKUP rows and drops unmatched SOURCE rows --
-  the OPPOSITE of the enrichment contract (keep every source row, null-fill missing lookup columns).
-- For a `tMap`/`PyMap`, do NOT apply that tJoin `"main"`/`"lookup"` naming instinct. Its `config`
+- For a `Join`/`tJoin`, the driver-vs-lookup role is fixed by INPUT ORDER: the engine resolves the
+  driver as `inputs[0]` (main) and the lookup as `inputs[1]` (`Join._resolve_inputs`; the engine sets
+  `self.inputs` from this component's `inputs` list verbatim). Do NOT name the two inbound flows the
+  literal `"main"`/`"lookup"` -- a job with 2+ `tJoin` nodes would reuse those same two names and
+  COLLIDE (ambiguous wiring). Instead give each `tJoin`'s two inbound flows UNIQUE names derived from
+  the source component ids (e.g. `<driver_id>_to_<join_id>` and `<lookup_id>_to_<join_id>`) and encode
+  the role POSITIONALLY -- the flow_plan's driver is this component's FIRST `inputs` entry, the
+  lookup(s) follow -- consistent with the job-envelope contract. Getting the ORDER backwards is
+  severe: a `LEFT_OUTER_JOIN` with the inputs swapped keeps all LOOKUP rows and drops unmatched SOURCE
+  rows -- the OPPOSITE of the enrichment contract (keep every source row, null-fill missing lookup
+  columns).
+- For a `tMap`/`PyMap`, do NOT derive fresh flow names the way you do for a `tJoin`. Its `config`
   already carries the role names, so wire the producing component's `outputs` and the consuming
   node's `inputs` to the EXACT `inputs.main.name` (driver) and each `inputs.lookups[].name` (lookup)
   the configurator froze. The engine looks each input up by name (`inputs.get(name)`), so a

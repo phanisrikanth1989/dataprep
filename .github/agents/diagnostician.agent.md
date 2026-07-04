@@ -29,8 +29,15 @@ infer, or reason from a raw cell value. Your `why` and `fix` must be value-blind
 Read `agents/work/<job>/test_report.json` (a FAILED report from test-runner):
 - `passed` (false here), `reasons` (the human-readable failure list),
 - `engine` (`status`, `dropped`, `global_map`),
-- `outputs` -- per output-name diff: `missing`, `unexpected`, `value_mismatch`, `unexpected_columns`,
-  `missing_columns`, `reason`, `equal`.
+- `outputs` -- per output-name diff, in ONE of two shapes depending on whether that output declared
+  composite keys in the golden manifest:
+  - KEYED (composite-key) diff: `missing`, `unexpected`, `value_mismatch`, `unexpected_columns`,
+    `missing_columns`, `reason`, `equal` (per-key row counts).
+  - BAG (empty-key) diff: `equal`, `actual_rows`, `expected_rows`, and an OPTIONAL `reason`
+    (`"column set mismatch"` when the actual vs expected COLUMN SETS differ). A bag comparison reports
+    only the row COUNT on each side plus equality -- it carries NO `missing`/`unexpected`/
+    `value_mismatch` counts, so route a bag failure from the `actual_rows`-vs-`expected_rows` gap or
+    the column-set `reason`, not from key-level counts.
 - On a load failure the report is `{"passed": false, "error": "..."}`.
 
 ## Output

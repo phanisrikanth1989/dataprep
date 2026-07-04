@@ -56,14 +56,20 @@ Delegate to each specialist with `#runSubagent`. Run the forward chain in this o
 3. `#runSubagent configurator`    -- reads flow_plan.json, writes job_draft.json.
 4. `#runSubagent assembler`       -- reads job_draft.json, writes job.json.
 5. Pre-execution code review (BEFORE the FIRST test-runner run) -- run, from the terminal,
-   `python -m agents.tools.surface_code_cells --job agents/work/<job>/job.json`. If ANY cell has
-   `"unsandboxed": true` (a `python_dataframe`/`tPythonDataFrame` `python_code` cell or a
-   `SwiftTransformer` cell), STOP and require the human's EXPLICIT approval of those exact cells
-   BEFORE you run test-runner: the harness runs the job IN-PROCESS, so that unsandboxed code (full
-   filesystem/network/process access) executes on this machine the instant test-runner fires. If
-   there are NO unsandboxed cells, proceed with no pause -- no mid-loop stop. On repair iterations
-   you re-run this check but only re-pause if a re-run introduced a NEW or CHANGED unsandboxed cell
-   (the human already approved the code that a config-only re-run leaves unchanged).
+   `python -m agents.tools.surface_code_cells --job agents/work/<job>/job.json`. If it surfaces ANY
+   code-bearing cell -- NOT only the `"unsandboxed": true` ones -- STOP and require the human's
+   EXPLICIT approval of those exact cells BEFORE you run test-runner. Rationale (one line): the
+   harness runs the job IN-PROCESS and the engine `eval()`/`exec()`s EVERY surfaced cell --
+   `python_dataframe`, PyMap, RunIf, RowGenerator, and `{{java}}`/Groovy alike -- in a namespace that
+   is object-graph-escapable (RCE-capable), so all of them execute on this machine the instant
+   test-runner fires and thus all are pre-execution-approved, not only the full-builtins ones.
+   Present ALL surfaced cells in ONE batch for a SINGLE approval -- one pause per job, NEVER one pause
+   per cell -- with the `"unsandboxed": true` cells (a `python_dataframe`/`tPythonDataFrame`
+   `python_code` cell or a `SwiftTransformer` cell, which carry FULL Python builtins:
+   filesystem/network/process access) flagged as the HIGHEST-priority review items. If
+   `surface_code_cells` returns NO cells at all, proceed with no pause -- no mid-loop stop. On repair
+   iterations you re-run this check but only re-pause if a re-run introduced a NEW or CHANGED surfaced
+   cell (the human already approved the code that a config-only re-run leaves unchanged).
 6. `#runSubagent test-runner`     -- runs the harness on job.json, writes test_report.json.
 
 Then read the `passed` field of `test_report.json` -- that is the harness's verdict, NOT your own
@@ -134,9 +140,10 @@ exhausted. At the gate you STOP and present to the human, for APPROVAL:
   free-form `{{java}}` tMap/filter expression -- and stamps each with an `unsandboxed` flag. Call out every cell with `"unsandboxed": true` as the
   HIGHEST-priority review item: that is `python_dataframe` `python_code` (or a `SwiftTransformer`
   cell), which runs with FULL Python builtins (filesystem, network, and process access). The
-  pre-execution review in the forward chain (step 5) already required the human to approve these
-  cells BEFORE the harness first ran them in-process; this final gate re-surfaces the exact code
-  that ran so the human signs off on it. A human MUST read each such cell before the job is trusted
+  pre-execution review in the forward chain (step 5) already required the human to approve EVERY
+  surfaced code cell -- unsandboxed ones flagged highest -- BEFORE the harness first ran them
+  in-process; this final gate re-surfaces the exact code that ran so the human signs off on it. A
+  human MUST read each such cell before the job is trusted
   or re-run. Do not paraphrase, summarize, or truncate the cells -- the human reviews the exact code
   the tool emits.
 
