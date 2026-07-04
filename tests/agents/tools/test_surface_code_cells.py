@@ -143,6 +143,34 @@ def test_surfaces_runif_condition():
     assert any(c.get("field") == "condition" and "globalMap" in c["code"] for c in cells)
 
 
+def test_runif_edge_cases_dedup_and_multiple_branches():
+    # Malformed entries tolerated; non-RunIf triggers ignored; blank conditions
+    # skipped; a duplicate trigger id collapses; and TWO distinct RunIf branches
+    # from the SAME source component both surface (dedup keys on trigger identity,
+    # not (from, "condition") -- the gate must never drop a code-bearing cell).
+    job = {"components": [], "triggers": [
+        None, 5,                                                # malformed -> tolerated
+        {"type": "OnSubjobOk", "from": "a", "to": "b"},         # not RunIf -> skipped
+        {"id": "b0", "type": "RunIf", "from": "a", "condition": "   "},  # blank -> skipped
+        {"id": "t1", "type": "runif", "from": "src", "condition": "globalMap.get('x') == 1"},
+        {"id": "t2", "type": "RunIf", "from": "src", "condition": "globalMap.get('y') == 2"},
+        {"id": "t1", "type": "RunIf", "from": "src", "condition": "globalMap.get('z') == 3"},  # dup id
+    ]}
+    cells = surface_code_cells(job)
+    conds = [c["code"] for c in cells if c["field"] == "condition"]
+    assert "globalMap.get('x') == 1" in conds          # branch 1 from src
+    assert "globalMap.get('y') == 2" in conds          # branch 2 from src -- NOT deduped away
+    assert "globalMap.get('z') == 3" not in conds       # duplicate trigger id collapses
+    assert len(conds) == 2
+    assert all(c["unsandboxed"] is False and c["type"].lower() == "runif"
+               for c in cells if c["field"] == "condition")
+
+
+def test_surface_non_dict_job_returns_empty():
+    assert surface_code_cells("nope") == []
+    assert surface_code_cells(None) == []
+
+
 # ---- dedup + ordering -----------------------------------------------------
 
 def test_dedup_prefers_explicit_unsandboxed_flag():
