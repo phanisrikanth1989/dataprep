@@ -1,6 +1,6 @@
 # DataPrep Recon Agents -- Platform (VS Code 1.122 Copilot)
 
-Native GitHub Copilot custom agents that turn a recon requirements document into a runnable,
+Native GitHub Copilot custom agents that turn an enrichment requirements document into a runnable,
 harness-verified DataPrep `job.json`. One user-invocable orchestrator drives six subagent-only
 specialists via the built-in `#runSubagent` tool; a shared Agent Skill carries the domain
 knowledge; a deterministic Python harness -- not the model -- decides pass/fail.
@@ -98,7 +98,7 @@ Design pillars (all locked in the pivot):
   +===============================================================================+
          |
          v
-  HUMAN GATE  (never auto-approve): present job.json + test_report.json for sign-off
+  HUMAN GATE  (never auto-approve): present job.json + test_report.json + surfaced code cells for sign-off
 ```
 
 The forward chain is stages 1-5. On a FAILED report the diagnostician (stage 6) names one owner
@@ -121,10 +121,14 @@ runs at most 3 iterations, then stops at the human gate with whatever the latest
    subagent ran, on which artifact, and what the harness said, without re-running anything.
 
 3. The human gate (never auto-approve). The orchestrator reaches the gate on GREEN or when the
-   3-iteration budget is exhausted. It STOPS and presents the final `job.json` and
-   `test_report.json` for explicit human sign-off. A passing harness is necessary but not
-   sufficient -- only the human makes a job done. A budget-exhausted failure is presented as a
-   failure, not dressed up as success.
+   3-iteration budget is exhausted. It STOPS and presents the final `job.json`, `test_report.json`,
+   AND the deterministic code-cell surfacing (`surface_code_cells`) -- which enumerates every
+   code-bearing cell of the job and flags unsandboxed cells (`python_dataframe`, `SwiftTransformer`)
+   as highest-priority -- for explicit human sign-off. The enumeration is therefore never just
+   `job.json` + `test_report.json`: because the harness has already EXECUTED those cells by the time
+   the gate is reached, the same surfacing also runs before the first execution. A passing harness is
+   necessary but not sufficient -- only the human makes a job done. A budget-exhausted failure is
+   presented as a failure, not dressed up as success.
 
 The loop is a free-agent loop by design: the orchestrator chooses when to re-run a stage, within
 these nets. If compliance later requires a fixed deterministic recipe, that is a one-edit change to
@@ -148,13 +152,16 @@ All stages read and write JSON files under one flat, agent-readable work dir,
 
 Python tools under `agents/tools/`. The four pipeline CLIs (extract_doc, validate_config,
 run_and_validate, render_skills) are what the specialists invoke from the auto-approved terminal;
-the orchestrator also runs `audit_log` from that same terminal at runtime. Every terminal call is
-covered by the one `python -m agents.tools.*` auto-approve wildcard, so these names are illustrative,
-not the approval boundary.
-The remaining two split by role -- they are NOT one "gate": `validate_agents` is the library-only
-CI/frontmatter gate (runs in the test suite, never invoked by an agent), while `audit_log` is a
-RUNTIME contract the orchestrator calls -- now via `python -m agents.tools.audit_log` -- to append
-each audit line (safety net 2).
+the orchestrator also runs `audit_log` and `surface_code_cells` from that same terminal at runtime.
+Every terminal call is covered by the one `python -m agents.tools.*` auto-approve wildcard, so these
+names are illustrative, not the approval boundary.
+The remaining tools split by role -- they are NOT one "gate": `validate_agents` is the library-only
+CI/frontmatter gate (runs in the test suite, never invoked by an agent); `audit_log` is a
+RUNTIME contract the orchestrator calls -- via `python -m agents.tools.audit_log` -- to append
+each audit line (safety net 2); and `surface_code_cells` is a RUNTIME human-gate contract the
+orchestrator calls -- via `python -m agents.tools.surface_code_cells` -- to deterministically
+surface every code-bearing cell and flag unsandboxed cells (`python_dataframe`, `SwiftTransformer`)
+as highest-priority before it presents the job (safety net 3).
 
 | Tool | Invocation | Role |
 |------|-----------|------|
@@ -164,6 +171,7 @@ each audit line (safety net 2).
 | render_skills | `python -m agents.tools.render_skills` | Regenerates `.github/skills/dataprep-recon/` from the live schemas + landmines (enum_refs resolved). |
 | validate_agents | `agents.tools.validate_agents.validate_tree(agents_dir, skills_dir)` (library) | Frontmatter + model-agnostic gate over all `.agent.md`/`SKILL.md`; cross-checks the `agents:` allowlist. Runs in the test suite / CI. |
 | audit_log | `python -m agents.tools.audit_log --job-dir D --iteration N --role R --event E [--detail JSON]` (orchestrator runtime); `AuditLog(job_dir).record/read` as a library | The append-only JSONL audit trail (safety net 2) -- a runtime contract, not a CI gate. |
+| surface_code_cells | `python -m agents.tools.surface_code_cells --job <job.json>` | Deterministically extracts every code-bearing cell for the human gate (safety net 3); flags unsandboxed cells (`python_dataframe`, `SwiftTransformer`) as highest-priority. Orchestrator runtime. |
 
 ---
 
@@ -178,7 +186,7 @@ Prerequisites (local, one time):
   `chat.tools.terminal.autoApprove` configured for the `python -m agents.tools.*` commands
   (see the Citi checklist below).
 
-Run a recon job:
+Run an enrichment job:
 1. Extract the requirement deterministically (terminal):
    `python -m agents.tools.extract_doc path/to/requirements.docx --out agents/work/<job>/extract_doc.json`
    (`<job>` is the work-dir slug you choose.)
@@ -190,10 +198,11 @@ Run a recon job:
    runs the harness through the test-runner, and on a failed report routes through the
    diagnostician and re-runs the owner stage (up to 3 iterations). Every step lands in
    `agents/work/<job>/audit.jsonl`.
-5. It STOPS at the human gate and presents the final `agents/work/<job>/job.json` and
-   `agents/work/<job>/test_report.json` for your approval. It never auto-approves. On a
-   budget-exhausted failure it says so plainly and shows the last failing report plus the
-   diagnostician's feedback.
+5. It STOPS at the human gate and presents the final `agents/work/<job>/job.json`,
+   `agents/work/<job>/test_report.json`, and the deterministic `surface_code_cells` output --
+   every code-bearing cell, with unsandboxed cells (`python_dataframe`, `SwiftTransformer`) flagged
+   highest-priority -- for your approval. It never auto-approves. On a budget-exhausted failure it
+   says so plainly and shows the last failing report plus the diagnostician's feedback.
 
 You approve (job is done) or reject (send it back). The runnable artifact is `job.json`; the
 verdict of record is `test_report.json`.
@@ -204,7 +213,7 @@ verdict of record is `test_report.json`.
 
 Tested locally (in this repo, no Copilot host needed):
 - The deterministic tooling: `extract_doc`, `validate_config`, `run_and_validate` (oracle),
-  `render_skills`, `audit_log`, `component_schema`, `check_schema_drift`.
+  `render_skills`, `audit_log`, `surface_code_cells`, `component_schema`, `check_schema_drift`.
   Covered by `tests/agents/`.
 - The authored agent + skill frontmatter: `validate_tree('.github/agents', '.github/skills')`
   returns `[]` -- names present, no `model:` key, `tools:`/`agents:` are lists, the orchestrator's

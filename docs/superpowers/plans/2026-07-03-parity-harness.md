@@ -1,5 +1,16 @@
 # Parity Harness + Oracle (deterministic agent-facing tools) Implementation Plan
 
+> **SUPERSEDED IN PART (2026-07-03) -- see `docs/superpowers/specs/2026-07-03-enrichment-scope-correction.md`.**
+> This plan is historical; two of its tasks were DROPPED by the enrichment scope correction and are NOT live work:
+> - **Task 3 `reference_matcher`** (the match/break oracle-of-oracle) was REMOVED -- `agents/tools/reference_matcher.py`
+>   no longer exists. A LEFT-join enrichment keeps all source rows, so there is no independent "match" to cross-check.
+> - **Task 6's Phase-A recon golden** (`tests/fixtures/recon/golden_phase_a/`: two-source tMap exact-match -> matched +
+>   one-sided break) was RECAST to an enrichment golden at `tests/fixtures/recon/golden_enrichment/`
+>   (source + lookup -> join -> validate/convert -> aggregate -> sort -> output). The `plan-3b DROPPED` note at the foot
+>   of this file already records the wider reconciliation-layer drop.
+>
+> The historical plan body below is preserved unchanged for provenance; do not treat the dropped tasks as work to do.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** Build the deterministic, agent-facing tool layer the native subagents call via terminal: agent-facing CLIs for the plan-1/2 tools, plus a parity harness + multi-signal oracle (`run_and_validate`) and an independent reference matcher that decide PASS/FAIL by running a job through the real engine and diffing actual-vs-expected — never LLM judgment.
