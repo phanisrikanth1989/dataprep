@@ -19,8 +19,9 @@ Minimal connected enrichment example (source + lookup -> LEFT-join tMap -> outpu
      "schema": {"input": [{"name": "cc", "type": "str"}], "output": [{"name": "cc", "type": "str"}, {"name": "country_name", "type": "str"}]},
      "config": {
        "inputs": {
-         "main": {"name": "source_flow", "matching_mode": "UNIQUE_MATCH", "lookup_mode": "LOAD_ONCE"},
+         "main": {"name": "source_flow"},
          "lookups": [{"name": "lookup_flow", "join_mode": "LEFT_OUTER_JOIN",
+                      "matching_mode": "UNIQUE_MATCH", "lookup_mode": "LOAD_ONCE",
                       "join_keys": [{"lookup_column": "cc", "expression": "source_flow.cc", "operator": "="}]}]
        },
        "outputs": [{"name": "enriched_flow", "is_reject": false, "columns": [

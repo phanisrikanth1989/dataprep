@@ -4,7 +4,7 @@
   - guidance: Always set die_on_error explicitly; do not rely on the default.
 - **tmap-operator-noop** (Map): tMap join_key operator is parsed but read by no join path; matching is equality-only.
   - guidance: Only operator '=' is honored (an inequality key is silently ignored); model a range/threshold rule as an exact join plus a post-join FilterRows/derive, never '<='.
-- **tmap-matching-mode-drops-dups** (Map): matching_mode default UNIQUE_MATCH silently keeps only the last duplicate lookup row, no break.
+- **tmap-matching-mode-drops-dups** (Map): matching_mode default UNIQUE_MATCH silently keeps only the last duplicate lookup row, with no error or warning.
   - guidance: For a non-unique lookup key use ALL_MATCHES + explicit duplicate handling; UNIQUE_MATCH hides dups.
 - **tmap-catch-output-reject-error-only** (Map): catch_output_reject captures expression ERRORS only, not filter-rejects; it cancels die_on_error propagation.
   - guidance: Use is_reject (or complementary output filters) for business/validation rejects; never catch_output_reject.
@@ -16,5 +16,9 @@
   - guidance: Use one of UNIQUE_MATCH, FIRST_MATCH, ALL_MATCHES, ALL_ROWS; UNIQUE_MATCH keeps only the last duplicate lookup row (see tmap-matching-mode-drops-dups). Invalid strings are not rejected.
 - **tmap-lookup-mode-values** (Map): tMap lookup_mode is neither schema- nor engine-validated; valid values are LOAD_ONCE, RELOAD, CACHE_OR_RELOAD.
   - guidance: Set lookup_mode to LOAD_ONCE, RELOAD, or CACHE_OR_RELOAD; neither the schema nor the engine rejects invalid values, so rely on the oracle/reference diff.
+- **tmap-lookup-mode-placement** (Map): tMap matching_mode/lookup_mode belong on the per-lookup entry (inputs.lookups[]), NOT inputs.main
+  - guidance: Put matching_mode/lookup_mode on each inputs.lookups[] entry; a value on inputs.main is silently ignored and the lookup defaults to UNIQUE_MATCH/LOAD_ONCE.
+- **sortrow-alpha-default** (SortRow): SortRow sort_type defaults to 'alpha' (lexicographic); numeric/date columns mis-sort as strings
+  - guidance: Set sort_type to 'num' or 'date' for any non-string sort column ('10' sorts before '9', dates non-chronologically under alpha). The order-insensitive oracle will NOT catch a mis-typed sort.
 - **reject-is-a-data-flow** (GLOBAL): Reject is a data flow (type 'reject'), not a trigger; it routes through flows[], not triggers[].
   - guidance: Wire rejects as flows with type 'reject', not as OnComponentError triggers.
