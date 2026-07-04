@@ -1,3 +1,7 @@
+import json
+
+import pytest
+
 from agents.tools.render_skills import render_config_reference, render_landmines, write_skill
 from agents.tools.validate_agents import validate_skill
 
@@ -34,3 +38,34 @@ def test_keep_enum_renders_json_false():
     md = render_config_reference()
     assert "false" in md                     # UniqueRow keep enum includes JSON false
     assert "one of first, last, False" not in md   # not Python False (adjust to your exact separator)
+
+
+def test_job_envelope_example_carries_java_config():
+    """The taught tMap example MUST carry java_config.enabled=true; without it the
+    Map component crashes at run time ('NoneType'...compile_tmap_script). Parse the
+    example as real JSON (not a string match) so a dropped java_config fails CI."""
+    from agents.tools.render_skills import _JOB_ENVELOPE_EXAMPLE_JSON
+    payload = json.loads(_JOB_ENVELOPE_EXAMPLE_JSON)          # must be valid JSON
+    assert payload["java_config"]["enabled"] is True
+    # tMap expressions carry the {{java}} marker (so a dropped block raises the friendly error)
+    join = next(c for c in payload["components"] if c["type"] == "Map")
+    assert all("{{java}}" in col["expression"]
+               for col in join["config"]["outputs"][0]["columns"])
+
+
+@pytest.mark.java
+def test_job_envelope_example_runs_on_real_engine(java_bridge, tmp_path):
+    """The taught tMap example must actually RUN through the real engine + live bridge --
+    the string-match test above never exercised it, which is how the missing java_config
+    (a hard runtime crash) went unnoticed."""
+    from agents.tools.render_skills import _JOB_ENVELOPE_EXAMPLE_JSON
+    from agents.tools.run_and_validate import run_job_capture
+    (tmp_path / "source.csv").write_text("cc\nUS\nFR\n", encoding="utf-8")
+    (tmp_path / "countries.csv").write_text("cc;country_name\nUS;United States\n", encoding="utf-8")
+    job = json.loads(_JOB_ENVELOPE_EXAMPLE_JSON)
+    rr = run_job_capture(job, tmp_path)
+    assert rr.status == "success", rr.error
+    enriched = rr.outputs["out_enriched"]
+    name_by_cc = dict(zip(enriched["cc"], enriched["country_name"]))
+    assert name_by_cc["US"] == "United States"   # matched -> lookup column added
+    assert name_by_cc["FR"] == ""                 # unmatched source row KEPT (LEFT join), null enrichment

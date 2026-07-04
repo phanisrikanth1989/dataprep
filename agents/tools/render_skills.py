@@ -83,11 +83,11 @@ _JOB_ENVELOPE_EXAMPLE_JSON = """{
          "main": {"name": "source_flow"},
          "lookups": [{"name": "lookup_flow", "join_mode": "LEFT_OUTER_JOIN",
                       "matching_mode": "UNIQUE_MATCH", "lookup_mode": "LOAD_ONCE",
-                      "join_keys": [{"lookup_column": "cc", "expression": "source_flow.cc", "operator": "="}]}]
+                      "join_keys": [{"lookup_column": "cc", "expression": "{{java}}source_flow.cc", "operator": "="}]}]
        },
        "outputs": [{"name": "enriched_flow", "is_reject": false, "columns": [
-         {"name": "cc", "expression": "source_flow.cc", "type": "str"},
-         {"name": "country_name", "expression": "lookup_flow.country_name", "type": "str"}]}]
+         {"name": "cc", "expression": "{{java}}source_flow.cc", "type": "str"},
+         {"name": "country_name", "expression": "{{java}}lookup_flow.country_name", "type": "str"}]}]
      },
      "inputs": ["source_flow", "lookup_flow"], "outputs": ["enriched_flow"]},
     {"id": "out_enriched", "type": "FileOutputDelimited", "subjob_id": "sj1",
@@ -99,7 +99,11 @@ _JOB_ENVELOPE_EXAMPLE_JSON = """{
     {"name": "source_flow", "type": "flow", "from": "in_source", "to": "join1"},
     {"name": "lookup_flow", "type": "flow", "from": "in_lookup", "to": "join1"},
     {"name": "enriched_flow", "type": "flow", "from": "join1", "to": "out_enriched"}
-  ]
+  ],
+  "java_config": {"enabled": true, "routines": [
+    "routines.TalendDate", "routines.TalendString", "routines.StringHandling",
+    "routines.Mathematical", "routines.Relational", "routines.Numeric",
+    "routines.DataOperation"], "libraries": []}
 }
 """
 
@@ -116,7 +120,10 @@ def render_job_envelope() -> str:
         "`LEFT_OUTER_JOIN` that KEEPS ALL source rows -- an unmatched source row still flows "
         "out, with null lookup columns. `inner_join_reject: true` on an output is AVAILABLE if a "
         "job must route unmatched source rows to a reject output (`is_reject` stays empty for a "
-        "join miss), but that is NOT the enrichment default.\n"
+        "join miss), but that is NOT the enrichment default.\n\n"
+        "Any job containing a `Map`/`tMap` component REQUIRES a top-level "
+        "`\"java_config\": {\"enabled\": true, ...}` block: the tMap engine always compiles a Java "
+        "script and crashes without the bridge. tMap expressions carry a `{{java}}` marker (as below).\n"
     )
     example = (
         "\nMinimal connected enrichment example (source + lookup -> LEFT-join tMap -> output; "

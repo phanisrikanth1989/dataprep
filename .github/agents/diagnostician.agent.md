@@ -57,8 +57,9 @@ Write `agents/work/<job>/feedback.json`:
   component). NEVER route a wrong key/cardinality to flow-designer.
 - `value_mismatch` on a joined or derived column (join lines up, values differ) -> `configurator`:
   a wrong `ConvertType` cast, a numeric-precision gap (e.g. python_dataframe rounding), a date/number
-  FORMAT miss (the tMap output `pattern` vs the unwired `date_pattern` landmine), a wrong derivation,
-  or a post-join split.
+  FORMAT miss (a tMap date must be formatted in the column `{{java}}` expression; the tMap
+  `pattern`/`date_pattern` keys are both dead -- landmine `tmap-pattern-vs-date-pattern`), a wrong
+  derivation, or a post-join split.
 - A component absent from the executed graph, or `engine.dropped` non-empty (an unknown/mistyped
   component type), or a whole output empty because its producer never ran -> `flow-designer`
   (a needed component was not planned).
@@ -76,5 +77,6 @@ ambiguous, route to `human` rather than guess.
 ## Knowledge
 
 Consult the `dataprep-recon` skill when a signal maps to a known trap: `landmines.md` (e.g. a
-non-unique lookup key dropping rows, or a `pattern` vs `date_pattern` formatting miss) and
+non-unique lookup key dropping rows, or a tMap date-format miss -- format in the `{{java}}`
+expression, not a dead `pattern`/`date_pattern` key) and
 `job-envelope.md` (wiring/schema shape) sharpen the `why`/`fix` without ever needing a data value.

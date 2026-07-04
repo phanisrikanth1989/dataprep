@@ -107,10 +107,18 @@ traps that pass validation but silently produce wrong output. Respect each landm
 - For a `tMap` / `PyMap` lookup the join is equality-only (the key `operator` is a no-op). Set
   `join_mode` to exactly `LEFT_OUTER_JOIN` (keep unmatched source rows, null-fill the lookup columns)
   or `INNER_JOIN` (drop unmatched source rows); any other string silently degrades to the default.
+- A job containing any `tMap`/`Map` component REQUIRES a top-level `java_config.enabled=true` block
+  (with the standard routines) and `{{java}}`-marked tMap expressions; without it the component
+  crashes at run time (`'NoneType' ... compile_tmap_script`, landmine `tmap-requires-java-config`).
 - For a non-unique lookup key, either dedup the lookup first (`UniqueRow` / `AggregateRow`) and use
-  `matching_mode` UNIQUE_MATCH or FIRST_MATCH, or set `ALL_MATCHES` deliberately for a 1:N expansion
-  -- and mind the 10M/100M cartesian guard. UNIQUE_MATCH silently keeps only the last duplicate.
-- Emit a tMap output column's date format under `pattern` (not `date_pattern`, which is unwired).
+  `matching_mode` UNIQUE_MATCH or FIRST_MATCH, or set `ALL_MATCHES` deliberately for a 1:N expansion.
+  The 10M/100M result-row cartesian guard covers only FILTER_AS_MATCH / cross (unkeyed) joins, NOT a
+  keyed `ALL_MATCHES` 1:N fan-out (uncapped) -- keep the lookup unique or expect the full fan-out.
+  UNIQUE_MATCH silently keeps only the last duplicate.
+- Format a tMap output column's date INSIDE its `{{java}}` expression (e.g. `TalendDate.formatDate(...)`);
+  a `pattern` or `date_pattern` key on a tMap column is parsed but dead (landmine
+  `tmap-pattern-vs-date-pattern`). Schema-level `date_pattern` on a File-output / `ConvertType` /
+  `SchemaComplianceCheck` column IS honored -- that is a different, live attribute.
 - On a `SortRow` criterion for a NON-string column, set `sort_type` explicitly to `num` (numeric) or
   `date` (date) -- the default `alpha` is lexicographic, so a numeric/date column left at `alpha`
   mis-sorts ('10' before '9', dates out of chronological order) and the order-insensitive oracle will

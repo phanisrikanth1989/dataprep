@@ -8,8 +8,10 @@
   - guidance: For a non-unique lookup key use ALL_MATCHES + explicit duplicate handling; UNIQUE_MATCH hides dups.
 - **tmap-catch-output-reject-error-only** (Map): catch_output_reject captures expression ERRORS only, not filter-rejects; it cancels die_on_error propagation.
   - guidance: Use is_reject (or complementary output filters) for business/validation rejects; never catch_output_reject.
-- **tmap-pattern-vs-date-pattern** (Map): tMap output column date format: dataclass reads 'date_pattern' but the converter emits 'pattern' -> date formatting silently unwired.
-  - guidance: Emit the column date format under 'pattern' (schema accepts both); do not rely on 'date_pattern'.
+- **tmap-pattern-vs-date-pattern** (Map): tMap output-column date formatting is driven by the column EXPRESSION, not a config key: BOTH 'pattern' and 'date_pattern' on a tMap output column are parsed but consumed by no code path.
+  - guidance: Format a tMap date INSIDE the column's {{java}} expression (e.g. TalendDate.formatDate("yyyy-MM-dd", ...)); a 'pattern'/'date_pattern' key on a tMap column is dead. NOTE: schema-level date_pattern IS live for File I/O, ConvertType, and SchemaComplianceCheck -- this landmine is tMap-only.
+- **tmap-requires-java-config** (Map): A tMap/Map job REQUIRES a top-level java_config.enabled=true; without it the tMap component crashes with "'NoneType' object has no attribute 'compile_tmap_script'".
+  - guidance: Always include a top-level java_config.enabled=true block (with the standard routines) for any job containing a Map/tMap component, and mark tMap expressions with a {{java}} prefix so a dropped block raises the friendly bridge-missing error instead of a raw AttributeError.
 - **tmap-join-mode-values** (Map): tMap lookup join_mode is neither schema- nor engine-validated; only LEFT_OUTER_JOIN and INNER_JOIN are honored by the join path.
   - guidance: Set join_mode to exactly LEFT_OUTER_JOIN or INNER_JOIN; any other string silently degrades to the LEFT_OUTER_JOIN default. The oracle is the only backstop.
 - **tmap-matching-mode-values** (Map): tMap matching_mode is neither schema- nor engine-validated; valid values are UNIQUE_MATCH, FIRST_MATCH, ALL_MATCHES, ALL_ROWS.
