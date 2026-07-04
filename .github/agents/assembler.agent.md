@@ -24,9 +24,21 @@ Read `agents/work/<job>/job_draft.json` (from configurator):
 `{"components": [{"id", "type", "config", "schema"}]}`.
 
 Also read `agents/work/<job>/flow_plan.json` (from flow-designer) for each join's topology -- which
-upstream is the driver (main) and which is the lookup. `job_draft.json` carries NO role information,
-so the flow plan is your ONLY source for driver-vs-lookup order; preserve that order when you wire
-the join's inputs.
+upstream is the driver (main) and which is the lookup. The claim that `job_draft.json` carries NO
+role information holds ONLY for a `tJoin`, whose role is fixed by input ORDER: there the flow plan is
+your ONLY source for driver-vs-lookup order, so preserve that order when you wire its inputs. A
+`tMap`/`PyMap` config, by contrast, ALREADY encodes the roles in its (frozen) `config` -- the driver
+is `inputs.main.name` and each lookup is an `inputs.lookups[].name`. For a `tMap`/`PyMap`, DERIVE the
+flow names FROM those existing config fields; do NOT invent fresh names, because the engine resolves
+each input by `inputs.get(name)`, so a flow name that does not match the config's
+`main`/`lookups[].name` misses and the node silently emits empty/null output.
+
+On a re-run (the orchestrator looped after a failed report), FIRST read
+`agents/work/<job>/feedback.json` if it exists. If its `owner` names THIS stage (`assembler`), apply
+the value-blind `fix` it describes -- typically a dangling flow, a mis-wired schema, or a swapped
+join driver/lookup order -- before you regenerate `job.json`; otherwise you reproduce the same
+envelope and the 3-iteration repair budget burns with no directed correction. The feedback carries a
+structural why/fix, not raw data values.
 
 ## Output
 
@@ -50,6 +62,11 @@ Write `agents/work/<job>/job.json` = the draft PLUS the envelope. Follow
   flow names FIRST, sidestepping positional ambiguity. Getting this backwards is severe: a
   `LEFT_OUTER_JOIN` with the inputs swapped keeps all LOOKUP rows and drops unmatched SOURCE rows --
   the OPPOSITE of the enrichment contract (keep every source row, null-fill missing lookup columns).
+- For a `tMap`/`PyMap`, do NOT apply that tJoin `"main"`/`"lookup"` naming instinct. Its `config`
+  already carries the role names, so wire the producing component's `outputs` and the consuming
+  node's `inputs` to the EXACT `inputs.main.name` (driver) and each `inputs.lookups[].name` (lookup)
+  the configurator froze. The engine looks each input up by name (`inputs.get(name)`), so a
+  mismatched or invented flow name resolves to nothing and the node silently emits empty/null.
 - A reject is a data flow: wire it as a flow with `"type": "reject"`, never as an error trigger.
 
 ## Rules

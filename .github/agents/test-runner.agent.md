@@ -19,22 +19,31 @@ of correctness.
 
 ## What you do
 
-1. Run the harness on the assembled job against the provided golden directory:
+1. Run the harness on the assembled job against the provided golden directory, PERSISTING the
+   verdict to `test_report.json` with `--out`:
 
    ```
    python -m agents.tools.run_and_validate \
      --job agents/work/<job>/job.json \
-     --golden-dir <GOLDEN_DIR>
+     --golden-dir <GOLDEN_DIR> \
+     --out agents/work/<job>/test_report.json
    ```
 
    The orchestrator gives you `<job>` and `<GOLDEN_DIR>`. The golden directory holds
-   `manifest.json` plus each `<name>_expected.csv`. Omit `--out` on purpose: with no `--out` the
-   harness prints the verdict JSON to STDOUT (the CLI defaults to stdout when `--out` is absent),
-   and you capture that stdout through the terminal tool -- you have no read tool and need none.
+   `manifest.json` plus each `<name>_expected.csv`. `--out` is REQUIRED here: it writes the verdict
+   JSON to `agents/work/<job>/test_report.json` so the diagnostician has a file to read on a
+   failure. Without `--out` the harness prints only to stdout and NOTHING persists -- the
+   diagnostician then has no report and the repair loop runs blind.
 
-2. Return the harness STDOUT VERBATIM as your result -- the `passed` boolean, the `engine` block,
-   the per-output `outputs` diffs, and the `reasons` list, exactly as written. Do not summarize,
-   re-interpret, soften, or add a verdict of your own.
+2. Return the persisted report VERBATIM. After the run, print the file back with your terminal tool:
+
+   ```
+   cat agents/work/<job>/test_report.json
+   ```
+
+   and relay that JSON exactly -- the `passed` boolean, the `engine` block, the per-output `outputs`
+   diffs, and the `reasons` list, as written. Do not summarize, re-interpret, soften, or add a
+   verdict of your own. You have terminal access only, and `cat` is all you need -- no read tool.
 
 ## Hard rules
 

@@ -44,6 +44,14 @@ Read the `extract_doc` artifact `agents/work/<job>/extract_doc.json` produced by
 - `conformance` -- the parse gate report. If `conformance.ok` is false, stop and surface the
   `missing_blocks` / `parse_errors` to the human instead of guessing.
 
+On a re-run (the orchestrator looped after a failed report), FIRST read
+`agents/work/<job>/feedback.json` if it exists. If its `owner` names THIS stage (`doc-interpreter`),
+apply the value-blind `fix` it describes -- typically a wrong join key, cardinality, or `no_match`
+in the spec -- before you regenerate `requirement_spec.json`; otherwise you reproduce the same spec
+and the 3-iteration repair budget burns with no directed correction. The feedback is structural
+(a json-path plus a why/fix) and carries NO raw data values, so reading it does not break your
+data-blindness.
+
 ## Output
 
 Write `agents/work/<job>/requirement_spec.json`:

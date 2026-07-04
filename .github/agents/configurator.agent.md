@@ -26,6 +26,13 @@ that is the assembler.
 - The `dataprep-recon` skill's `config-reference.md` for the curated nodes' legal config, and the
   engine component source for everything else.
 
+On a re-run (the orchestrator looped after a failed report), FIRST read
+`agents/work/<job>/feedback.json` if it exists. If its `owner` names THIS stage (`configurator`),
+apply the value-blind `fix` it describes -- typically a wrong cast/`pattern`/`matching_mode`, a
+mis-set key, or an unpinned `execution_mode` on a stateful node -- before you regenerate
+`job_draft.json`; otherwise you reproduce the same config and the 3-iteration repair budget burns
+with no directed correction. The feedback carries a structural why/fix, not raw data values.
+
 ## Output
 
 Write `agents/work/<job>/job_draft.json` in exactly this shape and nothing more:
@@ -81,6 +88,15 @@ values, and `landmines.md` for traps that pass validation but silently produce w
 each landmine, notably:
 - Always set `die_on_error` explicitly -- never rely on the default (it differs between BaseComponent
   and several components' own reads).
+- Pin `execution_mode: "batch"` on EVERY whole-frame/stateful node -- `AggregateRow`, `SortRow`,
+  `UniqueRow`, and `python_dataframe`/`tPythonDataFrame`. Under the default `hybrid` mode these
+  single-input nodes AUTO-STREAM above 5GB, and `base_component._execute_streaming` runs `_process`
+  on independent 10k-row chunks and only concats the outputs (NO cross-chunk reduction), so an
+  aggregate returns partial per-chunk group totals, a sort is only chunk-local, a dedup misses
+  cross-chunk duplicates, and a python_dataframe whole-frame op is computed per chunk -- all silently
+  wrong, and the order-insensitive oracle on <5GB golden data will not catch it. `Map`/`tMap` and
+  `PyMap` already force BATCH and `Join`/`tJoin` takes a dict input so it never streams, so those
+  need no pin.
 - For a `tMap` / `PyMap` lookup the join is equality-only (the key `operator` is a no-op). Set
   `join_mode` to exactly `LEFT_OUTER_JOIN` (keep unmatched source rows, null-fill the lookup columns)
   or `INNER_JOIN` (drop unmatched source rows); any other string silently degrades to the default.

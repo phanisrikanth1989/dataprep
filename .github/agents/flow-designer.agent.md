@@ -30,15 +30,24 @@ any `ambiguities`. If `ambiguities` is non-empty, do not paper over them -- plan
 note that the human must resolve them (especially a non-unique lookup key or an unresolved `no_match`
 rule, both of which change the output row count).
 
+On a re-run (the orchestrator looped after a failed report), FIRST read
+`agents/work/<job>/feedback.json` if it exists. If its `owner` names THIS stage (`flow-designer`),
+apply the value-blind `fix` it describes -- most often a needed component was not planned -- before
+you regenerate `flow_plan.json`; otherwise you reproduce the same plan and the 3-iteration repair
+budget burns with no directed correction. The feedback carries a structural why/fix, not raw data
+values.
+
 ## Output
 
 Write `agents/work/<job>/flow_plan.json`:
 - `pattern` -- a one-line description of the enrichment shape (e.g. "left-outer lookup of the ref
   file onto the source on acct_id via tJoin; one python_dataframe node casts types and derives the
   output columns; SortRow by acct_id; FileOutputDelimited").
-- `components` -- an ordered list of `{id, type, purpose}`. `type` is any registered engine component
-  type (see below). `purpose` says what the node does in the pipeline. No `config`, no `schema`, no
-  flows.
+- `components` -- an ordered list of `{id, type, purpose}`. `type` MUST be the REGISTERED engine
+  component name (see below) -- e.g. `tPythonDataFrame` / `PythonDataFrameComponent`, never the
+  `python_dataframe` prose shorthand -- because the engine silently DROPS a component whose `type`
+  is not in its registry. `purpose` says what the node does in the pipeline. No `config`, no
+  `schema`, no flows.
 
 ## Component set (the full registry, not a fixed list)
 
@@ -59,8 +68,19 @@ so the simplest correct vectorized pipeline wins.
 - Row-oriented nodes -- `Map`/`tMap`, `PyMap`, `tPythonRow`, `tJavaRow` -- are O(rows). Reserve them
   for when you truly need Java-expression parity or a multi-lookup / expression-driven join. Do not
   reach for a row-oriented node when a vectorized one does the job.
-- Streaming is only for very large inputs: HYBRID streams above 5GB; below that everything
-  materializes in memory, so plan for materialized DataFrames.
+- Streaming is only for very large inputs, and it is a CORRECTNESS TRAP for stateful nodes.
+  `hybrid` is the DEFAULT mode, and it auto-streams any single-DataFrame-input node once the input
+  exceeds 5GB (deep memory): `base_component._execute_streaming` slices the frame into INDEPENDENT
+  10k-row chunks, runs the node's `_process` on each chunk, and merely concats the per-chunk outputs
+  -- there is NO cross-chunk reduction. So a whole-frame/stateful node run per-chunk-then-concat
+  produces WRONG output above 5GB: `AggregateRow` sums within each chunk (partial group totals),
+  `SortRow` orders each chunk locally (globally unsorted), `UniqueRow` dedups only within a chunk
+  (cross-chunk duplicates survive), and `python_dataframe`/`tPythonDataFrame` derives per chunk. The
+  oracle diff is order-insensitive and the golden data is <5GB, so this corruption SHIPS to TLM
+  undetected. `Map`/`tMap` and `PyMap` already force BATCH, and `Join`/`tJoin` takes a dict of
+  inputs so it never enters the streaming branch -- but the four stateful nodes above do NOT, so for
+  each one note in its `purpose` that the configurator MUST pin `execution_mode: "batch"` on it.
+  Below 5GB everything materializes in memory, so plan for materialized DataFrames.
 
 ## Join / lookup options
 
@@ -107,6 +127,10 @@ pass. Design around its caveats:
   vectorized nodes -- the curated `ConvertType` / `FilterRows`, or the vectorized (uncurated)
   `FilterColumns` -- where they suffice, and note in the node's `purpose` that its code will need
   human review.
+- STATEFUL UNDER HYBRID: because it is single-input it AUTO-STREAMS above 5GB (see the streaming
+  caveat above), and any whole-frame operation in its code -- a groupby, rank, cumulative, sort,
+  dedup, or whole-column statistic -- is then computed per 10k-row chunk and silently WRONG. In the
+  node's `purpose`, direct the configurator to pin `execution_mode: "batch"` on it.
 
 ## Schema validation
 
@@ -118,12 +142,15 @@ node.
 ## Canonical shape (pipelines vary -- add or drop stages per the rules)
 
 `[FileInputDelimited source] + [FileInputDelimited lookup] -> [tJoin | PyMap | tMap] (join/enrich)
--> [python_dataframe] (one vectorized enrich/derive/validate node) -> [AggregateRow] -> [SortRow] ->
+-> [tPythonDataFrame] (one vectorized enrich/derive/validate node) -> [AggregateRow] -> [SortRow] ->
 [FileOutputDelimited]`. Aggregate BEFORE sort: `AggregateRow` (pandas groupby) regroups by its group
 key and discards any preceding row order, so place `SortRow` LAST to fix the TLM-facing output order
--- the oracle diff is order-insensitive, so a wrong final order slips past it and ships to TLM. Not
-every job has every stage. Keep the plan minimal -- the fewest nodes, vectorized wherever possible,
-that satisfy every rule.
+-- the oracle diff is order-insensitive, so a wrong final order slips past it and ships to TLM. Every
+`AggregateRow`, `SortRow`, `UniqueRow`, and `tPythonDataFrame` in the shape is a whole-frame/stateful
+node that HYBRID corrupts on >5GB input (see the streaming caveat above), so note in each such node's
+`purpose` that the configurator must pin `execution_mode: "batch"` on it. Not every job has every
+stage. Keep the plan minimal -- the fewest nodes, vectorized wherever possible, that satisfy every
+rule.
 
 ## Knowledge
 

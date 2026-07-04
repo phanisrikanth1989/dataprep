@@ -39,7 +39,7 @@ Write `agents/work/<job>/feedback.json`:
 - `owner` -- the single stage to re-run: `doc-interpreter | flow-designer | configurator |
   assembler | human`.
 - `signal` -- the structural evidence you routed from (json-path + shape), e.g.
-  `outputs.matched.value_mismatch=12`. No raw values.
+  `outputs.enriched.value_mismatch=12`. No raw values.
 - `why` -- a value-blind hypothesis of the cause.
 - `fix` -- a value-blind instruction for the owner stage.
 
