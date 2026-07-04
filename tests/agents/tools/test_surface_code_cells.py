@@ -62,6 +62,71 @@ def test_python_row_is_sandboxed():
     assert cells[0]["component"] == "pr" and cells[0]["unsandboxed"] is False
 
 
+# ---- PyMap + SwiftTransformer (I-4) ---------------------------------------
+
+def test_surfaces_pymap_expressions():
+    job = {"components": [{"id": "pm", "type": "PyMap", "config": {
+        "variables": [{"name": "v", "expression": "row1.amt * 2"}],
+        "outputs": [{"name": "o", "filter": "row1.amt > 0",
+                     "columns": [{"name": "c", "expression": "row1.amt + var.v"}]}]}}]}
+    cells = surface_code_cells(job)
+    codes = [c["code"] for c in cells if c["component"] == "pm"]
+    assert any("row1.amt * 2" in c for c in codes)      # variable expression
+    assert any("row1.amt + var.v" in c for c in codes)  # output column expression
+    assert any("row1.amt > 0" in c for c in codes)      # output filter
+    assert all(c["unsandboxed"] is False for c in cells if c["component"] == "pm")
+
+
+def test_surfaces_pymap_input_and_lookup_expressions():
+    # main filter, lookup filter, and lookup join-key expressions are surfaced too.
+    job = {"components": [{"id": "pm", "type": "PyMap", "config": {
+        "inputs": {
+            "main": {"name": "row1", "filter": "row1.qty > 0"},
+            "lookups": [{"name": "row2", "filter": "row2.active == 1",
+                         "join_keys": [{"lookup_column": "id",
+                                        "expression": "row1.cust_id"}]}],
+        },
+        "outputs": [{"name": "o", "columns": [{"name": "c", "expression": "row1.qty"}]}]}}]}
+    fields = {c["field"]: c["code"] for c in surface_code_cells(job)
+              if c["component"] == "pm"}
+    assert fields["inputs.main.filter"] == "row1.qty > 0"
+    assert fields["inputs.lookups[0].filter"] == "row2.active == 1"
+    assert fields["inputs.lookups[0].join_keys[0].expression"] == "row1.cust_id"
+
+
+def test_pymap_blank_expressions_not_surfaced():
+    job = {"components": [{"id": "pm", "type": "PyMap", "config": {
+        "variables": [{"name": "v", "expression": "   "}],
+        "outputs": [{"name": "o", "filter": "",
+                     "columns": [{"name": "c", "expression": "row1.amt"}]}]}}]}
+    fields = {c["field"] for c in surface_code_cells(job) if c["component"] == "pm"}
+    assert fields == {"outputs[0].columns[0].expression"}
+
+
+def test_surfaces_swift_python_expression_as_unsandboxed():
+    job = {"components": [{"id": "sw", "type": "tSwiftDataTransformer",
+        "config": {"transform_config": {"mapping": [{"python_expression": "__import__('os').getcwd()"}]}}}]}
+    cells = surface_code_cells(job)
+    sw = [c for c in cells if c["component"] == "sw"]
+    assert sw and sw[0]["unsandboxed"] is True and "__import__" in sw[0]["code"]
+
+
+def test_surfaces_swift_alias_and_nested_python_expressions():
+    # The camelCase alias works, and every nested python_expression is surfaced.
+    job = {"components": [{"id": "sw", "type": "SwiftTransformer", "config": {
+        "transform_config": {"output_fields": [
+            {"name": "A", "python_expression": "input_row['x']"},
+            {"name": "B", "python_expression": "computed['A'] + '1'"},
+            {"name": "C", "python_expression": "   "},  # blank -> skipped
+        ]}}}]}
+    codes = [c["code"] for c in surface_code_cells(job) if c["component"] == "sw"]
+    assert "input_row['x']" in codes
+    assert "computed['A'] + '1'" in codes
+    assert "   " not in codes and len(codes) == 2
+    assert all(c["unsandboxed"] is True
+               for c in surface_code_cells(job) if c["component"] == "sw")
+
+
 # ---- dedup + ordering -----------------------------------------------------
 
 def test_dedup_prefers_explicit_unsandboxed_flag():

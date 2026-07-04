@@ -16,6 +16,13 @@ Component facts are code-verified against ``src/v1/engine/components/transform/`
   safe-builtins whitelist -> sandboxed.
 - ``JavaComponent`` / ``JavaRowComponent`` carry ``java_code``; ``JavaFlexComponent``
   carries ``code_start`` / ``code_main`` / ``code_end`` -> run via the Java bridge.
+- ``PyMap`` eval()s LLM-authored Python per row for its join keys, variables, and
+  output columns/filters under a hardened whitelist -- but the namespace still
+  exposes ``pd`` / ``np`` / ``re``, so every expression/filter is surfaced
+  (sandboxed=True relative to python_dataframe). No Talend alias.
+- ``SwiftTransformer`` / ``tSwiftDataTransformer`` eval() ``python_expression``
+  config fields with ``__import__`` present in ``__builtins__`` -> full escape ->
+  UNSANDBOXED. The key can nest, so it is surfaced via a recursive key walk.
 - Any component may carry the deferred-Java marker ``{{java}}`` in a free-form
   string cell (e.g. a tMap output-column ``expression``); those are surfaced too.
 """
@@ -29,6 +36,8 @@ logger = logging.getLogger(__name__)
 _PYTHON_CODE_KEY = "python_code"
 _JAVA_CODE_KEYS = ("java_code", "code_start", "code_main", "code_end")
 _JAVA_MARKER = "{{java}}"
+# SwiftTransformer per-field Python expression key (recursive; may nest).
+_SWIFT_PY_EXPR_KEY = "python_expression"
 
 # python_dataframe runs with FULL builtins -> unsandboxed.
 _PY_DATAFRAME_TYPES = frozenset({"PythonDataFrameComponent", "tPythonDataFrame"})
@@ -43,6 +52,14 @@ _JAVA_TYPES = frozenset({
     "JavaFlexComponent", "JavaFlex", "tJavaFlex",
     "JavaRowComponent", "tJavaRow",
 })
+# PyMap evaluates LLM-authored Python per-row via eval() under a hardened
+# whitelist -- BUT the namespace still exposes pd / np / re, so its join,
+# variable, and output expressions are surfaced for review (sandboxed=True
+# relative to python_dataframe). No Talend alias -- registered as "PyMap" only.
+_PY_MAP_TYPES = frozenset({"PyMap"})
+# SwiftTransformer eval()s python_expression fields with __import__ present in
+# __builtins__ -> full escape -> UNSANDBOXED (pending an engine harden).
+_SWIFT_TYPES = frozenset({"SwiftTransformer", "tSwiftDataTransformer"})
 
 
 def _is_code_str(value) -> bool:
@@ -62,6 +79,80 @@ def _walk_markers(obj, path: str, out: list) -> None:
     elif isinstance(obj, list):
         for index, value in enumerate(obj):
             _walk_markers(value, f"{path}[{index}]", out)
+
+
+def _walk_named_key(obj, path: str, target_key: str, out: list) -> None:
+    """Collect (json_path, string) for every string under a key == ``target_key``.
+
+    Recurses the full config tree (dicts and lists) so a key can sit at any
+    depth -- e.g. SwiftTransformer's ``python_expression`` nested under
+    ``transform_config.output_fields[i]``. Only string values are collected;
+    the walk still descends into non-string values in case a matching key
+    itself holds further nested structures.
+    """
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            child = f"{path}.{key}" if path else str(key)
+            if key == target_key and isinstance(value, str):
+                out.append((child, value))
+            _walk_named_key(value, child, target_key, out)
+    elif isinstance(obj, list):
+        for index, value in enumerate(obj):
+            _walk_named_key(value, f"{path}[{index}]", target_key, out)
+
+
+def _pymap_cells(config: dict, out: list) -> None:
+    """Collect (json_path, expression) for every code-bearing PyMap config field.
+
+    PyMap expressions are plain Python evaluated per-row (``row1['x']``, with
+    ``pd`` / ``np`` / ``re`` in scope) and carry no ``{{java}}`` marker, so the
+    generic marker walk never surfaces them. The json paths produced here match
+    the marker-walk path format exactly, so dedup stays consistent. Blank / non
+    string values are tolerated -- ``add`` drops them.
+    """
+    if not isinstance(config, dict):
+        return
+
+    inputs = config.get("inputs")
+    if isinstance(inputs, dict):
+        main = inputs.get("main")
+        if isinstance(main, dict):
+            out.append(("inputs.main.filter", main.get("filter")))
+        lookups = inputs.get("lookups")
+        if isinstance(lookups, list):
+            for i, lookup in enumerate(lookups):
+                if not isinstance(lookup, dict):
+                    continue
+                out.append((f"inputs.lookups[{i}].filter", lookup.get("filter")))
+                join_keys = lookup.get("join_keys")
+                if isinstance(join_keys, list):
+                    for j, jk in enumerate(join_keys):
+                        if isinstance(jk, dict):
+                            out.append((
+                                f"inputs.lookups[{i}].join_keys[{j}].expression",
+                                jk.get("expression"),
+                            ))
+
+    variables = config.get("variables")
+    if isinstance(variables, list):
+        for i, var in enumerate(variables):
+            if isinstance(var, dict):
+                out.append((f"variables[{i}].expression", var.get("expression")))
+
+    outputs = config.get("outputs")
+    if isinstance(outputs, list):
+        for i, output in enumerate(outputs):
+            if not isinstance(output, dict):
+                continue
+            out.append((f"outputs[{i}].filter", output.get("filter")))
+            columns = output.get("columns")
+            if isinstance(columns, list):
+                for j, col in enumerate(columns):
+                    if isinstance(col, dict):
+                        out.append((
+                            f"outputs[{i}].columns[{j}].expression",
+                            col.get("expression"),
+                        ))
 
 
 def surface_code_cells(job_config: dict) -> list:
@@ -120,6 +211,18 @@ def surface_code_cells(job_config: dict) -> list:
         elif ctype in _JAVA_TYPES:
             for code_key in _JAVA_CODE_KEYS:
                 add(cid, ctype, code_key, config.get(code_key), False)
+        elif ctype in _PY_MAP_TYPES:
+            # LLM-authored Python expressions; hardened whitelist -> sandboxed.
+            pymap_cells: list = []
+            _pymap_cells(config, pymap_cells)
+            for field_path, code in pymap_cells:
+                add(cid, ctype, field_path, code, False)
+        elif ctype in _SWIFT_TYPES:
+            # python_expression fields eval'd with __import__ -> unsandboxed.
+            swift_cells: list = []
+            _walk_named_key(config, "", _SWIFT_PY_EXPR_KEY, swift_cells)
+            for field_path, code in swift_cells:
+                add(cid, ctype, field_path, code, True)
 
         # 2. generic: any free-form {{java}} marker anywhere in the config tree
         markers: list = []
