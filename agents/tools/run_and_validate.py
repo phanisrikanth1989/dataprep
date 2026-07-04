@@ -102,6 +102,46 @@ def _is_egress_type(comp_type) -> bool:
     return any(sub in t for sub in _EGRESS_DENY_SUBSTR)
 
 
+# ---------------------------------------------------------------------------
+# C1 (SECURITY): SwiftTransformer external config_file -> unsurfaced code.
+# ---------------------------------------------------------------------------
+# SwiftTransformer/tSwiftDataTransformer eval() their python_expression fields with
+# ``__import__`` present in builtins (a full escape). surface_code_cells only walks
+# the INLINE ``transform_config``; when the transform is loaded from an EXTERNAL
+# ``config_file`` (YAML/JSON) those code fields are never surfaced to the human gate.
+# The harness fail-closes: a Swift component declaring a non-empty ``config_file`` is
+# refused so the gate is never silently blind. Registered under both spellings.
+_SWIFT_TRANSFORMER_TYPES = {"swifttransformer", "tswiftdatatransformer"}
+
+# I-nested (SECURITY): a tRunJob/RunJob runs a CHILD job nested in-process, so every
+# child component bypasses the egress gate, path-jail, code surfacing and human gate.
+# Refuse it; the child job must be reviewed/run on its own.
+_NESTED_JOB_TYPES = {"runjob", "trunjob"}
+
+
+def _is_swift_transformer_type(comp_type) -> bool:
+    """True if a component TYPE is a SwiftTransformer (either spelling), case-insensitive."""
+    return isinstance(comp_type, str) and comp_type.strip().lower() in _SWIFT_TRANSFORMER_TYPES
+
+
+def _is_nested_job_type(comp_type) -> bool:
+    """True if a component TYPE is a nested-job runner (RunJob/tRunJob), case-insensitive."""
+    return isinstance(comp_type, str) and comp_type.strip().lower() in _NESTED_JOB_TYPES
+
+
+def _swift_declares_config_file(component) -> bool:
+    """True when a component config declares a non-empty ``config_file`` string.
+
+    ``config_file`` WINS over an inline ``transform_config`` in the engine
+    (see SwiftTransformer._ensure_config_loaded), so its mere presence means the
+    transform code is loaded externally and cannot be surfaced -- refuse it."""
+    cfg = component.get("config")
+    if not isinstance(cfg, dict):
+        return False
+    cf = cfg.get("config_file")
+    return isinstance(cf, str) and cf.strip() != ""
+
+
 @dataclass
 class RunResult:
     """Signals harvested from one engine run of a job.
@@ -380,6 +420,67 @@ def _anchor_and_jail_paths(job: dict, work_dir) -> str | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# I-configblocks (SECURITY): jail top-level java_config / python_config CODE-LOAD
+# paths -- the component path-jail never reaches them.
+# ---------------------------------------------------------------------------
+# ``python_config.routines_dir`` and ``java_config.libraries``/``routines``/
+# ``routine_jars`` name FILESYSTEM locations the engine imports CODE from (Python
+# routine modules, Java JARs). A value pointing OUTSIDE work_dir (routines_dir=/etc,
+# a ``../..`` climb, an absolute JAR path) would load code from beyond the sandbox
+# before any human review. Only values that LOOK like a filesystem path are checked;
+# a dotted Talend routine NAME (``routines.TalendDate``) carries no separator and is
+# not absolute, so it is skipped and golden/example jobs (whose routines are all
+# dotted) still run. Values are NOT rewritten -- the engine resolves a code-load path
+# against its own CWD and anchoring it into a temp work_dir would break legitimate
+# routine loading; the jail's job here is purely to REFUSE an escaping path.
+_CONFIG_BLOCK_PATH_FIELDS = {
+    "python_config": ("routines_dir",),
+    "java_config": ("libraries", "routines", "routine_jars"),
+}
+
+
+def _looks_like_fs_path(value) -> bool:
+    """True when a config-block string looks like a FILESYSTEM path: it is absolute,
+    or it contains an os separator. A dotted routine name (``routines.TalendDate``)
+    has neither, so it is NOT treated as a path (I-configblocks)."""
+    return isinstance(value, str) and bool(value) and (os.path.isabs(value) or os.sep in value)
+
+
+def _config_path_values(job: dict):
+    """Yield each string value from the config-block code-load path fields.
+
+    A field may hold a single string (``python_config.routines_dir``) or a list of
+    strings (``java_config.libraries``/``routines``/``routine_jars``); both are
+    flattened to individual strings. Non-string entries are ignored."""
+    for block, fields in _CONFIG_BLOCK_PATH_FIELDS.items():
+        cfg = job.get(block)
+        if not isinstance(cfg, dict):
+            continue
+        for field_name in fields:
+            val = cfg.get(field_name)
+            if isinstance(val, str):
+                yield val
+            elif isinstance(val, (list, tuple)):
+                for item in val:
+                    if isinstance(item, str):
+                        yield item
+
+
+def _jail_config_blocks(job: dict, work_dir) -> str | None:
+    """Refuse the run if any top-level config-block code-load path escapes work_dir.
+
+    Returns the offending (as-authored) path if one escapes, else None. Only values
+    that look like filesystem paths are checked (``_looks_like_fs_path``); dotted
+    routine names are skipped. An absolute-outside, ``..``-escape, or symlink-escape
+    resolves outside ``realpath(work_dir)`` and is reported."""
+    root = Path(os.path.realpath(str(work_dir)))
+    for value in _config_path_values(job):
+        if _looks_like_fs_path(value) and _jail_value(value, root) is None:
+            return value
+    return None
+
+
 def _clean_output_targets(job: dict, work_dir) -> None:
     """Delete any already-existing declared FileOutput target FILE under work_dir
     before the run, so a re-run starts clean (I2). Only paths confirmed inside
@@ -454,6 +555,33 @@ def run_job_capture(job_config: dict, work_dir) -> RunResult:
                    f"in the enrichment harness; requires human review before execution")
             logger.warning("[run_and_validate] %s", msg)
             return RunResult(status="error", error=msg)
+        # I-nested (SECURITY): a tRunJob/RunJob runs a CHILD job nested in-process,
+        # so every child component bypasses the egress gate, path-jail, code
+        # surfacing and human gate. Refuse it; the child must be reviewed/run alone.
+        if _is_nested_job_type(t):
+            msg = ("nested tRunJob child jobs are not permitted in the enrichment "
+                   "harness (they bypass the safety nets); review/run the child job "
+                   "independently")
+            logger.warning("[run_and_validate] %s", msg)
+            return RunResult(status="error", error=msg)
+        # C1 (SECURITY): a SwiftTransformer loading its transform from an EXTERNAL
+        # config_file eval()s python_expression fields (with __import__ in builtins)
+        # that surface_code_cells cannot read -> unsurfaced RCE past the human gate.
+        # Require an inline transform_config the gate CAN surface.
+        if _is_swift_transformer_type(t) and _swift_declares_config_file(comp):
+            msg = ("SwiftTransformer config_file loads code the human gate cannot "
+                   "surface; inline transform_config required")
+            logger.warning("[run_and_validate] %s", msg)
+            return RunResult(status="error", error=msg)
+
+    # I-configblocks (SECURITY): jail top-level java_config/python_config code-load
+    # paths (routines_dir, JAR libraries/routine_jars) so none escapes work_dir before
+    # the engine imports code from it. Dotted routine NAMES are not paths -> skipped.
+    cfg_escape = _jail_config_blocks(job, work_dir)
+    if cfg_escape is not None:
+        msg = f"config path escapes work_dir: {cfg_escape}"
+        logger.warning("[run_and_validate] %s", msg)
+        return RunResult(status="error", error=msg)
 
     escaped = _anchor_and_jail_paths(job, work_dir)
     if escaped is not None:

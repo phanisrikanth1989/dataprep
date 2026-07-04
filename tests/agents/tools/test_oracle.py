@@ -225,6 +225,34 @@ def test_read_output_headerless_no_schema_falls_back_to_int_columns(tmp_path):
     assert len(df) == 2 and set(df.iloc[:, 0]) == {'US', 'UK'}
 
 
+# ---------------------------------------------------------------------------
+# #10: JSON configs may carry booleans as the STRINGS "true"/"false", and Python's
+# bool("false") is True -- so _read_output must coerce include_header the same way
+# the engine does. A string "false" is headerless (columns from schema.input, every
+# data row kept); a string "true" is headed. Mirrors the bool-valued tests above.
+# ---------------------------------------------------------------------------
+def test_read_output_string_false_is_headerless(tmp_path):
+    from agents.tools.run_and_validate import _read_output
+    (tmp_path / 'o.csv').write_text('US;10\nUK;20\n')   # headerless
+    comp = {'id': 'o', 'type': 'FileOutputDelimited',
+            'config': {'filepath': str(tmp_path / 'o.csv'), 'fieldseparator': ';',
+                       'include_header': 'false'},   # STRING, not bool
+            'schema': {'input': [{'name': 'cc'}, {'name': 'amt'}], 'output': []}}
+    df = _read_output(comp)
+    assert list(df.columns) == ['cc', 'amt'] and len(df) == 2 and set(df['cc']) == {'US', 'UK'}
+
+
+def test_read_output_string_true_is_headed(tmp_path):
+    from agents.tools.run_and_validate import _read_output
+    (tmp_path / 'o.csv').write_text('cc;amt\nUS;10\nUK;20\n')   # first line is header
+    comp = {'id': 'o', 'type': 'FileOutputDelimited',
+            'config': {'filepath': str(tmp_path / 'o.csv'), 'fieldseparator': ';',
+                       'include_header': 'true'},   # STRING, not bool
+            'schema': {'input': [{'name': 'cc'}, {'name': 'amt'}], 'output': []}}
+    df = _read_output(comp)
+    assert list(df.columns) == ['cc', 'amt'] and len(df) == 2 and set(df['cc']) == {'US', 'UK'}
+
+
 def test_diff_frames_missing_key_no_crash():
     import pandas as pd
     from agents.tools.run_and_validate import diff_frames

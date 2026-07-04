@@ -369,3 +369,146 @@ def test_swift_block_formatter_output_file_jailed(tmp_path):
     assert rr.status == "error"
     assert "escapes" in (rr.error or "")
     assert not escape.exists()  # jail refused the run: nothing written outside work_dir
+
+
+# ---------------------------------------------------------------------------
+# C1 (SECURITY): a SwiftTransformer/tSwiftDataTransformer that loads its
+# transform_config from an EXTERNAL config_file eval()s python_expression fields
+# (with __import__ in builtins -> full escape) that surface_code_cells cannot
+# read -> unsurfaced RCE past the human gate. The harness fail-closes: an external
+# config_file is refused BEFORE the engine runs; inline transform_config (which the
+# gate CAN surface) is required.
+# ---------------------------------------------------------------------------
+def _swift_config_file_job(comp_type="SwiftTransformer", config_file="swift_map.yaml"):
+    return {
+        "job_name": "swift",
+        "components": [
+            {"id": "sw1", "type": comp_type,
+             "config": {"config_file": config_file, "output_file": "out.pipe"},
+             "inputs": [], "outputs": [], "schema": {"input": [], "output": []},
+             "subjob_id": "sj1", "is_subjob_start": True},
+        ],
+        "flows": [],
+    }
+
+
+def test_swift_config_file_refused_before_engine_runs(tmp_path):
+    # config_file is a RELATIVE path INSIDE work_dir -- the refusal is about the
+    # external-config MECHANISM (unsurfaceable code), not the path location.
+    rr = run_job_capture(_swift_config_file_job(), tmp_path)
+    assert rr.status == "error"
+    err = rr.error or ""
+    assert "config_file" in err and "inline transform_config required" in err
+    assert rr.raw_stats == {}  # engine never constructed/executed
+
+
+def test_swift_config_file_alias_also_refused(tmp_path):
+    rr = run_job_capture(_swift_config_file_job(comp_type="tSwiftDataTransformer"), tmp_path)
+    assert rr.status == "error"
+    assert "inline transform_config required" in (rr.error or "")
+    assert rr.raw_stats == {}
+
+
+def test_swift_inline_transform_config_not_refused_as_config_file(tmp_path):
+    # A Swift with only an inline transform_config (no config_file) IS the
+    # surfaceable path; it must NOT be refused on C1 config_file grounds, whatever
+    # else the engine does with a source-less component.
+    job = {
+        "job_name": "swift_inline",
+        "components": [
+            {"id": "sw1", "type": "SwiftTransformer",
+             "config": {"transform_config": {"output_fields": [
+                 {"name": "A", "type": "constant", "value": "x"}]}},
+             "inputs": [], "outputs": [], "schema": {"input": [], "output": []},
+             "subjob_id": "sj1", "is_subjob_start": True},
+        ],
+        "flows": [],
+    }
+    rr = run_job_capture(job, tmp_path)
+    assert "config_file" not in (rr.error or "")
+
+
+# ---------------------------------------------------------------------------
+# I-nested (SECURITY): a tRunJob/RunJob runs a CHILD job nested in-process, so
+# every child component bypasses the egress gate, path-jail, code surfacing and
+# human gate. The harness fail-closes: any RunJob/tRunJob (case-insensitive)
+# refuses the run before the engine is constructed.
+# ---------------------------------------------------------------------------
+def _runjob_job(comp_type="tRunJob"):
+    return {
+        "job_name": "parent",
+        "components": [
+            {"id": "rj1", "type": comp_type,
+             "config": {"job": "child_job", "context_name": "Default"},
+             "inputs": [], "outputs": [], "schema": {"input": [], "output": []},
+             "subjob_id": "sj1", "is_subjob_start": True},
+        ],
+        "flows": [],
+    }
+
+
+def test_nested_runjob_refused_before_engine_runs(tmp_path):
+    rr = run_job_capture(_runjob_job(), tmp_path)
+    assert rr.status == "error"
+    err = rr.error or ""
+    assert "tRunJob" in err and "not permitted" in err
+    assert rr.raw_stats == {}  # engine never constructed/executed
+
+
+def test_nested_runjob_camelcase_alias_refused(tmp_path):
+    rr = run_job_capture(_runjob_job(comp_type="RunJob"), tmp_path)
+    assert rr.status == "error"
+    assert "not permitted" in (rr.error or "")
+    assert rr.raw_stats == {}
+
+
+# ---------------------------------------------------------------------------
+# I-configblocks (SECURITY): top-level python_config.routines_dir and
+# java_config.libraries/routines/routine_jars name FILESYSTEM code-load paths that
+# the component path-jail never touched. A value escaping work_dir loads code from
+# outside the sandbox before any human review. They are jailed the same way: a
+# value that LOOKS like a path (absolute, or contains os.sep) must resolve inside
+# work_dir. A dotted routine NAME (routines.TalendDate) is not a path -> skipped,
+# so golden/example jobs (whose routines are all dotted) still run.
+# ---------------------------------------------------------------------------
+def test_python_config_routines_dir_escape_refused(tmp_path):
+    job = {"job_name": "j", "components": [],
+           "python_config": {"enabled": True, "routines_dir": "/etc"}}
+    rr = run_job_capture(job, tmp_path)
+    assert rr.status == "error"
+    assert "config path escapes work_dir" in (rr.error or "")
+    assert rr.raw_stats == {}  # engine never constructed/executed
+
+
+def test_config_block_jail_refuses_escaping_routines_dir(tmp_path):
+    from agents.tools.run_and_validate import _jail_config_blocks
+    job = {"python_config": {"routines_dir": "/etc"}}
+    assert _jail_config_blocks(job, tmp_path) == "/etc"
+
+
+def test_config_block_jail_refuses_dotdot_routines_dir(tmp_path):
+    from agents.tools.run_and_validate import _jail_config_blocks
+    esc = "../../../../etc"
+    job = {"python_config": {"routines_dir": esc}}
+    assert _jail_config_blocks(job, tmp_path) == esc
+
+
+def test_config_block_jail_refuses_escaping_java_library(tmp_path):
+    from agents.tools.run_and_validate import _jail_config_blocks
+    job = {"java_config": {"libraries": ["/opt/evil.jar"]}}
+    assert _jail_config_blocks(job, tmp_path) == "/opt/evil.jar"
+
+
+def test_config_block_jail_skips_dotted_java_routines(tmp_path):
+    # Dotted Talend routine NAMES are not filesystem paths -> never refused (golden).
+    from agents.tools.run_and_validate import _jail_config_blocks
+    job = {"java_config": {"enabled": True, "libraries": [],
+                           "routines": ["routines.TalendDate", "routines.StringHandling",
+                                        "routines.DataOperation"]}}
+    assert _jail_config_blocks(job, tmp_path) is None
+
+
+def test_config_block_jail_allows_relative_inside_work_dir(tmp_path):
+    from agents.tools.run_and_validate import _jail_config_blocks
+    job = {"python_config": {"routines_dir": "src/python_routines"}}
+    assert _jail_config_blocks(job, tmp_path) is None  # relative, non-escaping

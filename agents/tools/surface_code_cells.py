@@ -22,7 +22,9 @@ Component facts are code-verified against ``src/v1/engine/components/transform/`
   (sandboxed=True relative to python_dataframe). No Talend alias.
 - ``SwiftTransformer`` / ``tSwiftDataTransformer`` eval() ``python_expression``
   config fields with ``__import__`` present in ``__builtins__`` -> full escape ->
-  UNSANDBOXED. The key can nest, so it is surfaced via a recursive key walk.
+  UNSANDBOXED. The key can nest, so it is surfaced via a recursive key walk. An
+  EXTERNAL ``config_file`` loads those fields from a path this walker cannot read;
+  it is flagged as an unsurfaced (unsandboxed) cell so the gate is never blind (C1).
 - ``RowGenerator`` / ``tRowGenerator`` eval()s each ``values[].array`` string
   (an LLM-authored per-row expression) in a ``{"__builtins__": {}, "random": ...}``
   namespace -- restricted but object-graph-escapable, so every ``array`` string is
@@ -273,6 +275,14 @@ def surface_code_cells(job_config: dict) -> list:
             for field_path, code in pymap_cells:
                 add(cid, ctype, field_path, code, False)
         elif ctype in _SWIFT_TYPES:
+            # An EXTERNAL config_file loads python_expression fields (eval'd with
+            # __import__) that this walker cannot read -> flag it as an unsurfaced
+            # cell so the gate is never silently blind to the code the job runs (C1).
+            config_file = config.get("config_file")
+            if _is_code_str(config_file):
+                add(cid, ctype, "config_file",
+                    f"<external config_file: {config_file} -- NOT surfaced; "
+                    f"inline transform_config to review>", True)
             # python_expression fields eval'd with __import__ -> unsandboxed.
             swift_cells: list = []
             _walk_named_key(config, "", _SWIFT_PY_EXPR_KEY, swift_cells)

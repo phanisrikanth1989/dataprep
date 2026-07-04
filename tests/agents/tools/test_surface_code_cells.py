@@ -127,6 +127,35 @@ def test_surfaces_swift_alias_and_nested_python_expressions():
                for c in surface_code_cells(job) if c["component"] == "sw")
 
 
+def test_surfaces_swift_external_config_file_as_unsurfaced_cell():
+    # An EXTERNAL config_file loads python_expression fields this walker cannot
+    # read -> it MUST be flagged as an unsurfaced (unsandboxed) cell so the gate is
+    # never silently blind to the code the job will eval (C1).
+    job = {"components": [{"id": "sw", "type": "tSwiftDataTransformer",
+        "config": {"config_file": "/mnt/cfg/swift_map.yaml", "output_file": "out.pipe"}}]}
+    cells = surface_code_cells(job)
+    sw = [c for c in cells if c["component"] == "sw"]
+    assert len(sw) == 1
+    cell = sw[0]
+    assert cell["field"] == "config_file"
+    assert cell["unsandboxed"] is True
+    assert "/mnt/cfg/swift_map.yaml" in cell["code"]
+    assert "NOT surfaced" in cell["code"] and "inline transform_config" in cell["code"]
+
+
+def test_surfaces_swift_config_file_alias_and_no_config_file_is_not_flagged():
+    # camelCase alias flags too; and an inline-only Swift (no config_file) emits NO
+    # config_file cell -- only its surfaceable python_expression fields.
+    flagged = surface_code_cells({"components": [{"id": "sw", "type": "SwiftTransformer",
+        "config": {"config_file": "cfg.yaml"}}]})
+    assert any(c["field"] == "config_file" and c["unsandboxed"] is True for c in flagged)
+    inline = surface_code_cells({"components": [{"id": "sw", "type": "SwiftTransformer",
+        "config": {"transform_config": {"output_fields": [
+            {"name": "A", "python_expression": "input_row['x']"}]}}}]})
+    assert all(c["field"] != "config_file" for c in inline)
+    assert any(c["field"].endswith("python_expression") for c in inline)
+
+
 # ---- RowGenerator + RunIf eval cells (M1) ---------------------------------
 
 def test_surfaces_rowgenerator_array_expression():
