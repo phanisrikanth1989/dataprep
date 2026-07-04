@@ -5,9 +5,9 @@ _MAP_ALIASES = {"Map", "tMap"}
 
 LANDMINES = [
     {"id": "die-on-error-dual-default", "component": None,
-     "summary": "die_on_error defaults True in BaseComponent but False in several components' own reads.",
-     "code_anchor": "base_component.py:234 vs e.g. file_input_delimited.py:173",
-     "guidance": "Always set die_on_error explicitly; do not rely on the default."},
+     "summary": "die_on_error defaults True in BaseComponent but False in several components' own reads -- AND the read KEY NAME is per-component: some components read it under a different key (e.g. ConvertType reads 'dieonerror', not 'die_on_error').",
+     "code_anchor": "base_component.py:234 (die_on_error default True) vs file_input_delimited.py:173 (local 'die_on_error' default False) vs convert_type.py:140 (reads 'dieonerror')",
+     "guidance": "Always set the die-on-error flag explicitly using the EXACT key name for that component type -- check config-reference.md for the per-type key -- and do not rely on the default (dual-default: True in base, False locally)."},
     {"id": "tmap-operator-noop", "component": "Map",
      "summary": "tMap join_key operator is parsed but read by no join path; matching is equality-only.",
      "code_anchor": "map_config.py:38,115; map_joins.py (equality merge)",
@@ -33,13 +33,13 @@ LANDMINES = [
      "code_anchor": "map_config.py:50-58 (LookupCfg.join_mode default LEFT_OUTER_JOIN); map_joins.py (join execution)",
      "guidance": "Set join_mode to exactly LEFT_OUTER_JOIN or INNER_JOIN; any other string silently degrades to the LEFT_OUTER_JOIN default. The oracle is the only backstop."},
     {"id": "tmap-matching-mode-values", "component": "Map",
-     "summary": "tMap matching_mode is neither schema- nor engine-validated; valid values are UNIQUE_MATCH, FIRST_MATCH, ALL_MATCHES, ALL_ROWS.",
-     "code_anchor": "map_config.py:41-58 (MainInputCfg/LookupCfg.matching_mode default UNIQUE_MATCH); map_joins.py:446-463",
-     "guidance": "Use one of UNIQUE_MATCH, FIRST_MATCH, ALL_MATCHES, ALL_ROWS; UNIQUE_MATCH keeps only the last duplicate lookup row (see tmap-matching-mode-drops-dups). Invalid strings are not rejected."},
+     "summary": "tMap matching_mode is neither schema- nor engine-validated; the engine recognizes only UNIQUE_MATCH, FIRST_MATCH, ALL_MATCHES. ALL_ROWS is NOT a distinct mode -- it silently aliases UNIQUE_MATCH keep-last.",
+     "code_anchor": "map_config.py:41-58 (MainInputCfg/LookupCfg.matching_mode default UNIQUE_MATCH); map_joins.py:455-463 (_apply_matching_mode branches only on ALL_MATCHES/FIRST_MATCH; everything else keeps last)",
+     "guidance": "Use one of UNIQUE_MATCH, FIRST_MATCH, ALL_MATCHES; UNIQUE_MATCH keeps only the last duplicate lookup row (see tmap-matching-mode-drops-dups). ALL_ROWS (and any other invalid string) is not rejected -- it silently falls through to the UNIQUE_MATCH keep-last branch, giving wrong output on a duplicate-key lookup."},
     {"id": "tmap-lookup-mode-values", "component": "Map",
-     "summary": "tMap lookup_mode is neither schema- nor engine-validated; valid values are LOAD_ONCE, RELOAD, CACHE_OR_RELOAD.",
-     "code_anchor": "map_config.py:41-58 (MainInputCfg/LookupCfg.lookup_mode default LOAD_ONCE)",
-     "guidance": "Set lookup_mode to LOAD_ONCE, RELOAD, or CACHE_OR_RELOAD; neither the schema nor the engine rejects invalid values, so rely on the oracle/reference diff."},
+     "summary": "tMap lookup_mode is neither schema- nor engine-validated; the engine recognizes only LOAD_ONCE (default) and RELOAD_AT_EACH_ROW. RELOAD and CACHE_OR_RELOAD are NOT recognized and silently act as LOAD_ONCE.",
+     "code_anchor": "map_joins.py:67 (only 'RELOAD_AT_EACH_ROW' triggers per-row reload); py_map.py:63,383 (same literal); map_config.py:41-58 (lookup_mode default LOAD_ONCE)",
+     "guidance": "Set lookup_mode to LOAD_ONCE (default) or RELOAD_AT_EACH_ROW only. RELOAD/CACHE_OR_RELOAD are not rejected but silently degrade to LOAD_ONCE (lookup loaded once, no per-row reload) -- rely on the oracle/reference diff."},
     {"id": "tmap-lookup-mode-placement", "component": "Map",
      "summary": "tMap matching_mode/lookup_mode belong on the per-lookup entry (inputs.lookups[]), NOT inputs.main",
      "code_anchor": "map_config.py:103-104 (parsed on main, never consumed) vs map_joins.py (read off the lookup)",
@@ -56,6 +56,10 @@ LANDMINES = [
      "summary": "Reject is a data flow (type 'reject'), not a trigger; it routes through flows[], not triggers[].",
      "code_anchor": "output_router.py:22-29",
      "guidance": "Wire rejects as flows with type 'reject', not as OnComponentError triggers."},
+    {"id": "tjoin-needs-use-lookup-cols", "component": "Join",
+     "summary": "A tJoin/Join enrichment adds NO lookup columns to the output unless use_lookup_cols=True AND a lookup_cols list is supplied; by default only the main-input columns pass through.",
+     "code_anchor": "join.py:158-159 (use_lookup_cols default False, lookup_cols default []); join.py:231 (lookup columns kept only when both are truthy)",
+     "guidance": "To enrich with lookup columns via Join, set use_lookup_cols: true AND lookup_cols: [{output_column, lookup_column}, ...]; otherwise the join only filters/matches main rows. For column-adding enrichment prefer tMap/PyMap."},
 ]
 
 

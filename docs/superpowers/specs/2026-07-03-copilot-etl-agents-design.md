@@ -151,6 +151,8 @@ Single load surface `.claude/skills/<name>/SKILL.md`; generated schemas/golden j
 
 ## 7. Engine Changes (DEFERRED to backlog — owned by the engine team)
 
+> **Superseded per the banners:** this section is covered by the PLATFORM banner (Sec 7-9 execution-model supersession) and its recon framing reads as enrichment per the DOMAIN banner; retained as backlog context only (the live tracker is `2026-07-03-copilot-etl-agents-backlog.md` Section A).
+
 Bounded, additive production-engine changes the agent system assumes will land. **Deferred and delegated per the owner's decision** — tracked with corrected, parity-safe predicates in `2026-07-03-copilot-etl-agents-backlog.md` **Section A** (and the non-engine follow-ups in **Section B**). They are NOT on the agent-system critical path: until they land, the phases that depend on them (esp. Phase B tolerance, deterministic-run tests) are gated, while Phases 0-2 scaffolding (roles, knowledge, harness on 1:1 data with a config-level fixed clock) proceed. Summary of the deferred set:
 
 | Change | Why | Anchor |

@@ -1,7 +1,7 @@
 # Config landmines (respect these)
 
-- **die-on-error-dual-default** (GLOBAL): die_on_error defaults True in BaseComponent but False in several components' own reads.
-  - guidance: Always set die_on_error explicitly; do not rely on the default.
+- **die-on-error-dual-default** (GLOBAL): die_on_error defaults True in BaseComponent but False in several components' own reads -- AND the read KEY NAME is per-component: some components read it under a different key (e.g. ConvertType reads 'dieonerror', not 'die_on_error').
+  - guidance: Always set the die-on-error flag explicitly using the EXACT key name for that component type -- check config-reference.md for the per-type key -- and do not rely on the default (dual-default: True in base, False locally).
 - **tmap-operator-noop** (Map): tMap join_key operator is parsed but read by no join path; matching is equality-only.
   - guidance: Only operator '=' is honored (an inequality key is silently ignored); model a range/threshold rule as an exact join plus a post-join FilterRows/derive, never '<='.
 - **tmap-matching-mode-drops-dups** (Map): matching_mode default UNIQUE_MATCH silently keeps only the last duplicate lookup row, with no error or warning.
@@ -14,10 +14,10 @@
   - guidance: Always include a top-level java_config.enabled=true block (with the standard routines) for any job containing a Map/tMap component, and mark tMap expressions with a {{java}} prefix so a dropped block raises the friendly bridge-missing error instead of a raw AttributeError.
 - **tmap-join-mode-values** (Map): tMap lookup join_mode is neither schema- nor engine-validated; only LEFT_OUTER_JOIN and INNER_JOIN are honored by the join path.
   - guidance: Set join_mode to exactly LEFT_OUTER_JOIN or INNER_JOIN; any other string silently degrades to the LEFT_OUTER_JOIN default. The oracle is the only backstop.
-- **tmap-matching-mode-values** (Map): tMap matching_mode is neither schema- nor engine-validated; valid values are UNIQUE_MATCH, FIRST_MATCH, ALL_MATCHES, ALL_ROWS.
-  - guidance: Use one of UNIQUE_MATCH, FIRST_MATCH, ALL_MATCHES, ALL_ROWS; UNIQUE_MATCH keeps only the last duplicate lookup row (see tmap-matching-mode-drops-dups). Invalid strings are not rejected.
-- **tmap-lookup-mode-values** (Map): tMap lookup_mode is neither schema- nor engine-validated; valid values are LOAD_ONCE, RELOAD, CACHE_OR_RELOAD.
-  - guidance: Set lookup_mode to LOAD_ONCE, RELOAD, or CACHE_OR_RELOAD; neither the schema nor the engine rejects invalid values, so rely on the oracle/reference diff.
+- **tmap-matching-mode-values** (Map): tMap matching_mode is neither schema- nor engine-validated; the engine recognizes only UNIQUE_MATCH, FIRST_MATCH, ALL_MATCHES. ALL_ROWS is NOT a distinct mode -- it silently aliases UNIQUE_MATCH keep-last.
+  - guidance: Use one of UNIQUE_MATCH, FIRST_MATCH, ALL_MATCHES; UNIQUE_MATCH keeps only the last duplicate lookup row (see tmap-matching-mode-drops-dups). ALL_ROWS (and any other invalid string) is not rejected -- it silently falls through to the UNIQUE_MATCH keep-last branch, giving wrong output on a duplicate-key lookup.
+- **tmap-lookup-mode-values** (Map): tMap lookup_mode is neither schema- nor engine-validated; the engine recognizes only LOAD_ONCE (default) and RELOAD_AT_EACH_ROW. RELOAD and CACHE_OR_RELOAD are NOT recognized and silently act as LOAD_ONCE.
+  - guidance: Set lookup_mode to LOAD_ONCE (default) or RELOAD_AT_EACH_ROW only. RELOAD/CACHE_OR_RELOAD are not rejected but silently degrade to LOAD_ONCE (lookup loaded once, no per-row reload) -- rely on the oracle/reference diff.
 - **tmap-lookup-mode-placement** (Map): tMap matching_mode/lookup_mode belong on the per-lookup entry (inputs.lookups[]), NOT inputs.main
   - guidance: Put matching_mode/lookup_mode on each inputs.lookups[] entry; a value on inputs.main is silently ignored and the lookup defaults to UNIQUE_MATCH/LOAD_ONCE.
 - **sortrow-alpha-default** (SortRow): SortRow sort_type defaults to 'alpha' (lexicographic); numeric/date columns mis-sort as strings
@@ -26,3 +26,5 @@
   - guidance: Do not rely on `external` for large-input memory relief; there is none. Shrink the input upstream or expect full in-memory sort.
 - **reject-is-a-data-flow** (GLOBAL): Reject is a data flow (type 'reject'), not a trigger; it routes through flows[], not triggers[].
   - guidance: Wire rejects as flows with type 'reject', not as OnComponentError triggers.
+- **tjoin-needs-use-lookup-cols** (Join): A tJoin/Join enrichment adds NO lookup columns to the output unless use_lookup_cols=True AND a lookup_cols list is supplied; by default only the main-input columns pass through.
+  - guidance: To enrich with lookup columns via Join, set use_lookup_cols: true AND lookup_cols: [{output_column, lookup_column}, ...]; otherwise the join only filters/matches main rows. For column-adding enrichment prefer tMap/PyMap.
