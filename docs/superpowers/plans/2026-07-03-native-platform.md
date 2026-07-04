@@ -1,5 +1,10 @@
 # Native Platform (v1.122 subagents + skills) Implementation Plan
 
+> **SUPERSEDED IN PART (2026-07-03) -- see `docs/superpowers/specs/2026-07-03-enrichment-scope-correction.md`.**
+> Several tasks below template the pre-correction RECONCILIATION model; the SHIPPED artifacts are enrichment.
+> Do NOT re-run this plan's embedded render_skills/agent bodies -- they would overwrite the corrected
+> skill/agents. Historical, preserved for provenance.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** Build the VS Code 1.122 native platform that turns a recon requirement into a validated DataPrep job: an orchestrator custom-agent that autonomously drives six subagent-only specialists via `runSubagent`, backed by the recon knowledge as an Agent Skill, a per-run audit log, and the plan-3 harness as the deterministic PASS/FAIL — all model-agnostic.
@@ -438,6 +443,8 @@ def render_job_envelope() -> str:
         "`{\"input\": [...], \"output\": [...]}` (NOT a flat list). Flows are "
         "`{\"name\": <flow>, \"type\": \"flow\", \"from\": <id>, \"to\": <id>}` and each "
         "component carries `inputs`/`outputs` lists referencing flow names. `type:\"main\"` "
+        # superseded -> enrichment: unmatched source rows are routed to a reject output; a
+        # LEFT/lookup join keeps ALL source rows, so there is no recon "one-sided break".
         "on a flow routes NOTHING; use `\"flow\"`. tMap one-sided breaks use an output with "
         "`inner_join_reject: true` (NOT `is_reject`, which stays empty for a join miss).\n"
     )
@@ -447,6 +454,9 @@ _SKILL_FRONTMATTER = (
     "---\n"
     "name: dataprep-recon\n"
     "description: >-\n"
+    # superseded -> enrichment: the SHIPPED description reads "enrichment"; tMap = the
+    # lookup-join enrichment pattern (NOT match/break); "interpreting an enrichment
+    # requirement" / "an enrichment job.json". See enrichment-scope-correction Sec 6.
     "  Code-verified knowledge for building DataPrep recon ETL jobs: per-component config keys and\n"
     "  allowed values, config landmines, the job.json envelope contract, and the tMap match/break\n"
     "  patterns. Use when interpreting a recon requirement, designing the flow, configuring components,\n"
@@ -507,8 +517,8 @@ git commit -m "feat(agents): render dataprep-recon Agent Skill from code-verifie
 - [ ] **Step 1: Author the six agents**
 
 Author each `.agent.md` per the spec roster (Sec 5) + the pivot. Every file: frontmatter with `user-invocable: false`, `disable-model-invocation: false`, NO `model:`, a narrow `tools` list, and a body (ASCII) covering: role responsibility, the input artifact it reads + the output artifact it writes (JSON, under `agents/work/<job>/`), the contracts (below), and "consult the `dataprep-recon` skill" where knowledge is needed.
-- `doc-interpreter` (tools: read/edit/search): reads the `extract_doc` JSON artifact -> writes `requirement_spec.json` (schema + rules with `kind/cardinality/keys/direction/on_tolerance_fail/duplicate_disposition`, per spec Sec 5.2) + the derived facts; flags ambiguity for the human.
-- `flow-designer` (tools: read/edit/search): reads `requirement_spec.json` -> writes `flow_plan.json` (components + the recon pattern); picks from the allowlist (Sec 11.2); tMap is the match primitive.
+- `doc-interpreter` (tools: read/edit/search): reads the `extract_doc` JSON artifact -> writes `requirement_spec.json` (schema + rules with `kind/cardinality/keys/direction/on_tolerance_fail/duplicate_disposition`, per spec Sec 5.2) + the derived facts; flags ambiguity for the human. *(superseded -> enrichment: rule `kind` is one of `join|schema_validate|filter|aggregate|sort|derive`; DROP the recon-only fields `cardinality/direction/on_tolerance_fail/duplicate_disposition` -- see enrichment-scope-correction "Bounded revision" 1.)*
+- `flow-designer` (tools: read/edit/search): reads `requirement_spec.json` -> writes `flow_plan.json` (components + the recon pattern); picks from the allowlist (Sec 11.2); tMap is the match primitive. *(superseded -> enrichment: design a flexible, perf-optimized enrichment pipeline over the FULL ~86-component engine registry (NOT a recon allowlist); tMap = the join/lookup primitive, and reach for `python_dataframe` when it is the efficient move.)*
 - `configurator` (tools: read/edit): reads `flow_plan.json` + the skill -> writes `job_draft.json` (`{components:[{id,type,config,schema}]}`); MUST run `python -m agents.tools.validate_config` on each component and fix every error before finishing.
 - `assembler` (tools: read/edit): reads `job_draft.json` -> writes `job.json` adding the **job-envelope** (`flows` type:flow+name, per-component `inputs`/`outputs`, `subjob_id`, `schema` as `{input,output}`) per `job-envelope.md`. Wiring only.
 - `test-runner` (tools: terminal only): runs `python -m agents.tools.run_and_validate --job job.json --golden-dir DIR`, returns the `test_report.json` verdict verbatim. Makes NO judgment about correctness — the harness decides.
