@@ -40,6 +40,67 @@ _NON_DELIMITED_OUTPUT_TYPES = {
     "AdvancedFileOutputXML", "tAdvancedFileOutputXML",
 }
 
+# ---------------------------------------------------------------------------
+# I-1 (SECURITY): fail-closed egress / side-effecting pre-execution gate.
+# ---------------------------------------------------------------------------
+# ``run_job_capture`` executes the job IN-PROCESS during the deterministic oracle
+# run -- BEFORE any human gate -- so a component that performs a real-world SIDE
+# EFFECT (email sent, DB row written/executed, file pushed over FTP/HTTP, remote
+# command run, message published) would fire for real, and could still pass GREEN
+# because the side effect is not one of the diffed outputs. The harness therefore
+# REFUSES to run any job that declares such a component TYPE.
+#
+# Matching is case-insensitive on the registered TYPE name and covers both the
+# camelCase and the Talend ``t``-prefixed spelling. It is DENY-BY-INTENT: an
+# explicit known-type set plus a few PRECISE substrings, chosen so NO enrichment-
+# safe LOCAL writer (FileOutputDelimited/Positional/Excel/XML, FileCopy,
+# FileArchive/Unarchive, ...) is ever matched -- there is deliberately no bare
+# "output" substring. Local DB READERS / CONNECTIONS (OracleInput/OracleConnection,
+# MSSqlInput) are NOT denied; only WRITES / EXECS are.
+_EGRESS_DENY_TYPES = {
+    # email
+    "sendmailcomponent", "tsendmail",
+    # DB writes / execs -- Oracle
+    "oracleoutput", "toracleoutput", "oraclerow", "toraclerow",
+    "oraclesp", "toraclesp", "oraclebulkexec", "toraclebulkexec",
+    # DB writes / execs -- MSSql
+    "mssqloutput", "tmssqloutput", "mssqlrow", "tmssqlrow", "mssqlsp", "tmssqlsp",
+    # DB writes -- MySQL
+    "mysqloutput", "tmysqloutput",
+    # network transfer / remote fetch
+    "ftpput", "tftpput", "ftpget", "tftpget", "filefetch", "tfilefetch",
+    "httprequest", "thttprequest", "restclient", "trestclient",
+    "soap", "tsoap", "sendsms", "tsendsms",
+    # system / remote execution
+    "system", "tsystem", "ssh", "tssh",
+    # messaging
+    "jms", "tjms", "kafka", "tkafka",
+}
+# Precise substrings: any TYPE whose lowercased name CONTAINS one of these is
+# denied. Covers family variants (any ``*BulkExec``, ``tJMSInput``/``tJMSOutput``,
+# ``tKafkaInput``/``tKafkaOutput``, ``tFTPGet``/``tFTPPut``) without enumerating
+# every spelling. Each is chosen so no enrichment-safe writer name contains it.
+_EGRESS_DENY_SUBSTR = (
+    "sendmail", "ftp", "httprequest", "restclient", "soap", "tsystem", "tssh",
+    "bulkexec", "sendsms", "jms", "kafka",
+    "oracleoutput", "oraclerow", "oraclesp",
+    "mssqloutput", "mssqlrow", "mssqlsp", "mysqloutput",
+)
+
+
+def _is_egress_type(comp_type) -> bool:
+    """True if a component TYPE is side-effecting/egress and must not auto-run.
+
+    Case-insensitive; matches an explicit known-type set or a precise substring.
+    Enrichment-safe local writers (FileOutput*, FileCopy, FileArchive, ...) are
+    never matched -- guarded by test."""
+    if not isinstance(comp_type, str) or not comp_type:
+        return False
+    t = comp_type.strip().lower()
+    if t in _EGRESS_DENY_TYPES:
+        return True
+    return any(sub in t for sub in _EGRESS_DENY_SUBSTR)
+
 
 @dataclass
 class RunResult:
@@ -173,6 +234,8 @@ _PATH_CONFIG_KEYS = {
     "PivotToColumnsDelimited": ["filename"], "tPivotToColumnsDelimited": ["filename"],
     "SwiftTransformer": ["config_file", "output_file"],
     "tSwiftDataTransformer": ["config_file", "output_file"],
+    "SwiftBlockFormatter": ["input_file", "output_file"],
+    "tSwiftBlockFormatter": ["input_file", "output_file"],
     "FileArchive": ["source", "target"], "FileArchiveComponent": ["source", "target"],
     "tFileArchive": ["source", "target"],
     "FileUnarchive": ["zipfile", "directory"], "FileUnarchiveComponent": ["zipfile", "directory"],
@@ -228,22 +291,54 @@ def _looks_like_path(value: str) -> bool:
     return os.sep in value and ".." in value.split(os.sep)
 
 
-def _scan_escaping_path(node, root: Path) -> str | None:
-    """Recursively scan a config subtree; return the first string that LOOKS like a
-    path yet escapes ``root``, else None. This is the default-deny catch-all for any
-    path-bearing key NOT in ``_PATH_CONFIG_KEYS`` -- an unmanifested absolute/``..``
-    write path cannot slip past the jail."""
+# Config-KEY name tokens that plausibly denote a FILESYSTEM path. The default-deny
+# catch-all (``_scan_escaping_path``) only jails a string value whose KEY name is
+# path-denoting -- so a DATA literal that happens to be an absolute path but lives
+# under a value/expression/condition key (e.g. a FilterRows condition ``value``,
+# ``expression``, ``filter``, ``columns``, ``array``) is NOT false-refused (#2).
+# Manifest keys (``_PATH_CONFIG_KEYS``) stay hard-jailed regardless.
+_PATH_KEY_TOKENS = ("path", "file", "dir", "folder", "destination",
+                    "outfile", "infile", "target", "archive")
+# Every exact key name that appears anywhere in the manifest -- such a key denotes a
+# path even if it carries no token (e.g. ``source``, ``zipfile``, ``source_derectory``).
+_PATH_KEY_NAMES = {k for keys in _PATH_CONFIG_KEYS.values() for k in keys}
+
+
+def _key_denotes_path(key) -> bool:
+    """True when a config KEY NAME plausibly holds a filesystem path -- a token match
+    (``path``/``file``/``dir``/...) or an exact manifest key name. Value/expression/
+    condition keys (``value``, ``conditions``, ``expression``, ...) return False, so a
+    data literal under them is not treated as a write path (#2)."""
+    if not isinstance(key, str) or not key:
+        return False
+    if key in _PATH_KEY_NAMES:
+        return True
+    k = key.lower()
+    return any(tok in k for tok in _PATH_KEY_TOKENS)
+
+
+def _scan_escaping_path(node, root: Path, pathish: bool = False) -> str | None:
+    """Recursively scan a config subtree; return the first string that (a) sits under
+    a path-denoting KEY and (b) LOOKS like a path yet escapes ``root``, else None.
+
+    This is the default-deny catch-all for any path-bearing key NOT in
+    ``_PATH_CONFIG_KEYS`` -- an unmanifested absolute/``..`` write path cannot slip
+    past the jail. It is KEY-NAME-AWARE (#2): a string is only path-checked when its
+    config key denotes a filesystem path (``_key_denotes_path``), so an absolute-path
+    DATA literal under a value/expression/condition key is not false-refused. In a
+    dict each value inherits ITS OWN key's path-ness; in a list/tuple items inherit
+    the enclosing key's path-ness."""
     if isinstance(node, dict):
-        for v in node.values():
-            hit = _scan_escaping_path(v, root)
+        for k, v in node.items():
+            hit = _scan_escaping_path(v, root, _key_denotes_path(k))
             if hit is not None:
                 return hit
     elif isinstance(node, (list, tuple)):
         for v in node:
-            hit = _scan_escaping_path(v, root)
+            hit = _scan_escaping_path(v, root, pathish)
             if hit is not None:
                 return hit
-    elif isinstance(node, str) and node and _looks_like_path(node):
+    elif pathish and isinstance(node, str) and node and _looks_like_path(node):
         if not Path(os.path.realpath(node)).is_relative_to(root):
             return node
     return None
@@ -347,6 +442,19 @@ def run_job_capture(job_config: dict, work_dir) -> RunResult:
 
     job = copy.deepcopy(job_config)
 
+    # I-1 (SECURITY): fail-closed on side-effecting / egress component types BEFORE
+    # constructing or running the engine -- the in-process oracle run would otherwise
+    # fire the real side effect (email / DB-write / network egress) ahead of any human
+    # gate, and could still pass GREEN. No engine is constructed when a denied type is
+    # present; the offending type is named for human review.
+    for comp in job.get("components", []):
+        t = comp.get("type")
+        if _is_egress_type(t):
+            msg = (f"component type '{t}' is side-effecting/egress and is not permitted "
+                   f"in the enrichment harness; requires human review before execution")
+            logger.warning("[run_and_validate] %s", msg)
+            return RunResult(status="error", error=msg)
+
     escaped = _anchor_and_jail_paths(job, work_dir)
     if escaped is not None:
         msg = f"path escapes work_dir: {escaped}"
@@ -449,6 +557,11 @@ def check(run_result, expected, output_map, keys, output_types=None) -> dict:
             only)" rather than the generic no-actual-output diff (#2/#9).
     """
     reasons = []
+    # #6: a run with NO expected outputs verifies nothing -- an empty ``expected``
+    # would otherwise iterate zero diffs and fall through to passed=True (a hollow
+    # oracle). A run that produced/expected nothing must NOT report PASS.
+    if not expected:
+        reasons.append("no outputs to verify")
     if run_result.status != "success":
         reasons.append(f"engine status={run_result.status!r}" + (f": {run_result.error}" if run_result.error else ""))
     if run_result.dropped_components:

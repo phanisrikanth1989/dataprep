@@ -212,3 +212,160 @@ def test_default_deny_catches_escape_in_unmanifested_key(tmp_path):
     rr = run_job_capture(job, tmp_path)
     assert rr.status == "error"
     assert "escapes" in (rr.error or "")
+
+
+# ---------------------------------------------------------------------------
+# I-1 (SECURITY): side-effecting / egress component TYPES are REFUSED before the
+# engine runs. run_job_capture executes the job IN-PROCESS during the oracle run
+# -- BEFORE any human gate -- so a tSendMail / tOracleOutput / FTP / tSystem etc.
+# would fire its real side effect (email sent, DB row written, network egress) and
+# could still pass GREEN (the side effect is not a diffed output). The harness
+# fail-closes on such a TYPE and never constructs the engine. Enrichment-safe
+# LOCAL writers (FileOutputDelimited, FileCopy, ...) are explicitly NOT denied.
+# ---------------------------------------------------------------------------
+def _sendmail_job():
+    return {
+        "job_name": "mail",
+        "components": [
+            {"id": "m1", "type": "tSendMail",
+             "config": {"to": "ops@example.com", "subject": "hi", "body": "x"},
+             "inputs": [], "outputs": [], "schema": {"input": [], "output": []},
+             "subjob_id": "sj1", "is_subjob_start": True},
+        ],
+        "flows": [],
+    }
+
+
+def test_egress_component_denied_before_engine_runs(tmp_path):
+    rr = run_job_capture(_sendmail_job(), tmp_path)
+    assert rr.status == "error"
+    err = rr.error or ""
+    assert "egress" in err and "not permitted" in err
+    assert rr.raw_stats == {}  # engine never constructed/executed
+
+
+def test_egress_gate_denies_known_side_effecting_types():
+    from agents.tools.run_and_validate import _is_egress_type
+    for t in ["tSendMail", "SendMailComponent", "OracleOutput", "tOracleOutput",
+              "tOracleRow", "OracleSP", "OracleBulkExec", "tOracleBulkExec",
+              "tMSSqlOutput", "tMSSqlRow", "tMSSqlSP", "MysqlOutput", "tMysqlOutput",
+              "tFTPPut", "tFTPGet", "tFileFetch", "tHttpRequest", "tRESTClient",
+              "tSOAP", "tSystem", "tSSH", "tJMSOutput", "tKafkaInput", "tSendSMS"]:
+        assert _is_egress_type(t) is True, t
+
+
+def test_egress_gate_does_not_deny_enrichment_safe_writers():
+    from agents.tools.run_and_validate import _is_egress_type
+    for t in ["FileOutputDelimited", "tFileOutputDelimited", "FileOutputPositional",
+              "tFileOutputPositional", "FileOutputExcel", "FileOutputXML",
+              "AdvancedFileOutputXML", "FileCopy", "tFileCopy", "FileArchive",
+              "FileUnarchive", "FileInputDelimited", "Map", "ConvertType", "SortRow",
+              "FilterRows", "OracleInput", "OracleConnection", "OracleClose",
+              "OracleCommit", "OracleRollback", "MSSqlInput", "MSSqlConnection",
+              "SwiftTransformer", "SwiftBlockFormatter"]:
+        assert _is_egress_type(t) is False, t
+
+
+def test_fileoutput_only_job_not_denied_as_egress(tmp_path):
+    # Guard the false-match: a job whose only writer is FileOutputDelimited runs.
+    in_csv = tmp_path / "in.csv"
+    in_csv.write_text("cc,amt\nUS,10\n")
+    rr = run_job_capture(_passthrough_job(in_csv, tmp_path / "out.csv"), tmp_path)
+    assert rr.status == "success", rr.error
+
+
+# ---------------------------------------------------------------------------
+# #2: the default-deny path scan is KEY-NAME-AWARE. A string value under a config
+# key that does NOT denote a filesystem path (e.g. a FilterRows condition ``value``)
+# is a DATA literal, not a write path -- an absolute-path data literal must NOT
+# false-refuse the job. Manifest path keys stay hard-jailed.
+# ---------------------------------------------------------------------------
+def _filterrows_passthrough(in_csv, out_csv, literal, operator="!="):
+    cols = [{"name": "cc", "type": "str", "nullable": True, "key": False},
+            {"name": "amt", "type": "str", "nullable": True, "key": False}]
+    return {
+        "job_name": "filter_passthrough",
+        "components": [
+            {"id": "in1", "type": "FileInputDelimited",
+             "config": {"filepath": str(in_csv), "fieldseparator": ",", "header_rows": 1,
+                        "die_on_error": False},
+             "inputs": [], "outputs": ["f1"],
+             "schema": {"input": [], "output": cols},
+             "subjob_id": "subjob_1", "is_subjob_start": True},
+            {"id": "flt", "type": "FilterRows",
+             "config": {"conditions": [{"column": "cc", "function": "", "operator": operator,
+                                        "value": literal}],
+                        "logical_op": "&&", "use_advanced": False, "advanced_cond": ""},
+             "inputs": ["f1"], "outputs": ["f2"],
+             "schema": {"input": cols, "output": cols},
+             "subjob_id": "subjob_1", "is_subjob_start": False},
+            {"id": "out1", "type": "FileOutputDelimited",
+             "config": {"filepath": str(out_csv), "fieldseparator": ",", "include_header": True,
+                        "file_exist_exception": False, "create_directory": True},
+             "inputs": ["f2"], "outputs": [],
+             "schema": {"input": cols, "output": []},
+             "subjob_id": "subjob_1", "is_subjob_start": False},
+        ],
+        "flows": [{"name": "f1", "from": "in1", "to": "flt", "type": "flow"},
+                  {"name": "f2", "from": "flt", "to": "out1", "type": "flow"}],
+    }
+
+
+def test_absolute_path_data_literal_in_condition_not_refused(tmp_path):
+    in_csv = tmp_path / "in.csv"
+    in_csv.write_text("cc,amt\nUS,10\nUK,20\n")
+    job = _filterrows_passthrough(in_csv, tmp_path / "out.csv", "/mnt/nas/list.csv")
+    rr = run_job_capture(job, tmp_path)
+    assert "escapes" not in (rr.error or ""), rr.error   # data literal, NOT a path escape
+    assert rr.status == "success", rr.error
+    assert set(rr.outputs["out1"]["cc"]) == {"US", "UK"}  # rows pass through the filter
+
+
+def test_jail_scan_skips_data_literal_under_nonpath_key(tmp_path):
+    from agents.tools.run_and_validate import _anchor_and_jail_paths
+    job = {"components": [
+        {"id": "flt", "type": "FilterRows",
+         "config": {"conditions": [{"column": "p", "operator": "==",
+                                    "value": "/mnt/nas/list.csv"}]}},
+    ]}
+    assert _anchor_and_jail_paths(job, tmp_path) is None  # data literal, not refused
+
+
+def test_jail_scan_still_flags_absolute_under_pathish_key(tmp_path):
+    from agents.tools.run_and_validate import _anchor_and_jail_paths
+    escape = "/tmp/escape_pathish.csv"
+    job = {"components": [
+        {"id": "x", "type": "FilterRows", "config": {"output_path": escape}},  # 'path' token
+    ]}
+    assert _anchor_and_jail_paths(job, tmp_path) == escape
+
+
+# ---------------------------------------------------------------------------
+# #4: SwiftBlockFormatter's input_file/output_file are in the jail manifest. A
+# SwiftBlockFormatter writing output_file to an ABSOLUTE path outside work_dir is
+# refused before the engine runs.
+# ---------------------------------------------------------------------------
+def test_swift_block_formatter_in_path_manifest():
+    from agents.tools.run_and_validate import _PATH_CONFIG_KEYS
+    assert _PATH_CONFIG_KEYS["SwiftBlockFormatter"] == ["input_file", "output_file"]
+    assert _PATH_CONFIG_KEYS["tSwiftBlockFormatter"] == ["input_file", "output_file"]
+
+
+def test_swift_block_formatter_output_file_jailed(tmp_path):
+    escape = Path("/tmp") / f"escape_{uuid.uuid4().hex}.txt"  # absolute, outside tmp_path
+    assert not escape.exists()
+    job = {
+        "job_name": "swift",
+        "components": [
+            {"id": "sw1", "type": "SwiftBlockFormatter",
+             "config": {"input_file": "in.swift", "output_file": str(escape),
+                        "layout": {"block4_20": "S"}, "pipe_fields": ["messagetype"]},
+             "inputs": [], "outputs": [], "schema": {"input": [], "output": []},
+             "subjob_id": "sj1", "is_subjob_start": True},
+        ],
+        "flows": [],
+    }
+    rr = run_job_capture(job, tmp_path)
+    assert rr.status == "error"
+    assert "escapes" in (rr.error or "")
+    assert not escape.exists()  # jail refused the run: nothing written outside work_dir

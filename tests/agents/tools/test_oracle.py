@@ -246,3 +246,15 @@ def test_check_non_delimited_output_gives_clear_reason():
                 output_types={"xls1": "FileOutputExcel"})
     assert rep["passed"] is False
     assert any("delimited only" in r for r in rep["reasons"])
+
+
+# ---------------------------------------------------------------------------
+# #6: check() with ZERO expected outputs must NOT report PASS (hollow oracle). A
+# run that produced/expected nothing verified nothing -- an empty ``expected``
+# would otherwise iterate zero diffs and fall through to passed=True.
+# ---------------------------------------------------------------------------
+def test_check_zero_expected_outputs_is_not_pass():
+    rr = _rr({})  # clean engine run, but nothing to verify
+    rep = check(rr, expected={}, output_map={}, keys={})
+    assert rep["passed"] is False
+    assert any("no outputs to verify" in r for r in rep["reasons"])
