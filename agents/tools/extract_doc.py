@@ -463,6 +463,9 @@ def main(argv=None) -> int:
     def _emit(payload):
         text = json.dumps(payload, indent=2)
         if args.out:
+            # Create the parent dir if missing (matches materialize_golden) so a
+            # first-command write into a fresh agents/work/<job>/ never fails.
+            Path(args.out).parent.mkdir(parents=True, exist_ok=True)
             with open(args.out, "w", encoding="utf-8") as fh:
                 fh.write(text)
         else:

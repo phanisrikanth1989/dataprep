@@ -43,3 +43,15 @@ def test_cli_conformance_error_exit_two(tmp_path, monkeypatch):
     rc = ed.main(["bad.docx", "--out", str(out)])
     assert rc == 2
     assert json.loads(out.read_text())["conformance"]["missing_blocks"] == ["Sample Input"]
+
+
+def test_cli_out_creates_missing_parent_dirs(tmp_path, monkeypatch):
+    """--out into a fresh agents/work/<job>/ must create the parent dirs, not fail
+    'No such file or directory' (matches materialize_golden's mkdir behavior)."""
+    monkeypatch.setattr(ed, "extract_doc", lambda path, raise_on_error=True: _fake_result(ok=True))
+    out = tmp_path / "work" / "stepwise-test" / "extract_doc.json"  # parents do NOT exist yet
+    assert not out.parent.exists()
+    rc = ed.main(["ignored.docx", "--out", str(out)])
+    assert rc == 0
+    assert out.exists()
+    assert json.loads(out.read_text())["rules"][0]["id"] == "R1"
