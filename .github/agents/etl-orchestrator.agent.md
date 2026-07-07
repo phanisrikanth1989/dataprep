@@ -203,6 +203,32 @@ artifact. In the verified tier, if a failure can only be made green by dropping 
 overriding a note-tagged rule, do NOT let the diagnostician do it -- route the
 conflict to human. A green harness never silences a note.
 
+## Testing mode (single-step)
+
+When the human's invocation asks for single-step / testing mode (it says "TESTING MODE",
+"one stage at a time", "stop after each stage", or similar), switch from the autonomous
+forward chain to SINGLE-STEP mode. This is a supported mode, not a deviation -- honor it
+exactly:
+
+- Run exactly ONE stage per turn -- step 0, or a single `#runSubagent`, or one tool step --
+  then STOP. Do NOT chain into the next stage.
+- After the stage, append its audit line and print the PATH of the artifact it just wrote
+  (e.g. `agents/work/<job>/requirement_spec.json`) -- NOT a summary of its contents, so the
+  human inspects the real file -- then STOP and WAIT for the human's explicit "proceed"
+  before the next stage.
+- Do NOT auto-repair. In the verified tier, if the harness fails, run the diagnostician
+  ONCE, print `feedback.json`'s path, then STOP -- do NOT re-run the owner stage. The human
+  decides whether to proceed.
+- ALL THREE safety nets stay in force, unchanged: the harness still owns pass/fail, every
+  step is still audit-logged, and the human gate is still the only "done". The step-5
+  pre-execution code-cell review still pauses for approval before any in-process run.
+  Single-step mode makes you MORE cautious, never less -- never trade a safety net for
+  "progress".
+- When the human has stepped all the way to the gate, present the human gate exactly as
+  Safety net 3 defines it.
+
+Absent any such directive, the default is the full autonomous free-agent loop above.
+
 ## Note on tightening
 
 This is a free-agent loop by design: you choose when to re-run a stage, within the safety nets. If
