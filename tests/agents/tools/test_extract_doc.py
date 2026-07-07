@@ -142,17 +142,41 @@ def test_conformance_ok():
 
 
 def test_conformance_missing_block():
-    sections = {"Inputs and Schema": [], "Transformation Rules": [], "Sample Input": []}
-    report = _check_conformance(sections, {"ledger": ["x"]}, [{"id": "R1"}], {"ledger": [{"a": "1"}]}, {})
+    # Only Inputs+Rules are required now; a missing OPTIONAL block is not "missing".
+    sections = {"Inputs and Schema": [], "Transformation Rules": []}
+    report = _check_conformance(sections, {"ledger": ["x"]}, [{"id": "R1"}], {}, {})
+    assert report.ok is True
+    assert report.missing_blocks == []
+
+
+def test_conformance_missing_required_rules_block():
+    sections = {"Inputs and Schema": []}  # Transformation Rules absent (required)
+    report = _check_conformance(sections, {"ledger": ["x"]}, [], {}, {})
     assert report.ok is False
-    assert "Expected Output" in report.missing_blocks
+    assert "Transformation Rules" in report.missing_blocks
 
 
-def test_conformance_empty_table_is_parse_error():
-    sections = {b: [] for b in ("Inputs and Schema", "Transformation Rules", "Sample Input", "Expected Output")}
-    report = _check_conformance(sections, {"ledger": ["x"]}, [{"id": "R1"}], {"ledger": []}, {"matched": [{"a": "1"}]})
+def test_conformance_absent_sample_is_not_error():
+    # Sample Input H1 absent -> only lowers the tier, never a conformance error.
+    sections = {"Inputs and Schema": [], "Transformation Rules": []}
+    report = _check_conformance(sections, {"ledger": ["x"]}, [{"id": "R1"}], {}, {})
+    assert report.ok is True and report.parse_errors == []
+
+
+def test_conformance_present_but_unparseable_sample_is_error():
+    # Sample Input H1 present but nothing parsed (image-only / orphan table) -> hard-stop.
+    sections = {"Inputs and Schema": [], "Transformation Rules": [], "Sample Input": []}
+    report = _check_conformance(sections, {"ledger": ["x"]}, [{"id": "R1"}], {}, {})
     assert report.ok is False
     assert any("Sample Input" in e for e in report.parse_errors)
+
+
+def test_conformance_declared_empty_expected_is_valid():
+    # Expected present, one output with a header but zero data rows -> declared-empty (valid).
+    sections = {"Inputs and Schema": [], "Transformation Rules": [], "Expected Output": []}
+    report = _check_conformance(sections, {"ledger": ["x"]}, [{"id": "R1"}],
+                                {}, {"matched": []})
+    assert report.ok is True and report.parse_errors == []
 
 
 import pytest

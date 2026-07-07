@@ -18,7 +18,7 @@ from docx.text.paragraph import Paragraph
 
 logger = logging.getLogger(__name__)
 
-REQUIRED_BLOCKS = ("Inputs and Schema", "Transformation Rules", "Sample Input", "Expected Output")
+REQUIRED_BLOCKS = ("Inputs and Schema", "Transformation Rules")
 
 MAX_DOCX_BYTES = 25 * 1024 * 1024
 
@@ -202,11 +202,14 @@ def compute_derived_facts(sample_input: dict[str, list[dict]]) -> dict[str, dict
 
 
 def _check_conformance(sections, sources_schema, rules, sample_input, expected_output):
-    """Gate the parsed doc: ok only if all four blocks are present and non-empty.
+    """Gate the parsed doc: the two REQUIRED blocks must be present and non-empty;
+    a PRESENT-but-unparseable optional Sample/Expected block is a hard-stop.
 
-    A required block that is absent lands in ``missing_blocks``; a present block
-    whose table yielded no content (empty or image-only) lands in
-    ``parse_errors``. ``ok`` is True only when neither list has entries.
+    An absent Sample/Expected H1 is NOT an error -- it only lowers the tier
+    (see _compute_tier). A present Sample/Expected H1 that yielded no parseable
+    (header+rows) table lands in ``parse_errors`` (keeps the malformed-table
+    detector alive). A declared-empty output (header row, zero data rows) parses
+    to ``{name: []}`` -- a non-empty dict -- so it is VALID, not a hard-stop.
     """
     missing = [b for b in REQUIRED_BLOCKS if b not in sections]
     errors = []
@@ -215,10 +218,10 @@ def _check_conformance(sections, sources_schema, rules, sample_input, expected_o
             errors.append("Inputs and Schema: no columns parsed (empty or image-only table?)")
         if not rules:
             errors.append("Transformation Rules: no rules parsed")
-        if not sample_input or all(len(rows) == 0 for rows in sample_input.values()):
-            errors.append("Sample Input: no rows parsed")
-        if not expected_output or all(len(rows) == 0 for rows in expected_output.values()):
-            errors.append("Expected Output: no rows parsed")
+        if "Sample Input" in sections and not sample_input:
+            errors.append("Sample Input: present but no parseable table (header+rows)")
+        if "Expected Output" in sections and not expected_output:
+            errors.append("Expected Output: present but no parseable table (header+rows)")
     return ConformanceReport(ok=(not missing and not errors), missing_blocks=missing, parse_errors=errors)
 
 
