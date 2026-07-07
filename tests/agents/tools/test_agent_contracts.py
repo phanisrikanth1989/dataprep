@@ -1,4 +1,7 @@
+import re
 from pathlib import Path
+
+from agents.tools.validate_agents import parse_frontmatter
 
 _AGENTS = Path(".github/agents")
 
@@ -38,3 +41,32 @@ def test_orchestrator_has_step0_tier_branching_and_note_guard():
     assert "extract_doc" in b
     assert "notes" in b and "extra_sections" in b
     assert "note" in b and ("repair" in b or "silently" in b)  # note-vs-oracle guard
+
+
+def test_test_runner_is_tier_aware():
+    b = _body("test-runner")
+    assert "--smoke" in b and "--golden-dir" in b
+
+
+def test_flow_designer_and_diagnostician_are_neutral():
+    for name in ("flow-designer", "diagnostician"):
+        b = _body(name)
+        assert "recon" not in b and "enrichment" not in b
+        # role framing is general ETL, not enrichment-only
+        assert "etl" in b or "sources -> transformations -> outputs" in b or "pipeline" in b
+
+
+def test_diagnostician_routes_note_conflicts_to_human():
+    b = _body("diagnostician")
+    # reads the tags + routes a note-tagged conflict to human (Spec 4.5 binds the guard here)
+    assert "requirement_spec.json" in b
+    assert 'source: "note"' in b or "note-tagged" in b or "note tag" in b
+    assert "human" in b
+
+
+def test_no_agent_description_is_biased():
+    # F6: validate_agents does NOT freeze the description; every agent description is neutral ETL.
+    bias = re.compile(r"enrichment|\brecon\b", re.IGNORECASE)
+    for f in Path(".github/agents").glob("*.agent.md"):
+        desc = str(parse_frontmatter(f.read_text(encoding="utf-8")).get("description", ""))
+        assert not bias.search(desc), f"{f.name} description still biased: {desc!r}"

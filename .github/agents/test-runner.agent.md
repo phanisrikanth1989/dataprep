@@ -35,6 +35,18 @@ of correctness.
    failure. Without `--out` the harness prints only to stdout and NOTHING persists -- the
    diagnostician then has no report and the repair loop runs blind.
 
+   For a SMOKE-tier job (no golden to diff), the orchestrator instead tells you to run:
+
+   ```
+   python -m agents.tools.run_and_validate \
+     --job agents/work/<job>/job.json \
+     --smoke \
+     --out agents/work/<job>/test_report.json
+   ```
+
+   The smoke verdict has NO `passed` field (ran_clean / status / produced_outputs /
+   dropped_or_errored_components). Relay it verbatim exactly as you relay the verified report.
+
 2. Return the persisted report VERBATIM. After the run, print the file back with your terminal tool:
 
    ```

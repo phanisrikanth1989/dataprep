@@ -40,6 +40,9 @@ Read `agents/work/<job>/test_report.json` (a FAILED report from test-runner):
     the column-set `reason`, not from key-level counts.
 - On a load failure the report is `{"passed": false, "error": "..."}`.
 
+Also read `agents/work/<job>/requirement_spec.json` for its rule TAGS (`source: "note"` /
+`derived_from_note`). This is structural metadata, not data -- it does not break your data-blindness.
+
 ## Output
 
 Write `agents/work/<job>/feedback.json`:
@@ -69,6 +72,9 @@ Write `agents/work/<job>/feedback.json`:
   mis-wired schema, a flow whose `from`/`to` does not resolve, or a join whose input/driver order is
   mis-set (all lookup rows kept, unmatched source rows dropped -- the inverse of the left-join
   contract) -> `assembler`.
+- A failure that can be resolved ONLY by dropping or overriding a rule tagged `source: "note"` (BA
+  intent, not an oracle artifact) -> `human`. NEVER route such a note-vs-oracle conflict to
+  configurator or doc-interpreter to force green -- a green harness must never silence a note.
 - Anything you cannot confidently classify from the structural signals -> `human`.
 
 Name exactly ONE owner -- the most likely single cause. When the signals genuinely conflict or are
