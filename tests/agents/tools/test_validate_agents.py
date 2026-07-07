@@ -38,7 +38,7 @@ def test_missing_description_flagged():
 
 def test_skill_name_must_match_dir():
     text = "---\nname: other-name\ndescription: d\n---\nbody\n"
-    assert any("match" in e for e in validate_skill(text, "dataprep-recon"))
+    assert any("match" in e for e in validate_skill(text, "dataprep-etl"))
 
 
 def test_malformed_yaml_is_reported_not_crashed():
@@ -56,7 +56,7 @@ def test_validate_tree_clean_and_flags_unknown_ref(tmp_path):
     ad = tmp_path / "agents"; sd = tmp_path / "skills"
     _write(ad / "configurator.agent.md", "---\nname: configurator\ndescription: d\nuser-invocable: false\n---\nb\n")
     _write(ad / "orch.agent.md", "---\nname: orch\ndescription: d\nagents: ['configurator']\n---\nb\n")
-    _write(sd / "dataprep-recon" / "SKILL.md", "---\nname: dataprep-recon\ndescription: d\n---\nb\n")
+    _write(sd / "dataprep-etl" / "SKILL.md", "---\nname: dataprep-etl\ndescription: d\n---\nb\n")
     assert validate_tree(ad, sd) == []
     # now point the orchestrator at a ghost
     _write(ad / "orch.agent.md", "---\nname: orch\ndescription: d\nagents: ['ghost']\n---\nb\n")

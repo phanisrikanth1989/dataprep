@@ -1,6 +1,6 @@
-# DataPrep Recon Agents -- Platform (VS Code 1.122 Copilot)
+# DataPrep ETL Agents -- Platform (VS Code 1.122 Copilot)
 
-Native GitHub Copilot custom agents that turn an enrichment requirements document into a runnable,
+Native GitHub Copilot custom agents that turn an ETL requirements document into a runnable,
 harness-verified DataPrep `job.json`. One user-invocable orchestrator drives six subagent-only
 specialists via the built-in `#runSubagent` tool; a shared Agent Skill carries the domain
 knowledge; a deterministic Python harness -- not the model -- decides pass/fail.
@@ -57,7 +57,7 @@ Design pillars (all locked in the pivot):
   - diagnostician names exactly ONE owner stage to re-run (`doc-interpreter | flow-designer |
     configurator | assembler | human`); ambiguous signals route to `human`.
 
-- The `dataprep-recon` Agent Skill -- `.github/skills/dataprep-recon/`. The shared source of
+- The `dataprep-etl` Agent Skill -- `.github/skills/dataprep-etl/`. The shared source of
   truth every stage consults: `SKILL.md` (index) plus `config-reference.md` (every allowed config
   key and its resolved allowed values), `landmines.md` (config traps that pass validation but
   silently produce wrong output), and `job-envelope.md` (the exact `job.json` wiring shape). It is
@@ -168,7 +168,7 @@ as highest-priority before it presents the job (safety net 3).
 | extract_doc | `python -m agents.tools.extract_doc <req.docx> --out extract_doc.json` | Deterministic .docx -> one JSON artifact (the pipeline input). |
 | validate_config | `python -m agents.tools.validate_config --type T --config c.json` | Per-component config gate (configurator's loop). Exit 0 valid / 1 invalid / 2 load error. |
 | run_and_validate | `python -m agents.tools.run_and_validate --job job.json --golden-dir DIR --out test_report.json` | The PASS/FAIL oracle: whole-job parity vs golden. Exit 0 pass / 1 fail / 2 load error. |
-| render_skills | `python -m agents.tools.render_skills` | Regenerates `.github/skills/dataprep-recon/` from the live schemas + landmines (enum_refs resolved). |
+| render_skills | `python -m agents.tools.render_skills` | Regenerates `.github/skills/dataprep-etl/` from the live schemas + landmines (enum_refs resolved). |
 | validate_agents | `agents.tools.validate_agents.validate_tree(agents_dir, skills_dir)` (library) | Frontmatter + model-agnostic gate over all `.agent.md`/`SKILL.md`; cross-checks the `agents:` allowlist. Runs in the test suite / CI. |
 | audit_log | `python -m agents.tools.audit_log --job-dir D --iteration N --role R --event E [--detail JSON]` (orchestrator runtime); `AuditLog(job_dir).record/read` as a library | The append-only JSONL audit trail (safety net 2) -- a runtime contract, not a CI gate. |
 | surface_code_cells | `python -m agents.tools.surface_code_cells --job <job.json>` | Deterministically extracts every code-bearing cell for the human gate (safety net 3); flags unsandboxed cells (`python_dataframe`, `SwiftTransformer`) as highest-priority. Orchestrator runtime. |
@@ -178,7 +178,7 @@ as highest-priority before it presents the job (safety net 3).
 ## 2. How to run
 
 Prerequisites (local, one time):
-- The `dataprep-recon` skill is present under `.github/skills/dataprep-recon/`
+- The `dataprep-etl` skill is present under `.github/skills/dataprep-etl/`
   (regenerate with `python -m agents.tools.render_skills` if the schemas changed).
 - `agents/PLATFORM.md` and the seven `.agent.md` files are present and pass the gate
   (`validate_tree(...) == []`).
@@ -186,7 +186,7 @@ Prerequisites (local, one time):
   `chat.tools.terminal.autoApprove` configured for the `python -m agents.tools.*` commands
   (see the Citi checklist below).
 
-Run an enrichment job:
+Run an ETL job:
 1. Extract the requirement deterministically (terminal):
    `python -m agents.tools.extract_doc path/to/requirements.docx --out agents/work/<job>/extract_doc.json`
    (`<job>` is the work-dir slug you choose.)
@@ -266,8 +266,8 @@ this repo. Where an item says ADJUST, make the edit in the install and mirror it
   the `tools:` lists in the `.agent.md` files to the install's spelling and re-run the local gate
   (`validate_tree` checks structure, not live resolution, so it stays `[]` either way).
 
-- [ ] (f) The `dataprep-recon` skill auto-loads. The skill under `.github/skills/dataprep-recon/`
-  auto-loads by its `description` when a stage's task matches (or `/dataprep-recon` autocompletes in
+- [ ] (f) The `dataprep-etl` skill auto-loads. The skill under `.github/skills/dataprep-etl/`
+  auto-loads by its `description` when a stage's task matches (or `/dataprep-etl` autocompletes in
   chat), and `.github/skills` is present in `chat.agentSkillsLocations` so the workspace skill is
   discoverable. (VS Code has no per-agent skill scoping -- skills are workspace-global; agents bias
   to the right skill via their instructions.)

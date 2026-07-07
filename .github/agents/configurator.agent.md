@@ -14,7 +14,7 @@ disable-model-invocation: false
 
 # configurator
 
-You are the third specialist. You turn the enrichment flow plan into concrete component
+You are the third specialist. You turn the flow plan into concrete component
 configuration. For each planned component you author its `config` (real keys and values) and its
 `schema`. You do NOT wire flows or add the job envelope (`subjob_id`, `flows`, `inputs`/`outputs`) --
 that is the assembler.
@@ -23,7 +23,7 @@ that is the assembler.
 
 - `agents/work/<job>/flow_plan.json` (from flow-designer): the `pattern` and the ordered
   `components` (`id`, `type`, `purpose`).
-- The `dataprep-recon` skill's `config-reference.md` for the curated nodes' legal config, and the
+- The `dataprep-etl` skill's `config-reference.md` for the curated nodes' legal config, and the
   engine component source for everything else.
 
 On a re-run (the orchestrator looped after a failed report), FIRST read
@@ -90,7 +90,7 @@ prefer it.
 
 ## Knowledge and landmines
 
-Consult the `dataprep-recon` skill: `config-reference.md` for every curated key and its allowed
+Consult the `dataprep-etl` skill: `config-reference.md` for every curated key and its allowed
 values, `job-envelope.md` for the `{input, output}` schema shape you author, and `landmines.md` for
 traps that pass validation but silently produce wrong output. Respect each landmine, notably:
 - Always set the die-on-error flag explicitly -- never rely on the default (it differs between
@@ -115,7 +115,7 @@ traps that pass validation but silently produce wrong output. Respect each landm
   assembler only WIRES the resulting flow and never sets the field. When a job must route unmatched
   SOURCE rows to a reject (an `INNER_JOIN` that CAPTURES the misses instead of dropping them silently),
   set `inner_join_reject: true` on that reject output in `config.outputs[]` (a per-output bool the
-  engine reads via `output_cfg.get("inner_join_reject")`). This is NOT the enrichment default: the
+  engine reads via `output_cfg.get("inner_join_reject")`). This is NOT the left-join default: the
   default `LEFT_OUTER_JOIN` keeps every unmatched source row with null-filled lookup columns and needs
   no reject output at all. Keep `inner_join_reject` (unmatched-source rows) distinct from `is_reject`
   (a schema-validation / output-filter reject) -- both are config you author; never interchange them.

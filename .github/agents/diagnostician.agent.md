@@ -67,7 +67,7 @@ Write `agents/work/<job>/feedback.json`:
   `configurator`.
 - A dangling flow, a wiring/envelope error, `unexpected_columns` / `missing_columns` from a
   mis-wired schema, a flow whose `from`/`to` does not resolve, or a join whose input/driver order is
-  mis-set (all lookup rows kept, unmatched source rows dropped -- the inverse of the enrichment
+  mis-set (all lookup rows kept, unmatched source rows dropped -- the inverse of the left-join
   contract) -> `assembler`.
 - Anything you cannot confidently classify from the structural signals -> `human`.
 
@@ -76,7 +76,7 @@ ambiguous, route to `human` rather than guess.
 
 ## Knowledge
 
-Consult the `dataprep-recon` skill when a signal maps to a known trap: `landmines.md` (e.g. a
+Consult the `dataprep-etl` skill when a signal maps to a known trap: `landmines.md` (e.g. a
 non-unique lookup key dropping rows, or a tMap date-format miss -- format in the `{{java}}`
 expression, not a dead `pattern`/`date_pattern` key) and
 `job-envelope.md` (wiring/schema shape) sharpen the `why`/`fix` without ever needing a data value.

@@ -43,7 +43,7 @@ structural why/fix, not raw data values.
 ## Output
 
 Write `agents/work/<job>/job.json` = the draft PLUS the envelope. Follow
-`dataprep-recon/job-envelope.md` exactly:
+`dataprep-etl/job-envelope.md` exactly:
 - Every component gets a `subjob_id`.
 - Every component `schema` is `{"input": [...], "output": [...]}` (a two-key object, NOT a flat
   list). Preserve each component's `output` columns exactly as the configurator set them, and BUILD
@@ -74,7 +74,7 @@ Write `agents/work/<job>/job.json` = the draft PLUS the envelope. Follow
   the role POSITIONALLY -- the flow_plan's driver is this component's FIRST `inputs` entry, the
   lookup(s) follow -- consistent with the job-envelope contract. Getting the ORDER backwards is
   severe: a `LEFT_OUTER_JOIN` with the inputs swapped keeps all LOOKUP rows and drops unmatched SOURCE
-  rows -- the OPPOSITE of the enrichment contract (keep every source row, null-fill missing lookup
+  rows -- the OPPOSITE of the left-join contract (keep every source row, null-fill missing lookup
   columns).
 - For a `tMap`/`PyMap`, do NOT derive fresh flow names the way you do for a `tJoin`. Its `config`
   already carries the role names, so wire the producing component's `outputs` and the consuming
@@ -94,5 +94,5 @@ Write `agents/work/<job>/job.json` = the draft PLUS the envelope. Follow
 
 ## Knowledge
 
-Consult the `dataprep-recon` skill's `job-envelope.md` for the exact wiring shape (it includes a
+Consult the `dataprep-etl` skill's `job-envelope.md` for the exact wiring shape (it includes a
 minimal worked example). The engine is strict about these keys, so match them precisely.

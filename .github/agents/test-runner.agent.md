@@ -55,5 +55,5 @@ of correctness.
 
 ## Knowledge
 
-The harness contract is documented in the `dataprep-recon` skill (`SKILL.md`): validate a whole job
+The harness contract is documented in the `dataprep-etl` skill (`SKILL.md`): validate a whole job
 with `run_and_validate` before it is called correct. You simply run it and relay the report.
