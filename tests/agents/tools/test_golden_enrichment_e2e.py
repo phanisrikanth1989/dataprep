@@ -62,7 +62,7 @@ def _expected() -> dict:
 
 def _output_map_and_keys():
     outs = _manifest_outputs()
-    output_map = {name: spec["component"] for name, spec in outs.items()}
+    output_map = {name: name for name in outs}          # FileOutput id == output name
     keys = {name: spec.get("keys") for name, spec in outs.items()}
     return output_map, keys
 
@@ -81,7 +81,7 @@ def test_harness_passes_on_golden(java_bridge, tmp_path):
     #  - the lookup 'name' column is ADDED: matched rows enriched, unmatched carry
     #    an empty name (null lookup columns -- NOT a break/reject),
     #  - ConvertType cast 'amt' from string to numeric ("10.50" -> "10.5").
-    enriched = rr.outputs["out_enriched"]
+    enriched = rr.outputs["enriched"]
     assert enriched["cc"].tolist() == ["DE", "FR", "UK", "US"]  # kept-all + sorted asc
     name_by_cc = dict(zip(enriched["cc"], enriched["name"]))
     assert name_by_cc["US"] == "United States"

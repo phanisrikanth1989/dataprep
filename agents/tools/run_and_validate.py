@@ -40,6 +40,14 @@ _NON_DELIMITED_OUTPUT_TYPES = {
     "AdvancedFileOutputXML", "tAdvancedFileOutputXML",
 }
 
+
+def _output_component_ids(job: dict) -> set:
+    """Ids of every FileOutput-family writer -- the assembler binds each terminal
+    FileOutput's id to its Expected-Output name, so this is the set of valid
+    graded-output ids."""
+    writers = _FILE_OUTPUT_TYPES | _NON_DELIMITED_OUTPUT_TYPES
+    return {c.get("id") for c in job.get("components", []) if c.get("type") in writers}
+
 # ---------------------------------------------------------------------------
 # I-1 (SECURITY): fail-closed egress / side-effecting pre-execution gate.
 # ---------------------------------------------------------------------------
@@ -757,12 +765,18 @@ def main(argv=None) -> int:
             _emit({"passed": False, "error": "manifest declares no outputs to verify"})
             return 2
         expected, output_map, keys = {}, {}, {}
+        fo_ids = _output_component_ids(job)
         for name, spec in outputs_spec.items():
-            # Default to ';' -- the repo golden convention and what _read_output
-            # uses for the ACTUAL side. An explicit spec["sep"] still wins.
+            if not spec.get("graded", True):
+                continue  # ungraded: run the job but do not read an expected CSV or diff
+            if name not in fo_ids:
+                _emit({"passed": False,
+                       "error": f"graded output '{name}' has no FileOutput component with id == '{name}' in job.json"})
+                return 2
+            # Default to ';' -- the repo golden convention and what _read_output uses.
             sep = spec.get("sep", ";")
             expected[name] = pd.read_csv(gdir / f"{name}_expected.csv", sep=sep, dtype=str, keep_default_na=False)
-            output_map[name] = spec["component"]
+            output_map[name] = name  # the Sec 4.4 contract: FileOutput id == output name
             keys[name] = spec.get("keys")
         # Jail job outputs to the JOB FILE's own directory (its sandbox), not the
         # read-only golden dir -- run_job_capture refuses any output escaping it.
@@ -771,6 +785,8 @@ def main(argv=None) -> int:
         # registered but non-delimited FileOutput writer (unharvested -> actual=None).
         output_types = {c.get("id"): c.get("type") for c in job.get("components", [])}
         report = check(run_result, expected, output_map, keys, output_types=output_types)
+        report["graded"] = len(expected)          # graded outputs actually diffed
+        report["total"] = len(outputs_spec)        # all declared outputs (graded + ungraded)
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         _emit({"passed": False, "error": str(exc)})
         return 2

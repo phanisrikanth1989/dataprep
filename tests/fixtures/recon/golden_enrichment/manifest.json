@@ -1,5 +1,5 @@
 {
   "outputs": {
-    "enriched": {"component": "out_enriched", "keys": ["cc"], "sep": ";"}
+    "enriched": {"keys": ["cc"], "sep": ";", "graded": true}
   }
 }

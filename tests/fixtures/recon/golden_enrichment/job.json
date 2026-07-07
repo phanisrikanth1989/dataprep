@@ -175,7 +175,7 @@
       "is_subjob_start": false
     },
     {
-      "id": "out_enriched",
+      "id": "enriched",
       "type": "FileOutputDelimited",
       "original_type": "tFileOutputDelimited",
       "config": {
@@ -208,7 +208,7 @@
     {"name": "row2", "from": "in_lookup", "to": "tmap", "type": "flow"},
     {"name": "enriched", "from": "tmap", "to": "conv", "type": "flow"},
     {"name": "conv_out", "from": "conv", "to": "sort", "type": "flow"},
-    {"name": "sort_out", "from": "sort", "to": "out_enriched", "type": "flow"}
+    {"name": "sort_out", "from": "sort", "to": "enriched", "type": "flow"}
   ],
   "triggers": [],
   "java_config": {

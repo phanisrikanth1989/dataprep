@@ -142,14 +142,14 @@ def _passthrough_job(in_csv, out_csv, sep=";"):
 
 
 def _write_cli_case(tmp_path, expected_csv_text):
-    """Wire up job.json + golden dir (manifest OMITS sep) and return main() argv."""
+    """Wire up job.json + golden dir (manifest OMITS sep, has graded, NO component) and return main() argv."""
     src = tmp_path / "source.csv"
     src.write_text("cc;amt\nUS;10\nUK;20\n")
     job_path = tmp_path / "job.json"
     job_path.write_text(json.dumps(_passthrough_job(src, tmp_path / "out.csv")))
     gdir = tmp_path / "golden"; gdir.mkdir()
-    (gdir / "manifest.json").write_text(json.dumps({"outputs": {"out": {"component": "out1", "keys": ["cc"]}}}))
-    (gdir / "out_expected.csv").write_text(expected_csv_text)
+    (gdir / "manifest.json").write_text(json.dumps({"outputs": {"out1": {"keys": ["cc"], "graded": True}}}))
+    (gdir / "out1_expected.csv").write_text(expected_csv_text)
     report_path = tmp_path / "report.json"
     return ["--job", str(job_path), "--golden-dir", str(gdir), "--out", str(report_path)], report_path
 
@@ -286,3 +286,47 @@ def test_check_zero_expected_outputs_is_not_pass():
     rep = check(rr, expected={}, output_map={}, keys={})
     assert rep["passed"] is False
     assert any("no outputs to verify" in r for r in rep["reasons"])
+
+
+# ---------------------------------------------------------------------------
+# Task 8: graded-driven grade path. The manifest carries NO 'component'; the
+# output_map is derived from job.json's FileOutput ids (id == output name). A
+# graded output whose name has no matching FileOutput id fails with a CLEAR
+# reason (not a bare KeyError); a graded:false output is run but never diffed.
+# ---------------------------------------------------------------------------
+def test_cli_graded_output_missing_component_id_is_clear_error(tmp_path):
+    from agents.tools.run_and_validate import main
+    job = tmp_path / "job.json"; job.write_text('{"components": [], "flows": []}')
+    gdir = tmp_path / "g"; gdir.mkdir()
+    (gdir / "manifest.json").write_text(json.dumps({"outputs": {"ghost": {"keys": ["id"], "graded": True}}}))
+    report = tmp_path / "r.json"
+    rc = main(["--job", str(job), "--golden-dir", str(gdir), "--out", str(report)])
+    assert rc == 2
+    err = json.loads(report.read_text())["error"]
+    assert "ghost" in err and "id" in err  # a clear reason, not a bare KeyError
+
+
+def test_cli_graded_false_output_is_run_not_diffed(tmp_path):
+    from agents.tools.run_and_validate import main
+    src = tmp_path / "source.csv"; src.write_text("cc;amt\nUS;10\nUK;20\n")
+    job = tmp_path / "job.json"
+    job.write_text(json.dumps(_passthrough_job(src, tmp_path / "out.csv")))
+    gdir = tmp_path / "golden"; gdir.mkdir()
+    # out1 graded (matches the job's FileOutput id); 'extra' graded:false, NO expected CSV.
+    (gdir / "manifest.json").write_text(json.dumps({"outputs": {
+        "out1": {"keys": ["cc"], "graded": True},
+        "extra": {"keys": [], "graded": False},
+    }}))
+    (gdir / "out1_expected.csv").write_text("cc;amt\nUS;10\nUK;20\n")
+    report = tmp_path / "r.json"
+    rc = main(["--job", str(job), "--golden-dir", str(gdir), "--out", str(report)])
+    assert rc == 0  # graded:false 'extra' does NOT crash on its missing expected CSV
+    assert json.loads(report.read_text())["passed"] is True
+
+
+def test_cli_verified_report_carries_graded_and_total(tmp_path):
+    argv, report_path = _write_cli_case(tmp_path, "cc;amt\nUS;10\nUK;20\n")
+    from agents.tools.run_and_validate import main
+    assert main(argv) == 0
+    rep = json.loads(report_path.read_text())
+    assert rep["graded"] == 1 and rep["total"] == 1
