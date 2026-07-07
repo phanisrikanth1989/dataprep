@@ -246,7 +246,9 @@ def _collect_extra_sections(sections, prose):
     """Per UNRECOGNIZED H1: verbatim prose (intent) + only STRUCTURAL facts for any
     table. Raw table cell values are never stored (same data-wall as sample/expected)."""
     extra = {}
-    headings = set(sections) | set(prose)
+    # Document order, deduped (NOT set() -- set string-iteration order varies with
+    # PYTHONHASHSEED, which would make the emitted extract_doc.json non-deterministic).
+    headings = list(dict.fromkeys([*sections, *prose]))
     for heading in headings:
         if heading in RECOGNIZED_BLOCKS:
             continue

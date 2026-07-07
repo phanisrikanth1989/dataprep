@@ -140,3 +140,13 @@ def test_cli_emits_tier(tmp_path):
     rc = _ed.main([str(p), "--out", str(out)])
     assert rc == 0
     assert _json.loads(out.read_text())["tier"] == "verified"
+
+
+def test_extra_sections_key_order_is_deterministic_document_order():
+    """extra_sections must preserve document order regardless of PYTHONHASHSEED
+    (a set() union would reorder keys per-process, breaking 'Deterministic extraction')."""
+    from agents.tools.extract_doc import _collect_extra_sections
+    sections = {"Assumptions": [], "Glossary": [], "Change Log": [], "Appendix": [], "Volumes": []}
+    prose = {k: "x" for k in sections}
+    keys = list(_collect_extra_sections(sections, prose).keys())
+    assert keys == ["Assumptions", "Glossary", "Change Log", "Appendix", "Volumes"]
