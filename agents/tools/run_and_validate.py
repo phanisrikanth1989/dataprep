@@ -60,7 +60,7 @@ def _output_component_ids(job: dict) -> set:
 #
 # Matching is case-insensitive on the registered TYPE name and covers both the
 # camelCase and the Talend ``t``-prefixed spelling. It is DENY-BY-INTENT: an
-# explicit known-type set plus a few PRECISE substrings, chosen so NO enrichment-
+# explicit known-type set plus a few PRECISE substrings, chosen so NO ETL-
 # safe LOCAL writer (FileOutputDelimited/Positional/Excel/XML, FileCopy,
 # FileArchive/Unarchive, ...) is ever matched -- there is deliberately no bare
 # "output" substring. Local DB READERS / CONNECTIONS (OracleInput/OracleConnection,
@@ -87,7 +87,7 @@ _EGRESS_DENY_TYPES = {
 # Precise substrings: any TYPE whose lowercased name CONTAINS one of these is
 # denied. Covers family variants (any ``*BulkExec``, ``tJMSInput``/``tJMSOutput``,
 # ``tKafkaInput``/``tKafkaOutput``, ``tFTPGet``/``tFTPPut``) without enumerating
-# every spelling. Each is chosen so no enrichment-safe writer name contains it.
+# every spelling. Each is chosen so no ETL-safe writer name contains it.
 _EGRESS_DENY_SUBSTR = (
     "sendmail", "ftp", "httprequest", "restclient", "soap", "tsystem", "tssh",
     "bulkexec", "sendsms", "jms", "kafka",
@@ -100,7 +100,7 @@ def _is_egress_type(comp_type) -> bool:
     """True if a component TYPE is side-effecting/egress and must not auto-run.
 
     Case-insensitive; matches an explicit known-type set or a precise substring.
-    Enrichment-safe local writers (FileOutput*, FileCopy, FileArchive, ...) are
+    ETL-safe local writers (FileOutput*, FileCopy, FileArchive, ...) are
     never matched -- guarded by test."""
     if not isinstance(comp_type, str) or not comp_type:
         return False
@@ -560,14 +560,14 @@ def run_job_capture(job_config: dict, work_dir) -> RunResult:
         t = comp.get("type")
         if _is_egress_type(t):
             msg = (f"component type '{t}' is side-effecting/egress and is not permitted "
-                   f"in the enrichment harness; requires human review before execution")
+                   f"in the ETL harness; requires human review before execution")
             logger.warning("[run_and_validate] %s", msg)
             return RunResult(status="error", error=msg)
         # I-nested (SECURITY): a tRunJob/RunJob runs a CHILD job nested in-process,
         # so every child component bypasses the egress gate, path-jail, code
         # surfacing and human gate. Refuse it; the child must be reviewed/run alone.
         if _is_nested_job_type(t):
-            msg = ("nested tRunJob child jobs are not permitted in the enrichment "
+            msg = ("nested tRunJob child jobs are not permitted in the ETL "
                    "harness (they bypass the safety nets); review/run the child job "
                    "independently")
             logger.warning("[run_and_validate] %s", msg)
@@ -729,6 +729,24 @@ def check(run_result, expected, output_map, keys, output_types=None) -> dict:
     }
 
 
+def _smoke_verdict(run_result) -> dict:
+    """A smoke-tier verdict: the job RAN, but nothing was graded. Deliberately has
+    NO ``passed`` field (a smoke job is never presented as correct). ``ran_clean``
+    is true only if the engine succeeded AND no declared component was dropped or
+    errored -- a weak signal (a job can run clean and still be wrong), which the
+    gate label makes explicit."""
+    errored = [cid for cid, s in run_result.component_stats.items()
+               if isinstance(s, dict) and s.get("status") == "error"]
+    problems = list(run_result.dropped_components) + errored
+    return {
+        "tier": "smoke",
+        "ran_clean": run_result.status == "success" and not problems,
+        "status": run_result.status,
+        "produced_outputs": {cid: int(len(df)) for cid, df in run_result.outputs.items()},
+        "dropped_or_errored_components": problems,
+    }
+
+
 def main(argv=None) -> int:
     """CLI: run a job, diff against a golden dir, emit test_report.json."""
     import argparse
@@ -737,7 +755,8 @@ def main(argv=None) -> int:
 
     parser = argparse.ArgumentParser(description="Run a job and validate its output vs golden data.")
     parser.add_argument("--job", required=True, help="path to the job.json")
-    parser.add_argument("--golden-dir", required=True, help="dir with <name>_expected.csv + manifest.json")
+    parser.add_argument("--golden-dir", help="dir with <name>_expected.csv + manifest.json (verified tier)")
+    parser.add_argument("--smoke", action="store_true", help="smoke tier: run the job, emit a verdict, no diff")
     parser.add_argument("--out", help="write test_report JSON here (default: stdout)")
     args = parser.parse_args(argv)
 
@@ -747,6 +766,24 @@ def main(argv=None) -> int:
             Path(args.out).write_text(out_text, encoding="utf-8")
         else:
             sys.stdout.write(out_text + "\n")
+
+    # Exactly one tier is selected: --golden-dir (verified, diff graded outputs) or
+    # --smoke (run the job, emit a verdict, no diff). Neither/both is a usage error.
+    if bool(args.smoke) == bool(args.golden_dir):
+        _emit({"error": "exactly one of --golden-dir (verified) or --smoke is required"})
+        return 2
+
+    if args.smoke:
+        try:
+            with open(args.job, encoding="utf-8") as fh:
+                job = json.load(fh)
+            run_result = run_job_capture(job, Path(args.job).parent)
+        except (OSError, ValueError) as exc:
+            _emit({"error": str(exc)})
+            return 2
+        verdict = _smoke_verdict(run_result)
+        _emit(verdict)
+        return 0 if verdict["ran_clean"] else 1
 
     # Everything here -- loading job/manifest/golden CSVs AND running+diffing the
     # job -- is wrapped so ANY hard failure (missing/malformed manifest, absent
