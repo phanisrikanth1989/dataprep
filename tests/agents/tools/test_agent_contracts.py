@@ -13,3 +13,10 @@ def test_doc_interpreter_consumes_notes_extra_sections_tier_and_tags():
     assert "notes" in b and "extra_sections" in b and "tier" in b
     assert "outputs" in b               # carries the output NAMES + keys (name/keys only, NOT graded)
     assert 'source: "note"' in b or "derived_from_note" in b
+
+
+def test_configurator_states_csv_option_and_filepath_contract():
+    b = _body("configurator")
+    assert "csv_option" in b and "text_enclosure" in b
+    assert "<source-name>.csv" in b or "source-name>.csv" in b
+    assert "quote_none" in b or "shift" in b or "round-trip" in b  # the WHY of csv_option

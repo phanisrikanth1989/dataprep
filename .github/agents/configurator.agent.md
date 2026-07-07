@@ -3,7 +3,7 @@ name: configurator
 description: >-
   Fill in real component config and schema for each planned component, producing job_draft.json.
   Runs validate_config on every component and fixes every reported error before finishing. Respects
-  the enrichment config landmines. Config only -- no flow wiring, no job envelope.
+  the component config landmines. Config only -- no flow wiring, no job envelope.
 tools:
   - read/files
   - edit/files
@@ -87,6 +87,23 @@ derivations / validations the plan calls for, no file I/O, no dynamic `exec` / `
 surface the `python_code` verbatim so a human reviews it before the job runs. Where a curated
 vectorized node (`ConvertType`, `FilterRows`) or the vectorized `FilterColumns` does the same work,
 prefer it.
+
+## Materialized-CSV contract (both sides)
+
+The materialize_golden step writes every input CSV and the golden expected CSV as
+RFC-4180 double-quoted files. To read/write them faithfully you MUST set, on every
+FileInputDelimited that reads a materialized source AND every terminal
+FileOutputDelimited the oracle reads back:
+- `csv_option: true`
+- `text_enclosure: "\""`
+Without csv_option the engine reads with csv.QUOTE_NONE and writes unquoted, so any
+value containing the `;` separator (or a quote/newline) shifts columns and a correct
+job false-fails.
+
+Input filepath contract: author each FileInputDelimited `filepath` as exactly
+`"<source-name>.csv"` -- a bare relative path (no directory) that the harness anchors
+to the work-dir root, matching the file materialize_golden wrote there. `source-name`
+is the Sample-Input source name (== the Source value in Inputs and Schema).
 
 ## Knowledge and landmines
 
