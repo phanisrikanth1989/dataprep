@@ -279,6 +279,25 @@ def _check_conformance(sections, sources_schema, rules, sample_input, expected_o
     return ConformanceReport(ok=(not missing and not errors), missing_blocks=missing, parse_errors=errors)
 
 
+def _compute_tier(sections, sample_input, expected_output):
+    """Select the verification tier from which optional blocks are present+parseable.
+
+    Tier is presence-driven (never a parsed row count of the required blocks):
+      - ``verified``: Sample present+parseable AND >=1 expected output has >=1 data
+        row (a gradable oracle exists).
+      - ``smoke``: Sample present+parseable but no gradable expected output.
+      - ``build``: no parseable Sample (build the job.json only; Expected-without-
+        Sample also lands here -- an oracle with no input cannot be run).
+    """
+    has_sample = "Sample Input" in sections and bool(sample_input)
+    has_graded = any(len(rows) > 0 for rows in expected_output.values())
+    if has_sample and has_graded:
+        return "verified"
+    if has_sample:
+        return "smoke"
+    return "build"
+
+
 @dataclass
 class ExtractResult:
     """Structured result of parsing an ETL requirements ``.docx``.
@@ -398,6 +417,10 @@ def extract_doc(path: str, raise_on_error: bool = True) -> ExtractResult:
     prose = _read_section_prose(doc)
     notes = prose.get(NOTES_BLOCK, "")
     extra_sections = _collect_extra_sections(sections, prose)
+    tier = _compute_tier(sections, sample_input, expected_output)
+    if tier == "build" and expected_output and "Sample Input" not in sections:
+        logger.warning("[extract_doc] %s: Expected Output present without Sample Input; "
+                       "tier=build (an oracle with no input cannot be run)", file_path.name)
     logger.info(
         "[extract_doc] %s: %d sources, %d rules, %d outputs",
         file_path.name, len(sources_schema), len(rules), len(expected_output),
@@ -412,6 +435,7 @@ def extract_doc(path: str, raise_on_error: bool = True) -> ExtractResult:
         conformance=conformance,
         notes=notes,
         extra_sections=extra_sections,
+        tier=tier,
     )
 
 

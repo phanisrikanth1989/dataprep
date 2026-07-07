@@ -94,3 +94,49 @@ def test_extra_sections_excludes_recognized_blocks(tmp_path):
     result = extract_doc(str(path))
     # Notes / Special Handling is recognized (-> notes), never an extra section.
     assert result.extra_sections == {}
+
+
+import json as _json
+
+from agents.tools import extract_doc as _ed
+
+
+def _full_doc(path, with_sample=True, with_expected_rows=True):
+    doc = Document()
+    doc.add_heading("Inputs and Schema", level=1)
+    _table(doc, ["Source", "Column", "Type", "Nullable", "Key"], [["src", "id", "str", "false", "true"]])
+    doc.add_heading("Transformation Rules", level=1)
+    _table(doc, ["ID", "Kind", "Description"], [["R1", "sort", "order by id"]])
+    if with_sample:
+        doc.add_heading("Sample Input", level=1)
+        doc.add_heading("src", level=2)
+        _table(doc, ["id"], [["1"], ["2"]])
+    doc.add_heading("Expected Output", level=1)
+    doc.add_heading("out", level=2)
+    rows = [["1"], ["2"]] if with_expected_rows else []
+    _table(doc, ["id*"], rows)
+    doc.save(str(path))
+
+
+def test_tier_verified_when_sample_and_graded_expected(tmp_path):
+    p = tmp_path / "v.docx"; _full_doc(p, with_sample=True, with_expected_rows=True)
+    assert extract_doc(str(p)).tier == "verified"
+
+
+def test_tier_smoke_when_sample_only(tmp_path):
+    p = tmp_path / "s.docx"; _full_doc(p, with_sample=True, with_expected_rows=False)
+    r = extract_doc(str(p))
+    assert r.tier == "smoke"
+
+
+def test_tier_build_when_no_sample(tmp_path):
+    p = tmp_path / "b.docx"; _full_doc(p, with_sample=False, with_expected_rows=True)
+    assert extract_doc(str(p)).tier == "build"
+
+
+def test_cli_emits_tier(tmp_path):
+    p = tmp_path / "v.docx"; _full_doc(p, with_sample=True, with_expected_rows=True)
+    out = tmp_path / "e.json"
+    rc = _ed.main([str(p), "--out", str(out)])
+    assert rc == 0
+    assert _json.loads(out.read_text())["tier"] == "verified"
