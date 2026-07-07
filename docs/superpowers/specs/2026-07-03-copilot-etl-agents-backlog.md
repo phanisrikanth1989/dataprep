@@ -43,3 +43,21 @@ Until A1-A5 land, the agent system gates the phases that depend on them (esp. Ph
 - **Tolerance pattern must pin `LEFT_OUTER_JOIN`** — under `INNER_JOIN`, join-misses divert to the separate `inner_join_reject` channel that bypasses the active script, so `is_reject` would miss them (`map_component.py:146-157,237-238`).
 - **Golden coverage:** grow to one golden job **per shipped pattern** (Sec 11.3) as the library grows; run the model-capability preflight **N>=2**.
 - **Opaque model id:** if the Copilot boundary exposes only a coarse model id, fold the preflight probe's **output hash** into `model_id` so a silent model swap invalidates cache + triggers freshness.
+
+### B.1 General-ETL builder follow-ups (2026-07-07)
+
+- **LLM doc-normalizer for arbitrary (non-template) requirement docs.** `extract_doc` today is a
+  deterministic TEMPLATE parser: it fails **closed** (conformance gate rejects, exit 2) on any doc not
+  authored to the exact template -- real STTM spreadsheets, prose BRDs, screenshots of sample data, etc.
+  To ingest arbitrary existing docs, make the **schema + rules + notes** extraction LLM-driven, emitting
+  a **shape-conforming `extract_doc.json`** -- so EVERY downstream stage AND `materialize_golden` stay
+  unchanged (the contract is `extract_doc.json`; nothing cares how it was produced). **Hard constraint:**
+  the LLM must NOT author `sample_input` / `expected_output` -- those become the input CSVs and the test
+  oracle, and a paraphrased value (e.g. `"1,000.50"` -> `1000.5`) silently corrupts the grade with nothing
+  downstream to catch it. Keep the sample/expected DATA **exact** (verbatim copy from an attached CSV/real
+  table) **or human-verified**; the model may only *locate* it. Wrap the LLM in a thin **deterministic
+  validator** (well-formedness + `tier` + `conformance`), and recompute `derived_facts` deterministically
+  from the extracted rows (never LLM-invented uniqueness/null-rate). Accept the loss of run-to-run
+  reproducibility. NOT needed for the author-to-template workflow; only for "ingest existing docs".
+- **Harden `extract_doc.py`/other tool CLIs for missing parent dirs** -- DONE for `extract_doc --out`
+  (creates its parent); audit the other `--out`/write CLIs for the same first-write-into-fresh-dir failure.
