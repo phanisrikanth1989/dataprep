@@ -22,6 +22,8 @@ REQUIRED_BLOCKS = ("Inputs and Schema", "Transformation Rules")
 
 NOTES_BLOCK = "Notes / Special Handling"
 
+RECOGNIZED_BLOCKS = frozenset(REQUIRED_BLOCKS) | {"Sample Input", "Expected Output", NOTES_BLOCK}
+
 MAX_DOCX_BYTES = 25 * 1024 * 1024
 
 
@@ -226,6 +228,33 @@ def compute_derived_facts(sample_input: dict[str, list[dict]]) -> dict[str, dict
     return facts
 
 
+def _table_structural_facts(table, heading):
+    """Derive DATA-BLIND structural facts from one table -- column names, row count,
+    and per-column null-rate/uniqueness -- plus a review flag. No raw cell value is
+    kept: the same data-wall applied to sample/expected rows."""
+    header, records = _table_records(table)
+    facts = compute_derived_facts({"_": records}).get("_", {}) if records else {c: {} for c in header}
+    return {
+        "columns": header,
+        "row_count": len(records),
+        "facts": facts,
+        "flag": f"unrecognized table under '{heading}' - review",
+    }
+
+
+def _collect_extra_sections(sections, prose):
+    """Per UNRECOGNIZED H1: verbatim prose (intent) + only STRUCTURAL facts for any
+    table. Raw table cell values are never stored (same data-wall as sample/expected)."""
+    extra = {}
+    headings = set(sections) | set(prose)
+    for heading in headings:
+        if heading in RECOGNIZED_BLOCKS:
+            continue
+        tables = [_table_structural_facts(tbl, heading) for _subheading, tbl in sections.get(heading, [])]
+        extra[heading] = {"prose": prose.get(heading, ""), "tables": tables}
+    return extra
+
+
 def _check_conformance(sections, sources_schema, rules, sample_input, expected_output):
     """Gate the parsed doc: the two REQUIRED blocks must be present and non-empty;
     a PRESENT-but-unparseable optional Sample/Expected block is a hard-stop.
@@ -368,6 +397,7 @@ def extract_doc(path: str, raise_on_error: bool = True) -> ExtractResult:
     derived_facts = compute_derived_facts(sample_input)
     prose = _read_section_prose(doc)
     notes = prose.get(NOTES_BLOCK, "")
+    extra_sections = _collect_extra_sections(sections, prose)
     logger.info(
         "[extract_doc] %s: %d sources, %d rules, %d outputs",
         file_path.name, len(sources_schema), len(rules), len(expected_output),
@@ -381,6 +411,7 @@ def extract_doc(path: str, raise_on_error: bool = True) -> ExtractResult:
         derived_facts=derived_facts,
         conformance=conformance,
         notes=notes,
+        extra_sections=extra_sections,
     )
 
 

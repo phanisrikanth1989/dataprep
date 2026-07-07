@@ -60,3 +60,37 @@ def test_extract_doc_no_notes_is_empty_string(tmp_path):
     path = tmp_path / "d.docx"
     _min_doc(path, with_notes=False)
     assert extract_doc(str(path)).notes == ""
+
+
+def test_extra_sections_are_data_blind(tmp_path):
+    doc = Document()
+    doc.add_heading("Inputs and Schema", level=1)
+    _table(doc, ["Source", "Column", "Type", "Nullable", "Key"], [["src", "id", "str", "false", "true"]])
+    doc.add_heading("Transformation Rules", level=1)
+    _table(doc, ["ID", "Kind", "Description"], [["R1", "sort", "order by id"]])
+    doc.add_heading("Reference Codes", level=1)  # UNRECOGNIZED H1
+    doc.add_paragraph("Map region codes to names.")
+    _table(doc, ["code", "region"], [["EU", "Europe"], ["NA", "North America"]])
+    path = tmp_path / "d.docx"
+    doc.save(str(path))
+
+    result = extract_doc(str(path))
+    extra = result.extra_sections["Reference Codes"]
+    assert extra["prose"] == "Map region codes to names."
+    tbl = extra["tables"][0]
+    assert tbl["columns"] == ["code", "region"]
+    assert tbl["row_count"] == 2
+    assert "region" in tbl["facts"] and "code" in tbl["facts"]
+    assert "review" in tbl["flag"]
+    # DATA-WALL: no raw cell value ('EU'/'Europe'/'NA') leaks into extra_sections.
+    import json
+    blob = json.dumps(result.extra_sections)
+    assert "Europe" not in blob and "North America" not in blob and "EU" not in blob
+
+
+def test_extra_sections_excludes_recognized_blocks(tmp_path):
+    path = tmp_path / "d.docx"
+    _min_doc(path, with_notes=True)
+    result = extract_doc(str(path))
+    # Notes / Special Handling is recognized (-> notes), never an extra section.
+    assert result.extra_sections == {}
