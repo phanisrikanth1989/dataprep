@@ -1,4 +1,4 @@
-"""Render the plan-2 curated knowledge into the workspace-global dataprep-recon Agent Skill.
+"""Render the plan-2 curated knowledge into the workspace-global dataprep-etl Agent Skill.
 
 enum_ref pointers are resolved to concrete value lists so an agent reading the
 skill sees the real allowed values, not a Python import path.
@@ -70,11 +70,11 @@ _JOB_ENVELOPE_EXAMPLE_JSON = """{
   "components": [
     {"id": "in_source", "type": "FileInputDelimited", "subjob_id": "sj1",
      "schema": {"input": [], "output": [{"name": "cc", "type": "str"}]},
-     "config": {"filepath": "source.csv", "fieldseparator": ";", "header_rows": 1},
+     "config": {"filepath": "source.csv", "fieldseparator": ";", "header_rows": 1, "csv_option": true, "text_enclosure": "\\""},
      "inputs": [], "outputs": ["source_flow"]},
     {"id": "in_lookup", "type": "FileInputDelimited", "subjob_id": "sj1",
      "schema": {"input": [], "output": [{"name": "cc", "type": "str"}, {"name": "country_name", "type": "str"}]},
-     "config": {"filepath": "countries.csv", "fieldseparator": ";", "header_rows": 1},
+     "config": {"filepath": "countries.csv", "fieldseparator": ";", "header_rows": 1, "csv_option": true, "text_enclosure": "\\""},
      "inputs": [], "outputs": ["lookup_flow"]},
     {"id": "join1", "type": "Map", "subjob_id": "sj1",
      "schema": {"input": [{"name": "cc", "type": "str"}], "output": [{"name": "cc", "type": "str"}, {"name": "country_name", "type": "str"}]},
@@ -90,15 +90,15 @@ _JOB_ENVELOPE_EXAMPLE_JSON = """{
          {"name": "country_name", "expression": "{{java}}lookup_flow.country_name", "type": "str"}]}]
      },
      "inputs": ["source_flow", "lookup_flow"], "outputs": ["enriched_flow"]},
-    {"id": "out_enriched", "type": "FileOutputDelimited", "subjob_id": "sj1",
+    {"id": "enriched", "type": "FileOutputDelimited", "subjob_id": "sj1",
      "schema": {"input": [{"name": "cc", "type": "str"}, {"name": "country_name", "type": "str"}], "output": []},
-     "config": {"filepath": "enriched.csv", "fieldseparator": ";", "include_header": true, "file_exist_exception": false},
+     "config": {"filepath": "enriched.csv", "fieldseparator": ";", "include_header": true, "file_exist_exception": false, "csv_option": true, "text_enclosure": "\\""},
      "inputs": ["enriched_flow"], "outputs": []}
   ],
   "flows": [
     {"name": "source_flow", "type": "flow", "from": "in_source", "to": "join1"},
     {"name": "lookup_flow", "type": "flow", "from": "in_lookup", "to": "join1"},
-    {"name": "enriched_flow", "type": "flow", "from": "join1", "to": "out_enriched"}
+    {"name": "enriched_flow", "type": "flow", "from": "join1", "to": "enriched"}
   ],
   "java_config": {"enabled": true, "routines": [
     "routines.TalendDate", "routines.TalendString", "routines.StringHandling",
@@ -116,17 +116,21 @@ def render_job_envelope() -> str:
         "`{\"input\": [...], \"output\": [...]}` (NOT a flat list). Flows are "
         "`{\"name\": <flow>, \"type\": \"flow\", \"from\": <id>, \"to\": <id>}` and each "
         "component carries `inputs`/`outputs` lists referencing flow names. `type:\"main\"` "
-        "on a flow routes NOTHING; use `\"flow\"`. The default enrichment join is a "
+        "on a flow routes NOTHING; use `\"flow\"`. A common lookup-enrich join is a "
         "`LEFT_OUTER_JOIN` that KEEPS ALL source rows -- an unmatched source row still flows "
         "out, with null lookup columns. `inner_join_reject: true` on an output is AVAILABLE if a "
         "job must route unmatched source rows to a reject output (`is_reject` stays empty for a "
-        "join miss), but that is NOT the enrichment default.\n\n"
+        "join miss), but that is NOT the left-join default.\n\n"
+        "A terminal FileOutputDelimited's `id` MUST equal the output name it writes (the harness maps on "
+        "this), and every delimited FileInput/FileOutput that reads/writes a materialized CSV MUST set "
+        "`csv_option: true` (with `text_enclosure: \"\\\"\"`) so a value containing the `;` separator "
+        "round-trips instead of shifting columns.\n\n"
         "Any job containing a `Map`/`tMap` component REQUIRES a top-level "
         "`\"java_config\": {\"enabled\": true, ...}` block: the tMap engine always compiles a Java "
         "script and crashes without the bridge. tMap expressions carry a `{{java}}` marker (as below).\n"
     )
     example = (
-        "\nMinimal connected enrichment example (source + lookup -> LEFT-join tMap -> output; "
+        "\nMinimal connected lookup-enrich example (source + lookup -> LEFT-join tMap -> output; "
         "every flow `from`/`to` is a real component id, and every component's `inputs`/`outputs` "
         "names a real flow):\n\n"
         "```json\n"
@@ -138,18 +142,18 @@ def render_job_envelope() -> str:
 
 _SKILL_FRONTMATTER = (
     "---\n"
-    "name: dataprep-recon\n"
+    "name: dataprep-etl\n"
     "description: >-\n"
-    "  Code-verified knowledge for building the recon team's DataPrep ENRICHMENT ETL jobs: per-component\n"
-    "  config keys and allowed values, config landmines, the job.json envelope contract, and the tMap\n"
-    "  lookup-join enrichment pattern. Use when interpreting an enrichment requirement, designing the\n"
+    "  Code-verified knowledge for building DataPrep ETL jobs on the Python engine: per-component\n"
+    "  config keys and allowed values, config landmines, the job.json envelope contract, and the\n"
+    "  join/lookup and transform patterns. Use when interpreting an ETL requirement, designing the\n"
     "  flow, configuring components, or assembling/repairing a job.json.\n"
     "---\n"
 )
 
 
-def write_skill(root: str = ".github/skills/dataprep-recon") -> None:
-    """Write SKILL.md + the three resource files for the dataprep-recon skill."""
+def write_skill(root: str = ".github/skills/dataprep-etl") -> None:
+    """Write SKILL.md + the three resource files for the dataprep-etl skill."""
     root_path = Path(root)
     root_path.mkdir(parents=True, exist_ok=True)
     (root_path / "config-reference.md").write_text(render_config_reference(), encoding="utf-8")
@@ -157,9 +161,9 @@ def write_skill(root: str = ".github/skills/dataprep-recon") -> None:
     (root_path / "job-envelope.md").write_text(render_job_envelope(), encoding="utf-8")
     body = (
         _SKILL_FRONTMATTER
-        + "# DataPrep recon knowledge\n\n"
-        "recon = the recon TEAM; this tool does data ENRICHMENT/prep, not the reconciliation "
-        "(SmartStream TLM reconciles).\n\n"
+        + "# DataPrep ETL knowledge\n\n"
+        "Code-verified knowledge for building DataPrep ETL jobs (sources -> transformations -> outputs) "
+        "on the Python engine that replaces Talend.\n\n"
         "Load the resource that fits the task:\n\n"
         "- `config-reference.md` - every allowed component config key + its resolved allowed values.\n"
         "- `landmines.md` - config traps that silently produce wrong output; respect each.\n"
@@ -169,7 +173,7 @@ def write_skill(root: str = ".github/skills/dataprep-recon") -> None:
         "before claiming it is correct.\n"
     )
     (root_path / "SKILL.md").write_text(body, encoding="utf-8")
-    logger.info("[render_skills] wrote dataprep-recon skill to %s", root)
+    logger.info("[render_skills] wrote dataprep-etl skill to %s", root)
 
 
 if __name__ == "__main__":
