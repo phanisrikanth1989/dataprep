@@ -14,7 +14,7 @@ def _body(name):
 def test_doc_interpreter_consumes_notes_extra_sections_tier_and_tags():
     b = _body("doc-interpreter")
     assert "notes" in b and "extra_sections" in b and "tier" in b
-    assert "outputs" in b               # carries the output NAMES + keys (name/keys only, NOT graded)
+    assert "outputs" in b               # carries the output NAMES only (name; NOT keys, NOT graded)
     assert 'source: "note"' in b or "derived_from_note" in b
 
 

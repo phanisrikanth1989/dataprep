@@ -1,10 +1,13 @@
 import re
 from pathlib import Path
 
-# Biased framing: the old skill name, "enrichment" anywhere (case-insensitive), and a word-boundary
-# standalone "recon". The \b boundary EXCLUDES reconcile/reconciliation/reconstruct (a word char follows
-# "recon"); "dataprep-recon" is caught by the first alternative regardless.
-_BIAS = re.compile(r"dataprep-recon|enrichment|\brecon\b", re.IGNORECASE)
+# Biased framing (all case-insensitive): the old skill name `dataprep-recon`, "enrichment" anywhere,
+# "reconciliation" anywhere (a plain substring -- the \brecon\b boundary MISSES it because a word char
+# follows "recon"), "SmartStream", a standalone "TLM", and a word-boundary standalone "recon".
+# "dataprep-recon" is caught by the first alternative regardless of the \b on the last one.
+_BIAS = re.compile(
+    r"dataprep-recon|enrichment|reconciliation|smartstream|\bTLM\b|\brecon\b", re.IGNORECASE
+)
 
 
 def _scan():
@@ -30,6 +33,7 @@ def test_no_dataprep_recon_string_remains():
 
 
 def test_no_biased_framing_remains():
-    """Whole-plan invariant: NO `enrichment` / standalone `recon` / `dataprep-recon` under .github or
-    agents. Asserted empty in Final Verification (after Tasks 18-20 finish their owned-file scrubs)."""
-    assert _scan() == {}, "biased framing (enrichment/recon) must not remain"
+    """Whole-plan invariant: NO `enrichment` / `reconciliation` / standalone `recon` / `TLM` /
+    `SmartStream` / `dataprep-recon` under .github or agents. Asserted empty in Final Verification
+    (after Tasks 18-20 finish their owned-file scrubs)."""
+    assert _scan() == {}, "biased framing (enrichment/recon/reconciliation/TLM/SmartStream) must not remain"

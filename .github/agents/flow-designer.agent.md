@@ -82,8 +82,8 @@ so the simplest correct vectorized pipeline wins.
   produces WRONG output above 5GB: `AggregateRow` sums within each chunk (partial group totals),
   `SortRow` orders each chunk locally (globally unsorted), `UniqueRow` dedups only within a chunk
   (cross-chunk duplicates survive), and `python_dataframe`/`tPythonDataFrame` derives per chunk. The
-  oracle diff is order-insensitive and the golden data is <5GB, so this corruption SHIPS to TLM
-  undetected. `Map`/`tMap` and `PyMap` already force BATCH, and `Join`/`tJoin` takes a dict of
+  oracle diff is order-insensitive and the golden data is <5GB, so this corruption SHIPS to the
+  downstream consumer undetected. `Map`/`tMap` and `PyMap` already force BATCH, and `Join`/`tJoin` takes a dict of
   inputs so it never enters the streaming branch -- but the four stateful nodes above do NOT, so for
   each one note in its `purpose` that the configurator MUST pin `execution_mode: "batch"` on it.
   Below 5GB everything materializes in memory, so plan for materialized DataFrames.
@@ -150,8 +150,9 @@ node.
 `[FileInputDelimited source] + [FileInputDelimited lookup] -> [tJoin | PyMap | tMap] (join/enrich)
 -> [tPythonDataFrame] (one vectorized enrich/derive/validate node) -> [AggregateRow] -> [SortRow] ->
 [FileOutputDelimited]`. Aggregate BEFORE sort: `AggregateRow` (pandas groupby) regroups by its group
-key and discards any preceding row order, so place `SortRow` LAST to fix the TLM-facing output order
--- the oracle diff is order-insensitive, so a wrong final order slips past it and ships to TLM. Every
+key and discards any preceding row order, so place `SortRow` LAST to fix the downstream-facing output
+order -- the oracle diff is order-insensitive, so a wrong final order slips past it and ships to the
+downstream consumer. Every
 `AggregateRow`, `SortRow`, `UniqueRow`, and `tPythonDataFrame` in the shape is a whole-frame/stateful
 node that HYBRID corrupts on >5GB input (see the streaming caveat above), so note in each such node's
 `purpose` that the configurator must pin `execution_mode: "batch"` on it. Not every job has every

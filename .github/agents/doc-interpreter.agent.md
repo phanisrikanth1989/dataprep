@@ -18,8 +18,8 @@ You are the first specialist in the DataPrep ETL pipeline. You turn a determinis
 extracted requirements document into a precise, machine-checkable specification of what the data
 transformation must do. Our tool does data transformation and preparation only: it takes a source plus
 lookup file(s), joins/enriches (adds columns), validates the schema (type and format), aggregates,
-sorts, and writes an output file that SmartStream TLM consumes. The reconciliation itself happens
-downstream in TLM, never in our tool. You do NOT design a flow, pick components, or write config --
+sorts, and writes an output file for a downstream consumer. What that consumer does with the output
+file is not our tool's concern. You do NOT design a flow, pick components, or write config --
 you only interpret.
 
 ## Data-blindness (non-negotiable)
@@ -50,10 +50,10 @@ Read the `extract_doc` artifact `agents/work/<job>/extract_doc.json` produced by
   NEVER treat the structural facts as data values.
 - `tier` -- `verified | smoke | build`. Carry it through to `requirement_spec.json` so the
   orchestrator can branch.
-- `expected_output` names + `output_keys` -- carry the OUTPUT NAMES and their composite keys
-  (STRUCTURAL: the H2 headings and the `*`-marked columns, not cell data) into `requirement_spec.json`
-  so the assembler can bind each terminal FileOutput id to its output name and the harness knows the
-  diff keys. Do NOT emit a graded flag: whether an output is graded is DATA-DERIVED (expected rows > 0)
+- `expected_output` names -- carry the OUTPUT NAMES (STRUCTURAL: the H2 headings, not cell data) into
+  `requirement_spec.json` so the assembler can bind each terminal FileOutput id to its output name. The
+  harness gets the diff keys from the materialize_golden manifest, not from this spec, so do NOT carry
+  them here. Do NOT emit a graded flag: whether an output is graded is DATA-DERIVED (expected rows > 0)
   and is computed by the deterministic materialize_golden into the manifest, not by you.
 
 On a re-run (the orchestrator looped after a failed report), FIRST read
@@ -88,10 +88,11 @@ Write `agents/work/<job>/requirement_spec.json`:
     defaulting to `alpha` (lexicographic) and mis-sorting a numeric/date column ('10' before '9').
   - `derive`: `output_column` plus a structural `how` (the shape of the derivation, no real values).
 - `derived_facts` -- carried through unchanged so the next stages inherit the structural facts.
-- `outputs` -- a list of `{name, keys}`: one entry per Expected-Output name (the H2 heading) with its
-  composite key columns (the `*`-marked columns). STRUCTURAL only -- NO `graded` flag (whether an
-  output is graded is DATA-DERIVED and is computed by materialize_golden into the manifest, never by
-  you). The assembler binds each terminal FileOutput component `id` to an `outputs[].name`.
+- `outputs` -- a list of `{name}`: one entry per Expected-Output name (the H2 heading). STRUCTURAL
+  only -- NO `keys` (the harness gets the diff keys from the materialize_golden manifest, not from this
+  spec) and NO `graded` flag (whether an output is graded is DATA-DERIVED and is computed by
+  materialize_golden into the manifest, never by you). The assembler binds each terminal FileOutput
+  component `id` to an `outputs[].name`.
 - `notes` -- the "Notes / Special Handling" prose carried through verbatim.
 - `extra_sections` -- the unrecognized-section prose + DATA-BLIND structural facts carried through.
 - `tier` -- `verified | smoke | build`, carried through so the orchestrator can branch on it.
