@@ -51,9 +51,13 @@ truth; you do not re-explain it and you do not let a stage improvise around it.
 ## Step 0 - materialize (deterministic terminal commands)
 
 You are invoked with a `<docx path>` and a `<job>` name -- NOT a golden dir; you materialize the golden
-yourself. BEFORE the forward chain, run these two terminal commands yourself:
-1. `python -m agents.tools.extract_doc <docx path> --out agents/work/<job>/extract_doc.json`
-2. When a Sample Input is present, `python -m agents.tools.materialize_golden --extract-doc agents/work/<job>/extract_doc.json --work-dir agents/work/<job>`
+yourself. BEFORE the forward chain, run these terminal commands yourself, IN ORDER:
+1. Create the work dir FIRST: `mkdir -p agents/work/<job>`. Do this before ANY python command --
+   `extract_doc --out` does NOT create its parent directory, so skipping this makes the next command
+   fail with "No such file or directory". (Always ensure the target folder exists before running a
+   command that writes into it.)
+2. `python -m agents.tools.extract_doc <docx path> --out agents/work/<job>/extract_doc.json`
+3. When a Sample Input is present, `python -m agents.tools.materialize_golden --extract-doc agents/work/<job>/extract_doc.json --work-dir agents/work/<job>`
    -- this writes the input CSVs to the work-dir ROOT and `golden/{<out>_expected.csv, manifest.json}`.
 Read the emitted `tier` (verified | smoke | build); it drives the run step below.
 
