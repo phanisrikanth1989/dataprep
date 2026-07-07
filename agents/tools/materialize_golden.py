@@ -56,3 +56,27 @@ def materialize_inputs(extract: dict, work_dir) -> list[str]:
         written.append(fname)
     logger.info("[materialize_golden] wrote %d input CSV(s) to %s", len(written), root)
     return written
+
+
+def materialize_expected(extract: dict, work_dir) -> dict:
+    """Write the golden answer key under ``golden/`` and return the manifest dict.
+
+    Per expected output: ``graded`` is True iff it has >=1 data row (a declared-
+    empty header-only output is ``graded: false``). A graded output gets a
+    ``<name>_expected.csv``; an ungraded one gets no CSV (nothing to diff). The
+    manifest carries NO ``component`` key -- run_and_validate derives the id
+    deterministically from the FileOutput whose id == the output name."""
+    gdir = Path(work_dir) / "golden"
+    gdir.mkdir(parents=True, exist_ok=True)
+    expected = extract.get("expected_output", {})
+    output_keys = extract.get("output_keys", {})
+    outputs = {}
+    for name, rows in expected.items():
+        graded = len(rows) > 0
+        outputs[name] = {"keys": output_keys.get(name, []), "sep": _SEP, "graded": graded}
+        if graded:
+            _write_csv(gdir / f"{name}_expected.csv", list(rows[0].keys()), rows)
+    manifest = {"outputs": outputs}
+    (gdir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    logger.info("[materialize_golden] wrote manifest with %d output(s) to %s", len(outputs), gdir)
+    return manifest
