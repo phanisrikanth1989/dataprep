@@ -1,4 +1,4 @@
-"""Code-verified config landmines for the recon slice (from config-surfaces.md + spec)."""
+"""Code-verified config landmines for the ETL component set (from config-surfaces.md + spec)."""
 from __future__ import annotations
 
 _MAP_ALIASES = {"Map", "tMap"}
@@ -57,9 +57,9 @@ LANDMINES = [
      "code_anchor": "output_router.py:22-29",
      "guidance": "Wire rejects as flows with type 'reject', not as OnComponentError triggers."},
     {"id": "tjoin-needs-use-lookup-cols", "component": "Join",
-     "summary": "A tJoin/Join enrichment adds NO lookup columns to the output unless use_lookup_cols=True AND a lookup_cols list is supplied; by default only the main-input columns pass through.",
+     "summary": "A tJoin/Join adds NO lookup columns to the output unless use_lookup_cols=True AND a lookup_cols list is supplied; by default only the main-input columns pass through.",
      "code_anchor": "join.py:158-159 (use_lookup_cols default False, lookup_cols default []); join.py:231 (lookup columns kept only when both are truthy)",
-     "guidance": "To enrich with lookup columns via Join, set use_lookup_cols: true AND lookup_cols: [{output_column, lookup_column}, ...]; otherwise the join only filters/matches main rows. For column-adding enrichment prefer tMap/PyMap."},
+     "guidance": "To add lookup columns via Join, set use_lookup_cols: true AND lookup_cols: [{output_column, lookup_column}, ...]; otherwise the join only filters/matches main rows. For column-adding lookups prefer tMap/PyMap."},
 ]
 
 

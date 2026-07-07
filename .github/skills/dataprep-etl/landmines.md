@@ -26,5 +26,5 @@
   - guidance: Do not rely on `external` for large-input memory relief; there is none. Shrink the input upstream or expect full in-memory sort.
 - **reject-is-a-data-flow** (GLOBAL): Reject is a data flow (type 'reject'), not a trigger; it routes through flows[], not triggers[].
   - guidance: Wire rejects as flows with type 'reject', not as OnComponentError triggers.
-- **tjoin-needs-use-lookup-cols** (Join): A tJoin/Join enrichment adds NO lookup columns to the output unless use_lookup_cols=True AND a lookup_cols list is supplied; by default only the main-input columns pass through.
-  - guidance: To enrich with lookup columns via Join, set use_lookup_cols: true AND lookup_cols: [{output_column, lookup_column}, ...]; otherwise the join only filters/matches main rows. For column-adding enrichment prefer tMap/PyMap.
+- **tjoin-needs-use-lookup-cols** (Join): A tJoin/Join adds NO lookup columns to the output unless use_lookup_cols=True AND a lookup_cols list is supplied; by default only the main-input columns pass through.
+  - guidance: To add lookup columns via Join, set use_lookup_cols: true AND lookup_cols: [{output_column, lookup_column}, ...]; otherwise the join only filters/matches main rows. For column-adding lookups prefer tMap/PyMap.

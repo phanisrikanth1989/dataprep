@@ -1,4 +1,4 @@
-# Recon-slice component config surfaces (code-verified ground truth)
+# ETL component config surfaces (code-verified ground truth)
 
 *Generated 2026-07-03 by code investigation. Source: engine component source, `_validate_config`, module constants, dataclasses, and test fixtures. `ui_registry.json` was deliberately NOT used (it is incomplete/wrong for this).*
 
