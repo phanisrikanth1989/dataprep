@@ -2,7 +2,7 @@
 
 `sample_enrichment_requirements.docx` is a ready-to-run test document for the
 multi-agent enrichment system. It is authored in the exact format
-`extract_doc` requires (see `agents/templates/recon_requirements_template.md`)
+`extract_doc` requires (see `agents/templates/etl_requirements_template.md`)
 and passes the conformance gate.
 
 ## The scenario
