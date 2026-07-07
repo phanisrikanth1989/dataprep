@@ -28,3 +28,13 @@ def test_assembler_states_id_equals_output_name():
     assert "harness" in b or "run_and_validate" in b or "maps on" in b
     # F1: the assembler must READ the outputs list (names) from requirement_spec.json to bind ids.
     assert "requirement_spec.json" in b and "outputs" in b
+
+
+def test_orchestrator_has_step0_tier_branching_and_note_guard():
+    b = _body("etl-orchestrator")
+    assert "materialize_golden" in b
+    assert "verified" in b and "smoke" in b and "build" in b
+    assert "--smoke" in b
+    assert "extract_doc" in b
+    assert "notes" in b and "extra_sections" in b
+    assert "note" in b and ("repair" in b or "silently" in b)  # note-vs-oracle guard
