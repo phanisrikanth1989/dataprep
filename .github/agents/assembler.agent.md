@@ -96,7 +96,8 @@ Write `agents/work/<job>/job.json` = the draft PLUS the envelope. Follow
 
 ## Rules
 
-- Keep every `id`, `type`, and `config` byte-for-byte as the draft had them.
+- Keep every `id`, `type`, and `config` byte-for-byte as the draft had them -- EXCEPT rename each
+  terminal FileOutput `id` to its Expected-Output name per the OUTPUT-NAME CONTRACT above.
 - Make the graph connected and acyclic: every flow's `from`/`to` must reference a real component id,
   every referenced flow name must exist in `flows`, and no flow may dangle. Every input source and
   output sink must be reachable.

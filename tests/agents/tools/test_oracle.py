@@ -321,7 +321,12 @@ def test_cli_graded_false_output_is_run_not_diffed(tmp_path):
     report = tmp_path / "r.json"
     rc = main(["--job", str(job), "--golden-dir", str(gdir), "--out", str(report)])
     assert rc == 0  # graded:false 'extra' does NOT crash on its missing expected CSV
-    assert json.loads(report.read_text())["passed"] is True
+    rep = json.loads(report.read_text())
+    assert rep["passed"] is True
+    # graded == the 1 output actually diffed; total == both declared outputs (graded + ungraded).
+    # Pins run_and_validate's graded/total wiring so a swap of the two counters cannot survive.
+    assert rep["graded"] == 1
+    assert rep["total"] == 2
 
 
 def test_cli_verified_report_carries_graded_and_total(tmp_path):

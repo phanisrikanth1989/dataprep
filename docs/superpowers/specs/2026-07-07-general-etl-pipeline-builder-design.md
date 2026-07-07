@@ -202,6 +202,11 @@ never presented as correct. Required doc blocks: **`Inputs and Schema` + `Transf
   only, NOT frozen content.
 - **Frozen / out of scope:** engine (`src/`), converter (`src/converters/`), historical specs/plans
   (`docs/superpowers/` pre-2026-07-07), and the security LOGIC + tests per the 4.6 carve-out.
+  - **Load-bearing exception (engine):** one pre-existing FileOutputDelimited parity bug -- a
+    `csv_option` null value rendering non-empty -- was fixed (commit `69ea03d`,
+    `src/v1/engine/components/file/file_output_delimited.py`) despite the engine freeze, because every
+    graded output uses `csv_option: true`, so the diff path depends on it. This is the sole engine
+    carve-out; the rest of `src/` stays frozen.
 
 ## 7. Risks / notes
 
