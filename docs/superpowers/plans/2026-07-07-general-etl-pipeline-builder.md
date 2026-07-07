@@ -4,7 +4,7 @@
 
 **Goal:** De-bias the DataPrep Copilot agent system from "recon/enrichment" to general ETL, make doc extraction lossless (notes/extra-sections/tier, no LLM ever rewriting data), and close the input/output materialization gap with a deterministic `materialize_golden` tool plus a tier-aware run/grade path.
 
-**Architecture:** Two deterministic Python tools bracket the LLM chain. `extract_doc` v2 parses a requirements `.docx` losslessly (schema, rules, sample, expected, prose notes, unrecognized sections, and a computed tier) without letting any model touch the exact data. `materialize_golden` turns that extract into real input CSVs (at the work-dir root) and a golden answer key (`<out>_expected.csv` + `manifest.json` under `golden/`). `run_and_validate` runs the assembled `job.json` in-process, and either diffs graded outputs (`verified` tier) or emits a distinct smoke verdict (`smoke` tier). Seven `.agent.md` specialists (body-only reframe, model-agnostic frontmatter frozen) and a renamed `dataprep-etl` skill carry the neutral framing and two load-bearing naming contracts (FileInput `filepath == <source-name>.csv`; terminal FileOutput `id == output name`).
+**Architecture:** Two deterministic Python tools bracket the LLM chain. `extract_doc` v2 parses a requirements `.docx` losslessly (schema, rules, sample, expected, prose notes, unrecognized sections, and a computed tier) without letting any model touch the exact data. `materialize_golden` turns that extract into real input CSVs (at the work-dir root) and a golden answer key (`<out>_expected.csv` + `manifest.json` under `golden/`). `run_and_validate` runs the assembled `job.json` in-process, and either diffs graded outputs (`verified` tier) or emits a distinct smoke verdict (`smoke` tier). Seven `.agent.md` specialists (body reframe + `description` de-bias; `model:`-free, model-agnostic frontmatter otherwise unchanged) and a renamed `dataprep-etl` skill carry the neutral framing and two load-bearing naming contracts (FileInput `filepath == <source-name>.csv`; terminal FileOutput `id == output name`).
 
 **Tech Stack:** Python 3.12+, stdlib (`csv`, `json`, `argparse`, `dataclasses`, `pathlib`), `python-docx`, `pandas`, `pytest` (with `@pytest.mark.java` for live-bridge e2e). No new third-party dependency.
 
@@ -12,7 +12,17 @@
 
 - Python 3.12+; ASCII-only in all code, logs, and authored markdown (RHEL-clean) - no emojis/unicode.
 - No NEW third-party dependency: stdlib + `pandas`/`pyarrow`/`py4j`/`PyYAML`/`python-docx` already present.
-- Model-agnostic: NO `model:` key in any `.agent.md` (`validate_agents` enforces); agent frontmatter stays byte-identical - reframe is body-only.
+- Model-agnostic frontmatter: NO `model:` key in any `.agent.md`, and the `name` / `user-invocable` /
+  `disable-model-invocation` / `tools` / `agents` keys stay unchanged. `validate_agents.validate_agent`
+  (verified: it only bans a `model:` key + requires `name`/`description` present + type-checks the list/bool
+  keys) does NOT require a byte-identical `description` - so the frontmatter `description` MUST be de-biased
+  to neutral ETL wording (no `enrichment`, no `recon`). Frontmatter is otherwise unchanged; the body reframe
+  is separate.
+- No-biased-framing guard (broadened `test_no_recon_string.py`, Task 11): FAILS on `dataprep-recon`,
+  case-insensitive `enrichment`, OR a word-boundary standalone `recon` anywhere under `.github/` + `agents/`
+  (the `\brecon\b` boundary excludes `reconcile`/`reconciliation`/`reconstruct`). `docs/` is out of scope
+  (frozen history). On the two security files the LOGIC + tests stay frozen, but de-biasing their
+  comments/user-facing strings is permitted and required to clear the guard.
 - Canonical tier tokens `verified | smoke | build` used verbatim everywhere (no synonyms).
 - Determinism boundary: `extract_doc` + `materialize_golden` (and the exact data they emit) are deterministic; the LLM never authors or rewrites the oracle or the input data.
 - Security-file carve-out (HARD): on `surface_code_cells.py` and `run_and_validate.py`, de-bias touches user-facing STRINGS ONLY - the jail/egress/nested-job/code-surfacing LOGIC and its existing tests are FROZEN (byte-unchanged except strings). The `run_and_validate.main()` grade-path rewrite (spec 4.3) is a SEPARATE, intended logic change - it is NOT the frozen jail/egress/nested/surfacing logic and is kept distinct from the string-scrub.
@@ -26,9 +36,9 @@
 ## File Structure
 
 **Tools (create/modify)**
-- `agents/tools/extract_doc.py` (MODIFY) - v2 lossless: `notes`/`extra_sections`/`tier` fields, prose capture, data-blind extra-sections, `REQUIRED_BLOCKS` -> 2, presence-gated conformance.
+- `agents/tools/extract_doc.py` (MODIFY) - v2 lossless: `notes`/`extra_sections`/`tier` fields, prose capture, data-blind extra-sections, `REQUIRED_BLOCKS` -> 2, presence-gated conformance; de-bias the "recon requirements" framing in the module/dataclass/function docstrings + the argparse `--help` (lines 1, 227, 267, 365) to neutral "ETL requirements" (Task 2).
 - `agents/tools/materialize_golden.py` (CREATE) - deterministic input-CSV + golden answer-key writer; CLI emits tier.
-- `agents/tools/run_and_validate.py` (MODIFY) - grade-path rewrite (graded-driven output_map, id==name), `--smoke` mode + distinct verdict, string-only de-bias of the two frozen messages.
+- `agents/tools/run_and_validate.py` (MODIFY) - grade-path rewrite (graded-driven output_map, id==name; the verified report also carries `graded`/`total` counts), `--smoke` mode + distinct verdict, string/comment-only de-bias of the four frozen `enrichment` mentions (message strings at lines 555/562, comments at lines 55/82).
 - `agents/tools/render_skills.py` (MODIFY) - `dataprep-etl` frontmatter/body/prose, neutral `_JOB_ENVELOPE_EXAMPLE_JSON` with FileOutput `id == output name` + `csv_option: true` on delimited I/O.
 - `agents/tools/validate_agents.py` (UNCHANGED logic; referenced by the no-recon-string test only).
 
@@ -41,8 +51,8 @@
 - `agents/examples/gen_sample_etl_requirements.py` (CREATE) - deterministic python-docx generator for the example.
 - `agents/examples/README.md` (MODIFY) - neutral content + new template/docx names.
 
-**Agent files (body-only; frontmatter byte-identical)**
-- `.github/agents/{etl-orchestrator,doc-interpreter,flow-designer,configurator,assembler,test-runner,diagnostician}.agent.md` (MODIFY bodies).
+**Agent files (body reframe + `description` de-bias; other frontmatter keys unchanged, `model:`-free)**
+- `.github/agents/{etl-orchestrator,doc-interpreter,flow-designer,configurator,assembler,test-runner,diagnostician}.agent.md` (MODIFY bodies + `description`).
 
 **Skill (rename)**
 - `.github/skills/dataprep-recon/` -> `.github/skills/dataprep-etl/` (regenerated by `render_skills`).
@@ -59,7 +69,7 @@
 - `tests/agents/tools/test_golden_enrichment_e2e.py` (MODIFY) - `_output_map_and_keys` + output id.
 - `tests/agents/tools/test_smoke_mode.py` (CREATE).
 - `tests/agents/tools/test_render_skills.py` (MODIFY) - `dataprep-etl` dir + envelope id.
-- `tests/agents/tools/test_no_recon_string.py` (CREATE).
+- `tests/agents/tools/test_no_recon_string.py` (CREATE) - the broadened no-biased-framing guard (`dataprep-recon` + case-insensitive `enrichment` + word-boundary `recon`).
 - `tests/agents/tools/test_agent_contracts.py` (CREATE) - the body-contract doc assertions for phases 5.
 - `tests/agents/tools/test_platform_doc.py` (MODIFY) - materialize_golden + tiers.
 - `tests/agents/tools/test_etl_template.py` (CREATE).
@@ -313,6 +323,14 @@ In `extract_doc`, after `sections = _read_sections(doc)` (line 308), also read p
 ```
 
 Add `notes=notes,` to the successful `ExtractResult(...)` (the one at line 342), keeping `extra_sections`/`tier` at their defaults for now (later tasks populate them).
+
+De-bias the "recon requirements" framing in this file (part of the F7 no-biased-framing scrub; these are docstrings/CLI help, not logic):
+- line 1 module docstring `"""Deterministic extraction of a recon requirements .docx into structured data.` -> `"""Deterministic extraction of an ETL requirements .docx into structured data.`
+- line 227 `ExtractResult` docstring `"""Structured result of parsing a recon requirements ``.docx``.` -> `"""Structured result of parsing an ETL requirements ``.docx``.`
+- line 267 `extract_doc` docstring `"""Deterministically extract a recon requirements ``.docx`` into an ``ExtractResult``.` -> `"""Deterministically extract an ETL requirements ``.docx`` into an ``ExtractResult``.`
+- line 365 argparse `description="Extract a recon requirements .docx to JSON."` -> `description="Extract an ETL requirements .docx to JSON."`
+
+After this task no `recon`/`enrichment` string remains in `extract_doc.py`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -939,7 +957,7 @@ Claude-Session: https://claude.ai/code/session_01CFnbyyDzMRERGWf9XeVSqq"
 
 **Interfaces:**
 - Consumes: `_FILE_OUTPUT_TYPES`, `_NON_DELIMITED_OUTPUT_TYPES`, `run_job_capture`, `check` (existing, unchanged).
-- Produces: `_output_component_ids(job: dict) -> set[str]` (ids of every FileOutput-family writer). `main()` reads each manifest output's `graded`; for `graded: true` it sets `output_map[name] = name` after asserting a FileOutput component with `id == name` exists (else a clear error, exit 2, NOT a KeyError) and loads `<name>_expected.csv`; `graded: false` outputs are run but neither read nor diffed. The manifest no longer carries `component`.
+- Produces: `_output_component_ids(job: dict) -> set[str]` (ids of every FileOutput-family writer). `main()` reads each manifest output's `graded`; for `graded: true` it sets `output_map[name] = name` after asserting a FileOutput component with `id == name` exists (else a clear error, exit 2, NOT a KeyError) and loads `<name>_expected.csv`; `graded: false` outputs are run but neither read nor diffed. The manifest no longer carries `component`. The verified `report` is augmented with `graded` (count of graded outputs actually diffed) and `total` (count of declared outputs) so the orchestrator/PLATFORM gate label can read `verified (N/M outputs graded)` (F9).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1002,7 +1020,9 @@ def _output_map_and_keys():
     return output_map, keys
 ```
 
-and change both `rr.outputs["out_enriched"]` references (lines 84, 97 region) to `rr.outputs["enriched"]`.
+and change the SINGLE `rr.outputs["out_enriched"]` reference (the file has exactly one, at
+`test_golden_enrichment_e2e.py:84`) to `rr.outputs["enriched"]`. (Line 99's `bad["enriched"]` is the
+expected-frame dict, already keyed `enriched`, and needs no change.)
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -1041,7 +1061,27 @@ Replace the mapping loop inside `main()` (lines 759-766) with:
             keys[name] = spec.get("keys")
 ```
 
-(The rest of `main()` - the `run_job_capture(...)`, `output_types`, `check(...)`, `_emit`, and the `except (OSError, ValueError, KeyError, TypeError, AttributeError)` wrapper - is unchanged.)
+Then, right after `report = check(run_result, expected, output_map, keys, output_types=output_types)` and
+BEFORE `_emit(report)`, augment the verified report with the partial-grading counts (F9) - the producer
+for the `verified (N/M outputs graded)` gate label:
+
+```python
+        report["graded"] = len(expected)          # graded outputs actually diffed
+        report["total"] = len(outputs_spec)        # all declared outputs (graded + ungraded)
+```
+
+(The rest of `main()` - the `run_job_capture(...)`, `output_types`, `check(...)`, `_emit`, and the `except (OSError, ValueError, KeyError, TypeError, AttributeError)` wrapper - is otherwise unchanged.)
+
+Add a grade-path test to `tests/agents/tools/test_oracle.py` asserting the counts land in the report:
+
+```python
+def test_cli_verified_report_carries_graded_and_total(tmp_path):
+    argv, report_path = _write_cli_case(tmp_path, "cc;amt\nUS;10\nUK;20\n")
+    from agents.tools.run_and_validate import main
+    assert main(argv) == 0
+    rep = json.loads(report_path.read_text())
+    assert rep["graded"] == 1 and rep["total"] == 1
+```
 
 Migrate the fixture. In `tests/fixtures/recon/golden_enrichment/job.json`: rename the terminal FileOutput component `"id": "out_enriched"` -> `"id": "enriched"` and its inbound flow `{"name": "sort_out", "from": "sort", "to": "out_enriched"}` -> `"to": "enriched"`.
 
@@ -1115,6 +1155,14 @@ def test_smoke_verdict_not_clean_on_errored_component():
     assert v["ran_clean"] is False and "c" in v["dropped_or_errored_components"]
 
 
+def test_smoke_verdict_not_clean_on_engine_error_status():
+    # Engine status != success -> not clean even with no dropped/errored component.
+    rr = RunResult(status="error")
+    v = _smoke_verdict(rr)
+    assert v["ran_clean"] is False
+    assert v["status"] == "error" and "passed" not in v
+
+
 def test_cli_smoke_runs_job_and_emits_verdict(tmp_path):
     from agents.tools.run_and_validate import main
     src = tmp_path / "source.csv"; src.write_text("cc;amt\nUS;10\n")
@@ -1171,22 +1219,24 @@ def _smoke_verdict(run_result) -> dict:
     }
 ```
 
-Rewrite the `main()` argparse + dispatch. Replace the `parser.add_argument("--golden-dir", required=True, ...)` line and the body up to `run_result = run_job_capture(...)` so `--golden-dir` is optional, `--smoke` is added, and exactly one is required:
+This is an ADDITIVE edit to `main()`, NOT a rewrite. Task 8 already rewrote the verified-tier `try:` block
+(graded-driven `output_map`, id==name, `graded`/`total` counts); DO NOT re-replace that block or you clobber
+Task 8's grade path. The existing `_emit` helper (already defined at ~line 736) is reused as-is - do NOT
+redefine it. Make exactly three surgical changes to `main()`:
+
+1. Make `--golden-dir` optional and add `--smoke` (edit the one argparse line + insert one):
 
 ```python
-    parser.add_argument("--job", required=True, help="path to the job.json")
     parser.add_argument("--golden-dir", help="dir with <name>_expected.csv + manifest.json (verified tier)")
     parser.add_argument("--smoke", action="store_true", help="smoke tier: run the job, emit a verdict, no diff")
-    parser.add_argument("--out", help="write the report JSON here (default: stdout)")
-    args = parser.parse_args(argv)
+```
 
-    def _emit(payload: dict) -> None:
-        out_text = json.dumps(payload, indent=2, default=str)
-        if args.out:
-            Path(args.out).write_text(out_text, encoding="utf-8")
-        else:
-            sys.stdout.write(out_text + "\n")
+   (`--job` and `--out` argparse lines stay; the `parser` description string stays.)
 
+2. INSERT the mutual-exclusion guard + the `--smoke` branch AFTER the existing `_emit` definition and BEFORE
+   the existing verified `try:` block (the one Task 8 rewrote, at ~line 748). Nothing in the verified block moves:
+
+```python
     if bool(args.smoke) == bool(args.golden_dir):
         _emit({"error": "exactly one of --golden-dir (verified) or --smoke is required"})
         return 2
@@ -1204,13 +1254,18 @@ Rewrite the `main()` argparse + dispatch. Replace the `parser.add_argument("--go
         return 0 if verdict["ran_clean"] else 1
 ```
 
-The existing verified-tier body (the `try:` that loads the manifest and diffs) follows unchanged.
+3. Leave the verified `try:` block (manifest load, graded-driven output_map, `graded`/`total` augmentation,
+   `check(...)`, `_emit(report)`, `return 0 if report["passed"] else 1`) exactly as Task 8 left it - it is
+   the fall-through when `--golden-dir` was given instead of `--smoke`.
 
-String-only de-bias (the frozen `run_job_capture` messages): change the two occurrences of `"the enrichment harness"` to `"the ETL harness"`:
-- line 555: `f"in the enrichment harness; requires human review before execution"` -> `f"in the ETL harness; requires human review before execution"`.
-- line 563: `"harness (they bypass the safety nets); review/run the child job "` -> `"ETL harness (they bypass the safety nets); review/run the child job "` (i.e. change the preceding `"nested tRunJob child jobs are not permitted in the enrichment "` to `"...not permitted in the ETL "`).
+String/comment-only de-bias (the frozen security file; touches NO logic and NO test - clears the F7 guard).
+There are exactly FOUR `enrichment` mentions in `run_and_validate.py`; scrub all four:
+- line 555 (message string): `f"in the enrichment harness; requires human review before execution"` -> `f"in the ETL harness; requires human review before execution"`.
+- line 562 (message string): change `"nested tRunJob child jobs are not permitted in the enrichment "` to `"nested tRunJob child jobs are not permitted in the ETL "` (the continuation `"harness (they bypass the safety nets); review/run the child job "` is unchanged).
+- line 55 (comment): `# ... chosen so NO enrichment-` -> `# ... chosen so NO ETL-` (comment only).
+- line 82 (comment): `# every spelling. Each is chosen so no enrichment-safe writer name contains it.` -> `# every spelling. Each is chosen so no ETL-safe writer name contains it.` (comment only).
 
-NO other line of `run_job_capture` / the jail / egress / nested / swift LOGIC changes; the existing `test_run_capture.py` assertions (`"egress"`+`"not permitted"`, `"tRunJob"`+`"not permitted"`, `"inline transform_config required"`) all remain satisfied.
+NO other line of `run_job_capture` / the jail / egress / nested / swift LOGIC changes; the writer-type detection sets those comments annotate are byte-frozen; the existing `test_run_capture.py` assertions (`"egress"`+`"not permitted"`, `"tRunJob"`+`"not permitted"`, `"inline transform_config required"`) all remain satisfied. After this task no `enrichment`/`recon` string remains in `run_and_validate.py`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -1276,7 +1331,49 @@ Update the existing java e2e test in the same file to the new FileOutput id:
     enriched = rr.outputs["enriched"]
 ```
 
-(replace the two `rr.outputs["out_enriched"]` references).
+(replace the SINGLE `rr.outputs["out_enriched"]` reference - `test_render_skills.py:68` is the file's
+only occurrence).
+
+Add a bridge-free CSV round-trip test (F5 / spec Risk 7 - the load-bearing quoting proof that
+`csv_option: true` + `text_enclosure: "\""` makes a value containing the `;` separator survive the engine
+instead of column-shifting). This needs NO `@pytest.mark.java` - a `FileInputDelimited -> FileOutputDelimited`
+passthrough runs no Java expressions, so `run_job_capture` starts no bridge:
+
+```python
+def test_csv_option_round_trips_embedded_separator(tmp_path):
+    """A ';' inside a field must NOT shift columns when csv_option:true + text_enclosure are set on
+    BOTH the delimited input and output. Proves the materialize/configurator quoting contract end-to-end."""
+    from agents.tools.run_and_validate import run_job_capture
+    src = tmp_path / "source.csv"
+    # The 'note' value "a;b" contains the field separator -> must be quoted on read AND write.
+    src.write_text('id;note\nT1;"a;b"\n', encoding="utf-8")
+    out = tmp_path / "out.csv"
+    job = {
+        "job_name": "csvrt",
+        "flows": [{"name": "f1", "from": "in1", "to": "out1", "type": "flow"}],
+        "components": [
+            {"id": "in1", "type": "FileInputDelimited",
+             "config": {"filepath": str(src), "fieldseparator": ";", "header_rows": 1,
+                        "csv_option": True, "text_enclosure": "\"", "die_on_error": False},
+             "inputs": [], "outputs": ["f1"],
+             "schema": {"input": [], "output": [{"name": "id"}, {"name": "note"}]},
+             "subjob_id": "s1", "is_subjob_start": True},
+            {"id": "out1", "type": "FileOutputDelimited",
+             "config": {"filepath": str(out), "fieldseparator": ";", "include_header": True,
+                        "csv_option": True, "text_enclosure": "\"",
+                        "file_exist_exception": False, "create_directory": True},
+             "inputs": ["f1"], "outputs": [],
+             "schema": {"input": [{"name": "id"}, {"name": "note"}], "output": []},
+             "subjob_id": "s1", "is_subjob_start": False},
+        ],
+    }
+    rr = run_job_capture(job, tmp_path)
+    assert rr.status == "success", rr.error
+    df = rr.outputs["out1"]
+    # The value round-trips intact (NOT split into two columns) and the file re-quotes it.
+    assert df["note"].tolist() == ["a;b"]
+    assert '"a;b"' in out.read_text(encoding="utf-8")
+```
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -1387,50 +1484,92 @@ Claude-Session: https://claude.ai/code/session_01CFnbyyDzMRERGWf9XeVSqq"
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/agents/tools/test_no_recon_string.py`:
+Create `tests/agents/tools/test_no_recon_string.py` with BOTH the hard `dataprep-recon` gate (green at
+this task) and the broadened no-biased-framing gate (the whole-plan invariant, asserted empty at Final
+Verification):
 
 ```python
+import re
 from pathlib import Path
 
+# Biased framing: the old skill name, "enrichment" anywhere (case-insensitive), and a word-boundary
+# standalone "recon". The \b boundary EXCLUDES reconcile/reconciliation/reconstruct (a word char follows
+# "recon"); "dataprep-recon" is caught by the first alternative regardless.
+_BIAS = re.compile(r"dataprep-recon|enrichment|\brecon\b", re.IGNORECASE)
 
-def test_no_dataprep_recon_string_remains():
-    offenders = []
-    for base in (Path(".github"), Path("agents")):
+
+def _scan():
+    offenders = {}
+    for base in (Path(".github"), Path("agents")):   # docs/ is frozen history -> out of scope
         for f in base.rglob("*"):
             if not f.is_file() or f.suffix in (".pyc",) or "__pycache__" in f.parts:
                 continue
             try:
                 text = f.read_text(encoding="utf-8")
             except (UnicodeDecodeError, OSError):
-                continue  # skip binaries (e.g. the example .docx)
-            if "dataprep-recon" in text:
-                offenders.append(str(f))
+                continue  # skip binaries (e.g. a stale example .docx)
+            hits = sorted({m.group(0).lower() for m in _BIAS.finditer(text)})
+            if hits:
+                offenders[str(f)] = hits
+    return offenders
+
+
+def test_no_dataprep_recon_string_remains():
+    """Hard gate for THIS task: the mechanical skill rename left no `dataprep-recon` anywhere."""
+    offenders = [f for f, hits in _scan().items() if "dataprep-recon" in hits]
     assert offenders == [], f"dataprep-recon must not remain: {offenders}"
+
+
+def test_no_biased_framing_remains():
+    """Whole-plan invariant: NO `enrichment` / standalone `recon` / `dataprep-recon` under .github or
+    agents. Asserted empty in Final Verification (after Tasks 18-20 finish their owned-file scrubs)."""
+    assert _scan() == {}, "biased framing (enrichment/recon) must not remain"
 ```
+
+Sequencing (why the broadened test is the plan-end gate, not a per-task gate): the framing scrub spans
+Phases 1-6, and the generated skill (`.github/skills/dataprep-etl/landmines.md`) is DERIVED from
+`landmines.py` (`render_landmines` emits each landmine's `summary`/`guidance`), so the skill can only be
+clean once its source is. The owned-file scrubs are: extract_doc (Task 2), run_and_validate strings+comments
+(Task 9), render_skills.py source (Task 10), the agent-system bodies + PLATFORM (this task, below),
+landmines.py + config-surfaces.md THEN a skill re-render (Task 18), the template (Task 19), the examples
+README + regenerated docx (Task 20). Until those land, `test_no_biased_framing_remains` still lists the
+not-yet-scrubbed owned files; that is EXPECTED. Task 11's hard gate is `test_no_dataprep_recon_string_remains`
+(green here); the broadened test is asserted empty in the Final Verification step.
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/agents/tools/test_no_recon_string.py -v`
-Expected: FAIL - the 7 agent bodies and `agents/PLATFORM.md` still say `dataprep-recon`.
+Expected: FAIL - `test_no_dataprep_recon_string_remains` fails (the 7 agent bodies + `agents/PLATFORM.md` still say `dataprep-recon`); `test_no_biased_framing_remains` also fails (broader). Both close as their owned scrubs land.
 
 - [ ] **Step 3: Minimal implementation**
 
-Replace every literal `dataprep-recon` with `dataprep-etl` (skill-name reference only; no other prose change) in each file:
+(a) Replace every literal `dataprep-recon` with `dataprep-etl` (skill-name reference only) in each file:
 - `.github/agents/etl-orchestrator.agent.md`, `.github/agents/doc-interpreter.agent.md`, `.github/agents/flow-designer.agent.md`, `.github/agents/configurator.agent.md`, `.github/agents/assembler.agent.md`, `.github/agents/test-runner.agent.md`, `.github/agents/diagnostician.agent.md`
 - `agents/PLATFORM.md` (all `dataprep-recon` occurrences, incl. the tool-table `render_skills` row and the prerequisites; PLATFORM's deeper operational rewrite is Task 17).
+
+(b) Scrub the `enrichment` / standalone-`recon` FRAMING (the F7 broadened guard) in the files THIS task owns -
+the 7 agent-file BODIES and `agents/PLATFORM.md` - to neutral general-ETL wording, PRESERVING every engine
+fact. This includes framing words that sit inside otherwise-verbatim engine-fact paragraphs (e.g. the
+assembler's "the OPPOSITE of the enrichment contract (keep every source row...)" -> "the OPPOSITE of the
+left-join contract (keep every source row...)"; "the DataPrep enrichment pipeline (for the recon team)" ->
+"the DataPrep ETL pipeline"): reword ONLY the framing word, keep the fact. The Phase-5 tasks (12-16) then
+keep these neutralized paragraphs verbatim while ADDING their contracts, and must not re-introduce a biased
+word. (Files owned by later tasks - `landmines.py`/`config-surfaces.md` at Task 18, the template at Task 19,
+the examples README at Task 20 - are scrubbed there; `run_and_validate.py`/`extract_doc.py`/`render_skills.py`
+were already scrubbed in Tasks 9/2/10.)
 
 In `tests/agents/tools/test_validate_agents.py`, change the two synthetic uses of `"dataprep-recon"` (in `test_skill_name_must_match_dir` and `test_validate_tree_clean_and_flags_unknown_ref`) to `"dataprep-etl"` so the whole agent system is consistent.
 
 Command to find any remaining occurrence:
 
 ```bash
-grep -rn "dataprep-recon" .github agents | grep -v __pycache__
+grep -rnE "dataprep-recon|enrichment|\brecon\b" .github agents | grep -v __pycache__
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `python -m pytest tests/agents/tools/test_no_recon_string.py tests/agents/tools/test_validate_agents.py tests/agents/tools/test_orchestrator_agent.py tests/agents/tools/test_specialist_agents.py -v`
-Expected: PASS (no `dataprep-recon` remains; `validate_tree('.github/agents', '.github/skills') == []` still holds - the skill dir is now `dataprep-etl`).
+Run: `python -m pytest tests/agents/tools/test_no_recon_string.py::test_no_dataprep_recon_string_remains tests/agents/tools/test_validate_agents.py tests/agents/tools/test_orchestrator_agent.py tests/agents/tools/test_specialist_agents.py -v`
+Expected: PASS - `test_no_dataprep_recon_string_remains` is green (no `dataprep-recon` remains) and `validate_tree('.github/agents', '.github/skills') == []` still holds (the skill dir is now `dataprep-etl`). `test_no_biased_framing_remains` stays RED until Tasks 18-20 finish and is asserted green in Final Verification - do NOT treat that as a Task 11 regression.
 
 - [ ] **Step 5: Commit**
 
@@ -1444,19 +1583,25 @@ Claude-Session: https://claude.ai/code/session_01CFnbyyDzMRERGWf9XeVSqq"
 
 ---
 
-## PHASE 5 - Agent files reframe + contracts (body-only; frontmatter byte-identical)
+## PHASE 5 - Agent files reframe + contracts (body + `description`; other frontmatter keys unchanged, `model:`-free)
 
-All Phase-5 tasks edit `.agent.md` BODIES only; the YAML frontmatter (incl. its existing `description`) stays byte-identical (per the Global Constraints). The gate for each task is `validate_tree('.github/agents', '.github/skills') == []` plus the new body-contract assertions in `tests/agents/tools/test_agent_contracts.py`.
+All Phase-5 tasks edit `.agent.md` BODIES plus the frontmatter `description` ONLY. The `name` /
+`user-invocable` / `disable-model-invocation` / `tools` / `agents` frontmatter keys stay byte-identical and
+NO `model:` key is added; the `description` IS de-biased to neutral ETL wording (F6 - `validate_agents` does
+not freeze it, verified). The gate for each task is `validate_tree('.github/agents', '.github/skills') == []`
+plus the new body-contract assertions in `tests/agents/tools/test_agent_contracts.py`. Body VOCABULARY
+(`enrichment`/`recon` framing words) was already neutralized in Task 11; Phase-5 tasks ADD their contracts +
+de-bias the `description`, and must not re-introduce a biased word.
 
-### Task 12: doc-interpreter - consume notes/extra_sections/tier + plumb output names/keys/graded + tag note-rules
+### Task 12: doc-interpreter - consume notes/extra_sections/tier + plumb output names/keys (STRUCTURAL, no graded) + tag note-rules + de-bias description
 
 **Files:**
-- Modify: `.github/agents/doc-interpreter.agent.md` (body)
+- Modify: `.github/agents/doc-interpreter.agent.md` (body + frontmatter `description`)
 - Test: `tests/agents/tools/test_agent_contracts.py` (CREATE)
 
 **Interfaces:**
 - Consumes: nothing (doc assertions).
-- Produces: the doc-interpreter body references `notes`, `extra_sections`, `tier`, the per-output `graded` flag, and tags note-derived rules with `source: "note"`.
+- Produces: the doc-interpreter body references `notes`, `extra_sections`, `tier`, carries an `outputs` list of `{name, keys}` (STRUCTURAL - names/keys only; `graded` is data-derived and is NOT emitted here, see below), and tags note-derived rules with `source: "note"`. Its frontmatter `description` is de-biased to neutral ETL wording (F6).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1476,14 +1621,14 @@ def _body(name):
 def test_doc_interpreter_consumes_notes_extra_sections_tier_and_tags():
     b = _body("doc-interpreter")
     assert "notes" in b and "extra_sections" in b and "tier" in b
-    assert "graded" in b
+    assert "outputs" in b               # carries the output NAMES + keys (name/keys only, NOT graded)
     assert 'source: "note"' in b or "derived_from_note" in b
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/agents/tools/test_agent_contracts.py::test_doc_interpreter_consumes_notes_extra_sections_tier_and_tags -v`
-Expected: FAIL - the current body does not mention `notes`/`extra_sections`/`tier`/`graded`/note-tagging.
+Expected: FAIL - the current body does not mention `notes`/`extra_sections`/`tier`/`outputs`/note-tagging.
 
 - [ ] **Step 3: Minimal implementation**
 
@@ -1492,11 +1637,12 @@ Edit `.github/agents/doc-interpreter.agent.md` body:
   - `- notes -- verbatim BA prose from the "Notes / Special Handling" block. Fold each note into the rule/config it constrains; if you cannot confidently apply one, raise an ambiguity rather than drop it.`
   - `- extra_sections -- unrecognized-section prose + DATA-BLIND table structural facts (columns, row_count, per-column null-rate/uniqueness) and a review flag. Use the prose + flags as intent; NEVER treat the structural facts as data values.`
   - `- tier -- verified | smoke | build. Carry it through to requirement_spec.json so the orchestrator can branch.`
-  - `- expected_output names + output_keys + each output's graded flag -- carry the OUTPUT NAMES, their composite keys, and graded into requirement_spec.json so the assembler can bind each terminal FileOutput id to its output name and the harness knows which outputs to diff.`
-- In `## Output` for `requirement_spec.json`, add fields: `outputs` (list of `{name, keys, graded}`), `notes` (carried verbatim), `extra_sections` (carried), and `tier`.
+  - `- expected_output names + output_keys -- carry the OUTPUT NAMES and their composite keys (STRUCTURAL: the H2 headings and the *-marked columns, not cell data) into requirement_spec.json so the assembler can bind each terminal FileOutput id to its output name and the harness knows the diff keys. Do NOT emit a graded flag: whether an output is graded is DATA-DERIVED (expected rows > 0) and is computed by the deterministic materialize_golden into the manifest, not by you.`
+- In `## Output` for `requirement_spec.json`, add fields: `outputs` (list of `{name, keys}` -- STRUCTURAL, NO `graded`; graded lives in the manifest, computed by materialize_golden per F4), `notes` (carried verbatim), `extra_sections` (carried), and `tier`.
 - Add a subsection `## Note-derived rules are tagged`:
   `Any rule (or field) you derive from a note MUST carry source: "note" (or derived_from_note: true). This makes the note-vs-oracle guard enforceable: in the verified tier the diagnostician must never "repair" a failure by dropping a note-tagged rule to force green -- such a conflict routes to human. In smoke/build the note surfaces at the human gate.`
-- Neutralize the enrichment-specific framing in the intro paragraph (`## doc-interpreter`) to general ETL (sources -> transformations -> outputs), keeping the data-blindness rules intact.
+- The intro (`## doc-interpreter`) enrichment framing was already neutralized to general ETL (sources -> transformations -> outputs) by Task 11's body scrub; keep it neutral here (the data-blindness rules stay intact) while adding the fields above.
+- **Frontmatter description de-bias (F6):** edit the YAML `description` (allowed - `validate_agents` does not freeze it). Change `"Interpret an extracted enrichment requirement into a normalized requirement_spec.json ..."` to neutral ETL wording, e.g. `"Interpret an extracted ETL requirement into a normalized requirement_spec.json ..."`. No `enrichment`/`recon` may remain in the frontmatter.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -1518,7 +1664,7 @@ Claude-Session: https://claude.ai/code/session_01CFnbyyDzMRERGWf9XeVSqq"
 ### Task 13: configurator - csv_option/text_enclosure on materialized delimited I/O + FileInput filepath contract
 
 **Files:**
-- Modify: `.github/agents/configurator.agent.md` (body)
+- Modify: `.github/agents/configurator.agent.md` (body + frontmatter `description`)
 - Test: `tests/agents/tools/test_agent_contracts.py` (append)
 
 **Interfaces:**
@@ -1564,7 +1710,9 @@ to the work-dir root, matching the file materialize_golden wrote there. `source-
 is the Sample-Input source name (== the Source value in Inputs and Schema).
 ```
 
-Neutralize the intro/framing ("enrichment flow plan" -> "ETL flow plan", etc.) while keeping every landmine paragraph verbatim (they are engine facts).
+The intro/framing was already neutralized by Task 11's body scrub; keep every landmine paragraph verbatim as Task 11 left it (they are engine facts).
+
+**Frontmatter description de-bias (F6):** edit the YAML `description` - change `"... Respects the enrichment config landmines. ..."` to neutral wording, e.g. `"... Respects the component config landmines. ..."`. No `enrichment`/`recon` may remain in the frontmatter.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -1583,7 +1731,7 @@ Claude-Session: https://claude.ai/code/session_01CFnbyyDzMRERGWf9XeVSqq"
 
 ---
 
-### Task 14: assembler - FileOutput id == output name contract
+### Task 14: assembler - read requirement_spec.json outputs + FileOutput id == output name contract
 
 **Files:**
 - Modify: `.github/agents/assembler.agent.md` (body)
@@ -1601,6 +1749,8 @@ def test_assembler_states_id_equals_output_name():
     b = _body("assembler")
     assert "id" in b and "output name" in b
     assert "harness" in b or "run_and_validate" in b or "maps on" in b
+    # F1: the assembler must READ the outputs list (names) from requirement_spec.json to bind ids.
+    assert "requirement_spec.json" in b and "outputs" in b
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1610,7 +1760,18 @@ Expected: FAIL - the body does not state the id==output-name contract.
 
 - [ ] **Step 3: Minimal implementation**
 
-Edit `.github/agents/assembler.agent.md` body - add to the `## Output` bullet list:
+Edit `.github/agents/assembler.agent.md` body:
+
+(1) **Read the output names (F1).** In `## Input`, add a line so the assembler actually loads the names it
+must bind ids to (its current `## Input` reads only `job_draft.json`, `flow_plan.json`, and `feedback.json`):
+
+```
+Also read `agents/work/<job>/requirement_spec.json` (from doc-interpreter) for its `outputs` list --
+each entry's `name` is the Expected-Output name you MUST use as the terminal FileOutput component `id`
+(the OUTPUT-NAME CONTRACT below). This is structural naming only, never data.
+```
+
+(2) **State the contract.** Add to the `## Output` bullet list:
 
 ```
 - OUTPUT-NAME CONTRACT (load-bearing): set each terminal FileOutput component's `id`
@@ -1622,7 +1783,9 @@ Edit `.github/agents/assembler.agent.md` body - add to the `## Output` bullet li
   by the contract.
 ```
 
-Neutralize the intro/framing ("configured but unwired draft" stays; change enrichment-specific asides to neutral ETL). Keep the tJoin/tMap wiring paragraphs verbatim.
+The intro/framing ("configured but unwired draft" stays) was already neutralized by Task 11's body scrub; keep the tJoin/tMap wiring paragraphs verbatim as Task 11 left them.
+
+**Frontmatter description (F6):** the assembler `description` is already neutral (no `enrichment`/`recon`) - no edit needed; the broadened guard is already green for this file's frontmatter.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -1644,11 +1807,11 @@ Claude-Session: https://claude.ai/code/session_01CFnbyyDzMRERGWf9XeVSqq"
 ### Task 15: orchestrator - step-0 (extract -> materialize), tier branching, gate + note-vs-oracle
 
 **Files:**
-- Modify: `.github/agents/etl-orchestrator.agent.md` (body)
+- Modify: `.github/agents/etl-orchestrator.agent.md` (body + frontmatter `description`)
 - Test: `tests/agents/tools/test_agent_contracts.py` (append)
 
 **Interfaces:**
-- Produces: the orchestrator body has a step-0 (run `extract_doc` then `materialize_golden`), branches on the tier (`verified` -> `run_and_validate --golden-dir` + 3-iter repair; `smoke` -> `run_and_validate --smoke`, no loop; `build` -> skip run), presents notes/extra_sections + tier label at the gate, and states the note-vs-oracle no-silent-repair rule.
+- Produces: the orchestrator body has a step-0 (run `extract_doc` then `materialize_golden`); reconciles the invocation contract to `<docx path>` + `<job>` name (NO human `GOLDEN_DIR` - the harness materializes it); branches on the tier so the `passed`-driven repair loop (currently `etl-orchestrator.agent.md:82-99`) fires in the `verified` branch ONLY (`run_and_validate --golden-dir` + 3-iter repair, gate label `verified (N/M outputs graded)` from the report's `graded`/`total`); `smoke` = ONE `run_and_validate --smoke` run then straight to the gate (NO `passed`-loop); `build` = no run; presents notes/extra_sections + the per-tier gate label at the gate; states the note-vs-oracle no-silent-repair rule; and de-biases the frontmatter `description` (F6).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1673,13 +1836,18 @@ Expected: FAIL - the body has no step-0, no `materialize_golden`, no tier tokens
 - [ ] **Step 3: Minimal implementation**
 
 Edit `.github/agents/etl-orchestrator.agent.md` body:
+- **Reconcile the invocation contract (F3).** Edit the intro (`# etl-orchestrator`, current lines 22-30) that
+  says the human invokes with "a `<job>` name (the work-dir slug) and a `<GOLDEN_DIR>` (the golden expected
+  data)": REMOVE the `<GOLDEN_DIR>` - the human now provides a `<docx path>` + a `<job>` name, and the
+  harness MATERIALIZES the golden in step 0. The intro's biased framing was already scrubbed by Task 11;
+  only the invocation contract changes here.
 - Add a `## Step 0 - materialize (deterministic, before any subagent)` section:
 
 ```
 ## Step 0 - materialize (deterministic terminal commands)
 
-You are invoked with a `<docx path>` and a `<job>` name. BEFORE the forward chain,
-run these two terminal commands yourself:
+You are invoked with a `<docx path>` and a `<job>` name -- NOT a golden dir; you materialize the golden
+yourself. BEFORE the forward chain, run these two terminal commands yourself:
 1. `python -m agents.tools.extract_doc <docx path> --out agents/work/<job>/extract_doc.json`
 2. When a Sample Input is present, `python -m agents.tools.materialize_golden --extract-doc agents/work/<job>/extract_doc.json --work-dir agents/work/<job>`
    -- this writes the input CSVs to the work-dir ROOT and `golden/{<out>_expected.csv, manifest.json}`.
@@ -1692,15 +1860,24 @@ Read the emitted `tier` (verified | smoke | build); it drives the run step below
 6. Run step, by the tier from step 0:
    - verified: `#runSubagent test-runner` running
      `python -m agents.tools.run_and_validate --job agents/work/<job>/job.json --golden-dir agents/work/<job>/golden --out agents/work/<job>/test_report.json`,
-     then the 3-iteration diagnose -> re-run-owner repair loop keyed on `passed`.
+     then the 3-iteration diagnose -> re-run-owner repair loop keyed on `passed` (defined below). The
+     gate label reads `verified (N/M outputs graded)`, filling N/M from the report's `graded`/`total`.
    - smoke: `#runSubagent test-runner` running
      `python -m agents.tools.run_and_validate --job agents/work/<job>/job.json --smoke --out agents/work/<job>/test_report.json`.
-     There is NO `passed` and NO repair loop -- the verdict (ran_clean/status/produced_outputs/
-     dropped_or_errored_components) goes straight to the gate labelled "smoke: ran, not graded".
+     This is exactly ONE run: there is NO `passed`, NO diagnose step, and NO repair loop -- the verdict
+     (ran_clean/status/produced_outputs/dropped_or_errored_components) goes straight to the gate labelled
+     "smoke: ran, not graded".
    - build: skip the run entirely; go to the gate labelled "build-only: not executed".
 ```
 
-- In `## Safety net 3 - the human gate`, add bullets to present: the tier (token + label), captured `notes` (verbatim), and `extra_sections` (prose + flags).
+- **Gate the `passed`-loop to the verified tier ONLY (F3).** The existing "Then read the `passed` field ...
+  repeat the fail -> diagnose -> re-run-owner cycle at most 3 iterations" block (current lines 82-99) applies
+  to the VERIFIED tier ONLY. Prefix that block with "In the verified tier:" and state explicitly that the
+  smoke tier does NOT enter it (one `--smoke` run then gate) and the build tier never runs. `smoke`/`build`
+  reports have no `passed`, so the loop cannot and must not fire for them.
+- In `## Safety net 3 - the human gate`, add bullets to present: the tier (token + per-tier label -
+  `verified (N/M outputs graded)` / "smoke: ran, not graded" / "build-only: not executed"), captured
+  `notes` (verbatim), and `extra_sections` (prose + flags).
 - Add a `## Note-vs-oracle (never silently repair)` paragraph:
 
 ```
@@ -1711,6 +1888,8 @@ conflict to human. A green harness never silences a note.
 ```
 
 Keep the surface_code_cells pre-exec review (step 5) exactly as-is (all tiers, including smoke, before any run).
+
+**Frontmatter description de-bias (F6):** edit the YAML `description` - change `"... autonomously drives the six DataPrep enrichment specialists via #runSubagent ..."` to neutral ETL wording, e.g. `"... autonomously drives the six DataPrep ETL specialists via #runSubagent ..."`. No `enrichment`/`recon` may remain in the frontmatter.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -1729,20 +1908,24 @@ Claude-Session: https://claude.ai/code/session_01CFnbyyDzMRERGWf9XeVSqq"
 
 ---
 
-### Task 16: test-runner tier-aware + flow-designer/diagnostician neutral framing
+### Task 16: test-runner tier-aware + diagnostician note-vs-oracle guard + flow-designer/diagnostician neutral framing + descriptions
 
 **Files:**
-- Modify: `.github/agents/test-runner.agent.md`, `.github/agents/flow-designer.agent.md`, `.github/agents/diagnostician.agent.md` (bodies)
+- Modify: `.github/agents/test-runner.agent.md`, `.github/agents/flow-designer.agent.md`, `.github/agents/diagnostician.agent.md` (bodies; flow-designer frontmatter `description`; diagnostician `## Input` + owner-routing)
 - Test: `tests/agents/tools/test_agent_contracts.py` (append)
 
 **Interfaces:**
-- Produces: test-runner body documents both the `--golden-dir` (verified) and `--smoke` invocations; flow-designer and diagnostician bodies use neutral ETL framing (no "recon" / no "enrichment"-only role framing).
+- Produces: test-runner body documents both the `--golden-dir` (verified) and `--smoke` invocations; the diagnostician `## Input` reads `requirement_spec.json` for rule tags and its owner-routing routes a note-tagged conflict to `human` (F2); flow-designer and diagnostician bodies use neutral ETL framing; the three frontmatter `description`s are de-biased (F6 - flow-designer's `description` currently says "enrichment pipeline"; test-runner/diagnostician are already neutral).
 
 - [ ] **Step 1: Write the failing test**
 
 Append to `tests/agents/tools/test_agent_contracts.py`:
 
 ```python
+import re
+from agents.tools.validate_agents import parse_frontmatter
+
+
 def test_test_runner_is_tier_aware():
     b = _body("test-runner")
     assert "--smoke" in b and "--golden-dir" in b
@@ -1751,15 +1934,31 @@ def test_test_runner_is_tier_aware():
 def test_flow_designer_and_diagnostician_are_neutral():
     for name in ("flow-designer", "diagnostician"):
         b = _body(name)
-        assert "recon" not in b
+        assert "recon" not in b and "enrichment" not in b
         # role framing is general ETL, not enrichment-only
         assert "etl" in b or "sources -> transformations -> outputs" in b or "pipeline" in b
+
+
+def test_diagnostician_routes_note_conflicts_to_human():
+    b = _body("diagnostician")
+    # reads the tags + routes a note-tagged conflict to human (Spec 4.5 binds the guard here)
+    assert "requirement_spec.json" in b
+    assert 'source: "note"' in b or "note-tagged" in b or "note tag" in b
+    assert "human" in b
+
+
+def test_no_agent_description_is_biased():
+    # F6: validate_agents does NOT freeze the description; every agent description is neutral ETL.
+    bias = re.compile(r"enrichment|\brecon\b", re.IGNORECASE)
+    for f in Path(".github/agents").glob("*.agent.md"):
+        desc = str(parse_frontmatter(f.read_text(encoding="utf-8")).get("description", ""))
+        assert not bias.search(desc), f"{f.name} description still biased: {desc!r}"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `python -m pytest tests/agents/tools/test_agent_contracts.py -k "tier_aware or neutral" -v`
-Expected: FAIL - test-runner has no `--smoke`; flow-designer/diagnostician bodies still contain "recon" framing.
+Run: `python -m pytest tests/agents/tools/test_agent_contracts.py -k "tier_aware or neutral or note_conflicts or description_is_biased" -v`
+Expected: FAIL - test-runner has no `--smoke`; the diagnostician body does not read `requirement_spec.json` or route note-tagged conflicts to human; flow-designer's frontmatter `description` still says "enrichment pipeline".
 
 - [ ] **Step 3: Minimal implementation**
 
@@ -1779,7 +1978,21 @@ The smoke verdict has NO `passed` field (ran_clean / status / produced_outputs /
 dropped_or_errored_components). Relay it verbatim exactly as you relay the verified report.
 ```
 
-Edit `.github/agents/flow-designer.agent.md` and `.github/agents/diagnostician.agent.md` bodies - neutralize the intro role framing to general ETL (sources -> transformations -> outputs / pipeline), and remove the word "recon" from the body prose (the `dataprep-etl` skill references from Task 11 stay). Keep all engine-fact paragraphs (streaming caveat, cartesian safety, owner-routing table) verbatim.
+**Diagnostician note-vs-oracle guard (F2 - Spec 4.5 binds the guard to the diagnostician).** The
+diagnostician today reads ONLY `test_report.json`. Edit `.github/agents/diagnostician.agent.md`:
+- In `## Input`, add a line so it can see which rules are BA-note-derived (structural tags, not data):
+  `Also read agents/work/<job>/requirement_spec.json for its rule TAGS (source: "note" / derived_from_note). This is structural metadata, not data -- it does not break your data-blindness.`
+- In `## Owner routing`, add an entry ABOVE the catch-all `human` line:
+  `- A failure that can be resolved ONLY by dropping or overriding a rule tagged source: "note" (BA intent, not an oracle artifact) -> human. NEVER route such a note-vs-oracle conflict to configurator or doc-interpreter to force green -- a green harness must never silence a note.`
+
+Edit `.github/agents/flow-designer.agent.md` and `.github/agents/diagnostician.agent.md` bodies - the intro
+role framing + the word "recon"/"enrichment" in the body prose were already neutralized to general ETL by
+Task 11's body scrub; keep them neutral here (the `dataprep-etl` skill references stay). Keep all engine-fact
+paragraphs (streaming caveat, cartesian safety, owner-routing table) verbatim as Task 11 left them.
+
+**Frontmatter description de-bias (F6):**
+- `.github/agents/flow-designer.agent.md` `description`: change `"... a performance-optimized enrichment pipeline (lookup/join plus transforms) ..."` to neutral, e.g. `"... a performance-optimized ETL pipeline (lookup/join plus transforms) ..."`.
+- `.github/agents/test-runner.agent.md` and `.github/agents/diagnostician.agent.md` `description`s are already neutral (no `enrichment`/`recon`) - no edit needed. After this task, `test_no_agent_description_is_biased` is green for all 7 agents.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -1839,7 +2052,9 @@ Edit `agents/PLATFORM.md`:
 | materialize_golden | `python -m agents.tools.materialize_golden --extract-doc extract_doc.json --work-dir agents/work/<job>` | Deterministic: writes input CSVs to the work-dir root + `golden/{<out>_expected.csv, manifest.json}`; emits the tier. |
 ```
 
-- Add a short "Verification tiers" note listing `verified | smoke | build` and their gate labels.
+- Add a short "Verification tiers" note listing `verified | smoke | build` and their gate labels, using
+  the exact labels the orchestrator emits: `verified (N/M outputs graded)` (N/M come from the
+  run_and_validate report's `graded`/`total` counts, F9), `smoke: ran, not graded`, `build-only: not executed`.
 - Keep the CITI-VERIFICATION CHECKLIST and the safety-net sections (update only framing words, not the safety logic).
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -1866,32 +2081,41 @@ Claude-Session: https://claude.ai/code/session_01CFnbyyDzMRERGWf9XeVSqq"
 - Test: `tests/agents/tools/test_render_skills.py` (existing suite guards content unchanged)
 
 **Interfaces:**
-- Produces: neutral docstring/heading; the `LANDMINES` list content and `_validation_note` engine facts are byte-unchanged.
+- Produces: neutral docstring/heading; the tJoin landmine `summary`/`guidance` reworded to DROP the framing word "enrichment" while preserving the engine FACT (id + the "adds no lookup columns unless use_lookup_cols" fact unchanged); the rest of the `LANDMINES` list + `_validation_note` engine facts unchanged; and the derived skill re-rendered from the cleaned source.
 
 - [ ] **Step 1: Write the failing test**
 
-No new test - the guard is that the existing `test_landmines_rendered` and `test_config_reference_resolves_enum_refs_not_pointers` still pass (the landmine ids/summaries are unchanged), plus a one-shot grep. Reuse the no-recon-string test from Task 11 (it already scans `agents/`).
+No new test - the guard is that the existing `test_landmines_rendered` (checks landmine IDs, not the tJoin summary text) and `test_config_reference_resolves_enum_refs_not_pointers` still pass, plus the broadened `test_no_biased_framing_remains` from Task 11 (it scans `agents/` AND `.github/skills/`).
 
 - [ ] **Step 2: Run to see current state**
 
-Run: `grep -in "recon" agents/knowledge/landmines.py agents/schemas/config-surfaces.md`
-Expected: matches at `landmines.py:1` ("recon slice") and `config-surfaces.md:1` ("Recon-slice ...").
+Run: `grep -inE "recon|enrichment" agents/knowledge/landmines.py agents/schemas/config-surfaces.md`
+Expected: `landmines.py:1` ("recon slice"), `landmines.py:60` + `:62` ("enrichment" inside the tJoin landmine summary/guidance), and `config-surfaces.md:1` ("Recon-slice ...").
 
 - [ ] **Step 3: Minimal implementation**
 
-- `agents/knowledge/landmines.py` line 1: change `"""Code-verified config landmines for the recon slice (from config-surfaces.md + spec)."""` to `"""Code-verified config landmines for the ETL component set (from config-surfaces.md + spec)."""`. Change nothing else in the file (every landmine dict is an engine fact - frozen).
-- `agents/schemas/config-surfaces.md` line 1: change `# Recon-slice component config surfaces (code-verified ground truth)` to `# ETL component config surfaces (code-verified ground truth)`. Leave `map.json` `_validation_note` untouched (it is pure engine facts, no framing).
+- `agents/knowledge/landmines.py` line 1: change `"""Code-verified config landmines for the recon slice (from config-surfaces.md + spec)."""` to `"""Code-verified config landmines for the ETL component set (from config-surfaces.md + spec)."""`.
+- `agents/knowledge/landmines.py` lines 60/62 (the `tjoin-needs-use-lookup-cols` landmine) - reword to drop "enrichment"/"enrich" framing, engine FACT preserved (the `id` and the "adds no lookup columns" fact are untouched):
+  - `"summary"`: `"A tJoin/Join enrichment adds NO lookup columns to the output unless use_lookup_cols=True AND a lookup_cols list is supplied; by default only the main-input columns pass through."` -> `"A tJoin/Join adds NO lookup columns to the output unless use_lookup_cols=True AND a lookup_cols list is supplied; by default only the main-input columns pass through."`
+  - `"guidance"`: `"To enrich with lookup columns via Join, set use_lookup_cols: true AND lookup_cols: [{output_column, lookup_column}, ...]; otherwise the join only filters/matches main rows. For column-adding enrichment prefer tMap/PyMap."` -> `"To add lookup columns via Join, set use_lookup_cols: true AND lookup_cols: [{output_column, lookup_column}, ...]; otherwise the join only filters/matches main rows. For column-adding lookups prefer tMap/PyMap."`
+  - Every other landmine dict is byte-unchanged.
+- `agents/schemas/config-surfaces.md` line 1: change `# Recon-slice component config surfaces (code-verified ground truth)` to `# ETL component config surfaces (code-verified ground truth)`. Leave `map.json` `_validation_note` untouched (pure engine facts, no framing).
+- **Re-render the derived skill (dependency).** `render_landmines()` emits each landmine's `summary`/`guidance`, so the skill's `landmines.md` was baked from the OLD (enrichment) source when Task 10 regenerated it. Re-render now so the derived skill inherits the clean source:
+
+```bash
+python -m agents.tools.render_skills
+```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `python -m pytest tests/agents/tools/test_render_skills.py tests/agents/tools/test_check_schema_drift.py tests/agents/tools/test_no_recon_string.py -v`
-Expected: PASS (landmine rendering unchanged; drift clean; no `recon` framing remains).
+Expected: PASS (landmine IDs unchanged; drift clean; the re-rendered `.github/skills/dataprep-etl/landmines.md` no longer carries "enrichment"; `test_no_biased_framing_remains` now clean for `landmines.py`/`config-surfaces.md`/the skill).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add agents/knowledge/landmines.py agents/schemas/config-surfaces.md
-git commit -m "docs(knowledge): neutral framing for landmines + config-surfaces (engine facts frozen)
+git add agents/knowledge/landmines.py agents/schemas/config-surfaces.md .github/skills/dataprep-etl
+git commit -m "docs(knowledge): neutral framing for landmines + config-surfaces (engine facts preserved); re-render skill
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01CFnbyyDzMRERGWf9XeVSqq"
@@ -2120,20 +2344,33 @@ Claude-Session: https://claude.ai/code/session_01CFnbyyDzMRERGWf9XeVSqq"
 - [ ] Confirm the agent/skill gate:
   `python -c "from agents.tools.validate_agents import validate_tree; print(validate_tree('.github/agents','.github/skills'))"`
   Expected: `[]`.
-- [ ] Confirm no residual framing:
-  `grep -rn "dataprep-recon" .github agents | grep -v __pycache__` -> no output.
+- [ ] Confirm no residual biased framing (the F7 whole-plan gate, now that Tasks 18-20 have finished):
+  `python -m pytest tests/agents/tools/test_no_recon_string.py -v` -> BOTH `test_no_dataprep_recon_string_remains` AND `test_no_biased_framing_remains` PASS.
+  Cross-check: `grep -rnE "dataprep-recon|enrichment|\brecon\b" .github agents | grep -v __pycache__` -> no output (the example `.docx` is binary and skipped by the guard; it was regenerated neutral in Task 20).
 - [ ] Confirm the engine/converter coverage gate is untouched by this work (no `src/` change): run the Phase-14 gate command from CLAUDE.md if a full regression is desired; expected unchanged `PASS`.
 
 ---
 
 ## Self-review notes (spec coverage)
 
-- Spec 3 (tiers) -> Task 4 (`_compute_tier`), Task 8/9 (grade vs smoke), Task 15 (orchestrator branching), Task 19/20 (template + example).
-- Spec 4.1 (extract_doc v2) -> Tasks 1-4.
-- Spec 4.2 (materialize_golden) -> Tasks 5-7 (root inputs, golden/ expected+manifest, RFC-4180 quoting, no `component`, emits tier).
-- Spec 4.3 (run_and_validate grade path + smoke + string scrub) -> Tasks 8-9.
-- Spec 4.4 (output plumbing + assembler/input contracts + orchestrator step-0) -> Tasks 8, 12, 13, 14, 15.
-- Spec 4.5 (doc-interpreter consumes all intent + note tagging) -> Task 12.
-- Spec 4.6 (system-wide de-bias; security carve-out) -> Tasks 9 (string-only), 10-11 (skill), 12-16 (agents), 17-20 (platform/knowledge/template/examples).
+- Spec 3 (tiers) -> Task 4 (`_compute_tier`), Task 8/9 (grade vs smoke; Task 8 adds `graded`/`total`), Task 15 (orchestrator branching; `passed`-loop verified-only; `verified (N/M outputs graded)` label), Task 19/20 (template + example).
+- Spec 4.1 (extract_doc v2) -> Tasks 1-4 (+ Task 2 recon-framing scrub of docstrings/help).
+- Spec 4.2 (materialize_golden) -> Tasks 5-7 (root inputs, golden/ expected+manifest, RFC-4180 quoting, no `component`, `graded` computed here, emits tier).
+- Spec 4.3 (run_and_validate grade path + smoke + string scrub) -> Tasks 8-9 (Task 9 main() edits are ADDITIVE around Task 8's graded path; strings+comments scrubbed).
+- Spec 4.4 (output plumbing + assembler/input contracts + orchestrator step-0) -> Tasks 8, 12 (doc-interpreter carries `outputs`=`{name,keys}`), 13, 14 (assembler READS `requirement_spec.json` outputs), 15 (invocation contract docx+job).
+- Spec 4.5 (doc-interpreter consumes all intent + note tagging; note-vs-oracle guard) -> Task 12 (tag `source:"note"`), Task 15 (orchestrator guard), Task 16 (diagnostician owner-routes note conflicts to human).
+- Spec 4.6 (system-wide de-bias; security carve-out) -> Tasks 9 (string/comment-only), 10-11 (skill + broadened guard + agent-system vocabulary), 12-16 (agent bodies + `description` de-bias), 17-20 (platform/knowledge/template/examples), 18 (skill re-render from cleaned source).
 - Spec 6 (golden fixture migrates content) -> Task 8.
-- Spec 7 (two load-bearing contracts + CSV round-trip test) -> Task 6 (embedded-`;` round-trip), Task 8 (id==name clear error), Task 13/14 (agent contracts), Task 10 (envelope teaches both).
+- Spec 7 (two load-bearing contracts + CSV round-trip test) -> Task 6 (materialize embedded-`;` file round-trip), Task 10 (engine `csv_option` round-trip via `run_job_capture`, bridge-free), Task 8 (id==name clear error), Task 13/14 (agent contracts).
+
+## Adversarial-review fixes (F1-F9) -> tasks
+
+- **F1** output-name plumbing to the assembler -> Task 12 (doc-interpreter carries `outputs`=`{name,keys}`) + Task 14 (assembler `## Input` reads `requirement_spec.json` outputs; contract-test asserts it).
+- **F2** note-vs-oracle guard in the diagnostician -> Task 16 (diagnostician reads `requirement_spec.json` tags; owner-routing sends note conflicts to `human`; test asserts it).
+- **F3** orchestrator tier reconciliation -> Task 15 (`passed`-loop verified-only; smoke = one `--smoke` run then gate; build = no run; docx+job invocation, no `GOLDEN_DIR`; per-tier labels).
+- **F4** `graded` has no data-blind source -> Task 6 (computes `graded` into manifest) + Task 8 (reads it) + Task 12 (doc-interpreter carries only `name`+`keys`, never `graded`).
+- **F5** csv_option round-trip test -> Task 10 (bridge-free `FileInputDelimited -> FileOutputDelimited` passthrough, embedded `;` round-trips).
+- **F6** frontmatter `description` de-bias -> Global Constraints + Phase-5 preamble relaxed; Tasks 12/13/15/16 edit the four biased descriptions (orchestrator/doc-interpreter/configurator/flow-designer); assembler/test-runner/diagnostician already neutral; Task 16 adds `test_no_agent_description_is_biased`.
+- **F7** de-bias completeness -> Task 2 (extract_doc scrub) + Task 11 (broadened `test_no_biased_framing_remains`, agent-system vocabulary) + Task 9 (run_and_validate comments 55/82) + Task 18 (landmines 60/62 + skill re-render); enforced at Final Verification.
+- **F8** wording + sequencing -> Task 8 (single `rr.outputs["out_enriched"]` ref) + Task 10 (single ref) + Task 9 (additive main(); `_smoke_verdict(status="error")` test).
+- **F9** partial-grading gate label -> Task 8 (report `graded`/`total`) + Task 15 (`verified (N/M outputs graded)`) + Task 17 (PLATFORM label).
