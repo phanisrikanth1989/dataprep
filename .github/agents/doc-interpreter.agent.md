@@ -1,7 +1,7 @@
 ---
 name: doc-interpreter
 description: >-
-  Interpret an extracted enrichment requirement into a normalized requirement_spec.json (schema
+  Interpret an extracted ETL requirement into a normalized requirement_spec.json (schema
   plus typed rules) and flag ambiguity for the human. Data-blind: reasons only from the schema, the
   rules, and the derived structural facts -- never from real sample or expected data values.
 tools:
@@ -43,6 +43,18 @@ Read the `extract_doc` artifact `agents/work/<job>/extract_doc.json` produced by
 - `output_keys` -- output name -> composite key columns (empty means bag/multiset comparison).
 - `conformance` -- the parse gate report. If `conformance.ok` is false, stop and surface the
   `missing_blocks` / `parse_errors` to the human instead of guessing.
+- `notes` -- verbatim BA prose from the "Notes / Special Handling" block. Fold each note into the
+  rule/config it constrains; if you cannot confidently apply one, raise an ambiguity rather than drop it.
+- `extra_sections` -- unrecognized-section prose + DATA-BLIND table structural facts (columns,
+  row_count, per-column null-rate/uniqueness) and a review flag. Use the prose + flags as intent;
+  NEVER treat the structural facts as data values.
+- `tier` -- `verified | smoke | build`. Carry it through to `requirement_spec.json` so the
+  orchestrator can branch.
+- `expected_output` names + `output_keys` -- carry the OUTPUT NAMES and their composite keys
+  (STRUCTURAL: the H2 headings and the `*`-marked columns, not cell data) into `requirement_spec.json`
+  so the assembler can bind each terminal FileOutput id to its output name and the harness knows the
+  diff keys. Do NOT emit a graded flag: whether an output is graded is DATA-DERIVED (expected rows > 0)
+  and is computed by the deterministic materialize_golden into the manifest, not by you.
 
 On a re-run (the orchestrator looped after a failed report), FIRST read
 `agents/work/<job>/feedback.json` if it exists. If its `owner` names THIS stage (`doc-interpreter`),
@@ -76,6 +88,13 @@ Write `agents/work/<job>/requirement_spec.json`:
     defaulting to `alpha` (lexicographic) and mis-sorting a numeric/date column ('10' before '9').
   - `derive`: `output_column` plus a structural `how` (the shape of the derivation, no real values).
 - `derived_facts` -- carried through unchanged so the next stages inherit the structural facts.
+- `outputs` -- a list of `{name, keys}`: one entry per Expected-Output name (the H2 heading) with its
+  composite key columns (the `*`-marked columns). STRUCTURAL only -- NO `graded` flag (whether an
+  output is graded is DATA-DERIVED and is computed by materialize_golden into the manifest, never by
+  you). The assembler binds each terminal FileOutput component `id` to an `outputs[].name`.
+- `notes` -- the "Notes / Special Handling" prose carried through verbatim.
+- `extra_sections` -- the unrecognized-section prose + DATA-BLIND structural facts carried through.
+- `tier` -- `verified | smoke | build`, carried through so the orchestrator can branch on it.
 - `ambiguities` -- see below.
 
 ## Auto-flag requirement ambiguity for the human
@@ -91,6 +110,13 @@ You resolve what you safely can and you FLAG what you cannot. Add an entry to `a
 - an `aggregate` or `sort` that references a column not present in the schema;
 - any key column a rule relies on that is duplicate-prone (`max_group_size > 1`).
 Never silently pick a default for these -- surface them so the human decides.
+
+## Note-derived rules are tagged
+
+Any rule (or field) you derive from a note MUST carry `source: "note"` (or `derived_from_note: true`).
+This makes the note-vs-oracle guard enforceable: in the verified tier the diagnostician must never
+"repair" a failure by dropping a note-tagged rule to force green -- such a conflict routes to human.
+In smoke/build the note surfaces at the human gate.
 
 ## Knowledge
 
