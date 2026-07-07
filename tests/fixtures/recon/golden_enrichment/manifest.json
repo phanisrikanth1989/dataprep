@@ -1,0 +1,5 @@
+{
+  "outputs": {
+    "enriched": {"keys": ["cc"], "sep": ";", "graded": true}
+  }
+}

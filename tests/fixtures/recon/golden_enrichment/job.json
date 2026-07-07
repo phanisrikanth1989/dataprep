@@ -1,0 +1,229 @@
+{
+  "job_name": "golden_enrichment",
+  "job_type": "Standard",
+  "default_context": "Default",
+  "context": {
+    "Default": {}
+  },
+  "components": [
+    {
+      "id": "in_source",
+      "type": "FileInputDelimited",
+      "original_type": "tFileInputDelimited",
+      "config": {
+        "filepath": "source.csv",
+        "fieldseparator": ";",
+        "row_separator": "\\n",
+        "header_rows": 1,
+        "footer_rows": 0,
+        "encoding": "UTF-8",
+        "remove_empty_row": true,
+        "die_on_error": false,
+        "csv_option": false
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {"name": "cc", "type": "str", "nullable": true, "key": false, "length": 5},
+          {"name": "amt", "type": "str", "nullable": true, "key": false, "length": 20}
+        ]
+      },
+      "inputs": [],
+      "outputs": ["row1"],
+      "subjob_id": "subjob_1",
+      "is_subjob_start": true
+    },
+    {
+      "id": "in_lookup",
+      "type": "FileInputDelimited",
+      "original_type": "tFileInputDelimited",
+      "config": {
+        "filepath": "lookup.csv",
+        "fieldseparator": ";",
+        "row_separator": "\\n",
+        "header_rows": 1,
+        "footer_rows": 0,
+        "encoding": "UTF-8",
+        "remove_empty_row": true,
+        "die_on_error": false,
+        "csv_option": false
+      },
+      "schema": {
+        "input": [],
+        "output": [
+          {"name": "cc", "type": "str", "nullable": true, "key": false, "length": 5},
+          {"name": "name", "type": "str", "nullable": true, "key": false, "length": 50}
+        ]
+      },
+      "inputs": [],
+      "outputs": ["row2"],
+      "subjob_id": "subjob_1",
+      "is_subjob_start": false
+    },
+    {
+      "id": "tmap",
+      "type": "Map",
+      "original_type": "tMap",
+      "config": {
+        "inputs": {
+          "main": {
+            "name": "row1",
+            "filter": "",
+            "activate_filter": false,
+            "matching_mode": "UNIQUE_MATCH",
+            "lookup_mode": "LOAD_ONCE"
+          },
+          "lookups": [
+            {
+              "name": "row2",
+              "matching_mode": "UNIQUE_MATCH",
+              "lookup_mode": "LOAD_ONCE",
+              "filter": "",
+              "activate_filter": false,
+              "join_keys": [
+                {
+                  "lookup_column": "cc",
+                  "expression": "{{java}}row1.cc",
+                  "type": "str",
+                  "nullable": true,
+                  "operator": "="
+                }
+              ],
+              "join_mode": "LEFT_OUTER_JOIN"
+            }
+          ]
+        },
+        "variables": [],
+        "outputs": [
+          {
+            "name": "enriched",
+            "is_reject": false,
+            "inner_join_reject": false,
+            "filter": "",
+            "activate_filter": false,
+            "columns": [
+              {"name": "cc", "expression": "{{java}}row1.cc", "type": "str", "nullable": true, "length": -1, "precision": -1, "pattern": ""},
+              {"name": "amt", "expression": "{{java}}row1.amt", "type": "str", "nullable": true, "length": -1, "precision": -1, "pattern": ""},
+              {"name": "name", "expression": "{{java}}row2.name", "type": "str", "nullable": true, "length": -1, "precision": -1, "pattern": ""}
+            ]
+          }
+        ],
+        "die_on_error": true,
+        "enable_auto_convert_type": false,
+        "label": ""
+      },
+      "schema": {},
+      "inputs": ["row1", "row2"],
+      "outputs": ["enriched"],
+      "subjob_id": "subjob_1",
+      "is_subjob_start": false
+    },
+    {
+      "id": "conv",
+      "type": "ConvertType",
+      "original_type": "tConvertType",
+      "config": {
+        "autocast": false,
+        "manualtable": [
+          {"input_column": "amt", "output_column": "amt"}
+        ],
+        "emptytonull": false,
+        "dieonerror": false
+      },
+      "schema": {
+        "input": [
+          {"name": "cc", "type": "str", "nullable": true, "key": false, "length": 5},
+          {"name": "amt", "type": "str", "nullable": true, "key": false, "length": 20},
+          {"name": "name", "type": "str", "nullable": true, "key": false, "length": 50}
+        ],
+        "output": [
+          {"name": "cc", "type": "str", "nullable": true, "key": false, "length": 5},
+          {"name": "amt", "type": "str", "nullable": true, "key": false, "length": 20},
+          {"name": "name", "type": "str", "nullable": true, "key": false, "length": 50}
+        ]
+      },
+      "inputs": ["enriched"],
+      "outputs": ["conv_out"],
+      "subjob_id": "subjob_1",
+      "is_subjob_start": false
+    },
+    {
+      "id": "sort",
+      "type": "SortRow",
+      "original_type": "tSortRow",
+      "config": {
+        "criteria": [
+          {"column": "cc", "sort_type": "alpha", "order": "asc"}
+        ],
+        "external": false
+      },
+      "schema": {
+        "input": [
+          {"name": "cc", "type": "str", "nullable": true, "key": false, "length": 5},
+          {"name": "amt", "type": "str", "nullable": true, "key": false, "length": 20},
+          {"name": "name", "type": "str", "nullable": true, "key": false, "length": 50}
+        ],
+        "output": [
+          {"name": "cc", "type": "str", "nullable": true, "key": false, "length": 5},
+          {"name": "amt", "type": "str", "nullable": true, "key": false, "length": 20},
+          {"name": "name", "type": "str", "nullable": true, "key": false, "length": 50}
+        ]
+      },
+      "inputs": ["conv_out"],
+      "outputs": ["sort_out"],
+      "subjob_id": "subjob_1",
+      "is_subjob_start": false
+    },
+    {
+      "id": "enriched",
+      "type": "FileOutputDelimited",
+      "original_type": "tFileOutputDelimited",
+      "config": {
+        "filepath": "enriched.csv",
+        "fieldseparator": ";",
+        "row_separator": "\\n",
+        "encoding": "UTF-8",
+        "include_header": true,
+        "append": false,
+        "csv_option": false,
+        "create_directory": true,
+        "file_exist_exception": false
+      },
+      "schema": {
+        "input": [
+          {"name": "cc", "type": "str", "nullable": true, "key": false, "length": 5},
+          {"name": "amt", "type": "str", "nullable": true, "key": false, "length": 20},
+          {"name": "name", "type": "str", "nullable": true, "key": false, "length": 50}
+        ],
+        "output": []
+      },
+      "inputs": ["sort_out"],
+      "outputs": [],
+      "subjob_id": "subjob_1",
+      "is_subjob_start": false
+    }
+  ],
+  "flows": [
+    {"name": "row1", "from": "in_source", "to": "tmap", "type": "flow"},
+    {"name": "row2", "from": "in_lookup", "to": "tmap", "type": "flow"},
+    {"name": "enriched", "from": "tmap", "to": "conv", "type": "flow"},
+    {"name": "conv_out", "from": "conv", "to": "sort", "type": "flow"},
+    {"name": "sort_out", "from": "sort", "to": "enriched", "type": "flow"}
+  ],
+  "triggers": [],
+  "java_config": {
+    "enabled": true,
+    "routines": [
+      "routines.DataOperation",
+      "routines.Mathematical",
+      "routines.Numeric",
+      "routines.Relational",
+      "routines.StringHandling",
+      "routines.TalendDataGenerator",
+      "routines.TalendDate",
+      "routines.TalendStringUtil",
+      "routines.TalendString"
+    ],
+    "libraries": []
+  }
+}

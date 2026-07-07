@@ -1,0 +1,22 @@
+{
+  "FilterRows": "filter_rows.json",
+  "FilterRow": "filter_rows.json",
+  "tFilterRow": "filter_rows.json",
+  "tFilterRows": "filter_rows.json",
+  "FileInputDelimited": "file_input_delimited.json",
+  "tFileInputDelimited": "file_input_delimited.json",
+  "FileOutputDelimited": "file_output_delimited.json",
+  "tFileOutputDelimited": "file_output_delimited.json",
+  "AggregateRow": "aggregate_row.json",
+  "tAggregateRow": "aggregate_row.json",
+  "Map": "map.json",
+  "tMap": "map.json",
+  "SortRow": "sort_row.json",
+  "tSortRow": "sort_row.json",
+  "UniqueRow": "unique_row.json",
+  "tUniqRow": "unique_row.json",
+  "tUniqueRow": "unique_row.json",
+  "tUnqRow": "unique_row.json",
+  "ConvertType": "convert_type.json",
+  "tConvertType": "convert_type.json"
+}
