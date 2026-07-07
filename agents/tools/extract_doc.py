@@ -1,4 +1,4 @@
-"""Deterministic extraction of a recon requirements .docx into structured data.
+"""Deterministic extraction of an ETL requirements .docx into structured data.
 
 Real sample/expected rows are returned for LOCAL oracle use only and must never
 be sent to a model. Derived structural facts (Task 5) are what downstream LLM
@@ -19,6 +19,8 @@ from docx.text.paragraph import Paragraph
 logger = logging.getLogger(__name__)
 
 REQUIRED_BLOCKS = ("Inputs and Schema", "Transformation Rules")
+
+NOTES_BLOCK = "Notes / Special Handling"
 
 MAX_DOCX_BYTES = 25 * 1024 * 1024
 
@@ -85,6 +87,29 @@ def _read_sections(doc):
         elif isinstance(block, Table) and current_h1 is not None:
             sections[current_h1].append((current_h2, block))
     return sections
+
+
+def _read_section_prose(doc):
+    """Return H1 heading text -> the non-heading paragraph text under it (verbatim).
+
+    Prose is captured for EVERY H1 (today only tables are read). Text is joined
+    with newlines in document order; empty paragraphs are skipped. This carries
+    BA intent (notes, unrecognized-section prose) to the LLM without ever
+    forwarding real table cell values.
+    """
+    prose = {}
+    current_h1 = None
+    for block in _iter_block_items(doc):
+        if isinstance(block, Paragraph):
+            level = _heading_level(block)
+            if level == 1:
+                current_h1 = block.text.strip()
+                prose.setdefault(current_h1, [])
+            elif level is None and current_h1 is not None:
+                text = block.text.strip()
+                if text:
+                    prose[current_h1].append(text)
+    return {h: "\n".join(lines) for h, lines in prose.items()}
 
 
 _TRUE = ("true", "yes", "y", "1")
@@ -227,7 +252,7 @@ def _check_conformance(sections, sources_schema, rules, sample_input, expected_o
 
 @dataclass
 class ExtractResult:
-    """Structured result of parsing a recon requirements ``.docx``.
+    """Structured result of parsing an ETL requirements ``.docx``.
 
     ``sample_input`` and ``expected_output`` carry real cell values and are for
     LOCAL oracle use only -- never send them to a model. Downstream LLM roles
@@ -264,10 +289,13 @@ class ExtractResult:
     output_keys: dict[str, list[str]]
     derived_facts: dict[str, dict[str, dict]]
     conformance: ConformanceReport
+    notes: str = ""
+    extra_sections: dict = field(default_factory=dict)
+    tier: str = "build"
 
 
 def extract_doc(path: str, raise_on_error: bool = True) -> ExtractResult:
-    """Deterministically extract a recon requirements ``.docx`` into an ``ExtractResult``.
+    """Deterministically extract an ETL requirements ``.docx`` into an ``ExtractResult``.
 
     Reads the four required Heading-1 blocks, parses each with its table parser,
     gates the result through the conformance check, and computes derived
@@ -338,6 +366,8 @@ def extract_doc(path: str, raise_on_error: bool = True) -> ExtractResult:
         raise ConformanceError(conformance)
 
     derived_facts = compute_derived_facts(sample_input)
+    prose = _read_section_prose(doc)
+    notes = prose.get(NOTES_BLOCK, "")
     logger.info(
         "[extract_doc] %s: %d sources, %d rules, %d outputs",
         file_path.name, len(sources_schema), len(rules), len(expected_output),
@@ -350,6 +380,7 @@ def extract_doc(path: str, raise_on_error: bool = True) -> ExtractResult:
         output_keys=output_keys,
         derived_facts=derived_facts,
         conformance=conformance,
+        notes=notes,
     )
 
 
@@ -365,7 +396,7 @@ def main(argv=None) -> int:
     import json
     import sys
 
-    parser = argparse.ArgumentParser(description="Extract a recon requirements .docx to JSON.")
+    parser = argparse.ArgumentParser(description="Extract an ETL requirements .docx to JSON.")
     parser.add_argument("path", help="path to the requirements .docx")
     parser.add_argument("--out", help="write JSON here (default: stdout)")
     parser.add_argument("--no-raise", action="store_true",
