@@ -8,7 +8,8 @@ description: >-
 tools:
   - agent/runSubagent
   - read
-  - runCommands
+  - execute/runInTerminal
+  - execute/getTerminalOutput
 agents:
   - doc-interpreter
   - flow-designer

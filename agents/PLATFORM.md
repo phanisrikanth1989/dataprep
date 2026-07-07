@@ -25,7 +25,7 @@ Design pillars (all locked in the pivot):
 ### 1.1 The players
 
 - Orchestrator -- `.github/agents/etl-orchestrator.agent.md`. The ONLY user-invocable agent
-  (`user-invocable: true`). Tools: `agent/runSubagent`, `read`, `runCommands`. Its `agents:`
+  (`user-invocable: true`). Tools: `agent/runSubagent`, `read`, `execute/runInTerminal, execute/getTerminalOutput`. Its `agents:`
   allowlist names the six specialists it is permitted to fire. It runs the loop, keeps the audit
   log, and stops at the human gate. It never edits artifacts and never judges correctness itself.
 
@@ -38,9 +38,9 @@ Design pillars (all locked in the pivot):
   |-------|-------|-------|--------|-------|
   | 1 | doc-interpreter | extract_doc.json      | requirement_spec.json | read, edit, search/codebase |
   | 2 | flow-designer   | requirement_spec.json | flow_plan.json        | read, edit, search/codebase |
-  | 3 | configurator    | flow_plan.json        | job_draft.json        | read, edit, runCommands |
+  | 3 | configurator    | flow_plan.json        | job_draft.json        | read, edit, execute/runInTerminal, execute/getTerminalOutput |
   | 4 | assembler       | job_draft.json        | job.json              | read, edit |
-  | 5 | test-runner     | job.json (+ golden)   | test_report.json      | runCommands |
+  | 5 | test-runner     | job.json (+ golden)   | test_report.json      | execute/runInTerminal, execute/getTerminalOutput |
   | 6 | diagnostician   | test_report.json (FAILED) | feedback.json     | read, edit |
 
   - doc-interpreter and diagnostician are data-blind: they reason only from schema / rules /
@@ -292,7 +292,7 @@ this repo. Where an item says ADJUST, make the edit in the install and mirror it
 
 - [ ] (e) The exact tool ids in the `tools:` lists resolve. The tool ids used across the seven
   `.agent.md` files resolve to real tools in the install:
-  `agent/runSubagent`, `read`, `edit`, `search/codebase`, `runCommands`.
+  `agent/runSubagent`, `read`, `edit`, `search/codebase`, `execute/runInTerminal, execute/getTerminalOutput`.
   If the 1.122 install spells any of these differently (different id, namespace, or casing), ADJUST
   the `tools:` lists in the `.agent.md` files to the install's spelling and re-run the local gate
   (`validate_tree` checks structure, not live resolution, so it stays `[]` either way).

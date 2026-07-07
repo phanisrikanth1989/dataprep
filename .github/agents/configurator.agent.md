@@ -7,7 +7,8 @@ description: >-
 tools:
   - read
   - edit
-  - runCommands
+  - execute/runInTerminal
+  - execute/getTerminalOutput
 user-invocable: false
 disable-model-invocation: false
 ---
