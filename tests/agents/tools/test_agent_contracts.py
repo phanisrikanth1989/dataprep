@@ -20,3 +20,11 @@ def test_configurator_states_csv_option_and_filepath_contract():
     assert "csv_option" in b and "text_enclosure" in b
     assert "<source-name>.csv" in b or "source-name>.csv" in b
     assert "quote_none" in b or "shift" in b or "round-trip" in b  # the WHY of csv_option
+
+
+def test_assembler_states_id_equals_output_name():
+    b = _body("assembler")
+    assert "id" in b and "output name" in b
+    assert "harness" in b or "run_and_validate" in b or "maps on" in b
+    # F1: the assembler must READ the outputs list (names) from requirement_spec.json to bind ids.
+    assert "requirement_spec.json" in b and "outputs" in b

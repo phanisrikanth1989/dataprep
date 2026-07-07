@@ -33,6 +33,10 @@ flow names FROM those existing config fields; do NOT invent fresh names, because
 each input by `inputs.get(name)`, so a flow name that does not match the config's
 `main`/`lookups[].name` misses and the node silently emits empty/null output.
 
+Also read `agents/work/<job>/requirement_spec.json` (from doc-interpreter) for its `outputs` list --
+each entry's `name` is the Expected-Output name you MUST use as the terminal FileOutput component `id`
+(the OUTPUT-NAME CONTRACT below). This is structural naming only, never data.
+
 On a re-run (the orchestrator looped after a failed report), FIRST read
 `agents/work/<job>/feedback.json` if it exists. If its `owner` names THIS stage (`assembler`), apply
 the value-blind `fix` it describes -- typically a dangling flow, a mis-wired schema, or a swapped
@@ -82,6 +86,13 @@ Write `agents/work/<job>/job.json` = the draft PLUS the envelope. Follow
   the configurator froze. The engine looks each input up by name (`inputs.get(name)`), so a
   mismatched or invented flow name resolves to nothing and the node silently emits empty/null.
 - A reject is a data flow: wire it as a flow with `"type": "reject"`, never as an error trigger.
+- OUTPUT-NAME CONTRACT (load-bearing): set each terminal FileOutput component's `id`
+  EQUAL to its Expected-Output name from requirement_spec.json (`outputs[].name`).
+  This is the deterministic key run_and_validate.main() maps on to diff the right
+  file (FileOutput id == output name). Getting it wrong makes the harness fail with a
+  clear "graded output '<name>' has no FileOutput component with id == '<name>'" error,
+  not a silent pass. Wire the flow into that FileOutput as usual; only its id is fixed
+  by the contract.
 
 ## Rules
 
