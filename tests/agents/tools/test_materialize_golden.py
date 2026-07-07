@@ -102,3 +102,31 @@ def test_cli_emits_tier_and_returns_zero(tmp_path):
 def test_cli_bad_extract_doc_returns_two(tmp_path):
     rc = main(["--extract-doc", str(tmp_path / "nope.json"), "--work-dir", str(tmp_path)])
     assert rc == 2
+
+
+import os
+
+import pytest
+
+
+def test_rejects_path_traversal_in_source_or_output_name(tmp_path):
+    """A crafted doc H2 subheading (absolute / '..' / separator) must NOT let materialize
+    write a CSV outside work_dir. It fails closed (ValueError), mirroring the harness jail."""
+    escape = str(tmp_path / "outside")  # an absolute path outside the work dir
+    os.makedirs(escape, exist_ok=True)
+    work = tmp_path / "work"
+    work.mkdir()
+    for bad in (f"{escape}/PWNED", "../PWNED", "sub/PWNED", ".."):
+        with pytest.raises(ValueError):
+            materialize_inputs({"sample_input": {bad: [{"a": "1"}]}, "sources_schema": {}}, work)
+        with pytest.raises(ValueError):
+            materialize_expected({"expected_output": {bad: [{"a": "1"}]}, "output_keys": {}}, work)
+    # Nothing was written outside the work dir, and no clobber happened.
+    assert not (tmp_path / "outside" / "PWNED.csv").exists()
+    assert not (tmp_path / "PWNED.csv").exists()
+    # The CLI turns the refusal into a clean exit 2 (never a silent write).
+    ed = tmp_path / "ed.json"
+    ed.write_text(json.dumps({"tier": "verified",
+                              "sample_input": {f"{escape}/PWNED": [{"a": "1"}]},
+                              "sources_schema": {}, "expected_output": {}, "output_keys": {}}))
+    assert main(["--extract-doc", str(ed), "--work-dir", str(work)]) == 2

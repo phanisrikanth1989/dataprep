@@ -13,11 +13,38 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import os
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 _SEP = ";"
+
+
+def _safe_name(name: str) -> str:
+    """Fail-closed on an untrusted source/output NAME before it becomes a filename.
+
+    The name comes verbatim from a requirements-doc H2 subheading, so a crafted doc
+    could set it to an absolute path, ``..``, or a path with separators and write the
+    materialized CSV outside the work dir. This mirrors run_and_validate's frozen
+    path-jail: require a single safe filename component, else raise (the whole
+    materialize refuses, before any harness run or human gate)."""
+    if (not name) or name in (".", "..") or os.path.isabs(name) or os.path.basename(name) != name:
+        raise ValueError(
+            f"unsafe source/output name from the requirements doc "
+            f"(must be a single filename component): {name!r}"
+        )
+    return name
+
+
+def _jailed(root, fname: str) -> Path:
+    """Resolve ``fname`` under ``root`` and confirm it stays inside root (defense in
+    depth on top of _safe_name), so a materialized file can never escape work_dir."""
+    root_real = Path(os.path.realpath(root))
+    target = root_real / fname
+    if not target.resolve().is_relative_to(root_real):
+        raise ValueError(f"materialize path escapes work_dir: {fname!r}")
+    return target
 
 
 def _write_csv(path, header, rows):
@@ -50,9 +77,10 @@ def materialize_inputs(extract: dict, work_dir) -> list[str]:
     schema = extract.get("sources_schema", {})
     written = []
     for source, rows in sample.items():
+        _safe_name(source)
         header = _header_for(source, rows, schema)
         fname = f"{source}.csv"
-        _write_csv(root / fname, header, rows)
+        _write_csv(_jailed(root, fname), header, rows)
         written.append(fname)
     logger.info("[materialize_golden] wrote %d input CSV(s) to %s", len(written), root)
     return written
@@ -72,10 +100,11 @@ def materialize_expected(extract: dict, work_dir) -> dict:
     output_keys = extract.get("output_keys", {})
     outputs = {}
     for name, rows in expected.items():
+        _safe_name(name)
         graded = len(rows) > 0
         outputs[name] = {"keys": output_keys.get(name, []), "sep": _SEP, "graded": graded}
         if graded:
-            _write_csv(gdir / f"{name}_expected.csv", list(rows[0].keys()), rows)
+            _write_csv(_jailed(gdir, f"{name}_expected.csv"), list(rows[0].keys()), rows)
     manifest = {"outputs": outputs}
     (gdir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     logger.info("[materialize_golden] wrote manifest with %d output(s) to %s", len(outputs), gdir)
