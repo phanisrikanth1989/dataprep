@@ -5,8 +5,8 @@ description: >-
   (lookup/join plus transforms) that satisfies the rules. Picks the fastest fit from the full
   engine component set, preferring vectorized nodes. Plans the graph shape -- no config, no wiring.
 tools:
-  - read/files
-  - edit/files
+  - read
+  - edit
   - search/codebase
 user-invocable: false
 disable-model-invocation: false

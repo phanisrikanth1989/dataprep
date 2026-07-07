@@ -5,8 +5,8 @@ description: >-
   plus typed rules) and flag ambiguity for the human. Data-blind: reasons only from the schema, the
   rules, and the derived structural facts -- never from real sample or expected data values.
 tools:
-  - read/files
-  - edit/files
+  - read
+  - edit
   - search/codebase
 user-invocable: false
 disable-model-invocation: false

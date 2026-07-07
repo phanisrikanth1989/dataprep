@@ -5,8 +5,8 @@ description: >-
   to re-run plus a value-blind why/fix. Routes from the report's structural signals only
   (json-path, expected type/enum, diff shape) -- never from raw data values.
 tools:
-  - read/files
-  - edit/files
+  - read
+  - edit
 user-invocable: false
 disable-model-invocation: false
 ---

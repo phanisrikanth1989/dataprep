@@ -7,8 +7,8 @@ description: >-
   every step is audit-logged, and a human approves before any job is called done.
 tools:
   - agent/runSubagent
-  - read/files
-  - run/terminal
+  - read
+  - runCommands
 agents:
   - doc-interpreter
   - flow-designer

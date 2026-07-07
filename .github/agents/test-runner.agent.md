@@ -5,7 +5,7 @@ description: >-
   test_report.json verdict verbatim. Makes NO judgment about correctness -- the harness decides
   pass/fail. Never edits any artifact.
 tools:
-  - run/terminal
+  - runCommands
 user-invocable: false
 disable-model-invocation: false
 ---

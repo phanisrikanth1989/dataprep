@@ -5,9 +5,9 @@ description: >-
   Runs validate_config on every component and fixes every reported error before finishing. Respects
   the component config landmines. Config only -- no flow wiring, no job envelope.
 tools:
-  - read/files
-  - edit/files
-  - run/terminal
+  - read
+  - edit
+  - runCommands
 user-invocable: false
 disable-model-invocation: false
 ---

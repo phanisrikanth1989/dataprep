@@ -5,8 +5,8 @@ description: >-
   per-component subjob_id and {input,output} schema, flows as typed flow edges, and per-component
   inputs/outputs referencing flow names. Wiring only -- never change component config.
 tools:
-  - read/files
-  - edit/files
+  - read
+  - edit
 user-invocable: false
 disable-model-invocation: false
 ---
