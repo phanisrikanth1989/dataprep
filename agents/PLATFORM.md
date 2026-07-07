@@ -49,7 +49,7 @@ Design pillars (all locked in the pivot):
   - flow-designer may use ANY of the ~86 registered engine components: the 8 curated ones get
     strict config validation, and the ~78 uncurated ones are usable too, grounded in the engine
     source and the oracle. tMap (`Map`) is a join/lookup/expression primitive, and tJoin is the
-    default single-key enrich join.
+    default single-key lookup join.
   - configurator runs `validate_config` on every component and fixes every reported error before
     finishing.
   - assembler wires the engine job envelope only; it never changes a component's `config`.
@@ -75,23 +75,29 @@ Design pillars (all locked in the pivot):
 ### 1.2 The pipeline
 
 ```
-   requirements.docx
-         |
-         v
-  [ python -m agents.tools.extract_doc ]  ---> extract_doc.json   (deterministic input)
+   requirements.docx  +  <job> name
          |
          v
   +===============================================================================+
   |  etl-orchestrator  (user-invocable; free-agent loop; keeps audit.jsonl)       |
   |                                                                               |
+  |   STEP 0 (deterministic, run BY the orchestrator -- no model touches data):   |
+  |     python -m agents.tools.extract_doc        -> extract_doc.json  (+ tier)    |
+  |     python -m agents.tools.materialize_golden -> input CSVs at work-dir root   |
+  |                                                  + golden/{<out>_expected.csv, |
+  |                                                    manifest.json}; echoes tier |
+  |                                                                               |
   |   #runSubagent doc-interpreter -> requirement_spec.json                       |
   |   #runSubagent flow-designer   -> flow_plan.json                              |
   |   #runSubagent configurator    -> job_draft.json   (validate_config loop)     |
   |   #runSubagent assembler       -> job.json                                    |
-  |   #runSubagent test-runner     -> test_report.json (runs run_and_validate)    |
+  |   #runSubagent test-runner     -> test_report.json   (branch on the tier):    |
+  |       verified -> run_and_validate --golden-dir golden/  (diff vs oracle)     |
+  |       smoke    -> run_and_validate --smoke              (runs, not graded)    |
+  |       build    -> no run (job.json is built only, nothing to execute)         |
   |                                                                               |
   |   read test_report.json .passed  (the HARNESS verdict, never the model's):    |
-  |     passed == true  -> human gate                                             |
+  |     passed == true  -> human gate     (only the verified tier loops on passed)|
   |     passed == false -> #runSubagent diagnostician -> feedback.json            |
   |                        re-run ONLY feedback.owner + the forward stages after  |
   |                        it; that is one iteration (budget: 3), then human gate  |
@@ -101,10 +107,28 @@ Design pillars (all locked in the pivot):
   HUMAN GATE  (never auto-approve): present job.json + test_report.json + surfaced code cells for sign-off
 ```
 
-The forward chain is stages 1-5. On a FAILED report the diagnostician (stage 6) names one owner
-stage; the orchestrator re-runs that stage and every forward stage after it so the change
-propagates to a fresh `job.json` and a fresh `test_report.json`. That is one iteration. The loop
-runs at most 3 iterations, then stops at the human gate with whatever the latest artifacts are.
+STEP 0 is deterministic and runs before any subagent: `extract_doc` parses the `.docx` into
+`extract_doc.json` (including the computed `tier`), and `materialize_golden` writes the exact input
+CSVs to the work-dir root plus the golden answer key under `golden/`. No model authors or rewrites
+that data. The forward chain is then stages 1-5. On a FAILED report the diagnostician (stage 6)
+names one owner stage; the orchestrator re-runs that stage and every forward stage after it so the
+change propagates to a fresh `job.json` and a fresh `test_report.json`. That is one iteration. The
+loop runs at most 3 iterations, then stops at the human gate with whatever the latest artifacts are.
+
+### Verification tiers
+
+The tier `extract_doc` computes drives how the test-runner exercises the built `job.json`, and the
+gate label the orchestrator reports:
+
+- `verified` -- a Sample Input and a graded Expected Output both exist. The harness runs the job and
+  diffs each graded output against `golden/<out>_expected.csv`. Only this tier loops on `passed`.
+  Gate label: `verified (N/M outputs graded)` (N/M are the run_and_validate report's `graded`/`total`
+  counts).
+- `smoke` -- a Sample Input exists but no graded Expected Output. The harness runs the job once with
+  `--smoke` to confirm it executes end-to-end; there is nothing to diff. Gate label: `smoke: ran, not
+  graded`.
+- `build` -- no parseable Sample Input. The job.json is built and surfaced but never executed. Gate
+  label: `build-only: not executed`.
 
 ### 1.3 The three safety nets (none optional)
 
@@ -150,9 +174,10 @@ All stages read and write JSON files under one flat, agent-readable work dir,
 
 ### 1.5 The deterministic tools
 
-Python tools under `agents/tools/`. The four pipeline CLIs (extract_doc, validate_config,
-run_and_validate, render_skills) are what the specialists invoke from the auto-approved terminal;
-the orchestrator also runs `audit_log` and `surface_code_cells` from that same terminal at runtime.
+Python tools under `agents/tools/`. The pipeline CLIs (extract_doc, materialize_golden,
+validate_config, run_and_validate, render_skills) are what run from the auto-approved terminal;
+the orchestrator runs `extract_doc` + `materialize_golden` at step-0 and `audit_log` +
+`surface_code_cells` at runtime, while the specialists invoke `validate_config` and `run_and_validate`.
 Every terminal call is covered by the one `python -m agents.tools.*` auto-approve wildcard, so these
 names are illustrative, not the approval boundary.
 The remaining tools split by role -- they are NOT one "gate": `validate_agents` is the library-only
@@ -165,7 +190,8 @@ as highest-priority before it presents the job (safety net 3).
 
 | Tool | Invocation | Role |
 |------|-----------|------|
-| extract_doc | `python -m agents.tools.extract_doc <req.docx> --out extract_doc.json` | Deterministic .docx -> one JSON artifact (the pipeline input). |
+| extract_doc | `python -m agents.tools.extract_doc <req.docx> --out extract_doc.json` | Deterministic .docx -> one JSON artifact (the pipeline input); computes the `verified\|smoke\|build` tier. |
+| materialize_golden | `python -m agents.tools.materialize_golden --extract-doc extract_doc.json --work-dir agents/work/<job>` | Deterministic: writes input CSVs to the work-dir root + `golden/{<out>_expected.csv, manifest.json}`; emits the tier. |
 | validate_config | `python -m agents.tools.validate_config --type T --config c.json` | Per-component config gate (configurator's loop). Exit 0 valid / 1 invalid / 2 load error. |
 | run_and_validate | `python -m agents.tools.run_and_validate --job job.json --golden-dir DIR --out test_report.json` | The PASS/FAIL oracle: whole-job parity vs golden. Exit 0 pass / 1 fail / 2 load error. |
 | render_skills | `python -m agents.tools.render_skills` | Regenerates `.github/skills/dataprep-etl/` from the live schemas + landmines (enum_refs resolved). |
@@ -187,19 +213,23 @@ Prerequisites (local, one time):
   (see the Citi checklist below).
 
 Run an ETL job:
-1. Extract the requirement deterministically (terminal):
-   `python -m agents.tools.extract_doc path/to/requirements.docx --out agents/work/<job>/extract_doc.json`
-   (`<job>` is the work-dir slug you choose.)
-2. Place the golden data at `<GOLDEN_DIR>` -- `manifest.json` plus each `<name>_expected.csv`.
-3. In Copilot chat, open the `etl-orchestrator` agent (the only user-invocable one) and invoke it
-   with the `<job>` slug and the `<GOLDEN_DIR>`.
-4. The orchestrator autonomously runs the free-agent loop: it fires each specialist via
+1. In Copilot chat, open the `etl-orchestrator` agent (the only user-invocable one) and invoke it
+   with two things only: the path to your requirements `.docx` and a `<job>` name (the work-dir slug
+   you choose, e.g. `settlements-enrich`). You do NOT prepare any golden data by hand -- the harness
+   materializes it.
+2. STEP 0 is the orchestrator's, not yours: it runs `extract_doc` on the `.docx` to produce
+   `agents/work/<job>/extract_doc.json` (with the computed tier), then runs `materialize_golden` to
+   write the input CSVs to the work-dir root and the golden answer key (`golden/manifest.json` +
+   each `golden/<name>_expected.csv`). Both are deterministic; no model authors or rewrites that data.
+3. The orchestrator autonomously runs the free-agent loop: it fires each specialist via
    `#runSubagent`, lets the specialists read/write their artifacts under `agents/work/<job>/`,
-   runs the harness through the test-runner, and on a failed report routes through the
-   diagnostician and re-runs the owner stage (up to 3 iterations). Every step lands in
-   `agents/work/<job>/audit.jsonl`.
-5. It STOPS at the human gate and presents the final `agents/work/<job>/job.json`,
-   `agents/work/<job>/test_report.json`, and the deterministic `surface_code_cells` output --
+   runs the harness through the test-runner -- graded against `golden/` on the `verified` tier, once
+   with `--smoke` on the `smoke` tier, or not at all on the `build` tier -- and on a failed report
+   routes through the diagnostician and re-runs the owner stage (up to 3 iterations). Every step
+   lands in `agents/work/<job>/audit.jsonl`.
+4. It STOPS at the human gate and presents the final `agents/work/<job>/job.json`,
+   `agents/work/<job>/test_report.json` (labelled `verified (N/M outputs graded)`, `smoke: ran, not
+   graded`, or `build-only: not executed`), and the deterministic `surface_code_cells` output --
    every code-bearing cell, with unsandboxed cells (`python_dataframe`, `SwiftTransformer`) flagged
    highest-priority -- for your approval. It never auto-approves. On a budget-exhausted failure it
    says so plainly and shows the last failing report plus the diagnostician's feedback.
@@ -253,7 +283,8 @@ this repo. Where an item says ADJUST, make the edit in the install and mirror it
 
 - [ ] (d) `chat.tools.terminal.autoApprove` lets the tools run without a per-run prompt. With
   `chat.tools.terminal.autoApprove` configured for the `python -m agents.tools.*` commands
-  (`extract_doc`, `validate_config`, `run_and_validate`, `render_skills`, `audit_log`), the
+  (`extract_doc`, `materialize_golden`, `validate_config`, `run_and_validate`, `render_skills`,
+  `audit_log`), the
   configurator's validate loop, the test-runner's harness, and the orchestrator's audit-log append
   run WITHOUT a per-run approval prompt. Confirm this
   setting is NOT locked by Citi org policy (if it is locked, the loop stalls on every terminal
