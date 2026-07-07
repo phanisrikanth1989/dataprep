@@ -64,3 +64,41 @@ def test_materialize_expected_embedded_sep_round_trips(tmp_path):
     with open(tmp_path / "golden" / "o_expected.csv", newline="", encoding="utf-8") as fh:
         rows = list(csv.reader(fh, delimiter=";"))
     assert rows[1] == ["T1", "x;y"]
+
+
+from agents.tools.materialize_golden import main, materialize_golden
+
+
+def test_materialize_golden_end_to_end(tmp_path):
+    extract = {
+        "tier": "verified",
+        "sample_input": {"src": [{"id": "T1"}]},
+        "sources_schema": {"src": [{"name": "id"}]},
+        "expected_output": {"out": [{"id": "T1"}]},
+        "output_keys": {"out": ["id"]},
+    }
+    result = materialize_golden(extract, tmp_path)
+    assert result["tier"] == "verified"
+    assert result["inputs"] == ["src.csv"]
+    assert result["outputs"]["out"]["graded"] is True
+    assert (tmp_path / "src.csv").exists()
+    assert (tmp_path / "golden" / "out_expected.csv").exists()
+
+
+def test_cli_emits_tier_and_returns_zero(tmp_path):
+    ed = tmp_path / "extract_doc.json"
+    ed.write_text(json.dumps({
+        "tier": "smoke",
+        "sample_input": {"src": [{"id": "T1"}]},
+        "sources_schema": {"src": [{"name": "id"}]},
+        "expected_output": {}, "output_keys": {},
+    }))
+    out = tmp_path / "mat.json"
+    rc = main(["--extract-doc", str(ed), "--work-dir", str(tmp_path), "--out", str(out)])
+    assert rc == 0
+    assert json.loads(out.read_text())["tier"] == "smoke"
+
+
+def test_cli_bad_extract_doc_returns_two(tmp_path):
+    rc = main(["--extract-doc", str(tmp_path / "nope.json"), "--work-dir", str(tmp_path)])
+    assert rc == 2

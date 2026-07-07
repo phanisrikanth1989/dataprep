@@ -80,3 +80,45 @@ def materialize_expected(extract: dict, work_dir) -> dict:
     (gdir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     logger.info("[materialize_golden] wrote manifest with %d output(s) to %s", len(outputs), gdir)
     return manifest
+
+
+def materialize_golden(extract: dict, work_dir) -> dict:
+    """Materialize input CSVs + the golden answer key and echo the tier.
+
+    Deterministic: it writes the exact extracted data; no model is involved."""
+    inputs = materialize_inputs(extract, work_dir)
+    manifest = materialize_expected(extract, work_dir)
+    return {"tier": extract.get("tier", "build"), "inputs": inputs, "outputs": manifest["outputs"]}
+
+
+def main(argv=None) -> int:
+    """CLI: extract_doc.json + work dir -> input CSVs (root) + golden/ answer key."""
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(description="Materialize input CSVs + golden answer key from an extract_doc.json.")
+    parser.add_argument("--extract-doc", required=True, help="path to extract_doc.json")
+    parser.add_argument("--work-dir", required=True, help="work dir (job.json parent); inputs land at its root")
+    parser.add_argument("--out", help="write the result JSON here (default: stdout)")
+    args = parser.parse_args(argv)
+
+    def _emit(payload):
+        text = json.dumps(payload, indent=2)
+        if args.out:
+            Path(args.out).write_text(text, encoding="utf-8")
+        else:
+            sys.stdout.write(text + "\n")
+
+    try:
+        extract = json.loads(Path(args.extract_doc).read_text(encoding="utf-8"))
+        result = materialize_golden(extract, args.work_dir)
+    except (OSError, ValueError) as exc:
+        _emit({"error": str(exc)})
+        return 2
+    _emit(result)
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())
