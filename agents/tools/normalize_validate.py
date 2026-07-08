@@ -3,14 +3,18 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import logging
 import re
+from pathlib import Path
 
 from agents.tools.extract_doc import compute_derived_facts
 
 logger = logging.getLogger(__name__)
 
 _EXACT_RUNGS = ("1", "2")  # only file/table exactness earns "verified"; everything else fails closed
+_VALID_RULE_KINDS = frozenset({"join", "schema_validate", "filter", "aggregate", "sort", "derive"})
+_STATUS_EXIT = {"ok": 0, "shape_error": 3, "needs_human": 4}  # validator status -> process exit code
 
 
 class NeedsHuman(Exception):
@@ -450,3 +454,157 @@ def assemble(proposal, inventory, model_id="") -> tuple:
         "normalization": {"model_id": model_id},
     }
     return extract_dict, status
+
+
+# ------------------------------------------------------------------
+# Shape validation: an enumerated, value-blind predicate over the raw
+# normalizer_proposal.json. Malformed-proposal failures route to the repair
+# loop (shape_error); the coverage hard-blocker (unaccounted handles / a graded
+# output missing provenance) is assemble's extraction.status job (needs_human).
+# ------------------------------------------------------------------
+def _shape_declared_refs(proposal) -> set:
+    """Build the value-blind set of coverage-ref targets a proposal DECLARES (source/output names, schema fields, rule ids, section headings)."""
+    sources_schema = proposal.get("sources_schema") or {}
+    located = proposal.get("located") or {}
+    source_names = list(sources_schema.keys())
+    output_names = list((located.get("expected_output") or {}).keys())
+    name_map = _safe_output_names(list(dict.fromkeys([*source_names, *output_names])))
+    safe_schema = {s: [c for c in (cols or []) if isinstance(c, dict)] for s, cols in sources_schema.items()}
+    return _build_emitted(source_names, output_names, safe_schema, proposal.get("output_keys") or {},
+                          proposal.get("expected_output") or {}, proposal.get("rules") or [],
+                          proposal.get("extra_sections") or {}, name_map)
+
+
+def _shape_errors(proposal, inventory) -> list:
+    """Return an enumerated list of value-blind shape failures (pointer/why/fix); an empty list means the proposal is well-formed."""
+    errors: list = []
+
+    # (1) every rule declares a kind in the allowed set.
+    for i, rule in enumerate(proposal.get("rules") or []):
+        kind = rule.get("kind") if isinstance(rule, dict) else None
+        if kind not in _VALID_RULE_KINDS:
+            errors.append({
+                "pointer": f"rules[{i}].kind",
+                "why": f"rule kind {kind!r} is not one of join|schema_validate|filter|aggregate|sort|derive",
+                "fix": "set kind to one of the six allowed rule kinds",
+            })
+
+    # (2) every declared source carries at least one column.
+    sources_schema = proposal.get("sources_schema") or {}
+    for name, cols in sources_schema.items():
+        if not isinstance(cols, list) or len(cols) < 1:
+            errors.append({
+                "pointer": f"sources_schema.{name}",
+                "why": "source schema declares no columns",
+                "fix": "declare at least one {name,type,nullable,key} column for this source",
+            })
+
+    # (3) every located name is consistent (sample -> a declared source; expected -> a declared output).
+    located = proposal.get("located") or {}
+    located_sample = located.get("sample_input") or {}
+    located_expected = located.get("expected_output") or {}
+    declared_outputs = set((proposal.get("output_keys") or {}).keys())
+    for name in located_sample:
+        if name not in sources_schema:
+            errors.append({
+                "pointer": f"located.sample_input.{name}",
+                "why": "located sample_input name has no matching sources_schema source",
+                "fix": "add a sources_schema entry for this name or remove the located slot",
+            })
+    for name in located_expected:
+        if name not in declared_outputs:
+            errors.append({
+                "pointer": f"located.expected_output.{name}",
+                "why": "located expected_output name is not a declared output (no output_keys designation)",
+                "fix": "declare this output under output_keys or remove the located slot",
+            })
+
+    # (4) every located candidate handle id resolves against the inventory.
+    for side, mapping in (("sample_input", located_sample), ("expected_output", located_expected)):
+        for name, candidates in mapping.items():
+            for j, cand in enumerate(candidates or []):
+                if _resolve(cand, inventory) is None:
+                    errors.append({
+                        "pointer": f"located.{side}.{name}[{j}]",
+                        "why": f"candidate handle {cand!r} is not a member of the exploder inventory",
+                        "fix": "reference an inventory handle id (para:N | table:N | image:N | embed:<name> | sibling:<name>)",
+                    })
+
+    # (5) an extracted_to coverage entry MUST carry non-empty refs that resolve to declared targets.
+    try:
+        declared_refs = _shape_declared_refs(proposal)
+    except Exception:  # malformed schema/rows already flagged above; skip ref-resolution this pass
+        declared_refs = None
+    for k, entry in enumerate(proposal.get("coverage_map") or []):
+        if not isinstance(entry, dict) or entry.get("disposition") != "extracted_to":
+            continue
+        refs = entry.get("refs") or []
+        if not refs:
+            errors.append({
+                "pointer": f"coverage_map[{k}].refs",
+                "why": "disposition 'extracted_to' requires a non-empty refs list",
+                "fix": "list the schema field(s)/rule id(s)/source/output/section this handle fed, or change the disposition",
+            })
+        elif declared_refs is not None:
+            for ref in refs:
+                if ref not in declared_refs:
+                    errors.append({
+                        "pointer": f"coverage_map[{k}].refs",
+                        "why": f"ref {ref!r} does not resolve to any declared source/output/schema-field/rule/section",
+                        "fix": "reference a declared <source>.<column>, rule id, source/output name, or extra_sections heading",
+                    })
+    return errors
+
+
+# ------------------------------------------------------------------
+# validate + CLI: shape-validate, then assemble; map status -> artifact + exit.
+# ------------------------------------------------------------------
+def validate(inventory_path, proposal_path, out_path, feedback_path, model_id="") -> str:
+    """Shape-validate then assemble; on a shape failure write normalizer_feedback.json (shape_error), else write extract_doc.json (ok|needs_human)."""
+    with open(inventory_path, "r", encoding="utf-8") as fh:
+        inventory = json.load(fh)
+    with open(proposal_path, "r", encoding="utf-8") as fh:
+        proposal = json.load(fh)
+
+    errors = _shape_errors(proposal, inventory)
+    if errors:
+        fb = Path(feedback_path)
+        fb.parent.mkdir(parents=True, exist_ok=True)
+        fb.write_text(json.dumps({"errors": errors}, indent=2), encoding="utf-8")
+        logger.warning("[normalize_validate] shape_error: %d issue(s) -> %s", len(errors), feedback_path)
+        return "shape_error"
+
+    extract_dict, status = assemble(proposal, inventory, model_id)
+    out = Path(out_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(extract_dict, indent=2), encoding="utf-8")
+    logger.info("[normalize_validate] status=%s tier=%s -> %s", status, extract_dict.get("tier"), out_path)
+    return status
+
+
+def main(argv=None) -> int:
+    """CLI: shape-validate + assemble a normalizer proposal; exit 0 (ok) / 3 (shape_error) / 4 (needs_human)."""
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(
+        description="Validate a normalizer proposal into extract_doc.json or normalizer_feedback.json.")
+    parser.add_argument("--inventory", required=True, help="path to exploder_inventory.json")
+    parser.add_argument("--proposal", required=True, help="path to normalizer_proposal.json")
+    parser.add_argument("--out", required=True, help="write extract_doc.json here (ok|needs_human)")
+    parser.add_argument("--feedback", required=True, help="write normalizer_feedback.json here (shape_error)")
+    parser.add_argument("--model-id", default="", help="advisory model id recorded under normalization.model_id")
+    args = parser.parse_args(argv)
+
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.feedback).parent.mkdir(parents=True, exist_ok=True)
+
+    status = validate(args.inventory, args.proposal, args.out, args.feedback, args.model_id)
+    sys.stdout.write(f"[normalize_validate] status={status}\n")
+    return _STATUS_EXIT.get(status, 4)
+
+
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(main())
