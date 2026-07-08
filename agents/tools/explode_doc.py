@@ -1,14 +1,18 @@
 """Exploder: inventory the FULL docx block stream into stable handles + jailed extraction."""
 from __future__ import annotations
 
+import csv
 import logging
 import os
 import zipfile
 from pathlib import Path, PurePosixPath
 
+from docx import Document
+from docx.table import Table
+
+from agents.tools.docx_purity import scan_purity
 from agents.tools.extract_doc import _iter_block_items, _table_records
 from agents.tools.materialize_golden import _jailed, _safe_name
-from docx.table import Table
 
 logger = logging.getLogger(__name__)
 
@@ -189,3 +193,76 @@ def _inventory_siblings(docx_dir, out_dir) -> list[dict]:
         handles.append({"id": f"sibling:{basename}", "type": "sibling", "path": str(target)})
     logger.debug("[explode_doc] inventoried %d sibling CSV(s) from %s", len(handles), src_dir)
     return handles
+
+
+# ------------------------------------------------------------------
+# CSV dialect sniff + top-level explode() + CLI.
+# ------------------------------------------------------------------
+def _sniff_csv_dialect(path) -> dict | None:
+    """Sniff a CSV's delimiter/quotechar from a sample; return None when it cannot be sniffed."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace", newline="") as fh:
+            sample = fh.read(8192)
+    except OSError:
+        return None
+    if not sample.strip():
+        return None
+    try:
+        dialect = csv.Sniffer().sniff(sample)
+    except csv.Error:
+        return None  # unsniffable -> null (NOT rung-1 eligible downstream; do not guess)
+    return {"delimiter": dialect.delimiter, "quotechar": dialect.quotechar}
+
+
+def explode(docx_path, out_dir) -> dict:
+    """Explode a .docx into one inventory of stable handles (+ jailed media/siblings, CSV dialects, purity)."""
+    doc = Document(str(docx_path))
+    blocks = _inventory_blocks(doc)
+    # Distinct jails: media/embeds under out_dir/, siblings under out_dir/sibling/,
+    # so a media basename can never overwrite an identically named sibling file.
+    media = _extract_media(docx_path, out_dir)
+    siblings = _inventory_siblings(os.path.dirname(os.path.abspath(str(docx_path))), Path(out_dir) / "sibling")
+    for handle in siblings:  # every sibling is a .csv by construction
+        handle["csv_dialect"] = _sniff_csv_dialect(handle["path"])
+    for handle in media:  # dialect only for embedded CSVs (images/xlsx get none)
+        if handle["type"] == "embed" and handle["path"].lower().endswith(".csv"):
+            handle["csv_dialect"] = _sniff_csv_dialect(handle["path"])
+    handles = blocks + media + siblings
+    prose_text = "\n".join(b["text"] for b in blocks if b["type"] == "prose" and b["text"])
+    purity = scan_purity(str(docx_path))
+    logger.info(
+        "[explode_doc] %s: %d handle(s) (%d block, %d media/embed, %d sibling)",
+        os.path.basename(str(docx_path)), len(handles), len(blocks), len(media), len(siblings),
+    )
+    return {"handles": handles, "prose_text": prose_text, "purity": purity}
+
+
+def main(argv=None) -> int:
+    """CLI: explode a .docx into stable handles + jailed extraction; write exploder_inventory.json."""
+    import argparse
+    import json
+    import sys
+
+    parser = argparse.ArgumentParser(
+        description="Explode a .docx into stable handles + jailed media/sibling extraction."
+    )
+    parser.add_argument("docx", help="path to the .docx to explode")
+    parser.add_argument("--out-dir", required=True,
+                        help="jail dir for extracted media/siblings (e.g. agents/work/<job>/_explode)")
+    parser.add_argument("--inventory", required=True,
+                        help="write exploder_inventory.json here (e.g. agents/work/<job>/exploder_inventory.json)")
+    args = parser.parse_args(argv)
+
+    Path(args.out_dir).mkdir(parents=True, exist_ok=True)
+    inventory = explode(args.docx, args.out_dir)
+    inv_path = Path(args.inventory)
+    inv_path.parent.mkdir(parents=True, exist_ok=True)
+    inv_path.write_text(json.dumps(inventory, indent=2), encoding="utf-8")
+    sys.stdout.write(f"[explode_doc] wrote {len(inventory['handles'])} handle(s) to {args.inventory}\n")
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(main())
