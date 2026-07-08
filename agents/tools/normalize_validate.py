@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 import csv
+import io
+import logging
 import re
+
+logger = logging.getLogger(__name__)
 
 
 class NeedsHuman(Exception):
@@ -144,3 +148,82 @@ def _reconcile_expected(rows, output_cols):
         return _reorder_to_schema(rows, output_cols), None
     except NeedsHuman as exc:
         return list(rows), f"expected-output name-space not reconciled ({exc}); kept expected header"
+
+
+# ------------------------------------------------------------------
+# Role/content-distinctness guard: a graded output must differ from every
+# input (else a byte-passthrough oracle can't tell a transform from a no-op).
+# ------------------------------------------------------------------
+def _materialized_bytes(rows) -> bytes:
+    """Serialize rows to the exact ';'-delimited CSV bytes materialize_golden would write (header = first row's keys)."""
+    if not rows:
+        return b""
+    header = list(rows[0].keys())
+    buf = io.StringIO(newline="")
+    writer = csv.writer(buf, delimiter=";", quotechar='"', quoting=csv.QUOTE_MINIMAL, lineterminator="\n")
+    writer.writerow(header)
+    for row in rows:
+        writer.writerow([row.get(col, "") for col in header])
+    return buf.getvalue().encode("utf-8")
+
+
+def _distinctness(sample_input, expected_output) -> set:
+    """Return graded-output names to DEGRADE: content byte-identical to a sample source (passthrough) or shared across roles."""
+    source_keys = {_materialized_bytes(rows) for rows in (sample_input or {}).values() if rows}
+    output_keys: dict[bytes, list] = {}
+    for name, rows in (expected_output or {}).items():
+        if rows:  # only graded (>=1 row) outputs are gradable, so only they can be degraded
+            output_keys.setdefault(_materialized_bytes(rows), []).append(name)
+    degrade: set = set()
+    for key, names in output_keys.items():
+        if key in source_keys or len(names) > 1:  # before==after passthrough, or one handle in >1 role
+            degrade.update(names)
+    return degrade
+
+
+# ------------------------------------------------------------------
+# Name normalization: NL BRD label -> safe filename component, with
+# deterministic collision disambiguation (never collapse two into one key).
+# ------------------------------------------------------------------
+_ILLEGAL_NAME_CHARS = re.compile(r"[^A-Za-z0-9._-]+")  # keep filename-safe chars; fold the rest to "_"
+
+
+def _safe_output_name(name) -> str:
+    """Sanitize a natural-language name into one safe filename component (fold illegal chars to '_', collapse, strip)."""
+    folded = re.sub(r"_+", "_", _ILLEGAL_NAME_CHARS.sub("_", str(name))).strip("_")
+    return folded if folded not in ("", ".", "..") else "_"  # neutralize empty and dot-traversal components
+
+
+def _safe_output_names(names) -> dict:
+    """Map each name to a UNIQUE safe filename component, disambiguating collisions with a deterministic '_N' suffix."""
+    mapping: dict = {}
+    used: set = set()
+    for name in names:
+        base = _safe_output_name(name)
+        candidate, index = base, 2
+        while candidate in used:
+            candidate, index = f"{base}_{index}", index + 1
+        used.add(candidate)
+        mapping[name] = candidate
+    return mapping
+
+
+# ------------------------------------------------------------------
+# output_keys verification (COMPOSITE tuple-uniqueness) + conformance synthesis.
+# ------------------------------------------------------------------
+def _verify_output_keys(name, keys, expected_rows) -> list:
+    """Accept a COMPOSITE key only if its tuple is unique across every expected row; else fall back to [] (bag) + low_confidence."""
+    keys = list(keys or [])
+    rows = list(expected_rows or [])
+    if keys and len({tuple(r.get(c) for c in keys) for r in rows}) == len(rows):
+        return keys
+    if keys:
+        logger.warning(
+            "[normalize_validate] output %s: composite key %s not unique across %d expected row(s); "
+            "falling back to bag/multiset (low_confidence)", name, keys, len(rows))
+    return []
+
+
+def _conformance_ok() -> dict:
+    """Synthesize a passing conformance report for a real BRD (no template blocks; completeness lives in extraction.status)."""
+    return {"ok": True, "missing_blocks": [], "parse_errors": []}
