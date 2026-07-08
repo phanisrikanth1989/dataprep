@@ -1,5 +1,10 @@
 """Guardrail tests: rung is derived from the handle TYPE (authority), never the LLM hint; fail-closed default."""
-from agents.tools.normalize_validate import _derive_rung, _resolve
+from agents.tools.normalize_validate import (
+    _compute_tier,
+    _cross_check_coverage,
+    _derive_rung,
+    _resolve,
+)
 
 
 def test_rung_derived_from_type_not_hint():
@@ -27,3 +32,58 @@ def test_unresolvable_id_needs_human():
     inv = {"handles": [{"id": "image:0", "type": "image"}]}
     assert _resolve("nope:9", inv) is None
     assert _derive_rung("nope:9", inv) == "needs_human"
+
+
+# ------------------------------------------------------------------
+# Tier: fail-closed, quantified over EVERY source AND EVERY graded output.
+# ------------------------------------------------------------------
+def test_rung3_expected_caps_verified_to_smoke():
+    prov = {"trades": {"rung": "1"}, "result": {"rung": "3a"}}   # answer key transcribed
+    assert _compute_tier(prov, ["result"], True) == "smoke"
+
+
+def test_all_exact_earns_verified():
+    prov = {"trades": {"rung": "1"}, "result": {"rung": "2"}}
+    assert _compute_tier(prov, ["result"], True) == "verified"
+
+
+def test_distinctness_violation_degrades():
+    prov = {"trades": {"rung": "1"}, "result": {"rung": "2"}}   # same-all-exact
+    assert _compute_tier(prov, ["result"], False) == "smoke"    # but content passthrough -> degrade
+
+
+def test_needs_human_rung_caps_smoke():
+    prov = {"trades": {"rung": "needs_human"}, "result": {"rung": "2"}}
+    assert _compute_tier(prov, ["result"], True) == "smoke"     # a source not exact -> never verified
+
+
+def test_no_sample_is_build():
+    assert _compute_tier({}, [], True) == "build"               # no sample source present at all
+
+
+# ------------------------------------------------------------------
+# Section-9 completeness: an unaccounted handle is a hard blocker.
+# ------------------------------------------------------------------
+def test_unaccounted_handle_sets_needs_human():
+    inventory = {"handles": [{"id": "table:0", "type": "table"},
+                             {"id": "para:0", "type": "prose"}]}
+    coverage_map = [{"handle": "table:0", "disposition": "extracted_to", "refs": ["trades.id"]}]
+    emitted = {"trades", "trades.id"}
+    unaccounted, unresolved = _cross_check_coverage(inventory, coverage_map, emitted)
+    assert "para:0" in unaccounted           # absent from coverage_map -> unaccounted
+    assert "table:0" not in unaccounted       # accounted: disposition + resolvable ref
+    assert unresolved == []
+
+
+def test_extracted_to_with_dangling_ref_is_unaccounted():
+    inventory = {"handles": [{"id": "table:0", "type": "table"}]}
+    coverage_map = [{"handle": "table:0", "disposition": "extracted_to", "refs": ["ghost.col"]}]
+    unaccounted, _ = _cross_check_coverage(inventory, coverage_map, {"trades.id"})
+    assert "table:0" in unaccounted           # ref resolves to nothing emitted -> not accounted
+
+
+def test_irrelevant_handle_is_accounted():
+    inventory = {"handles": [{"id": "image:0", "type": "image"}]}
+    coverage_map = [{"handle": "image:0", "disposition": "irrelevant"}]
+    unaccounted, _ = _cross_check_coverage(inventory, coverage_map, set())
+    assert unaccounted == []                   # irrelevant needs no refs

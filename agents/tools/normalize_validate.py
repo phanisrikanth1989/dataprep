@@ -6,7 +6,11 @@ import io
 import logging
 import re
 
+from agents.tools.extract_doc import compute_derived_facts
+
 logger = logging.getLogger(__name__)
+
+_EXACT_RUNGS = ("1", "2")  # only file/table exactness earns "verified"; everything else fails closed
 
 
 class NeedsHuman(Exception):
@@ -227,3 +231,213 @@ def _verify_output_keys(name, keys, expected_rows) -> list:
 def _conformance_ok() -> dict:
     """Synthesize a passing conformance report for a real BRD (no template blocks; completeness lives in extraction.status)."""
     return {"ok": True, "missing_blocks": [], "parse_errors": []}
+
+
+# ------------------------------------------------------------------
+# Tier: enforced deterministically at the grading boundary (spec Section 7).
+# Fail-closed: a missing/unknown rung is NEVER exact -> never earns "verified".
+# ------------------------------------------------------------------
+def _is_exact(name, provenance) -> bool:
+    """True only if `name` has a provenance rung in {1,2}; a missing entry/rung is NOT exact (fail-closed)."""
+    return (provenance.get(name) or {}).get("rung") in _EXACT_RUNGS
+
+
+def _compute_tier(provenance, expected_graded, distinct_ok) -> str:
+    """Grade the job tier (verified|smoke|build), quantified over EVERY source AND EVERY graded output; fail-closed."""
+    graded = list(expected_graded or [])
+    graded_set = set(graded)
+    sources = [name for name in provenance if name not in graded_set]  # non-graded provenance == sample sources
+    if not sources:
+        return "build"  # no parseable sample source present
+    verified = (
+        bool(graded)                                       # at least one gradable oracle exists
+        and all(_is_exact(s, provenance) for s in sources)  # EVERY source rung 1-2
+        and all(_is_exact(g, provenance) for g in graded)   # EVERY graded output rung 1-2
+        and bool(distinct_ok)                               # role/content distinctness holds
+    )
+    return "verified" if verified else "smoke"
+
+
+# ------------------------------------------------------------------
+# Section-9 completeness cross-check: account for EVERY inventory handle.
+# ------------------------------------------------------------------
+def _cross_check_coverage(inventory, coverage_map, emitted, unresolved=None) -> tuple:
+    """Return (unaccounted, unresolved): a handle is accounted only with a disposition AND (extracted_to) all refs emitted."""
+    emitted_set = set(emitted or ())
+    by_handle = {}
+    for entry in coverage_map or []:
+        hid = entry.get("handle")
+        if hid is not None:
+            by_handle[hid] = entry  # last entry wins on a duplicate handle
+    handle_ids = [h.get("id") for h in inventory.get("handles", []) if h.get("id") is not None]
+    accounted = set()
+    for hid in handle_ids:
+        entry = by_handle.get(hid)
+        if entry is None:
+            continue  # no disposition at all -> unaccounted (fail-closed)
+        disposition = entry.get("disposition")
+        if disposition == "extracted_to":
+            refs = entry.get("refs") or []
+            if refs and all(ref in emitted_set for ref in refs):  # content-checked, not trivially satisfiable
+                accounted.add(hid)
+        elif disposition in ("irrelevant", "could_not_interpret"):
+            accounted.add(hid)  # a disposition with no ref obligation
+        # any other/unknown disposition -> not accounted (fail-closed)
+    unaccounted = [hid for hid in handle_ids if hid not in accounted]
+    return unaccounted, list(unresolved or [])
+
+
+# ------------------------------------------------------------------
+# Rung-aware derived facts: a rung-3 source is NOT trusted to declare a
+# unique key, so emit the conservative (ambiguity-raising) value.
+# ------------------------------------------------------------------
+def _rung_aware_facts(sample_input, provenance) -> dict:
+    """Compute derived facts; for a rung-3 (3a/3b) source force unique=False and max_group_size>=2 (conservative)."""
+    facts = compute_derived_facts(sample_input)
+    for source, col_facts in facts.items():
+        if (provenance.get(source) or {}).get("rung") in ("3a", "3b"):
+            for col_fact in col_facts.values():
+                col_fact["unique"] = False  # never claim a verified-unique key off unverified rows
+                if col_fact.get("max_group_size", 0) <= 1:
+                    col_fact["max_group_size"] = 2  # raise doc-interpreter's non-unique-key ambiguity
+    return facts
+
+
+# ------------------------------------------------------------------
+# assemble: tie the merge/guard helpers into the final extract_doc.json.
+# ------------------------------------------------------------------
+def _build_emitted(source_names, output_names, sources_schema, output_keys_proposed, expected_output, rules, extra_sections, name_map) -> set:
+    """Build the set of ref targets a coverage entry may resolve to (raw AND sanitized names, schema/output fields, rule ids, headings)."""
+    emitted: set = set()
+    for source in source_names:
+        emitted.update({source, name_map[source]})
+        for col_spec in sources_schema.get(source, []):
+            col = col_spec.get("name")
+            if col is not None:
+                emitted.update({f"{source}.{col}", f"{name_map[source]}.{col}"})
+    for output in output_names:
+        emitted.update({output, name_map[output]})
+        cols = set(output_keys_proposed.get(output, []))
+        rows = expected_output.get(output, [])
+        if rows:
+            cols.update(rows[0].keys())
+        for col in cols:
+            emitted.update({f"{output}.{col}", f"{name_map[output]}.{col}"})
+    for rule in rules or []:
+        rid = rule.get("id")
+        if rid is not None:
+            emitted.add(rid)
+    emitted.update(extra_sections or {})
+    return emitted
+
+
+def assemble(proposal, inventory, model_id="") -> tuple:
+    """Integrate proposal+inventory into the final extract_doc.json dict; return (extract_dict, extraction status)."""
+    sources_schema = proposal.get("sources_schema", {}) or {}
+    rules = proposal.get("rules", []) or []
+    notes = proposal.get("notes", "") or ""
+    extra_sections = proposal.get("extra_sections", {}) or {}
+    output_keys_proposed = proposal.get("output_keys", {}) or {}
+    located = proposal.get("located", {}) or {}
+    located_sample = located.get("sample_input", {}) or {}
+    located_expected = located.get("expected_output", {}) or {}
+    coverage_map = proposal.get("coverage_map", []) or []
+    low_confidence = list(proposal.get("low_confidence", []) or [])
+
+    source_names = list(sources_schema.keys())
+    output_names = list(located_expected.keys())
+
+    sample_input: dict = {}   # original name -> exact rows (schema order)
+    expected_output: dict = {}
+    provenance: dict = {}     # original name -> {"rung", "handle"}
+    unresolved_names: list = []
+
+    # ---- 1. Merge each sample_input source (HARD: unreconcilable -> unresolved) ----
+    for source in source_names:
+        schema_cols = [c.get("name") for c in sources_schema.get(source, [])]
+        try:
+            rows, prov = _merge_source(source, located_sample.get(source, []), proposal, inventory, side="sample_input")
+            sample_input[source] = _reorder_to_schema(rows, schema_cols)
+            provenance[source] = prov
+        except NeedsHuman as exc:
+            logger.warning("[normalize_validate] source %s unresolved: %s", source, exc)
+            unresolved_names.append(source)
+
+    # ---- 2. Merge each expected_output (SOFT name-space; only a missing data handle is unresolved) ----
+    for output in output_names:
+        try:
+            rows, prov = _merge_source(output, located_expected.get(output, []), proposal, inventory, side="expected_output")
+        except NeedsHuman as exc:
+            logger.warning("[normalize_validate] output %s unresolved: %s", output, exc)
+            unresolved_names.append(output)
+            continue
+        proposed_keys = list(output_keys_proposed.get(output, []))
+        header = list(rows[0].keys()) if rows else []
+        # Reorder to the proposed key name-space only when it is a full-width column list; else keep the header (soft).
+        output_cols = proposed_keys if (proposed_keys and header and len(proposed_keys) == len(header)) else []
+        merged_rows, note = _reconcile_expected(rows, output_cols)
+        expected_output[output] = merged_rows
+        provenance[output] = prov
+        if note and output_cols:
+            low_confidence.append(note)
+
+    # ---- 3. Graded set + guards (pinned to materialize_golden: rows > 0) ----
+    graded = [name for name, rows in expected_output.items() if len(rows) > 0]
+    missing_prov_graded = [name for name in graded if name not in provenance]
+    distinct_ok = not _distinctness(sample_input, expected_output)
+
+    # ---- 4. output_keys (COMPOSITE tuple-uniqueness) + low_confidence flag ----
+    output_keys_final: dict = {}
+    for output, rows in expected_output.items():
+        proposed = list(output_keys_proposed.get(output, []))
+        result = _verify_output_keys(output, proposed, rows)
+        output_keys_final[output] = result
+        if result == [] and bool(proposed):  # re-derive the (log-only) low_confidence flag from Task 8
+            low_confidence.append(
+                f"output_keys for {output!r}: proposed composite key {proposed} not unique across expected rows; "
+                "using bag/multiset")
+
+    # ---- 5. Co-key name sanitization: ONE map applied across every keyed artifact ----
+    name_map = _safe_output_names(list(dict.fromkeys([*source_names, *output_names])))
+
+    def _remap(mapping):
+        return {name_map[key]: value for key, value in mapping.items()}
+
+    sources_schema_out = _remap(sources_schema)
+    sample_input_out = _remap(sample_input)
+    expected_output_out = _remap(expected_output)
+    provenance_out = _remap(provenance)
+    output_keys_out = _remap(output_keys_final)
+    graded_out = [name_map[name] for name in graded]
+
+    # ---- 6. Tier + rung-aware facts + coverage cross-check ----
+    tier = _compute_tier(provenance_out, graded_out, distinct_ok)
+    derived_facts = _rung_aware_facts(sample_input_out, provenance_out)
+    emitted = _build_emitted(source_names, output_names, sources_schema, output_keys_proposed,
+                             expected_output, rules, extra_sections, name_map)
+    unresolved_out = [name_map.get(name, name) for name in unresolved_names]
+    unaccounted, unresolved = _cross_check_coverage(inventory, coverage_map, emitted, unresolved_out)
+
+    # ---- 7. Extraction status: any hard blocker routes to human ----
+    status = "needs_human" if (unaccounted or unresolved or missing_prov_graded) else "ok"
+    if missing_prov_graded:
+        logger.warning("[normalize_validate] graded output(s) lack provenance -> needs_human: %s", missing_prov_graded)
+    extraction = {"status": status, "unaccounted": unaccounted, "unresolved": unresolved, "low_confidence": low_confidence}
+
+    extract_dict = {
+        "sources_schema": sources_schema_out,
+        "rules": rules,
+        "sample_input": sample_input_out,
+        "expected_output": expected_output_out,
+        "output_keys": output_keys_out,
+        "derived_facts": derived_facts,
+        "conformance": _conformance_ok(),
+        "notes": notes,
+        "extra_sections": extra_sections,
+        "tier": tier,
+        "provenance": provenance_out,
+        "coverage_map": coverage_map,
+        "extraction": extraction,
+        "normalization": {"model_id": model_id},
+    }
+    return extract_dict, status
