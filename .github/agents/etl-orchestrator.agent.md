@@ -17,6 +17,7 @@ agents:
   - assembler
   - test-runner
   - diagnostician
+  - doc-normalizer
 user-invocable: true
 ---
 
@@ -51,14 +52,84 @@ truth; you do not re-explain it and you do not let a stage improvise around it.
 ## Step 0 - materialize (deterministic terminal commands)
 
 You are invoked with a `<docx path>` and a `<job>` name -- NOT a golden dir; you materialize the golden
-yourself. BEFORE the forward chain, run these terminal commands yourself, IN ORDER:
-1. Create the work dir FIRST: `mkdir -p agents/work/<job>`. Do this before ANY python command --
-   `extract_doc --out` does NOT create its parent directory, so skipping this makes the next command
-   fail with "No such file or directory". (Always ensure the target folder exists before running a
-   command that writes into it.)
-2. `python -m agents.tools.extract_doc <docx path> --out agents/work/<job>/extract_doc.json`
-3. When a Sample Input is present, `python -m agents.tools.materialize_golden --extract-doc agents/work/<job>/extract_doc.json --work-dir agents/work/<job>`
-   -- this writes the input CSVs to the work-dir ROOT and `golden/{<out>_expected.csv, manifest.json}`.
+yourself. BEFORE the forward chain you produce `extract_doc.json` by ONE of two routes -- the DEFAULT
+template route or the real-BRD front door -- and then materialize the golden. Run every command
+yourself, IN ORDER, and audit-log each step (Safety net 2).
+
+Create the work dir FIRST, before ANY python command: `mkdir -p agents/work/<job>`. The `--out` /
+`--inventory` flags do NOT create their parent directory, so skipping this makes the next command fail
+with "No such file or directory". (Always ensure the target folder exists before a command that writes
+into it.)
+
+### Route selection (template vs real-BRD)
+
+Run the purity scan FIRST -- it decides the route, and you NEVER silently route a doc into the LLM
+normalizer:
+
+```
+python -m agents.tools.docx_purity <docx path> --out agents/work/<job>/purity.json
+```
+
+It emits `{has_images, has_embeds, has_headingless_content, conformance_fail, tripped}`. Then:
+- If the invocation EXPLICITLY requested real-BRD mode (it says "real BRD" / "real-BRD mode" or passes
+  that signal), take the real-BRD front door below -- the explicit signal wins regardless of `tripped`.
+- Else if `tripped` is true, the doc carries content OUTSIDE the template parser's lossless envelope
+  (images, embeds, headingless content, or a conformance failure). Do NOT auto-route it: PAUSE and ask
+  the human to OPT IN to real-BRD mode. If they opt in, take the real-BRD front door; if they decline,
+  fall through to the template route knowing the template parser drops the out-of-envelope content.
+- Else (`tripped` false and real-BRD not requested), take the DEFAULT template route.
+
+Audit-log the routing decision -- the `tripped` flags and the route taken.
+
+### Template route (default) -- deterministic extract
+
+```
+python -m agents.tools.extract_doc <docx path> --out agents/work/<job>/extract_doc.json
+```
+
+This is the existing author-to-template extract, UNCHANGED. It writes `extract_doc.json`; proceed to
+"Materialize the golden" below.
+
+### Real-BRD front door (real-BRD mode only)
+
+An arbitrary BRD is exploded into stable handles, interpreted ONCE by the eyes-on `doc-normalizer`
+subagent, then re-assembled DETERMINISTICALLY into the SAME `extract_doc.json` shape the template route
+emits -- after which the forward chain runs UNCHANGED. Run, IN ORDER:
+
+1. `mkdir -p agents/work/<job>` (idempotent; ensure it exists).
+2. Explode the doc into stable handles + jailed files:
+   `python -m agents.tools.explode_doc <docx path> --out-dir agents/work/<job>/_explode --inventory agents/work/<job>/exploder_inventory.json`
+3. `#runSubagent doc-normalizer` -- it reads `exploder_inventory.json` + the jailed files and writes
+   `agents/work/<job>/normalizer_proposal.json`. On a re-invoke (the shape-repair loop below) it reads
+   `agents/work/<job>/normalizer_feedback.json` FIRST and applies each fix.
+4. Validate + assemble the proposal into `extract_doc.json`:
+   `python -m agents.tools.normalize_validate --inventory agents/work/<job>/exploder_inventory.json --proposal agents/work/<job>/normalizer_proposal.json --out agents/work/<job>/extract_doc.json --feedback agents/work/<job>/normalizer_feedback.json`
+5. Branch on the validator's EXIT CODE:
+   - **exit 3 (shape_error)** -- the proposal was structurally malformed; the validator wrote
+     `normalizer_feedback.json` (a list of `{pointer, why, fix}`). Re-run `#runSubagent doc-normalizer`
+     (it reads that feedback FIRST) then re-run `normalize_validate`. This is the bounded SHAPE-REPAIR
+     loop: at most **3** iterations. After the 3rd shape_error STOP looping and take it to the human --
+     do not grind past the budget.
+   - **exit 4 (needs_human), or a written `extract_doc.json` whose `extraction.status == "needs_human"`**
+     -- the validator wrote a PARTIAL `extract_doc.json` it could not fully account for. STOP at the
+     EXTRACTION GATE (a real-BRD-only human pause) and present, from that partial file: the `coverage_map`
+     disposition summary, `extraction.unaccounted`, `extraction.unresolved`, and `extraction.low_confidence`.
+     Do NOT proceed past the extraction gate on your own -- wait for the human's decision.
+   - **exit 0 (ok)** -- `extract_doc.json` is written and shape-conforming. Proceed to "Materialize the
+     golden" below, exactly as today.
+   Audit-log each step -- the explode, each normalizer run (including every repair iteration), and each
+   validate with its exit code / `extraction.status`.
+
+### Materialize the golden (both routes)
+
+Once `extract_doc.json` exists (from either route), when a Sample Input is present run:
+
+```
+python -m agents.tools.materialize_golden --extract-doc agents/work/<job>/extract_doc.json --work-dir agents/work/<job>
+```
+
+-- this writes the input CSVs to the work-dir ROOT and `golden/{<out>_expected.csv, manifest.json}`. It
+is now rung-aware (it respects the real-BRD provenance rungs the validator recorded in `extract_doc.json`).
 Read the emitted `tier` (verified | smoke | build); it drives the run step below.
 
 ## The free-agent loop
@@ -191,6 +262,19 @@ exhausted. At the gate you STOP and present to the human, for APPROVAL:
 - the TIER (token + per-tier label) from step 0: `verified (N/M outputs graded)` -- fill N/M from the
   report's `graded`/`total` -- or "smoke: ran, not graded" or "build-only: not executed", so the human
   knows exactly how much the harness actually verified.
+- when the job came through the real-BRD front door, the EXTRACTION PROVENANCE from the final
+  `agents/work/<job>/extract_doc.json` (ADDITIVE -- surface-not-block; it does NOT change the gate
+  DECISION, only shows HOW the requirement was reconstructed from an arbitrary BRD):
+  - the `tier` and the per-source / per-output `provenance` rung (`provenance[<name>].rung`) the
+    validator DERIVED from each resolved handle's type -- how exact each located value is;
+  - the ROLE-BINDING it recorded: which inventory handle became which source/output
+    (`provenance[<name>].handle` -- the exact `para:N | table:N | image:N | embed:<name> | sibling:<name>`
+    id that fed each named source and output);
+  - a `coverage_map` disposition summary -- how many handles were `extracted_to` vs `irrelevant` vs
+    `could_not_interpret`, so the human sees every part of the doc was accounted for;
+  - the `extraction.low_confidence` list -- every value or interpretation the normalizer FLAGGED rather
+    than fabricated, verbatim.
+  For a template-route job these fields are absent -- say so plainly and move on.
 - the captured `notes` (the "Notes / Special Handling" prose, verbatim) and `extra_sections` (prose +
   review flags) from the latest `agents/work/<job>/requirement_spec.json`, as human-facing context the
   oracle never checks.
