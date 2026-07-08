@@ -503,7 +503,9 @@ def _shape_errors(proposal, inventory) -> list:
     located = proposal.get("located") or {}
     located_sample = located.get("sample_input") or {}
     located_expected = located.get("expected_output") or {}
-    declared_outputs = set((proposal.get("output_keys") or {}).keys())
+    # A valid output appears under output_keys OR in located.expected_output; a missing
+    # output_keys entry means bag/[] (keyless), which assemble treats as a valid output.
+    valid_outputs = set((proposal.get("output_keys") or {}).keys()) | set(located_expected.keys())
     for name in located_sample:
         if name not in sources_schema:
             errors.append({
@@ -512,11 +514,11 @@ def _shape_errors(proposal, inventory) -> list:
                 "fix": "add a sources_schema entry for this name or remove the located slot",
             })
     for name in located_expected:
-        if name not in declared_outputs:
+        if name not in valid_outputs:
             errors.append({
                 "pointer": f"located.expected_output.{name}",
-                "why": "located expected_output name is not a declared output (no output_keys designation)",
-                "fix": "declare this output under output_keys or remove the located slot",
+                "why": "located expected_output name is not a declared output",
+                "fix": "declare this output under output_keys or in located.expected_output, or remove the slot",
             })
 
     # (4) every located candidate handle id resolves against the inventory.
@@ -562,11 +564,17 @@ def _shape_errors(proposal, inventory) -> list:
 def validate(inventory_path, proposal_path, out_path, feedback_path, model_id="") -> str:
     """Shape-validate then assemble; on a shape failure write normalizer_feedback.json (shape_error), else write extract_doc.json (ok|needs_human)."""
     with open(inventory_path, "r", encoding="utf-8") as fh:
-        inventory = json.load(fh)
-    with open(proposal_path, "r", encoding="utf-8") as fh:
-        proposal = json.load(fh)
-
-    errors = _shape_errors(proposal, inventory)
+        inventory = json.load(fh)  # deterministic tool output: fail-loud on a malformed inventory
+    try:
+        with open(proposal_path, "r", encoding="utf-8") as fh:
+            proposal = json.load(fh)
+        errors = _shape_errors(proposal, inventory)
+    except (json.JSONDecodeError, AttributeError, TypeError, ValueError) as exc:
+        errors = [{
+            "pointer": "$",
+            "why": f"proposal is not valid JSON or has the wrong top-level shape: {exc}",
+            "fix": "emit a well-formed normalizer_proposal.json (object with rules/sources_schema/located/coverage_map)",
+        }]
     if errors:
         fb = Path(feedback_path)
         fb.parent.mkdir(parents=True, exist_ok=True)
