@@ -117,6 +117,59 @@ Aliases: tMap
 - `enable_auto_convert_type`: type=bool; default=False
 - `label`: type=str; default=''
 
+## PyMap
+Aliases: (none -- non-Talend, pure-Python map-family)
+- `inputs`: type=dict; REQUIRED -- `{main:{name}, lookups:[{name, join_mode, matching_mode, lookup_mode, join_keys:[{lookup_column, expression}]}]}`. Nested mode VALUES are not schema-enforced (the validator does not recurse); engine-recognized: join_mode {LEFT_OUTER_JOIN, INNER_JOIN}; matching_mode {UNIQUE_MATCH, FIRST_MATCH, LAST_MATCH, ALL_MATCHES}; lookup_mode {LOAD_ONCE, RELOAD_AT_EACH_ROW}. Engine requires inputs.main.name, and each lookup's name + join_keys[lookup_column,expression] + join_mode.
+- `outputs`: type=list; REQUIRED
+  items:
+    - `name`: type=str; REQUIRED
+    - `is_reject`: type=bool
+    - `inner_join_reject`: type=bool
+    - `activate_filter`: type=bool
+    - `filter`: type=str
+    - `columns`: type=list; REQUIRED
+      items:
+        - `name`: type=str
+        - `expression`: type=str (plain Python, evaluated in a SANDBOXED namespace: pd/np/re/datetime/Decimal/json/math; NO os/sys/open/eval/exec -- surfaced at the human gate)
+        - `type`: type=str
+        - `nullable`: type=bool
+        - `length`: type=int
+        - `precision`: type=int
+        - `date_pattern`: type=str
+- `variables`: type=list; default=[]
+- `die_on_error`: type=bool; default=True
+- `enable_auto_convert_type`: type=bool; default=False
+- `label`: type=str; default=''
+- LANDMINE: use `float` (not `decimal`) for numeric columns used in arithmetic -- a `decimal` column arrives as pandas StringDtype and would break e.g. `quantity * price`.
+
+## SchemaComplianceCheck
+Aliases: tSchemaComplianceCheck
+- `schema`: type=list; REQUIRED -- the FLOW column list (normally flow-supplied, not hand-authored)
+  items:
+    - `name`: type=str; REQUIRED
+    - `type`: type=str; REQUIRED
+    - `nullable`: type=bool
+    - `length`: type=int
+    - `date_pattern`: type=str
+- `check_all`: type=bool; default=True
+- `check_another`: type=bool; default=False
+- `checkcols`: type=list; default=[]
+  items:
+    - `column`: type=str
+    - `selected_type`: type=str
+    - `date_pattern`: type=str
+    - `nullable`: type=bool
+    - `max_length`: type=bool (a Talend checkbox flag, NOT the length value -- the actual length check uses the schema column's `length`)
+- `strict_date_check`: type=bool; default=False (enforce date_pattern on datetime columns)
+- `all_empty_are_null`: type=bool; default=True
+- `empty_null_table`: type=list; default=[]
+  items:
+    - `column`: type=str
+    - `empty_is_null`: type=bool
+- `check_string_by_byte_length`: type=bool; default=False
+- `charset`: type=str; default=''
+- `customer` / `sub_string` / `fast_date_check` / `ignore_timezone`: type=bool; default=False (DEFERRED/no-op -- logged as WARNING when true)
+
 ## SortRow
 Aliases: tSortRow
 - `criteria`: type=list; default=[]; REQUIRED

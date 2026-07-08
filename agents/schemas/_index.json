@@ -18,5 +18,8 @@
   "tUniqueRow": "unique_row.json",
   "tUnqRow": "unique_row.json",
   "ConvertType": "convert_type.json",
-  "tConvertType": "convert_type.json"
+  "tConvertType": "convert_type.json",
+  "PyMap": "py_map.json",
+  "SchemaComplianceCheck": "schema_compliance_check.json",
+  "tSchemaComplianceCheck": "schema_compliance_check.json"
 }
