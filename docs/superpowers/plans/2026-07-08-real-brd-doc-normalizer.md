@@ -65,7 +65,7 @@ These JSON shapes are the contracts between tasks. All under `agents/work/<job>/
 ```
 - `located.*.<name>` is a LIST of candidate handles (alternatives). Rung hints are optional and advisory.
 
-**`extract_doc.json`** (validator output): the existing shape (see `extract_doc.py:ExtractResult` / `to_dict`) PLUS additive `provenance`, `coverage_map`, `extraction`, `normalization`. `provenance[name] = {"rung": 1|2|"3a"|"3b", "handle": "<id>"}`.
+**`extract_doc.json`** (validator output): the existing shape (see `extract_doc.py:ExtractResult` / `to_dict`) PLUS additive `provenance`, `coverage_map`, `extraction`, `normalization`. `provenance[name] = {"rung": "1"|"2"|"3a"|"3b", "handle": "<id>"}`. **`rung` is ALWAYS a string** (matches `_derive_rung`'s return, `_compute_tier`'s membership test, and the rung-aware `materialize_golden`). The validator MUST emit a `provenance` entry for every source AND every graded `expected_output` (a graded output with no provenance entry is a hard error -> `needs_human`, never a silent grade).
 
 **`normalizer_feedback.json`** (validator -> orchestrator -> normalizer, on shape error): `{"errors": [{"pointer": "rules[2].kind", "why": "...", "fix": "..."}]}`.
 
@@ -125,13 +125,29 @@ def scan_purity(path: str) -> dict:
 ```
 (Add a `main(argv)` CLI mirroring `extract_doc.main`'s `--out` + parent-dir-mkdir pattern.)
 
-- [ ] **Step 2: Write the guardrail test.** A template docx (reuse `agents/examples/sample_etl_requirements.docx`) must NOT trip on headingless/conformance (it is template-pure prose+tables), and a docx with an embedded image must set `has_images=True, tripped=True`.
+- [ ] **Step 2: Write the guardrail tests.** (a) The existing template docx must NOT trip on headingless/conformance (satisfiable now). (b) The image trip is tested with an inline image-bearing docx built in the test (no dependency on Task 13's fixture).
 
 ```python
+import base64, io
+from docx import Document
+from agents.tools.docx_purity import scan_purity
+
+# 1x1 transparent PNG
+_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+
 def test_template_docx_not_headingless():
     r = scan_purity("agents/examples/sample_etl_requirements.docx")
     assert r["has_headingless_content"] is False
     assert r["conformance_fail"] is False
+
+def test_image_docx_trips(tmp_path):
+    doc = Document()
+    doc.add_paragraph("prose only, no template headings")
+    doc.add_picture(io.BytesIO(_PNG))
+    p = tmp_path / "img.docx"; doc.save(p)
+    r = scan_purity(str(p))
+    assert r["has_images"] is True and r["tripped"] is True
 ```
 
 - [ ] **Step 3: Run.** `python -m pytest tests/agents/test_docx_purity.py -v` -> PASS.
@@ -193,19 +209,23 @@ def _safe_basename(member: str) -> str:
 ```
 Before extracting each member: `if info.file_size > MAX_ENTRY_BYTES or total + info.file_size > MAX_EXTRACT_BYTES: raise ConformanceError(...)`. Disambiguate colliding basenames with an index suffix.
 
-- [ ] **Step 2: Write the jail guardrail test.** A crafted zip member `../../evil.png` must be reduced to `evil.png` and written inside the jail (never escape). Build a tiny zip in the test, run `_safe_basename("../../evil.png") == "evil.png"`, and assert an absolute-path member raises.
+- [ ] **Step 2: Write the jail guardrail test.** A crafted zip member (relative `../` OR absolute) must be REDUCED to a bare basename inside the jail (reduce-then-validate never escapes); a member that reduces to an empty/`.`/`..` basename must RAISE.
 
 ```python
-def test_zip_slip_reduced_to_basename():
-    from agents.tools.explode_doc import _safe_basename
+import pytest
+from agents.tools.explode_doc import _safe_basename, _resolve_sibling
+
+def test_zip_slip_and_absolute_reduced_to_basename():
     assert _safe_basename("word/media/../../evil.png") == "evil.png"
+    assert _safe_basename("/abs/evil.png") == "evil.png"       # absolute -> basename, does NOT raise
+
+def test_unsafe_basename_raises():
+    with pytest.raises(ValueError):
+        _safe_basename("..")                                    # reduces to ".." -> _safe_name raises
 
 def test_sibling_read_rejects_escape(tmp_path):
-    # a BRD-named "../secret" must not resolve outside the docx dir
-    import pytest
-    from agents.tools.explode_doc import _resolve_sibling
     with pytest.raises(ValueError):
-        _resolve_sibling(str(tmp_path), "../secret.csv")
+        _resolve_sibling(str(tmp_path), "../secret.csv")        # read-jail: escape rejected
 ```
 
 - [ ] **Step 3: Write `_resolve_sibling` (read-jail).** `base = realpath(docx_dir)`; reject absolute or `..` in the reference; `target = realpath(base / name)`; require `target.is_relative_to(base)`; else `raise ValueError`.
@@ -236,9 +256,9 @@ def test_sibling_read_rejects_escape(tmp_path):
 **Interfaces:**
 - Consumes: `exploder_inventory.json` + the jailed files (reads text via `read`, PNGs via native vision). Produces: `normalizer_proposal.json` (the contract above). Tools: `read`, `edit`, `search/codebase`. NO `model:` key. `user-invocable: false`.
 
-- [ ] **Step 1: Author the agent markdown.** Full content (ASCII, model-agnostic). It must: read the inventory; for every handle emit a `coverage_map` entry (`extracted_to` with real refs / `irrelevant` / `could_not_interpret`); emit Bucket-1 intent in the exact `extract_doc.json` field shapes; for each source/output emit a LIST of candidate handles in `located`; author values ONLY for image/prose handles; never invent a path not in the inventory; flag low-confidence rather than fabricate. Include the "locate, do not author on data files" discipline and the coverage-map schema verbatim from the spec Section 9.
+- [ ] **Step 1: Author the agent markdown.** Full content (ASCII, model-agnostic). It must: **on a re-invoke, FIRST read `agents/work/<job>/normalizer_feedback.json` if present and apply each `errors[].{pointer,why,fix}` before regenerating** (mirrors the doc-interpreter feedback contract; without this the shape-repair loop burns all 3 iterations with no directed correction); read the inventory; for every handle emit a `coverage_map` entry (`extracted_to` with real refs / `irrelevant` / `could_not_interpret`); emit Bucket-1 intent in the exact `extract_doc.json` field shapes; for each source/output emit a LIST of candidate handles in `located`; author values ONLY for image/prose handles; never invent a path not in the inventory; flag low-confidence rather than fabricate. Include the "locate, do not author on data files" discipline and the coverage-map schema verbatim from the spec Section 9.
 
-- [ ] **Step 2: Validate structure.** Run `python -m agents.tools.validate_agents` -> the new agent passes (no `model:` key, valid tools list).
+- [ ] **Step 2: Validate structure.** `validate_agents` has no `__main__` CLI, so exercise the library directly: `python -c "from agents.tools.validate_agents import validate_tree; e=validate_tree('.github/agents','.github/skills'); assert not e, e"` -> no error (no `model:` key, valid tools list). (Note: `validate_tree` flags only refs to UNKNOWN agents, not missing ones -- see Task 12.)
 - [ ] **Step 3: Commit.** `git add .github/agents/doc-normalizer.agent.md && git commit -m "feat(normalizer): doc-normalizer vision agent"`
 
 ---
@@ -250,7 +270,7 @@ def test_sibling_read_rejects_escape(tmp_path):
 - Test: `tests/agents/test_normalize_tier.py` (started here; extended in Task 9)
 
 **Interfaces:**
-- Produces: `_resolve(handle_id, inventory) -> dict | None`; `_derive_rung(handle, inventory) -> "1"|"2"|"3a"|"needs_human"`. Phase-1 rung map: CSV handle with non-null `csv_dialect` -> "1"; `table` handle -> "2"; `image`/`prose` handle -> "3a"; `embed` ending `.xlsx`/`.xls` located as data -> `"needs_human"` (Phase 2). A hint the type cannot honor -> `needs_human`.
+- Produces: `_resolve(handle_id, inventory) -> dict | None`; `_derive_rung(handle_id, inventory) -> "1"|"2"|"3a"|"needs_human"`. Phase-1 rung map: a handle whose path ends `.xlsx`/`.xls` (embed OR sibling) -> `"needs_human"` (Phase 2 adds the xlsx reader); a CSV handle (sibling/embed `.csv`) with non-null `csv_dialect` -> "1"; a `table` handle -> "2"; an `image`/`prose` handle -> "3a". **The catch-all default is `"needs_human"`, never a silent "1"/"2"** -- an unrecognized handle type can never be graded. A hint the type cannot honor -> `needs_human`.
 
 - [ ] **Step 1: Write `_resolve` + `_derive_rung`.** `_resolve` returns the inventory handle or None (unresolved). `_derive_rung` reads only the handle type + dialect presence; the LLM's hint is ignored for authority.
 - [ ] **Step 2: Write the rung-derivation test.**
@@ -301,9 +321,13 @@ def test_rung_derived_from_type_not_hint():
 - Test: `tests/agents/test_normalize_tier.py` (extend)
 
 **Interfaces:**
-- Produces: `_compute_tier(provenance, expected_graded, distinct_ok) -> "verified"|"smoke"|"build"` per spec Section 7 (EVERY source AND EVERY graded output rung 1-2, AND distinctness holds -> verified; ANY rung-3/needs_human or distinctness violation -> smoke; no sample -> build). `_rung_aware_facts(sample_input, provenance)` -- for a rung-3 source do NOT emit `unique:true`/`max_group_size<=1`. `assemble(...) -> extract_doc.json dict` with all existing fields + `provenance`/`coverage_map`/`extraction`/`normalization`.
+- Produces:
+  - `_compute_tier(provenance, expected_graded, distinct_ok) -> "verified"|"smoke"|"build"` per spec Section 7 (EVERY source AND EVERY graded output rung in `{"1","2"}`, AND distinctness holds -> verified; ANY rung-3/needs_human/missing or distinctness violation -> smoke; no sample -> build).
+  - `_cross_check_coverage(inventory, coverage_map, emitted) -> (unaccounted: list, unresolved: list)` -- the Section-9 completeness guard: a handle is `accounted` only if it has a `coverage_map` disposition AND (for `extracted_to`) non-empty `refs` that ALL resolve to an emitted target (schema field `<source>.<col>`, rule id, sanitized source/output name, or `extra_sections` heading). `unaccounted = {every inventory handle id} - {accounted}`.
+  - `_rung_aware_facts(sample_input, provenance)` -- for a rung-3 source do NOT emit `unique:true`/`max_group_size<=1` (emit the conservative ambiguity-raising value).
+  - `assemble(...) -> extract_doc.json dict` -- all existing fields + `provenance`/`coverage_map`/`extraction`/`normalization`. **`assemble` MUST emit a `provenance` entry for every source AND every graded `expected_output`**; a graded output with no derivable provenance is a hard error -> `extraction.status=needs_human`. It sets `extraction = {"status", "unaccounted", "unresolved", "low_confidence"}` with `status=needs_human` when `unaccounted` OR `unresolved` is non-empty OR a graded output lacks provenance, else `status=ok`.
 
-- [ ] **Step 1: Write `_compute_tier` + `_rung_aware_facts` + `assemble`.**
+- [ ] **Step 1: Write `_compute_tier` + `_cross_check_coverage` + `_rung_aware_facts` + `assemble`** (with the provenance-per-graded-output and unaccounted-hard-blocker rules above).
 - [ ] **Step 2: Write the tier guardrail test (the load-bearing invariant).**
 
 ```python
@@ -332,7 +356,7 @@ def test_distinctness_violation_degrades():
 **Interfaces:**
 - Produces: `validate(inventory_path, proposal_path, out_path) -> status` in `ok | shape_error | needs_human`; CLI `python -m agents.tools.normalize_validate --inventory ... --proposal ... --out agents/work/<job>/extract_doc.json --feedback agents/work/<job>/normalizer_feedback.json`. On `shape_error` write feedback + return exit 3; on `needs_human` write `extraction.status=needs_human` into a partial extract_doc.json + exit 4; on ok write extract_doc.json + exit 0.
 
-- [ ] **Step 1: Write the shape predicate** (enumerated: every rule has a valid kind; every source has >=1 column; located names match schema/output names; every located candidate resolves; coverage refs resolve). Classify failures shape_error vs needs_human vs soft.
+- [ ] **Step 1: Write the shape predicate** (enumerated: every rule has a valid kind; every source has >=1 column; located names match schema/output names; every located candidate resolves; an `extracted_to` coverage entry has non-empty refs that resolve = `shape_error`). Classify failures shape_error vs needs_human vs soft. **Wire the Section-9 coverage hard-blocker:** call `_cross_check_coverage` (Task 9); if `extraction.status == needs_human` (non-empty `unaccounted`/`unresolved`, or a graded output missing provenance), the CLI writes the partial extract_doc.json with that `extraction` block and exits 4 (the orchestrator's extraction gate keys on this). A `shape_error` (empty/unresolvable `extracted_to` refs) writes `normalizer_feedback.json` and exits 3.
 - [ ] **Step 2: Write the CLI** (create parent dirs; ASCII logs).
 - [ ] **Step 3: Commit.** `git add agents/tools/normalize_validate.py && git commit -m "feat(normalizer): shape validation + validator CLI"`
 
@@ -347,7 +371,7 @@ def test_distinctness_violation_degrades():
 **Interfaces:**
 - Consumes: the additive `provenance[name].rung` in `extract_doc.json`. Produces: for a rung-3 (3a/3b) output, `graded: false` and NO `<name>_expected.csv` written -- so no transcribed answer key ever sits on disk as gradable. Rung-1/2 outputs materialize exactly as today.
 
-- [ ] **Step 1: Write the failing test.**
+- [ ] **Step 1: Write the failing tests (allow-list, fail-closed -- covers rung-3 AND a MISSING provenance entry).**
 
 ```python
 def test_rung3_output_not_graded_and_no_csv(tmp_path):
@@ -357,11 +381,39 @@ def test_rung3_output_not_graded_and_no_csv(tmp_path):
     manifest = materialize_expected(extract, tmp_path)
     assert manifest["outputs"]["result"]["graded"] is False
     assert not (tmp_path / "golden" / "result_expected.csv").exists()
+
+def test_missing_provenance_entry_on_normalizer_path_not_graded(tmp_path):
+    # normalizer path (provenance key present) but NO entry for 'result' -> fail-closed, never graded
+    extract = {"expected_output": {"result": [{"id": "1"}]},
+               "output_keys": {"result": ["id"]},
+               "provenance": {"trades": {"rung": "1", "handle": "sibling:t.csv"}}}
+    manifest = materialize_expected(extract, tmp_path)
+    assert manifest["outputs"]["result"]["graded"] is False
+    assert not (tmp_path / "golden" / "result_expected.csv").exists()
+
+def test_rung1_output_graded_as_today(tmp_path):
+    extract = {"expected_output": {"result": [{"id": "1"}]},
+               "output_keys": {"result": ["id"]},
+               "provenance": {"result": {"rung": "2", "handle": "table:2"}}}
+    manifest = materialize_expected(extract, tmp_path)
+    assert manifest["outputs"]["result"]["graded"] is True
+    assert (tmp_path / "golden" / "result_expected.csv").exists()
 ```
 
-- [ ] **Step 2: Run -> FAIL** (today `graded = len(rows) > 0` is True). `pytest tests/agents/test_materialize_rung_aware.py -v`
-- [ ] **Step 3: Implement.** In `materialize_expected`, read `rung = extract.get("provenance", {}).get(name, {}).get("rung")`; set `graded = len(rows) > 0 and rung not in ("3a", "3b")`; write the expected CSV only when `graded`. (Absent `provenance` -- the template path -- keeps today's behavior.)
-- [ ] **Step 4: Run -> PASS**, and confirm the existing `materialize_golden` tests still pass (`pytest tests/agents/ -k materialize -v`).
+- [ ] **Step 2: Run -> FAIL** (today `graded = len(rows) > 0` grades all three). `pytest tests/agents/test_materialize_rung_aware.py -v`
+- [ ] **Step 3: Implement as a fail-closed ALLOW-LIST (not a deny-list).** In `materialize_expected`, branch on the presence of the top-level `provenance` KEY (the template path via `extract_doc.to_dict` emits no such key -- verified `extract_doc.py:335-344,444-447`):
+
+```python
+prov = extract.get("provenance")
+if prov is None:                                  # template path -> unchanged
+    graded = len(rows) > 0
+else:                                             # normalizer path -> fail-closed allow-list
+    rung = str(prov.get(name, {}).get("rung"))    # missing entry -> "None" -> not in the set
+    graded = len(rows) > 0 and rung in ("1", "2")
+```
+Write the `<name>_expected.csv` ONLY when `graded`. A missing entry, `3a`/`3b`, `needs_human`, or any unknown token all fail to `graded:false`. (`str(rung)` also absorbs the int-vs-string rung question safely.)
+
+- [ ] **Step 4: Run -> PASS** (all three), and confirm the existing `materialize_golden` tests still pass (`pytest tests/agents/ -k materialize -v`).
 - [ ] **Step 5: Commit.** `git add agents/tools/materialize_golden.py tests/agents/test_materialize_rung_aware.py && git commit -m "feat(normalizer): rung-aware materialize_golden -- deterministic tier cap"`
 
 ---
@@ -375,8 +427,9 @@ def test_rung3_output_not_graded_and_no_csv(tmp_path):
 - Consumes: all Phase-1 tools. Produces: the real-BRD step-0 sequence and the two new control loops, in the orchestrator's prose.
 
 - [ ] **Step 1: Edit step 0.** Add: run `docx_purity`; if `tripped` and not real-BRD mode, PAUSE for human opt-in. In real-BRD mode: `mkdir -p` the work dir; run `explode_doc`; `#runSubagent doc-normalizer`; run `normalize_validate`. On exit 3 (shape_error), re-run the normalizer with `normalizer_feedback.json` up to 3 times then human. On exit 4 (needs_human) or `extraction.status=needs_human`, PAUSE at the extraction gate showing the coverage map + unaccounted/low-confidence. On exit 0, proceed to `materialize_golden` exactly as today (it is now rung-aware).
-- [ ] **Step 2: Extend Safety-net-3 (final gate) presentation** to also print the `tier` + per-source/output `provenance` rung + role-binding + coverage-map disposition summary + low_confidence (additive; surface-not-block).
-- [ ] **Step 3: Validate + commit.** `python -m agents.tools.validate_agents`; `git add .github/agents/etl-orchestrator.agent.md && git commit -m "feat(normalizer): orchestrator real-BRD step-0 branch + extraction gate"`
+- [ ] **Step 2: Add `doc-normalizer` to the orchestrator's `agents:` frontmatter allowlist** (`.github/agents/etl-orchestrator.agent.md:13-19`, currently the six specialists). Under VS Code 1.122 native subagents this `agents:` list is the spawn allowlist -- `#runSubagent doc-normalizer` cannot dispatch unless `- doc-normalizer` is listed. IMPORTANT: `validate_tree` does NOT catch a MISSING entry (it only flags refs to UNKNOWN agents, `validate_agents.py:104-105`), so this is easy to forget and green-passes anyway -- the Task 13 E2E dispatch is the real check. `doc-normalizer` (created in Task 5) is a known agent, so adding it keeps `validate_tree` green.
+- [ ] **Step 3: Extend Safety-net-3 (final gate) presentation** to also print the `tier` + per-source/output `provenance` rung + role-binding + coverage-map disposition summary + low_confidence (additive; surface-not-block).
+- [ ] **Step 4: Validate + commit.** `python -c "from agents.tools.validate_agents import validate_tree; e=validate_tree('.github/agents','.github/skills'); assert not e, e"`; `git add .github/agents/etl-orchestrator.agent.md && git commit -m "feat(normalizer): orchestrator real-BRD step-0 branch + extraction gate"`
 
 ---
 
