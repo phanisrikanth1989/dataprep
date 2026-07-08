@@ -102,7 +102,7 @@ def _merge_source(name, candidates, proposal, inventory, side="sample_input"):
 
 
 # ------------------------------------------------------------------
-# Column-order reconciliation (the engine binds CSV columns POSITIONALLY).
+# Column-order reconcile (the engine binds CSV columns POSITIONALLY).
 # ------------------------------------------------------------------
 def _normalize_col(name) -> str:
     """Fold a column name to a match key: lowercase, then drop all whitespace and punctuation."""
