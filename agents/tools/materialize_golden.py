@@ -93,15 +93,28 @@ def materialize_expected(extract: dict, work_dir) -> dict:
     empty header-only output is ``graded: false``). A graded output gets a
     ``<name>_expected.csv``; an ungraded one gets no CSV (nothing to diff). The
     manifest carries NO ``component`` key -- run_and_validate derives the id
-    deterministically from the FileOutput whose id == the output name."""
+    deterministically from the FileOutput whose id == the output name.
+
+    Rung-aware tier cap (fail-closed ALLOW-LIST): when a top-level ``provenance``
+    key is present (the normalizer path), an output is graded ONLY if its rung is
+    "1" or "2". A rung-3 (3a/3b) or LLM-authored output, a missing provenance
+    entry, or any unknown/``needs_human`` token all fall to ``graded: false`` -- so
+    no transcribed answer key ever lands on disk as gradable, independent of the
+    orchestrator LLM. The template path (no ``provenance`` key, via
+    ``extract_doc.to_dict``) is unchanged: ``graded`` stays ``len(rows) > 0``."""
     gdir = Path(work_dir) / "golden"
     gdir.mkdir(parents=True, exist_ok=True)
     expected = extract.get("expected_output", {})
     output_keys = extract.get("output_keys", {})
+    prov = extract.get("provenance")
     outputs = {}
     for name, rows in expected.items():
         _safe_name(name)
-        graded = len(rows) > 0
+        if prov is None:                                   # template path -> unchanged
+            graded = len(rows) > 0
+        else:                                              # normalizer path -> fail-closed allow-list
+            rung = str(prov.get(name, {}).get("rung"))     # missing entry -> "None" -> not in the set
+            graded = len(rows) > 0 and rung in ("1", "2")
         outputs[name] = {"keys": output_keys.get(name, []), "sep": _SEP, "graded": graded}
         if graded:
             _write_csv(_jailed(gdir, f"{name}_expected.csv"), list(rows[0].keys()), rows)
