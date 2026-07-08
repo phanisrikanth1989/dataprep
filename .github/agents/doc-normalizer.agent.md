@@ -74,7 +74,7 @@ Read `agents/work/<job>/exploder_inventory.json` (the exploder -> normalizer bus
 - `handles` -- a list of every part of the document as a stable-id handle. Each has an `id` and a
   `type`. Handle-id grammar (the exploder guarantees these ids; you select among them, you never mint
   a new one):
-  - `para:N`   -- a prose block-range (the sectional accounting unit; carries `text_ref`).
+  - `para:N`   -- a prose block-range (the sectional accounting unit; carries `text`).
   - `table:N`  -- a Word table (carries `columns` and `n_rows`; cells are exact strings).
   - `image:N`  -- an extracted PNG (carries `path` to a jailed file; read it via native vision).
   - `embed:<name>`   -- an embedded/OLE object extracted to a jailed file (carries `path`).
@@ -125,7 +125,9 @@ downstream stage are unchanged:
   expected-output name) under `expected_output`.
 - Each value is a **LIST of candidate handle ids** -- ALTERNATIVES for the same source/output (e.g. the
   same sample given as both a sibling CSV and a Word table), NOT partitions of a split sample. The
-  validator picks by precedence (file wins) and runs a consistency compare across the alternatives.
+  validator picks the winning candidate by precedence (file wins over table over transcription) and
+  derives the authoritative rung from that handle's type (a cross-candidate consistency compare is a
+  Phase-2 addition; today only precedence is applied).
 - Every id MUST be a real handle from `exploder_inventory.json`. Never a filename, never a path,
   never an invented id.
 - Rung hints are OPTIONAL and ADVISORY -- the validator derives the authoritative rung from the
