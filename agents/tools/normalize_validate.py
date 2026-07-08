@@ -140,7 +140,16 @@ def _reorder_to_schema(rows, schema_cols) -> list[dict]:
     if not rows:
         return list(rows)  # empty stays empty; nothing to reorder
     mapping = _reconcile_columns(list(rows[0].keys()), schema_cols)
-    return [{sc: row[mapping[sc]] for sc in schema_cols} for row in rows]
+    reordered: list[dict] = []
+    for row in rows:
+        rebuilt: dict = {}
+        for sc in schema_cols:
+            src = mapping[sc]
+            if src not in row:  # a ragged LATER row (row0 had this key, this row does not) -> fail closed
+                raise NeedsHuman(f"ragged rows: row is missing column {src!r}")
+            rebuilt[sc] = row[src]
+        reordered.append(rebuilt)
+    return reordered
 
 
 def _reconcile_expected(rows, output_cols):

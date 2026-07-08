@@ -1,9 +1,14 @@
 """Guardrail tests: rung is derived from the handle TYPE (authority), never the LLM hint; fail-closed default."""
+import pytest
+
 from agents.tools.normalize_validate import (
+    NeedsHuman,
     _compute_tier,
     _cross_check_coverage,
     _derive_rung,
+    _reorder_to_schema,
     _resolve,
+    assemble,
 )
 
 
@@ -87,3 +92,26 @@ def test_irrelevant_handle_is_accounted():
     coverage_map = [{"handle": "image:0", "disposition": "irrelevant"}]
     unaccounted, _ = _cross_check_coverage(inventory, coverage_map, set())
     assert unaccounted == []                   # irrelevant needs no refs
+
+
+# ------------------------------------------------------------------
+# Ragged rung-3a transcription: a later row missing a row0 column must
+# DEGRADE (NeedsHuman -> needs_human), never crash with a bare KeyError.
+# ------------------------------------------------------------------
+def test_reorder_ragged_rows_raises_needs_human_not_keyerror():
+    with pytest.raises(NeedsHuman):
+        _reorder_to_schema([{"a": "1", "b": "2"}, {"a": "3"}], ["a", "b"])   # row1 misses 'b'
+
+
+def test_assemble_ragged_rung3a_degrades_to_needs_human():
+    inventory = {"handles": [{"id": "image:0", "type": "image"}]}
+    proposal = {
+        "sources_schema": {"trades": [{"name": "a"}, {"name": "b"}]},
+        "located": {"sample_input": {"trades": ["image:0"]}, "expected_output": {}},
+        "sample_input": {"trades": [{"a": "1", "b": "2"}, {"a": "3"}]},   # ragged rung-3a transcription
+        "coverage_map": [{"handle": "image:0", "disposition": "extracted_to", "refs": ["trades.a"]}],
+    }
+    extract_dict, status = assemble(proposal, inventory)   # must not raise
+    assert status == "needs_human"
+    assert extract_dict["extraction"]["status"] == "needs_human"
+    assert "trades" in extract_dict["extraction"]["unresolved"]   # ragged source routed to unresolved
