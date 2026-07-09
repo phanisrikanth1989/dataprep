@@ -46,7 +46,7 @@ Responsibilities: `presenter.py` = "what does each artifact mean, value-free" (n
 
 Run:
 ```bash
-mkdir -p demo/budget_ui/daemon tests/demo_budget_ui/fixtures/trade_position_demo/golden
+mkdir -p demo/budget_ui/daemon tests/demo_budget_ui/fixtures/trade_position_demo
 touch demo/budget_ui/daemon/__init__.py tests/demo_budget_ui/__init__.py
 cp agents/work/trade_position_demo/extract_doc.json \
    agents/work/trade_position_demo/requirement_spec.json \
@@ -56,11 +56,8 @@ cp agents/work/trade_position_demo/extract_doc.json \
    agents/work/trade_position_demo/test_report.json \
    agents/work/trade_position_demo/audit.jsonl \
    tests/demo_budget_ui/fixtures/trade_position_demo/
-cp agents/work/trade_position_demo/golden/manifest.json \
-   agents/work/trade_position_demo/golden/trade_positions_expected.csv \
-   tests/demo_budget_ui/fixtures/trade_position_demo/golden/
 ```
-Expected: files exist under `tests/demo_budget_ui/fixtures/trade_position_demo/`.
+Expected: files exist under `tests/demo_budget_ui/fixtures/trade_position_demo/`. (Imports resolve because `tests/__init__.py` already exists and `demo` is a PEP-420 namespace package -- verified; no extra `__init__.py` needed.)
 
 - [ ] **Step 2: Craft a clean (passed) test_report fixture for happy-path tests**
 
@@ -235,7 +232,7 @@ def classify(component, lookup_name=None):
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `python -m pytest tests/demo_budget_ui/test_presenter.py -v`
-Expected: PASS (4 tests).
+Expected: PASS (3 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -289,11 +286,13 @@ def test_ev_rules_counts_and_labels():
     assert {"join", "filter", "sort", "derive", "schema_validate"} <= kinds
     P.assert_data_free(ev, _forbidden_values())
 
-def test_ev_nodes_uses_classify_and_is_data_free():
-    ev = P.ev_nodes(_load("flow_plan.json"))
+def test_ev_nodes_uses_skeleton_and_is_data_free():
+    ev = P.ev_nodes(_load("flow_plan.json"))   # flow_plan has NO config -> config-free skeleton
     assert ev["type"] == "nodes"
+    kinds = {n["kind"] for n in ev["nodes"]}
+    assert {"source", "filter", "join", "derive", "validate", "sort", "output"} <= kinds
     labels = {n["label"] for n in ev["nodes"]}
-    assert "Keep status = SETTLED" in labels and "Compute market_value" in labels
+    assert "Filter rows" in labels and "Compute a value" in labels  # business labels arrive via node_config
     P.assert_data_free(ev, _forbidden_values())
 ```
 
@@ -306,8 +305,11 @@ Expected: FAIL (`AttributeError`).
 
 ```python
 def assert_data_free(event, forbidden):
-    """Raise if any forbidden raw value appears anywhere in the event (test guard)."""
-    blob = repr(event)
+    """Raise if any forbidden raw value appears in the event PAYLOAD (test guard).
+    Envelope metadata (job/seq/t) is excluded: seq is a climbing int and t is an
+    epoch float whose digits can coincidentally contain a short numeric cell like '10'."""
+    payload = {k: v for k, v in event.items() if k not in ("job", "seq", "t")}
+    blob = repr(payload)
     for v in forbidden:
         assert v not in blob, "data-free violation: %r leaked into event %s" % (v, event.get("type"))
 
@@ -333,12 +335,24 @@ def ev_rules(requirement_spec):
     return {"type": "rules", "count": len(items), "items": items}
 
 
+_SKELETON = {"source": "Read a source", "filter": "Filter rows", "join": "Match a lookup",
+             "map": "Enrich (mapper)", "validate": "Validate", "derive": "Compute a value",
+             "sort": "Sort", "aggregate": "Group and summarize", "output": "Write output"}
+
+
+def skeleton(component):
+    """Config-FREE node view for flow_plan.json (which carries only id/type/purpose).
+    The business label arrives later from job.json config via ev_node_config."""
+    t = component.get("type", "")
+    kind = _KIND.get(t) or _fallback_kind(t)
+    return {"kind": kind, "label": _SKELETON.get(kind) or _humanize_type(t)}
+
+
 def ev_nodes(flow_plan):
-    """flow_plan components -> node skeletons (kind + label). Purpose free-text is NOT forwarded."""
+    """flow_plan components -> node skeletons (kind + config-free label). Purpose text NOT forwarded."""
     nodes = []
     for c in flow_plan.get("components") or []:
-        v = classify(c)
-        nodes.append({"id": c.get("id"), "ntype": c.get("type"), **v})
+        nodes.append({"id": c.get("id"), "ntype": c.get("type"), **skeleton(c)})
     return {"type": "nodes", "nodes": nodes}
 ```
 
@@ -377,11 +391,12 @@ def test_ev_edges_from_flows_and_marks_reject():
     assert all(e.get("reject") is False for e in ev["edges"])  # this job has no reject route
     P.assert_data_free(ev, _forbidden_values())
 
-def test_ev_node_config_fills_business_subs():
+def test_ev_node_config_fills_business_label_and_sub():
     ev = P.ev_node_config(_load("job.json"))
-    subs = {n["id"]: n["sub"] for n in ev["nodes"]}
-    assert subs["filter_settled"] == "filter rows"
-    assert "left join on account_id" in subs["join_accounts"]  # lookup name resolved from flows
+    by = {n["id"]: n for n in ev["nodes"]}
+    assert by["filter_settled"]["label"] == "Keep status = SETTLED"   # upgraded from real config
+    assert by["filter_settled"]["sub"] == "filter rows"
+    assert "left join on account_id" in by["join_accounts"]["sub"]    # lookup name resolved from flows
     P.assert_data_free(ev, _forbidden_values())
 ```
 
@@ -412,9 +427,12 @@ def ev_edges(job):
 
 
 def ev_node_config(job):
+    """Upgrade each node to its business label + sub from real config."""
     looks = _lookup_names(job)
-    nodes = [{"id": c.get("id"), "sub": classify(c, looks.get(c.get("id")))["sub"]}
-             for c in job.get("components") or []]
+    nodes = []
+    for c in job.get("components") or []:
+        v = classify(c, looks.get(c.get("id")))
+        nodes.append({"id": c.get("id"), "label": v["label"], "sub": v["sub"]})
     return {"type": "node_config", "nodes": nodes}
 ```
 
@@ -476,7 +494,7 @@ _CALLOUT = {
     "filter": "Filter goes first -- it shrinks the lookups.",
     "join": "Matched on a unique key, so no rows fan out.",
     "map": "Enriched via a mapper (multiple lookups in one step).",
-    "derive": "This step writes code -- a human signs off before it runs.",
+    "derive": "This step writes code -- a human must sign off before it runs.",
     "sort": "Sorted last so the final order is fixed.",
 }
 
@@ -666,21 +684,21 @@ import time
 from . import presenter as P
 
 # artifact filename -> (stage-on-appearance, [extractor callables])
-def _dispatch(name, doc, job):
+def _dispatch(name, doc):
     if name == "extract_doc.json":
         return [P.ev_stage("reading", "done"), P.ev_sources(doc), P.ev_stage("interpreting", "active")]
     if name == "requirement_spec.json":
         return [P.ev_rules(doc), P.ev_stage("designing", "active")]
     if name == "flow_plan.json":
-        return [P.ev_nodes(doc), *P.ev_callouts_from_plan(doc), P.ev_stage("designing", "done")]
+        return [P.ev_nodes(doc), P.ev_stage("designing", "done")]
     if name == "job_draft.json":
-        return [P.ev_node_config(doc), P.ev_stage("configuring", "active")]
+        # callouts pop here (the configuring stage) from a SINGLE source -> no duplicates
+        return [P.ev_node_config(doc), *P.ev_callouts(doc), P.ev_stage("configuring", "active")]
     if name == "job.json":
         evs = [P.ev_edges(doc), P.ev_stage("wiring", "active")]
         g = P.ev_gate(doc)
         if g:
             evs.append(g)
-        evs.extend(P.ev_callouts(doc))
         return evs
     return []
 
@@ -691,8 +709,9 @@ class Daemon:
         self.work_dir = work_dir
         self.send = send
         self.since = since if since is not None else time.time()
-        self._seen = {}   # filename -> mtime
+        self._seen = {}      # filename -> mtime
         self._seq = 0
+        self.tier = "build"  # captured from extract_doc.json when it appears (NOT from test_report)
 
     def _emit(self, payload):
         if not payload:
@@ -719,14 +738,17 @@ class Daemon:
                 continue
             self._seen[name] = mt
             try:
-                doc = json.loads(open(path, encoding="utf-8").read())
+                with open(path, encoding="utf-8") as fh:
+                    doc = json.load(fh)
             except (ValueError, OSError):
                 continue   # torn/half-written read: skip this pass, retry next
+            if name == "extract_doc.json":
+                self.tier = doc.get("tier", self.tier)   # tier lives here, NOT in test_report.json
             if name == "test_report.json":
-                self._emit(P.ev_result(doc, tier=doc.get("tier", "verified")))
+                self._emit(P.ev_result(doc, tier=self.tier))
                 self._emit(P.ev_stage("done" if doc.get("passed") else "testing", "done"))
                 continue
-            for ev in _dispatch(name, doc, self.job_id):
+            for ev in _dispatch(name, doc):
                 self._emit(ev)
 
     def run(self, interval=0.5):
@@ -735,12 +757,8 @@ class Daemon:
             time.sleep(interval)
 ```
 
-Note: `_dispatch` references `P.ev_callouts_from_plan`; add a thin alias so flow-plan callouts reuse the canned map keyed by the flow_plan's own components:
-```python
-# append to presenter.py
-def ev_callouts_from_plan(flow_plan):
-    return ev_callouts({"components": flow_plan.get("components") or []})
-```
+Note: callouts are emitted from exactly ONE place -- the `job_draft.json` branch (the configuring
+stage) -- so each node gets a single callout. There is deliberately no flow-plan callout emit.
 
 - [ ] **Step 4: Run to verify it passes**
 
@@ -780,10 +798,13 @@ def test_full_run_replay_is_ordered_and_data_free(tmp_path):
         d.poll()
     types = [e["type"] for e in cap]
     # every expected type appeared, sources before edges before result
-    for t in ("sources", "rules", "nodes", "node_config", "edges", "gate", "result"):
+    for t in ("sources", "rules", "nodes", "node_config", "edges", "gate", "callout", "result"):
         assert t in types, t
     assert types.index("sources") < types.index("edges") < types.index("result")
     assert cap[-1]["type"] == "stage" and cap[-1]["stage"] == "done"
+    # callouts appear exactly once per node (no duplicate emit)
+    callout_nodes = [e["node"] for e in cap if e["type"] == "callout"]
+    assert len(callout_nodes) == len(set(callout_nodes))
     from tests.demo_budget_ui.test_presenter import _forbidden_values, P
     for e in cap:
         P.assert_data_free(e, _forbidden_values())
