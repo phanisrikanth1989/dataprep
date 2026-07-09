@@ -131,12 +131,30 @@ _SKELETON = {"source": "Read a source", "filter": "Filter rows", "join": "Match 
              "map": "Enrich (mapper)", "validate": "Validate", "derive": "Compute a value",
              "sort": "Sort", "aggregate": "Group and summarize", "output": "Write output"}
 
+# For the "noun" kinds the flow_plan id reliably encodes the SUBJECT (read_trades -> trades,
+# join_accounts -> accounts, write_position -> position), so we preview a distinguishable label
+# from it instead of an identical placeholder. Verb-on-a-column kinds (filter/derive/sort/...) keep
+# the generic skeleton -- their id may not encode the relevant column, so a guess could mislead.
+_SKEL_VERB = {"source": "Read", "output": "Write", "join": "Match", "map": "Match"}
+_SKEL_STOP = frozenset({"read", "src", "source", "in", "input", "load", "file",
+                        "write", "out", "output", "sink",
+                        "join", "match", "lookup", "merge", "map", "enrich"})
+
 
 def skeleton(component):
-    """Config-FREE node view for flow_plan.json (which carries only id/type/purpose).
-    The business label arrives later from job.json config via ev_node_config."""
+    """Config-FREE node view for flow_plan.json (which carries only id/type/purpose). The
+    config-authoritative label arrives one beat later from job.json via ev_node_config; until then
+    we derive a DISTINGUISHABLE preview from the id for source/join/output/map (structure, not data
+    values) so three sources read "Read trades / accounts / prices", not three "Read a source"."""
     t = component.get("type", "")
     kind = _KIND.get(t) or _fallback_kind(t)
+    if kind in _SKEL_VERB:
+        tokens = [tok for tok in re.split(r"[^A-Za-z0-9]+", component.get("id", "")) if tok]
+        while tokens and tokens[0].lower() in _SKEL_STOP:
+            tokens.pop(0)
+        subject = " ".join(tokens).strip()
+        if subject:
+            return {"kind": kind, "label": "%s %s" % (_SKEL_VERB[kind], subject)}
     return {"kind": kind, "label": _SKELETON.get(kind) or _humanize_type(t)}
 
 

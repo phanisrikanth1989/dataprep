@@ -101,19 +101,19 @@
     "id": "in_trades",
     "ntype": "FileInputDelimited",
     "kind": "source",
-    "label": "Read a source"
+    "label": "Read trades"
    },
    {
     "id": "in_accounts",
     "ntype": "FileInputDelimited",
     "kind": "source",
-    "label": "Read a source"
+    "label": "Read accounts"
    },
    {
     "id": "in_prices",
     "ntype": "FileInputDelimited",
     "kind": "source",
-    "label": "Read a source"
+    "label": "Read prices"
    },
    {
     "id": "filter_settled",
@@ -125,13 +125,13 @@
     "id": "join_accounts",
     "ntype": "tJoin",
     "kind": "join",
-    "label": "Match a lookup"
+    "label": "Match accounts"
    },
    {
     "id": "join_prices",
     "ntype": "tJoin",
     "kind": "join",
-    "label": "Match a lookup"
+    "label": "Match prices"
    },
    {
     "id": "derive_market_value",
@@ -155,7 +155,7 @@
     "id": "out_trade_positions",
     "ntype": "FileOutputDelimited",
     "kind": "output",
-    "label": "Write output"
+    "label": "Write trade positions"
    }
   ]
  },
