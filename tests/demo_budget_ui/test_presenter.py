@@ -68,3 +68,20 @@ def test_ev_nodes_uses_skeleton_and_is_data_free():
     labels = {n["label"] for n in ev["nodes"]}
     assert "Filter rows" in labels and "Compute a value" in labels  # business labels arrive via node_config
     P.assert_data_free(ev, _forbidden_values())
+
+def test_ev_edges_from_flows_and_marks_reject():
+    ev = P.ev_edges(_load("job.json"))
+    assert ev["type"] == "edges"
+    pairs = {(e["from"], e["to"]) for e in ev["edges"]}
+    assert ("filter_settled", "join_accounts") in pairs
+    assert ("sort_market_value", "trade_positions") in pairs
+    assert all(e.get("reject") is False for e in ev["edges"])  # this job has no reject route
+    P.assert_data_free(ev, _forbidden_values())
+
+def test_ev_node_config_fills_business_label_and_sub():
+    ev = P.ev_node_config(_load("job.json"))
+    by = {n["id"]: n for n in ev["nodes"]}
+    assert by["filter_settled"]["label"] == "Keep status = SETTLED"   # upgraded from real config
+    assert by["filter_settled"]["sub"] == "filter rows"
+    assert "left join on account_id" in by["join_accounts"]["sub"]    # lookup name resolved from flows
+    P.assert_data_free(ev, _forbidden_values())

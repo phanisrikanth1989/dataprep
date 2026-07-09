@@ -143,3 +143,31 @@ def ev_nodes(flow_plan):
     for c in flow_plan.get("components") or []:
         nodes.append({"id": c.get("id"), "ntype": c.get("type"), **skeleton(c)})
     return {"type": "nodes", "nodes": nodes}
+
+
+def _lookup_names(job):
+    """join id -> the basename of its FileInput lookup predecessor (from flows)."""
+    comps = {c.get("id"): c for c in job.get("components") or []}
+    out = {}
+    for f in job.get("flows") or []:
+        src, dst = comps.get(f.get("from")), comps.get(f.get("to"))
+        if src and dst and _KIND.get(dst.get("type")) in ("join", "map") \
+           and _KIND.get(src.get("type")) == "source":
+            out[dst.get("id")] = _base((src.get("config") or {}).get("filepath"))
+    return out
+
+
+def ev_edges(job):
+    edges = [{"from": f.get("from"), "to": f.get("to"), "reject": f.get("type") == "reject"}
+             for f in job.get("flows") or []]
+    return {"type": "edges", "edges": edges}
+
+
+def ev_node_config(job):
+    """Upgrade each node to its business label + sub from real config."""
+    looks = _lookup_names(job)
+    nodes = []
+    for c in job.get("components") or []:
+        v = classify(c, looks.get(c.get("id")))
+        nodes.append({"id": c.get("id"), "label": v["label"], "sub": v["sub"]})
+    return {"type": "node_config", "nodes": nodes}
