@@ -1,0 +1,56 @@
+{
+  "job": "trade_position_demo",
+  "pattern": "Three delimited inputs (trades source + accounts and prices lookups). A pre-join FilterRows pushes the R4 status=SETTLED predicate upstream of the joins (status is a pre-join source column, so this is a safe pushdown that shrinks both merges). Two vectorized tJoin nodes left-outer-enrich the source: first accounts on account_id (R1, keep unmatched -> null account_name/region), then prices on symbol (R2, human-resolved to keep unmatched -> null closing_price). Both lookup keys are unique (1:1, no fan-out). One tPythonDataFrame node derives market_value = quantity * price (R3, the trade price, not closing_price) in a single vectorized pass. A SchemaComplianceCheck validates trade_date as a YYYY-MM-DD date (R5). SortRow orders by market_value descending numeric (R6, last so the downstream-facing order is fixed). FileOutputDelimited writes trade_positions.",
+  "components": [
+    {
+      "id": "in_trades",
+      "type": "FileInputDelimited",
+      "purpose": "Read the trades source file (trade_id, account_id, symbol, quantity, price, status, trade_date)."
+    },
+    {
+      "id": "in_accounts",
+      "type": "FileInputDelimited",
+      "purpose": "Read the Accounts lookup file (account_id, account_name, region); unique account_id key."
+    },
+    {
+      "id": "in_prices",
+      "type": "FileInputDelimited",
+      "purpose": "Read the Prices lookup file (symbol, closing_price); unique symbol key."
+    },
+    {
+      "id": "filter_settled",
+      "type": "FilterRows",
+      "purpose": "R4: keep only rows where status = SETTLED. Pushed UPSTREAM of both joins because status is a pre-join source column, shrinking both merge inputs; this is a safe pushdown (no lookup-derived column referenced)."
+    },
+    {
+      "id": "join_accounts",
+      "type": "tJoin",
+      "purpose": "R1: left-outer enrich the filtered trades with Accounts on account_id, adding account_name and region. Unique key (1:1), so no fan-out. Keep unmatched trades with null account_name/region -> configurator must set LEFT_OUTER_JOIN semantics and use_lookup_cols with the two added columns."
+    },
+    {
+      "id": "join_prices",
+      "type": "tJoin",
+      "purpose": "R2: left-outer enrich with Prices on symbol, adding closing_price. Unique key (1:1), no fan-out. Human-resolved no_match = keep, so keep unmatched trades with null closing_price -> configurator must set LEFT_OUTER_JOIN semantics and use_lookup_cols for closing_price."
+    },
+    {
+      "id": "derive_market_value",
+      "type": "tPythonDataFrame",
+      "purpose": "R3: single vectorized pass deriving market_value = quantity * price (the trade price, NOT the joined closing_price). Single-input vectorized node placed AFTER the joins. Configurator MUST pin execution_mode: batch (stateful under hybrid auto-streaming >5GB); its Python code needs human review (unsandboxed)."
+    },
+    {
+      "id": "validate_trade_date",
+      "type": "SchemaComplianceCheck",
+      "purpose": "R5: validate that trade_date is a valid date in YYYY-MM-DD format (schema-level date_pattern is live for SchemaComplianceCheck); route any invalid rows to its reject output."
+    },
+    {
+      "id": "sort_market_value",
+      "type": "SortRow",
+      "purpose": "R6: sort the final output by market_value descending. Configurator MUST set sort_type = num (numeric, not lexicographic) and pin execution_mode: batch (stateful sort corrupts under hybrid auto-streaming >5GB). Placed LAST so the downstream-facing row order is fixed (the oracle diff is order-insensitive)."
+    },
+    {
+      "id": "out_trade_positions",
+      "type": "FileOutputDelimited",
+      "purpose": "Write the enriched, filtered, validated, sorted trade_positions output file for the downstream consumer."
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "passed": true,
+  "engine": {"status": "success", "dropped": [],
+    "global_map": {"trade_positions": {"NB_LINE": 4, "NB_LINE_OK": 4, "NB_LINE_REJECT": 0}}},
+  "outputs": {"trade_positions": {"equal": true, "missing": 0, "unexpected": 0, "value_mismatch": 0,
+    "unexpected_columns": [], "missing_columns": []}},
+  "reasons": [], "graded": 1, "total": 1
+}

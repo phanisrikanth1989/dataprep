@@ -1,0 +1,74 @@
+{
+  "passed": false,
+  "engine": {
+    "status": "success",
+    "dropped": [],
+    "global_map": {
+      "in_trades": {
+        "NB_LINE": 5,
+        "NB_LINE_OK": 5,
+        "NB_LINE_REJECT": 0
+      },
+      "in_accounts": {
+        "NB_LINE": 3,
+        "NB_LINE_OK": 3,
+        "NB_LINE_REJECT": 0
+      },
+      "in_prices": {
+        "NB_LINE": 4,
+        "NB_LINE_OK": 4,
+        "NB_LINE_REJECT": 0
+      },
+      "filter_settled": {
+        "NB_LINE": 5,
+        "NB_LINE_OK": 4,
+        "NB_LINE_REJECT": 1
+      },
+      "join_accounts": {
+        "NB_LINE": 4,
+        "NB_LINE_OK": 4,
+        "NB_LINE_REJECT": 1
+      },
+      "join_prices": {
+        "NB_LINE": 4,
+        "NB_LINE_OK": 4,
+        "NB_LINE_REJECT": 0
+      },
+      "validate_trade_date": {
+        "NB_LINE": 4,
+        "NB_LINE_OK": 4,
+        "NB_LINE_REJECT": 0
+      },
+      "derive_market_value": {
+        "NB_LINE": 4,
+        "NB_LINE_OK": 4,
+        "NB_LINE_REJECT": 0
+      },
+      "sort_market_value": {
+        "NB_LINE": 4,
+        "NB_LINE_OK": 4,
+        "NB_LINE_REJECT": 0
+      },
+      "trade_positions": {
+        "NB_LINE": 4,
+        "NB_LINE_OK": 4,
+        "NB_LINE_REJECT": 0
+      }
+    }
+  },
+  "outputs": {
+    "trade_positions": {
+      "equal": false,
+      "missing": 0,
+      "unexpected": 0,
+      "value_mismatch": 4,
+      "unexpected_columns": [],
+      "missing_columns": []
+    }
+  },
+  "reasons": [
+    "output 'trade_positions' differs: {'equal': False, 'missing': 0, 'unexpected': 0, 'value_mismatch': 4, 'unexpected_columns': [], 'missing_columns': []}"
+  ],
+  "graded": 1,
+  "total": 1
+}

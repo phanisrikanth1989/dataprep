@@ -1,0 +1,430 @@
+{
+  "sources_schema": {
+    "trades": [
+      {
+        "name": "trade_id",
+        "type": "string",
+        "nullable": false,
+        "key": true
+      },
+      {
+        "name": "account_id",
+        "type": "string",
+        "nullable": false,
+        "key": false
+      },
+      {
+        "name": "symbol",
+        "type": "string",
+        "nullable": false,
+        "key": false
+      },
+      {
+        "name": "quantity",
+        "type": "integer",
+        "nullable": false,
+        "key": false
+      },
+      {
+        "name": "price",
+        "type": "decimal",
+        "nullable": false,
+        "key": false
+      },
+      {
+        "name": "status",
+        "type": "string",
+        "nullable": false,
+        "key": false
+      },
+      {
+        "name": "trade_date",
+        "type": "date",
+        "nullable": false,
+        "key": false
+      }
+    ],
+    "accounts": [
+      {
+        "name": "account_id",
+        "type": "string",
+        "nullable": false,
+        "key": true
+      },
+      {
+        "name": "account_name",
+        "type": "string",
+        "nullable": false,
+        "key": false
+      },
+      {
+        "name": "region",
+        "type": "string",
+        "nullable": false,
+        "key": false
+      }
+    ],
+    "prices": [
+      {
+        "name": "symbol",
+        "type": "string",
+        "nullable": false,
+        "key": true
+      },
+      {
+        "name": "closing_price",
+        "type": "decimal",
+        "nullable": false,
+        "key": false
+      }
+    ]
+  },
+  "rules": [
+    {
+      "id": "R1",
+      "kind": "join",
+      "description": "Left join each trade to Accounts on account_id to add account_name and region; keep unmatched trades (no-match account_id yields blank account_name and region, do not drop the row)."
+    },
+    {
+      "id": "R2",
+      "kind": "join",
+      "description": "Join each trade to Prices on symbol to add closing_price."
+    },
+    {
+      "id": "R3",
+      "kind": "derive",
+      "description": "Derive market_value = quantity * price (the trade price, not closing_price)."
+    },
+    {
+      "id": "R4",
+      "kind": "filter",
+      "description": "Keep only rows where status = SETTLED."
+    },
+    {
+      "id": "R5",
+      "kind": "schema_validate",
+      "description": "Validate that trade_date is a valid date in YYYY-MM-DD format."
+    },
+    {
+      "id": "R6",
+      "kind": "sort",
+      "description": "Sort the final output by market_value in descending order (numeric sort)."
+    }
+  ],
+  "sample_input": {
+    "trades": [
+      {
+        "trade_id": "T001",
+        "account_id": "A100",
+        "symbol": "AAPL",
+        "quantity": "100",
+        "price": "150.25",
+        "status": "SETTLED",
+        "trade_date": "2026-06-01"
+      },
+      {
+        "trade_id": "T002",
+        "account_id": "A101",
+        "symbol": "MSFT",
+        "quantity": "50",
+        "price": "410.50",
+        "status": "SETTLED",
+        "trade_date": "2026-06-01"
+      },
+      {
+        "trade_id": "T003",
+        "account_id": "A100",
+        "symbol": "GOOG",
+        "quantity": "20",
+        "price": "2750.00",
+        "status": "PENDING",
+        "trade_date": "2026-06-02"
+      },
+      {
+        "trade_id": "T004",
+        "account_id": "A102",
+        "symbol": "AAPL",
+        "quantity": "200",
+        "price": "151.00",
+        "status": "SETTLED",
+        "trade_date": "2026-06-02"
+      },
+      {
+        "trade_id": "T005",
+        "account_id": "A999",
+        "symbol": "TSLA",
+        "quantity": "10",
+        "price": "690.10",
+        "status": "SETTLED",
+        "trade_date": "2026-06-03"
+      }
+    ],
+    "accounts": [
+      {
+        "account_id": "A100",
+        "account_name": "Alpha Capital",
+        "region": "NA"
+      },
+      {
+        "account_id": "A101",
+        "account_name": "Beta Partners",
+        "region": "EMEA"
+      },
+      {
+        "account_id": "A102",
+        "account_name": "Gamma Funds",
+        "region": "APAC"
+      }
+    ],
+    "prices": [
+      {
+        "symbol": "AAPL",
+        "closing_price": "150.80"
+      },
+      {
+        "symbol": "MSFT",
+        "closing_price": "411.00"
+      },
+      {
+        "symbol": "GOOG",
+        "closing_price": "2748.50"
+      },
+      {
+        "symbol": "TSLA",
+        "closing_price": "689.00"
+      }
+    ]
+  },
+  "expected_output": {
+    "trade_positions": [
+      {
+        "trade_id": "T004",
+        "account_name": "Gamma Funds",
+        "region": "APAC",
+        "symbol": "AAPL",
+        "market_value": "30200.00",
+        "closing_price": "150.80"
+      },
+      {
+        "trade_id": "T002",
+        "account_name": "Beta Partners",
+        "region": "EMEA",
+        "symbol": "MSFT",
+        "market_value": "20525.00",
+        "closing_price": "411.00"
+      },
+      {
+        "trade_id": "T001",
+        "account_name": "Alpha Capital",
+        "region": "NA",
+        "symbol": "AAPL",
+        "market_value": "15025.00",
+        "closing_price": "150.80"
+      },
+      {
+        "trade_id": "T005",
+        "account_name": "",
+        "region": "",
+        "symbol": "TSLA",
+        "market_value": "6901.00",
+        "closing_price": "689.00"
+      }
+    ]
+  },
+  "output_keys": {
+    "trade_positions": [
+      "trade_id"
+    ]
+  },
+  "derived_facts": {
+    "trades": {
+      "trade_id": {
+        "n_distinct": 5,
+        "null_rate": 0.0,
+        "unique": true,
+        "max_group_size": 1
+      },
+      "account_id": {
+        "n_distinct": 4,
+        "null_rate": 0.0,
+        "unique": false,
+        "max_group_size": 2
+      },
+      "symbol": {
+        "n_distinct": 4,
+        "null_rate": 0.0,
+        "unique": false,
+        "max_group_size": 2
+      },
+      "quantity": {
+        "n_distinct": 5,
+        "null_rate": 0.0,
+        "unique": true,
+        "max_group_size": 1
+      },
+      "price": {
+        "n_distinct": 5,
+        "null_rate": 0.0,
+        "unique": true,
+        "max_group_size": 1
+      },
+      "status": {
+        "n_distinct": 2,
+        "null_rate": 0.0,
+        "unique": false,
+        "max_group_size": 4
+      },
+      "trade_date": {
+        "n_distinct": 3,
+        "null_rate": 0.0,
+        "unique": false,
+        "max_group_size": 2
+      }
+    },
+    "accounts": {
+      "account_id": {
+        "n_distinct": 3,
+        "null_rate": 0.0,
+        "unique": true,
+        "max_group_size": 1
+      },
+      "account_name": {
+        "n_distinct": 3,
+        "null_rate": 0.0,
+        "unique": true,
+        "max_group_size": 1
+      },
+      "region": {
+        "n_distinct": 3,
+        "null_rate": 0.0,
+        "unique": true,
+        "max_group_size": 1
+      }
+    },
+    "prices": {
+      "symbol": {
+        "n_distinct": 4,
+        "null_rate": 0.0,
+        "unique": true,
+        "max_group_size": 1
+      },
+      "closing_price": {
+        "n_distinct": 4,
+        "null_rate": 0.0,
+        "unique": true,
+        "max_group_size": 1
+      }
+    }
+  },
+  "conformance": {
+    "ok": true,
+    "missing_blocks": [],
+    "parse_errors": []
+  },
+  "notes": "Special Handling: A trade whose account_id has no matching account (for example a brand-new account not yet in the Accounts file) must be KEPT in the output with account_name and region left blank - do not drop it.",
+  "extra_sections": {},
+  "tier": "verified",
+  "provenance": {
+    "trades": {
+      "rung": "1",
+      "handle": "sibling:trades.csv"
+    },
+    "accounts": {
+      "rung": "1",
+      "handle": "sibling:accounts.csv"
+    },
+    "prices": {
+      "rung": "1",
+      "handle": "sibling:prices.csv"
+    },
+    "trade_positions": {
+      "rung": "2",
+      "handle": "table:1"
+    }
+  },
+  "coverage_map": [
+    {
+      "handle": "para:0",
+      "disposition": "extracted_to",
+      "refs": [
+        "trades",
+        "accounts",
+        "prices"
+      ]
+    },
+    {
+      "handle": "table:0",
+      "disposition": "extracted_to",
+      "refs": [
+        "R1",
+        "R2",
+        "R3",
+        "R4",
+        "R5",
+        "R6",
+        "trades.trade_id",
+        "trades.quantity",
+        "trades.price",
+        "accounts.account_name",
+        "accounts.region",
+        "prices.closing_price",
+        "trades.status",
+        "trades.trade_date"
+      ]
+    },
+    {
+      "handle": "para:1",
+      "disposition": "extracted_to",
+      "refs": [
+        "R1",
+        "R2",
+        "R3",
+        "R4",
+        "R5",
+        "R6",
+        "trade_positions"
+      ]
+    },
+    {
+      "handle": "table:1",
+      "disposition": "extracted_to",
+      "refs": [
+        "trade_positions"
+      ]
+    },
+    {
+      "handle": "sibling:accounts.csv",
+      "disposition": "extracted_to",
+      "refs": [
+        "accounts"
+      ]
+    },
+    {
+      "handle": "sibling:prices.csv",
+      "disposition": "extracted_to",
+      "refs": [
+        "prices"
+      ]
+    },
+    {
+      "handle": "sibling:trades.csv",
+      "disposition": "extracted_to",
+      "refs": [
+        "trades"
+      ]
+    }
+  ],
+  "extraction": {
+    "status": "ok",
+    "unaccounted": [],
+    "unresolved": [],
+    "low_confidence": [
+      "Source column types (quantity=integer, price/closing_price=decimal, trade_date=date) are inferred from CSV data values, not a declared schema block; headers are exact but types are inferred.",
+      "R3 derive uses the Trades 'price' field (quantity * price), confirmed against the expected-output sample (T001: 100 * 150.25 = 15025.00); closing_price from Prices is carried through as a separate enrichment column and is NOT the market_value multiplier.",
+      "accounts.account_id is a lookup key with unique rows in the sample; if the real Accounts feed can carry duplicate account_id rows, an ALL_MATCHES/duplicate-handling decision is needed downstream (UNIQUE_MATCH silently keeps last)."
+    ]
+  },
+  "normalization": {
+    "model_id": ""
+  }
+}
