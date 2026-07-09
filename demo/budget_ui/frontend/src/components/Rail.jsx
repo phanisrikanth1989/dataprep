@@ -128,20 +128,25 @@ function ThinkingLine({ stageName }) {
 // One agent's transcript block: an ACCORDION row. The active agent (and the final one, which
 // has no successor to hand off to) is OPEN; a finished agent COLLAPSES to just its header when
 // the next agent takes over, and the user can click it back open to re-read it.
-function AgentBlock({ stageName, isActive, isLast, state }) {
+function AgentBlock({ stageName, isActive, isLast, isPrev, state }) {
   const agent = AGENTS[stageName];
-  const [userOpen, setUserOpen] = useState(false);
-  // When this agent's DEFAULT open-state changes (active -> done, or it stops being the last
-  // block), drop any manual override so it follows the new default (auto-collapse on handoff).
+  // manual: null = follow the auto state; true/false = the user's explicit open/collapsed override.
+  const [manual, setManual] = useState(null);
+  // When the DEFAULT open-state changes (this agent activates, becomes the just-finished one, or
+  // that role passes to the next agent), drop the manual override so it follows the new default.
   useEffect(() => {
-    setUserOpen(false);
-  }, [isActive, isLast]);
+    setManual(null);
+  }, [isActive, isPrev]);
   if (!agent) return null;
 
-  const collapsible = !isActive && !isLast; // only an auto-collapsed agent toggles
-  const open = isActive || isLast || userOpen;
+  // OPEN = the active agent, the one that JUST handed off (isPrev -- stays readable the whole time
+  // the current agent works, then collapses at the next handoff), or the final agent. Gives ample
+  // reading time and stays deterministic (never more than "current + just-did" auto-open).
+  const autoOpen = isActive || isLast || isPrev;
+  const open = manual === null ? autoOpen : manual;
+  const collapsible = !isActive; // anything not actively working can be toggled open/closed
+  const toggle = collapsible ? () => setManual(open ? false : true) : undefined;
   const lines = narrationFor(stageName, state);
-  const toggle = collapsible ? () => setUserOpen((o) => !o) : undefined;
   const cls =
     "agent " + (isActive ? "active" : "done") + (agent.human ? " human" : "") +
     (open ? " open" : "") + (collapsible ? " clickable" : "");
@@ -174,10 +179,10 @@ function AgentBlock({ stageName, isActive, isLast, state }) {
         <span className="agent-state">
           {isActive ? (
             <span className="spin" />
-          ) : collapsible ? (
-            <span className="chev">{open ? <>&#9662;</> : <>&#9656;</>}</span>
-          ) : (
+          ) : open ? (
             <span className="chk">&#10003;</span>
+          ) : (
+            <span className="chev">&#9656;</span>
           )}
         </span>
       </div>
@@ -200,6 +205,10 @@ export function Rail({ state }) {
   const currentName = state.stage && state.stage.name;
   const idx = reachedIndex(currentName);
   const reached = idx >= 0 ? STAGE_ORDER.slice(0, idx + 1) : [];
+  // The stage that JUST handed off to the active one (immediately before it) stays open too, so
+  // its output is readable the whole time the current agent works -- then it collapses next handoff.
+  const activeIdx = currentName && currentName !== "done" ? STAGE_ORDER.indexOf(currentName) : -1;
+  const prevStage = activeIdx > 0 ? STAGE_ORDER[activeIdx - 1] : null;
   return (
     <div className="rail">
       <div className="rail-h">
@@ -212,6 +221,7 @@ export function Rail({ state }) {
             stageName={stageName}
             isActive={stageName === currentName && currentName !== "done"}
             isLast={i === reached.length - 1}
+            isPrev={stageName === prevStage}
             state={state}
           />
         ))}
