@@ -204,3 +204,20 @@ def ev_gate(job):
             return {"type": "gate", "kind": "code_signoff", "node": c.get("id"),
                     "code": _code_of(c.get("config") or {}), "status": "awaiting"}
     return None
+
+
+def ev_result(test_report, tier, sample=None):
+    total_rows = 0
+    gm = ((test_report.get("engine") or {}).get("global_map") or {})
+    for stats in gm.values():
+        total_rows = max(total_rows, stats.get("NB_LINE_OK", stats.get("NB_LINE", 0)))
+    ev = {"type": "result", "passed": bool(test_report.get("passed")), "tier": tier,
+          "rows": total_rows,
+          "graded": "%s/%s" % (test_report.get("graded", 0), test_report.get("total", 0))}
+    if sample is not None:
+        ev["sample"] = sample
+    return ev
+
+
+def ev_stage(stage, status):
+    return {"type": "stage", "stage": stage, "status": status}

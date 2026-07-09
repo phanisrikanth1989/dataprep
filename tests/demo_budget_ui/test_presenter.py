@@ -102,3 +102,21 @@ def test_ev_gate_present_for_code_cell():
 def test_ev_gate_none_without_code():
     job = {"components": [{"id": "x", "type": "FilterRows", "config": {}}], "flows": []}
     assert P.ev_gate(job) is None
+
+def test_ev_result_counts_no_sample_by_default():
+    ev = P.ev_result(_load("test_report_passed.json"), tier="verified")
+    assert ev["type"] == "result" and ev["passed"] is True
+    assert ev["rows"] == 4 and ev["graded"] == "1/1" and ev["tier"] == "verified"
+    assert "sample" not in ev                       # fail-closed: no sample unless explicitly given
+
+def test_ev_result_failed_report_is_not_green():
+    ev = P.ev_result(_load("test_report.json"), tier="verified")  # the real FAILED report
+    assert ev["passed"] is False
+
+def test_ev_result_includes_sample_only_when_provided():
+    ev = P.ev_result(_load("test_report_passed.json"), tier="verified",
+                     sample=[{"trade_id": "T004", "market_value": "30200.0"}])
+    assert ev["sample"][0]["trade_id"] == "T004"
+
+def test_ev_stage():
+    assert P.ev_stage("configuring", "active") == {"type": "stage", "stage": "configuring", "status": "active"}
