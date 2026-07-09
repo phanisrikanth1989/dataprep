@@ -70,7 +70,16 @@ def test_full_run_replay_is_ordered_and_data_free(tmp_path):
     for t in ("sources", "rules", "nodes", "node_config", "edges", "gate", "callout", "result"):
         assert t in types, t
     assert types.index("sources") < types.index("edges") < types.index("result")
-    assert cap[-1]["type"] == "stage" and cap[-1]["stage"] == "done"
+    assert cap[-1] == {"job": "job", "seq": cap[-1]["seq"], "t": cap[-1]["t"], "type": "end", "passed": True}
+    # gate signed, signoff+testing stages, and node/result contract fields are present
+    assert any(e["type"] == "gate" and e.get("status") == "signed" for e in cap)
+    stage_names = {e["stage"] for e in cap if e["type"] == "stage"}
+    assert {"signoff", "testing"} <= stage_names
+    ncfg = next(e for e in cap if e["type"] == "node_config")
+    assert all("kind" in n for n in ncfg["nodes"])                 # node_config carries kind
+    assert any(n.get("source") == "trades" for n in ncfg["nodes"]) # source crosswalk present
+    res = next(e for e in cap if e["type"] == "result")
+    assert res["outputs"] == ["trade_positions"]                   # finale glow target named
     # callouts appear exactly once per node (no duplicate emit)
     callout_nodes = [e["node"] for e in cap if e["type"] == "callout"]
     assert len(callout_nodes) == len(set(callout_nodes))

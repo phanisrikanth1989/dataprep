@@ -44,7 +44,8 @@ def _dispatch(name, doc):
         evs = [P.ev_node_config(doc), P.ev_edges(doc), P.ev_stage("wiring", "active")]
         g = P.ev_gate(doc)
         if g:
-            evs.append(g)
+            evs.append(g)                                  # gate awaiting (code sign-off)
+            evs.append(P.ev_stage("signoff", "active"))
         return evs
     return []
 
@@ -58,6 +59,7 @@ class Daemon:
         self._seen = {}      # filename -> mtime
         self._seq = 0
         self.tier = "build"  # captured from extract_doc.json when it appears (NOT from test_report)
+        self._gate_node = None  # remembered from job.json so we can emit gate:signed at test_report
 
     def _emit(self, payload):
         if not payload:
@@ -96,9 +98,18 @@ class Daemon:
             try:
                 if name == "extract_doc.json":
                     self.tier = doc.get("tier", self.tier)   # tier lives here, NOT in test_report.json
+                if name == "job.json":
+                    _g = P.ev_gate(doc)
+                    self._gate_node = _g["node"] if _g else None
                 if name == "test_report.json":
+                    if self._gate_node:                      # the test ran -> the human signed off
+                        self._emit({"type": "gate", "kind": "code_signoff",
+                                    "node": self._gate_node, "status": "signed"})
+                    self._emit(P.ev_stage("testing", "active"))
                     self._emit(P.ev_result(doc, tier=self.tier))
                     self._emit(P.ev_stage("done" if doc.get("passed") else "testing", "done"))
+                    if doc.get("passed"):
+                        self._emit({"type": "end", "passed": True})   # terminal: server closes the SSE
                     continue
                 for ev in _dispatch(name, doc):
                     self._emit(ev)

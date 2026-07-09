@@ -112,7 +112,7 @@ def ev_sources(extract_doc):
     nodes = []
     for name, cols in schema.items():
         n = len(cols) if isinstance(cols, list) else 0
-        nodes.append({"id": name, "label": "Read " + name, "kind": "source",
+        nodes.append({"id": name, "source": name, "label": "Read " + name, "kind": "source",
                       "sub": "%d columns" % n})
     return {"type": "sources", "nodes": nodes}
 
@@ -167,12 +167,18 @@ def ev_edges(job):
 
 
 def ev_node_config(job):
-    """Upgrade each node to its business label + sub from real config."""
+    """Upgrade each node to its AUTHORITATIVE business label + sub + kind from real config.
+    Carries a `source` crosswalk (filepath basename) on source nodes so the frontend can link
+    the earlier `sources` event to its FileInput graph node. node_config is authoritative: its
+    ids are the final assembled ids and it supersedes the provisional flow_plan `nodes` skeleton."""
     looks = _lookup_names(job)
     nodes = []
     for c in job.get("components") or []:
         v = classify(c, looks.get(c.get("id")))
-        nodes.append({"id": c.get("id"), "label": v["label"], "sub": v["sub"]})
+        node = {"id": c.get("id"), "kind": v["kind"], "label": v["label"], "sub": v["sub"]}
+        if v["kind"] == "source":
+            node["source"] = _base((c.get("config") or {}).get("filepath"))
+        nodes.append(node)
     return {"type": "node_config", "nodes": nodes}
 
 
@@ -216,12 +222,13 @@ def ev_result(test_report, tier, sample=None):
     # test_report["outputs"] (FileOutput id == output name). NOT the max over ALL
     # global_map entries -- an input source can have more rows than the output.
     gm = ((test_report.get("engine") or {}).get("global_map") or {})
+    outs = list((test_report.get("outputs") or {}).keys())
     rows = 0
-    for name in (test_report.get("outputs") or {}):
+    for name in outs:
         stats = gm.get(name) or {}
         rows = max(rows, stats.get("NB_LINE_OK", stats.get("NB_LINE", 0)))
     ev = {"type": "result", "passed": bool(test_report.get("passed")), "tier": tier,
-          "rows": rows,
+          "rows": rows, "outputs": outs,
           "graded": "%s/%s" % (test_report.get("graded", 0), test_report.get("total", 0))}
     if sample is not None:
         ev["sample"] = sample
