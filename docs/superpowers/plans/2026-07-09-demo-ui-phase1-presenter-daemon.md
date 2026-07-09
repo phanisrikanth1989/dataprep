@@ -377,7 +377,7 @@ git commit -m "feat(demo-ui): data-free sources/rules/nodes extractors + leak gu
 - Test: `tests/demo_budget_ui/test_presenter.py`
 
 **Interfaces:**
-- Produces: `ev_node_config(job: dict) -> dict` type `node_config` (`nodes: [{id, sub}]`); `ev_edges(job: dict) -> dict` type `edges` (`edges: [{from, to, reject}]`). Both resolve each join's lookup name (its FileInput predecessor) from `flows` so the label reads "Match accounts".
+- Produces: `ev_node_config(job: dict) -> dict` type `node_config` (`nodes: [{id, label, sub}]`); `ev_edges(job: dict) -> dict` type `edges` (`edges: [{from, to, reject}]`). Both resolve each join's lookup name (its FileInput predecessor) from `flows` so the label reads "Match accounts".
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -553,9 +553,10 @@ def test_ev_result_counts_no_sample_by_default():
     assert ev["rows"] == 4 and ev["graded"] == "1/1" and ev["tier"] == "verified"
     assert "sample" not in ev                       # fail-closed: no sample unless explicitly given
 
-def test_ev_result_failed_report_is_not_green():
-    ev = P.ev_result(_load("test_report.json"), tier="verified")  # the real FAILED report
+def test_ev_result_failed_report_counts_output_rows_not_input_max():
+    ev = P.ev_result(_load("test_report.json"), tier="verified")  # real FAILED, multi-component report
     assert ev["passed"] is False
+    assert ev["rows"] == 4   # the OUTPUT (trade_positions) count, NOT the input max (in_trades=5)
 
 def test_ev_result_includes_sample_only_when_provided():
     ev = P.ev_result(_load("test_report_passed.json"), tier="verified",
@@ -575,12 +576,16 @@ Expected: FAIL.
 
 ```python
 def ev_result(test_report, tier, sample=None):
-    total_rows = 0
+    # rows = the OUTPUT row count, from the graded output component(s) named in
+    # test_report["outputs"] (FileOutput id == output name). NOT the max over ALL
+    # global_map entries -- an input source can have more rows than the output.
     gm = ((test_report.get("engine") or {}).get("global_map") or {})
-    for stats in gm.values():
-        total_rows = max(total_rows, stats.get("NB_LINE_OK", stats.get("NB_LINE", 0)))
+    rows = 0
+    for name in (test_report.get("outputs") or {}):
+        stats = gm.get(name) or {}
+        rows = max(rows, stats.get("NB_LINE_OK", stats.get("NB_LINE", 0)))
     ev = {"type": "result", "passed": bool(test_report.get("passed")), "tier": tier,
-          "rows": total_rows,
+          "rows": rows,
           "graded": "%s/%s" % (test_report.get("graded", 0), test_report.get("total", 0))}
     if sample is not None:
         ev["sample"] = sample
@@ -659,6 +664,20 @@ def test_daemon_dedups_unchanged_files(tmp_path):
     shutil.copy(FIX / "extract_doc.json", work / "extract_doc.json")
     d.poll(); n = len(cap); d.poll()   # second poll, no change
     assert len(cap) == n               # no re-emit
+
+def test_daemon_multi_artifact_poll_emits_in_pipeline_order(tmp_path):
+    # job_draft is written BEFORE job, but 'job.json' sorts alphabetically BEFORE
+    # 'job_draft.json' -- the daemon must emit in mtime (pipeline) order, not filename order.
+    work = tmp_path / "job4"; work.mkdir()
+    d = Daemon("job4", str(work), send=(cap := []).append, since=time.time() - 1)
+    shutil.copy(FIX / "job_draft.json", work / "job_draft.json")
+    time.sleep(0.02)
+    shutil.copy(FIX / "job.json", work / "job.json")
+    d.poll()   # ONE poll sees both new files
+    types = [e["type"] for e in cap]
+    assert types.index("node_config") < types.index("edges")   # configuring before wiring
+    stages = [e["stage"] for e in cap if e["type"] == "stage"]
+    assert stages.index("configuring") < stages.index("wiring")
 ```
 
 - [ ] **Step 2: Run to verify it fails**
@@ -672,8 +691,9 @@ Expected: FAIL (`ModuleNotFoundError`).
 # demo/budget_ui/daemon/daemon.py
 """Watch a job work dir by mtime; dispatch new/changed artifacts to presenter;
 wrap payloads in an envelope; send them out (injected sender). ASCII-only.
-Stage transitions are keyed off WHICH artifact appeared (deterministic), not
-off audit.jsonl event strings. gate:signed is keyed off test_report appearing.
+Artifacts are dispatched in chronological (mtime) order so stages emit in
+pipeline order. Stage transitions are keyed off WHICH artifact appeared
+(deterministic), not off audit.jsonl event strings.
 """
 from __future__ import annotations
 
@@ -683,19 +703,32 @@ import time
 
 from . import presenter as P
 
-# artifact filename -> (stage-on-appearance, [extractor callables])
+# canonical pipeline order -- the tiebreak when two artifacts share an mtime tick
+_ORDER = {"purity.json": 0, "exploder_inventory.json": 1, "extract_doc.json": 2,
+          "requirement_spec.json": 3, "flow_plan.json": 4, "job_draft.json": 5,
+          "job.json": 6, "test_report.json": 7}
+
+
+# artifact filename -> the flat list of event payloads to emit on its appearance
 def _dispatch(name, doc):
     if name == "extract_doc.json":
         return [P.ev_stage("reading", "done"), P.ev_sources(doc), P.ev_stage("interpreting", "active")]
     if name == "requirement_spec.json":
         return [P.ev_rules(doc), P.ev_stage("designing", "active")]
     if name == "flow_plan.json":
+        # provisional node skeleton (flow_plan ids). The AUTHORITATIVE graph -- final ids +
+        # business labels + edges -- comes from job.json below. The assembler can rename the
+        # terminal FileOutput id (id == output name), so reconciling this skeleton to the final
+        # id set is a Phase-3 (frontend) concern; Phase 1 emits both faithfully.
         return [P.ev_nodes(doc), P.ev_stage("designing", "done")]
     if name == "job_draft.json":
-        # callouts pop here (the configuring stage) from a SINGLE source -> no duplicates
-        return [P.ev_node_config(doc), *P.ev_callouts(doc), P.ev_stage("configuring", "active")]
+        # callouts pop at the configuring stage from a SINGLE source -> no duplicates
+        return [*P.ev_callouts(doc), P.ev_stage("configuring", "active")]
     if name == "job.json":
-        evs = [P.ev_edges(doc), P.ev_stage("wiring", "active")]
+        # job.json is the single source of the AUTHORITATIVE graph: node_config (final ids +
+        # business labels + lookup-name resolution -- which needs job.json's flows, absent from
+        # job_draft) and edges are emitted here so they stay id-consistent with each other.
+        evs = [P.ev_node_config(doc), P.ev_edges(doc), P.ev_stage("wiring", "active")]
         g = P.ev_gate(doc)
         if g:
             evs.append(g)
@@ -726,7 +759,8 @@ class Daemon:
             names = os.listdir(self.work_dir)
         except FileNotFoundError:
             return
-        for name in sorted(names):
+        candidates = []
+        for name in names:
             path = os.path.join(self.work_dir, name)
             if not (name.endswith(".json") and os.path.isfile(path)):
                 continue
@@ -736,12 +770,16 @@ class Daemon:
                 continue
             if mt < self.since or self._seen.get(name) == mt:
                 continue
-            self._seen[name] = mt
+            candidates.append((mt, _ORDER.get(name, 99), name, path))
+        # dispatch in chronological (mtime) order, pipeline-index as the tiebreak --
+        # NOT filename order (which would put job.json before job_draft.json).
+        for mt, _idx, name, path in sorted(candidates):
             try:
                 with open(path, encoding="utf-8") as fh:
                     doc = json.load(fh)
             except (ValueError, OSError):
-                continue   # torn/half-written read: skip this pass, retry next
+                continue   # torn/half-written read: skip; do NOT mark seen -> retry next pass
+            self._seen[name] = mt
             if name == "extract_doc.json":
                 self.tier = doc.get("tier", self.tier)   # tier lives here, NOT in test_report.json
             if name == "test_report.json":
@@ -763,7 +801,7 @@ stage) -- so each node gets a single callout. There is deliberately no flow-plan
 - [ ] **Step 4: Run to verify it passes**
 
 Run: `python -m pytest tests/demo_budget_ui/test_daemon.py -v`
-Expected: PASS (3 tests).
+Expected: PASS (4 tests).
 
 - [ ] **Step 5: Commit**
 
