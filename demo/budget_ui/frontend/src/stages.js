@@ -41,13 +41,51 @@ export const AGENTS = {
 // Rotating "thoughts" for the thinking-state pill (the star of the demo), re-keyed
 // from the prototype's THOUGHTS to the daemon stage names.
 export const THOUGHTS = {
-  reading:      ["scanning the document", "finding the data tables", "reading the sample files"],
-  interpreting: ["normalizing the rules", "checking each lookup key", "noting what to keep"],
-  designing:    ["comparing a join vs a lookup", "choosing vectorized for speed", "ordering the steps"],
-  configuring:  ["setting the filter condition", "wiring the join keys", "pinning batch mode", "reading the component behaviour", "checking every config"],
-  wiring:       ["connecting the flows", "adding the job envelope"],
-  signoff:      ["surfacing the generated code", "waiting for sign-off"],
-  testing:      ["loading the job", "running the engine", "comparing to your answer key"],
+  reading: [
+    "scanning the document", "finding the data tables", "reading the attached sample files",
+    "cataloguing every source", "detecting the field delimiters", "reading the column headers",
+    "parsing the source-to-target map", "noting the special-handling prose", "counting the columns per source",
+    "separating data from narrative", "extracting the business rules", "resolving the sample rows",
+    "accounting for every section", "assembling the requirement extract",
+  ],
+  interpreting: [
+    "normalizing the rules", "typing each transformation", "checking each lookup key",
+    "noting what to keep and drop", "resolving the join cardinality", "reading the no-match handling",
+    "inferring the column types", "checking for duplicate keys", "carrying the special-handling notes",
+    "flagging anything ambiguous", "ordering the operations", "mapping each rule to a step",
+    "confirming the sort direction", "validating the schema shape",
+  ],
+  designing: [
+    "comparing a join vs a lookup", "choosing vectorized for speed", "picking the fastest fit per rule",
+    "ordering the pipeline steps", "placing the filter before the joins", "keeping the lookup key unique",
+    "weighing left-outer vs inner join", "putting the sort last", "pushing filters upstream",
+    "avoiding a row-by-row node", "sizing the cartesian risk", "planning the reject route",
+    "naming each node", "minimizing the node count",
+  ],
+  configuring: [
+    "setting the filter condition", "wiring the join keys", "pinning batch mode",
+    "reading the component behaviour", "checking every config value", "choosing the match mode",
+    "setting the sort type", "authoring the derive code", "picking the delimiter",
+    "validating against the schema", "setting the no-match handling", "double-checking the enums",
+    "matching the curated reference", "clearing the reported errors",
+  ],
+  wiring: [
+    "connecting the flows", "adding the job envelope", "binding each input and output",
+    "wiring the subjob triggers", "setting the terminal output id", "linking the lookup inputs",
+    "adding the routines block", "ordering the components", "checking every flow endpoint",
+    "finalizing the ids", "assembling the runnable job", "validating the wiring",
+  ],
+  signoff: [
+    "surfacing the generated code", "highlighting the unsandboxed cell", "showing exactly what will run",
+    "explaining what the code does", "flagging the security note", "presenting the code for review",
+    "holding until you approve", "waiting for your sign-off",
+  ],
+  testing: [
+    "loading the job", "running the engine", "reading the produced output",
+    "comparing to your answer key", "diffing every row", "checking the row counts",
+    "grading against the golden", "verifying each column", "confirming the sort order",
+    "checking for dropped rows", "tallying the matches", "computing the verdict",
+  ],
 };
 
 // Short stepper label: strip the leading verb word from the full stage line, exactly

@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { STAGE_ORDER, AGENTS, THOUGHTS } from "../stages.js";
+import { THOUGHT_MS } from "../anim.js";
 
 // A small "person" glyph for the human sign-off avatar (not an agent initial).
 const PERSON = (
@@ -118,7 +119,7 @@ function ThinkingLine({ stageName }) {
   }, [stageName]);
   useEffect(() => {
     if (thoughts.length === 0) return undefined;
-    const t = setInterval(() => setIdx((i) => (i + 1) % thoughts.length), 1600);
+    const t = setInterval(() => setIdx((i) => (i + 1) % thoughts.length), THOUGHT_MS);
     return () => clearInterval(t);
   }, [stageName, thoughts.length]);
   if (!thoughts.length) return null;

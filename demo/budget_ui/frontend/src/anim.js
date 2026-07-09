@@ -9,6 +9,10 @@ export const NODE_DUR = 0.7;     // one node's glide duration
 export const EDGE_DUR = 0.6;     // one edge's draw duration
 export const GATE_PAUSE = 0.9;   // pause after the LAST node lands, before the code gate appears
 
+// How long each "thought" lingers in the ACTIVE agent's thinking line (ms). Slower + a large
+// thought pool per stage (stages.js THOUGHTS) so a long-running agent doesn't visibly repeat.
+export const THOUGHT_MS = 3800;
+
 // Milliseconds from the wiring beat until the last of `n` nodes has finished gliding into place.
 export function buildMs(n) {
   return (Math.max(0, n - 1) * NODE_STAGGER + NODE_DUR) * 1000;
