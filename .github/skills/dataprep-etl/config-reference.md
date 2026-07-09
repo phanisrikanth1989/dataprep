@@ -90,6 +90,21 @@ Aliases: FilterRow, tFilterRow, tFilterRows
     - `function`: type=str
     - `value`: type=str
 
+## Join
+Aliases: tJoin
+- `use_inner_join`: type=bool; default=False
+- `join_key`: type=list; REQUIRED
+  items:
+    - `input_column`: type=str; REQUIRED
+    - `lookup_column`: type=str; REQUIRED
+- `use_lookup_cols`: type=bool; default=False
+- `lookup_cols`: type=list; default=[]
+  items:
+    - `output_column`: type=str
+    - `lookup_column`: type=str
+- `case_sensitive`: type=bool; default=True
+- `die_on_error`: type=bool; default=True
+
 ## Map
 Aliases: tMap
 - `inputs`: type=dict; REQUIRED
@@ -118,8 +133,8 @@ Aliases: tMap
 - `label`: type=str; default=''
 
 ## PyMap
-Aliases: (none -- non-Talend, pure-Python map-family)
-- `inputs`: type=dict; REQUIRED -- `{main:{name}, lookups:[{name, join_mode, matching_mode, lookup_mode, join_keys:[{lookup_column, expression}]}]}`. Nested mode VALUES are not schema-enforced (the validator does not recurse); engine-recognized: join_mode {LEFT_OUTER_JOIN, INNER_JOIN}; matching_mode {UNIQUE_MATCH, FIRST_MATCH, LAST_MATCH, ALL_MATCHES}; lookup_mode {LOAD_ONCE, RELOAD_AT_EACH_ROW}. Engine requires inputs.main.name, and each lookup's name + join_keys[lookup_column,expression] + join_mode.
+- `inputs`: type=dict; REQUIRED
+- `variables`: type=list; default=[]
 - `outputs`: type=list; REQUIRED
   items:
     - `name`: type=str; REQUIRED
@@ -130,21 +145,25 @@ Aliases: (none -- non-Talend, pure-Python map-family)
     - `columns`: type=list; REQUIRED
       items:
         - `name`: type=str
-        - `expression`: type=str (plain Python, evaluated in a SANDBOXED namespace: pd/np/re/datetime/Decimal/json/math; NO os/sys/open/eval/exec -- surfaced at the human gate)
+        - `expression`: type=str
         - `type`: type=str
         - `nullable`: type=bool
         - `length`: type=int
         - `precision`: type=int
         - `date_pattern`: type=str
-- `variables`: type=list; default=[]
 - `die_on_error`: type=bool; default=True
 - `enable_auto_convert_type`: type=bool; default=False
 - `label`: type=str; default=''
-- LANDMINE: use `float` (not `decimal`) for numeric columns used in arithmetic -- a `decimal` column arrives as pandas StringDtype and would break e.g. `quantity * price`.
+
+## PythonDataFrameComponent
+Aliases: tPythonDataFrame
+- `python_code`: type=str; REQUIRED
+- `output_columns`: type=list; default=[]
+- `execution_mode`: type=str; default='hybrid'; one of "batch", "streaming", "hybrid"
 
 ## SchemaComplianceCheck
 Aliases: tSchemaComplianceCheck
-- `schema`: type=list; REQUIRED -- the FLOW column list (normally flow-supplied, not hand-authored)
+- `schema`: type=list; REQUIRED
   items:
     - `name`: type=str; REQUIRED
     - `type`: type=str; REQUIRED
@@ -159,8 +178,8 @@ Aliases: tSchemaComplianceCheck
     - `selected_type`: type=str
     - `date_pattern`: type=str
     - `nullable`: type=bool
-    - `max_length`: type=bool (a Talend checkbox flag, NOT the length value -- the actual length check uses the schema column's `length`)
-- `strict_date_check`: type=bool; default=False (enforce date_pattern on datetime columns)
+    - `max_length`: type=bool
+- `strict_date_check`: type=bool; default=False
 - `all_empty_are_null`: type=bool; default=True
 - `empty_null_table`: type=list; default=[]
   items:
@@ -168,7 +187,10 @@ Aliases: tSchemaComplianceCheck
     - `empty_is_null`: type=bool
 - `check_string_by_byte_length`: type=bool; default=False
 - `charset`: type=str; default=''
-- `customer` / `sub_string` / `fast_date_check` / `ignore_timezone`: type=bool; default=False (DEFERRED/no-op -- logged as WARNING when true)
+- `customer`: type=bool; default=False
+- `sub_string`: type=bool; default=False
+- `fast_date_check`: type=bool; default=False
+- `ignore_timezone`: type=bool; default=False
 
 ## SortRow
 Aliases: tSortRow

@@ -21,8 +21,9 @@ def test_cli_valid_filterrows_exit_zero(tmp_path, capsys):
 def test_cli_uncurated_type_reports_curated_false(tmp_path, capsys):
     # A real but non-curated component: advisory only -> valid, but curated=False
     # so the agent knows it was NOT strictly checked.
+    # (tPython/PythonComponent is registered but intentionally has no curated schema.)
     cfg = _write(tmp_path, {"python_code": "df['x']=1", "anything": 2})
-    rc = vc.main(["--type", "tPythonDataFrame", "--config", cfg])
+    rc = vc.main(["--type", "tPython", "--config", cfg])
     out = json.loads(capsys.readouterr().out)
     assert rc == 0 and out["valid"] is True and out["errors"] == []
     assert out["curated"] is False

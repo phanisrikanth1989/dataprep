@@ -111,10 +111,11 @@ def test_empty_outputs_flagged_map():
 def test_uncurated_type_degrades_gracefully():
     from agents.tools.validate_config import validate_config
     # a real but non-curated component -> no hard error, no raise
-    assert validate_config("tPythonDataFrame", {"python_code": "df['x']=1", "anything": 2}) == []
+    # (tPython/PythonComponent is registered but intentionally has no curated schema)
+    assert validate_config("tPython", {"python_code": "df['x']=1", "anything": 2}) == []
 
 
 def test_is_curated_flags_curated_vs_not():
     from agents.tools.component_schema import is_curated
     assert is_curated("FilterRows") is True
-    assert is_curated("tPythonDataFrame") is False
+    assert is_curated("tPython") is False   # a real but non-curated engine component

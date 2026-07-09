@@ -19,7 +19,11 @@
   "tUnqRow": "unique_row.json",
   "ConvertType": "convert_type.json",
   "tConvertType": "convert_type.json",
+  "Join": "join.json",
+  "tJoin": "join.json",
   "PyMap": "py_map.json",
   "SchemaComplianceCheck": "schema_compliance_check.json",
-  "tSchemaComplianceCheck": "schema_compliance_check.json"
+  "tSchemaComplianceCheck": "schema_compliance_check.json",
+  "PythonDataFrameComponent": "python_dataframe.json",
+  "tPythonDataFrame": "python_dataframe.json"
 }

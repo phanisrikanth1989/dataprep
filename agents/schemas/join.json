@@ -1,0 +1,20 @@
+{
+  "type": "Join",
+  "aliases": ["tJoin"],
+  "source": "src/v1/engine/components/transform/join.py",
+  "_validation_note": "tJoin joins a main input with a single lookup input on one or more key-column pairs. use_inner_join=false (default) is a LEFT OUTER join that KEEPS every main row (unmatched rows also route to the reject output); use_inner_join=true drops unmatched main rows from main. join_key is REQUIRED and non-empty; each item needs both input_column (main side) and lookup_column (lookup side). Null keys NEVER match (SQL/Talend semantics), and the lookup side is first-match deduplicated on the join key. IMPORTANT: NO lookup columns are added to the output unless use_lookup_cols=true AND lookup_cols lists them ({output_column, lookup_column}); by default only the main-input columns pass through. case_sensitive=true (default) compares keys exactly; false lowercases both sides before matching. Unmatched main rows go to the reject output; die_on_error=true (default) raises on failure, false degrades to an empty main plus the full main input as reject.",
+  "keys": {
+    "use_inner_join": {"type": "bool", "default": false},
+    "join_key": {"type": "list", "required": true, "non_empty": true, "item_keys": {
+      "input_column": {"type": "str", "required": true},
+      "lookup_column": {"type": "str", "required": true}
+    }},
+    "use_lookup_cols": {"type": "bool", "default": false},
+    "lookup_cols": {"type": "list", "default": [], "item_keys": {
+      "output_column": {"type": "str"},
+      "lookup_column": {"type": "str"}
+    }},
+    "case_sensitive": {"type": "bool", "default": true},
+    "die_on_error": {"type": "bool", "default": true}
+  }
+}
