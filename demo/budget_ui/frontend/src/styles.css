@@ -121,17 +121,17 @@ svg.edges{position:absolute;inset:0;overflow:visible;pointer-events:none}
 
 /* code gate overlay */
 .gate{position:absolute;left:50%;top:12px;transform:translate(-50%,-14px) scale(.98);width:min(460px,92%);z-index:20;
-  background:rgba(12,18,30,.97);border:1px solid var(--code);border-radius:12px;padding:13px 15px;
+  background:rgba(12,18,30,.97);border:1px solid var(--live);border-radius:12px;padding:13px 15px;
   box-shadow:0 20px 50px rgba(0,0,0,.5);opacity:0;pointer-events:none;
   transition:opacity .5s ease, transform .5s cubic-bezier(.2,.7,.2,1)}
 .gate.on{opacity:1;transform:translate(-50%,0) scale(1);pointer-events:auto}
 .gate h4{margin:0 0 4px;font-size:13px;color:var(--ink);display:flex;align-items:center;gap:8px}
-.gate h4 .lock{color:var(--code)}
+.gate h4 .lock{color:var(--live)}
 .gate p{margin:0 0 9px;font-size:11.5px;color:var(--ink-dim)}
 .gate pre{margin:0 0 11px;font-family:var(--mono);font-size:11px;color:#DABDF0;background:rgba(192,139,224,.09);
   border:1px solid rgba(192,139,224,.25);border-radius:8px;padding:9px 10px;overflow-x:auto;white-space:pre-wrap;word-break:break-word}
 .gate .row{display:flex;align-items:center;gap:10px}
-.gate .signbtn{font-family:var(--sans);font-size:12px;font-weight:600;color:#1a0f26;background:var(--code);border:0;border-radius:8px;padding:8px 14px;cursor:pointer}
+.gate .signbtn{font-family:var(--sans);font-size:12px;font-weight:600;color:#1a0f26;background:var(--live);border:0;border-radius:8px;padding:8px 14px;cursor:pointer}
 .gate .hint{font-size:10.5px;color:var(--ink-mute)}
 .gate.signed{border-color:var(--done)}
 .gate .stamp{display:none;font-family:var(--mono);font-size:12px;color:var(--done);align-items:center;gap:7px}
@@ -159,8 +159,6 @@ svg.edges{position:absolute;inset:0;overflow:visible;pointer-events:none}
 .step .k{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-mute);display:block}
 .step .l{font-size:11.5px;color:var(--ink);margin-top:2px}
 .step.active .k{color:var(--live)} .step.past .k{color:var(--done)}
-.step .rt{font-size:9.5px;color:var(--ink-mute);margin-top:2px;font-family:var(--mono);opacity:0;height:0;overflow:hidden;transition:.3s}
-.step.active .rt{opacity:1;height:auto}
 
 /* footer / data peek */
 .foot{margin-top:16px;font-size:12px;color:var(--ink-mute)}
@@ -222,16 +220,7 @@ details.peek pre{margin:0;padding:0 12px 12px;font-family:var(--mono);font-size:
 .waiting-title{font-size:26px;font-weight:660;letter-spacing:-.01em;margin:18px 0 8px;color:var(--ink)}
 .waiting-sub{font-size:14px;color:var(--ink-dim);margin:0 0 26px;max-width:560px;line-height:1.55}
 .job-id{font-family:var(--mono);font-size:.9em;background:rgba(242,169,59,.14);color:#F6D6A0;padding:2px 8px;border-radius:6px}
-.waiting-ops{width:100%;max-width:660px;border:1px solid var(--line);border-radius:12px;background:rgba(6,11,22,.42);padding:16px 18px}
-.waiting-ops-h{font-family:var(--mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-mute);margin-bottom:14px}
-.waiting-ops ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:15px}
-.waiting-ops li{display:flex;gap:12px;align-items:flex-start;font-size:13px;color:var(--ink-dim);line-height:1.5}
-.waiting-ops li .n{flex:0 0 auto;width:20px;height:20px;border-radius:50%;border:1px solid var(--line-lit);color:var(--ink);
-  font-family:var(--mono);font-size:11px;display:flex;align-items:center;justify-content:center;margin-top:1px}
-.waiting-ops li b{color:var(--ink);font-weight:640}
-.waiting-ops li code{font-family:var(--mono);font-size:11.5px;background:rgba(192,139,224,.13);color:#DABDF0;padding:1px 6px;border-radius:5px}
-.waiting-ops pre{margin:8px 0 0;font-family:var(--mono);font-size:11.5px;color:#DABDF0;background:rgba(192,139,224,.09);
-  border:1px solid rgba(192,139,224,.24);border-radius:8px;padding:10px 12px;white-space:pre-wrap;word-break:break-word}
+/* (waiting screen shows only the queued badge + job reference -- no operator plumbing) */
 
 /* Entry / upload view (default when neither ?job= nor ?replay= is present). */
 .up-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:40px 20px;margin:-20px -22px;

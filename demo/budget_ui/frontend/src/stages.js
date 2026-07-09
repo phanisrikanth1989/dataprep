@@ -11,13 +11,13 @@
 // GENERIC: these describe the ETL-builder's reasoning phases, not any one pipeline.
 
 export const STAGES = [
-  { name: "reading",      k: "Read",       l: "Reading your document",       rt: "real run: ~2 min" },
-  { name: "interpreting", k: "Understand", l: "Understanding the rules",     rt: "real run: ~1 min" },
-  { name: "designing",    k: "Design",     l: "Designing the pipeline",      rt: "real run: ~1 min" },
-  { name: "configuring",  k: "Configure",  l: "Configuring each step",       rt: "real run: ~11 min (curating to cut this)" },
-  { name: "wiring",       k: "Wire",       l: "Wiring it together",          rt: "real run: ~30 s" },
-  { name: "signoff",      k: "Sign-off",   l: "Human sign-off on the code",  rt: "operator approves in VS Code" },
-  { name: "testing",      k: "Test",       l: "Testing against your sample", rt: "real run: ~30 s" },
+  { name: "reading",      k: "Read",       l: "Reading your document" },
+  { name: "interpreting", k: "Understand", l: "Understanding the rules" },
+  { name: "designing",    k: "Design",     l: "Designing the pipeline" },
+  { name: "configuring",  k: "Configure",  l: "Configuring each step" },
+  { name: "wiring",       k: "Wire",       l: "Wiring it together" },
+  { name: "signoff",      k: "Sign-off",   l: "Human sign-off on the code" },
+  { name: "testing",      k: "Test",       l: "Testing against your sample" },
 ];
 
 // The 7 stepper stages, in order. `done` is terminal and is NOT a stepper step

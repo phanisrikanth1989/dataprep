@@ -6,28 +6,39 @@
 //                         stays visible), matching the prototype.
 // Hidden once the result (testing beat) arrives, so the finale is unobstructed.
 //
-// The "Sign off (operator)" button is decorative for rehearsal only: the real gate is
-// the operator's action in VS Code, surfaced as the daemon's `gate:signed` event.
+// The "Sign off and run" button signs off and gracefully closes the modal (the presenter's
+// action -- shows the "signed" stamp, then fades out). The real run's approval also arrives
+// from the backend as a `gate:signed` status; either path flips the modal to the stamp.
 
 import { useEffect, useState } from "react";
 
 export function CodeGate({ gate, result, revealMs = 0 }) {
   const status = gate && gate.status;
-  const visible = !!gate && (status === "awaiting" || status === "signed") && !result;
-  const signed = status === "signed";
+  const present = !!gate && (status === "awaiting" || status === "signed") && !result;
 
-  // Pause before the popup: when the gate is first AWAITING, hold the modal back until the
-  // pipeline has finished assembling (revealMs from Canvas), then RISE it in -- never a sudden
-  // pop mid-build. Once SIGNED (operator approved), show immediately with no second pause.
+  // Reveal pause: hold the modal back until the pipeline has finished assembling (revealMs
+  // from Canvas), then RISE it in -- never a sudden pop mid-build.
   const [shown, setShown] = useState(false);
+  // Operator clicked "Sign off" -> show the stamp, then gracefully fade the modal out. (The
+  // real approval also arrives from the backend as status "signed"; either path shows the stamp.)
+  const [localSigned, setLocalSigned] = useState(false);
+  const [closed, setClosed] = useState(false);
+  const signed = status === "signed" || localSigned;
+
   useEffect(() => {
-    if (!visible) { setShown(false); return undefined; }
-    if (signed) { setShown(true); return undefined; }
+    if (!present) { setShown(false); return undefined; }
+    if (status === "signed") { setShown(true); return undefined; }
     const t = setTimeout(() => setShown(true), revealMs);
     return () => clearTimeout(t);
-  }, [visible, signed, revealMs]);
+  }, [present, status, revealMs]);
 
-  const cls = "gate" + (shown ? " on" : "") + (signed ? " signed" : "");
+  useEffect(() => {
+    if (!localSigned) return undefined; // let the stamp read for a beat, then close the modal
+    const t = setTimeout(() => setClosed(true), 1400);
+    return () => clearTimeout(t);
+  }, [localSigned]);
+
+  const cls = "gate" + (shown && !closed ? " on" : "") + (signed ? " signed" : "");
 
   return (
     <div className={cls}>
@@ -35,8 +46,9 @@ export function CodeGate({ gate, result, revealMs = 0 }) {
       <p>This step writes code to compute a value. Nothing runs until a person approves the exact code.</p>
       <pre>{(gate && gate.code) || ""}</pre>
       <div className="row">
-        <button type="button" className="signbtn">Sign off (operator)</button>
-        <span className="hint">In the real demo, the operator approves this in VS Code.</span>
+        <button type="button" className="signbtn" onClick={() => setLocalSigned(true)}>
+          Sign off and run
+        </button>
       </div>
       <span className="stamp">&#10003; Signed off &mdash; running</span>
     </div>

@@ -24,7 +24,6 @@ export function Stepper({ state }) {
           <div key={s.name} className={cls}>
             <span className="k">{i + 1} &middot; {s.k}</span>
             <span className="l">{stepLabel(s.l)}</span>
-            <span className="rt">{s.rt}</span>
           </div>
         );
       })}
