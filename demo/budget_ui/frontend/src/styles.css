@@ -1,0 +1,202 @@
+/* src/styles.css
+   Ported VERBATIM from the committed prototype's <style> block
+   (demo/budget_ui/frontend/prototype-thinking-state.html). Same design tokens and
+   node/edge/rail/stepper/gate/finale/callout classes -- the instrument/blueprint skin.
+   A short, clearly-marked ADDITIONS block at the end covers cases the prototype's
+   sample data never exercised (reject edges, a non-pass finale, the upload view,
+   the reading-beat source teaser list). ASCII-only. */
+
+:root{
+  --bg:#0B1220; --surface:#0F1A2E; --panel:#111D33; --panel2:#0c1526;
+  --node:#17233C; --node2:#1E2C49;
+  --line:#2A3A5C; --line-lit:#3D537F;
+  --ink:#E9EEF8; --ink-dim:#9FADC9; --ink-mute:#63739A;
+  --live:#F2A93B; --live-soft:rgba(242,169,59,.14);
+  --done:#43C08B; --done-soft:rgba(67,192,139,.13);
+  --file:#5B8DEF; --code:#C08BE0;
+  --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  --sans:-apple-system,"SF Pro Text",system-ui,Segoe UI,Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  background:
+    radial-gradient(1100px 560px at 12% -12%, rgba(91,141,239,.10), transparent 60%),
+    radial-gradient(900px 460px at 100% 0%, rgba(242,169,59,.06), transparent 55%),
+    var(--bg);
+  color:var(--ink); font-family:var(--sans); -webkit-font-smoothing:antialiased;
+  padding:20px 22px 26px; min-height:100vh;
+}
+.wrap{max-width:1320px;margin:0 auto}
+
+/* progress bar */
+.pbar{height:3px;background:var(--line);border-radius:3px;overflow:hidden;margin-bottom:16px}
+.pbar > i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--file),var(--live));transition:width .1s linear}
+
+/* header */
+header.hd{display:flex;align-items:center;gap:14px;margin-bottom:14px;flex-wrap:wrap}
+.brand{font-size:17px;font-weight:640;letter-spacing:-.01em}
+.brand .live{color:var(--live)}
+.tag{font-family:var(--mono);font-size:10.5px;color:var(--ink-mute);border:1px solid var(--line);border-radius:999px;padding:3px 9px}
+.controls{margin-left:auto;display:flex;gap:8px;align-items:center}
+.btn{font-family:var(--mono);font-size:12px;color:var(--ink);background:var(--node2);border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer;transition:.18s}
+.btn:hover{border-color:var(--live)}
+.btn.ghost{background:transparent;color:var(--ink-dim)}
+.speed{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.speed button{font-family:var(--mono);font-size:11.5px;background:transparent;color:var(--ink-dim);border:0;padding:7px 9px;cursor:pointer}
+.speed button.on{background:var(--live-soft);color:var(--live)}
+
+/* main grid */
+.main{display:grid;grid-template-columns:290px 1fr;gap:16px;align-items:stretch}
+@media (max-width:840px){ .main{grid-template-columns:1fr} }
+
+/* rail */
+.rail{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);border-radius:14px;padding:15px 15px 13px;display:flex;flex-direction:column;min-height:440px}
+.rail-h{font-family:var(--mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-mute);margin-bottom:13px;display:flex;align-items:center;gap:7px}
+.rail-h .pip{width:6px;height:6px;border-radius:50%;background:var(--done)}
+.rail-lines{flex:1}
+.rl{font-size:13px;color:var(--ink);margin:0 0 11px;padding-left:15px;position:relative;opacity:0;transform:translateX(-5px);transition:opacity .4s ease,transform .4s ease}
+.rl.show{opacity:1;transform:none}
+.rl::before{content:"";position:absolute;left:0;top:7px;width:6px;height:6px;border-radius:50%;background:var(--live);opacity:.8}
+.rl.done{color:var(--done)} .rl.done::before{background:var(--done)}
+.rl b{font-weight:640}
+.rl code{font-family:var(--mono);font-size:11.5px;background:rgba(192,139,224,.13);color:#DABDF0;padding:1px 5px;border-radius:5px}
+
+/* thinking pill */
+.think{margin-top:12px;border:1px solid var(--line);border-radius:10px;background:rgba(6,11,22,.5);padding:11px 12px;opacity:0;transition:opacity .3s}
+.think.on{opacity:1}
+.think .now{font-size:12.5px;color:var(--live);font-weight:600;display:flex;align-items:center;gap:8px}
+.think .now .spin{width:11px;height:11px;border-radius:50%;border:2px solid var(--live);border-top-color:transparent;animation:spin .8s linear infinite;flex:0 0 auto}
+.think .sub{font-family:var(--mono);font-size:11px;color:var(--ink-dim);margin-top:6px;min-height:14px}
+.think .sub::after{content:"";animation:dots 1.4s steps(4,end) infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes dots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
+.think.done-state .now{color:var(--done)} .think.done-state .spin{display:none}
+.think.done-state .sub::after{content:"" !important;animation:none}
+
+/* canvas */
+.canvaswrap{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);border-radius:14px;padding:12px;position:relative;overflow:hidden}
+.canvasgrid{position:relative;border:1px solid var(--line);border-radius:11px;overflow:hidden;background:
+  linear-gradient(transparent 96%, rgba(255,255,255,.028) 96%) 0 0/100% 30px,
+  linear-gradient(90deg, transparent 96%, rgba(255,255,255,.028) 96%) 0 0/30px 100%,
+  rgba(6,11,22,.34); min-height:360px; position:relative}
+.fit{position:absolute;transform-origin:top left}
+.stage{position:relative}
+svg.edges{position:absolute;inset:0;overflow:visible;pointer-events:none}
+.edge{fill:none;stroke:var(--line);stroke-width:2;stroke-linecap:round;opacity:.9}
+.edge.show{animation:draw .55s ease forwards}
+@keyframes draw{from{stroke-dashoffset:var(--len);stroke:var(--live)}to{stroke-dashoffset:0;stroke:var(--line-lit)}}
+
+.node{position:absolute;background:var(--node);border:1px solid var(--line);border-left:3px solid var(--line);
+  border-radius:9px;padding:7px 10px;font-family:var(--mono);box-shadow:0 8px 22px rgba(0,0,0,.4);
+  opacity:0;transform:translateY(8px) scale(.97);transition:opacity .45s cubic-bezier(.2,.7,.2,1),transform .45s cubic-bezier(.2,.7,.2,1),box-shadow .3s,border-color .3s}
+.node.show{opacity:1;transform:none}
+.node.k-source{border-left-color:var(--file)}
+.node.k-filter,.node.k-join,.node.k-validate,.node.k-sort,.node.k-aggregate{border-left-color:var(--live)}
+.node.k-derive{border-left-color:var(--code)}
+.node.k-output{border-left-color:var(--done)}
+.node.active{border-color:var(--live);box-shadow:0 0 0 1px var(--live-soft),0 0 22px rgba(242,169,59,.22),0 8px 22px rgba(0,0,0,.4)}
+.node.settled{border-color:rgba(67,192,139,.4)}
+.node.done-glow{border-color:var(--done);box-shadow:0 0 0 1px var(--done-soft),0 0 26px rgba(67,192,139,.3)}
+.n-title{font-size:11.5px;color:var(--ink);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.n-sub{font-size:9.5px;color:var(--ink-dim);margin-top:3px;max-height:0;opacity:0;overflow:hidden;transition:max-height .4s ease,opacity .4s ease,margin .4s}
+.node.cfg .n-sub{max-height:16px;opacity:1}
+.n-badge{position:absolute;top:-7px;right:-7px;width:16px;height:16px;border-radius:50%;background:var(--code);
+  display:none;align-items:center;justify-content:center;font-size:9px;color:#1a0f26;font-family:var(--mono);font-weight:700}
+.node.k-derive .n-badge{display:flex}
+
+/* callouts */
+.callout{position:absolute;transform:translate(-50%,-100%);background:var(--live-soft);border:1px solid rgba(242,169,59,.5);
+  color:#F6D6A0;font-family:var(--sans);font-size:10.5px;line-height:1.35;padding:6px 9px;border-radius:9px;max-width:180px;
+  opacity:0;transition:opacity .4s ease,transform .4s ease;z-index:6;pointer-events:none;text-align:center}
+.callout.show{opacity:1}
+.callout::after{content:"";position:absolute;left:50%;bottom:-5px;width:8px;height:8px;background:var(--live-soft);
+  border-right:1px solid rgba(242,169,59,.5);border-bottom:1px solid rgba(242,169,59,.5);transform:translateX(-50%) rotate(45deg)}
+
+/* code gate overlay */
+.gate{position:absolute;left:50%;top:12px;transform:translateX(-50%);width:min(460px,92%);z-index:20;
+  background:rgba(12,18,30,.97);border:1px solid var(--code);border-radius:12px;padding:13px 15px;
+  box-shadow:0 20px 50px rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .35s}
+.gate.on{opacity:1;pointer-events:auto}
+.gate h4{margin:0 0 4px;font-size:13px;color:var(--ink);display:flex;align-items:center;gap:8px}
+.gate h4 .lock{color:var(--code)}
+.gate p{margin:0 0 9px;font-size:11.5px;color:var(--ink-dim)}
+.gate pre{margin:0 0 11px;font-family:var(--mono);font-size:11px;color:#DABDF0;background:rgba(192,139,224,.09);
+  border:1px solid rgba(192,139,224,.25);border-radius:8px;padding:9px 10px;overflow-x:auto;white-space:pre-wrap;word-break:break-word}
+.gate .row{display:flex;align-items:center;gap:10px}
+.gate .signbtn{font-family:var(--sans);font-size:12px;font-weight:600;color:#1a0f26;background:var(--code);border:0;border-radius:8px;padding:8px 14px;cursor:pointer}
+.gate .hint{font-size:10.5px;color:var(--ink-mute)}
+.gate.signed{border-color:var(--done)}
+.gate .stamp{display:none;font-family:var(--mono);font-size:12px;color:var(--done);align-items:center;gap:7px}
+.gate.signed .stamp{display:inline-flex} .gate.signed .row{display:none}
+
+/* result panel */
+.result{position:absolute;right:14px;bottom:14px;z-index:15;background:rgba(12,22,18,.96);border:1px solid var(--done);
+  border-radius:12px;padding:12px 14px;box-shadow:0 18px 40px rgba(0,0,0,.5);opacity:0;transform:translateY(10px);transition:.45s;max-width:320px}
+.result.on{opacity:1;transform:none}
+.result h4{margin:0 0 8px;font-size:13px;color:var(--done);display:flex;align-items:center;gap:8px}
+.result table{border-collapse:collapse;font-family:var(--mono);font-size:10px;color:var(--ink-dim)}
+.result th,.result td{border:1px solid var(--line);padding:2px 6px;text-align:left;white-space:nowrap}
+.result th{color:var(--ink-mute);font-weight:500}
+.result .meta{font-size:11px;color:var(--ink);margin-top:8px}
+
+/* stepper */
+.stepper{display:flex;gap:6px;margin-top:14px;flex-wrap:wrap;align-items:center}
+.step{flex:1 1 0;min-width:96px;border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:var(--panel2);opacity:.55;transition:.3s}
+.step.active{opacity:1;border-color:var(--live);background:var(--live-soft)}
+.step.past{opacity:.8;border-color:rgba(67,192,139,.35)}
+.step .k{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-mute);display:block}
+.step .l{font-size:11.5px;color:var(--ink);margin-top:2px}
+.step.active .k{color:var(--live)} .step.past .k{color:var(--done)}
+.step .rt{font-size:9.5px;color:var(--ink-mute);margin-top:2px;font-family:var(--mono);opacity:0;height:0;overflow:hidden;transition:.3s}
+.step.active .rt{opacity:1;height:auto}
+
+/* footer / data peek */
+.foot{margin-top:16px;font-size:12px;color:var(--ink-mute)}
+.foot b{color:var(--ink-dim)}
+details.peek{margin-top:10px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
+details.peek summary{cursor:pointer;font-family:var(--mono);font-size:11.5px;color:var(--ink-dim);padding:9px 12px;list-style:none}
+details.peek summary::-webkit-details-marker{display:none}
+details.peek summary::before{content:"> ";color:var(--live)}
+details.peek[open] summary::before{content:"v "}
+details.peek pre{margin:0;padding:0 12px 12px;font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);overflow-x:auto;max-height:280px;overflow-y:auto}
+
+@media (prefers-reduced-motion:reduce){
+  .node,.n-sub,.rl,.callout,.result,.gate,.think{transition-duration:.01s!important}
+  .edge.show{animation-duration:.01s!important}
+  .spin{animation:none!important}
+}
+
+/* =====================================================================
+   ADDITIONS (not in the prototype; the prototype's sample data never hit
+   these cases). Kept minimal and skinned with the same tokens.
+   ===================================================================== */
+
+/* Reject edge. The prototype's flows had no reject edges, so no style existed.
+   NOTE: Framer Motion animates the draw via `pathLength`, which writes inline
+   stroke-dasharray/offset -- so a dashed reject style would be overridden. We
+   distinguish reject edges by COLOR (survives the pathLength animation). */
+.edge.reject{stroke:#E0575B;opacity:.95}
+
+/* Non-pass finale. The prototype only had the green "matched" panel; contract
+   rule (spec 16.4): never render green success on a non-pass. This neutral
+   "refining" variant is shown instead. */
+.result.refining{background:rgba(14,22,38,.96);border-color:var(--line-lit)}
+.result.refining h4{color:var(--ink-dim)}
+.result.refining .meta{color:var(--ink-dim)}
+.result.refining .meta b{color:var(--ink)}
+
+/* Reading-beat source teasers (the `source` crosswalk, surfaced in the rail).
+   Each teaser shares its `source` key with a graph FileInput node. */
+.rl-srcs{list-style:none;margin:-4px 0 12px;padding-left:15px}
+.rl-src{font-family:var(--mono);font-size:11px;color:var(--ink-dim);margin:0 0 3px}
+.rl-src::before{content:"- ";color:var(--file)}
+
+/* Upload view (the default when neither ?job= nor ?replay= is present). */
+.upload{max-width:600px;padding-top:8vh}
+.up-card{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);border-radius:14px;padding:22px 22px 20px}
+.up-card h1{font-size:19px;font-weight:640;letter-spacing:-.01em;margin:0 0 6px}
+.up-card p{color:var(--ink-dim);font-size:13px;line-height:1.5;margin:0 0 16px}
+.up-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.up-row input[type=file]{color:var(--ink-dim);font-family:var(--mono);font-size:12px}
+.up-err{color:#E0575B;font-size:12px;margin-top:10px;min-height:15px}

@@ -1,122 +1,78 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+// src/App.jsx
+// URL-driven entry:
+//   ?job=<id>  -> LIVE   (EventSource "/stream/<id>")
+//   ?replay=1  -> REPLAY (import the recorded sample-events.json, dispatch on a timer)
+//   neither    -> the Upload view (POST /upload -> { job } -> set ?job=)
+// The live/replay presenter renders the same generic <Rail/> + <Canvas/> (which nests
+// the <Stepper/>). Nothing about a specific pipeline lives here.
 
-function App() {
-  const [count, setCount] = useState(0)
+import { useMemo } from "react";
+import sampleEvents from "./replay/sample-events.json";
+import { useEventStream } from "./hooks/useEventStream.js";
+import { Rail } from "./components/Rail.jsx";
+import { Canvas } from "./components/Canvas.jsx";
+import { Upload } from "./components/Upload.jsx";
+import { STAGE_ORDER } from "./stages.js";
 
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+// Progress derived generically from the current stage (the prototype drove it from a
+// local timeline; here the stage is the source of truth).
+function progressPct(state) {
+  if (state.ended || (state.stage && state.stage.name === "done")) return 100;
+  const i = state.stage ? STAGE_ORDER.indexOf(state.stage.name) : -1;
+  if (i < 0) return 0;
+  return Math.round(((i + 1) / STAGE_ORDER.length) * 100);
 }
 
-export default App
+function Presenter({ job, isReplay }) {
+  const state = useEventStream({ job, replay: isReplay ? sampleEvents : null });
+  const pct = progressPct(state);
+  const runLabel = job || (isReplay ? "sample run" : "");
+  // A generic peek at the state driving the render (no pipeline is hardcoded).
+  const peek = {
+    nodes: state.order.map((id) => ({
+      id,
+      kind: state.nodesById[id] && state.nodesById[id].kind,
+    })),
+    edges: state.edges.map((e) => ({ from: e.from, to: e.to })),
+    result: state.result ? state.result.tier : null,
+  };
+
+  return (
+    <div className="wrap">
+      <div className="pbar">
+        <i style={{ width: pct + "%" }} />
+      </div>
+
+      <header className="hd">
+        <div className="brand">
+          Building your ETL pipeline <span className="live">&mdash; {isReplay ? "replay" : "live"}</span>
+        </div>
+        <span className="tag">rendered from run: {runLabel}</span>
+      </header>
+
+      <div className="main">
+        <Rail state={state} />
+        <Canvas state={state} />
+      </div>
+
+      <div className="foot">
+        <b>Generic presenter.</b> Everything above is rendered from this run's real
+        artifacts &mdash; the graph, the labels, and the reasoning all come from the
+        pipeline's own files. No pipeline is hardcoded; swap the artifacts and it redraws.
+        <details className="peek">
+          <summary>peek at the state driving this</summary>
+          <pre>{JSON.stringify(peek, null, 2)}</pre>
+        </details>
+      </div>
+    </div>
+  );
+}
+
+export default function App() {
+  const params = useMemo(() => new URLSearchParams(window.location.search), []);
+  const job = params.get("job");
+  const replay = params.get("replay");
+
+  if (!job && !replay) return <Upload />;
+  return <Presenter job={job} isReplay={!!replay} />;
+}
