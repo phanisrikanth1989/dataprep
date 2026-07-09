@@ -199,6 +199,8 @@ def _code_of(cfg):
 
 
 def ev_gate(job):
+    # DATA-FREE carve-out: the code cell is forwarded verbatim -- it is transform
+    # logic a human signs off on at the gate, not sample/expected data.
     for c in job.get("components") or []:
         if c.get("type") in _CODE_TYPES:
             return {"type": "gate", "kind": "code_signoff", "node": c.get("id"),
@@ -207,12 +209,16 @@ def ev_gate(job):
 
 
 def ev_result(test_report, tier, sample=None):
-    total_rows = 0
+    # rows = the OUTPUT row count, from the graded output component(s) named in
+    # test_report["outputs"] (FileOutput id == output name). NOT the max over ALL
+    # global_map entries -- an input source can have more rows than the output.
     gm = ((test_report.get("engine") or {}).get("global_map") or {})
-    for stats in gm.values():
-        total_rows = max(total_rows, stats.get("NB_LINE_OK", stats.get("NB_LINE", 0)))
+    rows = 0
+    for name in (test_report.get("outputs") or {}):
+        stats = gm.get(name) or {}
+        rows = max(rows, stats.get("NB_LINE_OK", stats.get("NB_LINE", 0)))
     ev = {"type": "result", "passed": bool(test_report.get("passed")), "tier": tier,
-          "rows": total_rows,
+          "rows": rows,
           "graded": "%s/%s" % (test_report.get("graded", 0), test_report.get("total", 0))}
     if sample is not None:
         ev["sample"] = sample

@@ -109,9 +109,10 @@ def test_ev_result_counts_no_sample_by_default():
     assert ev["rows"] == 4 and ev["graded"] == "1/1" and ev["tier"] == "verified"
     assert "sample" not in ev                       # fail-closed: no sample unless explicitly given
 
-def test_ev_result_failed_report_is_not_green():
-    ev = P.ev_result(_load("test_report.json"), tier="verified")  # the real FAILED report
+def test_ev_result_failed_report_counts_output_rows_not_input_max():
+    ev = P.ev_result(_load("test_report.json"), tier="verified")  # real FAILED, multi-component report
     assert ev["passed"] is False
+    assert ev["rows"] == 4   # the OUTPUT (trade_positions) count, NOT the input max (in_trades=5)
 
 def test_ev_result_includes_sample_only_when_provided():
     ev = P.ev_result(_load("test_report_passed.json"), tier="verified",
