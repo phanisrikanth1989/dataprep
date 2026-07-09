@@ -24,8 +24,9 @@ that is the assembler.
 
 - `agents/work/<job>/flow_plan.json` (from flow-designer): the `pattern` and the ordered
   `components` (`id`, `type`, `purpose`).
-- The `dataprep-etl` skill's `config-reference.md` for the curated nodes' legal config, and the
-  engine component source for everything else.
+- `agents/work/<job>/extract_doc.json` for each source's `provenance.<source>.delimiter` (the
+  sniffed field separator you set on its reader -- see the Materialized-CSV contract below).
+- The `dataprep-etl` skill's `config-reference.md` for the legal config of the curated nodes.
 
 On a re-run (the orchestrator looped after a failed report), FIRST read
 `agents/work/<job>/feedback.json` if it exists. If its `owner` names THIS stage (`configurator`),
@@ -58,23 +59,27 @@ For EVERY component you configure:
 1. Write that component's `config` dict to a scratch file, e.g.
    `agents/work/<job>/_validate/<id>.json`.
 2. Run: `python -m agents.tools.validate_config --type <type> --config agents/work/<job>/_validate/<id>.json`
-3. Read the JSON result and branch on its `"curated"` field:
-   - `"curated": true` -- one of the 8 curated types (FilterRows, FileInputDelimited,
-     FileOutputDelimited, AggregateRow, Map/tMap, SortRow, UniqueRow, ConvertType). A strict,
-     enum-backed schema ran. If `"valid": false`, fix each error (unknown key, wrong type, value not
-     in the allowed enum, missing required key), and re-run until `"valid": true`.
-   - `"curated": false` -- one of the ~78 uncurated types. validate_config has NO strict schema for
-     it and returns `"valid": true, "errors": []` even for a wrong config, so a clean result there is
-     NOT a guarantee. For these you must instead: open the component's source under
-     `src/v1/engine/components/` and read its `_validate_config`, its `_process`, and its class
-     docstring for the real config keys, defaults, and required fields; author the config from that;
-     and lean on the engine's own validation plus the oracle diff as the correctness backstop. Be
-     extra careful -- a mistyped key passes validate_config silently and only surfaces at run time.
-4. Move on only when curated components report `"valid": true` and uncurated components are grounded
-   in the engine source.
+3. Read the JSON result and branch on its `"curated"` field (TRUST this field -- do NOT keep a
+   private list of which types are curated; the curated set is whatever has a schema on disk, and it
+   grows):
+   - `"curated": true` -- a strict, enum-backed schema ran (e.g. FilterRows, FileInputDelimited,
+     FileOutputDelimited, AggregateRow, Map/tMap, PyMap, Join, SortRow, UniqueRow, ConvertType,
+     SchemaComplianceCheck, PythonDataFrame; the list grows). The schema plus `config-reference.md`
+     are AUTHORITATIVE. If `"valid": false`, fix each reported error (unknown key, wrong type, value
+     not in the allowed enum, missing required key) using the allowed values in `config-reference.md`,
+     and re-run until `"valid": true`. Do NOT open the engine source for a curated type.
+   - `"curated": false` -- no strict schema exists; validate_config returns `"valid": true, "errors":
+     []` even for a wrong config, so a clean result is NOT a guarantee. Author the config from
+     `config-reference.md` and the type's documented Talend semantics. Be extra careful -- a mistyped
+     key passes silently and only surfaces at run time.
+4. Read the engine component source (`src/v1/engine/components/`) ONLY as a last resort: when
+   validate_config reports `"valid": false` with an error you genuinely cannot resolve from
+   `config-reference.md`. Do NOT read engine source as a routine step, and NEVER for a config that
+   already validates. If `config-reference.md` is missing a key you need, note that gap in your
+   output (so it can be added to the reference) instead of spelunking the source on every run.
 
-You are not finished until every curated component validates clean and every uncurated component is
-sourced from the engine. Do not hand the assembler a draft with a known config error.
+You are not finished until every component reports `"valid": true` (curated) or is authored from
+`config-reference.md` (uncurated). Do not hand the assembler a draft with a known config error.
 
 ## python_dataframe config (uncurated -- handle with care)
 
@@ -91,14 +96,21 @@ prefer it.
 
 ## Materialized-CSV contract (both sides)
 
-The materialize_golden step writes every input CSV and the golden expected CSV as
-RFC-4180 double-quoted files. To read/write them faithfully you MUST set, on every
-FileInputDelimited that reads a materialized source AND every terminal
-FileOutputDelimited the oracle reads back:
+The materialize_golden step writes every input CSV (and the golden expected CSV) with the
+delimiter the exploder SNIFFED for that source -- recorded per source in `extract_doc.json`
+under `provenance.<source>.delimiter`. It does NOT normalize to any fixed separator. So, on
+every FileInputDelimited that reads a materialized source, you MUST set:
+- `fieldseparator`: EXACTLY the `provenance.<source>.delimiter` for the source it reads (e.g.
+  `","` for a comma file). Do NOT hard-code `";"`, and do NOT infer the delimiter from how the
+  doc's prose/tables happen to render -- read the recorded value. If a source has no `delimiter`
+  in provenance (a Word-table / transcribed source, i.e. no source file), the fixture falls back
+  to `";"`, so set `";"` for that one.
 - `csv_option: true`
 - `text_enclosure: "\""`
-Without csv_option the engine reads with csv.QUOTE_NONE and writes unquoted, so any
-value containing the `;` separator (or a quote/newline) shifts columns and a correct
+Set `csv_option: true` + `text_enclosure: "\""` on every terminal FileOutputDelimited the oracle
+reads back too (its `fieldseparator` only needs to be self-consistent -- the oracle parses each
+file by its own config). Without `csv_option` the engine reads with csv.QUOTE_NONE and writes
+unquoted, so any value containing the separator (or a quote/newline) shifts columns and a correct
 job false-fails.
 
 Input filepath contract: author each FileInputDelimited `filepath` as exactly

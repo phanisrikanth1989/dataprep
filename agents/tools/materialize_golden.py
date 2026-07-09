@@ -4,9 +4,12 @@ and golden answer key the harness needs.
 The LLM never touches this: it copies the extracted data verbatim into files.
 Input CSVs go to the work-dir ROOT (the harness anchors a relative
 ``filepath: "x.csv"`` there); the ``<out>_expected.csv`` answer key + manifest
-go under ``golden/``. All CSVs are RFC-4180 double-quoted so a value containing
-the ';' separator round-trips (the configurator pairs this with ``csv_option:
-true`` on the delimited I/O).
+go under ``golden/``. Each CSV is written with the delimiter the exploder SNIFFED
+for that source (recorded in ``extract_doc`` provenance) -- so the fixture keeps
+the real file's separator and the configurator's reader round-trips it -- falling
+back to ``;`` only for a table/transcribed source that has no source file. All
+CSVs are RFC-4180 double-quoted (the configurator pairs this with ``csv_option:
+true``) so a value containing the separator round-trips instead of shifting columns.
 """
 from __future__ import annotations
 
@@ -18,7 +21,18 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_SEP = ";"
+# Fallback delimiter ONLY when a source carries no sniffed delimiter (a rung-2 Word
+# table / rung-3 transcription has no source file). A real CSV source always carries
+# its own sniffed delimiter via provenance, so this default is never used for it.
+_DEFAULT_SEP = ";"
+
+
+def _sep_for(name, extract):
+    """Delimiter to materialize ``name`` with: the exploder-sniffed delimiter recorded in
+    ``extract_doc`` provenance for that source, else ``_DEFAULT_SEP``. This keeps the written
+    fixture in the SAME separator the real file used, so the reader/writer config round-trips."""
+    prov = (extract.get("provenance") or {}).get(name) or {}
+    return prov.get("delimiter") or _DEFAULT_SEP
 
 
 def _safe_name(name: str) -> str:
@@ -47,10 +61,10 @@ def _jailed(root, fname: str) -> Path:
     return target
 
 
-def _write_csv(path, header, rows):
-    """Write an RFC-4180 (QUOTE_MINIMAL) ';'-delimited CSV: header then row dicts."""
+def _write_csv(path, header, rows, sep=_DEFAULT_SEP):
+    """Write an RFC-4180 (QUOTE_MINIMAL) CSV with delimiter ``sep``: header then row dicts."""
     with open(path, "w", newline="", encoding="utf-8") as fh:
-        writer = csv.writer(fh, delimiter=_SEP, quotechar='"',
+        writer = csv.writer(fh, delimiter=sep, quotechar='"',
                             quoting=csv.QUOTE_MINIMAL, lineterminator="\n")
         writer.writerow(header)
         for row in rows:
@@ -80,7 +94,7 @@ def materialize_inputs(extract: dict, work_dir) -> list[str]:
         _safe_name(source)
         header = _header_for(source, rows, schema)
         fname = f"{source}.csv"
-        _write_csv(_jailed(root, fname), header, rows)
+        _write_csv(_jailed(root, fname), header, rows, _sep_for(source, extract))
         written.append(fname)
     logger.info("[materialize_golden] wrote %d input CSV(s) to %s", len(written), root)
     return written
@@ -115,9 +129,10 @@ def materialize_expected(extract: dict, work_dir) -> dict:
         else:                                              # normalizer path -> fail-closed allow-list
             rung = str(prov.get(name, {}).get("rung"))     # missing entry -> "None" -> not in the set
             graded = len(rows) > 0 and rung in ("1", "2")
-        outputs[name] = {"keys": output_keys.get(name, []), "sep": _SEP, "graded": graded}
+        sep = _sep_for(name, extract)
+        outputs[name] = {"keys": output_keys.get(name, []), "sep": sep, "graded": graded}
         if graded:
-            _write_csv(_jailed(gdir, f"{name}_expected.csv"), list(rows[0].keys()), rows)
+            _write_csv(_jailed(gdir, f"{name}_expected.csv"), list(rows[0].keys()), rows, sep)
     manifest = {"outputs": outputs}
     (gdir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     logger.info("[materialize_golden] wrote manifest with %d output(s) to %s", len(outputs), gdir)

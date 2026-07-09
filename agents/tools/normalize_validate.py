@@ -96,13 +96,23 @@ def _merge_source(name, candidates, proposal, inventory, side="sample_input"):
     if best is None:
         raise NeedsHuman(f"source {name!r}: no usable candidate handle (all needs_human): {candidates}")
     _rank, rung, handle_id = best
+    delimiter = None
     if rung == "1":
-        rows = _read_csv_handle(_resolve(handle_id, inventory))
+        handle = _resolve(handle_id, inventory)
+        rows = _read_csv_handle(handle)
+        # Preserve the delimiter the exploder SNIFFED for this file so the harness
+        # materializes it (and the configurator reads it back) with the SAME separator --
+        # never a hard-coded ';'. A rung-2 table / rung-3 transcription has no source file,
+        # so no delimiter to carry (materialize falls back to its default there).
+        delimiter = (handle.get("csv_dialect") or {}).get("delimiter")
     elif rung == "2":
         rows = _read_table_handle(_resolve(handle_id, inventory))
     else:  # "3a": the LLM transcribed the rows into the proposal (image/prose only)
         rows = list(proposal.get(side, {}).get(name, []))
-    return rows, {"rung": rung, "handle": handle_id}
+    prov = {"rung": rung, "handle": handle_id}
+    if delimiter:
+        prov["delimiter"] = delimiter
+    return rows, prov
 
 
 # ------------------------------------------------------------------
