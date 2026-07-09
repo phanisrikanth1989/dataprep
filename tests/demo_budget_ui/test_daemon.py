@@ -74,9 +74,29 @@ def test_full_run_replay_is_ordered_and_data_free(tmp_path):
     # callouts appear exactly once per node (no duplicate emit)
     callout_nodes = [e["node"] for e in cap if e["type"] == "callout"]
     assert len(callout_nodes) == len(set(callout_nodes))
+    # node_config resolves the lookup name from job.json flows -> "Match accounts", not "Match lookup"
+    ncfg = next(e for e in cap if e["type"] == "node_config")
+    ncfg_ids = {n["id"] for n in ncfg["nodes"]}
+    assert "Match accounts" in {n["label"] for n in ncfg["nodes"]}
+    # the authoritative graph is id-consistent: every edge endpoint has a node_config entry
+    edge_ids = {x for e in cap if e["type"] == "edges" for f in e["edges"] for x in (f["from"], f["to"])}
+    assert edge_ids <= ncfg_ids                 # no edge to a phantom node
+    assert "trade_positions" in ncfg_ids        # assembler's FINAL output id (not flow_plan's out_trade_positions)
     from tests.demo_budget_ui.test_presenter import _forbidden_values, P
     for e in cap:
         P.assert_data_free(e, _forbidden_values())
     # seq is strictly monotonic
     seqs = [e["seq"] for e in cap]
     assert seqs == sorted(seqs) and len(set(seqs)) == len(seqs)
+
+def test_daemon_recovers_from_torn_read(tmp_path):
+    work = tmp_path / "jobt"; work.mkdir()
+    d = Daemon("jobt", str(work), send=(cap := []).append, since=time.time() - 1)
+    p = work / "extract_doc.json"
+    p.write_text("{ not valid json")            # torn / half-written
+    d.poll()
+    assert cap == []                            # skipped, no crash, nothing emitted, not marked seen
+    shutil.copy(FIX / "extract_doc.json", p)    # write completes -> mtime bumps
+    time.sleep(0.02)
+    d.poll()
+    assert any(e["type"] == "sources" for e in cap)  # re-read on the next pass

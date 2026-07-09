@@ -10,6 +10,9 @@ from __future__ import annotations
 import json
 import os
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 from . import presenter as P
 
@@ -26,12 +29,19 @@ def _dispatch(name, doc):
     if name == "requirement_spec.json":
         return [P.ev_rules(doc), P.ev_stage("designing", "active")]
     if name == "flow_plan.json":
+        # provisional node skeleton (flow_plan ids). The AUTHORITATIVE graph -- final ids +
+        # business labels + edges -- comes from job.json below. The assembler can rename the
+        # terminal FileOutput id (id == output name), so reconciling this skeleton to the final
+        # id set is a Phase-3 (frontend) concern; Phase 1 emits both faithfully.
         return [P.ev_nodes(doc), P.ev_stage("designing", "done")]
     if name == "job_draft.json":
-        # callouts pop here (the configuring stage) from a SINGLE source -> no duplicates
-        return [P.ev_node_config(doc), *P.ev_callouts(doc), P.ev_stage("configuring", "active")]
+        # callouts pop at the configuring stage from a SINGLE source -> no duplicates
+        return [*P.ev_callouts(doc), P.ev_stage("configuring", "active")]
     if name == "job.json":
-        evs = [P.ev_edges(doc), P.ev_stage("wiring", "active")]
+        # job.json is the single source of the AUTHORITATIVE graph: node_config (final ids +
+        # business labels + lookup-name resolution -- which needs job.json's flows, absent from
+        # job_draft) and edges are emitted here so they stay id-consistent with each other.
+        evs = [P.ev_node_config(doc), P.ev_edges(doc), P.ev_stage("wiring", "active")]
         g = P.ev_gate(doc)
         if g:
             evs.append(g)
@@ -83,16 +93,22 @@ class Daemon:
             except (ValueError, OSError):
                 continue   # torn/half-written read: skip; do NOT mark seen -> retry next pass
             self._seen[name] = mt
-            if name == "extract_doc.json":
-                self.tier = doc.get("tier", self.tier)   # tier lives here, NOT in test_report.json
-            if name == "test_report.json":
-                self._emit(P.ev_result(doc, tier=self.tier))
-                self._emit(P.ev_stage("done" if doc.get("passed") else "testing", "done"))
-                continue
-            for ev in _dispatch(name, doc):
-                self._emit(ev)
+            try:
+                if name == "extract_doc.json":
+                    self.tier = doc.get("tier", self.tier)   # tier lives here, NOT in test_report.json
+                if name == "test_report.json":
+                    self._emit(P.ev_result(doc, tier=self.tier))
+                    self._emit(P.ev_stage("done" if doc.get("passed") else "testing", "done"))
+                    continue
+                for ev in _dispatch(name, doc):
+                    self._emit(ev)
+            except Exception as exc:  # a malformed-but-parseable artifact or a send error must not kill the loop
+                logger.warning("[daemon] skipping %s: %s", name, exc)
 
     def run(self, interval=0.5):
         while True:
-            self.poll()
+            try:
+                self.poll()
+            except Exception as exc:  # never let one bad pass kill the watch loop
+                logger.warning("[daemon] poll error: %s", exc)
             time.sleep(interval)

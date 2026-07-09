@@ -68,6 +68,9 @@ def classify(component, lookup_name=None):
         conds = cfg.get("conditions") or []
         if conds:
             c = conds[0]
+            # DATA-FREE note: the predicate VALUE is forwarded as business logic (a rule
+            # literal, e.g. "SETTLED"). Safe on synthetic demo data; for a real BRD the value
+            # can be sensitive (an account name / threshold) -- redact or alias it there.
             return {"kind": "filter", "label": "Keep %s = %s" % (c.get("column", ""), c.get("value", "")),
                     "sub": "filter rows"}
         return {"kind": "filter", "label": "Select columns", "sub": "projection"}
