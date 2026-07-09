@@ -1,0 +1,452 @@
+[
+ {
+  "job": "demo",
+  "seq": 1,
+  "t": 1783576977.8756218,
+  "type": "stage",
+  "stage": "reading",
+  "status": "done"
+ },
+ {
+  "job": "demo",
+  "seq": 2,
+  "t": 1783576977.875623,
+  "type": "sources",
+  "nodes": [
+   {
+    "id": "trades",
+    "source": "trades",
+    "label": "Read trades",
+    "kind": "source",
+    "sub": "7 columns"
+   },
+   {
+    "id": "accounts",
+    "source": "accounts",
+    "label": "Read accounts",
+    "kind": "source",
+    "sub": "3 columns"
+   },
+   {
+    "id": "prices",
+    "source": "prices",
+    "label": "Read prices",
+    "kind": "source",
+    "sub": "2 columns"
+   }
+  ]
+ },
+ {
+  "job": "demo",
+  "seq": 3,
+  "t": 1783576977.875624,
+  "type": "stage",
+  "stage": "interpreting",
+  "status": "active"
+ },
+ {
+  "job": "demo",
+  "seq": 4,
+  "t": 1783576977.876519,
+  "type": "rules",
+  "count": 6,
+  "items": [
+   {
+    "id": "R1",
+    "kind": "join",
+    "label": "add looked-up columns"
+   },
+   {
+    "id": "R2",
+    "kind": "join",
+    "label": "add looked-up columns"
+   },
+   {
+    "id": "R3",
+    "kind": "derive",
+    "label": "compute a value"
+   },
+   {
+    "id": "R4",
+    "kind": "filter",
+    "label": "keep matching rows"
+   },
+   {
+    "id": "R5",
+    "kind": "schema_validate",
+    "label": "validate the schema"
+   },
+   {
+    "id": "R6",
+    "kind": "sort",
+    "label": "sort the output"
+   }
+  ]
+ },
+ {
+  "job": "demo",
+  "seq": 5,
+  "t": 1783576977.87652,
+  "type": "stage",
+  "stage": "designing",
+  "status": "active"
+ },
+ {
+  "job": "demo",
+  "seq": 6,
+  "t": 1783576977.8772109,
+  "type": "nodes",
+  "nodes": [
+   {
+    "id": "in_trades",
+    "ntype": "FileInputDelimited",
+    "kind": "source",
+    "label": "Read a source"
+   },
+   {
+    "id": "in_accounts",
+    "ntype": "FileInputDelimited",
+    "kind": "source",
+    "label": "Read a source"
+   },
+   {
+    "id": "in_prices",
+    "ntype": "FileInputDelimited",
+    "kind": "source",
+    "label": "Read a source"
+   },
+   {
+    "id": "filter_settled",
+    "ntype": "FilterRows",
+    "kind": "filter",
+    "label": "Filter rows"
+   },
+   {
+    "id": "join_accounts",
+    "ntype": "tJoin",
+    "kind": "join",
+    "label": "Match a lookup"
+   },
+   {
+    "id": "join_prices",
+    "ntype": "tJoin",
+    "kind": "join",
+    "label": "Match a lookup"
+   },
+   {
+    "id": "derive_market_value",
+    "ntype": "tPythonDataFrame",
+    "kind": "derive",
+    "label": "Compute a value"
+   },
+   {
+    "id": "validate_trade_date",
+    "ntype": "SchemaComplianceCheck",
+    "kind": "validate",
+    "label": "Validate"
+   },
+   {
+    "id": "sort_market_value",
+    "ntype": "SortRow",
+    "kind": "sort",
+    "label": "Sort"
+   },
+   {
+    "id": "out_trade_positions",
+    "ntype": "FileOutputDelimited",
+    "kind": "output",
+    "label": "Write output"
+   }
+  ]
+ },
+ {
+  "job": "demo",
+  "seq": 7,
+  "t": 1783576977.8772109,
+  "type": "stage",
+  "stage": "designing",
+  "status": "done"
+ },
+ {
+  "job": "demo",
+  "seq": 8,
+  "t": 1783576977.877899,
+  "type": "callout",
+  "node": "filter_settled",
+  "text": "Filter goes first -- it shrinks the lookups.",
+  "kind": "rationale"
+ },
+ {
+  "job": "demo",
+  "seq": 9,
+  "t": 1783576977.8779001,
+  "type": "callout",
+  "node": "join_accounts",
+  "text": "Matched on a unique key, so no rows fan out.",
+  "kind": "rationale"
+ },
+ {
+  "job": "demo",
+  "seq": 10,
+  "t": 1783576977.8779001,
+  "type": "callout",
+  "node": "join_prices",
+  "text": "Matched on a unique key, so no rows fan out.",
+  "kind": "rationale"
+ },
+ {
+  "job": "demo",
+  "seq": 11,
+  "t": 1783576977.8779001,
+  "type": "callout",
+  "node": "derive_market_value",
+  "text": "This step writes code -- a human must sign off before it runs.",
+  "kind": "rationale"
+ },
+ {
+  "job": "demo",
+  "seq": 12,
+  "t": 1783576977.8779001,
+  "type": "callout",
+  "node": "sort_market_value",
+  "text": "Sorted last so the final order is fixed.",
+  "kind": "rationale"
+ },
+ {
+  "job": "demo",
+  "seq": 13,
+  "t": 1783576977.8779001,
+  "type": "stage",
+  "stage": "configuring",
+  "status": "active"
+ },
+ {
+  "job": "demo",
+  "seq": 14,
+  "t": 1783576977.878753,
+  "type": "node_config",
+  "nodes": [
+   {
+    "id": "in_trades",
+    "kind": "source",
+    "label": "Read trades",
+    "sub": "source file",
+    "source": "trades"
+   },
+   {
+    "id": "in_accounts",
+    "kind": "source",
+    "label": "Read accounts",
+    "sub": "source file",
+    "source": "accounts"
+   },
+   {
+    "id": "in_prices",
+    "kind": "source",
+    "label": "Read prices",
+    "sub": "source file",
+    "source": "prices"
+   },
+   {
+    "id": "filter_settled",
+    "kind": "filter",
+    "label": "Keep status = SETTLED",
+    "sub": "filter rows"
+   },
+   {
+    "id": "join_accounts",
+    "kind": "join",
+    "label": "Match accounts",
+    "sub": "left join on account_id"
+   },
+   {
+    "id": "join_prices",
+    "kind": "join",
+    "label": "Match prices",
+    "sub": "left join on symbol"
+   },
+   {
+    "id": "validate_trade_date",
+    "kind": "validate",
+    "label": "Validate trade_date",
+    "sub": "yyyy-MM-dd"
+   },
+   {
+    "id": "derive_market_value",
+    "kind": "derive",
+    "label": "Compute market_value",
+    "sub": "generated code"
+   },
+   {
+    "id": "sort_market_value",
+    "kind": "sort",
+    "label": "Sort by market_value",
+    "sub": "high to low"
+   },
+   {
+    "id": "trade_positions",
+    "kind": "output",
+    "label": "Write trade_positions",
+    "sub": "output file"
+   }
+  ]
+ },
+ {
+  "job": "demo",
+  "seq": 15,
+  "t": 1783576977.8787541,
+  "type": "edges",
+  "edges": [
+   {
+    "from": "in_trades",
+    "to": "filter_settled",
+    "reject": false
+   },
+   {
+    "from": "filter_settled",
+    "to": "join_accounts",
+    "reject": false
+   },
+   {
+    "from": "in_accounts",
+    "to": "join_accounts",
+    "reject": false
+   },
+   {
+    "from": "join_accounts",
+    "to": "join_prices",
+    "reject": false
+   },
+   {
+    "from": "in_prices",
+    "to": "join_prices",
+    "reject": false
+   },
+   {
+    "from": "join_prices",
+    "to": "validate_trade_date",
+    "reject": false
+   },
+   {
+    "from": "validate_trade_date",
+    "to": "derive_market_value",
+    "reject": false
+   },
+   {
+    "from": "derive_market_value",
+    "to": "sort_market_value",
+    "reject": false
+   },
+   {
+    "from": "sort_market_value",
+    "to": "trade_positions",
+    "reject": false
+   }
+  ]
+ },
+ {
+  "job": "demo",
+  "seq": 16,
+  "t": 1783576977.8787541,
+  "type": "stage",
+  "stage": "wiring",
+  "status": "active"
+ },
+ {
+  "job": "demo",
+  "seq": 17,
+  "t": 1783576977.8787541,
+  "type": "gate",
+  "kind": "code_signoff",
+  "node": "derive_market_value",
+  "code": "df['market_value'] = df['quantity'].astype(float) * df['price'].astype(float)",
+  "status": "awaiting"
+ },
+ {
+  "job": "demo",
+  "seq": 18,
+  "t": 1783576977.878755,
+  "type": "stage",
+  "stage": "signoff",
+  "status": "active"
+ },
+ {
+  "job": "demo",
+  "seq": 19,
+  "t": 1783576977.879414,
+  "type": "gate",
+  "kind": "code_signoff",
+  "node": "derive_market_value",
+  "status": "signed"
+ },
+ {
+  "job": "demo",
+  "seq": 20,
+  "t": 1783576977.879415,
+  "type": "stage",
+  "stage": "testing",
+  "status": "active"
+ },
+ {
+  "job": "demo",
+  "seq": 21,
+  "t": 1783576977.879415,
+  "type": "result",
+  "passed": true,
+  "tier": "verified",
+  "rows": 4,
+  "outputs": [
+   "trade_positions"
+  ],
+  "graded": "1/1",
+  "sample": [
+   {
+    "trade_id": "T004",
+    "account_name": "Gamma Funds",
+    "region": "APAC",
+    "symbol": "AAPL",
+    "market_value": "30200.00",
+    "closing_price": "150.80"
+   },
+   {
+    "trade_id": "T002",
+    "account_name": "Beta Partners",
+    "region": "EMEA",
+    "symbol": "MSFT",
+    "market_value": "20525.00",
+    "closing_price": "411.00"
+   },
+   {
+    "trade_id": "T001",
+    "account_name": "Alpha Capital",
+    "region": "NA",
+    "symbol": "AAPL",
+    "market_value": "15025.00",
+    "closing_price": "150.80"
+   },
+   {
+    "trade_id": "T005",
+    "account_name": "",
+    "region": "",
+    "symbol": "TSLA",
+    "market_value": "6901.00",
+    "closing_price": "689.00"
+   }
+  ]
+ },
+ {
+  "job": "demo",
+  "seq": 22,
+  "t": 1783576977.879416,
+  "type": "stage",
+  "stage": "done",
+  "status": "done"
+ },
+ {
+  "job": "demo",
+  "seq": 23,
+  "t": 1783576977.879416,
+  "type": "end",
+  "passed": true
+ }
+]
