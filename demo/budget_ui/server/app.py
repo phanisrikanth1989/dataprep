@@ -85,3 +85,29 @@ def job_doc(job: str):
     filename, data = d
     return Response(content=data, media_type="application/octet-stream",
                     headers={"Content-Disposition": 'attachment; filename="%s"' % filename})
+
+
+@app.post("/job/{job}/event")
+async def ingest(job: str, request: Request):
+    event = await request.json()
+    await store.add_event(job, event)
+    return {"ok": True}
+
+
+@app.get("/stream/{job}")
+async def stream(job: str):
+    async def gen():
+        for ev in store.log(job):                       # replay for late-join catch-up
+            yield "data: " + json.dumps(ev) + "\n\n"
+            if ev.get("type") == "end":
+                return
+        q = store.subscribe(job)
+        try:
+            while True:
+                ev = await q.get()
+                yield "data: " + json.dumps(ev) + "\n\n"
+                if ev.get("type") == "end":
+                    return
+        finally:
+            store.unsubscribe(job, q)
+    return StreamingResponse(gen(), media_type="text/event-stream")
