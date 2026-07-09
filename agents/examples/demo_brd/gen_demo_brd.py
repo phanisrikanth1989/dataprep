@@ -7,8 +7,13 @@ rules, a free-prose special-handling note, and sibling CSVs of the exact input
 data), but is deliberately authored so the orchestrator runs END-TO-END with NO
 human gate and lands on the ``verified`` tier:
 
-  - ``accounts.account_id`` is UNIQUE (no fan-out hazard) and every join states
-    its no-match handling, so the doc-interpreter raises no ambiguity.
+  - Every decision the doc-interpreter would otherwise FLAG is stated
+    explicitly, so it raises NO ambiguity and the human gate is a clean
+    "approve the verified job": each lookup key is DECLARED unique (R1
+    account_id, R2 symbol -- no fan-out hazard), every join states its no-match
+    handling (keep unmatched), R5 states the invalid-date disposition (drop
+    non-conforming; none in the sample), and R6 names market_value as the
+    derived NUMERIC sort column.
   - The expected output is a real TABLE (rung-2), not a pasted screenshot
     (rung-3a), so ``materialize_golden`` GRADES it and the tier is ``verified``
     -- the finale can claim an exact match against the answer key.
@@ -79,13 +84,13 @@ _EXPECTED_ROWS = [
 _STTM_HEADERS = ["Source System", "Source Field(s)", "Target Field", "Transformation Logic"]
 _STTM_ROWS = [
     ["Trades", "trade_id", "trade_id", "Pass through (record key)."],
-    ["Trades", "quantity, price", "market_value", "Derive market_value = quantity * price."],
-    ["Accounts", "account_name", "account_name", "Lookup on account_id (left join; keep unmatched)."],
-    ["Accounts", "region", "region", "Lookup on account_id."],
-    ["Prices", "closing_price", "closing_price", "Lookup on symbol (left join; keep unmatched)."],
+    ["Trades", "quantity, price", "market_value", "Derive market_value = quantity * price (numeric)."],
+    ["Accounts", "account_name", "account_name", "Lookup on account_id (unique key; left join; keep unmatched)."],
+    ["Accounts", "region", "region", "Lookup on account_id (unique key)."],
+    ["Prices", "closing_price", "closing_price", "Lookup on symbol (unique key; left join; keep unmatched)."],
     ["Trades", "status", "-", "Filter: keep rows where status = SETTLED."],
-    ["Trades", "trade_date", "-", "Validate format YYYY-MM-DD."],
-    ["Derived", "market_value", "-", "Sort output by market_value, descending."],
+    ["Trades", "trade_date", "-", "Validate format YYYY-MM-DD; drop any row that fails."],
+    ["Derived", "market_value", "-", "Sort output by the numeric market_value, descending."],
 ]
 
 
@@ -132,12 +137,21 @@ def generate(out_dir: str) -> Path:
     _add_table(doc, _STTM_HEADERS, _STTM_ROWS)
 
     doc.add_heading("3. Business Rules", level=2)
-    doc.add_paragraph("R1. Join each trade to Accounts on account_id to add account_name and region.")
-    doc.add_paragraph("R2. Join each trade to Prices on symbol to add closing_price.")
-    doc.add_paragraph("R3. Derive market_value as quantity multiplied by price.")
+    doc.add_paragraph(
+        "R1. Join each trade to Accounts on account_id to add account_name and region. "
+        "account_id is the unique primary key of the Accounts file - exactly one row per account."
+    )
+    doc.add_paragraph(
+        "R2. Join each trade to Prices on symbol to add closing_price. symbol is the unique key "
+        "of the Prices file - exactly one row per symbol."
+    )
+    doc.add_paragraph("R3. Derive market_value as quantity multiplied by price (a numeric amount).")
     doc.add_paragraph("R4. Filter the output to trades whose status is SETTLED.")
-    doc.add_paragraph("R5. Validate that trade_date is a valid date in YYYY-MM-DD format.")
-    doc.add_paragraph("R6. Sort the final output by market_value in descending order.")
+    doc.add_paragraph(
+        "R5. Validate that trade_date is a valid date in YYYY-MM-DD format. A trade whose trade_date "
+        "does not conform is dropped from the output; all sample trades conform, so none are dropped."
+    )
+    doc.add_paragraph("R6. Sort the final output by the derived numeric market_value in descending order.")
 
     doc.add_heading("4. Special Handling", level=2)
     doc.add_paragraph(

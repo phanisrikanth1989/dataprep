@@ -112,6 +112,17 @@ You resolve what you safely can and you FLAG what you cannot. Add an entry to `a
 - any key column a rule relies on that is duplicate-prone (`max_group_size > 1`).
 Never silently pick a default for these -- surface them so the human decides.
 
+A guarantee the document states EXPLICITLY is RESOLVED, not an ambiguity. If the rules or notes
+declare a lookup key unique (a primary key / "exactly one row per X"), state a `schema_validate`
+failure disposition (drop / reject / keep), or state `no_match` handling, treat it as DECIDED and do
+NOT flag it -- the human already ruled in the document. A defensive "the production file might differ
+from this sample" concern is NOT an ambiguity once the document has declared the guarantee: carry the
+declared fact into the spec and move on. Flag only what the document genuinely leaves open.
+
+A column ADDED by an earlier `derive` rule (or produced by an `aggregate`) counts as PRESENT for a
+later `sort`/`aggregate` that references it -- do NOT flag such a reference as "a column not in the
+schema". Only a column that no source provides AND no rule produces is a real missing-column ambiguity.
+
 ## Note-derived rules are tagged
 
 Any rule (or field) you derive from a note MUST carry `source: "note"` (or `derived_from_note: true`).
