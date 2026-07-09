@@ -171,3 +171,36 @@ def ev_node_config(job):
         v = classify(c, looks.get(c.get("id")))
         nodes.append({"id": c.get("id"), "label": v["label"], "sub": v["sub"]})
     return {"type": "node_config", "nodes": nodes}
+
+
+_CODE_TYPES = {"tPythonDataFrame", "PythonDataFrameComponent", "PyMap",
+               "tPythonRow", "tJava", "tJavaRow", "tJavaFlex", "SwiftTransformer"}
+_CALLOUT = {
+    "filter": "Filter goes first -- it shrinks the lookups.",
+    "join": "Matched on a unique key, so no rows fan out.",
+    "map": "Enriched via a mapper (multiple lookups in one step).",
+    "derive": "This step writes code -- a human must sign off before it runs.",
+    "sort": "Sorted last so the final order is fixed.",
+}
+
+
+def ev_callouts(job):
+    """One canned rationale per node whose kind has one. No LLM prose forwarded."""
+    outs = []
+    for c in job.get("components") or []:
+        text = _CALLOUT.get(_KIND.get(c.get("type")))
+        if text:
+            outs.append({"type": "callout", "node": c.get("id"), "text": text, "kind": "rationale"})
+    return outs
+
+
+def _code_of(cfg):
+    return cfg.get("python_code") or cfg.get("code") or cfg.get("python_expression") or ""
+
+
+def ev_gate(job):
+    for c in job.get("components") or []:
+        if c.get("type") in _CODE_TYPES:
+            return {"type": "gate", "kind": "code_signoff", "node": c.get("id"),
+                    "code": _code_of(c.get("config") or {}), "status": "awaiting"}
+    return None

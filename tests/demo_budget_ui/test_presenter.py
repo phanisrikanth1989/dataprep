@@ -85,3 +85,20 @@ def test_ev_node_config_fills_business_label_and_sub():
     assert by["filter_settled"]["sub"] == "filter rows"
     assert "left join on account_id" in by["join_accounts"]["sub"]    # lookup name resolved from flows
     P.assert_data_free(ev, _forbidden_values())
+
+def test_ev_callouts_are_canned_and_data_free():
+    outs = P.ev_callouts(_load("job.json"))
+    by_node = {c["node"]: c["text"] for c in outs}
+    assert "filter_settled" in by_node and "derive_market_value" in by_node
+    assert "sign off" in by_node["derive_market_value"].lower()
+    for c in outs:
+        P.assert_data_free(c, _forbidden_values())
+
+def test_ev_gate_present_for_code_cell():
+    g = P.ev_gate(_load("job.json"))
+    assert g["type"] == "gate" and g["node"] == "derive_market_value"
+    assert g["status"] == "awaiting" and "market_value" in g["code"]
+
+def test_ev_gate_none_without_code():
+    job = {"components": [{"id": "x", "type": "FilterRows", "config": {}}], "flows": []}
+    assert P.ev_gate(job) is None
