@@ -235,5 +235,15 @@ def ev_result(test_report, tier, sample=None):
     return ev
 
 
+def sample_from_extract(extract_doc, limit=5):
+    """SYNTHETIC-ONLY: the expected_output rows as a small finale table. The caller
+    (daemon) invokes this ONLY in --synthetic mode; it deliberately reads answer-key
+    values, which is acceptable only because the demo doc is synthetic."""
+    exp = extract_doc.get("expected_output") or {}
+    for _name, rows in exp.items():
+        return [dict(r) for r in rows[:limit]]
+    return None
+
+
 def ev_stage(stage, status):
     return {"type": "stage", "stage": stage, "status": status}

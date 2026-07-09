@@ -51,7 +51,7 @@ def _dispatch(name, doc):
 
 
 class Daemon:
-    def __init__(self, job_id, work_dir, send, since=None):
+    def __init__(self, job_id, work_dir, send, since=None, synthetic=False):
         self.job_id = job_id
         self.work_dir = work_dir
         self.send = send
@@ -60,6 +60,8 @@ class Daemon:
         self._seq = 0
         self.tier = "build"  # captured from extract_doc.json when it appears (NOT from test_report)
         self._gate_node = None  # remembered from job.json so we can emit gate:signed at test_report
+        self.synthetic = synthetic  # --synthetic: attach a finale sample (reads the answer key)
+        self._sample = None  # captured from extract_doc.json in synthetic mode only
 
     def _emit(self, payload):
         if not payload:
@@ -68,6 +70,23 @@ class Daemon:
         env = {"job": self.job_id, "seq": self._seq, "t": time.time()}
         env.update(payload)
         self.send(env)
+
+    def _events_for(self, name, doc):
+        if name == "job.json":
+            _g = P.ev_gate(doc)
+            self._gate_node = _g["node"] if _g else None
+        if name == "test_report.json":
+            evs = []
+            if self._gate_node:                      # the test ran -> the human signed off
+                evs.append({"type": "gate", "kind": "code_signoff",
+                            "node": self._gate_node, "status": "signed"})
+            evs.append(P.ev_stage("testing", "active"))
+            evs.append(P.ev_result(doc, tier=self.tier, sample=self._sample))
+            evs.append(P.ev_stage("done" if doc.get("passed") else "testing", "done"))
+            if doc.get("passed"):
+                evs.append({"type": "end", "passed": True})
+            return evs
+        return _dispatch(name, doc)
 
     def poll(self):
         try:
@@ -93,28 +112,18 @@ class Daemon:
                 with open(path, encoding="utf-8") as fh:
                     doc = json.load(fh)
             except (ValueError, OSError):
-                continue   # torn/half-written read: skip; do NOT mark seen -> retry next pass
-            self._seen[name] = mt
+                continue   # torn read: skip, do NOT mark seen -> retry next pass
+            if name == "extract_doc.json":
+                self.tier = doc.get("tier", self.tier)   # tier lives here, NOT in test_report.json
+                if self.synthetic:
+                    self._sample = P.sample_from_extract(doc)  # SYNTHETIC-ONLY: reads the answer key
             try:
-                if name == "extract_doc.json":
-                    self.tier = doc.get("tier", self.tier)   # tier lives here, NOT in test_report.json
-                if name == "job.json":
-                    _g = P.ev_gate(doc)
-                    self._gate_node = _g["node"] if _g else None
-                if name == "test_report.json":
-                    if self._gate_node:                      # the test ran -> the human signed off
-                        self._emit({"type": "gate", "kind": "code_signoff",
-                                    "node": self._gate_node, "status": "signed"})
-                    self._emit(P.ev_stage("testing", "active"))
-                    self._emit(P.ev_result(doc, tier=self.tier))
-                    self._emit(P.ev_stage("done" if doc.get("passed") else "testing", "done"))
-                    if doc.get("passed"):
-                        self._emit({"type": "end", "passed": True})   # terminal: server closes the SSE
-                    continue
-                for ev in _dispatch(name, doc):
+                for ev in self._events_for(name, doc):
                     self._emit(ev)
-            except Exception as exc:  # a malformed-but-parseable artifact or a send error must not kill the loop
-                logger.warning("[daemon] skipping %s: %s", name, exc)
+            except Exception as exc:   # a send failure must NOT mark the artifact seen -> retry next poll
+                logger.warning("[daemon] send failed for %s (will retry): %s", name, exc)
+                continue
+            self._seen[name] = mt      # marked seen only after ALL its events sent (covers BOTH paths)
 
     def run(self, interval=0.5):
         while True:
