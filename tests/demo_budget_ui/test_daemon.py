@@ -40,6 +40,20 @@ def test_daemon_dedups_unchanged_files(tmp_path):
     d.poll(); n = len(cap); d.poll()   # second poll, no change
     assert len(cap) == n               # no re-emit
 
+def test_daemon_multi_artifact_poll_emits_in_pipeline_order(tmp_path):
+    # job_draft is written BEFORE job, but 'job.json' sorts alphabetically BEFORE
+    # 'job_draft.json' -- the daemon must emit in mtime (pipeline) order, not filename order.
+    work = tmp_path / "job4"; work.mkdir()
+    d = Daemon("job4", str(work), send=(cap := []).append, since=time.time() - 1)
+    shutil.copy(FIX / "job_draft.json", work / "job_draft.json")
+    time.sleep(0.02)
+    shutil.copy(FIX / "job.json", work / "job.json")
+    d.poll()   # ONE poll sees both new files
+    types = [e["type"] for e in cap]
+    assert types.index("node_config") < types.index("edges")   # configuring before wiring
+    stages = [e["stage"] for e in cap if e["type"] == "stage"]
+    assert stages.index("configuring") < stages.index("wiring")
+
 def test_full_run_replay_is_ordered_and_data_free(tmp_path):
     work = tmp_path / "job"; (work / "golden").mkdir(parents=True)
     cap = []

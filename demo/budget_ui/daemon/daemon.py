@@ -1,8 +1,9 @@
 # demo/budget_ui/daemon/daemon.py
 """Watch a job work dir by mtime; dispatch new/changed artifacts to presenter;
 wrap payloads in an envelope; send them out (injected sender). ASCII-only.
-Stage transitions are keyed off WHICH artifact appeared (deterministic), not
-off audit.jsonl event strings. gate:signed is keyed off test_report appearing.
+Artifacts are dispatched in chronological (mtime) order so stages emit in
+pipeline order. Stage transitions are keyed off WHICH artifact appeared
+(deterministic), not off audit.jsonl event strings.
 """
 from __future__ import annotations
 
@@ -12,7 +13,13 @@ import time
 
 from . import presenter as P
 
-# artifact filename -> (stage-on-appearance, [extractor callables])
+# canonical pipeline order -- the tiebreak when two artifacts share an mtime tick
+_ORDER = {"purity.json": 0, "exploder_inventory.json": 1, "extract_doc.json": 2,
+          "requirement_spec.json": 3, "flow_plan.json": 4, "job_draft.json": 5,
+          "job.json": 6, "test_report.json": 7}
+
+
+# artifact filename -> the flat list of event payloads to emit on its appearance
 def _dispatch(name, doc):
     if name == "extract_doc.json":
         return [P.ev_stage("reading", "done"), P.ev_sources(doc), P.ev_stage("interpreting", "active")]
@@ -55,7 +62,8 @@ class Daemon:
             names = os.listdir(self.work_dir)
         except FileNotFoundError:
             return
-        for name in sorted(names):
+        candidates = []
+        for name in names:
             path = os.path.join(self.work_dir, name)
             if not (name.endswith(".json") and os.path.isfile(path)):
                 continue
@@ -65,12 +73,16 @@ class Daemon:
                 continue
             if mt < self.since or self._seen.get(name) == mt:
                 continue
-            self._seen[name] = mt
+            candidates.append((mt, _ORDER.get(name, 99), name, path))
+        # dispatch in chronological (mtime) order, pipeline-index as the tiebreak --
+        # NOT filename order (which would put job.json before job_draft.json).
+        for mt, _idx, name, path in sorted(candidates):
             try:
                 with open(path, encoding="utf-8") as fh:
                     doc = json.load(fh)
             except (ValueError, OSError):
-                continue   # torn/half-written read: skip this pass, retry next
+                continue   # torn/half-written read: skip; do NOT mark seen -> retry next pass
+            self._seen[name] = mt
             if name == "extract_doc.json":
                 self.tier = doc.get("tier", self.tier)   # tier lives here, NOT in test_report.json
             if name == "test_report.json":
