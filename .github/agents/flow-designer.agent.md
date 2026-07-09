@@ -42,11 +42,15 @@ Write `agents/work/<job>/flow_plan.json`:
 - `pattern` -- a one-line description of the pipeline shape (e.g. "left-outer lookup of the ref
   file onto the source on acct_id via tJoin; one python_dataframe node casts types and derives the
   output columns; SortRow by acct_id; FileOutputDelimited").
-- `components` -- an ordered list of `{id, type, purpose}`. `type` MUST be the REGISTERED engine
-  component name (see below) -- e.g. `tPythonDataFrame` / `PythonDataFrameComponent`, never the
-  `python_dataframe` prose shorthand -- because the engine silently DROPS a component whose `type`
-  is not in its registry. `purpose` says what the node does in the pipeline. No `config`, no
-  `schema`, no flows.
+- `components` -- an ordered list of `{id, type, label, purpose}`. `type` MUST be the REGISTERED
+  engine component name (see below) -- e.g. `tPythonDataFrame` / `PythonDataFrameComponent`, never
+  the `python_dataframe` prose shorthand -- because the engine silently DROPS a component whose
+  `type` is not in its registry. `label` is a SHORT (2-3 word) human-friendly name for the node --
+  e.g. "Read trades", "Match accounts", "Compute market value", "Sort by value", "Keep settled" --
+  which the demo UI shows while the pipeline is being built. Keep it a plain STRUCTURAL descriptor of
+  what the node does; it is safe to surface because you only ever see the data-blind spec, so it can
+  never carry a data value -- but do not put one in it. `purpose` says (in a fuller sentence) what the
+  node does in the pipeline. No `config`, no `schema`, no flows.
 
 ## Component set (the full registry, not a fixed list)
 

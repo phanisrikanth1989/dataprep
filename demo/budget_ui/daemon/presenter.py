@@ -142,12 +142,19 @@ _SKEL_STOP = frozenset({"read", "src", "source", "in", "input", "load", "file",
 
 
 def skeleton(component):
-    """Config-FREE node view for flow_plan.json (which carries only id/type/purpose). The
-    config-authoritative label arrives one beat later from job.json via ev_node_config; until then
-    we derive a DISTINGUISHABLE preview from the id for source/join/output/map (structure, not data
-    values) so three sources read "Read trades / accounts / prices", not three "Read a source"."""
+    """Config-FREE node view for flow_plan.json. The label preview, in priority order:
+      1. the flow-designer's own short `label` (2-3 words it authored in flow_plan.json). It is
+         DATA-FREE by construction -- the flow-designer reads only the data-blind requirement_spec,
+         so it cannot contain a sample value -- and it knows the intent, so it reads well for EVERY
+         kind (e.g. "Sort by value", "Compute market value"), not just the noun ones.
+      2. else a distinguishable id-derived preview for source/join/output/map (read_trades -> trades).
+      3. else the generic per-kind placeholder.
+    The config-authoritative label still arrives one beat later from job.json via ev_node_config."""
     t = component.get("type", "")
     kind = _KIND.get(t) or _fallback_kind(t)
+    label = (component.get("label") or "").strip()
+    if label:
+        return {"kind": kind, "label": label[:40]}
     if kind in _SKEL_VERB:
         tokens = [tok for tok in re.split(r"[^A-Za-z0-9]+", component.get("id", "")) if tok]
         while tokens and tokens[0].lower() in _SKEL_STOP:

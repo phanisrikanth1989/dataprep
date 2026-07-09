@@ -69,6 +69,16 @@ def test_ev_nodes_uses_skeleton_and_is_data_free():
     assert "Filter rows" in labels and "Compute a value" in labels  # business labels arrive via node_config
     P.assert_data_free(ev, _forbidden_values())
 
+
+def test_skeleton_label_priority():
+    # 1. the flow-designer's own short label wins (used verbatim)
+    assert P.skeleton({"type": "SortRow", "id": "sort_x", "label": "Sort by value"})["label"] == "Sort by value"
+    # 2. else an id-derived preview for the noun kinds (distinguishable, matches the authoritative name)
+    assert P.skeleton({"type": "Join", "id": "join_accounts"})["label"] == "Match accounts"
+    assert P.skeleton({"type": "FileInputDelimited", "id": "read_trades"})["label"] == "Read trades"
+    # 3. else the generic per-kind placeholder (a verb-on-column kind with no authored label)
+    assert P.skeleton({"type": "FilterRows", "id": "x"})["label"] == "Filter rows"
+
 def test_ev_edges_from_flows_and_marks_reject():
     ev = P.ev_edges(_load("job.json"))
     assert ev["type"] == "edges"
