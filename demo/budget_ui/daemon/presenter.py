@@ -91,3 +91,55 @@ def classify(component, lookup_name=None):
     # Unknown type: humanized, kind guessed from the name. Never the raw id.
     human = _humanize_type(t)
     return {"kind": _fallback_kind(t), "label": human, "sub": human.lower()}
+
+
+def assert_data_free(event, forbidden):
+    """Raise if any forbidden raw value appears in the event PAYLOAD (test guard).
+    Envelope metadata (job/seq/t) is excluded: seq is a climbing int and t is an
+    epoch float whose digits can coincidentally contain a short numeric cell like '10'."""
+    payload = {k: v for k, v in event.items() if k not in ("job", "seq", "t")}
+    blob = repr(payload)
+    for v in forbidden:
+        assert v not in blob, "data-free violation: %r leaked into event %s" % (v, event.get("type"))
+
+
+def ev_sources(extract_doc):
+    """From sources_schema ONLY (names + column counts). Never touches sample_input/expected_output."""
+    schema = extract_doc.get("sources_schema") or {}
+    nodes = []
+    for name, cols in schema.items():
+        n = len(cols) if isinstance(cols, list) else 0
+        nodes.append({"id": name, "label": "Read " + name, "kind": "source",
+                      "sub": "%d columns" % n})
+    return {"type": "sources", "nodes": nodes}
+
+
+def ev_rules(requirement_spec):
+    """Rule id + kind + a short business label. No rule 'description' free text is forwarded."""
+    _LABEL = {"join": "add looked-up columns", "filter": "keep matching rows",
+              "aggregate": "summarize", "sort": "sort the output",
+              "schema_validate": "validate the schema", "derive": "compute a value"}
+    items = [{"id": r.get("id"), "kind": r.get("kind"), "label": _LABEL.get(r.get("kind"), "transform")}
+             for r in (requirement_spec.get("rules") or [])]
+    return {"type": "rules", "count": len(items), "items": items}
+
+
+_SKELETON = {"source": "Read a source", "filter": "Filter rows", "join": "Match a lookup",
+             "map": "Enrich (mapper)", "validate": "Validate", "derive": "Compute a value",
+             "sort": "Sort", "aggregate": "Group and summarize", "output": "Write output"}
+
+
+def skeleton(component):
+    """Config-FREE node view for flow_plan.json (which carries only id/type/purpose).
+    The business label arrives later from job.json config via ev_node_config."""
+    t = component.get("type", "")
+    kind = _KIND.get(t) or _fallback_kind(t)
+    return {"kind": kind, "label": _SKELETON.get(kind) or _humanize_type(t)}
+
+
+def ev_nodes(flow_plan):
+    """flow_plan components -> node skeletons (kind + config-free label). Purpose text NOT forwarded."""
+    nodes = []
+    for c in flow_plan.get("components") or []:
+        nodes.append({"id": c.get("id"), "ntype": c.get("type"), **skeleton(c)})
+    return {"type": "nodes", "nodes": nodes}
