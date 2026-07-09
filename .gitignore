@@ -30,3 +30,8 @@ htmlcov/
 /coverage.json
 /cov_*.json.superpowers/
 .superpowers/
+# ephemeral agent run output (regenerated each run; carries sample/expected cell values -- never commit)
+agents/work/
+
+# built React bundle copied in for the relay to serve
+demo/budget_ui/server/dist/
