@@ -40,11 +40,18 @@ function narrationFor(name, state) {
   switch (name) {
     case "reading": {
       const lines = [{ node: <>Reading your document&hellip;</> }];
-      if (state.sources.length || state.rules.count) {
+      // Sources are known here (from extract_doc); the rule COUNT only arrives one stage
+      // later (requirement_spec). Show sources now, and append the rule count only once it
+      // is actually known -- never render a premature "0 rules".
+      if (state.sources.length) {
         lines.push({
-          node: (
+          node: state.rules.count ? (
             <>
               Found <b>{state.sources.length} sources</b> and <b>{state.rules.count} rules</b>.
+            </>
+          ) : (
+            <>
+              Found <b>{state.sources.length} sources</b>.
             </>
           ),
         });

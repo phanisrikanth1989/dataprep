@@ -32,7 +32,9 @@ export function Edges({ edges, pos, W, H }) {
             d={d}
             initial={{ pathLength: 0, opacity: 0 }}
             animate={{ pathLength: 1, opacity: 1 }}
-            transition={{ duration: 0.55, ease: "easeInOut" }}
+            // Hold the draw until the nodes have finished gliding from the scatter into the
+            // DAG (~1s glide, see GraphNode) so an edge never connects a still-travelling box.
+            transition={{ duration: 0.8, ease: "easeInOut", delay: 1.0 }}
           />
         );
       })}

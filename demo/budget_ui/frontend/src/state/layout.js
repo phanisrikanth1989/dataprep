@@ -18,6 +18,21 @@ export function layout(nodesById, edges) {
   // before any node exists; an unguarded Math.max(...[]) would return -Infinity and
   // yield an invalid canvas (spec section 16.4: never a blank/invalid canvas).
   if (ids.length === 0) return { pos: {}, W: 640, H: 360 };
+  // Pre-wiring beat: nodes exist but NO edges yet (the flow_plan skeleton). Lay them in a
+  // LOOSE left-to-right scatter -- NOT the vertical column an unguarded layered layout would
+  // give -- so they read as "the pieces, not organized yet" and then visibly TRAVEL into the
+  // real DAG when the edges arrive. The scatter is deterministic (a hash of the arrival index)
+  // so it does not re-jitter on every render, and index-based x/y means the authoritative
+  // node_config (same order) lands nodes on the SAME spots -> no flicker before the glide.
+  if (!edges || edges.length === 0) {
+    const COLW = 128, NODEW = 132, NODEH = 54, PADX = 24, MIDY = 150;
+    const pos = {};
+    ids.forEach((id, i) => {
+      const jy = (((i * 41 + 13) % 9) - 4) * 34; // deterministic vertical scatter, -136..136
+      pos[id] = { x: PADX + i * COLW, y: MIDY + jy, w: NODEW, h: NODEH };
+    });
+    return { pos, W: PADX * 2 + (ids.length - 1) * COLW + NODEW, H: MIDY + 170 + NODEH };
+  }
   const succ = {}, pred = {};
   ids.forEach(i => { succ[i] = []; pred[i] = []; });
   edges.forEach(f => {

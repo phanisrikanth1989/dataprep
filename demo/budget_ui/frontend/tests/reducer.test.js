@@ -30,4 +30,25 @@ describe("reducer", () => {
     expect(state.result.sample.length).toBe(4);
     expect(state.gate.code).toContain("market_value");   // code preserved through the signed merge
   });
+
+  it("reconciles a renamed terminal output to a stable key so it glides, not fade-swaps", () => {
+    let s = reduce(initialState, {
+      type: "nodes",
+      nodes: [
+        { id: "in", kind: "source", label: "Read" },
+        { id: "out_x", kind: "output", label: "Write" },
+      ],
+    });
+    expect(s.nodesById["out_x"].key).toBe("out_x"); // skeleton key = its own id
+    s = reduce(s, {
+      type: "node_config",
+      nodes: [
+        { id: "in", kind: "source", label: "Read in" },
+        { id: "x", kind: "output", label: "Write x" }, // assembler renamed out_x -> x
+      ],
+    });
+    expect(Object.keys(s.nodesById)).toEqual(["in", "x"]); // final ids (skeleton id dropped)
+    expect(s.nodesById["in"].key).toBe("in"); // unchanged id keeps its key
+    expect(s.nodesById["x"].key).toBe("out_x"); // renamed output reuses the same-kind skeleton key -> glide
+  });
 });

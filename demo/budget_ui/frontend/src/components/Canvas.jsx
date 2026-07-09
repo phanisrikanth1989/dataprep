@@ -82,12 +82,13 @@ export function Canvas({ state }) {
         <div className="fit" style={{ transform: `scale(${fit.scale})`, left: fit.left, top: 14 }}>
           <div className="stage" style={{ width: L.W, height: L.H }}>
             <Edges edges={state.edges} pos={L.pos} W={L.W} H={L.H} />
-            {state.order.map((id) => {
+            {state.order.map((id, i) => {
               const node = state.nodesById[id];
               if (!node) return null;
               return (
                 <GraphNode
-                  key={id}
+                  key={node.key || id}
+                  idx={i}
                   node={node}
                   pos={L.pos[id]}
                   active={active.has(id)}

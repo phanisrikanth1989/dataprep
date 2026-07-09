@@ -21,4 +21,12 @@ describe("layout", () => {
   it("does not crash on an edge to an unknown node", () => {
     expect(() => layout({ a: { id: "a" } }, [{ from: "a", to: "ghost" }])).not.toThrow();
   });
+  it("lays the pre-wiring skeleton (nodes, no edges) in a horizontal scatter, not a vertical column", () => {
+    const nodes = { a: { id: "a" }, b: { id: "b" }, c: { id: "c" }, d: { id: "d" } };
+    const { pos } = layout(nodes, []);
+    const xs = Object.values(pos).map((p) => p.x);
+    // Distinct x per node (spread left-to-right), not one shared column -> not the old vertical stack.
+    expect(new Set(xs).size).toBe(xs.length);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(200);
+  });
 });

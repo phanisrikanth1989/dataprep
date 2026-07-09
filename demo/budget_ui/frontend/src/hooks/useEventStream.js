@@ -12,7 +12,7 @@
 import { useEffect, useReducer } from "react";
 import { reduce, initialState } from "../state/reducer.js";
 
-const REPLAY_INTERVAL_MS = 250;
+const REPLAY_INTERVAL_MS = 700;
 
 export function useEventStream({ job, replay }) {
   // useReducer's signature is (reduce, initialState) and dispatch(event) calls

@@ -28,7 +28,7 @@ export function Callout({ callout, pos }) {
       className="callout"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      transition={{ duration: 0.4 }}
+      transition={{ duration: 0.6, ease: [0.2, 0.7, 0.2, 1] }}
       style={{
         left: pos.x + pos.w / 2,
         top: pos.y - lift,

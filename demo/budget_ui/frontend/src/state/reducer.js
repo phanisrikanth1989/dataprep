@@ -32,25 +32,48 @@ export function reduce(state, event) {
 
     case "nodes": {
       // Provisional skeleton (flow_plan ids). Add nodes + append their ids to order.
-      // node_config (below) is AUTHORITATIVE and replaces this wholesale.
+      // `key` is the STABLE React/Framer key (its own id here); node_config (below)
+      // reuses it across a rename so the node GLIDES instead of fade-swapping.
       const nodesById = { ...state.nodesById };
       const order = state.order.slice();
       for (const n of event.nodes || []) {
-        nodesById[n.id] = { id: n.id, kind: n.kind, label: n.label };
+        nodesById[n.id] = { id: n.id, kind: n.kind, label: n.label, key: n.id };
         if (!order.includes(n.id)) order.push(n.id);
       }
       return { ...state, nodesById, order };
     }
 
     case "node_config": {
-      // AUTHORITATIVE: final assembled ids supersede the skeleton. REPLACE nodesById
-      // and REBUILD order from these ids, so a dropped skeleton id (e.g. a renamed
-      // terminal output) is gone from BOTH -- else a consumer iterating order derefs
-      // undefined.kind and crashes.
+      // AUTHORITATIVE: final assembled ids supersede the skeleton. REPLACE nodesById and
+      // REBUILD order from these ids (a dropped skeleton id is gone from BOTH, so nothing
+      // derefs undefined.kind). To keep the "glide into place" CONTINUOUS when the assembler
+      // RENAMED a node (the terminal FileOutput id becomes the output name), each final node
+      // reuses a stable React `key`: its own id if the skeleton already had it, else an unused
+      // skeleton key of the same kind (a rename). A stable key is what lets Framer glide the
+      // node rather than fade one out and another in.
+      const prevKeyOf = {};              // skeleton id -> its stable key
+      const freeByKind = {};             // kind -> [skeleton keys], for matching a rename
+      for (const id of state.order) {
+        const n = state.nodesById[id];
+        if (!n) continue;
+        const k = n.key || id;
+        prevKeyOf[id] = k;
+        (freeByKind[n.kind] || (freeByKind[n.kind] = [])).push(k);
+      }
+      const used = new Set();
+      for (const n of event.nodes || []) {   // reserve exact-id keys before renames claim any
+        if (prevKeyOf[n.id] != null) used.add(prevKeyOf[n.id]);
+      }
       const nodesById = {};
       const order = [];
-      for (const n of event.nodes || []) {
-        nodesById[n.id] = { ...n };
+      for (const n of event.nodes || []) {    // preserve event order
+        let key = prevKeyOf[n.id];
+        if (key == null) {                     // new id -> inherit a same-kind skeleton key (rename)
+          const pool = (freeByKind[n.kind] || []).filter((k) => !used.has(k));
+          key = pool.length ? pool[0] : n.id;
+          used.add(key);
+        }
+        nodesById[n.id] = { ...n, key };
         order.push(n.id);
       }
       return { ...state, nodesById, order };
