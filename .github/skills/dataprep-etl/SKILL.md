@@ -15,5 +15,6 @@ Load the resource that fits the task:
 - `config-reference.md` - every allowed component config key + its resolved allowed values.
 - `landmines.md` - config traps that silently produce wrong output; respect each.
 - `job-envelope.md` - the exact job.json wiring shape the engine requires.
+- `patterns.md` - canonical flow shapes (lookup-enrich, validate->reject, derive, aggregate/sort).
 
 Validate any component config with `python -m agents.tools.validate_config --type T --config c.json` and test a whole job with `python -m agents.tools.run_and_validate --job job.json --golden-dir DIR` before claiming it is correct.

@@ -140,6 +140,43 @@ def render_job_envelope() -> str:
     return prose + example
 
 
+def render_patterns() -> str:
+    """The canonical flow-design patterns the flow-designer picks from (the skill's frontmatter
+    promises these). Kept in the skill so a stage never has to RAG-search the engine source for a
+    known shape -- e.g. the SchemaComplianceCheck validate->reject flow."""
+    return (
+        "# Flow patterns (pick the shape, then configure)\n\n"
+        "Common data-preparation shapes. The flow-designer picks the shape; the configurator fills\n"
+        "the config. These cover the curated node set -- you do NOT need to read engine source for them.\n\n"
+        "## Lookup-enrich (add columns from a reference file)\n"
+        "`source + lookup -> [tJoin | PyMap | tMap] -> ... -> FileOutputDelimited`.\n"
+        "- `tJoin`: one equality-key lookup, keeps the first lookup row per key -- the default choice.\n"
+        "- `PyMap` / `tMap`: several lookups, a join variable, or an expression-derived output column.\n"
+        "- `LEFT_OUTER_JOIN` keeps every source row (an unmatched row flows out with null lookup\n"
+        "  columns); `INNER_JOIN` drops misses. Keep the lookup key unique (`UNIQUE_MATCH` /\n"
+        "  `FIRST_MATCH`, or pre-dedup with `UniqueRow` / `AggregateRow`) so one source row maps to one.\n\n"
+        "## Validate a type/format, route failures to a reject (SchemaComplianceCheck)\n"
+        "`SchemaComplianceCheck` validates each row against the declared column types/formats --\n"
+        "INCLUDING a date format via a per-column `date_pattern` (e.g. `yyyy-MM-dd`) -- and routes rows\n"
+        "that FAIL to a separate REJECT output flow while passing rows continue on the main flow:\n\n"
+        "```\n"
+        "... -> SchemaComplianceCheck --main----> (rest of the pipeline)\n"
+        "                             --reject--> FileOutputDelimited (the rejected rows), if kept\n"
+        "```\n\n"
+        "Use it for a `schema_validate` rule that must ACT on bad rows (drop or route them). For a\n"
+        "plain type conformance with no reject action, a `ConvertType` cast -- or BaseComponent's own\n"
+        "output-schema coercion -- is enough; no extra node.\n\n"
+        "## Derive / cast in one vectorized pass (python_dataframe)\n"
+        "Place ONE `tPythonDataFrame` AFTER the join to collapse casts + derivations into a single\n"
+        "pass. It is single-input (cannot join) and unsandboxed (human-reviewed); pin\n"
+        "`execution_mode: \"batch\"` on it.\n\n"
+        "## Aggregate before sort\n"
+        "`AggregateRow` (pandas groupby) discards row order, so put `SortRow` LAST to fix the\n"
+        "downstream-facing output order (the oracle diff is order-insensitive, so a wrong final order\n"
+        "would otherwise ship undetected).\n"
+    )
+
+
 _SKILL_FRONTMATTER = (
     "---\n"
     "name: dataprep-etl\n"
@@ -153,12 +190,13 @@ _SKILL_FRONTMATTER = (
 
 
 def write_skill(root: str = ".github/skills/dataprep-etl") -> None:
-    """Write SKILL.md + the three resource files for the dataprep-etl skill."""
+    """Write SKILL.md + the four resource files for the dataprep-etl skill."""
     root_path = Path(root)
     root_path.mkdir(parents=True, exist_ok=True)
     (root_path / "config-reference.md").write_text(render_config_reference(), encoding="utf-8")
     (root_path / "landmines.md").write_text(render_landmines(), encoding="utf-8")
     (root_path / "job-envelope.md").write_text(render_job_envelope(), encoding="utf-8")
+    (root_path / "patterns.md").write_text(render_patterns(), encoding="utf-8")
     body = (
         _SKILL_FRONTMATTER
         + "# DataPrep ETL knowledge\n\n"
@@ -167,7 +205,8 @@ def write_skill(root: str = ".github/skills/dataprep-etl") -> None:
         "Load the resource that fits the task:\n\n"
         "- `config-reference.md` - every allowed component config key + its resolved allowed values.\n"
         "- `landmines.md` - config traps that silently produce wrong output; respect each.\n"
-        "- `job-envelope.md` - the exact job.json wiring shape the engine requires.\n\n"
+        "- `job-envelope.md` - the exact job.json wiring shape the engine requires.\n"
+        "- `patterns.md` - canonical flow shapes (lookup-enrich, validate->reject, derive, aggregate/sort).\n\n"
         "Validate any component config with `python -m agents.tools.validate_config --type T --config c.json` "
         "and test a whole job with `python -m agents.tools.run_and_validate --job job.json --golden-dir DIR` "
         "before claiming it is correct.\n"

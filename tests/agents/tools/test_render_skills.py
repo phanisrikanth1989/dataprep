@@ -25,7 +25,20 @@ def test_write_skill_produces_valid_skill(tmp_path):
     assert validate_skill(skill_md, "dataprep-etl") == []
     assert (root / "config-reference.md").exists()
     assert (root / "job-envelope.md").exists()
+    assert (root / "patterns.md").exists()
+    assert "patterns.md" in skill_md          # the index references the new resource
     assert "dataprep-recon" not in skill_md
+
+
+def test_patterns_teaches_validate_reject_flow():
+    """patterns.md must carry the SchemaComplianceCheck validate->reject flow (with a date_pattern)
+    and the lookup-enrich join, so the flow-designer reads it instead of RAG-searching the source."""
+    from agents.tools.render_skills import render_patterns
+    md = render_patterns()
+    assert "SchemaComplianceCheck" in md
+    assert "reject" in md.lower()
+    assert "date_pattern" in md
+    assert "LEFT_OUTER_JOIN" in md
 
 
 def test_envelope_example_teaches_id_equals_name_and_csv_option():

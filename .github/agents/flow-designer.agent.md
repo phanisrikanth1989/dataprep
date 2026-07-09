@@ -50,12 +50,12 @@ Write `agents/work/<job>/flow_plan.json`:
 
 ## Component set (the full registry, not a fixed list)
 
-You may pick ANY of the ~86 registered engine component types. Eight are "curated" (FilterRows,
-FileInputDelimited, FileOutputDelimited, AggregateRow, Map/tMap, SortRow, UniqueRow, ConvertType) and
-get strict config validation downstream; the other ~78 are uncurated but fully usable (the
-configurator grounds them in the engine source, and the oracle is the correctness backstop). Prefer
-the curated + vectorized nodes for the common path; reach for an uncurated node when it is the right
-tool for a rule.
+You may pick ANY of the ~86 registered engine component types. Many are "curated" -- FilterRows,
+FileInputDelimited, FileOutputDelimited, AggregateRow, Map/tMap, PyMap, Join/tJoin, SortRow, UniqueRow,
+ConvertType, SchemaComplianceCheck, PythonDataFrame (the set grows) -- and get strict config validation
+downstream from `config-reference.md`; the rest are uncurated but fully usable (the configurator grounds
+an uncurated node in the engine source, and the oracle is the correctness backstop). Prefer the curated
++ vectorized nodes for the common path; reach for an uncurated node when it is the right tool for a rule.
 
 ## Performance first (the main design axis)
 
@@ -161,7 +161,10 @@ rule.
 
 ## Knowledge
 
-Consult the `dataprep-etl` skill: `config-reference.md` for the curated nodes' config shapes,
-`landmines.md` for the tMap `join_mode` / `matching_mode` / cartesian hazards and the die_on_error
-default, and `job-envelope.md` for how a lookup and a reject route are wired downstream. For any
-uncurated node, read its source under `src/v1/engine/components/` before you commit to it.
+Consult the `dataprep-etl` skill: `patterns.md` for the canonical flow shapes (lookup-enrich, the
+`SchemaComplianceCheck` validate->reject flow, derive, aggregate/sort), `config-reference.md` for the
+curated nodes' config shapes, `landmines.md` for the tMap `join_mode` / `matching_mode` / cartesian
+hazards and the die_on_error default, and `job-envelope.md` for how a lookup and a reject route are
+wired downstream. Those cover the curated node set -- do NOT read engine source to re-confirm a curated
+node. Open a component's source under `src/v1/engine/components/` ONLY for a genuinely UNCURATED node
+whose shape the skill does not describe, and only before committing to it.

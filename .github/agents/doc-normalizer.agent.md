@@ -184,6 +184,48 @@ any ambiguity you could not resolve, any value you could not cleanly read. Flag 
 this list is surfaced at the extraction gate, so an honest flag costs nothing and a silent guess can
 poison the grade.
 
+## Worked example (a complete minimal proposal -- copy this shape)
+
+For an inventory whose sibling `trades.csv` (handle `sibling:trades`) is the sample source, a Word
+table (handle `table:0`) is the expected output, and one prose block (`para:0`) is an overview, a
+complete `normalizer_proposal.json` is:
+
+```json
+{
+  "sources_schema": {
+    "trades": [
+      {"name": "trade_id", "type": "string", "nullable": false, "key": true},
+      {"name": "quantity", "type": "integer", "nullable": false, "key": false},
+      {"name": "price", "type": "decimal", "nullable": false, "key": false},
+      {"name": "status", "type": "string", "nullable": false, "key": false}
+    ]
+  },
+  "rules": [
+    {"id": "R1", "kind": "filter", "description": "Keep only rows where status = SETTLED."},
+    {"id": "R2", "kind": "derive", "description": "market_value = quantity * price."},
+    {"id": "R3", "kind": "sort", "description": "Sort output by market_value descending."}
+  ],
+  "notes": "A trade with no matching account is KEPT with blank account fields -- do not drop it.",
+  "extra_sections": {"Overview": {"prose": "Builds an enriched trade position feed.", "tables": []}},
+  "output_keys": {"trade_position": ["trade_id"]},
+  "located": {
+    "sample_input":    {"trades": ["sibling:trades"]},
+    "expected_output": {"trade_position": ["table:0"]}
+  },
+  "coverage_map": [
+    {"handle": "sibling:trades", "disposition": "extracted_to", "refs": ["trades", "trades.trade_id"]},
+    {"handle": "table:0", "disposition": "extracted_to", "refs": ["trade_position"]},
+    {"handle": "para:0", "disposition": "extracted_to", "refs": ["Overview"]}
+  ],
+  "low_confidence": ["output name trade_position is synthesized -- the BRD gives no explicit output dataset name"]
+}
+```
+
+Note there is NO `sample_input` / `expected_output` data block here: `trades` is a rung-1 CSV and
+`trade_position` a rung-2 Word table, so the validator reads their exact bytes -- you only populate
+those blocks for rung-3a `image:`/`para:` handles (see "Transcribed rows" above). These are the same
+field shapes `extract_doc.json` uses, so nothing downstream needs to change.
+
 ## Schema-provenance ladder
 
 Schema may be absent from the doc. Derive it in this order and flag when you drop down a rung:
