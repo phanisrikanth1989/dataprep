@@ -44,11 +44,11 @@ from docx import Document
 # ------------------------------------------------------------------
 _TRADES = [
     ["trade_id", "account_id", "symbol", "quantity", "price", "status", "trade_date"],
-    ["T001", "A100", "AAPL", "100", "150.25", "SETTLED", "2026-06-01"],
-    ["T002", "A101", "MSFT", "50",  "410.50", "SETTLED", "2026-06-01"],
-    ["T003", "A100", "GOOG", "20",  "2750.00", "PENDING", "2026-06-02"],
-    ["T004", "A102", "AAPL", "200", "151.00", "SETTLED", "2026-06-02"],
-    ["T005", "A999", "TSLA", "10",  "690.10", "SETTLED", "2026-06-03"],
+    ["T001", "A100", "AAPL", "100", "150", "SETTLED", "2026-06-01"],
+    ["T002", "A101", "MSFT", "50",  "410", "SETTLED", "2026-06-01"],
+    ["T003", "A100", "GOOG", "20",  "2750", "PENDING", "2026-06-02"],
+    ["T004", "A102", "AAPL", "200", "151", "SETTLED", "2026-06-02"],
+    ["T005", "A999", "TSLA", "10",  "690", "SETTLED", "2026-06-03"],
 ]
 _ACCOUNTS = [
     ["account_id", "account_name", "region"],
@@ -59,25 +59,25 @@ _ACCOUNTS = [
 ]
 _PRICES = [
     ["symbol", "closing_price"],
-    ["AAPL", "150.80"],
-    ["MSFT", "411.00"],
-    ["GOOG", "2748.50"],
-    ["TSLA", "689.00"],
+    ["AAPL", "151"],
+    ["MSFT", "411"],
+    ["GOOG", "2749"],
+    ["TSLA", "689"],
 ]
 
 # Expected output as a PARSEABLE TABLE (rung-2 -> graded -> verified tier).
 # Blank account_name/region on the no-match row (T005) to match the engine's
-# empty-string null rendering. Numeric values are ALIGNED to the engine's actual
-# float serialization -- pandas to_csv drops trailing zeros (30200.0, not 30200.00;
-# 150.8, not 150.80) -- so the string-exact oracle passes clean on the verified
-# tier. This is the standard verified-tier authoring step: author the answer key
-# from the engine's real output.
+# empty-string null rendering. ALL numerics are INTEGERS by design: prices and closing
+# prices are whole, so market_value = quantity * price is whole too. That removes the
+# float-format ambiguity (30200 vs 30200.0) the STRING-EXACT oracle would otherwise trip
+# on -- an integer column serializes to "30200" regardless of how the LLM config casts
+# it, so the verified run passes DETERMINISTICALLY across config variations.
 _EXPECTED_HEADERS = ["trade_id", "account_name", "region", "symbol", "market_value", "closing_price"]
 _EXPECTED_ROWS = [
-    ["T004", "Gamma Funds",   "APAC", "AAPL", "30200.0", "150.8"],
-    ["T002", "Beta Partners", "EMEA", "MSFT", "20525.0", "411.0"],
-    ["T001", "Alpha Capital", "NA",   "AAPL", "15025.0", "150.8"],
-    ["T005", "",              "",     "TSLA", "6901.0",  "689.0"],
+    ["T004", "Gamma Funds",   "APAC", "AAPL", "30200", "151"],
+    ["T002", "Beta Partners", "EMEA", "MSFT", "20500", "411"],
+    ["T001", "Alpha Capital", "NA",   "AAPL", "15000", "151"],
+    ["T005", "",              "",     "TSLA", "6900",  "689"],
 ]
 
 # The STTM mapping table -- ARBITRARY headers, the kind a real BA writes.
