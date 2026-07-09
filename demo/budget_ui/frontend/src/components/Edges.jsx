@@ -8,8 +8,9 @@
 // writes inline stroke-dasharray/offset, which would override a dashed style.
 
 import { motion } from "framer-motion";
+import { NODE_STAGGER, NODE_DUR, EDGE_DUR } from "../anim.js";
 
-export function Edges({ edges, pos, W, H }) {
+export function Edges({ edges, pos, W, H, indexById = {} }) {
   return (
     <svg className="edges" viewBox={`0 0 ${W} ${H}`}>
       {edges.map((e) => {
@@ -25,6 +26,11 @@ export function Edges({ edges, pos, W, H }) {
         const y2 = b.y + b.h / 2;
         const mx = (x1 + x2) / 2;
         const d = `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
+        // Draw each edge as its DOWNSTREAM node lands -- the later of its two endpoints in
+        // the chain -- so the connection appears just after the box it points at settles,
+        // never across a still-travelling box (see GraphNode's staggered glide).
+        const landIdx = Math.max(indexById[e.from] || 0, indexById[e.to] || 0);
+        const delay = landIdx * NODE_STAGGER + NODE_DUR * 0.55;
         return (
           <motion.path
             key={`${e.from}->${e.to}`}
@@ -32,9 +38,7 @@ export function Edges({ edges, pos, W, H }) {
             d={d}
             initial={{ pathLength: 0, opacity: 0 }}
             animate={{ pathLength: 1, opacity: 1 }}
-            // Hold the draw until the nodes have finished gliding from the scatter into the
-            // DAG (~1s glide, see GraphNode) so an edge never connects a still-travelling box.
-            transition={{ duration: 0.8, ease: "easeInOut", delay: 1.0 }}
+            transition={{ duration: EDGE_DUR, ease: "easeInOut", delay }}
           />
         );
       })}

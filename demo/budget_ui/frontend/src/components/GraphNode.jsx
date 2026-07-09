@@ -12,6 +12,7 @@
 //   - active / settled / done-glow : passed in from the Canvas (see Canvas.jsx).
 
 import { motion } from "framer-motion";
+import { NODE_STAGGER, NODE_DUR } from "../anim.js";
 
 export function GraphNode({ node, pos, active, settled, glow, teaser, idx = 0 }) {
   if (!pos) return null; // guard a mid-stream node without a computed position
@@ -34,10 +35,11 @@ export function GraphNode({ node, pos, active, settled, glow, teaser, idx = 0 })
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{
-        // Deliberate pacing: a staggered fade-in, then a slow 1s GLIDE when the skeleton
-        // scatter resolves into the wired DAG (the "boxes travel to their place" beat).
-        opacity: { duration: 0.7, ease: [0.2, 0.7, 0.2, 1], delay: Math.min(idx * 0.05, 0.5) },
-        layout: { duration: 1.0, ease: [0.4, 0, 0.2, 1] },
+        // The scattered boxes appear quickly (a light stagger), then each GLIDES into the
+        // chain ONE AT A TIME: the layout move is delayed by the node's chain index, so the
+        // pipeline assembles left-to-right, one box settling before the next travels.
+        opacity: { duration: 0.5, ease: [0.2, 0.7, 0.2, 1], delay: Math.min(idx * 0.04, 0.4) },
+        layout: { duration: NODE_DUR, ease: [0.4, 0, 0.2, 1], delay: idx * NODE_STAGGER },
       }}
       style={{ left: pos.x, top: pos.y, width: pos.w, minHeight: pos.h }}
       data-source={node.source || undefined}

@@ -13,6 +13,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { layout } from "../state/layout.js";
+import { buildMs, GATE_PAUSE } from "../anim.js";
 import { Edges } from "./Edges.jsx";
 import { GraphNode } from "./GraphNode.jsx";
 import { Callout } from "./Callout.jsx";
@@ -75,13 +76,22 @@ export function Canvas({ state }) {
     for (const s of state.sources) if (s && s.source) m[s.source] = s;
     return m;
   }, [state.sources]);
+  // Chain index per node id -> the staggered edge draw (Edges) keys off the downstream node.
+  const indexById = useMemo(() => {
+    const m = {};
+    state.order.forEach((id, i) => { m[id] = i; });
+    return m;
+  }, [state.order]);
+  // The code gate rises only AFTER the last node has glided into place (+ a pause) -- never
+  // suddenly, mid-build. Scales with node count so it always follows the chain assembly.
+  const gateRevealMs = buildMs(state.order.length) + GATE_PAUSE * 1000;
 
   return (
     <div className="canvaswrap">
       <div className="canvasgrid" ref={gridRef} style={{ height: fit.height }}>
         <div className="fit" style={{ transform: `scale(${fit.scale})`, left: fit.left, top: 14 }}>
           <div className="stage" style={{ width: L.W, height: L.H }}>
-            <Edges edges={state.edges} pos={L.pos} W={L.W} H={L.H} />
+            <Edges edges={state.edges} pos={L.pos} W={L.W} H={L.H} indexById={indexById} />
             {state.order.map((id, i) => {
               const node = state.nodesById[id];
               if (!node) return null;
@@ -103,7 +113,7 @@ export function Canvas({ state }) {
             ))}
           </div>
         </div>
-        <CodeGate gate={state.gate} result={state.result} />
+        <CodeGate gate={state.gate} result={state.result} revealMs={gateRevealMs} />
         <Finale result={state.result} />
       </div>
       <Stepper state={state} />
