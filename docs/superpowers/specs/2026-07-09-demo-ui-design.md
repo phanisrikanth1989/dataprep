@@ -303,3 +303,28 @@ already gone with the fixed doc). The thinking-state fills it; the presenter tal
   audit).
 - Parallel agent-perf = curate tJoin + tPythonDataFrame, align golden, optional audit hardening.
 - ASCII-only everywhere (RHEL).
+
+---
+
+## 16. Implementation guardrails (from the adversarial review round)
+
+Concrete build-time details to bake in. These are NOT scope changes -- v1 stays the synthetic
+happy path -- just plumbing the happy path must not trip on.
+
+1. **Job binding = the slug IS the id.** After `/upload` the server returns the job id; the operator
+   pastes that same id as the Copilot `<job>` name, so the work dir is `agents/work/<job-id>/`. The
+   daemon watches that dir and posts to `/job/<job-id>/event` -- no separate id-to-slug mapping.
+
+2. **Daemon clean start.** Launch the daemon with a `--since` watermark (its start time) and/or a
+   fresh work dir per job, so its first poll does not burst-replay pre-existing artifacts from an
+   earlier run.
+
+3. **The code-gate beat lands.** The frontend holds a minimum dwell on the "awaiting sign-off" state
+   so a fast operator approval does not flicker past; `gate:signed` keys off a deterministic signal
+   (the `test_report` appearing, or a machine-written run-start marker) rather than an LLM-worded
+   audit string.
+
+4. **Degrade, do not lie.** The finale branches on `result.passed` -- never render the green
+   "matched" state on a non-pass; show a neutral "refining" state instead. Guard the layout/edge
+   rendering so a malformed or mid-stream-incomplete graph shows a neutral state, never a blank
+   canvas or a false success.
