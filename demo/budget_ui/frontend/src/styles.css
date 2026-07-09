@@ -98,20 +98,26 @@ svg.edges{position:absolute;inset:0;overflow:visible;pointer-events:none}
 .node.active{border-color:var(--live);box-shadow:0 0 0 1px var(--live-soft),0 0 22px rgba(242,169,59,.22),0 8px 22px rgba(0,0,0,.4)}
 .node.settled{border-color:rgba(67,192,139,.4)}
 .node.done-glow{border-color:var(--done);box-shadow:0 0 0 1px var(--done-soft),0 0 26px rgba(67,192,139,.3)}
-.n-title{font-size:11.5px;color:var(--ink);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.n-sub{font-size:9.5px;color:var(--ink-dim);margin-top:3px;max-height:0;opacity:0;overflow:hidden;transition:max-height .4s ease,opacity .4s ease,margin .4s}
-.node.cfg .n-sub{max-height:16px;opacity:1}
+.n-title{font-size:11.5px;color:var(--ink);font-weight:600;line-height:1.28;overflow-wrap:break-word;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.n-sub{font-size:9.5px;color:var(--ink-dim);margin-top:3px;max-height:0;opacity:0;overflow:hidden;line-height:1.3;
+  overflow-wrap:break-word;transition:max-height .4s ease,opacity .4s ease,margin .4s}
+.node.cfg .n-sub{max-height:30px;opacity:1}
 .n-badge{position:absolute;top:-7px;right:-7px;width:16px;height:16px;border-radius:50%;background:var(--code);
   display:none;align-items:center;justify-content:center;font-size:9px;color:#1a0f26;font-family:var(--mono);font-weight:700}
 .node.k-derive .n-badge{display:flex}
 
-/* callouts */
-.callout{position:absolute;transform:translate(-50%,-100%);background:var(--live-soft);border:1px solid rgba(242,169,59,.5);
-  color:#F6D6A0;font-family:var(--sans);font-size:10.5px;line-height:1.35;padding:6px 9px;border-radius:9px;max-width:180px;
-  opacity:0;transition:opacity .4s ease,transform .4s ease;z-index:6;pointer-events:none;text-align:center}
-.callout.show{opacity:1}
-.callout::after{content:"";position:absolute;left:50%;bottom:-5px;width:8px;height:8px;background:var(--live-soft);
-  border-right:1px solid rgba(242,169,59,.5);border-bottom:1px solid rgba(242,169,59,.5);transform:translateX(-50%) rotate(45deg)}
+/* callouts -- reasoning annotations, each joined to its node by a thin leader line.
+   Staggered by column parity (Callout.jsx) so adjacent bubbles sit at two heights and
+   never overlap; --lift (set inline) is the leader-line length for that bubble. */
+.callout{position:absolute;transform:translate(-50%,-100%);
+  background:linear-gradient(180deg,rgba(242,169,59,.17),rgba(242,169,59,.10));border:1px solid rgba(242,169,59,.42);
+  color:#F6D6A0;font-family:var(--sans);font-size:10.5px;line-height:1.34;padding:6px 10px;border-radius:9px;max-width:166px;
+  opacity:0;transition:opacity .4s ease;z-index:6;pointer-events:none;text-align:center;box-shadow:0 6px 16px rgba(0,0,0,.28)}
+.callout::after{content:"";position:absolute;left:50%;top:100%;width:1px;height:var(--lift,10px);
+  background:linear-gradient(rgba(242,169,59,.6),rgba(242,169,59,.14));transform:translateX(-50%)}
+.callout::before{content:"";position:absolute;left:50%;top:calc(100% + var(--lift,10px));width:5px;height:5px;border-radius:50%;
+  background:var(--live);transform:translate(-50%,-50%);opacity:.8;box-shadow:0 0 8px rgba(242,169,59,.5)}
 
 /* code gate overlay */
 .gate{position:absolute;left:50%;top:12px;transform:translateX(-50%);width:min(460px,92%);z-index:20;
@@ -131,14 +137,18 @@ svg.edges{position:absolute;inset:0;overflow:visible;pointer-events:none}
 .gate.signed .stamp{display:inline-flex} .gate.signed .row{display:none}
 
 /* result panel */
-.result{position:absolute;right:14px;bottom:14px;z-index:15;background:rgba(12,22,18,.96);border:1px solid var(--done);
-  border-radius:12px;padding:12px 14px;box-shadow:0 18px 40px rgba(0,0,0,.5);opacity:0;transform:translateY(10px);transition:.45s;max-width:320px}
+.result{position:absolute;right:14px;bottom:14px;z-index:15;background:rgba(12,22,18,.97);border:1px solid var(--done);
+  border-radius:12px;padding:12px 14px;box-shadow:0 18px 40px rgba(0,0,0,.5);opacity:0;transform:translateY(10px);transition:.45s;
+  max-width:min(452px,calc(100% - 28px))}
 .result.on{opacity:1;transform:none}
-.result h4{margin:0 0 8px;font-size:13px;color:var(--done);display:flex;align-items:center;gap:8px}
-.result table{border-collapse:collapse;font-family:var(--mono);font-size:10px;color:var(--ink-dim)}
-.result th,.result td{border:1px solid var(--line);padding:2px 6px;text-align:left;white-space:nowrap}
-.result th{color:var(--ink-mute);font-weight:500}
-.result .meta{font-size:11px;color:var(--ink);margin-top:8px}
+.result h4{margin:0 0 9px;font-size:13px;color:var(--done);display:flex;align-items:center;gap:8px}
+.result .tw{overflow-x:auto;max-width:100%;border-radius:7px;border:1px solid var(--line)}
+.result table{border-collapse:collapse;font-family:var(--mono);font-size:9.5px;color:var(--ink-dim);width:100%}
+.result th,.result td{border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:2px 6px;text-align:left;white-space:nowrap}
+.result th:last-child,.result td:last-child{border-right:0}
+.result tr:last-child td{border-bottom:0}
+.result th{color:var(--ink-mute);font-weight:500;background:rgba(67,192,139,.07)}
+.result .meta{font-size:11px;color:var(--ink);margin-top:9px}
 
 /* stepper */
 .stepper{display:flex;gap:6px;margin-top:14px;flex-wrap:wrap;align-items:center}
@@ -191,6 +201,36 @@ details.peek pre{margin:0;padding:0 12px 12px;font-family:var(--mono);font-size:
 .rl-srcs{list-style:none;margin:-4px 0 12px;padding-left:15px}
 .rl-src{font-family:var(--mono);font-size:11px;color:var(--ink-dim);margin:0 0 3px}
 .rl-src::before{content:"- ";color:var(--file)}
+
+/* Waiting handoff: a live ?job= stream before its first event. Shown in place of the
+   .main grid (App.jsx) -- the job id + the two operator commands so the run can be
+   wired up. Flips to the live view the moment the daemon relays the first event. */
+.brand .live.pending{color:var(--ink-mute)}
+.waiting{position:relative;overflow:hidden;min-height:440px;padding:38px 34px 34px;
+  border:1px solid var(--line);border-radius:16px;background:linear-gradient(180deg,var(--panel),var(--panel2));
+  display:flex;flex-direction:column;align-items:flex-start}
+.waiting::before{content:"";position:absolute;inset:0;pointer-events:none;
+  background:
+    linear-gradient(transparent 95%, rgba(255,255,255,.022) 95%) 0 0/100% 32px,
+    linear-gradient(90deg, transparent 95%, rgba(255,255,255,.022) 95%) 0 0/32px 100%;
+  -webkit-mask-image:radial-gradient(62% 62% at 28% 16%,#000,transparent);mask-image:radial-gradient(62% 62% at 28% 16%,#000,transparent)}
+.waiting > *{position:relative;z-index:1}
+.waiting-badge{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--live);border:1px solid rgba(242,169,59,.4);background:var(--live-soft);border-radius:999px;padding:5px 12px}
+.waiting-badge .spin{width:9px;height:9px;border-radius:50%;border:2px solid var(--live);border-top-color:transparent;animation:spin .8s linear infinite}
+.waiting-title{font-size:26px;font-weight:660;letter-spacing:-.01em;margin:18px 0 8px;color:var(--ink)}
+.waiting-sub{font-size:14px;color:var(--ink-dim);margin:0 0 26px;max-width:560px;line-height:1.55}
+.job-id{font-family:var(--mono);font-size:.9em;background:rgba(242,169,59,.14);color:#F6D6A0;padding:2px 8px;border-radius:6px}
+.waiting-ops{width:100%;max-width:660px;border:1px solid var(--line);border-radius:12px;background:rgba(6,11,22,.42);padding:16px 18px}
+.waiting-ops-h{font-family:var(--mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-mute);margin-bottom:14px}
+.waiting-ops ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:15px}
+.waiting-ops li{display:flex;gap:12px;align-items:flex-start;font-size:13px;color:var(--ink-dim);line-height:1.5}
+.waiting-ops li .n{flex:0 0 auto;width:20px;height:20px;border-radius:50%;border:1px solid var(--line-lit);color:var(--ink);
+  font-family:var(--mono);font-size:11px;display:flex;align-items:center;justify-content:center;margin-top:1px}
+.waiting-ops li b{color:var(--ink);font-weight:640}
+.waiting-ops li code{font-family:var(--mono);font-size:11.5px;background:rgba(192,139,224,.13);color:#DABDF0;padding:1px 6px;border-radius:5px}
+.waiting-ops pre{margin:8px 0 0;font-family:var(--mono);font-size:11.5px;color:#DABDF0;background:rgba(192,139,224,.09);
+  border:1px solid rgba(192,139,224,.24);border-radius:8px;padding:10px 12px;white-space:pre-wrap;word-break:break-word}
 
 /* Entry / upload view (default when neither ?job= nor ?replay= is present). */
 .up-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:40px 20px;margin:-20px -22px;

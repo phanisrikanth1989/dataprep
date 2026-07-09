@@ -22,18 +22,20 @@ export function Finale({ result }) {
       <h4>{passed ? <>&#10003; Tested against your sample</> : <>Refining the pipeline</>}</h4>
 
       {headers.length > 0 && (
-        <table>
-          <tbody>
-            <tr>{headers.map((h) => <th key={h}>{h}</th>)}</tr>
-            {sample.map((row, i) => (
-              <tr key={i}>
-                {headers.map((h) => (
-                  <td key={h}>{row[h] === "" ? <>&mdash;</> : row[h]}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="tw">
+          <table>
+            <tbody>
+              <tr>{headers.map((h) => <th key={h}>{h}</th>)}</tr>
+              {sample.map((row, i) => (
+                <tr key={i}>
+                  {headers.map((h) => (
+                    <td key={h}>{row[h] === "" ? <>&mdash;</> : row[h]}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       <div className="meta">

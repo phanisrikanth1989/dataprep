@@ -11,6 +11,7 @@ import { useEventStream } from "./hooks/useEventStream.js";
 import { Rail } from "./components/Rail.jsx";
 import { Canvas } from "./components/Canvas.jsx";
 import { Upload } from "./components/Upload.jsx";
+import { Waiting } from "./components/Waiting.jsx";
 import { STAGE_ORDER } from "./stages.js";
 
 // Progress derived generically from the current stage (the prototype drove it from a
@@ -38,6 +39,10 @@ function Presenter({ job, isReplay }) {
   const state = useEventStream({ job, replay: isReplay ? replayEvents : null });
   const pct = progressPct(state);
   const runLabel = job || (isReplay ? "sample run" : "");
+  // Live job, no events relayed yet -> show the "queued" handoff (job id + operator
+  // commands) instead of an empty canvas. The first event flips this to the live view.
+  const started = !!state.stage || state.order.length > 0 || state.sources.length > 0;
+  const waiting = !!job && !isReplay && !started;
   // A generic peek at the state driving the render (no pipeline is hardcoded).
   const peek = {
     nodes: state.order.map((id) => ({
@@ -56,25 +61,34 @@ function Presenter({ job, isReplay }) {
 
       <header className="hd">
         <div className="brand">
-          Building your ETL pipeline <span className="live">&mdash; {isReplay ? "replay" : "live"}</span>
+          Building your ETL pipeline{" "}
+          <span className={"live" + (waiting ? " pending" : "")}>
+            &mdash; {waiting ? "queued" : isReplay ? "replay" : "live"}
+          </span>
         </div>
         <span className="tag">rendered from run: {runLabel}</span>
       </header>
 
-      <div className="main">
-        <Rail state={state} />
-        <Canvas state={state} />
-      </div>
+      {waiting ? (
+        <Waiting job={job} />
+      ) : (
+        <div className="main">
+          <Rail state={state} />
+          <Canvas state={state} />
+        </div>
+      )}
 
-      <div className="foot">
-        <b>Generic presenter.</b> Everything above is rendered from this run's real
-        artifacts &mdash; the graph, the labels, and the reasoning all come from the
-        pipeline's own files. No pipeline is hardcoded; swap the artifacts and it redraws.
-        <details className="peek">
-          <summary>peek at the state driving this</summary>
-          <pre>{JSON.stringify(peek, null, 2)}</pre>
-        </details>
-      </div>
+      {!waiting && (
+        <div className="foot">
+          <b>Generic presenter.</b> Everything above is rendered from this run's real
+          artifacts &mdash; the graph, the labels, and the reasoning all come from the
+          pipeline's own files. No pipeline is hardcoded; swap the artifacts and it redraws.
+          <details className="peek">
+            <summary>peek at the state driving this</summary>
+            <pre>{JSON.stringify(peek, null, 2)}</pre>
+          </details>
+        </div>
+      )}
     </div>
   );
 }

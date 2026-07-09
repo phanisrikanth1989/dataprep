@@ -93,7 +93,7 @@ export function Upload() {
 
         <div className="up-actions">
           <button className="up-cta" onClick={start} disabled={busy || !file}>
-            {busy ? "Starting…" : "Build my pipeline →"}
+            {busy ? <>Starting&hellip;</> : <>Build my pipeline &rarr;</>}
           </button>
           {err && <span className="up-err">{err}</span>}
         </div>
