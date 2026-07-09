@@ -38,7 +38,6 @@ function Presenter({ job, isReplay }) {
 
   const state = useEventStream({ job, replay: isReplay ? replayEvents : null });
   const pct = progressPct(state);
-  const runLabel = job || (isReplay ? "sample run" : "");
   // Live job, no events relayed yet -> show the "queued" handoff (job id + operator
   // commands) instead of an empty canvas. The first event flips this to the live view.
   const started = !!state.stage || state.order.length > 0 || state.sources.length > 0;
@@ -60,13 +59,7 @@ function Presenter({ job, isReplay }) {
       </div>
 
       <header className="hd">
-        <div className="brand">
-          Building your ETL pipeline{" "}
-          <span className={"live" + (waiting ? " pending" : "")}>
-            &mdash; {waiting ? "queued" : isReplay ? "replay" : "live"}
-          </span>
-        </div>
-        <span className="tag">rendered from run: {runLabel}</span>
+        <div className="brand">Building your ETL pipeline</div>
       </header>
 
       {waiting ? (

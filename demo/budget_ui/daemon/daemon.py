@@ -22,26 +22,38 @@ _ORDER = {"purity.json": 0, "exploder_inventory.json": 1, "extract_doc.json": 2,
           "job.json": 6, "test_report.json": 7}
 
 
-# artifact filename -> the flat list of event payloads to emit on its appearance
+# artifact filename -> the flat list of event payloads to emit on its appearance.
+#
+# Stage transitions are ANTICIPATORY: an artifact appearing means the stage that PRODUCED it
+# is done and the NEXT agent is already working -- so each artifact lights the NEXT stage
+# active. This keeps the UI in step with what the orchestrator is doing NOW instead of one
+# step behind (the artifact is written at a step's END). And purity.json -- the very first
+# artifact, written in seconds -- lights "reading" immediately so the screen is not blank
+# for the ~90s the document read takes before extract_doc lands.
 def _dispatch(name, doc):
+    if name == "purity.json":
+        return [P.ev_stage("reading", "active")]
     if name == "extract_doc.json":
         return [P.ev_stage("reading", "done"), P.ev_sources(doc), P.ev_stage("interpreting", "active")]
     if name == "requirement_spec.json":
-        return [P.ev_rules(doc), P.ev_stage("designing", "active")]
+        return [P.ev_rules(doc), P.ev_stage("interpreting", "done"), P.ev_stage("designing", "active")]
     if name == "flow_plan.json":
         # provisional node skeleton (flow_plan ids). The AUTHORITATIVE graph -- final ids +
         # business labels + edges -- comes from job.json below. The assembler can rename the
         # terminal FileOutput id (id == output name), so reconciling this skeleton to the final
-        # id set is a Phase-3 (frontend) concern; Phase 1 emits both faithfully.
-        return [P.ev_nodes(doc), P.ev_stage("designing", "done")]
+        # id set is a frontend concern. designing DONE + configuring ACTIVE: the configurator
+        # is now running (the skeleton just landed), so the UI shows it, not the past step.
+        return [P.ev_nodes(doc), P.ev_stage("designing", "done"), P.ev_stage("configuring", "active")]
     if name == "job_draft.json":
-        # callouts pop at the configuring stage from a SINGLE source -> no duplicates
-        return [*P.ev_callouts(doc), P.ev_stage("configuring", "active")]
+        # callouts pop from a SINGLE source -> no duplicates. configuring DONE + wiring ACTIVE:
+        # the assembler is now wiring the envelope.
+        return [*P.ev_callouts(doc), P.ev_stage("configuring", "done"), P.ev_stage("wiring", "active")]
     if name == "job.json":
         # job.json is the single source of the AUTHORITATIVE graph: node_config (final ids +
         # business labels + lookup-name resolution -- which needs job.json's flows, absent from
         # job_draft) and edges are emitted here so they stay id-consistent with each other.
-        evs = [P.ev_node_config(doc), P.ev_edges(doc), P.ev_stage("wiring", "active")]
+        # wiring DONE; if a code cell exists, signoff ACTIVE (the human is now approving it).
+        evs = [P.ev_node_config(doc), P.ev_edges(doc), P.ev_stage("wiring", "done")]
         g = P.ev_gate(doc)
         if g:
             evs.append(g)                                  # gate awaiting (code sign-off)

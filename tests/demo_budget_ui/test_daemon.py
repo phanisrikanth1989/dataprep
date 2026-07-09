@@ -98,6 +98,23 @@ def test_full_run_replay_is_ordered_and_data_free(tmp_path):
     seqs = [e["seq"] for e in cap]
     assert seqs == sorted(seqs) and len(set(seqs)) == len(seqs)
 
+def test_daemon_lights_reading_early_and_stages_anticipate(tmp_path):
+    # purity.json is the FIRST artifact (written in seconds) -> "reading" lights immediately,
+    # so the screen is not blank for the ~90s doc read before extract_doc lands.
+    work = tmp_path / "jobp"; work.mkdir()
+    d = Daemon("jobp", str(work), send=(cap := []).append, since=time.time() - 1)
+    (work / "purity.json").write_text("{}")
+    d.poll()
+    assert any(e["type"] == "stage" and e["stage"] == "reading" and e["status"] == "active" for e in cap)
+    # ANTICIPATORY: flow_plan (the designer's OUTPUT) lights CONFIGURING active -- the
+    # configurator is already running by the time its input artifact appears, so the UI is not
+    # one step behind (showing "designing" while Copilot configures).
+    cap.clear()
+    shutil.copy(FIX / "flow_plan.json", work / "flow_plan.json")
+    time.sleep(0.02)
+    d.poll()
+    assert any(e["type"] == "stage" and e["stage"] == "configuring" and e["status"] == "active" for e in cap)
+
 def test_daemon_recovers_from_torn_read(tmp_path):
     work = tmp_path / "jobt"; work.mkdir()
     d = Daemon("jobt", str(work), send=(cap := []).append, since=time.time() - 1)

@@ -52,11 +52,19 @@ def test_add_event_fans_out_to_subscribers():
 
 
 def test_root_serves_index_and_api_still_wins():
-    import pathlib
+    import pathlib, shutil
     from fastapi.testclient import TestClient
     import demo.budget_ui.server.app as A
     dist = pathlib.Path(A.__file__).parent / "dist"
-    dist.mkdir(exist_ok=True)
+    # Preserve any REAL built dist (index.html + assets/) rather than clobbering it -- the
+    # operator keeps a build here to serve the UI. Back it up, run against a clean fixture,
+    # then restore. rmtree (not rmdir) so a fixture/real subdir never blocks cleanup.
+    backup = dist.with_name("dist._bak")
+    if backup.exists():
+        shutil.rmtree(backup)
+    if dist.exists():
+        dist.rename(backup)
+    dist.mkdir()
     (dist / "index.html").write_text("<html>DEMO_UI_ROOT</html>")
     try:
         A.mount_static()                                   # (re)mount now that dist exists
@@ -65,4 +73,6 @@ def test_root_serves_index_and_api_still_wins():
         A.store.__init__()
         assert c.get("/job/next").json()["job"] is None    # API route wins over the catch-all mount
     finally:
-        (dist / "index.html").unlink(); dist.rmdir()
+        shutil.rmtree(dist)
+        if backup.exists():
+            backup.rename(dist)                            # restore the operator's real build

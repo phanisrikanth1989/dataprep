@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import secrets
 from pathlib import Path
 
 from fastapi import FastAPI, UploadFile, Request, HTTPException
@@ -15,11 +14,13 @@ from fastapi.staticfiles import StaticFiles
 
 
 def _safe_slug(name):
-    """A filesystem-safe job id == the work-dir slug the operator pastes into Copilot."""
+    """A filesystem-safe, STABLE job id from the filename stem -- NO random suffix. The same
+    document always maps to the same job id + work dir, so the operator wires the daemon and
+    Copilot to one fixed, predictable name (nothing to copy around mid-demo); re-uploading the
+    same doc reuses its work dir. `trade_position_demo.docx` -> `trade_position_demo`."""
     stem = "".join(ch for ch in (name or "").rsplit(".", 1)[0]
                    if (ch.isascii() and ch.isalnum()) or ch in "-_").strip("-_")
-    stem = (stem or "demo")[:24].lower()
-    return "%s-%s" % (stem, secrets.token_hex(3))
+    return (stem or "demo")[:32].lower()
 
 
 class JobStore:
