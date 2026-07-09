@@ -39,3 +39,30 @@ def test_daemon_dedups_unchanged_files(tmp_path):
     shutil.copy(FIX / "extract_doc.json", work / "extract_doc.json")
     d.poll(); n = len(cap); d.poll()   # second poll, no change
     assert len(cap) == n               # no re-emit
+
+def test_full_run_replay_is_ordered_and_data_free(tmp_path):
+    work = tmp_path / "job"; (work / "golden").mkdir(parents=True)
+    cap = []
+    d = Daemon("job", str(work), send=cap.append, since=time.time() - 1)
+    order = ["extract_doc.json", "requirement_spec.json", "flow_plan.json",
+             "job_draft.json", "job.json", "test_report_passed.json"]
+    for name in order:
+        target = "test_report.json" if name == "test_report_passed.json" else name
+        shutil.copy(FIX / name, work / target)
+        time.sleep(0.01)
+        d.poll()
+    types = [e["type"] for e in cap]
+    # every expected type appeared, sources before edges before result
+    for t in ("sources", "rules", "nodes", "node_config", "edges", "gate", "callout", "result"):
+        assert t in types, t
+    assert types.index("sources") < types.index("edges") < types.index("result")
+    assert cap[-1]["type"] == "stage" and cap[-1]["stage"] == "done"
+    # callouts appear exactly once per node (no duplicate emit)
+    callout_nodes = [e["node"] for e in cap if e["type"] == "callout"]
+    assert len(callout_nodes) == len(set(callout_nodes))
+    from tests.demo_budget_ui.test_presenter import _forbidden_values, P
+    for e in cap:
+        P.assert_data_free(e, _forbidden_values())
+    # seq is strictly monotonic
+    seqs = [e["seq"] for e in cap]
+    assert seqs == sorted(seqs) and len(set(seqs)) == len(seqs)
