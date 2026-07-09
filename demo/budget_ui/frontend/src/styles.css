@@ -54,25 +54,34 @@ header.hd{display:flex;align-items:center;gap:14px;margin-bottom:14px;flex-wrap:
 .rail{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);border-radius:14px;padding:15px 15px 13px;display:flex;flex-direction:column;min-height:440px}
 .rail-h{font-family:var(--mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-mute);margin-bottom:13px;display:flex;align-items:center;gap:7px}
 .rail-h .pip{width:6px;height:6px;border-radius:50%;background:var(--done)}
-.rail-lines{flex:1}
-.rl{font-size:13px;color:var(--ink);margin:0 0 11px;padding-left:15px;position:relative;opacity:0;transform:translateX(-5px);transition:opacity .4s ease,transform .4s ease}
-.rl.show{opacity:1;transform:none}
-.rl::before{content:"";position:absolute;left:0;top:7px;width:6px;height:6px;border-radius:50%;background:var(--live);opacity:.8}
-.rl.done{color:var(--done)} .rl.done::before{background:var(--done)}
-.rl b{font-weight:640}
-.rl code{font-family:var(--mono);font-size:11.5px;background:rgba(192,139,224,.13);color:#DABDF0;padding:1px 5px;border-radius:5px}
-
-/* thinking pill */
-.think{margin-top:12px;border:1px solid var(--line);border-radius:10px;background:rgba(6,11,22,.5);padding:11px 12px;opacity:0;transition:opacity .3s}
-.think.on{opacity:1}
-.think .now{font-size:12.5px;color:var(--live);font-weight:600;display:flex;align-items:center;gap:8px}
-.think .now .spin{width:11px;height:11px;border-radius:50%;border:2px solid var(--live);border-top-color:transparent;animation:spin .8s linear infinite;flex:0 0 auto}
-.think .sub{font-family:var(--mono);font-size:11px;color:var(--ink-dim);margin-top:6px;min-height:14px}
-.think .sub::after{content:"";animation:dots 1.4s steps(4,end) infinite}
+/* assistant panel -- tagged transcript: one block per agent (avatar + name + state + message) */
+.rail-blocks{flex:1;display:flex;flex-direction:column}
+.agent{padding:10px 0;opacity:.66;transition:opacity .35s}
+.agent.active{opacity:1}
+.agent + .agent{border-top:1px solid rgba(42,58,92,.45)}
+.agent-h{display:flex;align-items:center;gap:9px;margin-bottom:6px}
+.avatar{flex:0 0 auto;width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;
+  font-family:var(--mono);font-size:12px;font-weight:700;background:var(--node2);color:var(--ink-dim);border:1px solid var(--line)}
+.agent.active .avatar{color:var(--live);border-color:var(--live);box-shadow:0 0 0 1px var(--live-soft),0 0 14px rgba(242,169,59,.25)}
+.agent.done .avatar{color:var(--done);border-color:rgba(67,192,139,.45)}
+.agent.human .avatar{border-radius:50%;color:var(--file);border-color:rgba(91,141,239,.5)}
+.agent.human.active .avatar{color:var(--live);border-color:var(--live)}
+.agent-name{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-mute)}
+.agent.active .agent-name{color:var(--live)}
+.agent.done .agent-name{color:var(--done)}
+.agent-state{margin-left:auto;display:flex;align-items:center}
+.agent-state .spin{width:11px;height:11px;border-radius:50%;border:2px solid var(--live);border-top-color:transparent;animation:spin .8s linear infinite}
+.agent-state .chk{color:var(--done);font-size:13px;line-height:1}
+.agent-body{padding-left:33px}
+.agent-msg{font-size:13px;color:var(--ink);margin:0 0 5px;line-height:1.42}
+.agent.done .agent-msg{color:var(--ink-dim)}
+.agent-msg:last-child{margin-bottom:0}
+.agent-msg b{font-weight:640;color:var(--ink)}
+.agent-msg code{font-family:var(--mono);font-size:11.5px;background:rgba(192,139,224,.13);color:#DABDF0;padding:1px 5px;border-radius:5px}
+.agent-think{font-family:var(--mono);font-size:11px;color:var(--ink-dim);margin-top:7px;min-height:14px}
+.agent-think::after{content:"";animation:dots 1.4s steps(4,end) infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes dots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
-.think.done-state .now{color:var(--done)} .think.done-state .spin{display:none}
-.think.done-state .sub::after{content:"" !important;animation:none}
 
 /* canvas */
 .canvaswrap{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);border-radius:14px;padding:12px;position:relative;overflow:hidden}
@@ -197,7 +206,7 @@ details.peek pre{margin:0;padding:0 12px 12px;font-family:var(--mono);font-size:
 
 /* Reading-beat source teasers (the `source` crosswalk, surfaced in the rail).
    Each teaser shares its `source` key with a graph FileInput node. */
-.rl-srcs{list-style:none;margin:-4px 0 12px;padding-left:15px}
+.rl-srcs{list-style:none;margin:6px 0 2px;padding-left:2px}
 .rl-src{font-family:var(--mono);font-size:11px;color:var(--ink-dim);margin:0 0 3px}
 .rl-src::before{content:"- ";color:var(--file)}
 

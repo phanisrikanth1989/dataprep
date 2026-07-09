@@ -25,6 +25,19 @@ export const STAGES = [
 export const STAGE_ORDER = STAGES.map((s) => s.name);
 export const STAGE_BY_NAME = Object.fromEntries(STAGES.map((s) => [s.name, s]));
 
+// The specialist that owns each stage. The assistant panel tags every message with its agent
+// (avatar initial + name) so the run reads as a team of specialists handing off down the line.
+// `human: true` marks the sign-off beat -- that's YOU, not an agent (the human-in-the-loop).
+export const AGENTS = {
+  reading:      { initial: "R", name: "Reader" },
+  interpreting: { initial: "I", name: "Interpreter" },
+  designing:    { initial: "D", name: "Designer" },
+  configuring:  { initial: "C", name: "Configurator" },
+  wiring:       { initial: "A", name: "Assembler" },
+  signoff:      { initial: "H", name: "Sign-off", human: true },
+  testing:      { initial: "T", name: "Tester" },
+};
+
 // Rotating "thoughts" for the thinking-state pill (the star of the demo), re-keyed
 // from the prototype's THOUGHTS to the daemon stage names.
 export const THOUGHTS = {
