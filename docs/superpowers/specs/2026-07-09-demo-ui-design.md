@@ -160,18 +160,25 @@ Envelope on every event: `{ "job": "<slug>", "seq": <int>, "t": <epoch_s>, "type
 | type | payload | drives |
 |---|---|---|
 | `stage` | `stage` (reading/interpreting/designing/configuring/wiring/signoff/testing/done), `status` (active/done) | stepper, rail stage line, thinking-state |
-| `sources` | `nodes: [{id, label, kind:"source", sub}]` | source nodes fade in |
+| `sources` | `nodes: [{id, source, label, kind:"source", sub}]` | source nodes fade in |
 | `rules` | `count, items: [{id, kind, label}]` | rail rule enumeration |
-| `nodes` | `nodes: [{id, ntype, kind, label, sub}]` | transform/output nodes appear (skeleton) |
-| `node_config` | `nodes: [{id, sub}]` | config sublabels fill in |
-| `edges` | `edges: [{from, to}]` | edges draw (the connect) |
+| `nodes` | `nodes: [{id, ntype, kind, label}]` (provisional skeleton, flow_plan ids) | transform/output nodes appear |
+| `node_config` | `nodes: [{id, kind, label, sub, source?}]` (AUTHORITATIVE, final ids) | config sublabels fill in |
+| `edges` | `edges: [{from, to, reject}]` | edges draw (the connect) |
 | `callout` | `node, text, kind:"rationale"\|"flag"` | reasoning bubble pops on a node |
 | `gate` | `kind:"code_signoff", node, code, status:"awaiting"\|"signed"` | code-approval mirror beat |
-| `result` | `passed, tier, rows, graded:"N/M", sample?: [{col:val}]` | green finale + output table |
+| `result` | `passed, tier, rows, graded:"N/M", outputs:[id], sample?: [{col:val}]` | green finale + output table |
+| `end` | `passed` | terminal marker -- server closes the SSE and marks the job done |
 | `note` | `text` | optional live reasoning surfaced during a gap |
 
-`kind` on a node is one of: source, filter, join, validate, derive, sort, aggregate, output, op.
+`kind` on a node is one of: source, filter, join, map, validate, derive, sort, aggregate, output, op.
 `code` in `gate` is transform logic (e.g. the tPythonDataFrame `python_code`), not data -- safe.
+
+**Contract notes (from the forward-looking contract review):**
+- **`node_config` is AUTHORITATIVE.** Its ids are the final assembled ids and it carries `kind`+`label`+`sub`; it SUPERSEDES the provisional `nodes` skeleton (flow_plan ids). The frontend renders the graph from `node_config` + `edges` and drops any skeleton node whose id is absent from `node_config` (the assembler renames the terminal FileOutput id to the output name -- only it changes).
+- **`source` crosswalk.** A `sources` node and its FileInput graph node share `source` (the filepath basename), so the frontend links the reading-beat teaser to the graph node.
+- **Stage name -> stepper role:** reading, interpreting (=understand), designing, configuring, wiring, signoff, testing (+ done). The frontend may also derive stepper progress from the reveal events (sources->reading, rules->interpreting, nodes->designing, node_config->configuring, edges->wiring, gate->signoff, result->testing).
+- **Deferred to Phase 2:** `result.sample` (the finale output table) is emitted ONLY in `--synthetic` mode, fail-closed and bound to the known fixture; the Phase-1 daemon does not emit it. Also deferred to Phase 2: `seq` persistence across daemon restart, and marking an artifact "seen" only after a successful send (relay robustness).
 
 ---
 
