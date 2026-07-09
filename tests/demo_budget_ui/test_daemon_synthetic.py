@@ -36,6 +36,16 @@ def test_mark_seen_after_send_retries_on_failure(tmp_path):
     d.poll()                     # retried on the next poll
     assert any(e["type"] == "sources" for e in ok)
 
+def test_malformed_artifact_marked_seen_no_retry_storm(tmp_path):
+    work = tmp_path / "jm"; work.mkdir()
+    cap = []
+    d = Daemon("jm", str(work), send=cap.append, since=time.time() - 1)
+    # parseable JSON but wrong shape: sources_schema as a list -> ev_sources raises .items()
+    (work / "extract_doc.json").write_text('{"sources_schema": [1, 2, 3], "tier": "verified"}')
+    d.poll()                       # presenter raises -> logged, marked seen, no crash
+    d.poll()                       # must NOT reprocess (no retry storm)
+    assert d._seen.get("extract_doc.json") is not None
+
 def test_test_report_marked_seen_no_double_emit(tmp_path):
     # regression: test_report.json must be marked seen too, or run() re-emits result/end every poll
     work = tmp_path / "j4"; work.mkdir()

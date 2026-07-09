@@ -97,14 +97,18 @@ async def ingest(job: str, request: Request):
 @app.get("/stream/{job}")
 async def stream(job: str):
     async def gen():
-        for ev in store.log(job):                       # replay for late-join catch-up
-            yield "data: " + json.dumps(ev) + "\n\n"
-            if ev.get("type") == "end":
-                return
-        q = store.subscribe(job)
+        q = store.subscribe(job)                 # subscribe FIRST so no event is lost in the replay window
+        seen = set()
         try:
+            for ev in store.log(job):            # replay for late-join catch-up
+                seen.add(ev.get("seq"))
+                yield "data: " + json.dumps(ev) + "\n\n"
+                if ev.get("type") == "end":
+                    return
             while True:
                 ev = await q.get()
+                if ev.get("seq") in seen:        # already replayed in the race window -> skip
+                    continue
                 yield "data: " + json.dumps(ev) + "\n\n"
                 if ev.get("type") == "end":
                     return

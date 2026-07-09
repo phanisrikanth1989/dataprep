@@ -114,16 +114,22 @@ class Daemon:
             except (ValueError, OSError):
                 continue   # torn read: skip, do NOT mark seen -> retry next pass
             if name == "extract_doc.json":
-                self.tier = doc.get("tier", self.tier)   # tier lives here, NOT in test_report.json
+                self.tier = doc.get("tier", self.tier)
                 if self.synthetic:
                     self._sample = P.sample_from_extract(doc)  # SYNTHETIC-ONLY: reads the answer key
             try:
-                for ev in self._events_for(name, doc):
+                events = self._events_for(name, doc)
+            except Exception as exc:   # malformed-but-parseable artifact: log once, mark seen, move on
+                logger.warning("[daemon] cannot process %s (skipping): %s", name, exc)
+                self._seen[name] = mt  # mark seen so we do NOT retry a permanently-bad artifact
+                continue
+            try:
+                for ev in events:
                     self._emit(ev)
-            except Exception as exc:   # a send failure must NOT mark the artifact seen -> retry next poll
+            except Exception as exc:   # a SEND failure must NOT mark seen -> retry next poll
                 logger.warning("[daemon] send failed for %s (will retry): %s", name, exc)
                 continue
-            self._seen[name] = mt      # marked seen only after ALL its events sent (covers BOTH paths)
+            self._seen[name] = mt      # marked seen only after ALL its events sent
 
     def run(self, interval=0.5):
         while True:
