@@ -64,7 +64,7 @@ export function Canvas({ state }) {
     () => new Set(activeIds(state)),
     [state.stage, state.gate, state.nodesById, state.order]
   );
-  const settled = !!state.result;
+  const settled = !!(state.result && state.result.passed);
   const glow = useMemo(
     () => new Set(state.result && state.result.passed ? state.result.outputs || [] : []),
     [state.result]

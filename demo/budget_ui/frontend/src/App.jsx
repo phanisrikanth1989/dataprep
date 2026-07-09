@@ -6,8 +6,7 @@
 // The live/replay presenter renders the same generic <Rail/> + <Canvas/> (which nests
 // the <Stepper/>). Nothing about a specific pipeline lives here.
 
-import { useMemo } from "react";
-import sampleEvents from "./replay/sample-events.json";
+import { useEffect, useMemo, useState } from "react";
 import { useEventStream } from "./hooks/useEventStream.js";
 import { Rail } from "./components/Rail.jsx";
 import { Canvas } from "./components/Canvas.jsx";
@@ -24,7 +23,19 @@ function progressPct(state) {
 }
 
 function Presenter({ job, isReplay }) {
-  const state = useEventStream({ job, replay: isReplay ? sampleEvents : null });
+  // The recorded replay fixture carries demo cell values; keep it OUT of the live
+  // (?job=) bundle by loading it as a separate chunk only when ?replay is present.
+  const [replayEvents, setReplayEvents] = useState(null);
+  useEffect(() => {
+    if (!isReplay) return undefined;
+    let live = true;
+    import("./replay/sample-events.json").then((m) => {
+      if (live) setReplayEvents(m.default);
+    });
+    return () => { live = false; };
+  }, [isReplay]);
+
+  const state = useEventStream({ job, replay: isReplay ? replayEvents : null });
   const pct = progressPct(state);
   const runLabel = job || (isReplay ? "sample run" : "");
   // A generic peek at the state driving the render (no pipeline is hardcoded).

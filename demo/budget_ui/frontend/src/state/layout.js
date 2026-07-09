@@ -20,7 +20,11 @@ export function layout(nodesById, edges) {
   if (ids.length === 0) return { pos: {}, W: 640, H: 360 };
   const succ = {}, pred = {};
   ids.forEach(i => { succ[i] = []; pred[i] = []; });
-  edges.forEach(f => { succ[f.from].push(f.to); pred[f.to].push(f.from); });
+  edges.forEach(f => {
+    if (!(f.from in succ) || !(f.to in pred)) return;  // skip an edge to a not-yet-known node
+    succ[f.from].push(f.to);
+    pred[f.to].push(f.from);
+  });
   const indeg = {}; ids.forEach(i => indeg[i] = pred[i].length);
   const q = ids.filter(i => indeg[i] === 0), topo = [];
   while (q.length) { const n = q.shift(); topo.push(n); succ[n].forEach(m => { if (--indeg[m] === 0) q.push(m); }); }

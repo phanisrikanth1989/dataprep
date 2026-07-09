@@ -4,6 +4,11 @@
 // duplicate the accumulating callouts. The shipped build has no StrictMode anyway.
 import { createRoot } from "react-dom/client";
 import App from "./App.jsx";
+import { ErrorBoundary } from "./components/ErrorBoundary.jsx";
 import "./styles.css";
 
-createRoot(document.getElementById("root")).render(<App />);
+createRoot(document.getElementById("root")).render(
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>
+);

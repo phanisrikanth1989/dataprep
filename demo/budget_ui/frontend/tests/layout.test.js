@@ -18,4 +18,7 @@ describe("layout", () => {
     expect(Number.isFinite(W)).toBe(true); expect(Number.isFinite(H)).toBe(true);
     expect(W).toBeGreaterThan(0); expect(H).toBeGreaterThan(0);
   });
+  it("does not crash on an edge to an unknown node", () => {
+    expect(() => layout({ a: { id: "a" } }, [{ from: "a", to: "ghost" }])).not.toThrow();
+  });
 });
