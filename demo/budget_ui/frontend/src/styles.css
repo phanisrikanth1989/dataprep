@@ -59,7 +59,9 @@ header.hd{display:flex;align-items:center;gap:14px;margin-bottom:14px;flex-wrap:
 .agent{padding:10px 0;opacity:.66;transition:opacity .35s}
 .agent.active{opacity:1}
 .agent + .agent{border-top:1px solid rgba(42,58,92,.45)}
-.agent-h{display:flex;align-items:center;gap:9px;margin-bottom:6px}
+.agent-h{display:flex;align-items:center;gap:9px}
+.agent.clickable .agent-h{cursor:pointer;margin:0 -6px;padding:3px 6px;border-radius:8px;transition:background .2s}
+.agent.clickable .agent-h:hover{background:rgba(255,255,255,.035)}
 .avatar{flex:0 0 auto;width:24px;height:24px;border-radius:7px;display:flex;align-items:center;justify-content:center;
   font-family:var(--mono);font-size:12px;font-weight:700;background:var(--node2);color:var(--ink-dim);border:1px solid var(--line)}
 .agent.active .avatar{color:var(--live);border-color:var(--live);box-shadow:0 0 0 1px var(--live-soft),0 0 14px rgba(242,169,59,.25)}
@@ -72,7 +74,13 @@ header.hd{display:flex;align-items:center;gap:14px;margin-bottom:14px;flex-wrap:
 .agent-state{margin-left:auto;display:flex;align-items:center}
 .agent-state .spin{width:11px;height:11px;border-radius:50%;border:2px solid var(--live);border-top-color:transparent;animation:spin .8s linear infinite}
 .agent-state .chk{color:var(--done);font-size:13px;line-height:1}
-.agent-body{padding-left:33px}
+.agent-state .chev{color:var(--ink-mute);font-size:9px;line-height:1}
+.agent.clickable:hover .agent-state .chev{color:var(--ink-dim)}
+/* accordion collapse: grid 0fr->1fr animates height with no JS measuring */
+.agent-bodywrap{display:grid;grid-template-rows:0fr;transition:grid-template-rows .32s cubic-bezier(.2,.7,.2,1)}
+.agent.open .agent-bodywrap{grid-template-rows:1fr}
+.agent-body{padding:6px 0 0 33px;overflow:hidden;min-height:0;opacity:0;transition:opacity .3s ease}
+.agent.open .agent-body{opacity:1}
 .agent-msg{font-size:13px;color:var(--ink);margin:0 0 5px;line-height:1.42}
 .agent.done .agent-msg{color:var(--ink-dim)}
 .agent-msg:last-child{margin-bottom:0}

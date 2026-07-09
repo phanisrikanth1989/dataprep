@@ -125,13 +125,27 @@ function ThinkingLine({ stageName }) {
   return <div className="agent-think">{thoughts[idx]}</div>;
 }
 
-// One agent's transcript block: avatar + name + state, then its authored message(s).
-function AgentBlock({ stageName, isActive, state }) {
+// One agent's transcript block: an ACCORDION row. The active agent (and the final one, which
+// has no successor to hand off to) is OPEN; a finished agent COLLAPSES to just its header when
+// the next agent takes over, and the user can click it back open to re-read it.
+function AgentBlock({ stageName, isActive, isLast, state }) {
   const agent = AGENTS[stageName];
+  const [userOpen, setUserOpen] = useState(false);
+  // When this agent's DEFAULT open-state changes (active -> done, or it stops being the last
+  // block), drop any manual override so it follows the new default (auto-collapse on handoff).
+  useEffect(() => {
+    setUserOpen(false);
+  }, [isActive, isLast]);
   if (!agent) return null;
+
+  const collapsible = !isActive && !isLast; // only an auto-collapsed agent toggles
+  const open = isActive || isLast || userOpen;
   const lines = narrationFor(stageName, state);
+  const toggle = collapsible ? () => setUserOpen((o) => !o) : undefined;
   const cls =
-    "agent " + (isActive ? "active" : "done") + (agent.human ? " human" : "");
+    "agent " + (isActive ? "active" : "done") + (agent.human ? " human" : "") +
+    (open ? " open" : "") + (collapsible ? " clickable" : "");
+
   return (
     <motion.div
       className={cls}
@@ -139,21 +153,44 @@ function AgentBlock({ stageName, isActive, state }) {
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.4 }}
     >
-      <div className="agent-h">
+      <div
+        className="agent-h"
+        onClick={toggle}
+        role={collapsible ? "button" : undefined}
+        tabIndex={collapsible ? 0 : undefined}
+        onKeyDown={
+          collapsible
+            ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setUserOpen((o) => !o);
+                }
+              }
+            : undefined
+        }
+      >
         <span className="avatar">{agent.human ? PERSON : agent.initial}</span>
         <span className="agent-name">{agent.name}</span>
         <span className="agent-state">
-          {isActive ? <span className="spin" /> : <span className="chk">&#10003;</span>}
+          {isActive ? (
+            <span className="spin" />
+          ) : collapsible ? (
+            <span className="chev">{open ? <>&#9662;</> : <>&#9656;</>}</span>
+          ) : (
+            <span className="chk">&#10003;</span>
+          )}
         </span>
       </div>
-      <div className="agent-body">
-        {lines.map((l, j) => (
-          <p className="agent-msg" key={stageName + "-" + j}>
-            {l.node}
-          </p>
-        ))}
-        {stageName === "reading" && <SourceTeasers sources={state.sources} />}
-        {isActive && <ThinkingLine stageName={stageName} />}
+      <div className="agent-bodywrap">
+        <div className="agent-body">
+          {lines.map((l, j) => (
+            <p className="agent-msg" key={stageName + "-" + j}>
+              {l.node}
+            </p>
+          ))}
+          {stageName === "reading" && <SourceTeasers sources={state.sources} />}
+          {isActive && <ThinkingLine stageName={stageName} />}
+        </div>
       </div>
     </motion.div>
   );
@@ -169,22 +206,25 @@ export function Rail({ state }) {
         <span className="pip" /> Assistant
       </div>
       <div className="rail-blocks">
-        {reached.map((stageName) => (
+        {reached.map((stageName, i) => (
           <AgentBlock
             key={stageName}
             stageName={stageName}
             isActive={stageName === currentName && currentName !== "done"}
+            isLast={i === reached.length - 1}
             state={state}
           />
         ))}
         {currentName === "done" && (
-          <div className="agent done all-done">
+          <div className="agent done all-done open">
             <div className="agent-h">
               <span className="avatar">&#10003;</span>
               <span className="agent-name">Done</span>
             </div>
-            <div className="agent-body">
-              <p className="agent-msg">Pipeline built and verified.</p>
+            <div className="agent-bodywrap">
+              <div className="agent-body">
+                <p className="agent-msg">Pipeline built and verified.</p>
+              </div>
             </div>
           </div>
         )}
