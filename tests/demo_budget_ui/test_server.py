@@ -1,6 +1,7 @@
 import asyncio
 import io
 import json
+import pathlib
 from fastapi.testclient import TestClient
 from demo.budget_ui.server.app import app, store
 
@@ -48,3 +49,20 @@ def test_add_event_fans_out_to_subscribers():
         await s.add_event("j", {"type": "rules", "seq": 1})
         return (await asyncio.wait_for(q.get(), 1))["type"]
     assert asyncio.run(_check()) == "rules"
+
+
+def test_root_serves_index_and_api_still_wins():
+    import pathlib
+    from fastapi.testclient import TestClient
+    import demo.budget_ui.server.app as A
+    dist = pathlib.Path(A.__file__).parent / "dist"
+    dist.mkdir(exist_ok=True)
+    (dist / "index.html").write_text("<html>DEMO_UI_ROOT</html>")
+    try:
+        A.mount_static()                                   # (re)mount now that dist exists
+        c = TestClient(A.app)
+        assert "DEMO_UI_ROOT" in c.get("/").text           # dist index served at /
+        A.store.__init__()
+        assert c.get("/job/next").json()["job"] is None    # API route wins over the catch-all mount
+    finally:
+        (dist / "index.html").unlink(); dist.rmdir()

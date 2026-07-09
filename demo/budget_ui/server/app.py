@@ -7,9 +7,11 @@ from __future__ import annotations
 import asyncio
 import json
 import secrets
+from pathlib import Path
 
 from fastapi import FastAPI, UploadFile, Request, HTTPException
 from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 
 def _safe_slug(name):
@@ -115,3 +117,18 @@ async def stream(job: str):
         finally:
             store.unsubscribe(job, q)
     return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+def mount_static():
+    """Serve the built React dist/ at / when it exists (a no-op otherwise).
+
+    Registered AFTER every API route, so Starlette matches /upload, /job/*, and
+    /stream/* first; this catch-all mount only handles the rest (index.html and
+    the Vite asset bundle). Exposed as a function so a test can (re)mount after
+    creating a dist/ fixture. No-op when the frontend is unbuilt."""
+    dist = Path(__file__).parent / "dist"
+    if dist.exists():
+        app.mount("/", StaticFiles(directory=str(dist), html=True), name="static")
+
+
+mount_static()
