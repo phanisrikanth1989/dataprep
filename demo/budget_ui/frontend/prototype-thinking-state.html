@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ETL builder - live (generic presenter, real artifacts)</title>
+<style>
+  :root{
+    --bg:#0B1220; --surface:#0F1A2E; --panel:#111D33; --panel2:#0c1526;
+    --node:#17233C; --node2:#1E2C49;
+    --line:#2A3A5C; --line-lit:#3D537F;
+    --ink:#E9EEF8; --ink-dim:#9FADC9; --ink-mute:#63739A;
+    --live:#F2A93B; --live-soft:rgba(242,169,59,.14);
+    --done:#43C08B; --done-soft:rgba(67,192,139,.13);
+    --file:#5B8DEF; --code:#C08BE0;
+    --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+    --sans:-apple-system,"SF Pro Text",system-ui,Segoe UI,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:
+      radial-gradient(1100px 560px at 12% -12%, rgba(91,141,239,.10), transparent 60%),
+      radial-gradient(900px 460px at 100% 0%, rgba(242,169,59,.06), transparent 55%),
+      var(--bg);
+    color:var(--ink); font-family:var(--sans); -webkit-font-smoothing:antialiased;
+    padding:20px 22px 26px; min-height:100vh;
+  }
+  .wrap{max-width:1320px;margin:0 auto}
+
+  /* progress bar */
+  .pbar{height:3px;background:var(--line);border-radius:3px;overflow:hidden;margin-bottom:16px}
+  .pbar > i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--file),var(--live));transition:width .1s linear}
+
+  /* header */
+  header.hd{display:flex;align-items:center;gap:14px;margin-bottom:14px;flex-wrap:wrap}
+  .brand{font-size:17px;font-weight:640;letter-spacing:-.01em}
+  .brand .live{color:var(--live)}
+  .tag{font-family:var(--mono);font-size:10.5px;color:var(--ink-mute);border:1px solid var(--line);border-radius:999px;padding:3px 9px}
+  .controls{margin-left:auto;display:flex;gap:8px;align-items:center}
+  .btn{font-family:var(--mono);font-size:12px;color:var(--ink);background:var(--node2);border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer;transition:.18s}
+  .btn:hover{border-color:var(--live)}
+  .btn.ghost{background:transparent;color:var(--ink-dim)}
+  .speed{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .speed button{font-family:var(--mono);font-size:11.5px;background:transparent;color:var(--ink-dim);border:0;padding:7px 9px;cursor:pointer}
+  .speed button.on{background:var(--live-soft);color:var(--live)}
+
+  /* main grid */
+  .main{display:grid;grid-template-columns:290px 1fr;gap:16px;align-items:stretch}
+  @media (max-width:840px){ .main{grid-template-columns:1fr} }
+
+  /* rail */
+  .rail{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);border-radius:14px;padding:15px 15px 13px;display:flex;flex-direction:column;min-height:440px}
+  .rail-h{font-family:var(--mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-mute);margin-bottom:13px;display:flex;align-items:center;gap:7px}
+  .rail-h .pip{width:6px;height:6px;border-radius:50%;background:var(--done)}
+  .rail-lines{flex:1}
+  .rl{font-size:13px;color:var(--ink);margin:0 0 11px;padding-left:15px;position:relative;opacity:0;transform:translateX(-5px);transition:opacity .4s ease,transform .4s ease}
+  .rl.show{opacity:1;transform:none}
+  .rl::before{content:"";position:absolute;left:0;top:7px;width:6px;height:6px;border-radius:50%;background:var(--live);opacity:.8}
+  .rl.done{color:var(--done)} .rl.done::before{background:var(--done)}
+  .rl b{font-weight:640}
+  .rl code{font-family:var(--mono);font-size:11.5px;background:rgba(192,139,224,.13);color:#DABDF0;padding:1px 5px;border-radius:5px}
+
+  /* thinking pill */
+  .think{margin-top:12px;border:1px solid var(--line);border-radius:10px;background:rgba(6,11,22,.5);padding:11px 12px;opacity:0;transition:opacity .3s}
+  .think.on{opacity:1}
+  .think .now{font-size:12.5px;color:var(--live);font-weight:600;display:flex;align-items:center;gap:8px}
+  .think .now .spin{width:11px;height:11px;border-radius:50%;border:2px solid var(--live);border-top-color:transparent;animation:spin .8s linear infinite;flex:0 0 auto}
+  .think .sub{font-family:var(--mono);font-size:11px;color:var(--ink-dim);margin-top:6px;min-height:14px}
+  .think .sub::after{content:"";animation:dots 1.4s steps(4,end) infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes dots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
+  .think.done-state .now{color:var(--done)} .think.done-state .spin{display:none}
+  .think.done-state .sub::after{content:"" !important;animation:none}
+
+  /* canvas */
+  .canvaswrap{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);border-radius:14px;padding:12px;position:relative;overflow:hidden}
+  .canvasgrid{position:relative;border:1px solid var(--line);border-radius:11px;overflow:hidden;background:
+    linear-gradient(transparent 96%, rgba(255,255,255,.028) 96%) 0 0/100% 30px,
+    linear-gradient(90deg, transparent 96%, rgba(255,255,255,.028) 96%) 0 0/30px 100%,
+    rgba(6,11,22,.34); min-height:360px; position:relative}
+  .fit{position:absolute;transform-origin:top left}
+  .stage{position:relative}
+  svg.edges{position:absolute;inset:0;overflow:visible;pointer-events:none}
+  .edge{fill:none;stroke:var(--line);stroke-width:2;stroke-linecap:round;opacity:.9}
+  .edge.show{animation:draw .55s ease forwards}
+  @keyframes draw{from{stroke-dashoffset:var(--len);stroke:var(--live)}to{stroke-dashoffset:0;stroke:var(--line-lit)}}
+
+  .node{position:absolute;background:var(--node);border:1px solid var(--line);border-left:3px solid var(--line);
+    border-radius:9px;padding:7px 10px;font-family:var(--mono);box-shadow:0 8px 22px rgba(0,0,0,.4);
+    opacity:0;transform:translateY(8px) scale(.97);transition:opacity .45s cubic-bezier(.2,.7,.2,1),transform .45s cubic-bezier(.2,.7,.2,1),box-shadow .3s,border-color .3s}
+  .node.show{opacity:1;transform:none}
+  .node.k-source{border-left-color:var(--file)}
+  .node.k-filter,.node.k-join,.node.k-validate,.node.k-sort,.node.k-aggregate{border-left-color:var(--live)}
+  .node.k-derive{border-left-color:var(--code)}
+  .node.k-output{border-left-color:var(--done)}
+  .node.active{border-color:var(--live);box-shadow:0 0 0 1px var(--live-soft),0 0 22px rgba(242,169,59,.22),0 8px 22px rgba(0,0,0,.4)}
+  .node.settled{border-color:rgba(67,192,139,.4)}
+  .node.done-glow{border-color:var(--done);box-shadow:0 0 0 1px var(--done-soft),0 0 26px rgba(67,192,139,.3)}
+  .n-title{font-size:11.5px;color:var(--ink);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .n-sub{font-size:9.5px;color:var(--ink-dim);margin-top:3px;max-height:0;opacity:0;overflow:hidden;transition:max-height .4s ease,opacity .4s ease,margin .4s}
+  .node.cfg .n-sub{max-height:16px;opacity:1}
+  .n-badge{position:absolute;top:-7px;right:-7px;width:16px;height:16px;border-radius:50%;background:var(--code);
+    display:none;align-items:center;justify-content:center;font-size:9px;color:#1a0f26;font-family:var(--mono);font-weight:700}
+  .node.k-derive .n-badge{display:flex}
+
+  /* callouts */
+  .callout{position:absolute;transform:translate(-50%,-100%);background:var(--live-soft);border:1px solid rgba(242,169,59,.5);
+    color:#F6D6A0;font-family:var(--sans);font-size:10.5px;line-height:1.35;padding:6px 9px;border-radius:9px;max-width:180px;
+    opacity:0;transition:opacity .4s ease,transform .4s ease;z-index:6;pointer-events:none;text-align:center}
+  .callout.show{opacity:1}
+  .callout::after{content:"";position:absolute;left:50%;bottom:-5px;width:8px;height:8px;background:var(--live-soft);
+    border-right:1px solid rgba(242,169,59,.5);border-bottom:1px solid rgba(242,169,59,.5);transform:translateX(-50%) rotate(45deg)}
+
+  /* code gate overlay */
+  .gate{position:absolute;left:50%;top:12px;transform:translateX(-50%);width:min(460px,92%);z-index:20;
+    background:rgba(12,18,30,.97);border:1px solid var(--code);border-radius:12px;padding:13px 15px;
+    box-shadow:0 20px 50px rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .35s}
+  .gate.on{opacity:1;pointer-events:auto}
+  .gate h4{margin:0 0 4px;font-size:13px;color:var(--ink);display:flex;align-items:center;gap:8px}
+  .gate h4 .lock{color:var(--code)}
+  .gate p{margin:0 0 9px;font-size:11.5px;color:var(--ink-dim)}
+  .gate pre{margin:0 0 11px;font-family:var(--mono);font-size:11px;color:#DABDF0;background:rgba(192,139,224,.09);
+    border:1px solid rgba(192,139,224,.25);border-radius:8px;padding:9px 10px;overflow-x:auto;white-space:pre-wrap;word-break:break-word}
+  .gate .row{display:flex;align-items:center;gap:10px}
+  .gate .signbtn{font-family:var(--sans);font-size:12px;font-weight:600;color:#1a0f26;background:var(--code);border:0;border-radius:8px;padding:8px 14px;cursor:pointer}
+  .gate .hint{font-size:10.5px;color:var(--ink-mute)}
+  .gate.signed{border-color:var(--done)}
+  .gate .stamp{display:none;font-family:var(--mono);font-size:12px;color:var(--done);align-items:center;gap:7px}
+  .gate.signed .stamp{display:inline-flex} .gate.signed .row{display:none}
+
+  /* result panel */
+  .result{position:absolute;right:14px;bottom:14px;z-index:15;background:rgba(12,22,18,.96);border:1px solid var(--done);
+    border-radius:12px;padding:12px 14px;box-shadow:0 18px 40px rgba(0,0,0,.5);opacity:0;transform:translateY(10px);transition:.45s;max-width:320px}
+  .result.on{opacity:1;transform:none}
+  .result h4{margin:0 0 8px;font-size:13px;color:var(--done);display:flex;align-items:center;gap:8px}
+  .result table{border-collapse:collapse;font-family:var(--mono);font-size:10px;color:var(--ink-dim)}
+  .result th,.result td{border:1px solid var(--line);padding:2px 6px;text-align:left;white-space:nowrap}
+  .result th{color:var(--ink-mute);font-weight:500}
+  .result .meta{font-size:11px;color:var(--ink);margin-top:8px}
+
+  /* stepper */
+  .stepper{display:flex;gap:6px;margin-top:14px;flex-wrap:wrap;align-items:center}
+  .step{flex:1 1 0;min-width:96px;border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:var(--panel2);opacity:.55;transition:.3s}
+  .step.active{opacity:1;border-color:var(--live);background:var(--live-soft)}
+  .step.past{opacity:.8;border-color:rgba(67,192,139,.35)}
+  .step .k{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-mute);display:block}
+  .step .l{font-size:11.5px;color:var(--ink);margin-top:2px}
+  .step.active .k{color:var(--live)} .step.past .k{color:var(--done)}
+  .step .rt{font-size:9.5px;color:var(--ink-mute);margin-top:2px;font-family:var(--mono);opacity:0;height:0;overflow:hidden;transition:.3s}
+  .step.active .rt{opacity:1;height:auto}
+
+  /* footer / data peek */
+  .foot{margin-top:16px;font-size:12px;color:var(--ink-mute)}
+  .foot b{color:var(--ink-dim)}
+  details.peek{margin-top:10px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
+  details.peek summary{cursor:pointer;font-family:var(--mono);font-size:11.5px;color:var(--ink-dim);padding:9px 12px;list-style:none}
+  details.peek summary::-webkit-details-marker{display:none}
+  details.peek summary::before{content:"> ";color:var(--live)}
+  details.peek[open] summary::before{content:"v "}
+  details.peek pre{margin:0;padding:0 12px 12px;font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);overflow-x:auto;max-height:280px;overflow-y:auto}
+
+  @media (prefers-reduced-motion:reduce){
+    .node,.n-sub,.rl,.callout,.result,.gate,.think{transition-duration:.01s!important}
+    .edge.show{animation-duration:.01s!important}
+    .spin{animation:none!important}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="pbar"><i id="pbar"></i></div>
+
+  <header class="hd">
+    <div class="brand">Building your ETL pipeline <span class="live">&mdash; live</span></div>
+    <span class="tag" id="srctag">rendered from run: trade_position_demo</span>
+    <div class="controls">
+      <div class="speed" id="speed">
+        <button data-s="0.6">0.6x</button>
+        <button data-s="1" class="on">1x</button>
+        <button data-s="1.8">1.8x</button>
+      </div>
+      <button class="btn" id="replay">Replay</button>
+    </div>
+  </header>
+
+  <div class="main">
+    <!-- RAIL -->
+    <div class="rail">
+      <div class="rail-h"><span class="pip"></span> Assistant</div>
+      <div class="rail-lines" id="raillines"></div>
+      <div class="think" id="think">
+        <div class="now"><span class="spin"></span><span id="thinkNow">Starting</span></div>
+        <div class="sub" id="thinkSub"></div>
+      </div>
+    </div>
+
+    <!-- CANVAS -->
+    <div class="canvaswrap">
+      <div class="canvasgrid" id="canvasgrid">
+        <div class="fit" id="fit">
+          <div class="stage" id="stage"></div>
+        </div>
+        <!-- code gate -->
+        <div class="gate" id="gate">
+          <h4><span class="lock">&#9679;</span> Human sign-off required</h4>
+          <p>This step writes code to compute a value. Nothing runs until a person approves the exact code.</p>
+          <pre id="gatecode"></pre>
+          <div class="row">
+            <button class="signbtn" id="signbtn">Sign off (operator)</button>
+            <span class="hint">In the real demo, the operator approves this in VS Code.</span>
+          </div>
+          <span class="stamp">&#10003; Signed off &mdash; running</span>
+        </div>
+        <!-- result -->
+        <div class="result" id="result">
+          <h4>&#10003; Tested against your sample</h4>
+          <table id="resulttable"></table>
+          <div class="meta" id="resultmeta"></div>
+        </div>
+      </div>
+      <div class="stepper" id="stepper"></div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <b>Generic presenter.</b> Everything above is rendered from this run's real artifacts &mdash; the graph from
+    <code style="font-family:var(--mono);font-size:11px">job.json</code> <code style="font-family:var(--mono);font-size:11px">flows[]</code>,
+    the labels &amp; reasoning from <code style="font-family:var(--mono);font-size:11px">flow_plan</code> purposes, the narration from
+    <code style="font-family:var(--mono);font-size:11px">requirement_spec</code> rules. No pipeline is hardcoded &mdash; swap the artifacts and it redraws.
+    <details class="peek">
+      <summary>peek at the artifacts driving this</summary>
+      <pre id="peek"></pre>
+    </details>
+  </div>
+</div>
+
+<script>
+/* ============================================================================
+   REAL ARTIFACTS from run "trade_position_demo" (job.json + flow_plan + requirement_spec).
+   The presenter below is GENERIC: it consumes this data; nothing about this
+   specific pipeline is baked into the rendering logic.
+   ========================================================================== */
+const ART = {
+  job:"trade_position_demo", sources:3, rulesCount:6,
+  components:[
+    {id:"in_trades",   type:"FileInputDelimited", config:{filepath:"trades.csv"}},
+    {id:"in_accounts", type:"FileInputDelimited", config:{filepath:"accounts.csv"}},
+    {id:"in_prices",   type:"FileInputDelimited", config:{filepath:"prices.csv"}},
+    {id:"filter_settled", type:"FilterRows", config:{conditions:[{column:"status",operator:"==",value:"SETTLED"}]}},
+    {id:"join_accounts", type:"tJoin", config:{use_inner_join:false, join_key:[{input_column:"account_id",lookup_column:"account_id"}], lookup_cols:[{output_column:"account_name"},{output_column:"region"}]}},
+    {id:"join_prices", type:"tJoin", config:{use_inner_join:false, join_key:[{input_column:"symbol",lookup_column:"symbol"}], lookup_cols:[{output_column:"closing_price"}]}},
+    {id:"validate_trade_date", type:"SchemaComplianceCheck", config:{schema:[{name:"trade_date",type:"datetime",date_pattern:"yyyy-MM-dd"}]}},
+    {id:"derive_market_value", type:"tPythonDataFrame", config:{python_code:"df['market_value'] = df['quantity'].astype(float) * df['price'].astype(float)", output_columns:["trade_id","account_name","region","symbol","market_value","closing_price"]}},
+    {id:"sort_market_value", type:"SortRow", config:{criteria:[{column:"market_value",sort_type:"num",order:"desc"}]}},
+    {id:"trade_positions", type:"FileOutputDelimited", config:{filepath:"trade_positions.csv"}}
+  ],
+  flows:[
+    {from:"in_trades",to:"filter_settled"}, {from:"filter_settled",to:"join_accounts"},
+    {from:"in_accounts",to:"join_accounts"}, {from:"join_accounts",to:"join_prices"},
+    {from:"in_prices",to:"join_prices"}, {from:"join_prices",to:"validate_trade_date"},
+    {from:"validate_trade_date",to:"derive_market_value"}, {from:"derive_market_value",to:"sort_market_value"},
+    {from:"sort_market_value",to:"trade_positions"}
+  ],
+  // flow_plan purposes -> reasoning call-outs (trimmed business translations of the real prose)
+  callouts:{
+    filter_settled:"Filter goes first — it shrinks both lookups.",
+    join_accounts:"Both keys are unique, so no rows fan out.",
+    derive_market_value:"This step writes code — a human signs off before it runs.",
+    sort_market_value:"Sort runs last so the final order is fixed."
+  },
+  // intended clean result (post golden-alignment: the pipeline is structurally correct)
+  result:{ headers:["trade_id","account_name","region","symbol","market_value","closing_price"],
+    rows:[["T004","Gamma Funds","APAC","AAPL","30200.0","150.8"],["T002","Beta Partners","EMEA","MSFT","20525.0","411.0"],
+          ["T001","Alpha Capital","NA","AAPL","15025.0","150.8"],["T005","","","TSLA","6901.0","689.0"]],
+    graded:"1/1", tier:"verified" }
+};
+
+const STAGES=[
+  {role:"reading",     k:"Read",      l:"Reading your document",  secs:3.0, rt:"real run: ~2 min"},
+  {role:"interpreter", k:"Understand",l:"Understanding the rules",secs:2.8, rt:"real run: ~1 min"},
+  {role:"flow",        k:"Design",    l:"Designing the pipeline", secs:3.2, rt:"real run: ~1 min"},
+  {role:"configurator",k:"Configure", l:"Configuring each step",  secs:6.4, rt:"real run: ~11 min (curating to cut this)"},
+  {role:"assembler",   k:"Wire",      l:"Wiring it together",     secs:2.4, rt:"real run: ~30 s"},
+  {role:"approval",    k:"Sign-off",  l:"Human sign-off on the code", secs:4.2, rt:"operator approves in VS Code"},
+  {role:"test",        k:"Test",      l:"Testing against your sample", secs:3.0, rt:"real run: ~30 s"},
+  {role:"done",        k:"Done",      l:"Done", secs:0.2, rt:""}
+];
+const RAIL={
+  reading:["Reading your document&hellip;", `Found <b>${ART.sources} sources</b> and <b>${ART.rulesCount} rules</b>.`],
+  interpreter:["Understanding what you need:", "keep settled trades, add account &amp; price details, work out each trade&rsquo;s value, check the dates, sort by value."],
+  flow:["Designing the pipeline &mdash; the fastest components that fit.", "A filter, two lookups, a calculation, a date check, and a sort."],
+  configurator:["Configuring each step &mdash; and choosing <i>how</i>, not just what."],
+  assembler:["Wiring it all into one runnable job."],
+  approval:["One step writes code to work out each trade&rsquo;s value.", "A human reviews and signs off before it runs."],
+  test:["Running it against your sample data&hellip;", `<b>Ran clean. ${ART.result.rows.length} rows. Matched your expected output exactly.</b>`]
+};
+const THOUGHTS={
+  reading:["scanning the document","finding the data tables","reading the sample files"],
+  interpreter:["normalizing the rules","checking each lookup key","noting what to keep"],
+  flow:["comparing a join vs a lookup","choosing vectorized for speed","ordering the steps"],
+  configurator:["setting the filter condition","wiring the join keys","pinning batch mode","reading the component behaviour","checking every config"],
+  assembler:["connecting the flows","adding the job envelope"],
+  approval:["surfacing the generated code","waiting for sign-off"],
+  test:["loading the job","running the engine","comparing to your answer key"]
+};
+
+/* ---------------- generic label formatter (type + config -> business text) --------------- */
+function base(p){return (p||"").replace(/\.csv$/,"");}
+function deriveCol(cfg){const m=/df\['(\w+)'\]\s*=/.exec(cfg.python_code||"");if(m)return m[1];const o=cfg.output_columns||[];return o[o.length-1]||"value";}
+function nodeView(c, lookupOf){
+  const t=c.type, cfg=c.config||{};
+  if(/FileInput/.test(t)) return {kind:"source", title:"Read "+base(cfg.filepath), sub:"source file"};
+  if(/FileOutput/.test(t)) return {kind:"output", title:"Write "+base(cfg.filepath), sub:"output file"};
+  if(/Filter/.test(t)){const c0=(cfg.conditions||[])[0]||{}; return {kind:"filter", title:"Keep "+c0.column+" = "+c0.value, sub:"filter rows"};}
+  if(/Join|Map/.test(t)){const k=(cfg.join_key||[])[0]||{}; return {kind:"join", title:"Match "+(lookupOf||"lookup"), sub:(cfg.use_inner_join?"inner join":"left join")+" on "+(k.lookup_column||k.input_column||"key")};}
+  if(/SchemaComplianceCheck|ConvertType/.test(t)){const col=(cfg.schema||[]).find(s=>s.date_pattern)||(cfg.schema||[])[0]||{}; return {kind:"validate", title:"Validate "+(col.name||"schema"), sub:col.date_pattern||"schema check"};}
+  if(/Python|PyMap/.test(t)) return {kind:"derive", title:"Compute "+deriveCol(cfg), sub:"generated code"};
+  if(/Sort/.test(t)){const c0=(cfg.criteria||[])[0]||{}; return {kind:"sort", title:"Sort by "+c0.column, sub:(c0.order==="desc"?"high to low":"low to high")};}
+  if(/Aggregate/.test(t)) return {kind:"aggregate", title:"Group &amp; summarize", sub:"aggregate"};
+  return {kind:"op", title:c.id, sub:t};
+}
+
+/* ---------------- generic layered DAG layout (any DAG: layers + main-line rows) ---------- */
+function layout(comps, flows){
+  const ids=comps.map(c=>c.id), succ={}, pred={};
+  ids.forEach(i=>{succ[i]=[];pred[i]=[];});
+  flows.forEach(f=>{succ[f.from].push(f.to);pred[f.to].push(f.from);});
+  const indeg={}; ids.forEach(i=>indeg[i]=pred[i].length);
+  const q=ids.filter(i=>indeg[i]===0), topo=[];
+  while(q.length){const n=q.shift();topo.push(n);succ[n].forEach(m=>{if(--indeg[m]===0)q.push(m);});}
+  const layer={}; ids.forEach(i=>layer[i]=0);
+  topo.forEach(n=>pred[n].forEach(p=>layer[n]=Math.max(layer[n],layer[p]+1)));
+  ids.forEach(i=>{ if(pred[i].length===0 && succ[i].length) layer[i]=Math.min(...succ[i].map(s=>layer[s]))-1; });
+  // longest path -> main line at row 0
+  const dp={},back={}; topo.forEach(n=>{dp[n]=0;back[n]=null;pred[n].forEach(p=>{if(dp[p]+1>dp[n]){dp[n]=dp[p]+1;back[n]=p;}});});
+  let end=ids[0]; ids.forEach(i=>{if(dp[i]>dp[end])end=i;});
+  const main=new Set(); for(let c=end;c;c=back[c]) main.add(c);
+  const byCol={}; ids.forEach(i=>(byCol[layer[i]]||(byCol[layer[i]]=[])).push(i));
+  const row={};
+  Object.values(byCol).forEach(col=>{let below=1;col.forEach(i=>{if(main.has(i))row[i]=0;});col.forEach(i=>{if(!main.has(i))row[i]=below++;});});
+  const COLW=152,NODEW=132,NODEH=54,ROWH=98,PADX=18,MIDY=118;
+  const pos={}; ids.forEach(i=>pos[i]={x:PADX+layer[i]*COLW,y:MIDY+row[i]*ROWH,w:NODEW,h:NODEH});
+  const maxCol=Math.max(...ids.map(i=>layer[i])), maxRow=Math.max(...ids.map(i=>row[i]));
+  return {pos, W:PADX+maxCol*COLW+NODEW+PADX, H:MIDY+maxRow*ROWH+NODEH+24, layer};
+}
+
+/* ---------------- build the scene ---------------- */
+const NS="http://www.w3.org/2000/svg";
+const comps=ART.components, flows=ART.flows;
+// lookup source name per join (its FileInput predecessor)
+const isSource=id=>/FileInput/.test((comps.find(c=>c.id===id)||{}).type||"");
+const lookupOf={};
+flows.forEach(f=>{ if(isSource(f.from)){ const tc=comps.find(c=>c.id===f.to); if(tc && /Join|Map/.test(tc.type)) lookupOf[f.to]=base((comps.find(c=>c.id===f.from).config||{}).filepath); }});
+const L=layout(comps,flows);
+const stage=document.getElementById("stage"), fit=document.getElementById("fit");
+stage.style.width=L.W+"px"; stage.style.height=L.H+"px";
+
+// edges
+const svg=document.createElementNS(NS,"svg"); svg.setAttribute("class","edges"); svg.setAttribute("viewBox",`0 0 ${L.W} ${L.H}`);
+stage.appendChild(svg);
+const edgeEls=[];
+flows.forEach(f=>{
+  const a=L.pos[f.from], b=L.pos[f.to];
+  const x1=a.x+a.w, y1=a.y+a.h/2, x2=b.x, y2=b.y+b.h/2, mx=(x1+x2)/2;
+  const p=document.createElementNS(NS,"path");
+  p.setAttribute("d",`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`); p.setAttribute("class","edge");
+  svg.appendChild(p); const len=p.getTotalLength(); p.style.setProperty("--len",len); p.style.strokeDasharray=len; p.style.strokeDashoffset=len;
+  edgeEls.push(p);
+});
+// nodes
+const nodeEls={};
+comps.forEach(c=>{
+  const v=nodeView(c, lookupOf[c.id]); const p=L.pos[c.id];
+  const el=document.createElement("div"); el.className="node k-"+v.kind; el.id="n-"+c.id;
+  el.style.left=p.x+"px"; el.style.top=p.y+"px"; el.style.width=p.w+"px"; el.style.minHeight=p.h+"px";
+  el.innerHTML=`<div class="n-badge">&lt;/&gt;</div><div class="n-title">${v.title}</div><div class="n-sub">${v.sub}</div>`;
+  stage.appendChild(el); nodeEls[c.id]={el, kind:v.kind};
+});
+// callouts
+const calloutEls={};
+Object.keys(ART.callouts).forEach(id=>{
+  const p=L.pos[id]; if(!p) return;
+  const el=document.createElement("div"); el.className="callout"; el.style.left=(p.x+p.w/2)+"px"; el.style.top=(p.y-8)+"px";
+  el.textContent=ART.callouts[id]; stage.appendChild(el); calloutEls[id]=el;
+});
+// rail lines
+const railBox=document.getElementById("raillines"); const railEls={};
+Object.keys(RAIL).forEach(role=>{ railEls[role]=RAIL[role].map((t,i)=>{ const p=document.createElement("p"); p.className="rl"+(role==="test"&&i===1?" done":""); p.innerHTML=t; railBox.appendChild(p); return p; }); });
+// stepper
+const stepBox=document.getElementById("stepper"); const stepEls=[];
+STAGES.filter(s=>s.role!=="done").forEach((s,i)=>{ const d=document.createElement("div"); d.className="step"; d.innerHTML=`<span class="k">${i+1} &middot; ${s.k}</span><span class="l">${s.l.replace(/^[A-Z][a-z]+ /,"")}</span><span class="rt">${s.rt}</span>`; stepBox.appendChild(d); stepEls.push(d); });
+// gate + result content
+document.getElementById("gatecode").textContent=(comps.find(c=>/Python/.test(c.type))||{config:{}}).config.python_code||"";
+(function(){ const t=document.getElementById("resulttable"); const R=ART.result; let h="<tr>"+R.headers.map(x=>`<th>${x}</th>`).join("")+"</tr>"; R.rows.forEach(r=>{h+="<tr>"+r.map(x=>`<td>${x===""?"&mdash;":x}</td>`).join("")+"</tr>";}); t.innerHTML=h;
+  document.getElementById("resultmeta").innerHTML=`<b style="color:var(--done)">${R.rows.length} rows</b> &middot; ${R.graded} outputs graded &middot; tier: ${R.tier}`; })();
+document.getElementById("peek").textContent=JSON.stringify({components:comps.map(c=>({id:c.id,type:c.type})),flows:flows,result:ART.result.tier},null,2);
+
+/* ---------------- fit-to-width ---------------- */
+function fitScale(){ const wrap=document.getElementById("canvasgrid"); const avail=wrap.clientWidth-24; const s=Math.min(1, avail/L.W); fit.style.transform="scale("+s+")"; fit.style.left=Math.max(12,(wrap.clientWidth-L.W*s)/2)+"px"; fit.style.top="14px"; wrap.style.height=(L.H*s+28)+"px"; }
+window.addEventListener("resize",fitScale);
+
+/* ---------------- the player ---------------- */
+const cum=[]; let acc=0; STAGES.forEach(s=>{cum.push(acc);acc+=s.secs;}); const TOTAL=acc;
+let speed=1, vt=0, playing=false, last=null; const entered=new Set();
+const bySource=id=>nodeEls[id].kind==="source";
+
+function reset(){
+  vt=0; playing=false; last=null; entered.clear();
+  Object.values(nodeEls).forEach(n=>{n.el.className="node k-"+n.kind;});
+  edgeEls.forEach(e=>{e.classList.remove("show");});
+  Object.values(calloutEls).forEach(c=>c.classList.remove("show"));
+  Object.values(railEls).flat().forEach(p=>p.classList.remove("show"));
+  stepEls.forEach(s=>s.className="step");
+  document.getElementById("gate").className="gate"; document.getElementById("result").className="result";
+  document.getElementById("think").className="think"; document.getElementById("pbar").style.width="0%";
+}
+function revealRail(role){ (railEls[role]||[]).forEach((p,i)=>setTimeout(()=>p.classList.add("show"), i*520)); }
+function setActive(ids){ Object.values(nodeEls).forEach(n=>n.el.classList.remove("active")); ids.forEach(id=>nodeEls[id]&&nodeEls[id].el.classList.add("active")); }
+
+function enterStage(i){
+  const role=STAGES[i].role; revealRail(role);
+  if(role==="reading"){ comps.filter(c=>bySource(c.id)).forEach((c,k)=>setTimeout(()=>nodeEls[c.id].el.classList.add("show"),k*230)); setActive(comps.filter(c=>bySource(c.id)).map(c=>c.id)); }
+  else if(role==="flow"){ const rest=comps.filter(c=>!bySource(c.id)); rest.forEach((c,k)=>setTimeout(()=>nodeEls[c.id].el.classList.add("show"),k*150)); setActive(rest.map(c=>c.id)); }
+  else if(role==="configurator"){ comps.forEach((c,k)=>setTimeout(()=>nodeEls[c.id].el.classList.add("cfg"),k*260)); Object.keys(calloutEls).forEach((id,k)=>setTimeout(()=>calloutEls[id].classList.add("show"),700+k*700)); setActive(comps.map(c=>c.id)); }
+  else if(role==="assembler"){ edgeEls.forEach((e,k)=>setTimeout(()=>e.classList.add("show"),k*90)); Object.keys(calloutEls).forEach(id=>calloutEls[id].classList.remove("show")); Object.values(nodeEls).forEach(n=>n.el.classList.remove("active")); }
+  else if(role==="approval"){ const gate=document.getElementById("gate"); gate.classList.add("on"); setActive(["derive_market_value"]); setTimeout(()=>{ if(entered.has(i)) gate.classList.add("signed"); }, STAGES[i].secs*1000*0.62/speed); }
+  else if(role==="test"){ setActive([]); Object.values(nodeEls).forEach(n=>n.el.classList.add("settled")); const out=comps.find(c=>/FileOutput/.test(c.type)); if(out) nodeEls[out.id].el.classList.add("done-glow"); document.getElementById("gate").classList.remove("on"); setTimeout(()=>document.getElementById("result").classList.add("on"),650); }
+  else if(role==="done"){ document.getElementById("think").classList.add("done-state"); document.getElementById("thinkNow").textContent="Done"; document.getElementById("thinkSub").textContent="pipeline built and verified"; }
+}
+function stageAt(t){ for(let i=0;i<STAGES.length;i++){ if(t<cum[i]+STAGES[i].secs) return i; } return STAGES.length-1; }
+function updateThink(i){
+  const role=STAGES[i].role, th=document.getElementById("think");
+  if(role==="done") return;
+  th.classList.add("on");
+  document.getElementById("thinkNow").textContent=STAGES[i].l;
+  const list=THOUGHTS[role]||[""]; const idx=Math.floor(vt*1.15)%list.length;
+  document.getElementById("thinkSub").textContent=list[idx];
+}
+function tick(ts){
+  if(!playing) return;
+  if(last==null) last=ts; const dt=(ts-last)/1000; last=ts; vt+=dt*speed;
+  const i=stageAt(vt);
+  for(let k=0;k<=i;k++){ if(!entered.has(k)){ entered.add(k); enterStage(k); } }
+  stepEls.forEach((s,k)=>{ s.className="step"+(k<i?" past":k===i?" active":""); });
+  updateThink(i);
+  document.getElementById("pbar").style.width=Math.min(100,vt/TOTAL*100)+"%";
+  if(vt<TOTAL) requestAnimationFrame(tick); else { playing=false; }
+}
+function play(){ reset(); fitScale(); playing=true; last=null; requestAnimationFrame(tick); }
+
+// controls
+document.getElementById("replay").onclick=play;
+document.getElementById("signbtn").onclick=function(){ const ai=STAGES.findIndex(s=>s.role==="approval"); document.getElementById("gate").classList.add("signed"); vt=Math.max(vt,cum[ai]+STAGES[ai].secs-0.05); };
+document.querySelectorAll("#speed button").forEach(b=>b.onclick=function(){ document.querySelectorAll("#speed button").forEach(x=>x.classList.remove("on")); b.classList.add("on"); speed=parseFloat(b.dataset.s); });
+
+fitScale(); play();
+</script>
+</body>
+</html>
