@@ -59,6 +59,16 @@ change to agent code.
   128-tool cap and three-tier error taxonomy mapped; F5 shares profile and
   extensions but NOT proposed APIs (launch-arg escape hatch); Citi selector
   strings need the on-machine probe (ticket 09).
+- [02 - Input modes and requirement elicitation](issues/02-input-modes-elicitation.md)
+  -- doors converge at requirement_spec.json via one shared interpreter; BRD
+  door = existing docx chain vendored verbatim, typed door = thin intake that
+  can carry data (so typed can reach verified); one `intake.json` envelope;
+  elicitation is gap-driven and uniform (LLM finds gaps, deterministic
+  bookkeeping stops the loop; 3-round soft budget, dependency-first rounds);
+  gaps are structured objects with severity + recorded resolution; one
+  orchestrator-owned question channel (structured AskUserQuestion-style,
+  batched; purity trips and needs_human route through it too); explicit spec
+  sign-off before flow design (provisional). Terms in root CONTEXT.md.
 
 ## Not yet specified
 
