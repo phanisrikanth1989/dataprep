@@ -85,3 +85,12 @@ no probe semantics changed:
   on an older build it logs `MISSING`, which is itself a recorded fact.
 - `launch.json` ships a second config ("proposed API") so step 8b is a
   launch-dropdown switch instead of a hand-edit.
+- (post dry run) Part names resolved via `instanceof` against the vscode
+  exports: product builds minify constructor names (the Mac dry run printed
+  `i` for the usage data part). `LanguageModelThinkingPart` is matched only
+  when proposals are enabled.
+- (post dry run) Overflow probe strengthened: ~2x the advertised
+  maxInputTokens produced no error on the Mac (advertised budget is not the
+  enforcement boundary), so the probe now sends ~max(4x advertised, ~500k)
+  tokens. Usage-data preview cap raised 500 -> 2000 chars so the full usage
+  JSON schema is captured.

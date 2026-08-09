@@ -84,7 +84,9 @@ Run 3 -- immediately re-run:
 
 - `max_tokens=30 output length:` line (truncated -- i.e. short -- or not):
 - `countTokens(big) =` line:
-- Overflow error line, exact (expect msg='Message exceeds token limit.'):
+- Overflow result, exact line (either an error, e.g.
+  msg='Message exceeds token limit.', or `overflow: NO ERROR at ~N tokens`
+  -- the Mac dry run got NO ERROR; record whichever appears):
 
 ## 6. Proposed API on the Citi stable build
 

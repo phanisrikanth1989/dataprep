@@ -50,3 +50,13 @@ syntax-checked but not yet executed anywhere; the README describes an
 optional dry run on any Copilot-enabled machine before spending the Citi
 slot. Awaiting the on-machine run -- paste the filled worksheet (or a raw LM
 Probe output dump) into a wayfinder session to resolve this ticket.
+
+2026-08-09 -- Mac dry run passed (personal Copilot roster): enumerate,
+consent, tool round trip (get_row_count -> 42), and modelOptions.max_tokens
+truncation all confirmed; usage data part captured with full token JSON
+(feeds the 06/08 credit readout). Three probe upgrades from the dry run:
+instanceof-based part naming (product builds minify constructor names to
+e.g. `i`), usage-data preview cap 500 -> 2000 chars, and a stronger overflow
+probe (~2x advertised maxInputTokens produced NO error -- advertised budget
+is not the enforcement boundary -- so it now sends ~max(4x advertised,
+~500k) tokens). Citi run imminent.

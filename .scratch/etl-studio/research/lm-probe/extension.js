@@ -1,15 +1,30 @@
 const vscode = require('vscode');
 const out = vscode.window.createOutputChannel('LM Probe');
 
-// Describe a stream part we can't (or don't) name: constructor, mime type,
+const KNOWN_PARTS = ['LanguageModelTextPart', 'LanguageModelToolCallPart',
+  'LanguageModelToolResultPart', 'LanguageModelDataPart',
+  'LanguageModelPromptTsxPart', 'LanguageModelThinkingPart'];
+
+// Product builds minify constructor names (Mac dry run printed `i` for the
+// usage data part), so name parts by instanceof against the vscode exports.
+// ThinkingPart exists on the vscode module only when proposals are enabled.
+function partName(p) {
+  for (const n of KNOWN_PARTS) {
+    const C = vscode[n];
+    if (C && p instanceof C) { return n; }
+  }
+  return (p && p.constructor) ? p.constructor.name + '(minified?)' : typeof p;
+}
+
+// Describe a stream part we can't (or don't) handle: name, mime type,
 // value preview, decoded data payload. A Copilot `usage` data part surfaces
-// its JSON here.
+// its full JSON here.
 function describePart(p) {
-  let s = (p && p.constructor) ? p.constructor.name : typeof p;
+  let s = partName(p);
   try {
     if (p && p.mimeType) { s += ' mime=' + p.mimeType; }
     if (p && typeof p.value === 'string') { s += ' value=' + JSON.stringify(p.value.slice(0, 300)); }
-    if (p && p.data) { s += ' data=' + new TextDecoder().decode(p.data).slice(0, 500); }
+    if (p && p.data) { s += ' data=' + new TextDecoder().decode(p.data).slice(0, 2000); }
   } catch (e) { s += ' (describe failed: ' + e.message + ')'; }
   return s;
 }
@@ -106,12 +121,17 @@ async function limits() {
     let t = ''; for await (const c of r.text) { t += c; }
     out.appendLine('max_tokens=30 output length: ' + t.length + ' :: ' + t.slice(0, 120));
   } catch (e) { logErr('max_tokens probe', e); }
-  // input overflow probe:
+  // input overflow probe: must exceed the raw context window, not just the
+  // advertised LM-API budget -- on the Mac dry run, ~2x the advertised
+  // maxInputTokens went through without any error ('lorem ipsum ' is ~2
+  // tokens per repeat, so this is ~max(4x advertised, ~500k) tokens).
   try {
-    const big = 'lorem ipsum '.repeat(Math.ceil(model.maxInputTokens));
+    const repeats = Math.max(2 * model.maxInputTokens, 250000);
+    const big = 'lorem ipsum '.repeat(repeats);
     out.appendLine('countTokens(big) = ' + await model.countTokens(big));
     await model.sendRequest([vscode.LanguageModelChatMessage.User(big)]);
-    out.appendLine('overflow: NO ERROR (unexpected)');
+    out.appendLine('overflow: NO ERROR at ~' + (2 * repeats) +
+      ' tokens (no overflow error surfaced - budget proactively)');
   } catch (e) { logErr('overflow probe', e); }
 }
 
