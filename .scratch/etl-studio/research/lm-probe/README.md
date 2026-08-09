@@ -90,7 +90,8 @@ no probe semantics changed:
   `i` for the usage data part). `LanguageModelThinkingPart` is matched only
   when proposals are enabled.
 - (post dry run) Overflow probe strengthened: ~2x the advertised
-  maxInputTokens produced no error on the Mac (advertised budget is not the
-  enforcement boundary), so the probe now sends ~max(4x advertised, ~500k)
-  tokens. Usage-data preview cap raised 500 -> 2000 chars so the full usage
-  JSON schema is captured.
+  maxInputTokens produced no error on the Mac free tier (there, advertised
+  budget was not the enforcement boundary -- whether that holds on Citi is
+  exactly what this probes), so the probe now sends ~max(4x advertised,
+  ~500k) tokens. Usage-data preview cap raised 500 -> 2000 chars so the
+  full usage JSON schema is captured.
