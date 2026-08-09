@@ -7,6 +7,8 @@ __pycache__/
 *.lst
 .claude/
 .gemini/
+# Playwright MCP session output (screenshots, traces) -- regenerated per run
+.playwright-mcp/
 
 # Pipeline-test fixture jobs (Phase 14): override the *.json rule above.
 # Without this negation, fixtures committed to tests/fixtures/jobs/ are
