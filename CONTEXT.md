@@ -8,9 +8,10 @@ human in the loop through the UI. (Map: `.scratch/etl-studio/map.md`.)
 
 **Front door**:
 One of the two entry points into the pipeline — the BRD door (uploaded `.docx`
-through the deterministic docx chain) or the typed door (typed English request,
-optionally with attached data files). Doors differ; everything after the
-convergence point is shared.
+through the explode/normalize chain) or the typed door (typed English request,
+optionally with attached data files). Each door is one path — no internal
+routing branches. Doors differ; everything after the convergence point is
+shared.
 _Avoid_: input mode, entry path
 
 **Convergence point**:
@@ -86,3 +87,71 @@ is dropped, not swapped: the core calls the model gateway directly.
 The plain-data interface through which the agent core requests model calls.
 vscode.lm (via the LM bridge) is one adapter; R2D2 would be another; the
 test-double is a third. The core never reaches around it.
+
+**Specialist**:
+An LLM-driven pipeline stage — doc-normalizer, interpreter, flow-designer,
+configurator, assembler, diagnostician. Everything else is a code stage.
+Specialists never address the human directly; the question channel relays.
+
+**Artifact bus**:
+The growing set of JSON artifacts a run produces under its work dir. Each
+stage reads its predecessor's artifact and writes its own under a fixed
+canonical name — produce, don't mutate; when a canonical file is superseded
+(a repair re-run, a spec revision), the prior version moves to history rather
+than being lost. Data never travels through an agent's prose.
+_Avoid_: scratch files, pipeline state
+
+**Materializer**:
+The code stage that turns the signed-off requirement's data into the run's
+ground truth — the input files and the golden answer key — and computes the
+tier. Runs after spec sign-off, because elicitation can add data until then.
+No model authors what it writes.
+
+**Harness**:
+The deterministic pass/fail oracle: runs the assembled job through the real
+engine and diffs the outputs against the golden. Its verdict is the only
+source of correctness — no model may override it, and a run it hasn't judged
+is never done. Runs isolated from the agent core, so a misbehaving job cannot
+take the core down.
+_Avoid_: validator (that's the config/shape checker), test framework
+
+**Tier**:
+How much verification a run earns: verified (diffed against a golden — the
+only tier whose failures drive the repair loop), smoke (runs once, ungraded),
+build (assembled, never executed). Computed by the materializer from what data
+exists and how exact its provenance is; a missing-data gap can raise the tier
+mid-elicitation, and the tier freezes at spec sign-off.
+
+**Rung**:
+The exactness grade of a located piece of BRD data, derived from its
+provenance: file and table handles are exact; image and prose transcriptions
+are not, and can never ground a verified tier. Oracle-integrity machinery —
+about who wrote the bytes, not who may look at them.
+
+**Repair loop**:
+The bounded fail-diagnose-re-run cycle on a built job: the diagnostician names
+one owner, that stage re-runs reading the feedback first, and every stage
+after it re-runs. Three iterations, then the human chooses — grant more, stop
+at the gate, or steer. Verified tier only.
+
+**Shape-repair loop**:
+The bounded retry inside the BRD door: the validator rejects a structurally
+malformed normalizer proposal with concrete fixes and the normalizer retries
+with them. Three iterations, then the human.
+
+**Owner**:
+The single stage the diagnostician blames for a harness failure — the re-run
+point of a repair iteration. Auto-repair applies only below the oracle:
+anything upstream of golden materialization (a misread BRD, wrong attachments,
+a wrong spec answer) breaks the oracle itself and is owned by the human.
+
+**Pre-execution code gate**:
+The standing human approval of every code-bearing cell in an assembled job,
+in one batch, before the harness first executes the job. Re-checked each
+iteration; re-pauses only when a cell is new or changed.
+
+**Human gate**:
+The final stop where only the human makes a job done: the runnable job, the
+harness verdict, the surfaced code cells and every open question, presented
+together and never auto-approved. A green harness is necessary, not
+sufficient.

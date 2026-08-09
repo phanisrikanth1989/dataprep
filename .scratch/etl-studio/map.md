@@ -78,16 +78,25 @@ change to agent code.
   adapter swap, ADK = same-language re-host -- never blurred, no ADK-shaped
   abstractions on a "might"; walking skeleton graduated to ticket 10. Layer
   terms in root CONTEXT.md.
+- [04 - Pipeline topology](issues/04-pipeline-topology.md) -- one path per door
+  (purity branch dead, template parser demoted to library code); interpreter
+  absorbs doc-interpreter; materializer runs post-sign-off and owns the
+  rung-aware tier; test-runner becomes code, six LLM specialists remain; bus =
+  fixed canonical names under `demo/etl_studio/work/<job>/` with
+  `history/<artifact>.<k>` snapshots; both 3-cap loops keep semantics, with
+  exhaustion and `owner: human` becoming question-channel events; mid-loop spec
+  revision re-signs off; data-blindness dropped for three deterministic lines;
+  diagnostician value-visible (harness embeds examples + work-dir reads),
+  auto-repair only below the oracle; harness runs as a core subprocess.
 
 ## Not yet specified
 
-- Pause/steer and reject-with-feedback interactions -- sharpen after tickets
-  02, 04 and 08 land.
+- Pause/steer and reject-with-feedback interactions -- sharpen after ticket 08
+  lands (02 and 04 are in). Prior art: the retired single-step/testing mode
+  (one stage per turn, no auto-repair); ticket 04 ships v1 autonomous-only.
 - Implementation slices -- vendored/rebuilt agents, elicitation UI,
   verification wiring, what of budget_ui's React canvas thinking ports into
   the webview. Specifiable once the design tickets resolve.
-- How rebuilt agents receive the engine knowledge (landmines /
-  config-reference / job-envelope equivalents) in the new runtime.
 - Demo rehearsal / replay story -- deterministic run-through for the day;
   revisit once the runtime exists.
 
