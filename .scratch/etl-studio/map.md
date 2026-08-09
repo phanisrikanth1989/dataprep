@@ -43,7 +43,7 @@ change to agent code.
   plus, up to ~500 acceptable. Cost is context, not a constraint.
 - Models reported in Citi Copilot chat (user-reported, lightly normalized):
   GPT-5.Sol, Claude Opus 4.8, Claude Sonnet 5. Availability inside the F5 dev
-  host is assumed, not verified -- ticket 01 ends with the on-machine checks.
+  host is assumed, not verified -- ticket 09 carries the on-machine probe.
 - Demo framing: no "gateway today, product tomorrow" claim; the architecture
   makes the swap feasible, the demo does not perform it.
 - Orchestrator leaning recorded from charting: LLM-driven (stress-tested in
@@ -53,7 +53,12 @@ change to agent code.
 
 <!-- one line per closed ticket -->
 
-(none yet)
+- [01 - vscode.lm facts](issues/01-vscode-lm-facts.md) -- everything needed is
+  stable API (tools 1.95, BYO provider 1.104, cross-extension visible); no
+  System role in stable; one consent modal ever, then silent background loops;
+  128-tool cap and three-tier error taxonomy mapped; F5 shares profile and
+  extensions but NOT proposed APIs (launch-arg escape hatch); Citi selector
+  strings need the on-machine probe (ticket 09).
 
 ## Not yet specified
 
