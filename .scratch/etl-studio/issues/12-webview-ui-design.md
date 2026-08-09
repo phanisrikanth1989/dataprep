@@ -49,3 +49,11 @@ streaming / gate / verdict), keys 1-5 + r to replay:
   as state, never speech.
 
 Iteration continues with the user's reaction to v2. Ticket stays claimed.
+
+2026-08-09 — iteration 2 (Claude). User verdict on v2: "neat and elegant";
+asked for a light mode. Added to v2 as a full token-level light theme (warm
+paper ground, white glass, copper/jade/violet accents re-tuned for contrast)
+with a live toggle: ☀/☾ button in the prototype bar, key `t`, shareable via
+`&theme=light` in the URL. Dark stays the default. Product note recorded: the
+real webview should follow VS Code's theme (light/dark pair mapped at the
+token layer), so proving both modes here de-risks that.
