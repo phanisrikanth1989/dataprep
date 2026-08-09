@@ -171,13 +171,23 @@ change to agent code.
   repo `.venv` now exists (interpreter resolution: setting -> `.venv` ->
   python3); provisional extensions recorded in the ticket (finish_reason
   "error", shim.restart, fixed run_id).
+- [12 - Webview UI design](issues/12-webview-ui-design.md) -- v2 showpiece
+  settled ("one killer version", user-approved): full-bleed canvas + floating
+  glass feed, warm-graphite/ember elevation system (no border-boxes,
+  product-scale type), camera choreography, flowing lit edges, gate staged as
+  a hold, jade verdict wide-shot; interrupts anchor to their canvas subject;
+  dark default + token-level light mode (VS Code theme-following posture);
+  budget_ui layout() math ports, its skin retires; v1 three-variant file kept
+  as the arrangement record; build graduated to ticket 15.
 
 ## Not yet specified
 
 - Implementation slices -- vendored/rebuilt agents, the conductor state
   machine and orchestrator agent (ticket 05), verification wiring, wiring
   the webview to the live runtime. Specifiable once the design tickets
-  resolve. (Webview look-and-feel graduated to ticket 12.)
+  resolve. (Look-and-feel resolved in ticket 12; the webview build itself
+  graduated to ticket 15 -- the remaining slices here are the agent-core
+  side.)
 - Demo rehearsal / replay story -- deterministic run-through for the day;
   revisit once the runtime exists.
 

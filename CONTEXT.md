@@ -104,6 +104,24 @@ rendered verbatim and attributed to the stage that wrote it — provenance
 bylines, never bubbles.
 _Avoid_: diagram, graph view
 
+**Beat**:
+One of the five named moments the webview stages a run through — idle,
+questions, streaming, gate, verdict. In the product they are emergent states
+of the event stream, never modes; the design prototype scrubs them directly
+for review.
+_Avoid_: screen, page, step (unqualified)
+
+**Camera**:
+The canvas viewport treated as a choreographed instrument: it fits the whole
+flow, leans into the node being worked, pulls to the held gate cell, and goes
+wide for the verdict. Movement is presentation (free under the real-content
+rule); what it frames is always the run's real state.
+
+**Run spine**:
+The bottom-center progress pill — stage segments with gate diamonds and the
+current stage word. The conductor's visible face: state, never speech.
+_Avoid_: stepper, progress bar
+
 **Thoughts stream**:
 Everything the human watches the run think: the specialists' live activity
 (thinking deltas, tool calls, output) plus the orchestrator's narration and
