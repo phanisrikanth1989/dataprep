@@ -66,6 +66,41 @@ Where the human sees the run's real state and answers questions. One of the
 three layers; holds no agent logic.
 _Avoid_: frontend (unqualified), UI layer
 
+**Feed**:
+The conversational surface of the webview — where the run talks to the human.
+Only the orchestrator speaks here (narration, questions, gate summaries,
+answers); specialist activity appears inline as observed work — thinking
+blocks and tool chips — never as messages. Only the orchestrator gets chat
+bubbles.
+_Avoid_: chat, assistant panel
+
+**Canvas**:
+The state surface of the webview — the pipeline assembling live as the run
+progresses; the hero of the demo. Everything on it is artifact content
+rendered verbatim and attributed to the stage that wrote it — provenance
+bylines, never bubbles.
+_Avoid_: diagram, graph view
+
+**Thoughts stream**:
+Everything the human watches the run think: the specialists' live activity
+(thinking deltas, tool calls, output) plus the orchestrator's narration and
+answers. No separate narrator model exists — every word shown was authored by
+an agent already doing the work.
+
+**Live line**:
+The one-line, present-tense pulse of the active stage, fed only by real
+fragments — in priority order: the model's thinking deltas, else the
+specialist's own opening line, else its tool-call verbs. The successor to the
+retired canned thinking pill.
+_Avoid_: thinking pill, status spinner
+
+**Real content (vs canned)**:
+The rule every webview string answers to: content shown as reasoning or state
+must be traceable to this run — a stream part, an artifact field, an event —
+while presentation (motion, shimmer, collapse grammar, fixed templates
+framing real values) is free. Canned means invented content wearing the run's
+clothes; polish is not fakery.
+
 **Extension shim**:
 The thin TypeScript layer in the VS Code extension host — it exists only
 because vscode.lm and webview hosting live in that process. Three jobs: host
@@ -115,7 +150,10 @@ _Avoid_: driver, free agent
 **Specialist**:
 An LLM-driven pipeline stage — doc-normalizer, interpreter, flow-designer,
 configurator, assembler, diagnostician. Everything else is a code stage.
-Specialists never address the human directly; the question channel relays.
+Specialists never address the human directly — their work is visible (streams
+and artifact fields render observed and attributed) but never carries a
+response affordance; the question channel relays, in the orchestrator's
+voice.
 
 **Artifact bus**:
 The growing set of JSON artifacts a run produces under its work dir. Each

@@ -95,6 +95,17 @@ change to agent code.
   options/ids/code/values verbatim; exhaustion-steer = directed spec revision
   via the interpreter; rationale: keep the recognizable multi-agent pattern
   with deterministic control. ADR 0001.
+- [06 - Real thoughts: what streams to the UI?](issues/06-real-thoughts-streaming.md)
+  -- content real / presentation free (every shown string traceable to this
+  run; polish unrestricted -- AI-product thinking UX, not a compliance
+  display); thoughts stream per 05 = specialist streams + orchestrator
+  narration; live line fed by thinking deltas (proposed-API flag, 09 probes)
+  -> prompted specialist opening line -> tool verbs; canvas is hero, feed
+  beside; voice split: feed bubbles = orchestrator only, specialist work =
+  observed window (no response affordances), canvas = verbatim artifact
+  fields with provenance bylines; title-cased domain names, code stages as
+  step chips; data-free dead (real values, no masking mode); live credit
+  readout from usage parts; failures rendered real and calm.
 
 ## Not yet specified
 
