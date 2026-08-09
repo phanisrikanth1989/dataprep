@@ -40,10 +40,16 @@ change to agent code.
   - Provider port: a test-double adapter is in scope; a live second adapter
     proving the swap end-to-end is not.
 - Model budget: ~20k credits available; 100-200 credits per demo run is a
-  plus, up to ~500 acceptable. Cost is context, not a constraint.
-- Models reported in Citi Copilot chat (user-reported, lightly normalized):
-  GPT-5.Sol, Claude Opus 4.8, Claude Sonnet 5. Availability inside the F5 dev
-  host is assumed, not verified -- ticket 09 carries the on-machine probe.
+  plus, up to ~500 acceptable. Cost is context, not a constraint. (Ticket 09
+  decoded per-request nano-AIU billing from usage parts; whether AIU ==
+  "credit" is unconfirmed.)
+- Citi model roster (verified on-machine 2026-08-09, ticket 09): vendor
+  `copilot` with claude-opus-4.8 / claude-opus-4.6 / claude-sonnet-4.6
+  (~936k tokens), gpt-5.5, gpt-5.3-codex, plus minis and utility aliases;
+  a `claude-code` vendor republishes the Claude models. Roster is
+  org-mutable (the previously reported "GPT-5.Sol" has already vanished;
+  "Claude Sonnet 5" never appeared) -- enumerate at runtime and select by
+  vendor+id, never by display name.
 - Demo framing: no "gateway today, product tomorrow" claim; the architecture
   makes the swap feasible, the demo does not perform it.
 
@@ -131,6 +137,22 @@ change to agent code.
   state = the two front doors, `start_run`/`ask` commands; Python dataclasses
   canonical, hand-mirrored TS types. Pause/steer semantics graduated to
   ticket 13.
+- [09 - Run the vscode.lm probe on the Citi machine](issues/09-citi-machine-probe.md)
+  -- VS Code 1.122.1 (all needed APIs stable); dev host shares auth and
+  roster; 13-model roster recorded with selector strings (family == id ==
+  version for frontier models; no "Sonnet 5"/"GPT-5.Sol" -- roster
+  org-mutable, select by vendor+id via enumeration, names non-unique);
+  consent = one modal then silent loops (canSendRequest unreliable --
+  request-time NoPermissions is the gate; ETL Studio pays its own dialog
+  once, warm up at rehearsal); tool round trip verified on Opus 4.6; usage
+  DataPart decoded (total_nano_aiu + per-type AIU rates; readout =
+  sum/1e9; AIU=="credit" unconfirmed); max_tokens raises "Response too
+  long." instead of truncating, and 3.74M-token input raised NO overflow
+  error -- budget proactively via countTokens; --enable-proposed-api
+  honored on stable (thinking parts unobserved, reasoning_tokens was 0 --
+  dev-time prompts will discriminate; 06's fallback chain covers it);
+  claude-code vendor proves third-party providers work on-machine (BYO
+  policy page descoped).
 
 ## Not yet specified
 

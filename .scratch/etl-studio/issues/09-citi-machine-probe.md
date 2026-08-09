@@ -1,6 +1,6 @@
 # 09 - Run the vscode.lm probe on the Citi machine
 
-Status: claimed
+Status: resolved
 Type: task
 
 ## Question
@@ -35,6 +35,83 @@ Record into this ticket's Answer:
   R2D2-as-provider path discussed in ticket 07).
 
 Results inform tickets 03, 06 and 07 (informs, does not block them).
+
+## Answer
+
+All facts from the 2026-08-09 on-machine run. Raw transcript (user-
+transcribed from images; all nano_aiu arithmetic cross-checks exactly):
+[`../research/2026-08-09-citi-probe-run.md`](../research/2026-08-09-citi-probe-run.md).
+Follow-ups confirmed in-session. Mirrors the record-list above:
+
+1. **Versions.** VS Code 1.122.1 -- clears every gate (provider API 1.104,
+   DataPart 1.106, tools 1.95). Copilot Chat ships built-in with VS Code on
+   this machine; separate Copilot extension versions not recorded.
+2. **F5 auth/roster sharing: yes.** Dev host reused the existing sign-in
+   with no re-auth; full Citi roster visible inside the dev host.
+3. **Roster and selector strings.** 13 models across vendors `copilot` (10)
+   and `claude-code` (3). Frontier copilot entries have family == id ==
+   version: `claude-opus-4.8`, `claude-opus-4.6`, `claude-sonnet-4.6` (all
+   maxInputTokens 935793), `gpt-5.5` (921793), `gpt-5.3-codex` (271790),
+   plus `gpt-5-mini` (127790), `gpt-4o-mini` (12078, version
+   gpt-4o-mini-2024-07-18) and aliases (`id=auto` -> claude-sonnet-4.6;
+   `copilot-utility` -> gpt-5.3-codex; `copilot-utility-small` ->
+   gpt-4o-mini). The claude-code vendor republishes Sonnet 4.6 / Opus 4.8 /
+   Opus 4.6 at 936000. The map's expected names "GPT-5.Sol" and
+   "Claude Sonnet 5" do NOT exist; Sol has since left the picker entirely.
+   Consequences: the roster is org-mutable -- enumerate at runtime, select
+   by vendor+id, never by display name (names are non-unique: three entries
+   are named "Claude Sonnet 4.6", and two pairs share names across real
+   models and utility aliases).
+4. **Consent.** First-call modal confirmed. Decline -> LanguageModelError
+   code=NoPermissions msg "Language model 'copilot/claude-opus-4.6' cannot
+   be used by 'citi-demo.lm-probe'." Allow -> works; grant persists (third
+   run silent; tool loop ran multiple requests with no prompts) -- the
+   background agent loop is viable after one dialog. Quirk: canSendRequest
+   returned `true` both before the first grant and immediately after a
+   decline -- NOT a reliable pre-check on this build; treat request-time
+   NoPermissions as the real gate. Dialog wording not captured (descoped by
+   user). Demo-prep note: the grant is per consumer extension id, so ETL
+   Studio pays its own dialog once -- warm up during rehearsal.
+5. **Tool round trip: works end to end** on Claude Opus 4.6 (get_row_count
+   called with correct JSON args, result consumed, correct final answer
+   "42"). No stream parts observed beyond text, tool calls, and the usage
+   DataPart.
+6. **Usage / credits.** Every request ends with a LanguageModelDataPart
+   mime=usage. Schema: prompt/completion/total tokens;
+   prompt_tokens_details (cached_tokens, cache_creation_input_tokens);
+   completion_tokens_details (reasoning_tokens, prediction fields);
+   copilot_usage.token_details = [{batch_size, cost_per_batch, token_count,
+   token_type: input|cache_read|cache_write|output}]; total_nano_aiu.
+   Verified: total_nano_aiu = sum(token_count * cost_per_batch /
+   batch_size), exactly. Opus 4.6 rates per 1M tokens: input 0.5 AIU,
+   cache_read 0.5 (no discount), cache_write 0.625, output 2.5. Sample: one
+   pong = 0.1375 AIU. Ticket 06's live credit readout =
+   accumulate total_nano_aiu / 1e9. OPEN: whether "AIU" is the same unit as
+   the "~20k credits" in the map notes. Copilot wrapper overhead ~240
+   tokens/request (250 prompt tokens for a one-line prompt).
+7. **Limits -- both differ from the 1.132 research reading.**
+   modelOptions.max_tokens=30 raised a plain Error msg "Response too long."
+   (no code) instead of truncating -- do not use max_tokens as an output
+   cap; add the string to the adapter error taxonomy. Input overflow: NO
+   error at ~3.74M tokens (4x the advertised 935793) -- countTokens on the
+   22.5MB probe string returned 3743174 and sendRequest still succeeded.
+   Input budgeting must be proactive via countTokens/maxInputTokens; no
+   error will fire.
+8. **Proposed API on stable 1.122.1: the flag works.** Plain F5 with
+   enabledApiProposals declared produced the refusal; the
+   --enable-proposed-api=citi-demo.lm-probe launch config removed it
+   (user-confirmed present -> gone; exact wording not transcribed). No
+   LanguageModelThinkingPart was observed with the flag on -- indeterminate
+   between endpoint-not-forwarding and nothing-to-think, but
+   reasoning_tokens was 0 on every call (trivial prompts), so
+   nothing-to-think is the primary reading. Dev-time discriminator: watch
+   reasoning_tokens and stream parts on the real (reasoning-heavy) stage
+   prompts. Ticket 06's fallback chain (opening line -> tool verbs) covers
+   the no-thinking-parts case regardless.
+9. **BYO policy (step 7): descoped by user** (R2D2 will not be used
+   locally; not attempted). Incidental evidence stands: the claude-code
+   vendor's models being visible cross-extension proves third-party
+   provider registration and cross-extension visibility work on this build.
 
 ## Comments
 
