@@ -69,15 +69,23 @@ change to agent code.
   orchestrator-owned question channel (structured AskUserQuestion-style,
   batched; purity trips and needs_human route through it too); explicit spec
   sign-off before flow design (provisional). Terms in root CONTEXT.md.
+- [03 - Agent core: TypeScript or Python?](issues/03-agent-core-language.md)
+  -- Python core beside the engine; React+TS webview; thin TS extension shim
+  (vscode.lm and webview hosting live only there -- zero agent logic); LM
+  bridge = stdio JSON-RPC, LSP framing, vscode-jsonrpc on the TS side; core
+  spawned on panel open, visible auto-restart on crash; deciding axis: no
+  Node.js on Citi servers (and a possible ADK future is Python-first); R2D2 =
+  adapter swap, ADK = same-language re-host -- never blurred, no ADK-shaped
+  abstractions on a "might"; walking skeleton graduated to ticket 10. Layer
+  terms in root CONTEXT.md.
 
 ## Not yet specified
 
 - Pause/steer and reject-with-feedback interactions -- sharpen after tickets
   02, 04 and 08 land.
-- Implementation slices -- extension+runtime skeleton, vendored/rebuilt
-  agents, elicitation UI, verification wiring, what of budget_ui's React
-  canvas thinking ports into the webview. Specifiable once the design tickets
-  resolve.
+- Implementation slices -- vendored/rebuilt agents, elicitation UI,
+  verification wiring, what of budget_ui's React canvas thinking ports into
+  the webview. Specifiable once the design tickets resolve.
 - How rebuilt agents receive the engine knowledge (landmines /
   config-reference / job-envelope equivalents) in the new runtime.
 - Demo rehearsal / replay story -- deterministic run-through for the day;

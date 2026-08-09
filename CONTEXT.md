@@ -57,3 +57,32 @@ artifacts and the orchestrator relays them. Questions are structured objects
 The explicit human approval of `requirement_spec.json` in the UI before flow
 design begins. Provisional decision — kept for now, may be removed if it feels
 like too much ceremony.
+
+**Webview**:
+The React UI surface of ETL Studio, running inside the VS Code webview panel.
+Where the human sees the run's real state and answers questions. One of the
+three layers; holds no agent logic.
+_Avoid_: frontend (unqualified), UI layer
+
+**Extension shim**:
+The thin TypeScript layer in the VS Code extension host — it exists only
+because vscode.lm and webview hosting live in that process. Three jobs: host
+the webview, spawn and supervise the agent core, carry the LM bridge.
+Deliberately dumb; zero agent logic.
+_Avoid_: extension backend, host logic
+
+**Agent core**:
+The Python process beside the engine that owns all agent logic — orchestrator,
+specialists, elicitation, artifacts, question channel, tools, harness.
+Model-agnostic: it reaches models only through the provider port.
+_Avoid_: backend (unqualified), runtime (unqualified)
+
+**LM bridge**:
+The local channel by which the extension shim exposes vscode.lm to the agent
+core — the demo-day adapter behind the provider port. In production the bridge
+is dropped, not swapped: the core calls the model gateway directly.
+
+**Provider port**:
+The plain-data interface through which the agent core requests model calls.
+vscode.lm (via the LM bridge) is one adapter; R2D2 would be another; the
+test-double is a third. The core never reaches around it.
