@@ -26,9 +26,17 @@ Scope:
   light/dark theme class; bundle fonts locally — no CDN inside the webview.
 - `npm run smoke` stays green; the seam tripwire stays green; the prototype
   files stay untouched as the design record.
+- Ticket 13 increment (semantics resolved there, 2026-08-09): the spec-gate
+  card — question-card family anchored to the rules scatter, spec summary
+  header, per-gap resolution chips, [Approve and sign] + [Request changes]
+  with required free text, draft-N re-sign-off variant; ghost
+  [Request changes] on the code-gate and verdict cards (red verdict drops
+  [Approve job]); the hold flow (propose-confirm card, armed feed chip, hold
+  question card with Resume/Stop/steer, HOLDING spine word); reject/hold
+  resolution chips and spine un-fill while forward stages re-run. The
+  scripted double run also exercises one hold and one gate reject.
 
-Out of scope: pause/steer surfaces (ticket 13 — they land on this system as
-an increment), live vscode.lm runs (rehearsal concern), `.vsix` packaging
+Out of scope: live vscode.lm runs (rehearsal concern), `.vsix` packaging
 (out of scope for the effort).
 
 Unblocked: 03, 07, 08, 10 and 12 are all resolved.

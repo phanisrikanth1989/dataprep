@@ -64,6 +64,40 @@ times out — a default is only ever a recommended option the human still
 chooses.
 _Avoid_: response (unqualified), auto-answer
 
+**Hold**:
+The human-initiated pause of a run, always at a stage boundary: the in-flight
+stage finishes and its artifact lands whole, then the conductor raises a hold
+question — Resume, Stop, or steer text. A held run is a pending question, not
+a frozen process; no mid-stream cancel exists. Requested conversationally
+through the composer (the orchestrator proposes, the human confirms), never a
+button.
+_Avoid_: pause (implies a mid-stream freeze)
+
+**Steer**:
+The human's free text that redirects a run — the option label on hold and
+exhaustion cards. One meaning everywhere it appears: the text becomes an
+interpreter-owned directed iteration (a directed spec revision),
+re-signed-off if the spec changes. Request-changes text at the spec and human
+gates takes the same route; steer never routes anywhere else.
+_Avoid_: redirect, override
+
+**Request changes**:
+The gate verb: rejecting what a gate presents, with required free text saying
+why. Always produces a directed iteration — the spec door at spec sign-off
+and the human gate, the config door (the configurator, the cell's author) at
+the code gate. Asking about a gate's content is conversation, not rejection,
+and keeps its own affordance.
+_Avoid_: reject (as a UI label — it survives as the wire option kind)
+
+**Directed iteration**:
+The one primitive under every human-driven revision: a single owner stage
+re-runs reading the human's feedback first, then every stage after it — the
+repair-iteration shape with the human standing in for the diagnostician.
+Which owner is fixed by the surface that raised it, never by reading the
+text. Human-initiated acts are uncapped: loop caps bound autonomous iteration
+only.
+_Avoid_: revision loop, feedback round
+
 **Spec sign-off**:
 The explicit human approval of `requirement_spec.json` in the UI before flow
 design begins. Provisional decision — kept for now, may be removed if it feels

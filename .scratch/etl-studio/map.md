@@ -179,6 +179,18 @@ change to agent code.
   dark default + token-level light mode (VS Code theme-following posture);
   budget_ui layout() math ports, its skin retires; v1 three-variant file kept
   as the arrangement record; build graduated to ticket 15.
+- [13 - Pause/steer and reject-with-feedback](issues/13-pause-steer-reject-feedback.md)
+  -- one primitive: directed iteration (owner stage re-runs on human feedback,
+  forward stages follow; interpreter = spec door with re-sign-off,
+  configurator = code door); interruption is composer-only via
+  propose-confirm — hold = a ninth question kind raised at the stage boundary
+  (Resume/Stop/steer; artifacts land whole, no mid-stream cancel); steer
+  always routes to the interpreter; gate rejects = Request changes
+  (spec/human gate -> spec door, code gate -> configurator; red verdict loses
+  Approve, smoke-clean approvable); stop ends the run plainly; human acts
+  uncapped (caps bound autonomous iteration only); single-step stays retired;
+  zero new wire families; UI = new spec-gate card + Request-changes ghosts +
+  hold flow, landing via ticket 15 (scope amended).
 
 ## Not yet specified
 
@@ -187,7 +199,8 @@ change to agent code.
   the webview to the live runtime. Specifiable once the design tickets
   resolve. (Look-and-feel resolved in ticket 12; the webview build itself
   graduated to ticket 15 -- the remaining slices here are the agent-core
-  side.)
+  side. Ticket 13's hold and directed-iteration verbs land in the conductor
+  slice.)
 - Demo rehearsal / replay story -- deterministic run-through for the day;
   revisit once the runtime exists.
 
