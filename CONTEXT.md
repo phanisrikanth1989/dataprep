@@ -55,6 +55,15 @@ the event and records the resolution untouched, and the orchestrator gives the
 outgoing prose its one voice. Questions are structured objects (prompt,
 options, free-text fallback), batched in rounds.
 
+**Resolution**:
+The human's structured answer to any question-channel event — one shape for
+every kind of question: a chosen option, plus free text where the option
+invites it (a steer, reject feedback, a gap's fallback). Recorded by the
+conductor untouched. No question resolves any other way, and no question ever
+times out — a default is only ever a recommended option the human still
+chooses.
+_Avoid_: response (unqualified), auto-answer
+
 **Spec sign-off**:
 The explicit human approval of `requirement_spec.json` in the UI before flow
 design begins. Provisional decision — kept for now, may be removed if it feels
@@ -65,6 +74,20 @@ The React UI surface of ETL Studio, running inside the VS Code webview panel.
 Where the human sees the run's real state and answers questions. One of the
 three layers; holds no agent logic.
 _Avoid_: frontend (unqualified), UI layer
+
+**UI journal**:
+The append-only, per-run record of every event the run has shown the human —
+the webview's single source of truth. A webview joining a run replays the
+journal rather than receiving a summary, so its state reconstructs exactly;
+the event sequence lives in the journal, not the process, so a restarted core
+continues where the file ends.
+_Avoid_: snapshot, event log (unqualified)
+
+**Attach**:
+The webview's act of joining a run — declaring what it last saw and receiving
+everything since, whether it loaded fresh, reloaded mid-run, or returned
+after a crash. Attaching when no run exists yields the idle state: the two
+front doors, offered.
 
 **Feed**:
 The conversational surface of the webview — where the run talks to the human.

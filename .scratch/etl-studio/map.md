@@ -118,13 +118,22 @@ change to agent code.
   options only; no consent warm-up (modal on first real call); double =
   scripted playlist + error injection; seam = core/-never-imports-adapters/
   + AST tripwire test; nothing R2D2-specific.
+- [08 - Runtime<->webview message contract](issues/08-runtime-webview-contract.md)
+  -- one core-authored vocabulary end-to-end (shim = blind relay plus only
+  `shim.lifecycle` and `editor.*`); envelope `{seq, ts, run_id, source, type,
+  payload}` with skip-unknown; families run/stage/question/stream/health plus
+  webview commands; canvas rides `artifact_written` payloads (old presenter
+  events collapse); all question kinds share one raised->resolved lifecycle
+  with generic resolution `{choice, free_text?}` and NO timeouts anywhere;
+  streams forward 07's parts per-part (same stream id port to pixel), credits
+  accumulate in the reducer; resume = full-fidelity `ui_journal.jsonl` replay
+  via `attach {v, since_seq}`, seq continuous across crash-restart; idle
+  state = the two front doors, `start_run`/`ask` commands; Python dataclasses
+  canonical, hand-mirrored TS types. Pause/steer semantics graduated to
+  ticket 13.
 
 ## Not yet specified
 
-- Pause/steer and reject-with-feedback interactions -- sharpen after ticket 08
-  lands (02, 04 and 05 are in; 05 pinned exhaustion-steer and the
-  propose-confirm escalation). Prior art: the retired single-step/testing mode
-  (one stage per turn, no auto-repair); ticket 04 ships v1 autonomous-only.
 - Implementation slices -- vendored/rebuilt agents, the conductor state
   machine and orchestrator agent (ticket 05), verification wiring, wiring
   the webview to the live runtime. Specifiable once the design tickets
