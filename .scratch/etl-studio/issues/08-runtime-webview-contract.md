@@ -91,6 +91,13 @@ verdict, tier, cells and open questions. The SEMANTICS of reject-with-feedback
 and pause/steer stay fog (graduated to ticket 13) -- 08 guarantees whatever
 they decide fits this shape.
 
+Batching (02's "rounds"): a round is N individual `question.raised` events
+sharing a `round_id`; the webview groups them into one card set, and each
+resolves independently through the normal `{question_id, choice, free_text?}`
+answer. No round-level resolution message exists -- the conductor's
+deterministic bookkeeping already knows when a round's gaps are all
+answered-or-waived.
+
 **Resume = journal replay.** The core appends every webview-bound event
 verbatim -- stream deltas included -- to `ui_journal.jsonl` beside
 `audit.jsonl` (append-only, one envelope per line). Full fidelity: thinking
