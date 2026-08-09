@@ -194,13 +194,6 @@ change to agent code.
 
 ## Not yet specified
 
-- Implementation slices -- vendored/rebuilt agents, the conductor state
-  machine and orchestrator agent (ticket 05), verification wiring, wiring
-  the webview to the live runtime. Specifiable once the design tickets
-  resolve. (Look-and-feel resolved in ticket 12; the webview build itself
-  graduated to ticket 15 -- the remaining slices here are the agent-core
-  side. Ticket 13's hold and directed-iteration verbs land in the conductor
-  slice.)
 - Demo rehearsal / replay story -- deterministic run-through for the day;
   revisit once the runtime exists.
 
