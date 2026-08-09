@@ -1,6 +1,6 @@
 # 09 - Run the vscode.lm probe on the Citi machine
 
-Status: open
+Status: claimed
 Type: task
 
 ## Question
@@ -35,3 +35,18 @@ Record into this ticket's Answer:
   R2D2-as-provider path discussed in ticket 07).
 
 Results inform tickets 03, 06 and 07 (informs, does not block them).
+
+## Comments
+
+2026-08-09 -- Handoff package prepared at
+[`../research/lm-probe/`](../research/lm-probe/): the probe extension as
+ready-to-copy files (`package.json`, `extension.js`, `.vscode/launch.json`),
+a run guide (`README.md`), and a results form (`WORKSHEET.md`) mirroring the
+record-list above. Code follows the research-doc listing with
+logging/robustness deltas documented in the README (notably: unknown stream
+parts now dump their payload so a `usage` part yields its JSON, and the
+engine pin is lowered so the probe still runs on a pre-1.104 build). Probe is
+syntax-checked but not yet executed anywhere; the README describes an
+optional dry run on any Copilot-enabled machine before spending the Citi
+slot. Awaiting the on-machine run -- paste the filled worksheet (or a raw LM
+Probe output dump) into a wayfinder session to resolve this ticket.
