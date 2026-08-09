@@ -79,3 +79,18 @@ trip on Claude Opus 4.6, max_tokens=30 -> plain Error "Response too long."
 resolution: step 0 versions, consent-dialog wording, step 6 proposed-API
 dance, step 7 BYO policy page, and which picker entry "GPT-5.Sol"
 actually was.
+
+2026-08-09 -- User follow-ups: VS Code on the Citi laptop is 1.122.1
+(>= 1.104, so the provider API and LanguageModelDataPart are both stable
+there); Copilot Chat ships built-in with VS Code on that machine, so no
+separate extension version recorded. Auth sharing confirmed: the dev host
+used the existing sign-in, no re-auth. Consent-dialog wording not captured
+(no photo) and descoped by user -- exact copy does not matter for the demo.
+Demo-prep note kept: the grant is per consumer extension id, so ETL
+Studio's own first sendRequest will show the dialog once; pay it during
+rehearsal warm-up. "GPT-5.Sol" no longer appears in the picker -- the org
+evidently changed the roster; treat the roster as mutable and select via
+enumeration (already the port design). Step 7 BYO policy page descoped by
+user decision (R2D2 will not be used locally; the claude-code vendor
+sighting stands as incidental evidence that third-party providers work on
+this build). Remaining before resolution: step 6 proposed-API dance only.
