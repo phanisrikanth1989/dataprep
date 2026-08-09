@@ -114,9 +114,9 @@ change to agent code.
   propose-confirm escalation). Prior art: the retired single-step/testing mode
   (one stage per turn, no auto-repair); ticket 04 ships v1 autonomous-only.
 - Implementation slices -- vendored/rebuilt agents, the conductor state
-  machine and orchestrator agent (ticket 05), elicitation UI, verification
-  wiring, what of budget_ui's React canvas thinking ports into the webview.
-  Specifiable once the design tickets resolve.
+  machine and orchestrator agent (ticket 05), verification wiring, wiring
+  the webview to the live runtime. Specifiable once the design tickets
+  resolve. (Webview look-and-feel graduated to ticket 12.)
 - Demo rehearsal / replay story -- deterministic run-through for the day;
   revisit once the runtime exists.
 
