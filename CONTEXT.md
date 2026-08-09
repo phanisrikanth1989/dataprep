@@ -49,10 +49,11 @@ before rule-level ones.
 _Avoid_: interview, questionnaire
 
 **Question channel**:
-The single orchestrator-owned path by which questions reach the human.
-Specialists never address the human directly; they surface gaps in their
-artifacts and the orchestrator relays them. Questions are structured objects
-(prompt, options, free-text fallback), batched in rounds.
+The single path by which questions reach the human. Specialists never address
+the human directly: they surface gaps in their artifacts, the conductor raises
+the event and records the resolution untouched, and the orchestrator gives the
+outgoing prose its one voice. Questions are structured objects (prompt,
+options, free-text fallback), batched in rounds.
 
 **Spec sign-off**:
 The explicit human approval of `requirement_spec.json` in the UI before flow
@@ -73,8 +74,9 @@ Deliberately dumb; zero agent logic.
 _Avoid_: extension backend, host logic
 
 **Agent core**:
-The Python process beside the engine that owns all agent logic — orchestrator,
-specialists, elicitation, artifacts, question channel, tools, harness.
+The Python process beside the engine that owns all agent logic — conductor,
+orchestrator, specialists, elicitation, artifacts, question channel, tools,
+harness.
 Model-agnostic: it reaches models only through the provider port.
 _Avoid_: backend (unqualified), runtime (unqualified)
 
@@ -87,6 +89,28 @@ is dropped, not swapped: the core calls the model gateway directly.
 The plain-data interface through which the agent core requests model calls.
 vscode.lm (via the LM bridge) is one adapter; R2D2 would be another; the
 test-double is a third. The core never reaches around it.
+
+**Conductor**:
+The deterministic control layer of the agent core — the hub that runs the
+pipeline. It computes every transition (the fixed itinerary, loop counters,
+the owner-plus-forward repair rule, tier routing), enforces caps and gates,
+invokes specialists and the harness, moves artifacts on the bus, writes the
+audit trail, raises question-channel events, and records the human's
+resolutions untouched. It cannot improvise: a run takes the same path in
+rehearsal and live, and after a crash it restores from the bus and the audit
+trail.
+_Avoid_: driver, spine
+
+**Orchestrator**:
+The LLM agent that fronts a run — the sole agent addressing the human. It
+narrates the conductor's transitions in its own words (non-blocking: the next
+stage never waits on prose), answers the human's free-form questions grounded
+in the run's real artifacts, gives all outgoing prose one voice, and catches
+runs that leave the map by propose-confirm — free to stop and raise a
+question, never free to act silently. Holds a persistent per-run context,
+event-fed by the conductor and rebuilt from the audit trail on restart. It
+never sequences.
+_Avoid_: driver, free agent
 
 **Specialist**:
 An LLM-driven pipeline stage — doc-normalizer, interpreter, flow-designer,
@@ -132,7 +156,9 @@ about who wrote the bytes, not who may look at them.
 The bounded fail-diagnose-re-run cycle on a built job: the diagnostician names
 one owner, that stage re-runs reading the feedback first, and every stage
 after it re-runs. Three iterations, then the human chooses — grant more, stop
-at the gate, or steer. Verified tier only.
+at the gate, or steer: their free text becomes a directed spec revision, an
+interpreter-owned iteration re-signed-off if the spec changes. Verified tier
+only.
 
 **Shape-repair loop**:
 The bounded retry inside the BRD door: the validator rejects a structurally

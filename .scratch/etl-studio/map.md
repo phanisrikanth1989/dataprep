@@ -46,8 +46,6 @@ change to agent code.
   host is assumed, not verified -- ticket 09 carries the on-machine probe.
 - Demo framing: no "gateway today, product tomorrow" claim; the architecture
   makes the swap feasible, the demo does not perform it.
-- Orchestrator leaning recorded from charting: LLM-driven (stress-tested in
-  ticket 05).
 
 ## Decisions so far
 
@@ -88,15 +86,26 @@ change to agent code.
   revision re-signs off; data-blindness dropped for three deterministic lines;
   diagnostician value-visible (harness embeds examples + work-dir reads),
   auto-repair only below the oracle; harness runs as a core subprocess.
+- [05 - Orchestrator: LLM-driven or deterministic?](issues/05-orchestrator-llm-or-code.md)
+  -- two layers: a code conductor sequences (fixed itinerary, caps, gates,
+  events, resolutions; crash-restores from bus+audit) under an LLM orchestrator
+  that fronts the run (non-blocking narration, answers the human from real
+  artifacts, one voice, propose-confirm on the unplanned -- may always stop,
+  never silently act); no standing between-stage judge; prose restyled but
+  options/ids/code/values verbatim; exhaustion-steer = directed spec revision
+  via the interpreter; rationale: keep the recognizable multi-agent pattern
+  with deterministic control. ADR 0001.
 
 ## Not yet specified
 
 - Pause/steer and reject-with-feedback interactions -- sharpen after ticket 08
-  lands (02 and 04 are in). Prior art: the retired single-step/testing mode
+  lands (02, 04 and 05 are in; 05 pinned exhaustion-steer and the
+  propose-confirm escalation). Prior art: the retired single-step/testing mode
   (one stage per turn, no auto-repair); ticket 04 ships v1 autonomous-only.
-- Implementation slices -- vendored/rebuilt agents, elicitation UI,
-  verification wiring, what of budget_ui's React canvas thinking ports into
-  the webview. Specifiable once the design tickets resolve.
+- Implementation slices -- vendored/rebuilt agents, the conductor state
+  machine and orchestrator agent (ticket 05), elicitation UI, verification
+  wiring, what of budget_ui's React canvas thinking ports into the webview.
+  Specifiable once the design tickets resolve.
 - Demo rehearsal / replay story -- deterministic run-through for the day;
   revisit once the runtime exists.
 
