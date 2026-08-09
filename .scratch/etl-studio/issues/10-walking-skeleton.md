@@ -1,6 +1,6 @@
 # 10 - Walking skeleton: three layers wired end to end
 
-Status: claimed
+Status: resolved
 Type: task
 Blocked by: 03
 
@@ -27,6 +27,52 @@ Done when the webview round trip and a streamed, cancellable LM echo both
 work in the F5 dev host. This de-risks the bridge -- the one new
 infrastructure risk in the ticket 03 decision -- ahead of the design tickets
 landing.
+
+## Answer
+
+Resolved 2026-08-09. Built, CLI-verified, and confirmed by the user in the
+F5 dev host -- all seven checklist steps green: webview round trip, live
+Copilot echo (consent modal paid, usage/AIU chip from the real DataPart),
+mid-stream cancel crossing the wire into the vscode token, crash -> visible
+banner -> auto-restart with journal seq continuity, clean SIGTERM on panel
+close. Live-adapter proof is Mac-provisional (free-tier Copilot); the Citi
+machine repeat lands with rehearsal.
+
+What exists, all under `demo/etl_studio/` (commit 2f8e506a):
+
+- `extension/` -- TS shim: panel host, core supervisor (spawn on panel
+  open; interpreter = etlStudio.pythonPath setting -> repo `.venv` ->
+  python3; auto-restart with 3-crashes/60s -> dead + Restart button;
+  SIGTERM on close/deactivate), mechanical `lm/*` bridge vendored from
+  lm-probe. `engines.vscode ^1.104`; LanguageModelDataPart/ThinkingPart
+  resolved dynamically (absent from the floor's types, present at runtime).
+- `core/` -- Python stdlib only: `rpc.py` (LSP framing, JSON-RPC 2.0,
+  `$/cancelRequest` both directions), `envelope.py` (08 envelope),
+  `journal.py` (seq-owning `ui_journal.jsonl`), `port.py` (ProviderPort
+  ABC, 07 event kinds + full neutral exception family), `app.py`
+  (attach/replay, ping, echo streams, visible provider fallback).
+- `adapters/` -- `vscode_lm` (semantic half: `mime="usage"` ->
+  total_nano_aiu, NoPermissions -> ConsentDenied) and `double` (scripted
+  playlist). `main.py` is the sole core/adapters wiring point;
+  `tests/test_seam.py` (AST tripwire) guards the seam.
+- Webview: React feed/streams/lifecycle banners on VS Code theme tokens
+  only -- ticket 12 owns the real design.
+
+Facts later tickets depend on:
+
+- F5 path: open `demo/etl_studio/extension`, F5, then "ETL Studio: Open".
+- `npm run smoke` (`extension/scripts/smoke.mjs`) is the editor-free wire
+  proof (20/20 this session) -- reusable as the slices grow the contract.
+- Repo `.venv` exists (python 3.14.6, `[dev]` extras), created at the
+  user's direction; `.venv/` + `dataprep.egg-info/` sit in
+  `.git/info/exclude`, root `.gitignore` untouched.
+- ETL Studio's one-time consent dialog is already burned on this Mac.
+- Provisional contract extensions to reconcile in the implementation
+  slices: `stream.close` finish_reason `"error"` (beyond 07's
+  stop|canceled|unknown -- an errored stream never yields done but still
+  needs its close edge); `shim.restart` webview->shim command (08 gave the
+  shim only shim.lifecycle + editor.*); run_id fixed to `"skeleton"` until
+  the conductor owns real runs.
 
 ## Comments
 

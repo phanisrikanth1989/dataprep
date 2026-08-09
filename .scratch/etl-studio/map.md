@@ -153,6 +153,15 @@ change to agent code.
   dev-time prompts will discriminate; 06's fallback chain covers it);
   claude-code vendor proves third-party providers work on-machine (BYO
   policy page descoped).
+- [10 - Walking skeleton: three layers wired end to end](issues/10-walking-skeleton.md)
+  -- built and F5-verified (user-confirmed, all steps): shim/core/webview +
+  LM bridge live under `demo/etl_studio/`; stdio JSON-RPC proven end to end
+  (attach/replay, stream family with port-to-pixel ids, cross-wire cancel,
+  crash-restart seq continuity, live Copilot echo -- Mac-provisional);
+  `npm run smoke` = standing editor-free wire proof, seam tripwire green;
+  repo `.venv` now exists (interpreter resolution: setting -> `.venv` ->
+  python3); provisional extensions recorded in the ticket (finish_reason
+  "error", shim.restart, fixed run_id).
 
 ## Not yet specified
 
