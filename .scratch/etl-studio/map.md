@@ -106,6 +106,18 @@ change to agent code.
   fields with provenance bylines; title-cased domain names, code stages as
   step chips; data-free dead (real values, no masking mode); live credit
   readout from usage parts; failures rendered real and calm.
+- [07 - Provider port and adapter seam](issues/07-provider-port-seam.md) --
+  port speaks a neutral ideal chat language (system role, first-class
+  tool_call/tool_result items, image content behind a capability flag;
+  adapters degrade); chat = one async-iterator call, cancel = close the
+  iterator, concurrent requests multiplexed by stream id; events
+  text/thinking/tool_call/usage/done + skip-unknown rule; neutral exception
+  family, adapters never retry (core owns visible backoff); mechanical TS
+  shim / semantic Python adapter (wire = serialized vscode); list_models +
+  per-stage config selectors; count_tokens optional capability; typed
+  options only; no consent warm-up (modal on first real call); double =
+  scripted playlist + error injection; seam = core/-never-imports-adapters/
+  + AST tripwire test; nothing R2D2-specific.
 
 ## Not yet specified
 

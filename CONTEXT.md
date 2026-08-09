@@ -117,13 +117,29 @@ _Avoid_: backend (unqualified), runtime (unqualified)
 
 **LM bridge**:
 The local channel by which the extension shim exposes vscode.lm to the agent
-core — the demo-day adapter behind the provider port. In production the bridge
-is dropped, not swapped: the core calls the model gateway directly.
+core — the wire the vscode.lm adapter talks through, not the adapter itself.
+In production the bridge is dropped, not swapped: the core calls the model
+gateway directly.
 
 **Provider port**:
 The plain-data interface through which the agent core requests model calls.
 vscode.lm (via the LM bridge) is one adapter; R2D2 would be another; the
 test-double is a third. The core never reaches around it.
+
+**Adapter**:
+An implementation of the provider port for one model source — the vscode.lm
+adapter and the test double today. Owns every provider quirk: degrading the
+port's ideal language to what the provider offers, normalizing provider
+errors into the port's taxonomy. Classifies and raises, never retries —
+retry policy belongs to the core, visibly.
+_Avoid_: driver, provider (for the implementation)
+
+**Test double**:
+The adapter that plays back scripted responses instead of calling a real
+model — deterministic streams, scripted tool calls, injected failures. The
+offline development rig, and the standing proof that the core runs against a
+second adapter unchanged.
+_Avoid_: mock (unqualified), stub
 
 **Conductor**:
 The deterministic control layer of the agent core — the hub that runs the
